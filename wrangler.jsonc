@@ -1,0 +1,58 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+// DON'T FORGET to re-run `wrangler types` to update the types every time you change this wrangler.jsonc file
+{
+  "name": "lumenize",
+  "main": "./src/lumenize-worker.ts",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "compatibility_date": "2025-04-04",
+  "workers_dev": true,
+  "route": {
+    "pattern": "transformation.dev/*",
+    "zone_name": "transformation.dev"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "Lumenize",
+        "name": "Lumenize"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "Lumenize"
+      ],
+      "tag": "v0"
+    }
+  ],
+  // Environments
+  "env": {
+    "development": {
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    },
+    "test": {
+      "vars": {
+        "ENVIRONMENT": "test"
+      }
+    },
+    "production": {
+      "vars": {
+        "ENVIRONMENT": "production"
+      }
+    }
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "e2f56a04a8a745cb98122fe0598eae4e"
+    }
+  ]
+}

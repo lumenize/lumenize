@@ -1,0 +1,42 @@
+{
+  "name": "test-harness",
+  "main": "./test-harness.ts",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "compatibility_date": "2025-04-04",
+  "workers_dev": true,
+
+  // TODO: Change the below to the Durable Object that the test-harness will export 
+  //       (target for Cloudflare Email Routing) unless we put that in a different project
+  "durable_objects": {
+  	"bindings": [
+  		{
+  			"class_name": "Lumenize",
+  			"name": "Lumenize"
+  		}
+  	]
+  },
+  "migrations": [
+  	{
+  		"new_sqlite_classes": [
+  			"Lumenize"
+  		],
+  		"tag": "v0"
+  	}
+  ],
+
+  "kv_namespaces": [
+    {
+      "binding": "SESSIONS",
+      "id": "test-sessions-kv-namespace-id",
+      "preview_id": "test-sessions-kv-namespace-preview-id"
+    }
+  ],
+
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ]
+}

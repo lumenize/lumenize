@@ -1,0 +1,56 @@
+{
+	"compilerOptions": {
+		/* Visit https://aka.ms/tsconfig.json to read more about this file */
+
+		/* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
+		"target": "ES2022",
+
+		/* Specify what module code is generated. */
+		"module": "ESNext",
+
+    /* Specify how TypeScript looks up a file from a given module specifier. */
+    "moduleResolution": "bundler",
+
+		/* Specify type package names to be included without being referenced in a source file. */
+    // Deprecated. Now using `wrangler types` and this next line
+    "types": ["./worker-configuration.d.ts"],
+
+    /* Specify where compiled files and .d.ts files go. */
+    "outDir": "./dist",
+
+    /* Generate .d.ts files from TypeScript and JavaScript files in your project. */ 
+    "declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+
+		/* Ensure that each file can be safely transpiled without relying on other imports. */
+		"isolatedModules": true,
+
+		/* Allow 'import x from y' when a module doesn't have a default export. */
+		"allowSyntheticDefaultImports": true,
+
+		/* Ensure that casing is correct in imports. */
+		"forceConsistentCasingInFileNames": true,
+
+		/* Enable all strict type-checking options. */
+		"strict": true,
+
+		/* Skip type checking all .d.ts files. */
+		"skipLibCheck": true,
+
+		/* Include modules imported with .json extension */
+		"resolveJsonModule": true,
+
+		/* Additional strict type checking for optional properties */
+		"exactOptionalPropertyTypes": true
+	},
+  "include": [
+    "src/**/*",
+    "scripts/**/*",
+    "worker-configuration.d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
+}

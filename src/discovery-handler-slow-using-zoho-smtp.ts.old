@@ -1,0 +1,59 @@
+import { WorkerMailer, type WorkerMailerOptions } from 'worker-mailer'
+
+interface DiscoveryHandlerOptions {
+  prefix?: string;
+}
+
+export async function discoveryHandler(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  opts?: DiscoveryHandlerOptions
+): Promise<Response | undefined> {
+  // Default options
+  const options: DiscoveryHandlerOptions = {
+    prefix: opts?.prefix ?? 'discovery',
+  };
+  const url = new URL(request.url);
+  const splitPath = url.pathname.split('/');
+
+  console.debug('%o', {
+    type: 'debug',
+    where: 'discovery Handler',
+    request,  // TODO: Remove request (or at least headers) from debug logs in production
+    opts,
+    splitPath,
+    env,  // TODO: Remove env from debug logs in production
+    ctx,
+  });
+
+  // Handle discovery requests
+  if (splitPath[1] !== options.prefix || request.method !== 'POST') {
+    return undefined;
+  }
+
+  const mailerConfig: WorkerMailerOptions = {
+    credentials: {
+      username: env.ZOHO_USERNAME,
+      password: env.ZOHO_PASSWORD,
+    },
+    authType: 'plain',
+    host: 'smtppro.zoho.com',
+    port: 465,
+    secure: true,
+  };
+
+  await WorkerMailer.send(mailerConfig, {
+    from: { name: 'Lumenize', email: 'auth@lumenize.com' },
+    to: { email: 'email@lumenize.com' },
+    subject: 'Hello from Worker Mailer',
+    text: 'This is a plain text message',
+    html: '<h1>Hello</h1><p>This is an HTML message</p>',
+  })
+
+  return Response.json({
+    success: true,
+    message: 'Discovery email sent',
+  });
+
+}

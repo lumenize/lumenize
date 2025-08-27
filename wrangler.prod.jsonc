@@ -1,0 +1,30 @@
+{
+  "name": "lumenize",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LUMENIZE",
+        "class_name": "Lumenize"
+      }
+    ]
+  },
+  
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Lumenize"]
+    }
+  ],
+  
+  "vars": {
+    "ENVIRONMENT": "production"
+  }
+}

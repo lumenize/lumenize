@@ -1,0 +1,4 @@
+- Use the lumenize/prompts/ai-learnings.md file to document insights and information that can help improve future tasks.
+- Avoid redundant or obvious comments in generated code. Use comments only when they clarify logic, intention, or assumptions
+- Make tests deterministic by including steps in the test itself that setup the data so the outcome is predictable. Unless explicitly told otherwise, do not have if-statements in tests.
+- Before adding a new test, check if existing tests already cover the functionality or could cover it with minor adjustments. Avoid redundant tests.
