@@ -5,9 +5,12 @@ This file documents key insights and learnings that can help improve future deve
 ## MCP Protocol Specifications
 
 ### Official MCP Draft Specifications (2025-01-06)
-**Location**: The official Model Context Protocol draft specifications are located at:
-- Base URL: https://modelcontextprotocol.io/specification/draft/
-- Transports: https://modelcontextprotocol.io/specification/draft/basic/transports
+**Location**: The unofficial Model Context Protocol draft specifications that we are designing to are located in the folder within this mcp workspace: 
+- Specification: modelcontextprotocol/docs/specification/draft
+- JSON Schema: modelcontextprotocol/schema/draft/schema.json
+- TypeScript Schema: modelcontextprotocol/schema/draft/schema.ts
+
+Note all of those are currently evolving and may not be perfectly in sync with each other. As of 2025-08-29, the mcpSessionId field is not listed as an optional field on anything but the initialize messages which does not align with the draft specifications.
 
 ## Testing Best Practices
 
