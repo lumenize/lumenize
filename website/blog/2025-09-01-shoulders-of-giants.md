@@ -10,4 +10,3 @@ I started playing with DOs shortly before Kenton Varda (aka @kenton) published h
 Over the next few years, <!-- truncate --> I developed apps, evolved a mature base class, and wrote about my [favorite](https://medium.com/cloudflare-durable-objects-design-patterns/lazy-hydration-cab27e7c70b5) [patterns](https://medium.com/cloudflare-durable-objects-design-patterns/maintaining-consistent-state-56f5bb22dba9). 
 
 Then, I learned about PartyKit which is built by Sunil Pai (aka @threepointone) because he started talking about it as socket.io for DOs with reconnecting WebSockets. Before I could start using it, he went to work for Cloudflare and shipped that `Agent` base class as part of the `agents` npm package. I immediately switched to using `Agent` and `routeAgentRequest` and fell in love with its patterns.
-q
