@@ -7,46 +7,54 @@ type FeatureItem = {
   title: string;
   Svg: React.ComponentType<React.ComponentProps<'svg'>>;
   description: ReactNode;
+  color: string;
 };
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Easy to Use',
-    Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
+    title: 'On the Shoulders of Giants',
+    Svg: require('@site/static/img/trophy.svg').default,
     description: (
       <>
-        Docusaurus was designed from the ground up to be easily installed and
-        used to get your website up and running quickly.
+        The best from Cloudflare (e.g. Actor, Agent) and the community
+        (e.g. PartyKit) as well as adding some of our own (e.g. in-process 
+        integration testing for WebSockets)
       </>
     ),
+    color: 'var(--ifm-color-primary)',
   },
   {
-    title: 'Focus on What Matters',
-    Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
+    title: 'Modular',
+    Svg: require('@site/static/img/puzzle.svg').default,
     description: (
       <>
-        Docusaurus lets you focus on your docs, and we&apos;ll do the chores. Go
-        ahead and move your docs into the <code>docs</code> directory.
+        Use a single utility.
+        Start with a barbones base class and plugin only what you want
+        (e.g. <code>sql`</code>, auth, etc.)
+        up to a complete MCP-first backend with access control, per-row synchronization, etc.
       </>
     ),
+    color: 'var(--ifm-color-primary-lighter)',
   },
   {
-    title: 'Powered by React',
-    Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
+    title: 'Robustly Engineered',
+    Svg: require('@site/static/img/drafting-compass.svg').default,
     description: (
       <>
-        Extend or customize your website layout by reusing React. Docusaurus can
-        be extended while reusing the same header and footer.
+        90%+ test coverage. Rapid bug-fix guarantee.
+        Robust docs assured in-sync with code via doc-testing.
+        Toggle logging by namespace, DO instance, etc.
       </>
     ),
+    color: 'var(--ifm-color-primary-darker)',
   },
 ];
 
-function Feature({title, Svg, description}: FeatureItem) {
+function Feature({title, Svg, description, color}: FeatureItem) {
   return (
     <div className={clsx('col col--4')}>
       <div className="text--center">
-        <Svg className={styles.featureSvg} role="img" />
+        <Svg className={styles.featureSvg} role="img" style={{ color }} />
       </div>
       <div className="text--center padding-horiz--md">
         <Heading as="h3">{title}</Heading>

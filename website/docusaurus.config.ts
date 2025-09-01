@@ -6,7 +6,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Lumenize',
-  tagline: 'MCP-first backend as a service running on Cloudflare Durable Objects',
+  tagline: 'Delightful Developer eXperience (DDX) on Cloudflare Durable Objects',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -79,9 +79,9 @@ const config: Config = {
       items: [
         {
           type: 'docSidebar',
-          sidebarId: 'tutorialSidebar',
+          sidebarId: 'docsSidebar',
           position: 'left',
-          label: 'Tutorial',
+          label: 'Docs',
         },
         {to: '/blog', label: 'Blog', position: 'left'},
         {
@@ -99,7 +99,7 @@ const config: Config = {
           items: [
             {
               label: 'What is Lumenize?',
-              to: '/docs/intro',
+              to: '/docs/intro#what-is-lumenize',
             },
           ],
         },
