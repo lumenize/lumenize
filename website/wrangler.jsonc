@@ -1,0 +1,17 @@
+{
+  "name": "lumenize-website",
+  "compatibility_date": "2025-08-31",
+  "routes": [
+    {
+      "pattern": "lumenize.com",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./build"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "upload_source_maps": true
+}
