@@ -1,0 +1,60 @@
+---
+sidebar_position: 1
+---
+
+# Introduction
+
+## What is Lumenize?
+
+Lumenize is a framework and a collection of utilities for building applications on Cloudflare Durable Objects (DOs). It provides a set of tools and best practices to help developers create scalable and maintainable applications.
+
+## Opinionated Yet Flexible
+
+Lumenize is designed to be opinionated where it matters, providing clear guidance and best practices for building robust scalable applications on DOs. At the same time, it remains flexible wherever that's possible, allowing you to install only the plugins you need, and exposing the same plugin system so you can extend it in the same modular way.
+
+## Shoulders of Giants
+
+Lumenize is the result of taking the best ideas and code from `Agent`, `PartyKit`, `Actor`, and `durable-utils`, adding robustness, and our own unique capabilities. Here is a [blog post that says more about the Lumenize journey](/blog/shoulders-of-giants).
+
+## Engineering Excellence
+
+- 90%+ test coverage with meaningful assertions, not just happy path
+- Comprehensive documentation with examples
+- Documentation assured in-sync with code via doc-testing
+- Toggle logging by namespace, DO instance, etc.
+- Guaranteed rapid bug fixes
+
+## Release Status
+
+Most of what we built is not yet published under an open source license and/or lacked good documentation. However, we are now in a position to start releasing pieces under open source licenses as we clean up the documentation for external consumption. See below for the status of what is out and what's coming out next.
+
+<table style={{width: '100%'}}>
+  <thead>
+    <tr>
+      <th style={{textAlign: 'left', minWidth: '200px'}}>Name</th>
+      <th style={{textAlign: 'left'}}>Description</th>
+      <th style={{textAlign: 'center'}}>License</th>
+      <th style={{textAlign: 'center'}}>Released</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style={{textAlign: 'left'}}>@lumenize/do-testing</td>
+      <td style={{textAlign: 'left'}}>In-process integration testing (including WebSockets from any JavaScript/TypeScript client without modification)</td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>@lumenize/lumenize</td>
+      <td style={{textAlign: 'left'}}>LumenizeBase base class</td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>@lumenize/sql</td>
+      <td style={{textAlign: 'left'}}><code>sql</code> template literal custom tag function that gives you string insertion readability with parameterized query security</td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'center'}}></td>
+    </tr>
+  </tbody>
+</table>
