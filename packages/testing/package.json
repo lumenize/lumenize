@@ -1,0 +1,52 @@
+{
+  "name": "@lumenize/testing",
+  "version": "1.0.0",
+  "description": "Testing utilities for Lumenize applications",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/**/*",
+    "package.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "testing",
+    "mcp",
+    "lumenize",
+    "vitest",
+    "mock",
+    "cloudflare",
+    "websocket"
+  ],
+  "author": "Larry Maccherone",
+  "license": "BSL-1.1",
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "vitest": "~3.2.3",
+    "partyserver": "^0.0.72"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.47",
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "typescript": "^5.8.3",
+    "vitest": "~3.2.3",
+    "partyserver": "^0.0.72"
+  },
+  "dependencies": {}
+}

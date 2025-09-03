@@ -1,0 +1,23 @@
+{
+  "name": "@lumenize/monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lumenize monorepo containing all packages",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "type-check": "npm run type-check --workspaces",
+    "clean": "rm -rf packages/*/dist packages/*/node_modules"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "@types/node": "^24.0.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
