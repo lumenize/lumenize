@@ -38,15 +38,18 @@
     "access": "public"
   },
   "peerDependencies": {
-    "vitest": "~3.2.3",
-    "partyserver": "^0.0.72"
+    "partyserver": "^0.0.72",
+    "vitest": "~3.2.3"
+  },
+  "dependencies": {
+    "@lumenize/utils": "file:../utils"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.47",
     "@cloudflare/workers-types": "^4.20250620.0",
+    "@vitest/coverage-istanbul": "^3.2.4",
+    "partyserver": "^0.0.72",
     "typescript": "^5.8.3",
-    "vitest": "~3.2.3",
-    "partyserver": "^0.0.72"
-  },
-  "dependencies": {}
+    "vitest": "~3.2.3"
+  }
 }

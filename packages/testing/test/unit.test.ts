@@ -5,7 +5,7 @@ import {
   MessageBuilders, 
   ExpectedResponses,
   createMockConnection 
-} from '@lumenize/testing';
+} from '../src/index.js';
 
 describe('@lumenize/testing package', () => {
   it('should export checkServerAvailability function', () => {

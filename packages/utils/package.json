@@ -1,0 +1,28 @@
+{
+  "name": "@lumenize/utils",
+  "version": "0.1.0",
+  "description": "Utility functions for Lumenize projects",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "vitest --run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.0"
+  },
+  "keywords": ["utils", "durable-objects", "cloudflare-workers"],
+  "author": "Lumenize",
+  "license": "MIT"
+}
