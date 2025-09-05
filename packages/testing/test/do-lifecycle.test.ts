@@ -3,6 +3,7 @@
  */
 
 import { describe, test, it, expect } from 'vitest';
+import { SELF } from 'cloudflare:test';
 import { 
   checkServerAvailability, 
   createMaybeIt, 
@@ -11,13 +12,15 @@ import {
   createMockConnection 
 } from '@lumenize/testing';
 
-
 describe('Comprehensive Entity Subscription Lifecycle', () => {
-  it.only('should ping/pong', () => {
-    console.log('hello');
+  it('should ping/pong', async () => {
+    const response = await SELF.fetch('http://example.com/ping');
+    expect(response.status).toBe(200);
+    const responseText = await response.text();
+    expect(responseText).toBe('pong');
   });
-  
-  test('complete entity lifecycle with subscription notifications', async () => {
+
+  test.skip('complete entity lifecycle with subscription notifications', async () => {
     await runTestWithLumenize(async (instance, mock, state) => {
       // URI router for constructing test URIs
       const uriRouter = new EntityUriRouter();
