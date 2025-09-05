@@ -50,6 +50,7 @@
     "@vitest/coverage-istanbul": "^3.2.4",
     "partyserver": "^0.0.72",
     "typescript": "^5.8.3",
-    "vitest": "~3.2.3"
+    "vitest": "~3.2.3",
+    "wrangler": "^4.34.0"
   }
 }

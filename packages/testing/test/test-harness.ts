@@ -44,6 +44,12 @@ export class MyDO extends DurableObject{
     );
   }
 
+  async #handleIncrement() {
+    let count = (await this.ctx.storage.get<number>("count")) ?? 0;
+    void this.ctx.storage.put("count", ++count);
+    return count;
+  }
+
   async fetch(request: Request) {
     const url = new URL(request.url);
 
@@ -62,48 +68,27 @@ export class MyDO extends DurableObject{
     };
 
     if (url.pathname === '/increment' && request.method === 'GET') {
-      let count = (await this.ctx.storage.get<number>("count")) ?? 0;
-      void this.ctx.storage.put("count", ++count);
-      return new Response(count.toString());
+      return new Response((await this.#handleIncrement()).toString());
     }
 
     return new Response("Not Found", { status: 404 });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    // Get the session data from the WebSocket attachment
-    const session = ws.deserializeAttachment();
-    
-    // Get all active WebSocket connections
-    const allWebSockets = this.ctx.getWebSockets();
-    const totalConnections = allWebSockets.length;
+    if (message === 'increment') {
+      ws.send((await this.#handleIncrement()).toString());
+      return
+    }
 
-    // Upon receiving a message from the client, the server replies with the same message, the session ID of the connection,
-    // and the total number of connections with the "[Durable Object]: " prefix
-    ws.send(
-      `[Durable Object] message: ${message}, from: ${session?.id || 'unknown'}. Total connections: ${totalConnections}`,
-    );
+    if (message === 'id') {
+      ws.send(ws.deserializeAttachment());
+      return
+    }
 
-    // Send a message to all WebSocket connections, loop over all the connected WebSockets.
-    allWebSockets.forEach((connectedWs) => {
-      connectedWs.send(
-        `[Durable Object] message: ${message}, from: ${session?.id || 'unknown'}. Total connections: ${totalConnections}`,
-      );
-    });
-
-    // Send a message to all WebSocket connections except the connection (ws),
-    // loop over all the connected WebSockets and filter out the connection (ws).
-    allWebSockets.forEach((connectedWs) => {
-      if (connectedWs !== ws) {
-        connectedWs.send(
-          `[Durable Object] message: ${message}, from: ${session?.id || 'unknown'}. Total connections: ${totalConnections}`,
-        );
-      }
-    });
+    ws.close(1003, "Not Found");  // Simulating a 404
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    // If the client closes the connection, the runtime will invoke the webSocketClose() handler.
     ws.close(code, "Durable Object is closing WebSocket");
   }
 };
