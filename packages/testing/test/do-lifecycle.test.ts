@@ -1,8 +1,5 @@
-/**
- * Comprehensive subscription test covering complete entity lifecycle with notifications
- */
-
 import { describe, test, it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
 import { SELF } from 'cloudflare:test';
 import { 
   checkServerAvailability, 
