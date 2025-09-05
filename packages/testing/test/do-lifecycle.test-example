@@ -10,14 +10,8 @@ import {
 } from '@lumenize/testing';
 
 describe('Comprehensive Entity Subscription Lifecycle', () => {
-  it('should ping/pong', async () => {
-    const response = await SELF.fetch('http://example.com/ping');
-    expect(response.status).toBe(200);
-    const responseText = await response.text();
-    expect(responseText).toBe('pong');
-  });
 
-  test.skip('complete entity lifecycle with subscription notifications', async () => {
+  test('complete entity lifecycle with subscription notifications', async () => {
     await runTestWithLumenize(async (instance, mock, state) => {
       // URI router for constructing test URIs
       const uriRouter = new EntityUriRouter();

@@ -9,5 +9,5 @@
   "include": [
     "./**/*.ts",
     "./worker-configuration.d.ts"
- ]
+, "do-lifecycle.test.ts.example" ]
 }
