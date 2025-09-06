@@ -6,7 +6,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
-    if (url.protocol === "wss:") {
+    if (url.protocol === "wss:" || url.pathname === '/wss') {
       const upgradeHeader = request.headers.get("Upgrade");
       if (!upgradeHeader || upgradeHeader !== "websocket") {
         return new Response("Expected WebSocket Upgrade header", { status: 426 });
@@ -16,7 +16,9 @@ export default {
       }
 
       try {
-        const stub = getDOStubFromPathname(url.pathname, env);
+        // const stub = getDOStubFromPathname(url.pathname, env);  // TODO: Make this work with test by changing the test
+        const id = env.MY_DO.newUniqueId();
+        const stub = env.MY_DO.get(id);
         return stub.fetch(request);
       } catch (error: any) {
         const status = error.httpErrorCode || 500;
@@ -51,9 +53,9 @@ export class MyDO extends DurableObject{
   }
 
   async fetch(request: Request) {
-    const url = new URL(request.url);
+    const url = new URL(request.url);    
 
-    if (url.protocol === "wss:") {
+    if (url.protocol === "wss:" || url.pathname === '/wss') {
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       this.ctx.acceptWebSocket(server);  // TODO: Add connection tags

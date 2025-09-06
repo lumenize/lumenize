@@ -1,3 +1,113 @@
+import {
+  SELF,
+  env,
+  createExecutionContext,
+// @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
+} from 'cloudflare:test';
+
+/**
+ * Simulates a WebSocket upgrade request for testing Cloudflare Workers.
+ * This minimally mimics what the browser WebSocket API does, but:
+ * - Can't use browser-based client libraries
+ * - Doesn't mimic all browser behaviors like: origins, cookies, searchParams, etc.
+ * 
+ * @param url - The full WebSocket URL (e.g., 'wss://example.com/path' or 'https://example.com/path')
+ * @returns Promise with WebSocket instance and execution context
+ */
+export async function simulateWSUpgrade(url: string) {
+  const ctx = createExecutionContext();
+  const req = new Request(url, {
+    headers: { Upgrade: "websocket" }
+  });
+  
+  const res = await SELF.fetch(req, env, ctx);
+  
+  if (res.status !== 101) {
+    throw new Error(`WebSocket upgrade failed: Expected status 101, got ${res.status}`);
+  }
+  
+  const ws = res.webSocket as any;
+  if (!ws) {
+    throw new Error('WebSocket upgrade failed: No webSocket property in response');
+  }
+  
+  ws.accept(); // This works because we're running inside of workerd
+  return { ws, ctx };
+}
+
+/**
+ * Higher-level API that handles WebSocket upgrade with automatic timeout and cleanup.
+ * Eliminates boilerplate Promise/timeout code in tests.
+ * 
+ * @param url - The full WebSocket URL
+ * @param testFn - Function that receives WebSocket and context, should setup event handlers and send messages
+ * @param timeoutMs - Timeout in milliseconds (default: 5000)
+ * @returns Promise that resolves when test completes or rejects on timeout/error
+ */
+export async function runWithSimulatedWSUpgrade(
+  url: string,
+  testFn: (ws: any, ctx: any) => Promise<void> | void,
+  timeoutMs: number = 5000
+): Promise<void> {
+  return new Promise<void>(async (resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`WebSocket test timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    
+    try {
+      const { ws, ctx } = await simulateWSUpgrade(url);
+      
+      // Track if test has completed
+      let completed = false;
+      const cleanup = () => {
+        if (!completed) {
+          completed = true;
+          clearTimeout(timeout);
+          resolve();
+        }
+      };
+      
+      // Wrap the original onmessage to auto-resolve after message handling
+      let originalOnMessage: ((event: any) => void | Promise<void>) | null = null;
+      Object.defineProperty(ws, 'onmessage', {
+        get() { return originalOnMessage; },
+        set(handler: (event: any) => void | Promise<void>) {
+          originalOnMessage = async (event: any) => {
+            try {
+              const result = handler(event);
+              // Handle both sync and async message handlers
+              if (result instanceof Promise) {
+                await result;
+              }
+              // Auto-complete test after successful message handling
+              cleanup();
+            } catch (error) {
+              clearTimeout(timeout);
+              reject(error);
+            }
+          };
+        }
+      });
+      
+      // Run the test function
+      const result = testFn(ws, ctx);
+      if (result instanceof Promise) {
+        await result;
+        // If test function was async and completed without WebSocket messages, cleanup
+        cleanup();
+      }
+      // If test function was sync, we wait for WebSocket message or timeout
+      
+    } catch (error) {
+      clearTimeout(timeout);
+      reject(error);
+    }
+  });
+}
+
+// Backward compatibility alias
+export const simulateWebSocketUpgrade = simulateWSUpgrade;
+
 /**
  * Simple WebSocket proxy that directly communicates with server instance
  * without the complexity of runInDurableObject within the proxy.
