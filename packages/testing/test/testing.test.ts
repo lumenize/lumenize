@@ -41,13 +41,13 @@ describe('Various DO unit and integration testing techniques', () => {
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
   //   - You cannot inspect connection tags or attachments in your tests
+  //   - You can inspect the messages that you receive back but not the ones that were sent in
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade for more control
-  it.only('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
+  it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
     await new Promise<void>(async (resolve, reject) => {
       const timeout = setTimeout(() => { reject(new Error('timed out')) }, 5000);
-      // const { ws, ctx } = await simulateWSUpgrade('https://example.com/wss');
-      const { ws, ctx } = await simulateWSUpgrade('wss://example.com');
+      const { ws, ctx } = await simulateWSUpgrade('https://example.com/wss');
       ws.onmessage = (event) => {
         expect(event.data).toBe('pong');
         clearTimeout(timeout);
@@ -71,7 +71,8 @@ describe('Various DO unit and integration testing techniques', () => {
   // This next set of tests uses a mock WebSocket which removes all of the limitations
   // mentioned above when using a simulated WebSocket
 
-  // Overcomes limitation: "Cannot use wss:// protocol as a gate for routing"
+  // Overcomes limitations. It now allows you to:
+  //   - Use wss:// protocol as a gate for routing in your Worker
   it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
     await runWithWebSocketMock(() => {
       const ws = new WebSocket('wss://example.com');  
@@ -80,29 +81,27 @@ describe('Various DO unit and integration testing techniques', () => {
     }, 1000);
   });
 
-  // ✅ Overcomes limitation: "Cannot use a client like AgentClient that calls the browser's WebSocket API"
-  it.skip('should work with browser WebSocket API with runWithWebSocketMock', async () => {
-    await runWithWebSocketMock(async () => {
-      // This uses the real browser WebSocket API
-      const ws = new WebSocket('wss://example.com/test');
-      
-      expect(ws.readyState).toBe(WebSocket.CONNECTING);
-      
-      await new Promise<void>((resolve) => {
-        ws.onopen = () => {
-          expect(ws.readyState).toBe(WebSocket.OPEN);
-          expect(ws.url).toBe('wss://example.com/test'); // URL should be unchanged
-          ws.close();
-        };
-        
-        ws.onclose = () => {
-          expect(ws.readyState).toBe(WebSocket.CLOSED);
-          resolve();
-        };
-      });
+  // Overcomes limitations. It now allows you to:
+  //   - Use any client library that directly calls WebSocket like AgentClient
+  //   - Inspect the messages that were sent in and out
+  const connectPingAndClose = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      const ws = new WebSocket('wss://example.com');
+      ws.onopen = () => {
+        ws.send('ping');
+      };
+      ws.onmessage = (event) => {
+        expect(event.data).toBe('pong');
+        resolve(true);
+      };
     });
-  }, 1000);
-
+  };
+  it.only('should work with libraries that use WebSocket API', async () => {
+    await runWithWebSocketMock(async () => {
+      expect(await connectPingAndClose()).toBe(true);
+    }, 1000);
+  });
+  
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
   it.skip('should support browser WebSocket behavior with runWithWebSocketMock', async () => {
     await runWithWebSocketMock(async () => {
