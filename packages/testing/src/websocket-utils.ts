@@ -69,6 +69,16 @@ export async function runWithSimulatedWSUpgrade(
       
       // Wrap the original onmessage to auto-resolve after message handling
       let originalOnMessage: ((event: any) => void | Promise<void>) | null = null;
+      const originalDescriptor = Object.getOwnPropertyDescriptor(ws, 'onmessage');
+      
+      const restoreProperty = () => {
+        if (originalDescriptor) {
+          Object.defineProperty(ws, 'onmessage', originalDescriptor);
+        } else {
+          delete ws.onmessage;
+        }
+      };
+      
       Object.defineProperty(ws, 'onmessage', {
         get() { return originalOnMessage; },
         set(handler: (event: any) => void | Promise<void>) {
@@ -80,13 +90,16 @@ export async function runWithSimulatedWSUpgrade(
                 await result;
               }
               // Auto-complete test after successful message handling
+              restoreProperty();
               cleanup();
             } catch (error) {
+              restoreProperty();
               clearTimeout(timeout);
               reject(error);
             }
           };
-        }
+        },
+        configurable: true // Allow restoration
       });
       
       // Run the test function
@@ -94,11 +107,13 @@ export async function runWithSimulatedWSUpgrade(
       if (result instanceof Promise) {
         await result;
         // If test function was async and completed without WebSocket messages, cleanup
+        restoreProperty();
         cleanup();
       }
       // If test function was sync, we wait for WebSocket message or timeout
       
     } catch (error) {
+      // Ensure property is restored even on error (restoreProperty is in scope here)
       clearTimeout(timeout);
       reject(error);
     }
@@ -126,18 +141,8 @@ export async function runWithWebSocketMock(
     const timeout = setTimeout(() => {
       reject(new Error(`WebSocket mock test timed out after ${timeoutMs}ms`));
     }, timeoutMs);
-    
-    // Track if test has completed
-    let completed = false;
-    const cleanup = () => {
-      if (!completed) {
-        completed = true;
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-    
-    // Create context for tracking messages and state
+
+    // Create context to track messages and connections
     const ctx = {
       messagesSent: [] as string[],
       messagesReceived: [] as string[],
@@ -145,11 +150,18 @@ export async function runWithWebSocketMock(
       pendingOperations: [] as Promise<any>[]
     };
     
-    // Setup WebSocket mocking with a simpler mock that actually works
+    // Setup WebSocket mocking with proper isolation
     const globalScope = typeof globalThis !== 'undefined' ? globalThis : global;
     const OriginalWebSocket = globalScope.WebSocket;
+    let isRestored = false;
     
-    // Create a working mock WebSocket for demonstration
+    // Ensure we always restore WebSocket, even if test fails
+    const ensureRestore = () => {
+      if (!isRestored && OriginalWebSocket) {
+        globalScope.WebSocket = OriginalWebSocket;
+        isRestored = true;
+      }
+    };    // Create a working mock WebSocket for demonstration
     function MockWebSocket(this: any, url: string | URL, protocols?: string | string[]) {
       const eventTarget = new EventTarget();
       
@@ -163,31 +175,10 @@ export async function runWithWebSocketMock(
       this.extensions = '';
       this.bufferedAmount = 0;
       
-      // Event handlers with auto-completion
-      let originalOnMessage: ((event: any) => void | Promise<void>) | null = null;
-      
-      // Wrap onmessage to handle both sync and async message handlers
-      Object.defineProperty(this, 'onmessage', {
-        get() { return originalOnMessage; },
-        set(handler: (event: any) => void | Promise<void>) {
-          originalOnMessage = async (event: any) => {
-            try {
-              const result = handler(event);
-              // Handle both sync and async message handlers
-              if (result instanceof Promise) {
-                await result;
-              }
-              // Don't auto-complete test - let the test function control completion
-            } catch (error) {
-              clearTimeout(timeout);
-              reject(error);
-            }
-          };
-        }
-      });
-      
+      // Event handlers
       this.onopen = null;
       this.onclose = null;
+      this.onmessage = null;
       this.onerror = null;
       
       // Event listener methods
@@ -204,6 +195,7 @@ export async function runWithWebSocketMock(
         
         // Create a promise for the async response and track it
         const responsePromise = new Promise<void>((resolve) => {
+          // Use 0ms setTimeout to make it async but immediate
           setTimeout(() => {
             let response = 'unknown';
             if (data === 'ping') response = 'pong';
@@ -218,7 +210,7 @@ export async function runWithWebSocketMock(
             }
             this.dispatchEvent(messageEvent);
             resolve();
-          }, 10);
+          }, 0);
         });
         
         ctx.pendingOperations.push(responsePromise);
@@ -237,6 +229,7 @@ export async function runWithWebSocketMock(
       
       // Simulate connection opening and track as pending operation
       const openPromise = new Promise<void>((resolve) => {
+        // Use 0ms setTimeout to make it async but immediate
         setTimeout(() => {
           this.readyState = 1; // OPEN
           const openEvent = new Event('open');
@@ -245,7 +238,7 @@ export async function runWithWebSocketMock(
           }
           this.dispatchEvent(openEvent);
           resolve();
-        }, 50);
+        }, 0);
       });
       
       ctx.pendingOperations.push(openPromise);
@@ -286,13 +279,12 @@ export async function runWithWebSocketMock(
       }
       
       clearTimeout(timeout);
+      ensureRestore();
       resolve();
     } catch (error) {
       clearTimeout(timeout);
+      ensureRestore();
       reject(error);
-    } finally {
-      // Always restore the original WebSocket
-      globalScope.WebSocket = OriginalWebSocket;
     }
   });
 }

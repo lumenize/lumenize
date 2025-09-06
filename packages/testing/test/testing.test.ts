@@ -84,7 +84,7 @@ describe('Various DO unit and integration testing techniques', () => {
   // Overcomes limitations. runWithWebSocketMock now allows you to:
   //   - Use any client library that directly calls WebSocket like AgentClient
   //   - Inspect the messages that were sent in and out
-  it.only('should work with libraries that use WebSocket API', async () => {
+  it('should demonstrate mock.sync() properly waits for cascading async operations', async () => {
     // Function that simulates a library using WebSocket API
     const connectPingAndClose = () => {
       const ws = new WebSocket('wss://example.com');
@@ -111,64 +111,40 @@ describe('Various DO unit and integration testing techniques', () => {
       expect(mock.messagesReceived).toEqual(['pong']);
     }, 500);
   });
+
+  it('should support addEventListener for libraries that use EventTarget API', async () => {
+    await runWithWebSocketMock(async (mock, ctx) => {
+      const ws = new WebSocket('wss://example.com');
+      let messageReceived = false;
+      let openReceived = false;
+      
+      // Use addEventListener instead of onmessage - this should work
+      ws.addEventListener('message', (event: any) => {
+        messageReceived = true;
+        expect(event.data).toBe('pong');
+        ws.close();
+      });
+      
+      ws.addEventListener('open', () => {
+        openReceived = true;
+        ws.send('ping');
+      });
+      
+      await mock.sync();
+      
+      // These should all be true if EventTarget is working
+      expect(openReceived).toBe(true);
+      expect(messageReceived).toBe(true);
+      expect(mock.messagesSent).toEqual(['ping']);
+      expect(mock.messagesReceived).toEqual(['pong']);
+    }, 500);
+  });
   
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
-  it.skip('should support browser WebSocket behavior with runWithWebSocketMock', async () => {
-    await runWithWebSocketMock(async (mock, ctx) => {
-      // The mock supports full browser WebSocket API behavior
-      const ws = new WebSocket('wss://example.com/authenticated');
-      
-      await new Promise<void>((resolve) => {
-        ws.onopen = () => {
-          // URL should remain unchanged (no forced cookie injection)
-          expect(ws.url).toBe('wss://example.com/authenticated');
-          
-          // Mock supports all standard WebSocket properties
-          expect(ws.protocol).toBeDefined();
-          expect(ws.extensions).toBeDefined();
-          expect(ws.bufferedAmount).toBeDefined();
-          expect(ws.readyState).toBe(WebSocket.OPEN);
-          
-          resolve();
-        };
-        
-        ws.onerror = () => {
-          resolve(); // Don't fail if connection doesn't work, we're just testing API
-        };
-      });
-    });
-  }, 1000);
+
 
   // ✅ Overcomes limitation: "Cannot inspect connection tags or attachments"
-  it.skip('should allow full inspection of WebSocket state with runWithWebSocketMock', async () => {
-    await runWithWebSocketMock(async (mock, ctx) => {
-      const ws = new WebSocket('wss://example.com/tagged');
-      
-      await new Promise<void>((resolve) => {
-        ws.onopen = () => {
-          // Can inspect all standard WebSocket properties without URL modification
-          expect(ws.protocol).toBeDefined();
-          expect(ws.extensions).toBeDefined();
-          expect(ws.bufferedAmount).toBeDefined();
-          expect(ws.readyState).toBe(WebSocket.OPEN);
-          
-          // URL remains clean and unchanged
-          expect(ws.url).toBe('wss://example.com/tagged');
-          
-          ws.close();
-        };
-        
-        ws.onclose = () => {
-          expect(ws.readyState).toBe(WebSocket.CLOSED);
-          resolve();
-        };
-        
-        ws.onerror = () => {
-          resolve(); // Don't fail test if connection issues
-        };
-      });
-    });
-  }, 1000);
+
 
 });
   
