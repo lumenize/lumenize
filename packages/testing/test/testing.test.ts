@@ -3,8 +3,7 @@ import {
   DurableObjectState,
   SELF,
   env,
-  runInDurableObject as cf_runInDurableObject,
-  createExecutionContext as cf_createExecutionContext,
+  runInDurableObject,
 // @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
 } from 'cloudflare:test';
 import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runWithWebSocketMock } from '../src/websocket-utils.js';
@@ -21,10 +20,10 @@ describe('Various DO unit and integration testing techniques', () => {
   });
 
   // Test using runInDurableObject from cloudflare:test but not using WebSockets
-  it('should work in cf_runInDurableObject because it does not use WebSockets', async () => {
+  it('should work in runInDurableObject because it does not use WebSockets', async () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
-    const response = await cf_runInDurableObject(stub, async (instance: MyDO, ctx: DurableObjectState) => {
+    const response = await runInDurableObject(stub, async (instance: MyDO, ctx: DurableObjectState) => {
       const request = new Request("https://example.com/increment");
       const response = await instance.fetch(request);
       expect(await ctx.storage.get<number>("count")).toBe(1);
@@ -69,7 +68,7 @@ describe('Various DO unit and integration testing techniques', () => {
   });
 
   // This next set of tests uses a mock WebSocket which removes all of the limitations
-  // mentioned above when using a simulated WebSocket
+  // mentioned above when manually simulating a WebSocket upgrade call over HTTP
 
   // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
