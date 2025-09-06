@@ -83,7 +83,9 @@ describe('Various DO unit and integration testing techniques', () => {
   // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
   it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
-    await runWithWebSocketMock((mock, ctx) => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, (mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');  
       ws.onopen = () => { ws.send('ping') };   
       ws.onmessage = (event) => { expect(event.data).toBe('pong') };
@@ -105,7 +107,9 @@ describe('Various DO unit and integration testing techniques', () => {
       };
     };
 
-    await runWithWebSocketMock(async (mock, ctx) => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
       connectPingAndClose();  // Simulates using a library using WebSocket API
       
       // Without mock.sync(), these are not correct because operations haven't completed
@@ -122,7 +126,9 @@ describe('Various DO unit and integration testing techniques', () => {
   });
 
   it('should support addEventListener for libraries that use EventTarget API', async () => {
-    await runWithWebSocketMock(async (mock, ctx) => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');
       let messageReceived = false;
       let openReceived = false;
@@ -147,6 +153,21 @@ describe('Various DO unit and integration testing techniques', () => {
       expect(mock.messagesSent).toEqual(['ping']);
       expect(mock.messagesReceived).toEqual(['pong']);
     }, 500);
+  });
+
+  // Test that runWithWebSocketMock also provides access to ctx.storage
+  it('should show ctx.storage changes when using runWithWebSocketMock', async () => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      const ws = new WebSocket('wss://example.com');
+      ws.onopen = () => { ws.send('increment') };
+      ws.onmessage = async (event) => {
+        expect(event.data).toBe('1');
+        expect(await ctx.storage.get("count")).toBe(1);
+      };
+      // await mock.sync();
+    });
   });
   
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."

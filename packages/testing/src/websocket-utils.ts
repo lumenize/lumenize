@@ -2,7 +2,9 @@ import {
   SELF,
   env,
   createExecutionContext,
-// @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
+  runInDurableObject,
+  waitOnExecutionContext,
+// @ts-expect-error - cloudflare:test module types are not consistently exported by VS Code
 } from 'cloudflare:test';
 
 /**
@@ -69,15 +71,6 @@ export async function runWithSimulatedWSUpgrade(
       
       // Wrap the original onmessage to auto-resolve after message handling
       let originalOnMessage: ((event: any) => void | Promise<void>) | null = null;
-      const originalDescriptor = Object.getOwnPropertyDescriptor(ws, 'onmessage');
-      
-      const restoreProperty = () => {
-        if (originalDescriptor) {
-          Object.defineProperty(ws, 'onmessage', originalDescriptor);
-        } else {
-          delete ws.onmessage;
-        }
-      };
       
       Object.defineProperty(ws, 'onmessage', {
         get() { return originalOnMessage; },
@@ -90,16 +83,14 @@ export async function runWithSimulatedWSUpgrade(
                 await result;
               }
               // Auto-complete test after successful message handling
-              restoreProperty();
               cleanup();
             } catch (error) {
-              restoreProperty();
               clearTimeout(timeout);
               reject(error);
             }
           };
         },
-        configurable: true // Allow restoration
+        configurable: true
       });
       
       // Run the test function
@@ -107,13 +98,11 @@ export async function runWithSimulatedWSUpgrade(
       if (result instanceof Promise) {
         await result;
         // If test function was async and completed without WebSocket messages, cleanup
-        restoreProperty();
         cleanup();
       }
       // If test function was sync, we wait for WebSocket message or timeout
       
     } catch (error) {
-      // Ensure property is restored even on error (restoreProperty is in scope here)
       clearTimeout(timeout);
       reject(error);
     }
@@ -124,17 +113,30 @@ export async function runWithSimulatedWSUpgrade(
  * High-level API that uses WebSocket mocking to overcome all limitations of simulateWSUpgrade.
  * This approach:
  * - ✅ Supports wss:// protocol URLs for routing
- * - ✅ Works with browser-based client libraries like AgentClient
+ * - ✅ Supports any client library that uses the WebSocket API
  * - ✅ Supports cookies, origin, and other browser WebSocket behaviors
- * - ✅ Allows inspection of connection tags and attachments
- * - ✅ Provides access to mock and context for message inspection
+ * - ✅ Allows inspection of messages sent and received
+ * - ✅ Provides access to real ExecutionContext for storage inspection
  * 
- * @param testFn - Function that receives mock and context for inspection
- * @param timeoutMs - Timeout in milliseconds (default: 5000)
- * @returns Promise that resolves when test completes
+ * @param durableObjectStub - The Durable Object stub to run within
+ * @param testFn - Function that receives mock, instance, and DurableObjectState
+ * @param timeoutMs - Timeout in milliseconds (default: 1000)
  */
-export async function runWithWebSocketMock(
-  testFn: (mock: any, ctx: any) => Promise<void> | void,
+export async function runWithWebSocketMock<T>(
+  durableObjectStub: any,
+  testFn: (mock: any, instance: T, ctx: any) => Promise<void> | void,
+  timeoutMs: number = 1000
+): Promise<void> {
+  return runInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
+    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), timeoutMs);
+  });
+}
+
+/**
+ * Internal helper function that handles the WebSocket mocking logic
+ */
+async function runWebSocketMockInternal(
+  testFn: (mock: any) => Promise<void> | void,
   timeoutMs: number = 1000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
@@ -142,12 +144,23 @@ export async function runWithWebSocketMock(
       reject(new Error(`WebSocket mock test timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    // Create context to track messages and connections
-    const ctx = {
+    // Create mock object for inspection and tracking
+    const mock = {
       messagesSent: [] as string[],
       messagesReceived: [] as string[],
       connections: [] as any[],
-      pendingOperations: [] as Promise<any>[]
+      pendingOperations: [] as Promise<any>[],
+      async sync() {
+        // Wait iteratively until no new operations are created
+        let previousCount = -1;
+        while (mock.pendingOperations.length > 0 && mock.pendingOperations.length !== previousCount) {
+          previousCount = mock.pendingOperations.length;
+          await Promise.all(mock.pendingOperations);
+          // Don't clear the array yet - new operations might have been added
+        }
+        // Clear the pending operations array for next sync call
+        mock.pendingOperations.length = 0;
+      }
     };
     
     // Setup WebSocket mocking with proper isolation
@@ -161,12 +174,14 @@ export async function runWithWebSocketMock(
         globalScope.WebSocket = OriginalWebSocket;
         isRestored = true;
       }
-    };    // Create a working mock WebSocket for demonstration
+    };
+
+    // Create a working mock WebSocket for demonstration
     function MockWebSocket(this: any, url: string | URL, protocols?: string | string[]) {
       const eventTarget = new EventTarget();
       
       // Track this connection
-      ctx.connections.push(this);
+      mock.connections.push(this);
       
       // WebSocket-like interface
       this.readyState = 0; // CONNECTING
@@ -191,7 +206,7 @@ export async function runWithWebSocketMock(
         if (this.readyState !== 1) return;
         
         // Track sent message
-        ctx.messagesSent.push(data);
+        mock.messagesSent.push(data);
         
         // Create a promise for the async response but make it immediate
         const responsePromise = Promise.resolve().then(() => {
@@ -200,7 +215,7 @@ export async function runWithWebSocketMock(
           if (data === 'increment') response = '1';
           
           // Track received message
-          ctx.messagesReceived.push(response);
+          mock.messagesReceived.push(response);
           
           const messageEvent = new MessageEvent('message', { data: response });
           if (this.onmessage) {
@@ -209,7 +224,7 @@ export async function runWithWebSocketMock(
           this.dispatchEvent(messageEvent);
         });
         
-        ctx.pendingOperations.push(responsePromise);
+        mock.pendingOperations.push(responsePromise);
       };
       
       this.close = (code = 1000, reason = '') => {
@@ -232,7 +247,7 @@ export async function runWithWebSocketMock(
         this.dispatchEvent(openEvent);
       });
       
-      ctx.pendingOperations.push(openPromise);
+      mock.pendingOperations.push(openPromise);
     }
     
     // Add WebSocket constants
@@ -244,27 +259,9 @@ export async function runWithWebSocketMock(
     // Replace global WebSocket
     globalScope.WebSocket = MockWebSocket as any;
     
-    // Create mock object for inspection
-    const mock = {
-      messagesSent: ctx.messagesSent,
-      messagesReceived: ctx.messagesReceived,
-      connections: ctx.connections,
-      async sync() {
-        // Wait iteratively until no new operations are created
-        let previousCount = -1;
-        while (ctx.pendingOperations.length > 0 && ctx.pendingOperations.length !== previousCount) {
-          previousCount = ctx.pendingOperations.length;
-          await Promise.all(ctx.pendingOperations);
-          // Don't clear the array yet - new operations might have been added
-        }
-        // Clear the pending operations array for next sync call
-        ctx.pendingOperations.length = 0;
-      }
-    };
-    
     try {
-      // Run the test function with mock and context
-      const result = testFn(mock, ctx);
+      // Run the test function with mock
+      const result = testFn(mock);
       if (result instanceof Promise) {
         await result;
       }
