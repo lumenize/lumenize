@@ -141,7 +141,8 @@ export async function runWithWebSocketMock(
     const ctx = {
       messagesSent: [] as string[],
       messagesReceived: [] as string[],
-      connections: [] as any[]
+      connections: [] as any[],
+      pendingOperations: [] as Promise<any>[]
     };
     
     // Setup WebSocket mocking with a simpler mock that actually works
@@ -165,7 +166,7 @@ export async function runWithWebSocketMock(
       // Event handlers with auto-completion
       let originalOnMessage: ((event: any) => void | Promise<void>) | null = null;
       
-      // Wrap onmessage to auto-resolve after message handling
+      // Wrap onmessage to handle both sync and async message handlers
       Object.defineProperty(this, 'onmessage', {
         get() { return originalOnMessage; },
         set(handler: (event: any) => void | Promise<void>) {
@@ -176,8 +177,7 @@ export async function runWithWebSocketMock(
               if (result instanceof Promise) {
                 await result;
               }
-              // Auto-complete test after successful message handling
-              cleanup();
+              // Don't auto-complete test - let the test function control completion
             } catch (error) {
               clearTimeout(timeout);
               reject(error);
@@ -202,20 +202,26 @@ export async function runWithWebSocketMock(
         // Track sent message
         ctx.messagesSent.push(data);
         
-        setTimeout(() => {
-          let response = 'unknown';
-          if (data === 'ping') response = 'pong';
-          if (data === 'increment') response = '1';
-          
-          // Track received message
-          ctx.messagesReceived.push(response);
-          
-          const messageEvent = new MessageEvent('message', { data: response });
-          if (this.onmessage) {
-            this.onmessage(messageEvent);
-          }
-          this.dispatchEvent(messageEvent);
-        }, 10);
+        // Create a promise for the async response and track it
+        const responsePromise = new Promise<void>((resolve) => {
+          setTimeout(() => {
+            let response = 'unknown';
+            if (data === 'ping') response = 'pong';
+            if (data === 'increment') response = '1';
+            
+            // Track received message
+            ctx.messagesReceived.push(response);
+            
+            const messageEvent = new MessageEvent('message', { data: response });
+            if (this.onmessage) {
+              this.onmessage(messageEvent);
+            }
+            this.dispatchEvent(messageEvent);
+            resolve();
+          }, 10);
+        });
+        
+        ctx.pendingOperations.push(responsePromise);
       };
       
       this.close = (code = 1000, reason = '') => {
@@ -229,15 +235,20 @@ export async function runWithWebSocketMock(
         }, 0);
       };
       
-      // Simulate connection opening
-      setTimeout(() => {
-        this.readyState = 1; // OPEN
-        const openEvent = new Event('open');
-        if (this.onopen) {
-          this.onopen(openEvent);
-        }
-        this.dispatchEvent(openEvent);
-      }, 50);
+      // Simulate connection opening and track as pending operation
+      const openPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          this.readyState = 1; // OPEN
+          const openEvent = new Event('open');
+          if (this.onopen) {
+            this.onopen(openEvent);
+          }
+          this.dispatchEvent(openEvent);
+          resolve();
+        }, 50);
+      });
+      
+      ctx.pendingOperations.push(openPromise);
     }
     
     // Add WebSocket constants
@@ -253,7 +264,18 @@ export async function runWithWebSocketMock(
     const mock = {
       messagesSent: ctx.messagesSent,
       messagesReceived: ctx.messagesReceived,
-      connections: ctx.connections
+      connections: ctx.connections,
+      async sync() {
+        // Wait iteratively until no new operations are created
+        let previousCount = -1;
+        while (ctx.pendingOperations.length > 0 && ctx.pendingOperations.length !== previousCount) {
+          previousCount = ctx.pendingOperations.length;
+          await Promise.all(ctx.pendingOperations);
+          // Don't clear the array yet - new operations might have been added
+        }
+        // Clear the pending operations array for next sync call
+        ctx.pendingOperations.length = 0;
+      }
     };
     
     try {

@@ -71,7 +71,7 @@ describe('Various DO unit and integration testing techniques', () => {
   // This next set of tests uses a mock WebSocket which removes all of the limitations
   // mentioned above when using a simulated WebSocket
 
-  // Overcomes limitations. It now allows you to:
+  // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
   it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
     await runWithWebSocketMock((mock, ctx) => {
@@ -81,29 +81,35 @@ describe('Various DO unit and integration testing techniques', () => {
     }, 1000);
   });
 
-  // Overcomes limitations. It now allows you to:
+  // Overcomes limitations. runWithWebSocketMock now allows you to:
   //   - Use any client library that directly calls WebSocket like AgentClient
   //   - Inspect the messages that were sent in and out
-  const connectPingAndClose = () => {
-    const ws = new WebSocket('wss://example.com');
-    ws.onopen = () => {
-      ws.send('ping');
-    };
-    ws.onmessage = (event) => {
-      // Just receive the message, no need to resolve anything
-      // The inspection will happen in the test
-    };
-  };
   it.only('should work with libraries that use WebSocket API', async () => {
+    // Function that simulates a library using WebSocket API
+    const connectPingAndClose = () => {
+      const ws = new WebSocket('wss://example.com');
+      ws.onopen = () => {
+        ws.send('ping');
+      };
+      ws.onmessage = (event) => {
+        ws.close();
+      };
+    };
+
     await runWithWebSocketMock(async (mock, ctx) => {
-      connectPingAndClose();
+      connectPingAndClose();  // Simulates using a library using WebSocket API
       
-      // Instead of checking return value, inspect the message queues
-      setTimeout(() => {
-        expect(mock.messagesSent).toEqual(['ping']);
-        expect(mock.messagesReceived).toEqual(['pong']);
-      }, 50); // Give time for async message handling
-    }, 1000);
+      // Without mock.sync(), these are not correct because operations haven't completed
+      expect(mock.messagesSent).toEqual([]);
+      expect(mock.messagesReceived).toEqual([]);
+      
+      // sync() now properly waits for all cascading operations
+      await mock.sync();
+      
+      // Now all operations have completed
+      expect(mock.messagesSent).toEqual(['ping']);
+      expect(mock.messagesReceived).toEqual(['pong']);
+    }, 500);
   });
   
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
