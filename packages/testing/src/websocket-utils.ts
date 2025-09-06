@@ -193,24 +193,20 @@ export async function runWithWebSocketMock(
         // Track sent message
         ctx.messagesSent.push(data);
         
-        // Create a promise for the async response and track it
-        const responsePromise = new Promise<void>((resolve) => {
-          // Use 0ms setTimeout to make it async but immediate
-          setTimeout(() => {
-            let response = 'unknown';
-            if (data === 'ping') response = 'pong';
-            if (data === 'increment') response = '1';
-            
-            // Track received message
-            ctx.messagesReceived.push(response);
-            
-            const messageEvent = new MessageEvent('message', { data: response });
-            if (this.onmessage) {
-              this.onmessage(messageEvent);
-            }
-            this.dispatchEvent(messageEvent);
-            resolve();
-          }, 0);
+        // Create a promise for the async response but make it immediate
+        const responsePromise = Promise.resolve().then(() => {
+          let response = 'unknown';
+          if (data === 'ping') response = 'pong';
+          if (data === 'increment') response = '1';
+          
+          // Track received message
+          ctx.messagesReceived.push(response);
+          
+          const messageEvent = new MessageEvent('message', { data: response });
+          if (this.onmessage) {
+            this.onmessage(messageEvent);
+          }
+          this.dispatchEvent(messageEvent);
         });
         
         ctx.pendingOperations.push(responsePromise);
@@ -218,27 +214,22 @@ export async function runWithWebSocketMock(
       
       this.close = (code = 1000, reason = '') => {
         this.readyState = 3; // CLOSED
-        setTimeout(() => {
-          const closeEvent = new CloseEvent('close', { code, reason });
-          if (this.onclose) {
-            this.onclose(closeEvent);
-          }
-          this.dispatchEvent(closeEvent);
-        }, 0);
+        // Make close synchronous to avoid timer issues
+        const closeEvent = new CloseEvent('close', { code, reason });
+        if (this.onclose) {
+          this.onclose(closeEvent);
+        }
+        this.dispatchEvent(closeEvent);
       };
       
-      // Simulate connection opening and track as pending operation
-      const openPromise = new Promise<void>((resolve) => {
-        // Use 0ms setTimeout to make it async but immediate
-        setTimeout(() => {
-          this.readyState = 1; // OPEN
-          const openEvent = new Event('open');
-          if (this.onopen) {
-            this.onopen(openEvent);
-          }
-          this.dispatchEvent(openEvent);
-          resolve();
-        }, 0);
+      // Simulate connection opening immediately but track as pending operation
+      const openPromise = Promise.resolve().then(() => {
+        this.readyState = 1; // OPEN
+        const openEvent = new Event('open');
+        if (this.onopen) {
+          this.onopen(openEvent);
+        }
+        this.dispatchEvent(openEvent);
       });
       
       ctx.pendingOperations.push(openPromise);
@@ -347,17 +338,15 @@ export function createDirectWebSocketProxy(serverInstance: any, mockConnection: 
             payload: serverPayload
           };
           
-          // Send response back to client
-          setTimeout(() => {
-            const messageEvent = new MessageEvent('message', {
-              data: JSON.stringify(responseEnvelope)
-            });
-            
-            if (this.onmessage) {
-              this.onmessage(messageEvent);
-            }
-            this.dispatchEvent(messageEvent);
-          }, 0);
+          // Send response back to client immediately
+          const messageEvent = new MessageEvent('message', {
+            data: JSON.stringify(responseEnvelope)
+          });
+          
+          if (this.onmessage) {
+            this.onmessage(messageEvent);
+          }
+          this.dispatchEvent(messageEvent);
           
           // Clear the message from mock for next call
           mockConnection.clearMessages();
@@ -365,36 +354,31 @@ export function createDirectWebSocketProxy(serverInstance: any, mockConnection: 
       } catch (error) {
         console.error('Error in WebSocket proxy send:', error);
         
-        // Send error to client
-        setTimeout(() => {
-          const errorEvent = new Event('error');
-          if (this.onerror) {
-            this.onerror(errorEvent);
-          }
-          this.dispatchEvent(errorEvent);
-        }, 0);
+        // Send error to client immediately
+        const errorEvent = new Event('error');
+        if (this.onerror) {
+          this.onerror(errorEvent);
+        }
+        this.dispatchEvent(errorEvent);
       }
     };
     
     this.close = () => {
       this.readyState = 3; // CLOSED
-      setTimeout(() => {
-        const closeEvent = new CloseEvent('close', { code: 1000, reason: 'Normal closure' });
-        if (this.onclose) {
-          this.onclose(closeEvent);
-        }
-        this.dispatchEvent(closeEvent);
-      }, 0);
+      // Make close synchronous
+      const closeEvent = new CloseEvent('close', { code: 1000, reason: 'Normal closure' });
+      if (this.onclose) {
+        this.onclose(closeEvent);
+      }
+      this.dispatchEvent(closeEvent);
     };
     
-    // Simulate connection opening
-    setTimeout(() => {
-      const openEvent = new Event('open');
-      if (this.onopen) {
-        this.onopen(openEvent);
-      }
-      this.dispatchEvent(openEvent);
-    }, 0);
+    // Simulate connection opening immediately
+    const openEvent = new Event('open');
+    if (this.onopen) {
+      this.onopen(openEvent);
+    }
+    this.dispatchEvent(openEvent);
   }
   
   // Add WebSocket constants
