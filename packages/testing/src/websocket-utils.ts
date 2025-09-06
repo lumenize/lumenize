@@ -112,14 +112,15 @@ export async function runWithSimulatedWSUpgrade(
  * - ✅ Works with browser-based client libraries like AgentClient
  * - ✅ Supports cookies, origin, and other browser WebSocket behaviors
  * - ✅ Allows inspection of connection tags and attachments
+ * - ✅ Provides access to mock and context for message inspection
  * 
- * @param testFn - Function that can use real WebSocket API and client libraries
+ * @param testFn - Function that receives mock and context for inspection
  * @param timeoutMs - Timeout in milliseconds (default: 5000)
  * @returns Promise that resolves when test completes
  */
 export async function runWithWebSocketMock(
-  testFn: () => Promise<void> | void,
-  timeoutMs: number = 5000
+  testFn: (mock: any, ctx: any) => Promise<void> | void,
+  timeoutMs: number = 1000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -136,6 +137,13 @@ export async function runWithWebSocketMock(
       }
     };
     
+    // Create context for tracking messages and state
+    const ctx = {
+      messagesSent: [] as string[],
+      messagesReceived: [] as string[],
+      connections: [] as any[]
+    };
+    
     // Setup WebSocket mocking with a simpler mock that actually works
     const globalScope = typeof globalThis !== 'undefined' ? globalThis : global;
     const OriginalWebSocket = globalScope.WebSocket;
@@ -143,6 +151,9 @@ export async function runWithWebSocketMock(
     // Create a working mock WebSocket for demonstration
     function MockWebSocket(this: any, url: string | URL, protocols?: string | string[]) {
       const eventTarget = new EventTarget();
+      
+      // Track this connection
+      ctx.connections.push(this);
       
       // WebSocket-like interface
       this.readyState = 0; // CONNECTING
@@ -184,14 +195,20 @@ export async function runWithWebSocketMock(
       this.removeEventListener = eventTarget.removeEventListener.bind(eventTarget);
       this.dispatchEvent = eventTarget.dispatchEvent.bind(eventTarget);
       
-      // Send method - simulate echo responses
+      // Send method - simulate echo responses and track messages
       this.send = (data: string) => {
         if (this.readyState !== 1) return;
+        
+        // Track sent message
+        ctx.messagesSent.push(data);
         
         setTimeout(() => {
           let response = 'unknown';
           if (data === 'ping') response = 'pong';
           if (data === 'increment') response = '1';
+          
+          // Track received message
+          ctx.messagesReceived.push(response);
           
           const messageEvent = new MessageEvent('message', { data: response });
           if (this.onmessage) {
@@ -232,9 +249,16 @@ export async function runWithWebSocketMock(
     // Replace global WebSocket
     globalScope.WebSocket = MockWebSocket as any;
     
+    // Create mock object for inspection
+    const mock = {
+      messagesSent: ctx.messagesSent,
+      messagesReceived: ctx.messagesReceived,
+      connections: ctx.connections
+    };
+    
     try {
-      // Run the test function with mocked WebSocket
-      const result = testFn();
+      // Run the test function with mock and context
+      const result = testFn(mock, ctx);
       if (result instanceof Promise) {
         await result;
       }
