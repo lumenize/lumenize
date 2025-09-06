@@ -13,11 +13,12 @@
   },
   "files": [
     "dist/**/*",
+    "!dist/scratch/**/*",
     "package.json",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --project tsconfig.build.json",
     "test": "vitest --run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",

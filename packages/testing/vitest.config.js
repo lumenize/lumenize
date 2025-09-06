@@ -13,7 +13,13 @@ export default defineWorkersProject({
       provider: "istanbul",
       reporter: ['text', 'json', 'html'],
       include: ['**/src/**'],
-      exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.config.ts'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
     },
   },
 });
