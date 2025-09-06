@@ -32,15 +32,25 @@ describe('Various DO unit and integration testing techniques', () => {
     expect(await response.text()).toBe("1");
   });
 
-  // The next set of tests will simulate a WebSocket upgrade over HTTP
-  // There are few limitations of this approach:
-  //   - You cannot use wss:// protocol as a gate for routing. Your Worker must route regular
-  //     HTTP GET calls to the Durable Object. The example test-harness looks for a /wss route
+  // The next set of tests will simulate a WebSocket upgrade over HTTP.
+  // The advantage of this approach is that it's lightwieght and doesn't require a mock. 
+  // You get the actual ws that the Worker would see as well as the ctx: ExecutionContext
+  // so you can inspect storage. This is the general approach that the Cloudflare agents team 
+  // uses... at least in the tests of theirs that I've looked at.
+  // 
+  // However, there are significant limitations of this approach:
+  //   - You cannot use wss:// protocol because fetch won't allow it. So, your Worker must route 
+  //     regular HTTP GET calls to the Durable Object on a particular route. The example test-harness 
+  //     looks for a /wss route.
   //   - You cannot use a client like AgentClient that calls the browser's WebSocket API 
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
-  //   - You cannot inspect connection tags or attachments in your tests
-  //   - You can inspect the messages that you receive back but not the ones that were sent in
+  // TODO: Next step is to upgrade my websocket-utils function to accept a config object that allows
+  //       the caller to specify all of the above things.
+  //   - You cannot inspect connection tags or attachments in your tests.
+  //   - You can inspect the messages that you receive back but not the ones that were sent in.
+  //     That's fine when your test controls all message sending, but you could be using a library
+  //     that sends its own messages (e.g. an MCP library might automatically `initialize`).
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade for more control
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
@@ -140,6 +150,13 @@ describe('Various DO unit and integration testing techniques', () => {
   });
   
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
+  // Should test most/all of these:
+  // ['user-agent', 'test-agent/1.0'],
+  // ['origin', 'https://test.example.com'],
+  // ['cookie', 'sessionId=test-session-123; other=value'],
+  // ['host', 'test.lumenize.com'],
+  // ['upgrade', 'websocket'],
+  // ['connection', 'upgrade']
 
 
   // ✅ Overcomes limitation: "Cannot inspect connection tags or attachments"
