@@ -128,7 +128,10 @@ export async function runWithWebSocketMock<T>(
   timeoutMs: number = 1000
 ): Promise<void> {
   return runInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
-    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), timeoutMs);
+    // Create a separate ExecutionContext for waitUntil tracking
+    // Note: ctx here is DurableObjectState, but we need ExecutionContext for waitOnExecutionContext
+    const execCtx = createExecutionContext();
+    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, timeoutMs);
   });
 }
 
@@ -137,6 +140,7 @@ export async function runWithWebSocketMock<T>(
  */
 async function runWebSocketMockInternal(
   testFn: (mock: any) => Promise<void> | void,
+  execCtx: any,
   timeoutMs: number = 1000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
@@ -160,6 +164,10 @@ async function runWebSocketMockInternal(
         }
         // Clear the pending operations array for next sync call
         mock.pendingOperations.length = 0;
+        
+        // Wait for all promises passed to execCtx.waitUntil() to settle
+        // This ensures that any background work triggered by the test is completed
+        await waitOnExecutionContext(execCtx);  // TODO: Does this really help? Need to test with and without on a DO that uses waitUntil
       }
     };
     

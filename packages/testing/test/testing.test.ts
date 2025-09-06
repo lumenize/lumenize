@@ -164,9 +164,9 @@ describe('Various DO unit and integration testing techniques', () => {
       ws.onopen = () => { ws.send('increment') };
       ws.onmessage = async (event) => {
         expect(event.data).toBe('1');
+        await mock.sync();
         expect(await ctx.storage.get("count")).toBe(1);
       };
-      // await mock.sync();
     });
   });
   
