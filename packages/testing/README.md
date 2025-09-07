@@ -2,107 +2,53 @@
 
 Testing utilities for Lumenize applications and MCP servers.
 
-## Features
-
-- **Mock Connection Factory**: Create mock WebSocket connections for testing MCP protocol interactions
-- **Test Server Utilities**: Check server availability and create conditional test runners
-- **Message Builders**: Convenient builders for MCP protocol messages (initialize, tool calls, notifications, etc.)
-- **Response Validators**: Standard expectation helpers for validating MCP responses
-- **Integration Test Helpers**: Run full client-server integration tests with WebSocket proxying
-- **Lumenize Test Runner**: Simplified test runner for Lumenize Durable Objects with automatic MCP initialization
-
 ## Installation
 
 ```bash
 npm install @lumenize/testing
 ```
 
-## Usage
+## Features
 
-### Basic Mock Connection Testing
+## runWithWebSocketMock
 
-```typescript
-import { createMockConnection, MessageBuilders, ExpectedResponses } from '@lumenize/testing';
+### Usage
 
-// Create a mock connection
-const mock = createMockConnection();
+### Limitations
 
-// Send MCP messages
-const initMessage = MessageBuilders.initialize();
-await instance.onMessage(mock.connection, initMessage);
+The WebSocket mock implementation has the following limitations compared to the browser WebSocket API:
 
-// Validate responses
-const response = mock.getLastMessage();
-const data = JSON.parse(response);
-ExpectedResponses.initialize(data);
-```
+#### **Missing Connection Metadata**
+- `WebSocket.url` - Connection URL is not exposed
+- `WebSocket.protocol` - Negotiated sub-protocol is not implemented  
+- `WebSocket.extensions` - Extension negotiation (like `permessage-deflate` compression) is not simulated
+- `WebSocket.binaryType` - Binary data handling mode is not implemented
 
-### Conditional Testing Based on Server Availability
+#### **Simplified State Management**
+- `readyState` transitions directly from `CONNECTING` (0) to `OPEN` (1) to `CLOSED` (3)
+- `CLOSING` (2) state is skipped - close operations happen immediately
+- State transitions are synchronous rather than following browser timing
 
-```typescript
-import { checkServerAvailability, createMaybeIt } from '@lumenize/testing';
+#### **Limited Close Event Details**
+- Close events don't include standard `CloseEvent` properties:
+  - `code` - Close status code (1000, 1001, etc.)
+  - `reason` - Human-readable close reason
+  - `wasClean` - Whether the connection closed cleanly
 
-const serverAvailable = await checkServerAvailability();
-const maybeIt = createMaybeIt(serverAvailable);
+#### **Simplified Error Handling**
+- Error events lack detailed `ErrorEvent` properties
+- No network-level error simulation (connection refused, timeout, etc.)
+- Errors are basic objects rather than proper `ErrorEvent` instances
 
-maybeIt("should call live API", async () => {
-  // This test only runs if server is available
-});
-```
+#### **Binary Data Limitations**
+- Only string messages are supported in the current implementation
+- `ArrayBuffer` and `Blob` message types are not implemented
+- `bufferedAmount` property is always 0
 
-### Lumenize Durable Object Testing
+#### **Protocol Limitations**
+- Sub-protocol negotiation is not implemented
+- Custom headers during handshake are not supported
+- Origin validation is not performed
 
-```typescript
-import { runTestWithLumenize } from '@lumenize/testing';
+These limitations make the mock suitable for testing basic WebSocket functionality but may not cover all edge cases that real WebSocket connections encounter.
 
-await runTestWithLumenize(async (instance, mock, state) => {
-  // Test is automatically initialized with MCP protocol
-  // Send tool calls, check notifications, etc.
-});
-```
-
-### Integration Testing
-
-```typescript
-import { runClientServerIntegrationTest } from '@lumenize/testing';
-
-await runClientServerIntegrationTest(async (client) => {
-  // Test with real LumenizeClient connected to server
-  const tools = await client.listTools();
-  expect(tools).toBeDefined();
-});
-```
-
-## API Reference
-
-### Mock Connection
-
-- `createMockConnection()` - Creates a mock WebSocket connection with message tracking
-- `mock.getSentMessages()` - Get all sent messages
-- `mock.getLastMessage()` - Get the most recent message
-- `mock.getMessageById(id)` - Get message by JSON-RPC ID
-- `mock.waitForNotification(entityUri?)` - Wait for specific notifications
-
-### Message Builders
-
-- `MessageBuilders.initialize(id?, protocolVersion?, clientInfo?)` - MCP initialize message
-- `MessageBuilders.toolsList(id?)` - List tools request
-- `MessageBuilders.toolCall(id?, name?, args?)` - Tool call request
-- `MessageBuilders.notification(method?, params?)` - Notification message
-
-### Response Validators
-
-- `ExpectedResponses.initialize(data, id?)` - Validate initialize response
-- `ExpectedResponses.toolsList(data, id?)` - Validate tools list response
-- `ExpectedResponses.toolCall(data, id?)` - Validate tool call response
-- `ExpectedResponses.error(data, code, id?)` - Validate error response
-
-### Server Utilities
-
-- `checkServerAvailability()` - Check if test server is running
-- `createMaybeIt(serverAvailable)` - Create conditional test runner
-- `monkeyPatchWebSocketForTesting()` - Patch WebSocket for cookie injection
-
-## License
-
-BSL-1.1

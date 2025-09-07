@@ -63,6 +63,12 @@ describe('Various DO unit and integration testing techniques', () => {
         resolve();
       };
       ws.send('ping');
+      console.log({
+        url: ws.url,
+        protocol: ws.protocol,
+        extensions: ws.extensions,
+        binaryType: ws.binaryType,
+      });
     });
   });
 
@@ -116,7 +122,7 @@ describe('Various DO unit and integration testing techniques', () => {
       expect(mock.messagesSent).toEqual([]);
       expect(mock.messagesReceived).toEqual([]);
       
-      // sync() now properly waits for all cascading operations
+      // sync() waits for all cascading operations
       await mock.sync();
       
       // Now all operations have completed

@@ -56,11 +56,12 @@ export class MyDO extends DurableObject{
     const url = new URL(request.url);    
 
     if (url.protocol === "wss:" || url.pathname === '/wss') {
+      const id = crypto.randomUUID();
+      
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
-      this.ctx.acceptWebSocket(server);  // TODO: Add connection tags
+      this.ctx.acceptWebSocket(server, [id, 'tag2', 'tag3']);
 
-      const id = crypto.randomUUID();
       server.serializeAttachment({ id });
 
       return new Response(null, {
