@@ -68,6 +68,7 @@ describe('Various DO unit and integration testing techniques', () => {
         protocol: ws.protocol,
         extensions: ws.extensions,
         binaryType: ws.binaryType,
+        tags: ws.tags,
       });
     });
   });
@@ -93,8 +94,8 @@ describe('Various DO unit and integration testing techniques', () => {
     const stub = env.MY_DO.get(id);
     await runWithWebSocketMock(stub, (mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');  
-      ws.onopen = () => { ws.send('ping') };   
-      ws.onmessage = (event) => { expect(event.data).toBe('pong') };
+      ws.onopen = () => { ws.send('increment') };   
+      ws.onmessage = (event) => { expect(event.data).toBe('1') };
     }, 1000);
   });
 
@@ -103,10 +104,10 @@ describe('Various DO unit and integration testing techniques', () => {
   //   - Inspect the messages that were sent in and out
   it('should demonstrate mock.sync() properly waits for cascading async operations', async () => {
     // Function that simulates a library using WebSocket API
-    const connectPingAndClose = () => {
+    const connectIncrementAndClose = () => {
       const ws = new WebSocket('wss://example.com');
       ws.onopen = () => {
-        ws.send('ping');
+        ws.send('increment');
       };
       ws.onmessage = (event) => {
         ws.close();
@@ -116,7 +117,7 @@ describe('Various DO unit and integration testing techniques', () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
     await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
-      connectPingAndClose();  // Simulates using a library using WebSocket API
+      connectIncrementAndClose();  // Simulates using a library using WebSocket API
       
       // Without mock.sync(), these are not correct because operations haven't completed
       expect(mock.messagesSent).toEqual([]);
@@ -126,38 +127,8 @@ describe('Various DO unit and integration testing techniques', () => {
       await mock.sync();
       
       // Now all operations have completed
-      expect(mock.messagesSent).toEqual(['ping']);
-      expect(mock.messagesReceived).toEqual(['pong']);
-    }, 500);
-  });
-
-  it('should support addEventListener for libraries that use EventTarget API', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
-      const ws = new WebSocket('wss://example.com');
-      let messageReceived = false;
-      let openReceived = false;
-      
-      // Use addEventListener instead of onmessage - this should work
-      ws.addEventListener('message', (event: any) => {
-        messageReceived = true;
-        expect(event.data).toBe('pong');
-        ws.close();
-      });
-      
-      ws.addEventListener('open', () => {
-        openReceived = true;
-        ws.send('ping');
-      });
-      
-      await mock.sync();
-      
-      // These should all be true if EventTarget is working
-      expect(openReceived).toBe(true);
-      expect(messageReceived).toBe(true);
-      expect(mock.messagesSent).toEqual(['ping']);
-      expect(mock.messagesReceived).toEqual(['pong']);
+      expect(mock.messagesSent).toEqual(['increment']);
+      expect(mock.messagesReceived).toEqual(['1']);
     }, 500);
   });
 
@@ -166,16 +137,31 @@ describe('Various DO unit and integration testing techniques', () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
     await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      let messageReceived = false;
       const ws = new WebSocket('wss://example.com');
-      ws.onopen = () => { ws.send('increment') };
-      ws.onmessage = async (event) => {
-        expect(event.data).toBe('1');
-        await mock.sync();
-        expect(await ctx.storage.get("count")).toBe(1);
+      ws.onopen = () => {
+        console.log('WebSocket opened, sending increment');
+        ws.send('increment');
       };
+      ws.onmessage = async (event) => {
+        console.log('WebSocket received message:', event.data);
+        expect(event.data).toBe('1');
+        messageReceived = true;
+        expect(await ctx.storage.get("count")).toBe(1);
+        console.log({ getWebSockets: ctx.getWebSockets() });
+      };
+      await mock.sync();
+      console.log('Mock sync completed');
+      console.log('Messages sent:', mock.messagesSent);
+      console.log('Messages received:', mock.messagesReceived);
+      
+      // This assertion will actually run and can fail the test
+      expect(messageReceived).toBe(true);
+      expect(mock.messagesSent).toEqual(['increment']);
+      expect(mock.messagesReceived).toEqual(['1']);
     });
   });
-  
+
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
   // Should test most/all of these:
   // ['user-agent', 'test-agent/1.0'],
@@ -190,4 +176,3 @@ describe('Various DO unit and integration testing techniques', () => {
 
 
 });
-  

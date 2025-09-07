@@ -77,6 +77,12 @@ export class MyDO extends DurableObject{
     return new Response("Not Found", { status: 404 });
   }
 
+  async webSocketOpen(ws: WebSocket) {
+    // Track connection opening - useful for testing lifecycle
+    await this.ctx.storage.put("lastWebSocketOpen", Date.now());
+    console.log("WebSocket opened in DO");
+  }
+
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     if (message === 'increment') {
       ws.send((await this.#handleIncrement()).toString());
@@ -88,10 +94,24 @@ export class MyDO extends DurableObject{
       return
     }
 
+    if (message === 'test-error') {
+      // Trigger an error for testing webSocketError
+      throw new Error("Test error from DO");
+    }
+
     ws.close(1003, "Not Found");  // Simulating a 404
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+    // Track connection closing - useful for testing lifecycle
+    await this.ctx.storage.put("lastWebSocketClose", { code, reason, wasClean, timestamp: Date.now() });
+    console.log("WebSocket closed in DO", { code, reason, wasClean });
     ws.close(code, "Durable Object is closing WebSocket");
+  }
+
+  async webSocketError(ws: WebSocket, error: Error) {
+    // Track errors - useful for testing lifecycle
+    await this.ctx.storage.put("lastWebSocketError", { message: error.message, timestamp: Date.now() });
+    console.log("WebSocket error in DO", error.message);
   }
 };

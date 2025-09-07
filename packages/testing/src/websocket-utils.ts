@@ -131,22 +131,40 @@ export async function runWithWebSocketMock<T>(
     // Create a separate ExecutionContext for waitUntil tracking
     // Note: ctx here is DurableObjectState, but we need ExecutionContext for waitOnExecutionContext
     const execCtx = createExecutionContext();
-    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, timeoutMs);
+    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, instance, timeoutMs);
   });
 }
 
 /**
  * Internal helper function that handles the WebSocket mocking logic
  */
-async function runWebSocketMockInternal(
+async function runWebSocketMockInternal<T>(
   testFn: (mock: any) => Promise<void> | void,
   execCtx: any,
+  instance: T,
   timeoutMs: number = 1000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`WebSocket mock test timed out after ${timeoutMs}ms`));
     }, timeoutMs);
+
+    // Create a mock connection that can communicate with the Durable Object
+    const sentMessages: string[] = [];
+    let attachment: any = null;
+    let testError: Error | null = null;
+    
+    const mockConnection = {
+      deserializeAttachment: () => attachment,
+      serializeAttachment: (obj: object) => { attachment = obj; },
+      send: (message: string) => {
+        sentMessages.push(message);
+      },
+      close: (code?: number, reason?: string) => {
+        console.debug('Mock connection close called', { code, reason });
+      },
+      toString: () => 'mock-connection-websocket-test'
+    };
 
     // Create mock object for inspection and tracking
     const mock = {
@@ -168,7 +186,16 @@ async function runWebSocketMockInternal(
         // Wait for all promises passed to execCtx.waitUntil() to settle
         // This ensures that any background work triggered by the test is completed
         await waitOnExecutionContext(execCtx);  // TODO: Does this really help? Need to test with and without on a DO that uses waitUntil
-      }
+        
+        // Check if any event handlers threw errors and rethrow them
+        if (testError) {
+          throw testError;
+        }
+      },
+      // Helper methods to access mock connection state
+      getLastResponse: () => sentMessages[sentMessages.length - 1],
+      getAllResponses: () => [...sentMessages],
+      clearResponses: () => sentMessages.length = 0
     };
     
     // Setup WebSocket mocking with proper isolation
@@ -191,6 +218,18 @@ async function runWebSocketMockInternal(
       // Track this connection
       mock.connections.push(this);
       
+      // Create a WebSocket-like object that routes responses back to our mock
+      const mockWebSocket = {
+        send: (message: string) => {
+          // This is the response from the DO - capture it
+          mock.clearResponses();
+          mockConnection.send(message);
+        },
+        deserializeAttachment: () => mockConnection.deserializeAttachment(),
+        serializeAttachment: (obj: object) => mockConnection.serializeAttachment(obj),
+        close: (code?: number, reason?: string) => mockConnection.close(code, reason)
+      };
+      
       // WebSocket-like interface
       this.readyState = 0; // CONNECTING
       this.url = url.toString(); // Keep original URL unchanged
@@ -209,27 +248,119 @@ async function runWebSocketMockInternal(
       this.removeEventListener = eventTarget.removeEventListener.bind(eventTarget);
       this.dispatchEvent = eventTarget.dispatchEvent.bind(eventTarget);
       
-      // Send method - simulate echo responses and track messages
+      // Send method - routes messages to actual Durable Object
       this.send = (data: string) => {
         if (this.readyState !== 1) return;
         
         // Track sent message
         mock.messagesSent.push(data);
         
-        // Create a promise for the async response but make it immediate
-        const responsePromise = Promise.resolve().then(() => {
-          let response = 'unknown';
-          if (data === 'ping') response = 'pong';
-          if (data === 'increment') response = '1';
-          
-          // Track received message
-          mock.messagesReceived.push(response);
-          
-          const messageEvent = new MessageEvent('message', { data: response });
-          if (this.onmessage) {
-            this.onmessage(messageEvent);
+        // Create a promise for the async response that actually talks to the DO
+        const responsePromise = Promise.resolve().then(async () => {
+          try {
+            // Clear any previous responses to ensure we get the latest
+            mock.clearResponses();
+            
+            // Check if the instance has a webSocketMessage method (like our test harness)
+            if (instance && typeof (instance as any).webSocketMessage === 'function') {
+              // Call the DO's webSocketMessage method with our mock WebSocket
+              await (instance as any).webSocketMessage(mockWebSocket, data);
+              
+              // Get the response that was sent via mockWebSocket.send() -> mockConnection.send()
+              const response = mock.getLastResponse();
+              if (response) {
+                // Track received message
+                mock.messagesReceived.push(response);
+                
+                const messageEvent = new MessageEvent('message', { data: response });
+                
+                // Safely call onmessage handler and catch any errors
+                if (this.onmessage) {
+                  try {
+                    const result = this.onmessage(messageEvent);
+                    if (result instanceof Promise) {
+                      await result;
+                    }
+                  } catch (error) {
+                    testError = error instanceof Error ? error : new Error(String(error));
+                  }
+                }
+                
+                // Safely dispatch event and catch any errors from addEventListener handlers
+                try {
+                  this.dispatchEvent(messageEvent);
+                } catch (error) {
+                  if (!testError) {
+                    testError = error instanceof Error ? error : new Error(String(error));
+                  }
+                }
+              }
+            } else {
+              // Fallback to simple echo responses for DOs that don't have webSocketMessage
+              let response = 'unknown';
+              if (data === 'ping') response = 'pong';
+              if (data === 'increment') response = '1';
+              
+              // Track received message
+              mock.messagesReceived.push(response);
+              
+              const messageEvent = new MessageEvent('message', { data: response });
+              
+              // Safely call onmessage handler and catch any errors
+              if (this.onmessage) {
+                try {
+                  const result = this.onmessage(messageEvent);
+                  if (result instanceof Promise) {
+                    await result;
+                  }
+                } catch (error) {
+                  testError = error instanceof Error ? error : new Error(String(error));
+                }
+              }
+              
+              // Safely dispatch event and catch any errors from addEventListener handlers
+              try {
+                this.dispatchEvent(messageEvent);
+              } catch (error) {
+                if (!testError) {
+                  testError = error instanceof Error ? error : new Error(String(error));
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error in WebSocket send:', error);
+            
+            // Call DO's webSocketError lifecycle method if it exists
+            try {
+              if (instance && typeof (instance as any).webSocketError === 'function') {
+                await (instance as any).webSocketError(mockWebSocket, error instanceof Error ? error : new Error(String(error)));
+              }
+            } catch (errorHandlerError) {
+              console.error('Error in webSocketError handler:', errorHandlerError);
+            }
+            
+            const errorEvent = new Event('error');
+            if (this.onerror) {
+              try {
+                const result = this.onerror(errorEvent);
+                if (result instanceof Promise) {
+                  await result;
+                }
+              } catch (handlerError) {
+                testError = handlerError instanceof Error ? handlerError : new Error(String(handlerError));
+              }
+            }
+            
+            try {
+              this.dispatchEvent(errorEvent);
+            } catch (dispatchError) {
+              if (!testError) {
+                testError = dispatchError instanceof Error ? dispatchError : new Error(String(dispatchError));
+              }
+            }
+            
+            testError = error instanceof Error ? error : new Error(String(error));
           }
-          this.dispatchEvent(messageEvent);
         });
         
         mock.pendingOperations.push(responsePromise);
@@ -237,22 +368,92 @@ async function runWebSocketMockInternal(
       
       this.close = (code = 1000, reason = '') => {
         this.readyState = 3; // CLOSED
-        // Make close synchronous to avoid timer issues
+        
+        // Call DO's webSocketClose lifecycle method if it exists
+        const closePromise = Promise.resolve().then(async () => {
+          try {
+            if (instance && typeof (instance as any).webSocketClose === 'function') {
+              await (instance as any).webSocketClose(mockWebSocket, code, reason, true);
+            }
+          } catch (error) {
+            // If webSocketClose throws an error, call webSocketError
+            if (instance && typeof (instance as any).webSocketError === 'function') {
+              try {
+                await (instance as any).webSocketError(mockWebSocket, error instanceof Error ? error : new Error(String(error)));
+              } catch (errorHandlerError) {
+                console.error('Error in webSocketError handler:', errorHandlerError);
+              }
+            }
+            testError = error instanceof Error ? error : new Error(String(error));
+          }
+        });
+        mock.pendingOperations.push(closePromise);
+        
+        // Trigger close event
         const closeEvent = new CloseEvent('close', { code, reason });
         if (this.onclose) {
-          this.onclose(closeEvent);
+          try {
+            const result = this.onclose(closeEvent);
+            if (result instanceof Promise) {
+              mock.pendingOperations.push(result);
+            }
+          } catch (error) {
+            testError = error instanceof Error ? error : new Error(String(error));
+          }
         }
-        this.dispatchEvent(closeEvent);
+        
+        try {
+          this.dispatchEvent(closeEvent);
+        } catch (error) {
+          if (!testError) {
+            testError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
       };
       
       // Simulate connection opening immediately but track as pending operation
-      const openPromise = Promise.resolve().then(() => {
+      const openPromise = Promise.resolve().then(async () => {
         this.readyState = 1; // OPEN
-        const openEvent = new Event('open');
-        if (this.onopen) {
-          this.onopen(openEvent);
+        
+        // Call DO's webSocketOpen lifecycle method if it exists
+        try {
+          if (instance && typeof (instance as any).webSocketOpen === 'function') {
+            await (instance as any).webSocketOpen(mockWebSocket);
+          }
+        } catch (error) {
+          // If webSocketOpen throws an error, call webSocketError
+          if (instance && typeof (instance as any).webSocketError === 'function') {
+            try {
+              await (instance as any).webSocketError(mockWebSocket, error instanceof Error ? error : new Error(String(error)));
+            } catch (errorHandlerError) {
+              console.error('Error in webSocketError handler:', errorHandlerError);
+            }
+          }
+          testError = error instanceof Error ? error : new Error(String(error));
         }
-        this.dispatchEvent(openEvent);
+        
+        const openEvent = new Event('open');
+        
+        // Safely call onopen handler and catch any errors
+        if (this.onopen) {
+          try {
+            const result = this.onopen(openEvent);
+            if (result instanceof Promise) {
+              await result;
+            }
+          } catch (error) {
+            testError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
+        
+        // Safely dispatch event and catch any errors from addEventListener handlers
+        try {
+          this.dispatchEvent(openEvent);
+        } catch (error) {
+          if (!testError) {
+            testError = error instanceof Error ? error : new Error(String(error));
+          }
+        }
       });
       
       mock.pendingOperations.push(openPromise);

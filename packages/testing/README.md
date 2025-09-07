@@ -8,13 +8,7 @@ Testing utilities for Lumenize applications and MCP servers.
 npm install @lumenize/testing
 ```
 
-## Features
-
-## runWithWebSocketMock
-
-### Usage
-
-### Limitations
+## Limitations
 
 The WebSocket mock implementation has the following limitations compared to the browser WebSocket API:
 
