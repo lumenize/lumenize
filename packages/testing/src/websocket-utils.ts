@@ -19,7 +19,10 @@ import {
 export async function simulateWSUpgrade(url: string) {
   const ctx = createExecutionContext();
   const req = new Request(url, {
-    headers: { Upgrade: "websocket" }
+    headers: { 
+      Upgrade: "websocket",
+      Connection: "upgrade"
+    }
   });
   
   const res = await SELF.fetch(req, env, ctx);

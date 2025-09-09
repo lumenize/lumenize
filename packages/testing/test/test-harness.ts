@@ -6,15 +6,14 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
-    if (url.protocol === "wss:" || url.pathname === '/wss') {
-      const upgradeHeader = request.headers.get("Upgrade");
-      if (!upgradeHeader || upgradeHeader !== "websocket") {
-        return new Response("Expected WebSocket Upgrade header", { status: 426 });
-      }
-      if (request.method !== "GET") {
-        return new Response("Expected GET method", { status: 400 });
-      }
-
+    // Detect WebSocket upgrade via headers instead of URL patterns
+    const upgradeHeader = request.headers.get("Upgrade");
+    const connectionHeader = request.headers.get("Connection");
+    const isWebSocketUpgrade = request.method === "GET" && 
+                              upgradeHeader?.toLowerCase() === "websocket" &&
+                              connectionHeader?.toLowerCase().includes("upgrade");
+    
+    if (isWebSocketUpgrade) {
       try {
         // const stub = getDOStubFromPathname(url.pathname, env);  // TODO: Make this work with test by changing the test
         const id = env.MY_DO.newUniqueId();
@@ -55,7 +54,14 @@ export class MyDO extends DurableObject{
   async fetch(request: Request) {
     const url = new URL(request.url);    
 
-    if (url.protocol === "wss:" || url.pathname === '/wss') {
+    // Detect WebSocket upgrade via headers instead of URL patterns
+    const upgradeHeader = request.headers.get("Upgrade");
+    const connectionHeader = request.headers.get("Connection");
+    const isWebSocketUpgrade = request.method === "GET" && 
+                              upgradeHeader?.toLowerCase() === "websocket" &&
+                              connectionHeader?.toLowerCase().includes("upgrade");
+
+    if (isWebSocketUpgrade) {
       const id = crypto.randomUUID();
       
       const webSocketPair = new WebSocketPair();
@@ -68,7 +74,7 @@ export class MyDO extends DurableObject{
         status: 101,
         webSocket: client,
       });
-    };
+    }
 
     if (url.pathname === '/increment' && request.method === 'GET') {
       return new Response((await this.#handleIncrement()).toString());
