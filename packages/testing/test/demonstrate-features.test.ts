@@ -201,9 +201,9 @@ describe('Various DO unit and integration testing techniques', () => {
       
       expect(responses.length).toBe(2);
       expect(responses).toEqual(['1', '1']); // Race condition: both see initial state
-      console.log('Mock responses (shows race condition):', responses);
     });
   });
+
 
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
   // Should test most/all of these:
