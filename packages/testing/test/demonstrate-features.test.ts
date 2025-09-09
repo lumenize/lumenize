@@ -30,8 +30,9 @@ describe('Various ways to test with WebSockets', () => {
   // TODO:
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
+  //   - You can inspect the server-side close code in addition to the client-side one
 
-  // Test using @lumenize/testing's low-level simulateWSUpgrade for more control
+  // Test using @lumenize/testing's low-level simulateWSUpgrade
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
     await new Promise<void>(async (resolve, reject) => {
       const ws = await simulateWSUpgrade('https://example.com/wss');
@@ -43,11 +44,8 @@ describe('Various ways to test with WebSockets', () => {
     });
   });
 
-  // NOTE: runWithSimulatedWSUpgrade does NOT provide storage access
-  // The approach respects input gates but can't inspect Durable Object state
-  // For storage inspection, use runWithWebSocketMock instead
-
-  // Test input gates behavior with runWithSimulatedWSUpgrade vs runWithWebSocketMock
+  // Shows that input gates work with runWithSimulatedWSUpgrade
+  // Uses slightly less low-level runWithSimulatedWSUpgrade
   it('should test input gates behavior with runWithSimulatedWSUpgrade', async () => {
     await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws) => {
       const responses: string[] = [];
