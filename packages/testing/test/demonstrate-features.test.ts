@@ -9,57 +9,34 @@ import {
 import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runWithWebSocketMock } from '../src/websocket-utils.js';
 import { MyDO } from './test-harness';
 
-describe('Various DO unit and integration testing techniques', () => {
-
-  // Test using SELF
-  it('should ping/pong using SELF', async () => {
-    const response = await SELF.fetch('https://example.com/ping');
-    expect(response.status).toBe(200);
-    const responseText = await response.text();
-    expect(responseText).toBe('pong');
-  });
-
-  // Test using runInDurableObject from cloudflare:test but not using WebSockets
-  it('should work in runInDurableObject because it does not use WebSockets', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    const response = await runInDurableObject(stub, async (instance: MyDO, ctx: DurableObjectState) => {
-      const request = new Request("https://example.com/increment");
-      const response = await instance.fetch(request);
-      expect(await ctx.storage.get<number>("count")).toBe(1);
-      return response;
-    });
-    expect(await response.text()).toBe("1");
-  });
-
+describe('Various ways to test with WebSockets', () => {
   // The next set of tests will simulate a WebSocket upgrade over HTTP.
-  // The advantage of this approach is that it's lightweight and doesn't require a mock.
   // You get the actual WebSocket that the Worker would see as well as proper input gates behavior.
   // This is the general approach that the Cloudflare agents team uses.
+  //
+  // It has a few advantages over the mocking approach we show later derived from the
+  // fact that it's going through the actual Worker fetch upgrade process:
+  //   - You can test that your setWebSocketAutoResponse pair works
+  //   - Input gates work
   // 
   // However, there are significant limitations of this approach:
   //   - When you write your Worker, you cannot use url.protocol to make the routing determination
   //     because fetch won't allow it. So, your Worker must route regular HTTP GET calls to the 
-  //     Durable Object some other way. The example test-harness use a function from @lumenize/utils,
-  //     `isWebSocketUpgrade()` that inspects headers
+  //     Durable Object some other way.
   //   - You cannot inspect the DO storage
   //   - You cannot use a client like AgentClient that calls the browser's WebSocket API 
+  //   - You cannot inspect connection tags or attachments in your tests.
+  //   - It's less like a drop-in replacement for runInDurableObject
+  // TODO:
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
-  //   - You cannot inspect connection tags or attachments in your tests.
-  //   - You can inspect the messages that you receive back but not the ones that were sent in.
-  //     That's fine when your test controls all message sending, but you could be using a library
-  //     that sends its own messages (e.g. an MCP library might automatically `initialize`).
-  //   - It's less like a drop-in replacement for runInDurableObject
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade for more control
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
     await new Promise<void>(async (resolve, reject) => {
-      const timeout = setTimeout(() => { reject(new Error('timed out')) }, 5000);
       const ws = await simulateWSUpgrade('https://example.com/wss');
       ws.onmessage = (event) => {
         expect(event.data).toBe('pong');
-        clearTimeout(timeout);
         resolve();
       };
       ws.send('ping');
@@ -147,30 +124,31 @@ describe('Various DO unit and integration testing techniques', () => {
     }, 500);
   });
 
-  // Test that runWithWebSocketMock also provides access to ctx.storage
+  // Overcomes limitations. runWithWebSocketMock allows you to:
+  //   - Inspect ctx (DurableObjectState): storage, getWebSockets, etc.
   it('should show ctx (DurableObjectState) changes when using runWithWebSocketMock', async () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
     let onmessageCalled = false;
     await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
       let messageReceived = false;
-      const ws = new WebSocket('wss://example.com');
+      const ws = new WebSocket('wss://example.com/my-do/my-name');
       ws.onopen = () => {
         ws.send('increment');
       };
       ws.onmessage = async (event) => {
         expect(event.data).toBe('1');
-        messageReceived = true;
-        expect(await ctx.storage.get("count")).toBe(1);
-        const webSockets = ctx.getWebSockets();
+        expect(await ctx.storage.get("count")).toBe(1);  // storage is inspectable
+        const webSockets = ctx.getWebSockets('my-name');  // connection tags work
         expect(webSockets.length).toBe(1);
         const attachment = webSockets[0].deserializeAttachment();
-        expect(attachment.count).toBe(1)
+        expect(attachment.name).toBe('my-name')  // attachments are inspectable
         onmessageCalled = true;
+        messageReceived = true;
       };
+
       await mock.sync();
       
-      // This assertion will actually run and can fail the test
       expect(messageReceived).toBe(true);
       expect(mock.messagesSent).toEqual(['increment']);
       expect(mock.messagesReceived).toEqual(['1']);
@@ -179,7 +157,7 @@ describe('Various DO unit and integration testing techniques', () => {
   });
 
   // Shows limitations of runWithWebSocketMock:
-  //   - Input gates don't work
+  //   - Input gates do NOT work
   it('should show that input gates do NOT work with runWithWebSocketMock', async () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);

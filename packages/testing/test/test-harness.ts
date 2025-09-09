@@ -18,11 +18,6 @@ export default {
       }
     }
 
-    // Handle ping endpoint
-    if (url.pathname === '/ping') {
-      return new Response("pong");
-    }
-
     return new Response("Not Found", { status: 404 });
   }
 } satisfies ExportedHandler<Env>;
@@ -47,31 +42,27 @@ export class MyDO extends DurableObject{
   async fetch(request: Request) {
     const url = new URL(request.url);    
 
-    // if (isWebSocketUpgrade(request)) {  // I recommend you route this way
+    // if (isWebSocketUpgrade(request)) {  // I recommend you route this way in reality
     if (url.protocol === 'wss:' || url.pathname === '/wss') {  // Show routing w/ protocol === 'wss:' works
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       
       // Create attachment with predictable data including WebSocket count
       const currentWsCount = this.ctx.getWebSockets().length;
-      const id = crypto.randomUUID();
+      const name = url.pathname.split('/').at(-1) ?? 'No name in path'
       const attachment = { 
-        id, 
+        name, 
         count: currentWsCount + 1, // +1 because we're about to add this WebSocket
-        timestamp: Date.now() 
+        timestamp: Date.now()
       };
       
-      this.ctx.acceptWebSocket(server, [id, 'tag2', 'tag3']);
+      this.ctx.acceptWebSocket(server, [name]);
       server.serializeAttachment(attachment);
 
       return new Response(null, {
         status: 101,
         webSocket: client,
       });
-    }
-
-    if (url.pathname === '/increment' && request.method === 'GET') {
-      return new Response((await this.#handleIncrement()).toString());
     }
 
     return new Response("Not Found", { status: 404 });
