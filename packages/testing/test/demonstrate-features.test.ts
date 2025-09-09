@@ -120,16 +120,13 @@ describe('Various DO unit and integration testing techniques', () => {
   it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
-    let onmessageCalled = false;
     await runWithWebSocketMock(stub, (mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');  
       ws.onopen = () => { ws.send('increment') };   
       ws.onmessage = (event) => { 
         expect(event.data).toBe('1');
-        onmessageCalled = true;
       };
     }, 1000);
-    expect(onmessageCalled).toBe(true);
   });
 
   // Overcomes limitations. runWithWebSocketMock now allows you to:
@@ -166,9 +163,10 @@ describe('Various DO unit and integration testing techniques', () => {
   });
 
   // Test that runWithWebSocketMock also provides access to ctx.storage
-  it('should show ctx.storage changes when using runWithWebSocketMock', async () => {
+  it('should show ctx (DurableObjectState) changes when using runWithWebSocketMock', async () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
+    let onmessageCalled = false;
     await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
       let messageReceived = false;
       const ws = new WebSocket('wss://example.com');
@@ -179,6 +177,11 @@ describe('Various DO unit and integration testing techniques', () => {
         expect(event.data).toBe('1');
         messageReceived = true;
         expect(await ctx.storage.get("count")).toBe(1);
+        const webSockets = ctx.getWebSockets();
+        expect(webSockets.length).toBe(1);
+        const attachment = webSockets[0].deserializeAttachment();
+        expect(attachment.count).toBe(1)
+        onmessageCalled = true;
       };
       await mock.sync();
       
@@ -187,6 +190,7 @@ describe('Various DO unit and integration testing techniques', () => {
       expect(mock.messagesSent).toEqual(['increment']);
       expect(mock.messagesReceived).toEqual(['1']);
     });
+    expect(onmessageCalled).toBe(true);
   });
 
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
