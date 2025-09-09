@@ -1,4 +1,4 @@
-import { describe, test, it, expect } from 'vitest';
+import { describe, test, it, expect, vi } from 'vitest';
 import {
   DurableObjectState,
   SELF,
@@ -79,25 +79,17 @@ describe('Various DO unit and integration testing techniques', () => {
         responses.push(event.data);
       };
       
-      // Send two increment messages rapidly
       ws.send('increment');
       ws.send('increment');
       
-      // Wait for both responses
-      await new Promise(resolve => {
-        const checkResponses = () => {
-          if (responses.length === 2) {
-            resolve(undefined);
-          } else {
-            setTimeout(checkResponses, 10);
-          }
-        };
-        checkResponses();
+      await vi.waitFor(() => {
+        expect(responses.length).toBe(2);
+      }, {
+        timeout: 1000,
+        interval: 10
       });
       
-      // If input gates work properly, we should get ['1', '2']
-      // If not, we might get ['1', '1'] like our mock
-      expect(responses).toEqual(['1', '2']); // Test if input gates work
+      expect(responses).toEqual(['1', '2']); // If input gates don't work, we might get ['1', '1']
     });
   });
 
@@ -184,6 +176,33 @@ describe('Various DO unit and integration testing techniques', () => {
       expect(mock.messagesReceived).toEqual(['1']);
     });
     expect(onmessageCalled).toBe(true);
+  });
+
+  // Shows limitations of runWithWebSocketMock:
+  //   - Input gates don't work
+  it('should show that input gates do NOT work with runWithWebSocketMock', async () => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
+      const responses: string[] = [];
+      const ws = new WebSocket('wss://example.com');
+      
+      ws.onopen = () => {
+        // Send two increment messages rapidly
+        ws.send('increment');
+        ws.send('increment');
+      };
+      
+      ws.onmessage = (event) => {
+        responses.push(event.data);
+      };
+      
+      await mock.sync();
+      
+      expect(responses.length).toBe(2);
+      expect(responses).toEqual(['1', '1']); // Race condition: both see initial state
+      console.log('Mock responses (shows race condition):', responses);
+    });
   });
 
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
