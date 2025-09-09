@@ -6,7 +6,7 @@ import {
   runInDurableObject,
 // @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
 } from 'cloudflare:test';
-import { runWithWebSocketMock } from '../src/websocket-utils.js';
+import { runWithWebSocketMock, runWithSimulatedWSUpgrade } from '../src/websocket-utils.js';
 import { MyDO } from './test-harness';
 
 describe('Comprehensive WebSocket testing framework tests', () => {
@@ -183,6 +183,38 @@ describe('Comprehensive WebSocket testing framework tests', () => {
         expect(mock.messagesReceived).toEqual(['1']);
       });
     });
+
+    it('should handle async event handlers returning Promises', async () => {
+      const id = env.MY_DO.newUniqueId();
+      const stub = env.MY_DO.get(id);
+      let asyncOpenExecuted = false;
+      let asyncCloseExecuted = false;
+
+      await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+        const ws = new WebSocket('wss://example.com');
+        
+        // Test async onopen handler (Promise branch)
+        ws.onopen = async () => {
+          await new Promise(resolve => setTimeout(resolve, 1));
+          asyncOpenExecuted = true;
+        };
+        
+        // Test async onclose handler (Promise branch)  
+        ws.onclose = async (event) => {
+          await new Promise(resolve => setTimeout(resolve, 1));
+          asyncCloseExecuted = true;
+        };
+        
+        await mock.sync();
+        ws.close();
+        await mock.sync();
+      });
+
+      expect(asyncOpenExecuted).toBe(true);
+      expect(asyncCloseExecuted).toBe(true);
+    });
   });
+
+
 
 });

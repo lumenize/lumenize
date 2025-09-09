@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "test": "vitest --run",
+    "test:coverage": "vitest --coverage --run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist"

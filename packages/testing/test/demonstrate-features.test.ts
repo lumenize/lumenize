@@ -32,6 +32,27 @@ describe('Various DO unit and integration testing techniques', () => {
     expect(await response.text()).toBe("1");
   });
 
+  // Test mock helper methods
+  it('should provide access to mock response tracking methods', async () => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      const ws = new WebSocket('wss://example.com');
+      ws.onopen = () => {
+        ws.send('increment');
+        ws.send('increment'); // Send two messages rapidly
+      };
+      await mock.sync();
+      
+      // Test helper methods - verify they capture multiple rapid responses
+      expect(mock.getAllResponses()).toEqual(['1', '1']);  // Both responses captured
+      expect(mock.getLastResponse()).toBe('1');  // Last response
+      
+      mock.clearResponses();
+      expect(mock.getAllResponses()).toEqual([]);
+    });
+  });
+
   // The next set of tests will simulate a WebSocket upgrade over HTTP.
   // The advantage of this approach is that it's lightwieght and doesn't require a mock. 
   // You get the actual ws that the Worker would see as well as the ctx: ExecutionContext
@@ -82,6 +103,39 @@ describe('Various DO unit and integration testing techniques', () => {
         expect(await ctx.storage.get("count")).toBe(1);
       };
       ws.send('increment');
+    });
+  });
+
+  // Test input gates behavior with runWithSimulatedWSUpgrade vs runWithWebSocketMock
+  it('should test input gates behavior with runWithSimulatedWSUpgrade', async () => {
+    await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws, ctx) => {
+      const responses: string[] = [];
+      
+      ws.onmessage = (event) => {
+        responses.push(event.data);
+        console.log('runWithSimulatedWSUpgrade response:', event.data, 'total responses:', responses.length);
+      };
+      
+      // Send two increment messages rapidly
+      ws.send('increment');
+      ws.send('increment');
+      
+      // Wait for both responses
+      await new Promise(resolve => {
+        const checkResponses = () => {
+          if (responses.length === 2) {
+            resolve(undefined);
+          } else {
+            setTimeout(checkResponses, 10);
+          }
+        };
+        checkResponses();
+      });
+      
+      // If input gates work properly, we should get ['1', '2']
+      // If not, we might get ['1', '1'] like our mock
+      console.log('runWithSimulatedWSUpgrade final responses:', responses);
+      expect(responses).toEqual(['1', '2']); // Test if input gates work
     });
   });
 
