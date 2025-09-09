@@ -112,18 +112,24 @@ describe('Various DO unit and integration testing techniques', () => {
   // mentioned above when manually simulating a WebSocket upgrade call over HTTP
   // However, it adds its own limitations:
   //   - Since the mock is calling the instance's methods directly (e.g. webSocketMessage),
-  //     it bypasses normal DO input/output gates. So, 
+  //     it bypasses normal DO input gates. So, it's possible for two rapidly sent messages
+  //     to interleave execution.
 
   // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
   it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
+    let onmessageCalled = false;
     await runWithWebSocketMock(stub, (mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');  
       ws.onopen = () => { ws.send('increment') };   
-      ws.onmessage = (event) => { expect(event.data).toBe('1') };
+      ws.onmessage = (event) => { 
+        expect(event.data).toBe('1');
+        onmessageCalled = true;
+      };
     }, 1000);
+    expect(onmessageCalled).toBe(true);
   });
 
   // Overcomes limitations. runWithWebSocketMock now allows you to:

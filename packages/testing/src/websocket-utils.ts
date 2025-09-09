@@ -117,7 +117,7 @@ export async function runWithWebSocketMock<T>(
     // Create a separate ExecutionContext for waitUntil tracking
     // Note: ctx here is DurableObjectState, but we need ExecutionContext for waitOnExecutionContext
     const execCtx = createExecutionContext();
-    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, instance, timeoutMs);
+    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, instance, ctx, timeoutMs);
   });
 }
 
@@ -128,6 +128,7 @@ async function runWebSocketMockInternal<T>(
   testFn: (mock: any) => Promise<void> | void,
   execCtx: any,
   instance: T,
+  ctx: any,
   timeoutMs: number = 1000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
@@ -137,11 +138,8 @@ async function runWebSocketMockInternal<T>(
 
     // Create a mock connection that can communicate with the Durable Object
     const sentMessages: string[] = [];
-    let attachment: any = null;
     
     const mockConnection = {
-      deserializeAttachment: () => attachment,
-      serializeAttachment: (obj: object) => { attachment = obj; },
       send: (message: string) => {
         sentMessages.push(message);
       },
@@ -198,14 +196,15 @@ async function runWebSocketMockInternal<T>(
       // Track this connection
       mock.connections.push(this);
       
+      // Store reference to server-side WebSocket for attachment access
+      let serverWebSocket: any = null;
+      
       // Create a WebSocket-like object that routes responses back to our mock
       const mockWebSocket = {
         send: (message: string) => {
           // This is the response from the DO - capture it
           mockConnection.send(message);
         },
-        deserializeAttachment: () => mockConnection.deserializeAttachment(),
-        serializeAttachment: (obj: object) => mockConnection.serializeAttachment(obj),
         close: (code?: number, reason?: string) => mockConnection.close(code, reason)
       };
       
@@ -311,8 +310,27 @@ async function runWebSocketMockInternal<T>(
         this.dispatchEvent(closeEvent);
       };
       
-      // Simulate connection opening immediately but track as pending operation
+      // Simulate WebSocket upgrade by calling the Durable Object's fetch method
       const openPromise = Promise.resolve().then(async () => {
+        if (instance && typeof (instance as any).fetch === 'function') {
+          // Create a proper WebSocket upgrade request
+          const upgradeRequest = new Request(url.toString(), {
+            method: 'GET',
+            headers: {
+              'Upgrade': 'websocket',
+              'Connection': 'upgrade'
+            }
+          });
+          
+          // Call the Durable Object's fetch method to handle WebSocket upgrade
+          const response = await (instance as any).fetch(upgradeRequest);
+          
+          // Extract the server-side WebSocket from the response
+          if (response.webSocket) {
+            serverWebSocket = response.webSocket;
+          }
+        }
+        
         this.readyState = 1; // OPEN
         
         // Call DO's webSocketOpen lifecycle method if it exists

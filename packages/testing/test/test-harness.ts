@@ -48,13 +48,20 @@ export class MyDO extends DurableObject{
     const url = new URL(request.url);    
 
     if (isWebSocketUpgrade(request)) {
-      const id = crypto.randomUUID();
-      
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
+      
+      // Create attachment with predictable data including WebSocket count
+      const currentWsCount = this.ctx.getWebSockets().length;
+      const id = crypto.randomUUID();
+      const attachment = { 
+        id, 
+        count: currentWsCount + 1, // +1 because we're about to add this WebSocket
+        timestamp: Date.now() 
+      };
+      
       this.ctx.acceptWebSocket(server, [id, 'tag2', 'tag3']);
-
-      server.serializeAttachment({ id });
+      server.serializeAttachment(attachment);
 
       return new Response(null, {
         status: 101,

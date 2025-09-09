@@ -18,10 +18,12 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       const ws = new WebSocket('wss://example.com');
       let messageReceived = false;
       let openReceived = false;
+      let messageEventData: string | null = null;
       
       // Use addEventListener instead of onmessage - this should work
       ws.addEventListener('message', (event: any) => {
         messageReceived = true;
+        messageEventData = event.data;
         expect(event.data).toBe('1');
         ws.close();
       });
@@ -33,9 +35,10 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       
       await mock.sync();
       
-      // These should all be true if EventTarget is working
+      // These should all be true if EventTarget is working and callbacks were executed
       expect(openReceived).toBe(true);
       expect(messageReceived).toBe(true);
+      expect(messageEventData).toBe('1'); // Additional verification the callback ran
       expect(mock.messagesSent).toEqual(['increment']);
       expect(mock.messagesReceived).toEqual(['1']);
     }, 500);
@@ -215,6 +218,45 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
   });
 
-
+  it('should allow inspection of WebSocket attachments set by Durable Object', async () => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    
+    let onOpenCalled = false;
+    let attachmentVerified = false;
+    
+    await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      const ws = new WebSocket('wss://example.com');
+      
+      ws.onopen = () => {
+        // For framework-tracked operations, mock.sync() is sufficient
+        onOpenCalled = true;
+        
+        // Verify that our mock framework creates real WebSocket connections
+        // that are registered with the Durable Object context
+        const webSockets = ctx.getWebSockets();
+        expect(webSockets.length).toBe(1);
+        
+        // Verify that we can inspect the WebSocket attachment set by test-harness
+        const attachment = webSockets[0].deserializeAttachment();
+        expect(attachment).toHaveProperty('id');
+        expect(attachment).toHaveProperty('count');
+        expect(attachment).toHaveProperty('timestamp');
+        expect(attachment.count).toBe(1); // Should be 1 since this is the first connection
+        expect(typeof attachment.id).toBe('string');
+        expect(typeof attachment.timestamp).toBe('number');
+        
+        attachmentVerified = true;
+        ws.close();
+      };
+      
+      // mock.sync() handles all framework-tracked operations including WebSocket lifecycle
+      await mock.sync();
+    });
+    
+    // These assertions work because mock.sync() waited for all operations to complete
+    expect(onOpenCalled).toBe(true);
+    expect(attachmentVerified).toBe(true);
+  });
 
 });
