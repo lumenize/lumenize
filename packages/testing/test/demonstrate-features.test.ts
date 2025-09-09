@@ -51,6 +51,7 @@ describe('Various DO unit and integration testing techniques', () => {
   //   - You can inspect the messages that you receive back but not the ones that were sent in.
   //     That's fine when your test controls all message sending, but you could be using a library
   //     that sends its own messages (e.g. an MCP library might automatically `initialize`).
+  //   - It's less like a drop-in replacement for runInDurableObject
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade for more control
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
@@ -140,20 +141,14 @@ describe('Various DO unit and integration testing techniques', () => {
       let messageReceived = false;
       const ws = new WebSocket('wss://example.com');
       ws.onopen = () => {
-        console.log('WebSocket opened, sending increment');
         ws.send('increment');
       };
       ws.onmessage = async (event) => {
-        console.log('WebSocket received message:', event.data);
         expect(event.data).toBe('1');
         messageReceived = true;
         expect(await ctx.storage.get("count")).toBe(1);
-        console.log({ getWebSockets: ctx.getWebSockets() });
       };
       await mock.sync();
-      console.log('Mock sync completed');
-      console.log('Messages sent:', mock.messagesSent);
-      console.log('Messages received:', mock.messagesReceived);
       
       // This assertion will actually run and can fail the test
       expect(messageReceived).toBe(true);

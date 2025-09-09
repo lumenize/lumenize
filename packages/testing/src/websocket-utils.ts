@@ -161,7 +161,7 @@ async function runWebSocketMockInternal<T>(
         sentMessages.push(message);
       },
       close: (code?: number, reason?: string) => {
-        console.debug('Mock connection close called', { code, reason });
+        console.debug('Mock connection close called', { code, reason });  // TODO: Should we store this to inspect later? Is the client-side close code? How do we see the server-side?
       },
       toString: () => 'mock-connection-websocket-test'
     };
