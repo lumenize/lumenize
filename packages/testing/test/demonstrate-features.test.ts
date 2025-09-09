@@ -63,13 +63,6 @@ describe('Various DO unit and integration testing techniques', () => {
         resolve();
       };
       ws.send('ping');
-      console.log({
-        url: ws.url,
-        protocol: ws.protocol,
-        extensions: ws.extensions,
-        binaryType: ws.binaryType,
-        tags: ws.tags,
-      });
     });
   });
 
