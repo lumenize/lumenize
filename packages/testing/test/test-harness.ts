@@ -47,7 +47,8 @@ export class MyDO extends DurableObject{
   async fetch(request: Request) {
     const url = new URL(request.url);    
 
-    if (isWebSocketUpgrade(request)) {
+    // if (isWebSocketUpgrade(request)) {
+    if (url.protocol === 'wss:' || url.pathname === '/wss') {
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       
