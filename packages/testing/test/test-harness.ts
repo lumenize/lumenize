@@ -1,19 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
-import { getDOStubFromPathname, getDONamespaceFromPathname } from "@lumenize/utils";
+import { getDOStubFromPathname, getDONamespaceFromPathname, isWebSocketUpgrade } from "@lumenize/utils";
 
 // Worker
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     
-    // Detect WebSocket upgrade via headers instead of URL patterns
-    const upgradeHeader = request.headers.get("Upgrade");
-    const connectionHeader = request.headers.get("Connection");
-    const isWebSocketUpgrade = request.method === "GET" && 
-                              upgradeHeader?.toLowerCase() === "websocket" &&
-                              connectionHeader?.toLowerCase().includes("upgrade");
-    
-    if (isWebSocketUpgrade) {
+    if (isWebSocketUpgrade(request)) {
       try {
         // const stub = getDOStubFromPathname(url.pathname, env);  // TODO: Make this work with test by changing the test
         const id = env.MY_DO.newUniqueId();
@@ -54,14 +47,7 @@ export class MyDO extends DurableObject{
   async fetch(request: Request) {
     const url = new URL(request.url);    
 
-    // Detect WebSocket upgrade via headers instead of URL patterns
-    const upgradeHeader = request.headers.get("Upgrade");
-    const connectionHeader = request.headers.get("Connection");
-    const isWebSocketUpgrade = request.method === "GET" && 
-                              upgradeHeader?.toLowerCase() === "websocket" &&
-                              connectionHeader?.toLowerCase().includes("upgrade");
-
-    if (isWebSocketUpgrade) {
+    if (isWebSocketUpgrade(request)) {
       const id = crypto.randomUUID();
       
       const webSocketPair = new WebSocketPair();
@@ -86,7 +72,6 @@ export class MyDO extends DurableObject{
   async webSocketOpen(ws: WebSocket) {
     // Track connection opening - useful for testing lifecycle
     await this.ctx.storage.put("lastWebSocketOpen", Date.now());
-    console.log("WebSocket opened in DO");
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
@@ -111,13 +96,11 @@ export class MyDO extends DurableObject{
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
     // Track connection closing - useful for testing lifecycle
     await this.ctx.storage.put("lastWebSocketClose", { code, reason, wasClean, timestamp: Date.now() });
-    console.log("WebSocket closed in DO", { code, reason, wasClean });
     ws.close(code, "Durable Object is closing WebSocket");
   }
 
   async webSocketError(ws: WebSocket, error: Error) {
     // Track errors - useful for testing lifecycle
     await this.ctx.storage.put("lastWebSocketError", { message: error.message, timestamp: Date.now() });
-    console.log("WebSocket error in DO", error.message);
   }
 };

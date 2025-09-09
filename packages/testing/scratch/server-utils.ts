@@ -13,10 +13,8 @@ export async function checkServerAvailability(): Promise<boolean> {
     });
     const responseBody = await response.text();
     const available = responseBody === "pong";
-    console.log(`Server available: ${available}`);
     return available;
   } catch (error) {
-    console.log("Server ping failed during module load:", error);
     return false;
   }
 }

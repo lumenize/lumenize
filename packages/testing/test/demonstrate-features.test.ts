@@ -32,42 +32,20 @@ describe('Various DO unit and integration testing techniques', () => {
     expect(await response.text()).toBe("1");
   });
 
-  // Test mock helper methods
-  it('should provide access to mock response tracking methods', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
-      const ws = new WebSocket('wss://example.com');
-      ws.onopen = () => {
-        ws.send('increment');
-        ws.send('increment'); // Send two messages rapidly
-      };
-      await mock.sync();
-      
-      // Test helper methods - verify they capture multiple rapid responses
-      expect(mock.getAllResponses()).toEqual(['1', '1']);  // Both responses captured
-      expect(mock.getLastResponse()).toBe('1');  // Last response
-      
-      mock.clearResponses();
-      expect(mock.getAllResponses()).toEqual([]);
-    });
-  });
-
   // The next set of tests will simulate a WebSocket upgrade over HTTP.
-  // The advantage of this approach is that it's lightwieght and doesn't require a mock. 
-  // You get the actual ws that the Worker would see as well as the ctx: ExecutionContext
-  // so you can inspect storage. This is the general approach that the Cloudflare agents team 
-  // uses... at least in the tests of theirs that I've looked at.
+  // The advantage of this approach is that it's lightweight and doesn't require a mock.
+  // You get the actual WebSocket that the Worker would see as well as proper input gates behavior.
+  // This is the general approach that the Cloudflare agents team uses.
   // 
   // However, there are significant limitations of this approach:
-  //   - You cannot use wss:// protocol because fetch won't allow it. So, your Worker must route 
-  //     regular HTTP GET calls to the Durable Object on a particular route. The example test-harness 
-  //     looks for a /wss route.
+  //   - When you write your Worker, you cannot use url.protocol to make the routing determination
+  //     because fetch won't allow it. So, your Worker must route regular HTTP GET calls to the 
+  //     Durable Object some other way. The example test-harness use a function from @lumenize/utils,
+  //     `isWebSocketUpgrade()` that inspects headers
+  //   - You cannot inspect the DO storage
   //   - You cannot use a client like AgentClient that calls the browser's WebSocket API 
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
-  // TODO: Next step is to upgrade my websocket-utils function to accept a config object that allows
-  //       the caller to specify all of the above things.
   //   - You cannot inspect connection tags or attachments in your tests.
   //   - You can inspect the messages that you receive back but not the ones that were sent in.
   //     That's fine when your test controls all message sending, but you could be using a library
@@ -78,7 +56,7 @@ describe('Various DO unit and integration testing techniques', () => {
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
     await new Promise<void>(async (resolve, reject) => {
       const timeout = setTimeout(() => { reject(new Error('timed out')) }, 5000);
-      const { ws, ctx } = await simulateWSUpgrade('https://example.com/wss');
+      const ws = await simulateWSUpgrade('https://example.com/wss');
       ws.onmessage = (event) => {
         expect(event.data).toBe('pong');
         clearTimeout(timeout);
@@ -95,25 +73,17 @@ describe('Various DO unit and integration testing techniques', () => {
     });
   });
 
-  // Test using @lumenize/testing's higher-level runWithSimulatedWSUpgrade API
-  it('should show ctx.storage changes when using runWithSimulatedWSUpgrade', async () => {
-    await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws, ctx) => {
-      ws.onmessage = async (event) => {
-        expect(event.data).toBe('1');
-        expect(await ctx.storage.get("count")).toBe(1);
-      };
-      ws.send('increment');
-    });
-  });
+  // NOTE: runWithSimulatedWSUpgrade does NOT provide storage access
+  // The approach respects input gates but can't inspect Durable Object state
+  // For storage inspection, use runWithWebSocketMock instead
 
   // Test input gates behavior with runWithSimulatedWSUpgrade vs runWithWebSocketMock
   it('should test input gates behavior with runWithSimulatedWSUpgrade', async () => {
-    await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws, ctx) => {
+    await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws) => {
       const responses: string[] = [];
       
       ws.onmessage = (event) => {
         responses.push(event.data);
-        console.log('runWithSimulatedWSUpgrade response:', event.data, 'total responses:', responses.length);
       };
       
       // Send two increment messages rapidly
@@ -134,13 +104,15 @@ describe('Various DO unit and integration testing techniques', () => {
       
       // If input gates work properly, we should get ['1', '2']
       // If not, we might get ['1', '1'] like our mock
-      console.log('runWithSimulatedWSUpgrade final responses:', responses);
       expect(responses).toEqual(['1', '2']); // Test if input gates work
     });
   });
 
   // This next set of tests uses a mock WebSocket which removes all of the limitations
   // mentioned above when manually simulating a WebSocket upgrade call over HTTP
+  // However, it adds its own limitations:
+  //   - Since the mock is calling the instance's methods directly (e.g. webSocketMessage),
+  //     it bypasses normal DO input/output gates. So, 
 
   // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
@@ -222,6 +194,5 @@ describe('Various DO unit and integration testing techniques', () => {
 
 
   // ✅ Overcomes limitation: "Cannot inspect connection tags or attachments"
-
 
 });

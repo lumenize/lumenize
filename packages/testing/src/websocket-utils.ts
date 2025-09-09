@@ -12,9 +12,10 @@ import {
  * This minimally mimics what the browser WebSocket API does, but:
  * - Can't use browser-based client libraries
  * - Doesn't mimic all browser behaviors like: origins, cookies, searchParams, etc.
+ * - No access to Durable Object storage (use runWithWebSocketMock for storage access)
  * 
  * @param url - The full WebSocket URL (e.g., 'wss://example.com/path' or 'https://example.com/path')
- * @returns Promise with WebSocket instance and execution context
+ * @returns Promise with WebSocket instance
  */
 export async function simulateWSUpgrade(url: string) {
   const ctx = createExecutionContext();
@@ -29,21 +30,22 @@ export async function simulateWSUpgrade(url: string) {
   const ws = res.webSocket as any;
   
   ws.accept(); // This works because we're running inside of workerd
-  return { ws, ctx };
+  return ws;
 }
 
 /**
  * Higher-level API that handles WebSocket upgrade with automatic timeout and cleanup.
  * Eliminates boilerplate Promise/timeout code in tests.
+ * Note: Provides no storage access - use runWithWebSocketMock for storage inspection.
  * 
  * @param url - The full WebSocket URL
- * @param testFn - Function that receives WebSocket and context, should setup event handlers and send messages
+ * @param testFn - Function that receives WebSocket, should setup event handlers and send messages
  * @param timeoutMs - Timeout in milliseconds (default: 5000)
  * @returns Promise that resolves when test completes or rejects on timeout/error
  */
 export async function runWithSimulatedWSUpgrade(
   url: string,
-  testFn: (ws: any, ctx: any) => Promise<void> | void,
+  testFn: (ws: any) => Promise<void> | void,
   timeoutMs: number = 5000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
@@ -51,7 +53,7 @@ export async function runWithSimulatedWSUpgrade(
       reject(new Error(`WebSocket test timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     
-    const { ws, ctx } = await simulateWSUpgrade(url);
+    const ws = await simulateWSUpgrade(url);
       
       // Track if test has completed
       let completed = false;
@@ -83,7 +85,7 @@ export async function runWithSimulatedWSUpgrade(
       });
       
       // Run the test function
-      const result = testFn(ws, ctx);
+      const result = testFn(ws);
       if (result instanceof Promise) {
         await result;
         // If test function was async and completed without WebSocket messages, cleanup
