@@ -130,24 +130,12 @@ async function runWebSocketMockInternal<T>(
       reject(new Error(`WebSocket mock test timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    // Create a mock connection that can communicate with the Durable Object
-    const sentMessages: string[] = [];
-    
-    const mockConnection = {
-      send: (message: string) => {
-        sentMessages.push(message);
-      },
-      close: (code?: number, reason?: string) => {
-        console.debug('Mock connection close called', { code, reason });  // TODO: Should we store this to inspect later? Is the client-side close code? How do we see the server-side?
-      },
-    };
-
     // Create mock object for inspection and tracking
     const mock = {
-      messagesSent: [] as string[],
-      messagesReceived: [] as string[],
-      connections: [] as any[],
+      messagesSent: [] as string[],        // Client → Server (what test sent to DO)
+      messagesReceived: [] as string[],    // Server → Client (what DO sent back to test)
       pendingOperations: [] as Promise<any>[],
+      clientCloses: [] as {code: number, reason: string, timestamp: number}[],
       async sync() {
         // Wait iteratively until no new operations are created
         let previousCount = -1;
@@ -163,10 +151,7 @@ async function runWebSocketMockInternal<T>(
         // This ensures that any background work triggered by the test is completed
         await waitOnExecutionContext(execCtx);  // TODO: Does this really help? Need to test with and without on a DO that uses waitUntil
       },
-      // Helper methods to access mock connection state
-      getLastResponse: () => sentMessages[sentMessages.length - 1],
-      getAllResponses: () => [...sentMessages],
-      clearResponses: () => sentMessages.length = 0
+
     };
     
     // Setup WebSocket mocking with proper isolation
@@ -186,19 +171,49 @@ async function runWebSocketMockInternal<T>(
     function MockWebSocket(this: any, url: string | URL, protocols?: string | string[]) {
       const eventTarget = new EventTarget();
       
-      // Track this connection
-      mock.connections.push(this);
-      
-      // Store reference to server-side WebSocket for attachment access
-      let serverWebSocket: any = null;
-      
       // Create a WebSocket-like object that routes responses back to our mock
       const mockWebSocket = {
         send: (message: string) => {
-          // This is the response from the DO - capture it
-          mockConnection.send(message);
+          // This is the response from the DO - capture it directly and trigger client event
+          mock.messagesReceived.push(message);
+          
+          // Trigger the client-side message event immediately
+          const messageEvent = new MessageEvent('message', { data: message });
+          
+          // Call onmessage handler
+          if (this.onmessage) {
+            const result = this.onmessage(messageEvent);
+            if (result instanceof Promise) {
+              mock.pendingOperations.push(result);
+            }
+          }
+          
+          // Dispatch event to addEventListener handlers
+          this.dispatchEvent(messageEvent);
         },
-        close: (code?: number, reason?: string) => mockConnection.close(code, reason)
+        close: (code?: number, reason?: string) => {
+          // This is called when the server initiates a close
+          // We need to trigger the client-side close event
+          this.readyState = 3; // CLOSED
+          
+          // Create close event and trigger client-side handlers
+          const closeEvent = new CloseEvent('close', { 
+            code: code || 1000, 
+            reason: reason || '',
+            wasClean: true 
+          });
+          
+          // Call client-side onclose handler
+          if (this.onclose) {
+            const result = this.onclose(closeEvent);
+            if (result instanceof Promise) {
+              mock.pendingOperations.push(result);
+            }
+          }
+          
+          // Dispatch close event to addEventListener handlers
+          this.dispatchEvent(closeEvent);
+        }
       };
       
       // WebSocket-like interface
@@ -229,31 +244,9 @@ async function runWebSocketMockInternal<T>(
         // Create a promise for the async response that actually talks to the DO
         const responsePromise = Promise.resolve().then(async () => {
           try {
-            // Clear any previous responses to ensure we get the latest
-            mock.clearResponses();
-            
             // Call the DO's webSocketMessage method with our mock WebSocket
+            // The mockWebSocket.send() will handle message tracking and event triggering
             await (instance as any).webSocketMessage(mockWebSocket, data);
-            
-            // Get the response that was sent via mockWebSocket.send() -> mockConnection.send()
-            const response = mock.getLastResponse();
-            if (response) {
-              // Track received message
-              mock.messagesReceived.push(response);
-              
-              const messageEvent = new MessageEvent('message', { data: response });
-              
-              // Call onmessage handler
-              if (this.onmessage) {
-                const result = this.onmessage(messageEvent);
-                if (result instanceof Promise) {
-                  await result;
-                }
-              }
-              
-              // Dispatch event to addEventListener handlers
-              this.dispatchEvent(messageEvent);
-            }
           } catch (error) {
             console.error('Error in WebSocket send:', error);
             
@@ -282,6 +275,9 @@ async function runWebSocketMockInternal<T>(
       
       this.close = (code = 1000, reason = '') => {
         this.readyState = 3; // CLOSED
+        
+        // Track client-initiated close in mock for inspection
+        mock.clientCloses.push({ code, reason, timestamp: Date.now() });
         
         // Call DO's webSocketClose lifecycle method if it exists
         const closePromise = Promise.resolve().then(async () => {
@@ -318,10 +314,7 @@ async function runWebSocketMockInternal<T>(
           // Call the Durable Object's fetch method to handle WebSocket upgrade
           const response = await (instance as any).fetch(upgradeRequest);
           
-          // Extract the server-side WebSocket from the response
-          if (response.webSocket) {
-            serverWebSocket = response.webSocket;
-          }
+          // The WebSocket upgrade is handled internally by the DO
         }
         
         this.readyState = 1; // OPEN

@@ -88,7 +88,8 @@ describe('Comprehensive WebSocket testing framework tests', () => {
           code: 1000,
           reason: 'Test close',
           wasClean: true,
-          timestamp: expect.any(Number)
+          timestamp: expect.any(Number),
+          initiatedBy: 'client'
         });
       });
     });
@@ -217,6 +218,121 @@ describe('Comprehensive WebSocket testing framework tests', () => {
 
       // Verify that even though the error was thrown, the async handlers executed
       expect(asyncErrorExecuted).toBe(true);
+    });
+  });
+
+  describe('WebSocket close codes and reasons testing', () => {
+    it('should track client-initiated close codes and reasons', async () => {
+      let clientCloseReceived = false;
+      let receivedCode = 0;
+      let receivedReason = '';
+
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+        const ws = new WebSocket('wss://example.com');
+        
+        ws.onopen = () => {
+          // Client initiates close with custom code and reason
+          ws.close(3001, 'Client closing for test');
+        };
+        
+        ws.onclose = (event) => {
+          clientCloseReceived = true;
+          receivedCode = event.code;
+          receivedReason = event.reason;
+        };
+        
+        await mock.sync();
+        
+        // Verify client-initiated close is tracked in mock
+        expect(mock.clientCloses).toHaveLength(1);
+        expect(mock.clientCloses[0].code).toBe(3001);
+        expect(mock.clientCloses[0].reason).toBe('Client closing for test');
+        
+        // Verify server received the client-initiated close
+        const clientClose = await ctx.storage.get("lastClientInitiatedClose");
+        expect(clientClose).toBeDefined();
+        expect(clientClose.code).toBe(3001);
+        expect(clientClose.reason).toBe('Client closing for test');
+        expect(clientClose.initiatedBy).toBe('client');
+      });
+
+      // Verify client received close event
+      expect(clientCloseReceived).toBe(true);
+      expect(receivedCode).toBe(3001);
+      expect(receivedReason).toBe('Client closing for test');
+    });
+
+    it('should track server-initiated close codes and reasons', async () => {
+      let serverCloseReceived = false;
+      let receivedCode = 0;
+      let receivedReason = '';
+
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+        const ws = new WebSocket('wss://example.com');
+        
+        ws.onopen = () => {
+          // Send special message to trigger server-initiated close
+          ws.send('test-server-close');
+        };
+        
+        ws.onclose = (event) => {
+          serverCloseReceived = true;
+          receivedCode = event.code;
+          receivedReason = event.reason;
+        };
+        
+        await mock.sync();
+        
+        // Verify no client-initiated closes (server closed the connection)
+        expect(mock.clientCloses).toHaveLength(0);
+        
+        // Verify server-initiated close is tracked in storage
+        const serverClose = await ctx.storage.get("lastServerInitiatedClose");
+        expect(serverClose).toBeDefined();
+        expect(serverClose.code).toBe(4001);
+        expect(serverClose.reason).toBe('Server initiated close for testing');
+        expect(serverClose.initiatedBy).toBe('server');
+      });
+
+      // Verify client received server's close event
+      expect(serverCloseReceived).toBe(true);
+      expect(receivedCode).toBe(4001);
+      expect(receivedReason).toBe('Server initiated close for testing');
+    });
+
+    it('should distinguish between client and server initiated closes in same test', async () => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+        // Test client-initiated close
+        const ws1 = new WebSocket('wss://example.com/client-test');
+        ws1.onopen = () => {
+          ws1.close(3002, 'Client test close');
+        };
+        
+        await mock.sync();
+        
+        // Test server-initiated close  
+        const ws2 = new WebSocket('wss://example.com/server-test');
+        ws2.onopen = () => {
+          ws2.send('test-server-close');
+        };
+        
+        await mock.sync();
+        
+        // Verify we have one client-initiated close tracked in mock
+        expect(mock.clientCloses).toHaveLength(1);
+        expect(mock.clientCloses[0].code).toBe(3002);
+        expect(mock.clientCloses[0].reason).toBe('Client test close');
+        
+        // Verify both close types are tracked separately in storage
+        const clientClose = await ctx.storage.get("lastClientInitiatedClose");
+        const serverClose = await ctx.storage.get("lastServerInitiatedClose");
+        
+        expect(clientClose.code).toBe(3002);
+        expect(clientClose.initiatedBy).toBe('client');
+        
+        expect(serverClose.code).toBe(4001);
+        expect(serverClose.initiatedBy).toBe('server');
+      });
     });
   });
 

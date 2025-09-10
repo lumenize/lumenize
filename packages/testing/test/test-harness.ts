@@ -89,13 +89,49 @@ export class MyDO extends DurableObject{
       throw new Error("Test error from DO");
     }
 
-    ws.close(1003, "Not Found");  // Simulating a 404
+    if (message === 'test-server-close') {
+      // Trigger a server-initiated close for testing
+      // Store the close info directly since server-initiated closes might not trigger webSocketClose
+      const closeInfo = { 
+        code: 4001, 
+        reason: "Server initiated close for testing", 
+        wasClean: true, 
+        timestamp: Date.now(),
+        initiatedBy: 'server'
+      };
+      await this.ctx.storage.put("lastServerInitiatedClose", closeInfo);
+      await this.ctx.storage.put("lastWebSocketClose", closeInfo);
+      
+      ws.close(4001, "Server initiated close for testing");
+      return; // Don't send a response message
+    }
+
+    // Default response for any other message
+    ws.send('echo: ' + message);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
     // Track connection closing - useful for testing lifecycle
-    await this.ctx.storage.put("lastWebSocketClose", { code, reason, wasClean, timestamp: Date.now() });
-    ws.close(code, "Durable Object is closing WebSocket");
+    // Determine if this is client-initiated or server-initiated based on the code
+    const isClientInitiated = code !== 4001; // 4001 is our server-initiated test code
+    
+    const closeInfo = { 
+      code, 
+      reason, 
+      wasClean, 
+      timestamp: Date.now(),
+      initiatedBy: isClientInitiated ? 'client' : 'server'
+    };
+    
+    await this.ctx.storage.put("lastWebSocketClose", closeInfo);
+    
+    if (isClientInitiated) {
+      // Store client-initiated closes separately for easier testing
+      await this.ctx.storage.put("lastClientInitiatedClose", closeInfo);
+    } else {
+      // Store server-initiated closes separately for easier testing  
+      await this.ctx.storage.put("lastServerInitiatedClose", closeInfo);
+    }
   }
 
   async webSocketError(ws: WebSocket, error: Error) {
