@@ -8,8 +8,17 @@ import {
 } from 'cloudflare:test';
 
 /**
- * Simulates a WebSocket upgrade request to a Cloudflare Worker
- * @param url - The full WebSocket URL (e.g., 'wss://example.com/path' or 'https://example.com/path')
+ * Options for WebSocket upgrade simulation
+ */
+export interface WSUpgradeOptions {
+  protocols?: string[];
+  origin?: string;
+}
+
+/**
+ * Gets a Cloudflare server-side ws object by simulating a WebSocket upgrade request thru a Worker
+ * 
+ * @param url - The full WebSocket URL (e.g., 'https://example.com/path')
  * @param options - Optional WebSocket upgrade options including sub-protocols and origin
  * @returns Promise with WebSocket instance and upgrade response
  */
@@ -41,19 +50,13 @@ export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions)
 }
 
 /**
- * Options for WebSocket upgrade simulation
- */
-export interface WSUpgradeOptions {
-  protocols?: string[];
-  origin?: string;
-}
-
-/**
- * Higher-level API that handles WebSocket upgrade with automatic timeout and cleanup.
- * Eliminates boilerplate Promise/timeout code in tests.
+ * Runs a test function on a Cloudflare server-side ws object acquired by simulating
+ * a WebSocket upgrade request. This is a higher-level API than simulateWSUpgrade 
+ * that has conveniences for testing like automatic timeouts, automatic cleanup, and
+ * interpreting sub-protocol headers.
  * 
  * @param url - The full WebSocket URL
- * @param options - Optional WebSocket upgrade options including sub-protocols
+ * @param options - Optional WebSocket upgrade options including sub-protocols and origin
  * @param testFn - Function that receives WebSocket and upgrade details
  * @param timeoutMs - Timeout in milliseconds (default: 5000)  
  * @returns Promise that resolves when test completes or rejects on timeout/error
@@ -139,13 +142,11 @@ export function runWithSimulatedWSUpgrade(
 }
 
 /**
- * High-level API that uses WebSocket mocking to overcome all limitations of simulateWSUpgrade.
- * This approach:
- * - ✅ Supports wss:// protocol URLs for routing
- * - ✅ Supports any client library that uses the WebSocket API
- * - ✅ Supports cookies, origin, and other browser WebSocket behaviors
- * - ✅ Allows inspection of messages sent and received
- * - ✅ Provides access to real ctx: DurableObjectState for inspecting storage, getWebSockets, etc.
+ * A drop in replacement (superset) for Cloudflare's runInDurableObject.
+ * This adds an optional WebSocket mock parameter to the end of the test callback function so you
+ * can gradually add WebSocket testing to your current Durable Object tests. This mock is 
+ * monkey-patched into the environment so even libraries that use the browser's native WebSocket API
+ * (like AgentClient) can be part of the test
  * 
  * @param durableObjectStubOrTestFn - The Durable Object stub to run within, or the test function if auto-creating stub
  * @param testFnOrTimeoutMs - Function that receives mock, instance, and DurableObjectState, or timeout if first param is test function
