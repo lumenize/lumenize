@@ -3,16 +3,15 @@ import {
   DurableObjectState,
   SELF,
   env,
-  runInDurableObject,
 // @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
 } from 'cloudflare:test';
-import { runWithWebSocketMock, runWithSimulatedWSUpgrade } from '../src/websocket-utils.js';
+import { runInDurableObject, runWithSimulatedWSUpgrade } from '../src/websocket-utils.js';
 import { MyDO } from './test-harness';
 
 describe('Comprehensive WebSocket testing framework tests', () => {
 
   it('should support addEventListener for libraries that use EventTarget API', async () => {
-    await runWithWebSocketMock(async (mock, instance, ctx) => {
+    await runInDurableObject(async (instance, ctx, mock) => {
       const ws = new WebSocket('wss://example.com');
       let messageReceived = false;
       let openReceived = false;
@@ -45,7 +44,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
   it('should properly propagate assertion failures from WebSocket event handlers', async () => {
     // This should throw because the assertion in onmessage will fail
     await expect(async () => {
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = () => {
           ws.send('increment');
@@ -62,7 +61,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
   // Test WebSocket lifecycle hooks
   describe('WebSocket lifecycle hooks', () => {
     it('should call webSocketOpen when connection opens', async () => {
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         await mock.sync();
         
@@ -74,7 +73,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should call webSocketClose when connection closes', async () => {
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = () => {
           ws.close(1000, 'Test close');
@@ -97,7 +96,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     it('should call webSocketError when message handler throws', async () => {
       // We expect this to have an error, so we catch it
       try {
-        await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+        await runInDurableObject(async (instance: MyDO, ctx, mock) => {
           const ws = new WebSocket('wss://example.com');
           ws.onopen = () => {
             ws.send('test-error'); // This will cause the DO to throw an error
@@ -109,7 +108,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       }
       
       // Check that webSocketError was called by verifying storage was updated
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         // Trigger the same error but check if the previous instance recorded it
         // Actually, let's check on the same instance by using a different approach
         const ws = new WebSocket('wss://example.com');
@@ -137,7 +136,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should track all lifecycle events in order', async () => {
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = async () => {
           ws.send('increment'); // This should work
@@ -168,7 +167,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       let asyncOpenExecuted = false;
       let asyncCloseExecuted = false;
 
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         
         // Test async onopen handler (Promise branch)
@@ -197,7 +196,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
 
       // Test async error handler - expect the error to be thrown
       await expect(async () => {
-        await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+        await runInDurableObject(async (instance: MyDO, ctx, mock) => {
           const ws = new WebSocket('wss://example.com');
           
           ws.onopen = async () => {
@@ -227,7 +226,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       let receivedCode = 0;
       let receivedReason = '';
 
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         
         ws.onopen = () => {
@@ -267,7 +266,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       let receivedCode = 0;
       let receivedReason = '';
 
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         const ws = new WebSocket('wss://example.com');
         
         ws.onopen = () => {
@@ -301,7 +300,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should distinguish between client and server initiated closes in same test', async () => {
-      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
+      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
         // Test client-initiated close
         const ws1 = new WebSocket('wss://example.com/client-test');
         ws1.onopen = () => {

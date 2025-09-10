@@ -3,10 +3,9 @@ import {
   DurableObjectState,
   SELF,
   env,
-  runInDurableObject,
 // @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
 } from 'cloudflare:test';
-import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runWithWebSocketMock } from '../src/websocket-utils.js';
+import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runInDurableObject } from '../src/websocket-utils.js';
 import { MyDO } from './test-harness';
 
 describe('Various ways to test with WebSockets', () => {
@@ -113,7 +112,7 @@ describe('Various ways to test with WebSockets', () => {
   //     to interleave execution
   //   - Can NOT test setWebSocketAutoResponse pair is working for
 
-  // Overcomes limitations. runWithWebSocketMock now allows you to:
+  // Overcomes limitations. runInDurableObject now allows you to:
   //   - Use any client library that directly calls WebSocket like AgentClient
   //   - Inspect the messages that were sent in and out
   it('should allow use of libraries that use browser WebSocket API', async () => {    
@@ -130,7 +129,7 @@ describe('Various ways to test with WebSockets', () => {
 
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {  // pass in your own stub
+    await runInDurableObject(stub, async (instance, ctx, mock) => {  // pass in your own stub
       connectIncrementAndClose();  // Simulates using a library using WebSocket API
       
       // Without mock.sync(), these are not correct because operations haven't completed
@@ -151,11 +150,11 @@ describe('Various ways to test with WebSockets', () => {
     }, 500);
   });
 
-  // Overcomes limitations. runWithWebSocketMock allows you to:
+  // Overcomes limitations. runInDurableObject allows you to:
   //   - Inspect ctx (DurableObjectState): storage, getWebSockets, etc.
-  it('should show ctx (DurableObjectState) changes when using runWithWebSocketMock', async () => {
+  it('should show ctx (DurableObjectState) changes when using runInDurableObject', async () => {
     let onmessageCalled = false;
-    await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {  // newUniqueId stub created by default
+    await runInDurableObject(async (instance: MyDO, ctx, mock) => {  // newUniqueId stub created by default
       let messageReceived = false;
       const ws = new WebSocket('wss://example.com/my-do/my-name');
       ws.onopen = () => {
@@ -181,10 +180,10 @@ describe('Various ways to test with WebSockets', () => {
     expect(onmessageCalled).toBe(true);
   });
 
-  // Overcomes limitations. runWithWebSocketMock allows you to:
+  // Overcomes limitations. runInDurableObject allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
-  it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
-    await runWithWebSocketMock((mock, instance, ctx) => {
+  it('should support wss:// protocol URLs with runInDurableObject', async () => {
+    await runInDurableObject((instance, ctx, mock) => {
       const ws = new WebSocket('wss://example.com');  
       ws.onopen = () => { ws.send('increment') };   
       ws.onmessage = (event) => { 
@@ -193,10 +192,10 @@ describe('Various ways to test with WebSockets', () => {
     }, 1000);
   });
 
-  // Shows limitations of runWithWebSocketMock:
+  // Shows limitations of runInDurableObject with WebSocket mock:
   //   - Input gates do NOT work
-  it('should show that input gates do NOT work with runWithWebSocketMock', async () => {
-    await runWithWebSocketMock(async (mock, instance, ctx) => {
+  it('should show that input gates do NOT work with runInDurableObject', async () => {
+    await runInDurableObject(async (instance, ctx, mock) => {
       const responses: string[] = [];
       const ws = new WebSocket('wss://example.com');
       

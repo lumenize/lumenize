@@ -2,7 +2,7 @@ import {
   SELF,
   env,
   createExecutionContext,
-  runInDurableObject,
+  runInDurableObject as cloudflareRunInDurableObject,
   waitOnExecutionContext,
 // @ts-expect-error - cloudflare:test module types are not consistently exported by VS Code
 } from 'cloudflare:test';
@@ -175,24 +175,24 @@ function getDurableObjectNamespace(env: Record<string, any>): any {
 }
 
 /**
- * A drop in replacement (superset) for Cloudflare's runInDurableObject.
+ * A drop-in replacement (superset) for Cloudflare's runInDurableObject.
  * This adds an optional WebSocket mock parameter to the end of the test callback function so you
  * can gradually add WebSocket testing to your current Durable Object tests. This mock is 
  * monkey-patched into the environment so even libraries that use the browser's native WebSocket API
  * (like AgentClient) can be part of the test
  * 
  * @param durableObjectStubOrTestFn - The Durable Object stub to run within, or the test function if auto-creating stub
- * @param testFnOrTimeoutMs - Function that receives mock, instance, and DurableObjectState, or timeout if first param is test function
+ * @param testFnOrTimeoutMs - Function that receives instance, DurableObjectState, and mock, or timeout if first param is test function
  * @param timeoutMs - Timeout in milliseconds (default: 1000)
  */
-export async function runWithWebSocketMock<T>(
-  durableObjectStubOrTestFn: any | ((mock: any, instance: T, ctx: any) => Promise<void> | void),
-  testFnOrTimeoutMs?: ((mock: any, instance: T, ctx: any) => Promise<void> | void) | number,
+export async function runInDurableObject<T>(
+  durableObjectStubOrTestFn: any | ((instance: T, ctx: any, mock?: any) => Promise<void> | void),
+  testFnOrTimeoutMs?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | number,
   timeoutMs: number = 1000
 ): Promise<void> {
   // Handle overloaded signature - determine if first parameter is stub or test function
   let durableObjectStub: any;
-  let testFn: (mock: any, instance: T, ctx: any) => Promise<void> | void;
+  let testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void;
   let actualTimeoutMs: number;
 
   if (typeof durableObjectStubOrTestFn === 'function') {
@@ -205,15 +205,15 @@ export async function runWithWebSocketMock<T>(
   } else {
     // First parameter is the stub, use traditional signature
     durableObjectStub = durableObjectStubOrTestFn;
-    testFn = testFnOrTimeoutMs as (mock: any, instance: T, ctx: any) => Promise<void> | void;
+    testFn = testFnOrTimeoutMs as (instance: T, ctx: any, mock?: any) => Promise<void> | void;
     actualTimeoutMs = timeoutMs;
   }
 
-  return runInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
+  return cloudflareRunInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
     // Create a separate ExecutionContext for waitUntil tracking
     // Note: ctx here is DurableObjectState, but we need ExecutionContext for waitOnExecutionContext
     const execCtx = createExecutionContext();
-    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, instance, ctx, actualTimeoutMs);
+    await runWebSocketMockInternal((mock: any) => testFn(instance, ctx, mock), execCtx, instance, ctx, actualTimeoutMs);
   });
 }
 
