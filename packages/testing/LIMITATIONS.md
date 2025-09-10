@@ -40,9 +40,7 @@ The WebSocket mock implementation has the following limitations compared to the 
 - `bufferedAmount` property is always 0
 
 #### **Protocol Limitations**
-- Sub-protocol negotiation is not implemented
 - Custom headers during handshake are not supported
-- Origin validation is not performed
 
 These limitations make the mock suitable for testing basic WebSocket functionality but may not cover all edge cases that real WebSocket connections encounter.
 

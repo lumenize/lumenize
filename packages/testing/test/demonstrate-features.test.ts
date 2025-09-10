@@ -14,10 +14,11 @@ describe('Various ways to test with WebSockets', () => {
   // You get the actual WebSocket that the Worker would see as well as proper input gates behavior.
   // This is the general approach that the Cloudflare agents team uses.
   //
-  // It has a few advantages over the mocking approach we show later derived from the
+  // It has a few advantages over the mocking approach we show later that derive from the
   // fact that it's going through the actual Worker fetch upgrade process:
   //   - You can test that your setWebSocketAutoResponse pair works
   //   - You can test the WebSocket sub-protcol selection code in your Worker
+  //   - You can test origin rejection that's in your Worker
   //   - Input gates work
   // 
   // However, there are significant limitations of this approach:
@@ -32,22 +33,23 @@ describe('Various ways to test with WebSockets', () => {
   
   // TODO:
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
-  //     cookies, origin, etc.
+  //     cookies, etc.
   //   - You cannot test multiple simultaneous WS connections to the same instance
 
-  // Test using @lumenize/testing's low-level simulateWSUpgrade
+    // Test using @lumenize/testing's low-level simulateWSUpgrade
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
-    const { ws, response } = await simulateWSUpgrade('https://example.com/wss');
-    let onmessageCalled = false;
+    const { ws, response } = await simulateWSUpgrade('https://example.com/wss', { 
+      origin: 'https://example.com' 
+    });
+    
     await new Promise<void>((resolve) => {
       ws.onmessage = (event) => {
         expect(event.data).toBe('pong');
-        onmessageCalled = true;
+        ws.close();
         resolve();
       };
       ws.send('ping');
     });
-    expect(onmessageCalled).toBe(true);
   });
 
   // Uses slightly higher-level API of runWithSimulatedWSUpgrade
@@ -55,7 +57,10 @@ describe('Various ways to test with WebSockets', () => {
     let onmessageCalled = false;
     await runWithSimulatedWSUpgrade(
       'https://example.com/wss',
-      { protocols: ["not.correct.subprotocol.1", "correct.subprotocol", "not.correct.subprotocol.2"] },
+      { 
+        protocols: ["not.correct.subprotocol.1", "correct.subprotocol", "not.correct.subprotocol.2"],
+        origin: 'https://example.com'
+      },
       async (ws) => {
         // Verify the correct protocol was selected
         expect(ws.protocol).toBe('correct.subprotocol');
@@ -74,25 +79,30 @@ describe('Various ways to test with WebSockets', () => {
   // Shows that input gates work with runWithSimulatedWSUpgrade
   // Uses slightly higher-level runWithSimulatedWSUpgrade with timeout and cleanup
   it('should test input gates behavior with runWithSimulatedWSUpgrade', async () => {
-    await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws) => {
-      const responses: string[] = [];
-      
-      ws.onmessage = (event) => {
-        responses.push(event.data);
-      };
-      
-      ws.send('increment');
-      ws.send('increment');
-      
-      await vi.waitFor(() => {
-        expect(responses.length).toBe(2);
-      }, {
-        timeout: 1000,
-        interval: 10
-      });
-      
-      expect(responses).toEqual(['1', '2']); // If input gates don't work, we might get ['1', '1']
-    }, 100);  // timeout
+    await runWithSimulatedWSUpgrade(
+      'https://example.com/wss', 
+      { origin: 'https://example.com' },
+      async (ws) => {
+        const responses: string[] = [];
+        
+        ws.onmessage = (event) => {
+          responses.push(event.data);
+        };
+        
+        ws.send('increment');
+        ws.send('increment');
+        
+        await vi.waitFor(() => {
+          expect(responses.length).toBe(2);
+        }, {
+          timeout: 1000,
+          interval: 10
+        });
+        
+        expect(responses).toEqual(['1', '2']); // If input gates don't work, we might get ['1', '1']
+      }, 
+      100  // timeout
+    );
   });
 
   // This next set of tests uses a mock WebSocket which removes the limitations

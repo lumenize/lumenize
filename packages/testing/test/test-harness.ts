@@ -1,12 +1,28 @@
 import { DurableObject } from "cloudflare:workers";
 import { getDOStubFromPathname, getDONamespaceFromPathname, isWebSocketUpgrade } from "@lumenize/utils";
 
+// Allowed origins for WebSocket connections
+export const ALLOWED_ORIGINS = [
+  'https://example.com',
+  'https://test.example.com'
+];
+
 // Worker
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    // Check origin
+    const origin = request.headers.get('Origin');
+    if (!origin) {
+      return new Response('Origin header required', { status: 403 });
+    }
+    if (!ALLOWED_ORIGINS.includes(origin)) {
+      return new Response('Origin not allowed', { status: 403 });
+    }
     
-    if (isWebSocketUpgrade(request)) {
+    // if (isWebSocketUpgrade(request)) {  // Recommend you use this in production
+    if (url.protocol === 'wss:' || url.pathname === '/wss') {  // Specified this way to test protocol-based routing
       try {
         // const stub = getDOStubFromPathname(url.pathname, env);  // TODO: Make this work with test by changing the test
         const id = env.MY_DO.newUniqueId();

@@ -8,36 +8,44 @@ import {
 } from 'cloudflare:test';
 
 /**
- * Simulates a WebSocket upgrade request for testing Cloudflare Workers.
- * This minimally mimics what the browser WebSocket API does
- * 
+ * Simulates a WebSocket upgrade request to a Cloudflare Worker
  * @param url - The full WebSocket URL (e.g., 'wss://example.com/path' or 'https://example.com/path')
- * @param protocols - Optional sub-protocols to request
+ * @param options - Optional WebSocket upgrade options including sub-protocols and origin
  * @returns Promise with WebSocket instance and upgrade response
  */
-export async function simulateWSUpgrade(url: string, protocols?: string[]) {
+export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions) {
   const ctx = createExecutionContext();
   const headers: Record<string, string> = { 
     Upgrade: "websocket",
     Connection: "upgrade"
   };
   
-  if (protocols && protocols.length > 0) {
-    headers['Sec-WebSocket-Protocol'] = protocols.join(', ');
+  if (options?.protocols && options.protocols.length > 0) {
+    headers['Sec-WebSocket-Protocol'] = options.protocols.join(', ');
+  }
+
+  if (options?.origin) {
+    headers['Origin'] = options.origin;
   }
 
   const req = new Request(url, { headers });
   const res = await SELF.fetch(req, env, ctx);
   const ws = res.webSocket as any;
 
-  ws.accept(); // This works because we're running inside of workerd
+  // Only accept the WebSocket if the upgrade was successful (status 101)
+  if (ws && res.status === 101) {
+    ws.accept(); // This works because we're running inside of workerd
+  }
 
   return { ws, response: res };
-}/**
+}
+
+/**
  * Options for WebSocket upgrade simulation
  */
 export interface WSUpgradeOptions {
   protocols?: string[];
+  origin?: string;
 }
 
 /**
@@ -89,7 +97,7 @@ export function runWithSimulatedWSUpgrade(
     }, actualTimeoutMs);
     
     try {
-      const { ws, response } = await simulateWSUpgrade(url, options.protocols);
+      const { ws, response } = await simulateWSUpgrade(url, options);
       
       // Extract selected protocol from response and set it on the WebSocket
       const selectedProtocol = response.headers.get('Sec-WebSocket-Protocol') || '';
