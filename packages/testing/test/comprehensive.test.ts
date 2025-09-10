@@ -35,7 +35,6 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       
       await mock.sync();
       
-      // These should all be true if EventTarget is working and callbacks were executed
       expect(openReceived).toBe(true);
       expect(messageReceived).toBe(true);
       expect(messageEventData).toBe('1'); // Additional verification the callback ran
@@ -49,8 +48,8 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
     
-    // This test should fail - demonstrating that event handler assertions work
-    try {
+    // This should throw because the assertion in onmessage will fail
+    await expect(async () => {
       await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = () => {
@@ -62,14 +61,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
         };
         await mock.sync();
       });
-      
-      // If we get here, the test didn't fail as expected
-      expect(true).toBe(false); // Force failure if assertion wasn't propagated
-    } catch (error) {
-      // This is expected - the assertion in onmessage should have failed
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toContain('expected \'1\' to be \'wrong-value\'');
-    }
+    }).rejects.toThrow('expected \'1\' to be \'wrong-value\'');
   });
 
   // Test WebSocket lifecycle hooks
@@ -187,7 +179,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       });
     });
 
-    it('should handle async event handlers returning Promises', async () => {
+    it('should handle async onopen and onclose event handlers returning Promises', async () => {
       const id = env.MY_DO.newUniqueId();
       const stub = env.MY_DO.get(id);
       let asyncOpenExecuted = false;
@@ -215,6 +207,36 @@ describe('Comprehensive WebSocket testing framework tests', () => {
 
       expect(asyncOpenExecuted).toBe(true);
       expect(asyncCloseExecuted).toBe(true);
+    });
+
+    it('should handle async onerror event handlers returning Promises', async () => {
+      const id = env.MY_DO.newUniqueId();
+      const stub = env.MY_DO.get(id);
+      let asyncErrorExecuted = false;
+
+      // Test async error handler - expect the error to be thrown
+      await expect(async () => {
+        await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+          const ws = new WebSocket('wss://example.com');
+          
+          ws.onopen = async () => {
+            await new Promise(resolve => setTimeout(resolve, 1));
+            // Send a message that will trigger an error to test async onerror
+            ws.send('test-error');
+          };
+          
+          // Test async onerror handler (Promise branch)
+          ws.onerror = async (event) => {
+            await new Promise(resolve => setTimeout(resolve, 1));
+            asyncErrorExecuted = true;
+          };
+          
+          await mock.sync();
+        });
+      }).rejects.toThrow('Test error from DO');
+
+      // Verify that even though the error was thrown, the async handlers executed
+      expect(asyncErrorExecuted).toBe(true);
     });
   });
 

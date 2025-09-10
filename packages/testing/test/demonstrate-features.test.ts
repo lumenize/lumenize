@@ -20,17 +20,18 @@ describe('Various ways to test with WebSockets', () => {
   //   - Input gates work
   // 
   // However, there are significant limitations of this approach:
+  //   - You cannot inspect the DO storage
+  //   - You cannot use a client like AgentClient that calls the browser's WebSocket API 
+  //   - You cannot inspect connection tags or attachments in your tests
+  //   - It's less like a drop-in replacement for runInDurableObject
   //   - When you write your Worker, you cannot use url.protocol to make the routing determination
   //     because fetch won't allow it. So, your Worker must route regular HTTP GET calls to the 
   //     Durable Object some other way.
-  //   - You cannot inspect the DO storage
-  //   - You cannot use a client like AgentClient that calls the browser's WebSocket API 
-  //   - You cannot inspect connection tags or attachments in your tests.
-  //   - It's less like a drop-in replacement for runInDurableObject
   // TODO:
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
   //   - You can inspect the server-side close code in addition to the client-side one
+  //   - You cannot test multiple simultaneous WS connections to the same instance
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
@@ -45,7 +46,7 @@ describe('Various ways to test with WebSockets', () => {
   });
 
   // Shows that input gates work with runWithSimulatedWSUpgrade
-  // Uses slightly less low-level runWithSimulatedWSUpgrade
+  // Uses slightly higher-level runWithSimulatedWSUpgrade with timeout and cleanup
   it('should test input gates behavior with runWithSimulatedWSUpgrade', async () => {
     await runWithSimulatedWSUpgrade('https://example.com/wss', async (ws) => {
       const responses: string[] = [];
@@ -65,29 +66,16 @@ describe('Various ways to test with WebSockets', () => {
       });
       
       expect(responses).toEqual(['1', '2']); // If input gates don't work, we might get ['1', '1']
-    });
+    }, 100);  // timeout
   });
 
-  // This next set of tests uses a mock WebSocket which removes all of the limitations
-  // mentioned above when manually simulating a WebSocket upgrade call over HTTP
-  // However, it adds its own limitations:
-  //   - Since the mock is calling the instance's methods directly (e.g. webSocketMessage),
-  //     it bypasses normal DO input gates. So, it's possible for two rapidly sent messages
-  //     to interleave execution.
-
-  // Overcomes limitations. runWithWebSocketMock allows you to:
-  //   - Use wss:// protocol as a gate for routing in your Worker
-  it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, (mock, instance, ctx) => {
-      const ws = new WebSocket('wss://example.com');  
-      ws.onopen = () => { ws.send('increment') };   
-      ws.onmessage = (event) => { 
-        expect(event.data).toBe('1');
-      };
-    }, 1000);
-  });
+  // This next set of tests uses a mock WebSocket which removes the limitations
+  // mentioned above when simulating a WebSocket upgrade call over HTTP
+  // 
+  // However, it has its own limitations that the simulated WS upgrade approach does not:
+  //   - Bypasses normal DO input gates. So, it's possible for two rapidly sent messages
+  //     to interleave execution
+  //   - Can NOT test setWebSocketAutoResponse pair is working for
 
   // Overcomes limitations. runWithWebSocketMock now allows you to:
   //   - Use any client library that directly calls WebSocket like AgentClient
@@ -154,6 +142,20 @@ describe('Various ways to test with WebSockets', () => {
     expect(onmessageCalled).toBe(true);
   });
 
+  // Overcomes limitations. runWithWebSocketMock allows you to:
+  //   - Use wss:// protocol as a gate for routing in your Worker
+  it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
+    const id = env.MY_DO.newUniqueId();
+    const stub = env.MY_DO.get(id);
+    await runWithWebSocketMock(stub, (mock, instance, ctx) => {
+      const ws = new WebSocket('wss://example.com');  
+      ws.onopen = () => { ws.send('increment') };   
+      ws.onmessage = (event) => { 
+        expect(event.data).toBe('1');
+      };
+    }, 1000);
+  });
+
   // Shows limitations of runWithWebSocketMock:
   //   - Input gates do NOT work
   it('should show that input gates do NOT work with runWithWebSocketMock', async () => {
@@ -189,8 +191,5 @@ describe('Various ways to test with WebSockets', () => {
   // ['host', 'test.lumenize.com'],
   // ['upgrade', 'websocket'],
   // ['connection', 'upgrade']
-
-
-  // ✅ Overcomes limitation: "Cannot inspect connection tags or attachments"
 
 });

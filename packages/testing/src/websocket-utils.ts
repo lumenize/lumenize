@@ -9,10 +9,7 @@ import {
 
 /**
  * Simulates a WebSocket upgrade request for testing Cloudflare Workers.
- * This minimally mimics what the browser WebSocket API does, but:
- * - Can't use browser-based client libraries
- * - Doesn't mimic all browser behaviors like: origins, cookies, searchParams, etc.
- * - No access to Durable Object storage (use runWithWebSocketMock for storage access)
+ * This minimally mimics what the browser WebSocket API does
  * 
  * @param url - The full WebSocket URL (e.g., 'wss://example.com/path' or 'https://example.com/path')
  * @returns Promise with WebSocket instance
@@ -36,7 +33,6 @@ export async function simulateWSUpgrade(url: string) {
 /**
  * Higher-level API that handles WebSocket upgrade with automatic timeout and cleanup.
  * Eliminates boilerplate Promise/timeout code in tests.
- * Note: Provides no storage access - use runWithWebSocketMock for storage inspection.
  * 
  * @param url - The full WebSocket URL
  * @param testFn - Function that receives WebSocket, should setup event handlers and send messages
@@ -65,25 +61,6 @@ export async function runWithSimulatedWSUpgrade(
         }
       };
       
-      // Wrap the original onmessage to auto-resolve after message handling
-      let originalOnMessage: ((event: any) => void | Promise<void>) | null = null;
-      
-      Object.defineProperty(ws, 'onmessage', {
-        get() { return originalOnMessage; },
-        set(handler: (event: any) => void | Promise<void>) {
-          originalOnMessage = async (event: any) => {
-            const result = handler(event);
-            // Handle both sync and async message handlers
-            if (result instanceof Promise) {
-              await result;
-            }
-            // Auto-complete test after successful message handling
-            cleanup();
-          };
-        },
-        configurable: true
-      });
-      
       // Run the test function
       const result = testFn(ws);
       if (result instanceof Promise) {
@@ -91,7 +68,6 @@ export async function runWithSimulatedWSUpgrade(
         // If test function was async and completed without WebSocket messages, cleanup
         cleanup();
       }
-      // If test function was sync, we wait for WebSocket message or timeout
   });
 }
 
@@ -146,7 +122,6 @@ async function runWebSocketMockInternal<T>(
       close: (code?: number, reason?: string) => {
         console.debug('Mock connection close called', { code, reason });  // TODO: Should we store this to inspect later? Is the client-side close code? How do we see the server-side?
       },
-      toString: () => 'mock-connection-websocket-test'
     };
 
     // Create mock object for inspection and tracking
