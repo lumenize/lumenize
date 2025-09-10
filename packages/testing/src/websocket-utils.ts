@@ -95,11 +95,15 @@ export function runWithSimulatedWSUpgrade(
   }
 
   return new Promise<void>(async (resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`WebSocket test timed out after ${actualTimeoutMs}ms`));
-    }, actualTimeoutMs);
+    let timeoutHandle: NodeJS.Timeout | undefined;
     
-    try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(`WebSocket test timed out after ${actualTimeoutMs}ms`));
+      }, actualTimeoutMs);
+    });
+    
+    const testPromise = async () => {
       const { ws, response } = await simulateWSUpgrade(url, options);
       
       // Extract selected protocol from response and set it on the WebSocket
@@ -131,11 +135,14 @@ export function runWithSimulatedWSUpgrade(
       if (ws && typeof ws.close === 'function' && ws.readyState !== ws.CLOSED) {
         ws.close();
       }
-      
-      clearTimeout(timeout);
+    };
+    
+    try {
+      await Promise.race([testPromise(), timeoutPromise]);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       resolve();
     } catch (error) {
-      clearTimeout(timeout);
+      if (timeoutHandle) clearTimeout(timeoutHandle);
       reject(error);
     }
   });
@@ -228,10 +235,6 @@ async function runWebSocketMockInternal<T>(
   timeoutMs: number = 1000
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`WebSocket mock test timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-
     // Create mock object for inspection and tracking
     const mock = {
       messagesSent: [] as string[],        // Client → Server (what test sent to DO)
@@ -452,18 +455,26 @@ async function runWebSocketMockInternal<T>(
     // Replace global WebSocket
     globalScope.WebSocket = MockWebSocket as any;
     
-    try {
+    const timeoutPromise = new Promise<never>((_, timeoutReject) => {
+      setTimeout(() => {
+        ensureRestore();
+        timeoutReject(new Error(`WebSocket mock test timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+    
+    const testPromise = async () => {
       // Run the test function with mock
       const result = testFn(mock);
       if (result instanceof Promise) {
         await result;
       }
-      
-      clearTimeout(timeout);
       ensureRestore();
+    };
+    
+    try {
+      await Promise.race([testPromise(), timeoutPromise]);
       resolve();
     } catch (error) {
-      clearTimeout(timeout);
       ensureRestore();
       reject(error);
     }

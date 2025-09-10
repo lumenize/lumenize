@@ -333,6 +333,24 @@ describe('Comprehensive WebSocket testing framework tests', () => {
         expect(serverClose.initiatedBy).toBe('server');
       });
     });
+
+  });
+
+  describe('Timeout behavior', () => {
+    it('should timeout properly with runWithSimulatedWSUpgrade', async () => {
+      await expect(async () => {
+        await runWithSimulatedWSUpgrade(
+          'https://test-harness.example.com/wss',
+          { origin: 'https://example.com' },
+          async (ws) => {
+            // This will take longer than the timeout
+            await new Promise(resolve => setTimeout(resolve, 100));
+          },
+          50  // 50ms timeout
+        );
+      }).rejects.toThrow('WebSocket test timed out after 50ms');
+    });
   });
 
 });
+

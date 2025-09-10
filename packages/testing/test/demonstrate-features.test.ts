@@ -216,7 +216,6 @@ describe('Various ways to test with WebSockets', () => {
     });
   });
 
-
   // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
   // Should test most/all of these:
   // ['user-agent', 'test-agent/1.0'],
