@@ -142,6 +142,39 @@ export function runWithSimulatedWSUpgrade(
 }
 
 /**
+ * Get all Durable Object binding names from the environment.
+ */
+function getDurableObjectBindings(env: Record<string, any>): string[] {
+  return Object.keys(env).filter(key => {
+    const value = env[key];
+    // Check if it looks like a DurableObjectNamespace
+    // (has getByName, idFromName, etc. methods)
+    return value && 
+           typeof value === 'object' && 
+           typeof value.getByName === 'function' &&
+           typeof value.idFromName === 'function';
+  });
+}
+
+/**
+ * Get a Durable Object namespace from the environment.
+ * If there's exactly one, use it. If there are multiple, throw an error.
+ */
+function getDurableObjectNamespace(env: Record<string, any>): any {
+  const bindings = getDurableObjectBindings(env);
+  
+  if (bindings.length === 0) {
+    throw new Error('No Durable Object bindings found in environment');
+  }
+  
+  if (bindings.length > 1) {
+    throw new Error(`Multiple Durable Object bindings found: ${bindings.join(', ')}. Please specify which one to use explicitly by passing a stub instead of a test function.`);
+  }
+  
+  return env[bindings[0]];
+}
+
+/**
  * A drop in replacement (superset) for Cloudflare's runInDurableObject.
  * This adds an optional WebSocket mock parameter to the end of the test callback function so you
  * can gradually add WebSocket testing to your current Durable Object tests. This mock is 
@@ -164,8 +197,9 @@ export async function runWithWebSocketMock<T>(
 
   if (typeof durableObjectStubOrTestFn === 'function') {
     // First parameter is the test function, auto-create stub
-    const id = env.MY_DO.newUniqueId();
-    durableObjectStub = env.MY_DO.get(id);
+    const durableObjectNamespace = getDurableObjectNamespace(env);
+    const id = durableObjectNamespace.newUniqueId();
+    durableObjectStub = durableObjectNamespace.get(id);
     testFn = durableObjectStubOrTestFn;
     actualTimeoutMs = typeof testFnOrTimeoutMs === 'number' ? testFnOrTimeoutMs : timeoutMs;
   } else {
