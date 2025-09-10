@@ -94,7 +94,7 @@ describe('Various ways to test with WebSockets', () => {
 
     const id = env.MY_DO.newUniqueId();
     const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
+    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {  // pass in your own stub
       connectIncrementAndClose();  // Simulates using a library using WebSocket API
       
       // Without mock.sync(), these are not correct because operations haven't completed
@@ -113,10 +113,8 @@ describe('Various ways to test with WebSockets', () => {
   // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Inspect ctx (DurableObjectState): storage, getWebSockets, etc.
   it('should show ctx (DurableObjectState) changes when using runWithWebSocketMock', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
     let onmessageCalled = false;
-    await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+    await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {  // newUniqueId stub created by default
       let messageReceived = false;
       const ws = new WebSocket('wss://example.com/my-do/my-name');
       ws.onopen = () => {
@@ -145,9 +143,7 @@ describe('Various ways to test with WebSockets', () => {
   // Overcomes limitations. runWithWebSocketMock allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
   it('should support wss:// protocol URLs with runWithWebSocketMock', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, (mock, instance, ctx) => {
+    await runWithWebSocketMock((mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');  
       ws.onopen = () => { ws.send('increment') };   
       ws.onmessage = (event) => { 
@@ -159,9 +155,7 @@ describe('Various ways to test with WebSockets', () => {
   // Shows limitations of runWithWebSocketMock:
   //   - Input gates do NOT work
   it('should show that input gates do NOT work with runWithWebSocketMock', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
+    await runWithWebSocketMock(async (mock, instance, ctx) => {
       const responses: string[] = [];
       const ws = new WebSocket('wss://example.com');
       

@@ -12,9 +12,7 @@ import { MyDO } from './test-harness';
 describe('Comprehensive WebSocket testing framework tests', () => {
 
   it('should support addEventListener for libraries that use EventTarget API', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    await runWithWebSocketMock(stub, async (mock, instance, ctx) => {
+    await runWithWebSocketMock(async (mock, instance, ctx) => {
       const ws = new WebSocket('wss://example.com');
       let messageReceived = false;
       let openReceived = false;
@@ -45,12 +43,9 @@ describe('Comprehensive WebSocket testing framework tests', () => {
 
   // Test that assertions in event handlers properly fail tests
   it('should properly propagate assertion failures from WebSocket event handlers', async () => {
-    const id = env.MY_DO.newUniqueId();
-    const stub = env.MY_DO.get(id);
-    
     // This should throw because the assertion in onmessage will fail
     await expect(async () => {
-      await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = () => {
           ws.send('increment');
@@ -67,9 +62,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
   // Test WebSocket lifecycle hooks
   describe('WebSocket lifecycle hooks', () => {
     it('should call webSocketOpen when connection opens', async () => {
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
-      await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
         const ws = new WebSocket('wss://example.com');
         await mock.sync();
         
@@ -81,9 +74,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should call webSocketClose when connection closes', async () => {
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
-      await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = () => {
           ws.close(1000, 'Test close');
@@ -103,12 +94,9 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should call webSocketError when message handler throws', async () => {
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
-      
       // We expect this to have an error, so we catch it
       try {
-        await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+        await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
           const ws = new WebSocket('wss://example.com');
           ws.onopen = () => {
             ws.send('test-error'); // This will cause the DO to throw an error
@@ -120,9 +108,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       }
       
       // Check that webSocketError was called by verifying storage was updated
-      const id2 = env.MY_DO.newUniqueId();
-      const stub2 = env.MY_DO.get(id2);
-      await runWithWebSocketMock(stub2, async (mock, instance: MyDO, ctx) => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
         // Trigger the same error but check if the previous instance recorded it
         // Actually, let's check on the same instance by using a different approach
         const ws = new WebSocket('wss://example.com');
@@ -150,9 +136,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should track all lifecycle events in order', async () => {
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
-      await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
         const ws = new WebSocket('wss://example.com');
         ws.onopen = async () => {
           ws.send('increment'); // This should work
@@ -180,12 +164,10 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should handle async onopen and onclose event handlers returning Promises', async () => {
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
       let asyncOpenExecuted = false;
       let asyncCloseExecuted = false;
 
-      await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+      await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
         const ws = new WebSocket('wss://example.com');
         
         // Test async onopen handler (Promise branch)
@@ -210,13 +192,11 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should handle async onerror event handlers returning Promises', async () => {
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
       let asyncErrorExecuted = false;
 
       // Test async error handler - expect the error to be thrown
       await expect(async () => {
-        await runWithWebSocketMock(stub, async (mock, instance: MyDO, ctx) => {
+        await runWithWebSocketMock(async (mock, instance: MyDO, ctx) => {
           const ws = new WebSocket('wss://example.com');
           
           ws.onopen = async () => {

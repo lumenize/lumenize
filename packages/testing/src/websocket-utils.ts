@@ -80,20 +80,38 @@ export async function runWithSimulatedWSUpgrade(
  * - ✅ Allows inspection of messages sent and received
  * - ✅ Provides access to real ExecutionContext for storage inspection
  * 
- * @param durableObjectStub - The Durable Object stub to run within
- * @param testFn - Function that receives mock, instance, and DurableObjectState
+ * @param durableObjectStubOrTestFn - The Durable Object stub to run within, or the test function if auto-creating stub
+ * @param testFnOrTimeoutMs - Function that receives mock, instance, and DurableObjectState, or timeout if first param is test function
  * @param timeoutMs - Timeout in milliseconds (default: 1000)
  */
 export async function runWithWebSocketMock<T>(
-  durableObjectStub: any,
-  testFn: (mock: any, instance: T, ctx: any) => Promise<void> | void,
+  durableObjectStubOrTestFn: any | ((mock: any, instance: T, ctx: any) => Promise<void> | void),
+  testFnOrTimeoutMs?: ((mock: any, instance: T, ctx: any) => Promise<void> | void) | number,
   timeoutMs: number = 1000
 ): Promise<void> {
+  // Handle overloaded signature - determine if first parameter is stub or test function
+  let durableObjectStub: any;
+  let testFn: (mock: any, instance: T, ctx: any) => Promise<void> | void;
+  let actualTimeoutMs: number;
+
+  if (typeof durableObjectStubOrTestFn === 'function') {
+    // First parameter is the test function, auto-create stub
+    const id = env.MY_DO.newUniqueId();
+    durableObjectStub = env.MY_DO.get(id);
+    testFn = durableObjectStubOrTestFn;
+    actualTimeoutMs = typeof testFnOrTimeoutMs === 'number' ? testFnOrTimeoutMs : timeoutMs;
+  } else {
+    // First parameter is the stub, use traditional signature
+    durableObjectStub = durableObjectStubOrTestFn;
+    testFn = testFnOrTimeoutMs as (mock: any, instance: T, ctx: any) => Promise<void> | void;
+    actualTimeoutMs = timeoutMs;
+  }
+
   return runInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
     // Create a separate ExecutionContext for waitUntil tracking
     // Note: ctx here is DurableObjectState, but we need ExecutionContext for waitOnExecutionContext
     const execCtx = createExecutionContext();
-    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, instance, ctx, timeoutMs);
+    await runWebSocketMockInternal((mock: any) => testFn(mock, instance, ctx), execCtx, instance, ctx, actualTimeoutMs);
   });
 }
 
