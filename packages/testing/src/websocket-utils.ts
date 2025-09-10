@@ -78,7 +78,7 @@ export async function runWithSimulatedWSUpgrade(
  * - ✅ Supports any client library that uses the WebSocket API
  * - ✅ Supports cookies, origin, and other browser WebSocket behaviors
  * - ✅ Allows inspection of messages sent and received
- * - ✅ Provides access to real ExecutionContext for storage inspection
+ * - ✅ Provides access to real ctx: DurableObjectState for inspecting storage, getWebSockets, etc.
  * 
  * @param durableObjectStubOrTestFn - The Durable Object stub to run within, or the test function if auto-creating stub
  * @param testFnOrTimeoutMs - Function that receives mock, instance, and DurableObjectState, or timeout if first param is test function
