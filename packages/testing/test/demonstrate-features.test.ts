@@ -106,10 +106,7 @@ describe('Various ways to test with WebSockets', () => {
   // Overcomes limitations. runWithWebSocketMock now allows you to:
   //   - Use any client library that directly calls WebSocket like AgentClient
   //   - Inspect the messages that were sent in and out
-  it('should allow use of libraries that use browser WebSocket API', async () => {
-    let closeCode = 0;
-    let closeReason = '';
-    
+  it('should allow use of libraries that use browser WebSocket API', async () => {    
     // Function that simulates a library using WebSocket API
     const connectIncrementAndClose = () => {
       const ws = new WebSocket('wss://example.com');
