@@ -47,13 +47,28 @@ export class MyDO extends DurableObject{
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       
+      // Handle sub-protocol selection
+      const requestedProtocols = request.headers.get('Sec-WebSocket-Protocol');
+      let selectedProtocol: string | undefined;
+      const responseHeaders = new Headers();
+      
+      if (requestedProtocols) {
+        const protocols = requestedProtocols.split(',').map(p => p.trim());
+        // Always choose "correct.subprotocol" if present
+        if (protocols.includes('correct.subprotocol')) {
+          selectedProtocol = 'correct.subprotocol';
+          responseHeaders.set('Sec-WebSocket-Protocol', selectedProtocol);
+        }
+      }
+      
       // Create attachment with predictable data including WebSocket count
       const currentWsCount = this.ctx.getWebSockets().length;
       const name = url.pathname.split('/').at(-1) ?? 'No name in path'
       const attachment = { 
         name, 
         count: currentWsCount + 1, // +1 because we're about to add this WebSocket
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        selectedProtocol
       };
       
       this.ctx.acceptWebSocket(server, [name]);
@@ -62,6 +77,7 @@ export class MyDO extends DurableObject{
       return new Response(null, {
         status: 101,
         webSocket: client,
+        headers: responseHeaders
       });
     }
 

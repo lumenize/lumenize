@@ -12,22 +12,32 @@ import {
  * This minimally mimics what the browser WebSocket API does
  * 
  * @param url - The full WebSocket URL (e.g., 'wss://example.com/path' or 'https://example.com/path')
- * @returns Promise with WebSocket instance
+ * @param protocols - Optional sub-protocols to request
+ * @returns Promise with WebSocket instance and upgrade response
  */
-export async function simulateWSUpgrade(url: string) {
+export async function simulateWSUpgrade(url: string, protocols?: string[]) {
   const ctx = createExecutionContext();
-  const req = new Request(url, {
-    headers: { 
-      Upgrade: "websocket",
-      Connection: "upgrade"
-    }
-  });
+  const headers: Record<string, string> = { 
+    Upgrade: "websocket",
+    Connection: "upgrade"
+  };
   
+  if (protocols && protocols.length > 0) {
+    headers['Sec-WebSocket-Protocol'] = protocols.join(', ');
+  }
+
+  const req = new Request(url, { headers });
   const res = await SELF.fetch(req, env, ctx);
   const ws = res.webSocket as any;
-  
+
   ws.accept(); // This works because we're running inside of workerd
-  return ws;
+
+  return { ws, response: res };
+}/**
+ * Options for WebSocket upgrade simulation
+ */
+export interface WSUpgradeOptions {
+  protocols?: string[];
 }
 
 /**
@@ -35,39 +45,88 @@ export async function simulateWSUpgrade(url: string) {
  * Eliminates boilerplate Promise/timeout code in tests.
  * 
  * @param url - The full WebSocket URL
- * @param testFn - Function that receives WebSocket, should setup event handlers and send messages
- * @param timeoutMs - Timeout in milliseconds (default: 5000)
+ * @param options - Optional WebSocket upgrade options including sub-protocols
+ * @param testFn - Function that receives WebSocket and upgrade details
+ * @param timeoutMs - Timeout in milliseconds (default: 5000)  
  * @returns Promise that resolves when test completes or rejects on timeout/error
  */
-export async function runWithSimulatedWSUpgrade(
+export function runWithSimulatedWSUpgrade(
+  url: string, 
+  testFn: (ws: any) => Promise<void> | void, 
+  timeoutMs?: number
+): Promise<void>;
+export function runWithSimulatedWSUpgrade(
   url: string,
-  testFn: (ws: any) => Promise<void> | void,
-  timeoutMs: number = 5000
+  optionsOrTestFn: WSUpgradeOptions | ((ws: any) => Promise<void> | void),
+  testFnOrTimeoutMs?: ((ws: any) => Promise<void> | void) | number,
+  timeoutMs?: number
+): Promise<void>;
+export function runWithSimulatedWSUpgrade(
+  url: string,
+  optionsOrTestFn: WSUpgradeOptions | ((ws: any) => Promise<void> | void),
+  testFnOrTimeoutMs?: ((ws: any) => Promise<void> | void) | number,
+  timeoutMs?: number
 ): Promise<void> {
+  let options: WSUpgradeOptions;
+  let testFn: (ws: any) => Promise<void> | void;
+  let actualTimeoutMs = timeoutMs || 100;
+
+  if (typeof optionsOrTestFn === 'function') {
+    // First signature: url, testFn, timeoutMs?
+    options = {};
+    testFn = optionsOrTestFn;
+    actualTimeoutMs = (testFnOrTimeoutMs as number) || 100;
+  } else {
+    // Second parameter is options, third is test function
+    options = optionsOrTestFn || {};
+    testFn = testFnOrTimeoutMs as (ws: any) => Promise<void> | void;
+    actualTimeoutMs = timeoutMs || 100;
+  }
+
   return new Promise<void>(async (resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error(`WebSocket test timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
+      reject(new Error(`WebSocket test timed out after ${actualTimeoutMs}ms`));
+    }, actualTimeoutMs);
     
-    const ws = await simulateWSUpgrade(url);
+    try {
+      const { ws, response } = await simulateWSUpgrade(url, options.protocols);
       
-      // Track if test has completed
-      let completed = false;
-      const cleanup = () => {
-        if (!completed) {
-          completed = true;
-          clearTimeout(timeout);
-          resolve();
-        }
-      };
+      // Extract selected protocol from response and set it on the WebSocket
+      const selectedProtocol = response.headers.get('Sec-WebSocket-Protocol') || '';
       
+      // Set protocol property on the WebSocket object if possible
+      try {
+        Object.defineProperty(ws, 'protocol', {
+          value: selectedProtocol,
+          writable: false,
+          enumerable: true,
+          configurable: true
+        });
+      } catch (error) {
+        // If we can't set the protocol property, that's okay
+      }
+        
       // Run the test function
       const result = testFn(ws);
       if (result instanceof Promise) {
         await result;
-        // If test function was async and completed without WebSocket messages, cleanup
-        cleanup();
       }
+      
+      // Small delay to allow any pending WebSocket operations to complete
+      // This helps when users set up async operations (like onmessage) without awaiting them
+      await new Promise(resolve => setTimeout(resolve, 10));
+      
+      // Clean up the WebSocket connection
+      if (ws && typeof ws.close === 'function' && ws.readyState !== ws.CLOSED) {
+        ws.close();
+      }
+      
+      clearTimeout(timeout);
+      resolve();
+    } catch (error) {
+      clearTimeout(timeout);
+      reject(error);
+    }
   });
 }
 

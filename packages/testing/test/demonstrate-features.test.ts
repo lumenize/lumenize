@@ -17,6 +17,7 @@ describe('Various ways to test with WebSockets', () => {
   // It has a few advantages over the mocking approach we show later derived from the
   // fact that it's going through the actual Worker fetch upgrade process:
   //   - You can test that your setWebSocketAutoResponse pair works
+  //   - You can test the WebSocket sub-protcol selection code in your Worker
   //   - Input gates work
   // 
   // However, there are significant limitations of this approach:
@@ -35,14 +36,39 @@ describe('Various ways to test with WebSockets', () => {
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
-    await new Promise<void>(async (resolve, reject) => {
-      const ws = await simulateWSUpgrade('https://example.com/wss');
+    const { ws, response } = await simulateWSUpgrade('https://example.com/wss');
+    let onmessageCalled = false;
+    await new Promise<void>((resolve) => {
       ws.onmessage = (event) => {
         expect(event.data).toBe('pong');
+        ws.close();
+        onmessageCalled = true;
         resolve();
       };
       ws.send('ping');
     });
+    expect(onmessageCalled).toBe(true);
+  });
+
+  // Uses slightly higher-level API of runWithSimulatedWSUpgrade
+  it('should have correct sub-protocol & setWebSocketAutoResponse w/ runWithSimulatedWSUpgrade', async () => {
+    let onmessageCalled = false;
+    await runWithSimulatedWSUpgrade(
+      'https://example.com/wss',
+      { protocols: ["not.correct.subprotocol.1", "correct.subprotocol", "not.correct.subprotocol.2"] },
+      async (ws) => {
+        // Verify the correct protocol was selected
+        expect(ws.protocol).toBe('correct.subprotocol');
+        
+        // Can still do normal WebSocket operations
+        ws.onmessage = (event) => {
+          expect(event.data).toBe('pong');
+          onmessageCalled = true;
+        };
+        ws.send('ping');
+      }
+    );
+    expect(onmessageCalled).toBe(true);
   });
 
   // Shows that input gates work with runWithSimulatedWSUpgrade
