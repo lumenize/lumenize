@@ -65,6 +65,14 @@ export class MyDO extends DurableObject{
     const url = new URL(request.url);    
 
     const operation = url.searchParams.get('op') || 'unknown';
+    
+    // Check for delay parameter to simulate setTimeout behavior that could allow operation interleaving
+    const delayMs = parseInt(url.searchParams.get('delay') || '0', 10);
+    if (delayMs > 0) {
+      // In a real DO, this would open the input gates but not in @lumenize/testing's `runInDurableObject`
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+    
     await this.#trackOperation('fetch', operation);
 
     // if (isWebSocketUpgrade(request)) {  // I recommend you route this way in reality
