@@ -28,10 +28,11 @@ describe('Various ways to test with WebSockets', () => {
   //   - When you write your Worker, you cannot use url.protocol to make the routing determination
   //     because fetch won't allow it. So, your Worker must route regular HTTP GET calls to the 
   //     Durable Object some other way.
+  //   - You cannot inspect the server-side close code in addition to the client-side one
+  
   // TODO:
   //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
   //     cookies, origin, etc.
-  //   - You can inspect the server-side close code in addition to the client-side one
   //   - You cannot test multiple simultaneous WS connections to the same instance
 
   // Test using @lumenize/testing's low-level simulateWSUpgrade
@@ -41,7 +42,6 @@ describe('Various ways to test with WebSockets', () => {
     await new Promise<void>((resolve) => {
       ws.onmessage = (event) => {
         expect(event.data).toBe('pong');
-        ws.close();
         onmessageCalled = true;
         resolve();
       };
@@ -106,7 +106,10 @@ describe('Various ways to test with WebSockets', () => {
   // Overcomes limitations. runWithWebSocketMock now allows you to:
   //   - Use any client library that directly calls WebSocket like AgentClient
   //   - Inspect the messages that were sent in and out
-  it('should demonstrate mock.sync() properly waits for cascading async operations', async () => {
+  it('should allow use of libraries that use browser WebSocket API', async () => {
+    let closeCode = 0;
+    let closeReason = '';
+    
     // Function that simulates a library using WebSocket API
     const connectIncrementAndClose = () => {
       const ws = new WebSocket('wss://example.com');
@@ -114,7 +117,7 @@ describe('Various ways to test with WebSockets', () => {
         ws.send('increment');
       };
       ws.onmessage = (event) => {
-        ws.close();
+        ws.close(1000, 'Normal completion');
       };
     };
 
@@ -133,6 +136,11 @@ describe('Various ways to test with WebSockets', () => {
       // Now all operations have completed
       expect(mock.messagesSent).toEqual(['increment']);
       expect(mock.messagesReceived).toEqual(['1']);
+      
+      // Verify close code tracking
+      expect(mock.clientCloses).toHaveLength(1);
+      expect(mock.clientCloses[0].code).toBe(1000);
+      expect(mock.clientCloses[0].reason).toBe('Normal completion');
     }, 500);
   });
 
