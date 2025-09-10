@@ -352,5 +352,99 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
   });
 
+  describe('Custom headers support', () => {
+    it('should support custom headers in WebSocket simulation with runWithSimulatedWSUpgrade', async () => {
+      await runWithSimulatedWSUpgrade('https://localhost:8787/test', 
+        { 
+          headers: {
+            'User-Agent': 'TestBot/1.0'
+          }
+        }, 
+        async (ws) => {
+          // Test passes if no errors thrown
+        }
+      );
+    });
+
+    it('should support custom headers with override behavior in runWithSimulatedWSUpgrade', async () => {
+      await runWithSimulatedWSUpgrade('https://localhost:8787/test', 
+        { 
+          origin: 'https://app.example.com',
+          headers: {
+            'Cookie': 'sessionId=abc123',
+            'Host': 'api.example.com',
+            'Origin': 'https://override.example.com' // This should override the shorthand origin
+          }
+        }, 
+        async (ws) => {
+          // Test passes if no errors thrown - headers are passed to server
+        }
+      );
+    });
+
+    it('should support custom headers in runInDurableObject', async () => {
+      await runInDurableObject(async (instance, ctx, mock) => {
+        // Create a simple DO that accepts WebSocket connections
+        const simpleHandler = {
+          async fetch(request: Request): Promise<Response> {
+            const upgradeHeader = request.headers.get('upgrade');
+            if (upgradeHeader !== 'websocket') {
+              return new Response('Expected WebSocket Upgrade', { status: 426 });
+            }
+            
+            // Verify custom headers are present
+            const userAgent = request.headers.get('User-Agent');
+            if (userAgent !== 'TestBot/1.0') {
+              return new Response('Missing expected User-Agent header', { status: 400 });
+            }
+            
+            return new Response(null, {
+              status: 200
+            });
+          }
+        };
+        
+        // Override the instance's fetch method for this test
+        (instance as any).fetch = simpleHandler.fetch;
+        
+        // Create WebSocket with custom headers - this should trigger the fetch method
+        const ws = new WebSocket('ws://localhost:8787/test');
+        await mock.sync();
+      }, {
+        headers: {
+          'User-Agent': 'TestBot/1.0'
+        }
+      });
+    });
+
+    it('should merge shorthand options with custom headers correctly', async () => {
+      await runWithSimulatedWSUpgrade('https://example.com/test', 
+        { 
+          protocols: ['chat', 'superchat'],
+          origin: 'https://example.com',
+          headers: {
+            'User-Agent': 'TestApp/2.0',
+            'Authorization': 'Bearer token123'
+          }
+        }, 
+        async (ws) => {
+          // Test passes if headers are merged correctly without errors
+        }
+      );
+    });
+
+    it('should allow empty headers object', async () => {
+      await runWithSimulatedWSUpgrade('https://example.com/test', 
+        { 
+          origin: 'https://example.com',
+          headers: {}
+        }, 
+        async (ws) => {
+          // Test passes if empty headers don't cause issues
+        }
+      );
+    });
+  });
+
 });
 

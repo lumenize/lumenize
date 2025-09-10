@@ -55,8 +55,17 @@ export class MyDO extends DurableObject{
     return count;
   }
 
+  async #trackOperation(operationType: string, operationDetails: string) {
+    const operations = (await this.ctx.storage.get<string[]>("operationsFromQueue")) ?? [];
+    operations.push(`${operationType}-${operationDetails}`);
+    await this.ctx.storage.put("operationsFromQueue", operations);
+  }
+
   async fetch(request: Request) {
     const url = new URL(request.url);    
+
+    const operation = url.searchParams.get('op') || 'unknown';
+    await this.#trackOperation('fetch', operation);
 
     // if (isWebSocketUpgrade(request)) {  // I recommend you route this way in reality
     if (url.protocol === 'wss:' || url.pathname === '/wss') {  // Show routing w/ protocol === 'wss:' works
@@ -106,6 +115,10 @@ export class MyDO extends DurableObject{
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (typeof message === 'string' && message.startsWith('track-')) {
+      await this.#trackOperation('message', message);
+    }
+
     if (message === 'increment') {
       ws.send((await this.#handleIncrement()).toString());
       return

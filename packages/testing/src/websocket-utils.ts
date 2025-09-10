@@ -4,7 +4,7 @@ import {
   createExecutionContext,
   runInDurableObject as cloudflareRunInDurableObject,
   waitOnExecutionContext,
-// @ts-expect-error - cloudflare:test module types are not consistently exported by VS Code
+// @ts-expect-error - cloudflare:test module types are not consistently exported
 } from 'cloudflare:test';
 
 /**
@@ -13,13 +13,14 @@ import {
 export interface WSUpgradeOptions {
   protocols?: string[];
   origin?: string;
+  headers?: Record<string, string>;
 }
 
 /**
  * Gets a Cloudflare server-side ws object by simulating a WebSocket upgrade request thru a Worker
  * 
  * @param url - The full WebSocket URL (e.g., 'https://example.com/path')
- * @param options - Optional WebSocket upgrade options including sub-protocols and origin
+ * @param options - Optional WebSocket upgrade options including sub-protocols, origin, and custom headers
  * @returns Promise with WebSocket instance and upgrade response
  */
 export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions) {
@@ -35,6 +36,11 @@ export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions)
 
   if (options?.origin) {
     headers['Origin'] = options.origin;
+  }
+
+  // Merge custom headers, allowing them to override shorthand options
+  if (options?.headers) {
+    Object.assign(headers, options.headers);
   }
 
   const req = new Request(url, { headers });
@@ -182,6 +188,27 @@ function getDurableObjectNamespace(env: Record<string, any>): any {
 }
 
 /**
+ * Creates a wrapped instance that intercepts fetch() calls to queue them through input gate simulation
+ */
+function createWrappedInstance<T extends object>(instance: T, mock: any): T {
+  // Create a proxy that intercepts fetch method calls
+  return new Proxy(instance, {
+    get(target, prop, receiver) {
+      if (prop === 'fetch' && typeof (target as any)[prop] === 'function') {
+        // Return a wrapped version of fetch that goes through the operation queue
+        return function(request: Request) {
+          return mock._queueOperation(async () => {
+            return await (target as any).fetch(request);
+          });
+        };
+      }
+      // For all other properties, return the original value
+      return Reflect.get(target, prop, receiver);
+    }
+  });
+}
+
+/**
  * A drop-in replacement (superset) for Cloudflare's runInDurableObject.
  * This adds an optional WebSocket mock parameter to the end of the test callback function so you
  * can gradually add WebSocket testing to your current Durable Object tests. This mock is 
@@ -192,15 +219,17 @@ function getDurableObjectNamespace(env: Record<string, any>): any {
  * @param testFnOrTimeoutMs - Function that receives instance, DurableObjectState, and mock, or timeout if first param is test function
  * @param timeoutMs - Timeout in milliseconds (default: 1000)
  */
-export async function runInDurableObject<T>(
+export async function runInDurableObject<T extends object>(
   durableObjectStubOrTestFn: any | ((instance: T, ctx: any, mock?: any) => Promise<void> | void),
-  testFnOrTimeoutMs?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | number,
-  timeoutMs: number = 1000
+  testFnOrTimeoutMs?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | number | WSUpgradeOptions,
+  timeoutMsOrOptions?: number | WSUpgradeOptions,
+  optionsOrUndefined?: WSUpgradeOptions
 ): Promise<void> {
   // Handle overloaded signature - determine if first parameter is stub or test function
   let durableObjectStub: any;
   let testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void;
   let actualTimeoutMs: number;
+  let options: WSUpgradeOptions | undefined;
 
   if (typeof durableObjectStubOrTestFn === 'function') {
     // First parameter is the test function, auto-create stub
@@ -208,19 +237,39 @@ export async function runInDurableObject<T>(
     const id = durableObjectNamespace.newUniqueId();
     durableObjectStub = durableObjectNamespace.get(id);
     testFn = durableObjectStubOrTestFn;
-    actualTimeoutMs = typeof testFnOrTimeoutMs === 'number' ? testFnOrTimeoutMs : timeoutMs;
+    
+    // Second parameter can be timeout number or options object
+    if (typeof testFnOrTimeoutMs === 'number') {
+      actualTimeoutMs = testFnOrTimeoutMs;
+      options = timeoutMsOrOptions as WSUpgradeOptions | undefined;
+    } else {
+      actualTimeoutMs = 1000; // use default
+      options = testFnOrTimeoutMs as WSUpgradeOptions | undefined;
+    }
   } else {
     // First parameter is the stub, use traditional signature
     durableObjectStub = durableObjectStubOrTestFn;
     testFn = testFnOrTimeoutMs as (instance: T, ctx: any, mock?: any) => Promise<void> | void;
-    actualTimeoutMs = timeoutMs;
+    
+    // Third parameter can be timeout number or options object  
+    if (typeof timeoutMsOrOptions === 'number') {
+      actualTimeoutMs = timeoutMsOrOptions;
+      options = optionsOrUndefined;
+    } else {
+      actualTimeoutMs = 1000; // use default
+      options = timeoutMsOrOptions as WSUpgradeOptions | undefined;
+    }
   }
 
   return cloudflareRunInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
     // Create a separate ExecutionContext for waitUntil tracking
     // Note: ctx here is DurableObjectState, but we need ExecutionContext for waitOnExecutionContext
     const execCtx = createExecutionContext();
-    await runWebSocketMockInternal((mock: any) => testFn(instance, ctx, mock), execCtx, instance, ctx, actualTimeoutMs);
+    await runWebSocketMockInternal((mock: any) => {
+      // Create a wrapped instance that intercepts fetch() calls to queue them through input gate simulation
+      const wrappedInstance = createWrappedInstance(instance, mock);
+      return testFn(wrappedInstance, ctx, mock);
+    }, execCtx, instance, ctx, actualTimeoutMs, options);
   });
 }
 
@@ -232,7 +281,8 @@ async function runWebSocketMockInternal<T>(
   execCtx: any,
   instance: T,
   ctx: any,
-  timeoutMs: number = 1000
+  timeoutMs: number = 1000,
+  options?: WSUpgradeOptions
 ): Promise<void> {
   return new Promise<void>(async (resolve, reject) => {
     // Create mock object for inspection and tracking
@@ -241,6 +291,21 @@ async function runWebSocketMockInternal<T>(
       messagesReceived: [] as string[],    // Server → Client (what DO sent back to test)
       pendingOperations: [] as Promise<any>[],
       clientCloses: [] as {code: number, reason: string, timestamp: number}[],
+      
+      // Input gate simulation: serialize all DO operations to prevent race conditions
+      _operationQueue: Promise.resolve() as Promise<any>,
+      
+      // Queue a DO operation to run serially (simulates Cloudflare's input gates)
+      _queueOperation<T>(operation: () => Promise<T> | T): Promise<T> {
+        const promise = this._operationQueue.then(async () => {
+          return await operation();
+        });
+        this._operationQueue = promise.catch(() => {}); // Continue queue even if operation fails
+        return promise;
+      },
+
+
+      
       async sync() {
         // Wait iteratively until no new operations are created
         let previousCount = -1;
@@ -251,6 +316,9 @@ async function runWebSocketMockInternal<T>(
         }
         // Clear the pending operations array for next sync call
         mock.pendingOperations.length = 0;
+        
+        // Wait for the operation queue to finish (ensures all DO operations complete)
+        await this._operationQueue;
         
         // Wait for all promises passed to execCtx.waitUntil() to settle
         // This ensures that any background work triggered by the test is completed
@@ -347,7 +415,8 @@ async function runWebSocketMockInternal<T>(
         mock.messagesSent.push(data);
         
         // Create a promise for the async response that actually talks to the DO
-        const responsePromise = Promise.resolve().then(async () => {
+        // Use the operation queue to serialize DO calls (simulates Cloudflare's input gates)
+        const responsePromise = mock._queueOperation(async () => {
           try {
             // Call the DO's webSocketMessage method with our mock WebSocket
             // The mockWebSocket.send() will handle message tracking and event triggering
@@ -385,7 +454,7 @@ async function runWebSocketMockInternal<T>(
         mock.clientCloses.push({ code, reason, timestamp: Date.now() });
         
         // Call DO's webSocketClose lifecycle method if it exists
-        const closePromise = Promise.resolve().then(async () => {
+        const closePromise = mock._queueOperation(async () => {
           if (instance && typeof (instance as any).webSocketClose === 'function') {
             await (instance as any).webSocketClose(mockWebSocket, code, reason, true);
           }
@@ -405,15 +474,29 @@ async function runWebSocketMockInternal<T>(
       };
       
       // Simulate WebSocket upgrade by calling the Durable Object's fetch method
-      const openPromise = Promise.resolve().then(async () => {
+      const openPromise = mock._queueOperation(async () => {
         if (instance && typeof (instance as any).fetch === 'function') {
+          // Build headers, starting with WebSocket upgrade headers
+          const baseHeaders: Record<string, string> = {
+            'Upgrade': 'websocket',
+            'Connection': 'upgrade'
+          };
+
+          // Add shorthand headers if provided
+          if (options?.protocols) {
+            baseHeaders['Sec-WebSocket-Protocol'] = Array.isArray(options.protocols) ? options.protocols.join(', ') : options.protocols;
+          }
+          if (options?.origin) {
+            baseHeaders['Origin'] = options.origin;
+          }
+
+          // Merge with custom headers (custom headers override shorthand options)
+          const finalHeaders = Object.assign(baseHeaders, options?.headers || {});
+
           // Create a proper WebSocket upgrade request
           const upgradeRequest = new Request(url.toString(), {
             method: 'GET',
-            headers: {
-              'Upgrade': 'websocket',
-              'Connection': 'upgrade'
-            }
+            headers: finalHeaders
           });
           
           // Call the Durable Object's fetch method to handle WebSocket upgrade

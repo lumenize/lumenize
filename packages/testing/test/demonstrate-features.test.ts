@@ -24,18 +24,16 @@ describe('Various ways to test with WebSockets', () => {
   //   - You cannot inspect the DO storage
   //   - You cannot use a client like AgentClient that calls the browser's WebSocket API 
   //   - You cannot inspect connection tags or attachments in your tests
-  //   - It's less like a drop-in replacement for runInDurableObject
+  //   - It's not a drop-in replacement for runInDurableObject
   //   - When you write your Worker, you cannot use url.protocol to make the routing determination
   //     because fetch won't allow it. So, your Worker must route regular HTTP GET calls to the 
   //     Durable Object some other way.
   //   - You cannot inspect the server-side close code in addition to the client-side one
   
   // TODO:
-  //   - It only minimally mimics the browser's WebSocket behavior. It doesn't support
-  //     cookies, etc.
   //   - You cannot test multiple simultaneous WS connections to the same instance
 
-    // Test using @lumenize/testing's low-level simulateWSUpgrade
+  // Test using @lumenize/testing's low-level simulateWSUpgrade
   it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
     const { ws, response } = await simulateWSUpgrade('https://example.com/wss', { 
       origin: 'https://example.com' 
@@ -192,37 +190,96 @@ describe('Various ways to test with WebSockets', () => {
     }, 1000);
   });
 
-  // Shows limitations of runInDurableObject with WebSocket mock:
-  //   - Input gates do NOT work
-  it('should show that input gates do NOT work with runInDurableObject', async () => {
+  // Headers upported by both runInDurableObject and runWithSimulatedWSUpgrade
+  it('should support custom headers with runInDurableObject', async () => {
     await runInDurableObject(async (instance, ctx, mock) => {
-      const responses: string[] = [];
+      const ws = new WebSocket('wss://example.com');
+      ws.onopen = () => { ws.send('increment') };   
+      ws.onmessage = (event) => { 
+        expect(event.data).toBe('1');
+      };
+      await mock.sync();
+    }, {
+      origin: 'https://app.example.com',  // shorthand for Origin and Sec-WebSocket-Protocol headers
+      headers: {                          // any other headers you want to add
+        'User-Agent': 'MyApp/1.0'
+      }
+    });
+  });
+
+  // Shows that input gates are only partially simulated
+  it('should show that input gates are only partially simulated', async () => {
+    await runInDurableObject(async (instance, ctx, mock) => {
+      // Create WebSocket connection
       const ws = new WebSocket('wss://example.com');
       
       ws.onopen = () => {
-        // Send two increment messages rapidly
-        ws.send('increment');
-        ws.send('increment');
-      };
-      
-      ws.onmessage = (event) => {
-        responses.push(event.data);
+        // Make four un-awaited calls that should be queued
+        // Two fetch calls - these will be automatically queued through our wrapped instance
+        instance.fetch(new Request('https://test.com?op=1'));
+        instance.fetch(new Request('https://test.com?op=2'));
+        
+        // Two WebSocket sends (using 'track-' prefix so they get tracked)
+        ws.send('track-msg1');
+        ws.send('track-msg2');
       };
       
       await mock.sync();
       
-      expect(responses.length).toBe(2);
-      expect(responses).toEqual(['1', '1']); // Race condition: both see initial state
+      // Verify all operations were tracked in storage and in proper serialized order
+      const operationsFromQueue = await ctx.storage.get('operationsFromQueue') as string[] | undefined;
+      expect(operationsFromQueue).toEqual([
+        'fetch-unknown',    // WebSocket upgrade fetch call
+        'fetch-1',          // First manual fetch call
+        'fetch-2',          // Second manual fetch call  
+        'message-track-msg1', // First WebSocket message
+        'message-track-msg2'  // Second WebSocket message
+      ]);
     });
   });
 
-  // ✅ Overcomes limitation: "Doesn't support cookies, origin, etc."
-  // Should test most/all of these:
-  // ['user-agent', 'test-agent/1.0'],
-  // ['origin', 'https://test.example.com'],
-  // ['cookie', 'sessionId=test-session-123; other=value'],
-  // ['host', 'test.lumenize.com'],
-  // ['upgrade', 'websocket'],
-  // ['connection', 'upgrade']
+  // ✅ Overcomes limitation: "You cannot test multiple simultaneous WS connections to the same instance" 
+  it('should support multiple WebSocket connections to same DO instance with shared storage', async () => {
+    await runInDurableObject(async (instance, ctx, mock) => {
+      const ws1Responses: string[] = [];
+      const ws2Responses: string[] = [];
+      
+      // Create first WebSocket connection and wait for it to complete
+      const ws1 = new WebSocket('wss://example.com');
+      ws1.onopen = () => {
+        ws1.send('increment'); // Should set count to 1
+      };
+      ws1.onmessage = (event) => {
+        ws1Responses.push(event.data);
+      };
+      
+      // Wait for first WebSocket to complete before starting second one
+      await mock.sync();
+      expect(ws1Responses).toEqual(['1']); // First connection sets count to 1
+      expect(await ctx.storage.get('count')).toBe(1); // Storage shows count = 1
+      
+      // Now create second WebSocket connection 
+      const ws2 = new WebSocket('wss://example.com');
+      ws2.onopen = () => {
+        ws2.send('increment'); // Should set count to 2 (shared storage)
+      };
+      ws2.onmessage = (event) => {
+        ws2Responses.push(event.data);
+      };
+      
+      await mock.sync();
+      
+      // Now both connections should see the incremental count
+      expect(ws1Responses).toEqual(['1']); // First connection got count = 1
+      expect(ws2Responses).toEqual(['2']); // Second connection got count = 2
+      
+      // Storage should reflect both changes
+      expect(await ctx.storage.get('count')).toBe(2);
+      
+      // Mock should track all messages sent and received
+      expect(mock.messagesSent).toEqual(['increment', 'increment']);
+      expect(mock.messagesReceived).toEqual(['1', '2']);
+    });
+  });
 
 });
