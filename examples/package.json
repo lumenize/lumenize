@@ -1,0 +1,10 @@
+{
+  "name": "examples",
+  "private": true,
+  "workspaces": [
+    "*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces"
+  }
+}
