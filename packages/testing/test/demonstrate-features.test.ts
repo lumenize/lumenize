@@ -4,45 +4,15 @@ import { env } from 'cloudflare:test';
 import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runInDurableObject } from '../src/websocket-utils.js';
 import { MyDO } from './test-harness';
 
-// This next set of tests uses a mock WebSocket which removes the limitations
-// mentioned above when simulating a WebSocket upgrade call over HTTP
+// @lumenize/testing's runInDurableObject is a drop-in replacement for
+// cloudflare:test's runInDurableObject... but with additional capabilities
+// mostly centered around testing WebSocket functionality.
 describe('runInDurableObject drop-in replacement plus additional capabilities', () => {
 
-  // runInDurableObject allows you to:
-  //   - use as a drop in replacement for cloudflare:test's runInDurableObject
-  //   - Inspect ctx (DurableObjectState): storage, getWebSockets, etc.
-  it('should show ctx (DurableObjectState) changes when using runInDurableObject', async () => {
-    let onmessageCalled = false;
-    await runInDurableObject(async (instance: MyDO, ctx, mock) => {  // newUniqueId stub created by default
-      let messageReceived = false;
-      const ws = new WebSocket('wss://example.com/my-do/my-name');
-      ws.onopen = () => {
-        ws.send('increment');
-      };
-      ws.onmessage = async (event) => {
-        expect(event.data).toBe('1');
-        expect(await ctx.storage.get("count")).toBe(1);  // storage is inspectable
-        const webSockets = ctx.getWebSockets('my-name');  // connection tags work
-        expect(webSockets.length).toBe(1);
-        const attachment = webSockets[0].deserializeAttachment();
-        expect(attachment.name).toBe('my-name')  // attachments are inspectable
-        onmessageCalled = true;
-        messageReceived = true;
-      };
-  
-      await mock.sync();
-      
-      expect(messageReceived).toBe(true);
-      expect(mock.messagesSent).toEqual(['increment']);
-      expect(mock.messagesReceived).toEqual(['1']);
-    });
-    expect(onmessageCalled).toBe(true);
-  });
-
-// TODO: export a second DO, MyAgent, and show a test using AgentClient. Worker routing will be tricky. Maybe use my @lumenize/utils router?
+  // TODO: export a second DO, MyAgent, and show a test using AgentClient. Worker routing will be tricky. Maybe use my @lumenize/utils router?
 
   // runInDurableObject now allows you to:
-  //   - Use any client library that directly calls WebSocket like AgentClient
+  //   - Use any client library that directly calls `new WebSocket()` like AgentClient
   //   - Inspect the messages that were sent in and out
   //   - Inspect close codes and reasons
   it('should allow use of libraries that use browser WebSocket API', async () => {    
@@ -66,7 +36,7 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
       expect(mock.messagesSent).toEqual([]);
       expect(mock.messagesReceived).toEqual([]);
       
-      // sync() waits for all cascading operations
+      // mock.sync() waits for messages, fetch calls, storage ops, etc. to complete
       await mock.sync();
       
       // Now all operations have completed
@@ -79,6 +49,36 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
       expect(mock.clientCloses[0].reason).toBe('Normal completion');
     }, 500);
   });
+
+  // runInDurableObject allows you to:
+  //   - Use it as a drop in replacement for cloudflare:test's runInDurableObject
+  //   - Inspect ctx (DurableObjectState): storage, getWebSockets, etc.
+  it('should show ctx (DurableObjectState) changes when using runInDurableObject', async () => {
+    let onmessageCalled = false;
+    await runInDurableObject(async (instance: MyDO, ctx, mock) => {  // newUniqueId stub created by default
+      const ws = new WebSocket('wss://example.com/my-do/my-name');
+      ws.onopen = () => {
+        ws.send('increment');
+      };
+      ws.onmessage = async (event) => {
+        expect(event.data).toBe('1');
+        expect(await ctx.storage.get("count")).toBe(1);  // storage is inspectable
+        const webSockets = ctx.getWebSockets('my-name');  // connection tags work
+        expect(webSockets.length).toBe(1);
+        const attachment = webSockets[0].deserializeAttachment();
+        expect(attachment.name).toBe('my-name')  // attachments are inspectable
+        onmessageCalled = true;
+      };
+  
+      await mock.sync();  // waits until all messages, fetch calls, storage ops, etc. to complete
+      
+      expect(mock.messagesSent).toEqual(['increment']);
+      expect(mock.messagesReceived).toEqual(['1']);
+    });
+    expect(onmessageCalled).toBe(true);
+  });
+
+
 
   // runInDurableObject allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
