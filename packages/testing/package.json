@@ -40,19 +40,18 @@
     "access": "public"
   },
   "peerDependencies": {
-    "partyserver": "^0.0.72",
-    "vitest": "~3.2.3"
+    "@cloudflare/vitest-pool-workers": "^0.8.71",
+    "vitest": "3.2.4"
   },
   "dependencies": {
     "@lumenize/utils": "file:../utils"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.47",
-    "@cloudflare/workers-types": "^4.20250620.0",
-    "@vitest/coverage-istanbul": "^3.2.4",
-    "partyserver": "^0.0.72",
-    "typescript": "^5.8.3",
-    "vitest": "~3.2.3",
-    "wrangler": "^4.34.0"
+    "@cloudflare/vitest-pool-workers": "^0.8.71",
+    "@cloudflare/workers-types": "^4.20250911.0",
+    "@vitest/coverage-istanbul": "3.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "3.2.4",
+    "wrangler": "^4.35.0"
   }
 }
