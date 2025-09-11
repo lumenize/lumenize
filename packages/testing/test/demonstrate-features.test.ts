@@ -121,20 +121,27 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
   // runInDurableObject allows you to:
   //   - Supply Origin and other Headers that will be attached to the initial WebSocket upgrade
   // Note: This capability is also supported with simulated WS upgrade approaches shown below
-  it('should support origin and custom headers', async () => {
+  it('should support custom headers with runInDurableObject', async () => {
+    let headerInfoReceived = false;
     await runInDurableObject(async (instance, ctx, mock) => {
       const ws = new WebSocket('wss://example.com');
-      ws.onopen = () => { ws.send('increment') };   
+      ws.onopen = () => {
+        ws.send('headers'); // Request header information
+      };
       ws.onmessage = (event) => { 
-        expect(event.data).toBe('1');
+        const headers = JSON.parse(event.data);
+        expect(headers['user-agent']).toBe('MyApp/1.0');
+        expect(headers['origin']).toBe('https://app.example.com');
+        headerInfoReceived = true;
       };
       await mock.sync();
     }, {
-      origin: 'https://app.example.com',  // has shorthand for Origin and Sec-WebSocket-Protocol headers
+      origin: 'https://app.example.com',  // shorthand for Origin header
       headers: {                          // any other headers you want to add
         'User-Agent': 'MyApp/1.0'
       }
     });
+    expect(headerInfoReceived).toBe(true);
   });
 
 });

@@ -14,11 +14,8 @@ export default {
 
     // Check origin
     const origin = request.headers.get('Origin');
-    if (!origin) {
-      return new Response('Origin header required', { status: 403 });
-    }
-    if (!ALLOWED_ORIGINS.includes(origin)) {
-      return new Response('Origin not allowed', { status: 403 });
+    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+      return new Response('Origin header required and must be in allow list', { status: 403 });
     }
     
     // if (isWebSocketUpgrade(request)) {  // Recommend you use this in production
@@ -65,18 +62,15 @@ export class MyDO extends DurableObject{
     const url = new URL(request.url);    
 
     const operation = url.searchParams.get('op') || 'unknown';
-    
-    // Check for delay parameter to simulate setTimeout behavior that could allow operation interleaving
     const delayMs = parseInt(url.searchParams.get('delay') || '0', 10);
+    
     if (delayMs > 0) {
-      // In a real DO, this would open the input gates but not in @lumenize/testing's `runInDurableObject`
       await new Promise(resolve => setTimeout(resolve, delayMs));
     }
     
     await this.#trackOperation('fetch', operation);
 
-    // if (isWebSocketUpgrade(request)) {  // I recommend you route this way in reality
-    if (url.protocol === 'wss:' || url.pathname === '/wss') {  // Show routing w/ protocol === 'wss:' works
+    if (url.protocol === 'wss:' || url.pathname === '/wss') {
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       
@@ -87,21 +81,28 @@ export class MyDO extends DurableObject{
       
       if (requestedProtocols) {
         const protocols = requestedProtocols.split(',').map(p => p.trim());
-        // Always choose "correct.subprotocol" if present
         if (protocols.includes('correct.subprotocol')) {
           selectedProtocol = 'correct.subprotocol';
           responseHeaders.set('Sec-WebSocket-Protocol', selectedProtocol);
         }
       }
       
-      // Create attachment with predictable data including WebSocket count
+      // Create attachment with predictable data
       const currentWsCount = this.ctx.getWebSockets().length;
       const name = url.pathname.split('/').at(-1) ?? 'No name in path'
+      
+      // Collect all headers for testing
+      const headersObj: Record<string, string> = {};
+      request.headers.forEach((value, key) => {
+        headersObj[key] = value;
+      });
+      
       const attachment = { 
         name, 
-        count: currentWsCount + 1, // +1 because we're about to add this WebSocket
+        count: currentWsCount + 1,
         timestamp: Date.now(),
-        selectedProtocol
+        selectedProtocol,
+        headers: headersObj
       };
       
       this.ctx.acceptWebSocket(server, [name]);
@@ -118,7 +119,6 @@ export class MyDO extends DurableObject{
   }
 
   async webSocketOpen(ws: WebSocket) {
-    // Track connection opening - useful for testing lifecycle
     await this.ctx.storage.put("lastWebSocketOpen", Date.now());
   }
 
@@ -137,14 +137,18 @@ export class MyDO extends DurableObject{
       return
     }
 
+    if (message === 'headers') {
+      const webSockets = this.ctx.getWebSockets();
+      const attachment = webSockets[0].deserializeAttachment();
+      ws.send(JSON.stringify(attachment.headers));
+      return;
+    }
+
     if (message === 'test-error') {
-      // Trigger an error for testing webSocketError
       throw new Error("Test error from DO");
     }
 
     if (message === 'test-server-close') {
-      // Trigger a server-initiated close for testing
-      // Store the close info directly since server-initiated closes might not trigger webSocketClose
       const closeInfo = { 
         code: 4001, 
         reason: "Server initiated close for testing", 
@@ -156,34 +160,28 @@ export class MyDO extends DurableObject{
       await this.ctx.storage.put("lastWebSocketClose", closeInfo);
       
       ws.close(4001, "Server initiated close for testing");
-      return; // Don't send a response message
+      return;
     }
 
-    // Default response for any other message
+    // Default response
     ws.send('echo: ' + message);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    // Track connection closing - useful for testing lifecycle
-    // Determine if this is client-initiated or server-initiated based on the code
-    const isClientInitiated = code !== 4001; // 4001 is our server-initiated test code
-    
     const closeInfo = { 
       code, 
       reason, 
       wasClean, 
       timestamp: Date.now(),
-      initiatedBy: isClientInitiated ? 'client' : 'server'
+      initiatedBy: code === 4001 ? 'server' : 'client'
     };
     
     await this.ctx.storage.put("lastWebSocketClose", closeInfo);
     
-    if (isClientInitiated) {
-      // Store client-initiated closes separately for easier testing
-      await this.ctx.storage.put("lastClientInitiatedClose", closeInfo);
-    } else {
-      // Store server-initiated closes separately for easier testing  
+    if (code === 4001) {
       await this.ctx.storage.put("lastServerInitiatedClose", closeInfo);
+    } else {
+      await this.ctx.storage.put("lastClientInitiatedClose", closeInfo);
     }
   }
 
