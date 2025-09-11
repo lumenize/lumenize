@@ -292,12 +292,11 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       await expect(async () => {
         await runWithSimulatedWSUpgrade(
           'https://test-harness.example.com/wss',
-          { origin: 'https://example.com' },
+          { origin: 'https://example.com', timeout: 50 },
           async (ws) => {
             // This will take longer than the timeout
             await new Promise(resolve => setTimeout(resolve, 100));
-          },
-          50  // 50ms timeout
+          }
         );
       }).rejects.toThrow('WebSocket test timed out after 50ms');
     });
@@ -311,7 +310,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
         'https://other-domain.com/wss',  // URL has different origin
         { origin: 'https://example.com' },  // But explicit origin is valid
         async (ws) => {
-          ws.onmessage = (event) => {
+          ws.onmessage = (event: MessageEvent) => {
             expect(event.data).toBe('pong');
             onmessageCalled = true;
           };

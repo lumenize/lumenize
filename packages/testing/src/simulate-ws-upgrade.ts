@@ -59,43 +59,43 @@ export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions)
  * interpreting sub-protocol headers.
  * 
  * @param url - The full WebSocket URL
- * @param options - Optional WebSocket upgrade options including sub-protocols and origin
  * @param testFn - Function that receives WebSocket and upgrade details
- * @param timeoutMs - Timeout in milliseconds (default: 5000)  
+ * @returns Promise that resolves when test completes or rejects on timeout/error (default timeout: 100ms)
+ * 
+ * @overload
+ * @param url - The full WebSocket URL
+ * @param options - Optional WebSocket upgrade options including sub-protocols, origin, and timeout
+ * @param testFn - Function that receives WebSocket and upgrade details
  * @returns Promise that resolves when test completes or rejects on timeout/error
  */
 export function runWithSimulatedWSUpgrade(
   url: string, 
-  testFn: (ws: any) => Promise<void> | void, 
-  timeoutMs?: number
+  testFn: (ws: any) => Promise<void> | void
+): Promise<void>;
+export function runWithSimulatedWSUpgrade(
+  url: string,
+  options: WSUpgradeOptions,
+  testFn: (ws: any) => Promise<void> | void
 ): Promise<void>;
 export function runWithSimulatedWSUpgrade(
   url: string,
   optionsOrTestFn: WSUpgradeOptions | ((ws: any) => Promise<void> | void),
-  testFnOrTimeoutMs?: ((ws: any) => Promise<void> | void) | number,
-  timeoutMs?: number
-): Promise<void>;
-export function runWithSimulatedWSUpgrade(
-  url: string,
-  optionsOrTestFn: WSUpgradeOptions | ((ws: any) => Promise<void> | void),
-  testFnOrTimeoutMs?: ((ws: any) => Promise<void> | void) | number,
-  timeoutMs?: number
+  testFn?: (ws: any) => Promise<void> | void
 ): Promise<void> {
   let options: WSUpgradeOptions;
-  let testFn: (ws: any) => Promise<void> | void;
-  let actualTimeoutMs = timeoutMs || 100;
+  let actualTestFn: (ws: any) => Promise<void> | void;
 
   if (typeof optionsOrTestFn === 'function') {
-    // First signature: url, testFn, timeoutMs?
+    // First signature: url, testFn
     options = {};
-    testFn = optionsOrTestFn;
-    actualTimeoutMs = (testFnOrTimeoutMs as number) || 100;
+    actualTestFn = optionsOrTestFn;
   } else {
-    // Second parameter is options, third is test function
+    // Second signature: url, options, testFn
     options = optionsOrTestFn || {};
-    testFn = testFnOrTimeoutMs as (ws: any) => Promise<void> | void;
-    actualTimeoutMs = timeoutMs || 100;
+    actualTestFn = testFn!;
   }
+
+  const actualTimeoutMs = options.timeout || 100;
 
   return new Promise<void>(async (resolve, reject) => {
     let timeoutHandle: NodeJS.Timeout | undefined;
@@ -131,7 +131,7 @@ export function runWithSimulatedWSUpgrade(
       }
         
       // Run the test function
-      const result = testFn(ws);
+      const result = actualTestFn(ws);
       if (result instanceof Promise) {
         await result;
       }

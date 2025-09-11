@@ -69,10 +69,25 @@ function createWrappedInstance<T extends object>(instance: T, mock: any): T {
  * monkey-patched into the environment so even libraries that use the browser's native WebSocket API
  * (like AgentClient) can be part of the test
  * 
- * @param durableObjectStubOrTestFn - The Durable Object stub to run within, or the test function if auto-creating stub
- * @param testFnOrOptions - Function that receives instance, DurableObjectState, and mock, or options if first param is test function
- * @param options - Options object with timeout and WebSocket configuration (when first param is stub)
+ * @param testFn - Function that receives instance, DurableObjectState, and mock
+ * @param options - Optional WebSocket configuration and timeout
+ * @returns Promise that resolves when test completes
+ * 
+ * @overload
+ * @param durableObjectStub - The Durable Object stub to run within
+ * @param testFn - Function that receives instance, DurableObjectState, and mock
+ * @param options - Optional WebSocket configuration and timeout
+ * @returns Promise that resolves when test completes
  */
+export async function runInDurableObject<T extends object>(
+  testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void,
+  options?: WSUpgradeOptions
+): Promise<void>;
+export async function runInDurableObject<T extends object>(
+  durableObjectStub: any,
+  testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void,
+  options?: WSUpgradeOptions
+): Promise<void>;
 export async function runInDurableObject<T extends object>(
   durableObjectStubOrTestFn: any | ((instance: T, ctx: any, mock?: any) => Promise<void> | void),
   testFnOrOptions?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | WSUpgradeOptions,
