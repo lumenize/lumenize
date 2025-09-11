@@ -274,7 +274,7 @@ describe('simulateWSUpgrade and runWithSimulatedWSUpgrade', () => {
           expect(true).toBe(false);
         }
       )
-    ).rejects.toThrow('WebSocket upgrade failed with status 403: Origin header required and must be in allow list');
+    ).rejects.toThrow('WebSocket upgrade failed with status 403: Origin missing or not allowed');
   });
 
 });

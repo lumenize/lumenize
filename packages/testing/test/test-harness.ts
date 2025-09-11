@@ -12,7 +12,7 @@ export default {
     // Check origin
     const origin = request.headers.get('Origin');
     if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      return new Response('Origin header required and must be in allow list', { status: 403 });
+      return new Response('Origin missing or not allowed', { status: 403 });
     }
     
     if (url.protocol === 'wss:' || url.pathname === '/wss') {  // Specified this way to test protocol-based routing
