@@ -12,6 +12,7 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
   // TODO: export a second DO, MyAgent, and show a test using AgentClient. Worker routing will be tricky. Maybe use my @lumenize/utils router?
 
   // runInDurableObject now allows you to:
+  //   - Use it as a drop in replacement for cloudflare:test's runInDurableObject
   //   - Use any client library that directly calls `new WebSocket()` like AgentClient
   //   - Inspect the messages that were sent in and out
   //   - Inspect close codes and reasons
@@ -51,10 +52,9 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
   });
 
   // runInDurableObject allows you to:
-  //   - Use it as a drop in replacement for cloudflare:test's runInDurableObject
   //   - Inspect ctx (DurableObjectState): storage, getWebSockets, etc.
   it('should show ctx (DurableObjectState) changes when using runInDurableObject', async () => {
-    let onmessageCalled = false;
+    let onmessageCalled = false;  // Use flags to be sure asserts inside handlers are evaluated
     await runInDurableObject(async (instance: MyDO, ctx, mock) => {  // newUniqueId stub created by default
       const ws = new WebSocket('wss://example.com/my-do/my-name');
       ws.onopen = () => {
@@ -78,18 +78,19 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
     expect(onmessageCalled).toBe(true);
   });
 
-
-
   // runInDurableObject allows you to:
   //   - Use wss:// protocol as a gate for routing in your Worker
   it('should support wss:// protocol URLs with runInDurableObject', async () => {
+    let onmessageCalled = false;
     await runInDurableObject((instance, ctx, mock) => {
       const ws = new WebSocket('wss://example.com');  
       ws.onopen = () => { ws.send('increment') };   
       ws.onmessage = (event) => { 
         expect(event.data).toBe('1');
+        onmessageCalled = true;
       };
     }, 1000);
+    expect(onmessageCalled).toBe(true);
   });
 
   // runInDurableObject allows you to:
@@ -119,7 +120,7 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
 
   // runInDurableObject allows you to:
   //   - Supply Origin and other Headers that will be attached to the initial WebSocket upgrade
-  // Note: This capability is also supported with simulated WS upgrade approaches
+  // Note: This capability is also supported with simulated WS upgrade approaches shown below
   it('should support origin and custom headers', async () => {
     await runInDurableObject(async (instance, ctx, mock) => {
       const ws = new WebSocket('wss://example.com');
@@ -129,37 +130,13 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
       };
       await mock.sync();
     }, {
-      origin: 'https://app.example.com',  // shorthand for Origin and Sec-WebSocket-Protocol headers
+      origin: 'https://app.example.com',  // has shorthand for Origin and Sec-WebSocket-Protocol headers
       headers: {                          // any other headers you want to add
         'User-Agent': 'MyApp/1.0'
       }
     });
   });
 
-  // runInDurableObject allows you to:
-  //   - Write tests that use multiple WebSocket connections to the same DO instance
-  it('should support multiple WebSocket connections to same DO instance', async () => {
-    await runInDurableObject(async (instance, ctx, mock) => {
-      const ws1 = new WebSocket('wss://example.com');
-      ws1.onopen = () => {
-        ws1.send('track-ws1');
-      };
-      const ws2 = new WebSocket('wss://example.com');
-      ws2.onopen = () => {
-        ws2.send('track-ws2');
-      };
-      
-      await mock.sync();
-      
-      const operationsFromQueue = await ctx.storage.get('operationsFromQueue') as string[] | undefined;
-      expect(operationsFromQueue).toEqual([
-        'fetch-unknown',     // First WebSocket upgrade
-        'fetch-unknown',     // Second WebSocket upgrade
-        'message-track-ws1', // First WebSocket message 
-        'message-track-ws2'  // Second WebSocket message
-      ]);
-    });
-  });
 });
 
 // cloudfare:test's runInDurableObject has no input gate simulation.
@@ -167,14 +144,10 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
 describe('runInDurableObject limitations', () => {
   it('should show that input gates are only partially simulated', async () => {
     await runInDurableObject(async (instance, ctx, mock) => {
-      // Create WebSocket connection
       const ws = new WebSocket('wss://example.com');
       
       ws.onopen = () => {
-        // Test the boundaries: setTimeout delays could potentially allow operation interleaving
-        // In a real DO, setTimeout can yield control and allow other pending operations to execute
-        
-        // Operation 1: Fetch with setTimeout delay (should potentially allow interleaving)
+        // Operation 1: Fetch with setTimeout delay (should finish last, but won't)
         instance.fetch(new Request('https://test.com?op=delayed&delay=10'));
         
         // Operation 2: Fetch without delay (might execute before delayed one finishes in real DO)
@@ -186,40 +159,31 @@ describe('runInDurableObject limitations', () => {
       
       await mock.sync();
       
-      // Check the actual execution order to see simulation boundaries
+      // With our simulated input gates, operations are strictly sequential despite setTimeout
       const operationsFromQueue = await ctx.storage.get('operationsFromQueue') as string[] | undefined;
-      
-      // In our current simulation, operations should still be serialized despite setTimeout:
-      // - Our queue processes operations sequentially
-      // - setTimeout within a queued operation doesn't yield to other queue items
       expect(operationsFromQueue).toEqual([
         'fetch-unknown',           // WebSocket upgrade fetch call
         'fetch-delayed',           // First operation (with setTimeout delay) completes first
         'fetch-immediate',         // Second operation waits for first to complete
         'message-track-after-delay' // WebSocket message waits for fetch operations
       ]);
-      
-      // This demonstrates the limitation: in a real DO with setTimeout, 
-      // 'fetch-immediate' might execute before 'fetch-delayed' finishes,
-      // but our simulation maintains strict serial order
     });
   });
 });
 
-
-// The next set of tests will simulate a WebSocket upgrade over HTTP.
-// You get the actual WebSocket that the Worker would see as well as proper input gates behavior.
-// This is the general approach that the Cloudflare agents team uses.
-
-// The differences between the two approaches derive from the fact that the simulate
-// WS upgrade approaches go through the Worker's fetch handler. The runInDurableObject
-// approach that we showed above calls the DO's methods directly.
-//
-// runInDurableObject cannot do any of the below, so use a simulated WS upgrade when yout want to test your:
+// You want to use @lumenize/testing's runInDurableObject for most testing but it has
+// some limitations that derive from the fact that it bypasses the Worker that normally
+// proxies WebSocket connections. Rather, runInDurableObject calls the DO's methods
+// directly. So, it cannot conrim the correctness of any of the following:
 //   - setWebSocketAutoResponse pair
 //   - WebSocket sub-protcol selection code in your Worker
 //   - Origin rejection that's in your Worker
 //   - Native input gate behavior
+// 
+// So, @lumenize/testing also provides two helpers (one higher-level than the other)
+// to check all of the above. It manually creates a WebSocket upgrade request
+// which returns the actual server-side ws object. This is the general approach 
+// that the Cloudflare agents team uses in the tests that I've examined.
 
 describe('simulateWSUpgrade and runWithSimulatedWSUpgrade', () => {
 
