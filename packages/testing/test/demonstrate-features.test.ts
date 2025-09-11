@@ -48,7 +48,7 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
       expect(mock.clientCloses).toHaveLength(1);
       expect(mock.clientCloses[0].code).toBe(1000);
       expect(mock.clientCloses[0].reason).toBe('Normal completion');
-    }, 500);
+    }, { timeout: 500 });
   });
 
   // runInDurableObject allows you to:
@@ -89,7 +89,7 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
         expect(event.data).toBe('1');
         onmessageCalled = true;
       };
-    }, 1000);
+    }, { timeout: 1000 });
     expect(onmessageCalled).toBe(true);
   });
 
@@ -194,20 +194,20 @@ describe('runInDurableObject limitations', () => {
 
 describe('simulateWSUpgrade and runWithSimulatedWSUpgrade', () => {
 
-  // Test using @lumenize/testing's low-level simulateWSUpgrade
-  it('should exercise setWebSocketAutoResponse with simulateWSUpgrade', async () => {
-    const { ws, response } = await simulateWSUpgrade('https://example.com/wss', { 
-      origin: 'https://example.com' 
-    });
-    
-    await new Promise<void>((resolve) => {
-      ws.onmessage = (event) => {
-        expect(event.data).toBe('pong');
-        ws.close();
-        resolve();
-      };
-      ws.send('ping');
-    });
+  // Test using @lumenize/testing's runWithSimulatedWSUpgrade with no options (uses default origin from URL)
+  it('should work with runWithSimulatedWSUpgrade using default origin from URL', async () => {
+    let onmessageCalled = false;
+    await runWithSimulatedWSUpgrade(
+      'https://example.com/wss',  // Origin is derived from url as 'https://example.com' which is convenient for testing but a security no-no in prod
+      async (ws) => {
+        ws.onmessage = (event) => {
+          expect(event.data).toBe('pong');
+          onmessageCalled = true;
+        };
+        ws.send('ping');
+      }
+    );
+    expect(onmessageCalled).toBe(true);
   });
 
   // Uses slightly higher-level API of runWithSimulatedWSUpgrade
@@ -261,6 +261,21 @@ describe('simulateWSUpgrade and runWithSimulatedWSUpgrade', () => {
       }, 
       100  // timeout
     );
+  });
+
+  // Shows that origin validation works with runWithSimulatedWSUpgrade
+  // This goes through the Worker, so origin validation is enforced
+  it('should reject bad origin with runWithSimulatedWSUpgrade', async () => {
+    await expect(
+      runWithSimulatedWSUpgrade(
+        'https://example.com/wss',
+        { origin: 'https://evil.com' },  // Bad origin - not in ALLOWED_ORIGINS
+        async (ws) => {
+          // This should never execute because the origin will be rejected
+          expect(true).toBe(false);
+        }
+      )
+    ).rejects.toThrow('WebSocket upgrade failed with status 403: Origin header required and must be in allow list');
   });
 
 });

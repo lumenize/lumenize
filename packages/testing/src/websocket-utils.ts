@@ -14,6 +14,7 @@ export interface WSUpgradeOptions {
   protocols?: string[];
   origin?: string;
   headers?: Record<string, string>;
+  timeout?: number;
 }
 
 /**
@@ -34,8 +35,14 @@ export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions)
     headers['Sec-WebSocket-Protocol'] = options.protocols.join(', ');
   }
 
+  // Set origin - use explicit option if provided, otherwise derive from URL
   if (options?.origin) {
     headers['Origin'] = options.origin;
+  } else {
+    // For testing convenience, derive default origin from URL
+    // This would be a security risk in production but is fine for testing
+    const urlObj = new URL(url);
+    headers['Origin'] = urlObj.origin;
   }
 
   // Merge custom headers, allowing them to override shorthand options
@@ -111,6 +118,12 @@ export function runWithSimulatedWSUpgrade(
     
     const testPromise = async () => {
       const { ws, response } = await simulateWSUpgrade(url, options);
+      
+      // Check if WebSocket upgrade failed - throw with actual status code and response message
+      if (!ws || response.status !== 101) {
+        const errorText = await response.text();
+        throw new Error(`WebSocket upgrade failed with status ${response.status}: ${errorText}`);
+      }
       
       // Extract selected protocol from response and set it on the WebSocket
       const selectedProtocol = response.headers.get('Sec-WebSocket-Protocol') || '';
@@ -216,20 +229,18 @@ function createWrappedInstance<T extends object>(instance: T, mock: any): T {
  * (like AgentClient) can be part of the test
  * 
  * @param durableObjectStubOrTestFn - The Durable Object stub to run within, or the test function if auto-creating stub
- * @param testFnOrTimeoutMs - Function that receives instance, DurableObjectState, and mock, or timeout if first param is test function
- * @param timeoutMs - Timeout in milliseconds (default: 1000)
+ * @param testFnOrOptions - Function that receives instance, DurableObjectState, and mock, or options if first param is test function
+ * @param options - Options object with timeout and WebSocket configuration (when first param is stub)
  */
 export async function runInDurableObject<T extends object>(
   durableObjectStubOrTestFn: any | ((instance: T, ctx: any, mock?: any) => Promise<void> | void),
-  testFnOrTimeoutMs?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | number | WSUpgradeOptions,
-  timeoutMsOrOptions?: number | WSUpgradeOptions,
-  optionsOrUndefined?: WSUpgradeOptions
+  testFnOrOptions?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | WSUpgradeOptions,
+  options?: WSUpgradeOptions
 ): Promise<void> {
   // Handle overloaded signature - determine if first parameter is stub or test function
   let durableObjectStub: any;
   let testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void;
-  let actualTimeoutMs: number;
-  let options: WSUpgradeOptions | undefined;
+  let actualOptions: WSUpgradeOptions | undefined;
 
   if (typeof durableObjectStubOrTestFn === 'function') {
     // First parameter is the test function, auto-create stub
@@ -237,29 +248,15 @@ export async function runInDurableObject<T extends object>(
     const id = durableObjectNamespace.newUniqueId();
     durableObjectStub = durableObjectNamespace.get(id);
     testFn = durableObjectStubOrTestFn;
-    
-    // Second parameter can be timeout number or options object
-    if (typeof testFnOrTimeoutMs === 'number') {
-      actualTimeoutMs = testFnOrTimeoutMs;
-      options = timeoutMsOrOptions as WSUpgradeOptions | undefined;
-    } else {
-      actualTimeoutMs = 1000; // use default
-      options = testFnOrTimeoutMs as WSUpgradeOptions | undefined;
-    }
+    actualOptions = testFnOrOptions as WSUpgradeOptions | undefined;
   } else {
     // First parameter is the stub, use traditional signature
     durableObjectStub = durableObjectStubOrTestFn;
-    testFn = testFnOrTimeoutMs as (instance: T, ctx: any, mock?: any) => Promise<void> | void;
-    
-    // Third parameter can be timeout number or options object  
-    if (typeof timeoutMsOrOptions === 'number') {
-      actualTimeoutMs = timeoutMsOrOptions;
-      options = optionsOrUndefined;
-    } else {
-      actualTimeoutMs = 1000; // use default
-      options = timeoutMsOrOptions as WSUpgradeOptions | undefined;
-    }
+    testFn = testFnOrOptions as (instance: T, ctx: any, mock?: any) => Promise<void> | void;
+    actualOptions = options;
   }
+
+  const actualTimeoutMs = actualOptions?.timeout ?? 1000;
 
   return cloudflareRunInDurableObject(durableObjectStub, async (instance: T, ctx: any) => {
     // Create a separate ExecutionContext for waitUntil tracking
@@ -269,7 +266,7 @@ export async function runInDurableObject<T extends object>(
       // Create a wrapped instance that intercepts fetch() calls to queue them through input gate simulation
       const wrappedInstance = createWrappedInstance(instance, mock);
       return testFn(wrappedInstance, ctx, mock);
-    }, execCtx, instance, ctx, actualTimeoutMs, options);
+    }, execCtx, instance, ctx, actualTimeoutMs, actualOptions);
   });
 }
 
@@ -303,8 +300,6 @@ async function runWebSocketMockInternal<T>(
         this._operationQueue = promise.catch(() => {}); // Continue queue even if operation fails
         return promise;
       },
-
-
       
       async sync() {
         // Wait iteratively until no new operations are created
@@ -484,11 +479,12 @@ async function runWebSocketMockInternal<T>(
 
           // Add shorthand headers if provided
           if (options?.protocols) {
-            baseHeaders['Sec-WebSocket-Protocol'] = Array.isArray(options.protocols) ? options.protocols.join(', ') : options.protocols;
+            baseHeaders['Sec-WebSocket-Protocol'] = options.protocols.join(', ');
           }
-          if (options?.origin) {
-            baseHeaders['Origin'] = options.origin;
-          }
+          
+          // Set origin - use explicit origin or derive from URL (for testing convenience)
+          const origin = options?.origin || new URL(url.toString()).origin;
+          baseHeaders['Origin'] = origin;
 
           // Merge with custom headers (custom headers override shorthand options)
           const finalHeaders = Object.assign(baseHeaders, options?.headers || {});

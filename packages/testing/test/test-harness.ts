@@ -75,7 +75,6 @@ export class MyDO extends DurableObject{
         }
       }
       
-      // Create attachment with predictable data
       const name = url.pathname.split('/').at(-1) ?? 'No name in path'
       
       // Collect all request headers for testing

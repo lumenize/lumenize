@@ -31,7 +31,10 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       expect(messageEventData).toBe('1'); // Additional verification the callback ran
       expect(mock.messagesSent).toEqual(['increment']);
       expect(mock.messagesReceived).toEqual(['1']);
-    }, 500);
+    }, { 
+      timeout: 500,
+      origin: 'https://example.com'  // Test explicit origin in runInDurableObject
+    });
   });
 
   // Test that assertions in event handlers properly fail tests
@@ -56,6 +59,10 @@ describe('Comprehensive WebSocket testing framework tests', () => {
   describe('WebSocket lifecycle hooks', () => {
     it('should call webSocketOpen when connection opens', async () => {
       await runInDurableObject(async (instance: MyDO, ctx, mock) => {
+        // Test accessing non-fetch properties on wrapped instance (covers proxy fallback)
+        expect(instance.constructor.name).toBe('MyDO');
+        expect(typeof instance.webSocketMessage).toBe('function');
+        
         const ws = new WebSocket('wss://example.com');
         await mock.sync();
         
@@ -86,45 +93,23 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should call webSocketError when message handler throws', async () => {
-      // We expect this to have an error, so we catch it
-      try {
+      await expect(async () => {
         await runInDurableObject(async (instance: MyDO, ctx, mock) => {
           const ws = new WebSocket('wss://example.com');
           ws.onopen = () => {
             ws.send('test-error'); // This will cause the DO to throw an error
           };
           await mock.sync();
+          
+          // Check that webSocketError was called
+          const lastError = await ctx.storage.get("lastWebSocketError");
+          expect(lastError).toBeDefined();
+          expect(lastError).toEqual({
+            message: 'Test error from DO',
+            timestamp: expect.any(Number)
+          });
         });
-      } catch (error) {
-        // The error should be propagated, but we also want to check that webSocketError was called
-      }
-      
-      // Check that webSocketError was called by verifying storage was updated
-      await runInDurableObject(async (instance: MyDO, ctx, mock) => {
-        // Trigger the same error but check if the previous instance recorded it
-        // Actually, let's check on the same instance by using a different approach
-        const ws = new WebSocket('wss://example.com');
-        ws.onerror = () => {
-          // Error occurred, this is expected
-        };
-        ws.onopen = () => {
-          ws.send('test-error');
-        };
-        
-        try {
-          await mock.sync();
-        } catch (e) {
-          // Expected error
-        }
-        
-        // Check that webSocketError was called
-        const lastError = await ctx.storage.get("lastWebSocketError");
-        expect(lastError).toBeDefined();
-        expect(lastError).toEqual({
-          message: 'Test error from DO',
-          timestamp: expect.any(Number)
-        });
-      });
+      }).rejects.toThrow('Test error from DO');
     });
 
     it('should track all lifecycle events in order', async () => {
@@ -258,7 +243,9 @@ describe('Comprehensive WebSocket testing framework tests', () => {
           ws.send('test-server-close');
         };
         
-        ws.onclose = (event) => {
+        // Test async onclose handler with server-initiated close (covers Promise branch)
+        ws.onclose = async (event) => {
+          await new Promise(resolve => setTimeout(resolve, 1));
           serverCloseReceived = true;
           receivedCode = event.code;
           receivedReason = event.reason;
@@ -317,9 +304,27 @@ describe('Comprehensive WebSocket testing framework tests', () => {
   });
 
   describe('Custom headers support', () => {
+    it('should allow explicit origin to override URL-derived origin', async () => {
+      // Using different domain in URL vs explicit origin - explicit should win
+      let onmessageCalled = false;
+      await runWithSimulatedWSUpgrade(
+        'https://other-domain.com/wss',  // URL has different origin
+        { origin: 'https://example.com' },  // But explicit origin is valid
+        async (ws) => {
+          ws.onmessage = (event) => {
+            expect(event.data).toBe('pong');
+            onmessageCalled = true;
+          };
+          ws.send('ping');
+        }
+      );
+      expect(onmessageCalled).toBe(true);
+    });
+
     it('should support custom headers in WebSocket simulation with runWithSimulatedWSUpgrade', async () => {
-      await runWithSimulatedWSUpgrade('https://localhost:8787/test', 
+      await runWithSimulatedWSUpgrade('https://example.com/wss', 
         { 
+          origin: 'https://example.com',
           headers: {
             'User-Agent': 'TestBot/1.0'
           }
@@ -331,13 +336,13 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should support custom headers with override behavior in runWithSimulatedWSUpgrade', async () => {
-      await runWithSimulatedWSUpgrade('https://localhost:8787/test', 
+      await runWithSimulatedWSUpgrade('https://example.com/wss', 
         { 
           origin: 'https://app.example.com',
           headers: {
             'Cookie': 'sessionId=abc123',
             'Host': 'api.example.com',
-            'Origin': 'https://override.example.com' // This should override the shorthand origin
+            'Origin': 'https://example.com' // This should override the shorthand origin with an allowed one
           }
         }, 
         async (ws) => {
@@ -381,8 +386,23 @@ describe('Comprehensive WebSocket testing framework tests', () => {
       });
     });
 
+    it('should support protocols option in runInDurableObject', async () => {
+      await runInDurableObject(async (instance, ctx, mock) => {
+        const ws = new WebSocket('wss://example.com');
+        ws.onopen = () => {
+          ws.send('increment');
+        };
+        ws.onmessage = (event) => {
+          expect(event.data).toBe('1');
+        };
+        await mock.sync();
+      }, {
+        protocols: ['mcp', 'websocket']
+      });
+    });
+
     it('should merge shorthand options with custom headers correctly', async () => {
-      await runWithSimulatedWSUpgrade('https://example.com/test', 
+      await runWithSimulatedWSUpgrade('https://example.com/wss', 
         { 
           protocols: ['chat', 'superchat'],
           origin: 'https://example.com',
@@ -398,7 +418,7 @@ describe('Comprehensive WebSocket testing framework tests', () => {
     });
 
     it('should allow empty headers object', async () => {
-      await runWithSimulatedWSUpgrade('https://example.com/test', 
+      await runWithSimulatedWSUpgrade('https://example.com/wss', 
         { 
           origin: 'https://example.com',
           headers: {}
