@@ -79,16 +79,16 @@ function createWrappedInstance<T extends object>(instance: T, mock: any): T {
  * @param options - Optional WebSocket configuration and timeout
  * @returns Promise that resolves when test completes
  */
-export async function runInDurableObject<T extends object>(
+export async function runInDurableObject<T extends DurableObject>(
   testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void,
   options?: WSUpgradeOptions
 ): Promise<void>;
-export async function runInDurableObject<T extends object>(
+export async function runInDurableObject<T extends DurableObject>(
   durableObjectStub: any,
   testFn: (instance: T, ctx: any, mock?: any) => Promise<void> | void,
   options?: WSUpgradeOptions
 ): Promise<void>;
-export async function runInDurableObject<T extends object>(
+export async function runInDurableObject<T extends DurableObject>(
   durableObjectStubOrTestFn: any | ((instance: T, ctx: any, mock?: any) => Promise<void> | void),
   testFnOrOptions?: ((instance: T, ctx: any, mock?: any) => Promise<void> | void) | WSUpgradeOptions,
   options?: WSUpgradeOptions

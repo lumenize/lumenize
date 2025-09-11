@@ -239,7 +239,7 @@ describe('simulateWSUpgrade and runWithSimulatedWSUpgrade', () => {
   it('should test input gates behavior with runWithSimulatedWSUpgrade', async () => {
     await runWithSimulatedWSUpgrade(
       'https://example.com/wss', 
-      { origin: 'https://example.com' },
+      { origin: 'https://example.com', timeout: 100 },
       async (ws) => {
         const responses: string[] = [];
         
@@ -258,8 +258,7 @@ describe('simulateWSUpgrade and runWithSimulatedWSUpgrade', () => {
         });
         
         expect(responses).toEqual(['1', '2']); // If input gates don't work, we might get ['1', '1']
-      }, 
-      100  // timeout
+      }
     );
   });
 

@@ -70,20 +70,20 @@ export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions)
  */
 export function runWithSimulatedWSUpgrade(
   url: string, 
-  testFn: (ws: any) => Promise<void> | void
+  testFn: (ws: WebSocket) => Promise<void> | void
 ): Promise<void>;
 export function runWithSimulatedWSUpgrade(
   url: string,
   options: WSUpgradeOptions,
-  testFn: (ws: any) => Promise<void> | void
+  testFn: (ws: WebSocket) => Promise<void> | void
 ): Promise<void>;
 export function runWithSimulatedWSUpgrade(
   url: string,
-  optionsOrTestFn: WSUpgradeOptions | ((ws: any) => Promise<void> | void),
-  testFn?: (ws: any) => Promise<void> | void
+  optionsOrTestFn: WSUpgradeOptions | ((ws: WebSocket) => Promise<void> | void),
+  testFn?: (ws: WebSocket) => Promise<void> | void
 ): Promise<void> {
   let options: WSUpgradeOptions;
-  let actualTestFn: (ws: any) => Promise<void> | void;
+  let actualTestFn: (ws: WebSocket) => Promise<void> | void;
 
   if (typeof optionsOrTestFn === 'function') {
     // First signature: url, testFn
