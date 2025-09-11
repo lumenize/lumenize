@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently recognized by VS Code
 import { env } from 'cloudflare:test';
-import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runInDurableObject } from '../src/websocket-utils.js';
-import { MyDO } from './test-harness';
+import { simulateWSUpgrade, runWithSimulatedWSUpgrade, runInDurableObject } from '../src/index.js';
+import { MyDO } from './test-harness.js';
 
 // @lumenize/testing's runInDurableObject is a drop-in replacement for
 // cloudflare:test's runInDurableObject... but with additional capabilities
