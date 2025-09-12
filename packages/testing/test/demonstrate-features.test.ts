@@ -9,8 +9,6 @@ import { MyDO } from './test-harness.js';
 // mostly centered around testing WebSocket functionality.
 describe('runInDurableObject drop-in replacement plus additional capabilities', () => {
 
-  // TODO: export a second DO, MyAgent, and show a test using AgentClient. Worker routing will be tricky. Maybe use my @lumenize/utils router?
-
   // runInDurableObject now allows you to:
   //   - Use it as a drop in replacement for cloudflare:test's runInDurableObject
   //   - Use any client library that directly calls `new WebSocket()` like AgentClient

@@ -16,8 +16,8 @@
     "clean": "rm -rf packages/*/dist packages/*/node_modules"
   },
   "devDependencies": {
-    "typescript": "^5.8.3",
-    "@types/node": "^24.0.3"
+    "@types/node": "^24.0.3",
+    "typescript": "^5.9.2"
   },
   "engines": {
     "node": ">=18"

@@ -33,14 +33,15 @@ export class MyAgent extends Agent<Env, State> {
 
 }
 
+// export default {}
+
 export default {
 
 	async fetch(request, env, ctx): Promise<Response> {
+    console.log('got here');
 
-		const stub = env.MY_DURABLE_OBJECT.getByName("foo");
+    return new Response('fetch response');
 
-		const greeting = await stub.sayHello("world");
 
-		return new Response(greeting);
 	},
 } satisfies ExportedHandler<Env>;
