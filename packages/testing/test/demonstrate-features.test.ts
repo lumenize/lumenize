@@ -108,7 +108,8 @@ describe('runInDurableObject drop-in replacement plus additional capabilities', 
       
       await mock.sync();
       
-      const operationsFromQueue = await ctx.storage.get('operationsFromQueue') as string[] | undefined;
+      // works with new sync KV storage API if compatibility_date >= 2025-09-06
+      const operationsFromQueue = ctx.storage.kv.get('operationsFromQueue') as string[] | undefined;
       expect(operationsFromQueue).toEqual([
         'fetch-unknown',     // First WebSocket upgrade
         'fetch-unknown',     // Second WebSocket upgrade

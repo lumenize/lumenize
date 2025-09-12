@@ -100,8 +100,8 @@ export class MyDO extends DurableObject{
     return new Response('Not found', { status: 404 });
   }
 
-  async webSocketOpen(ws: WebSocket) {
-    await this.ctx.storage.put("lastWebSocketOpen", Date.now());
+  webSocketOpen(ws: WebSocket) {
+    this.ctx.storage.kv.put("lastWebSocketOpen", Date.now());  // trying new sync KV API
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {

@@ -1,7 +1,7 @@
 {
   "name": "test-harness",
   "main": "./test-harness.ts",
-  "compatibility_date": "2025-09-04",
+  "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [
       {
