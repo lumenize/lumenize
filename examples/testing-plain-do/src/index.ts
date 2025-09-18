@@ -1,27 +1,36 @@
 import { DurableObject } from "cloudflare:workers";
+import { getDONamespaceFromPathname, DOBindingNotFoundError } from '@lumenize/utils'
 
 export const ALLOWED_ORIGINS = [
   'https://example.com',
 ];
 
+// Follows hono convention for handlers/middleware, returning undefined if it's not a match
+function routeToDO(request: Request, env: Env): Response | undefined {
+  try {
+    const url = new URL(request.url);
+    const pathname = url.pathname;
+    const namespace = getDONamespaceFromPathname(pathname, env);
+    return namespace.fetch(request);
+  } catch(error: any) {
+    if (error.instanceOf(DOBindingNotFoundError)) return undefined
+    throw(error);
+  };
+}
+
 // Worker
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-
     // Check origin
     const origin = request.headers.get('Origin');
     if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
       return new Response('Origin missing or not allowed', { status: 403 });
     }
     
-    if (url.protocol === 'wss:' || url.pathname === '/wss') {  // Specified this way to test protocol-based routing
-      const id = env.MY_DO.newUniqueId();
-      const stub = env.MY_DO.get(id);
-      return stub.fetch(request);
-    }
-
-    return new Response("Not Found", { status: 404 });
+    return (
+      routeToDO(request, env) ||
+      new Response("Not Found", { status: 404 })
+    );
   }
 } satisfies ExportedHandler<Env>;
 

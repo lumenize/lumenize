@@ -1,4 +1,4 @@
-import { getDONamespaceFromPathname, InvalidPathError } from './get-do-namespace-from-pathname.js';
+import { getDONamespaceFromPathname } from './get-do-namespace-from-pathname.js';
 
 export class InvalidStubPathError extends Error {
   code: 'INVALID_STUB_PATH' = 'INVALID_STUB_PATH';

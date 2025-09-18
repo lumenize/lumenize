@@ -19,7 +19,7 @@ export default defineWorkersProject({
     poolOptions: {
       workers: {
         isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
-        wrangler: { configPath: "./wrangler.jsonc" },
+        wrangler: { configPath: "./test/wrangler.jsonc" },
       },
     },
     coverage: {
