@@ -22,10 +22,11 @@ function routeToDO(request: Request, env: Env): Response | undefined {
 export default {
   async fetch(request, env, ctx) {
     // Check origin
-    const origin = request.headers.get('Origin');
-    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-      return new Response('Origin missing or not allowed', { status: 403 });
-    }
+    // TODO: Uncomment to confirm origin checking
+    // const origin = request.headers.get('Origin');
+    // if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    //   return new Response('Origin missing or not allowed', { status: 403 });
+    // }
     
     return (
       routeToDO(request, env) ||
@@ -68,7 +69,7 @@ export class MyDO extends DurableObject{
     
     await this.#trackOperation('fetch', operation);
 
-    if (url.protocol === 'wss:' || url.pathname === '/wss') {
+    if (url.protocol === 'wss:' || url.pathname.includes('/wss')) {  // TODO: Change this to key off of headers for WS upgrade
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       
