@@ -10,6 +10,3 @@ export * from './test-do-project.js';
 
 // Note: Additional experimental utilities are available in the scratch/ directory
 // but are not exported as they are not production-ready
-
-// Note: Additional experimental utilities are available in the scratch/ directory
-// but are not exported as they are not production-ready

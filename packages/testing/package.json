@@ -3,20 +3,8 @@
   "version": "1.0.0",
   "description": "Testing utilities for Lumenize applications",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
-  },
-  "files": [
-    "dist/**/*",
-    "!dist/scratch/**/*",
-    "package.json",
-    "README.md"
-  ],
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "test": "vitest --run",

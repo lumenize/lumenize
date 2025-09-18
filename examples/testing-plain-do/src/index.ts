@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { getDONamespaceFromPathname, DOBindingNotFoundError } from '@lumenize/utils'
+import { getDOStubFromPathname, DOBindingNotFoundError } from '@lumenize/utils'
 
 export const ALLOWED_ORIGINS = [
   'https://example.com',
@@ -10,8 +10,8 @@ function routeToDO(request: Request, env: Env): Response | undefined {
   try {
     const url = new URL(request.url);
     const pathname = url.pathname;
-    const namespace = getDONamespaceFromPathname(pathname, env);
-    return namespace.fetch(request);
+    const stub = getDOStubFromPathname(pathname, env);
+    return stub.fetch(request);
   } catch(error: any) {
     if (error.instanceOf(DOBindingNotFoundError)) return undefined
     throw(error);
