@@ -142,13 +142,34 @@ export class TestingStubRegistry {
 
 /**
  * Creates a proxy that intercepts property access and method calls
- * and forwards them to the DO's ctx via the testing endpoint
+ * and forwards them to the DO's ctx via the testing endpoint.
+ * 
+ * This proxy automatically detects usage patterns:
+ * - When called as function: sends 'call' request
+ * - When accessed and awaited: sends 'get' request 
+ * - When accessed for chaining: returns new proxy
  */
 function createCtxProxy(stub: any, path: string[] = []): any {
-  return new Proxy(function() {}, {
+  const proxyFunction = function(...args: any[]) {
+    // When called as a function, make a 'call' request
+    return makeCtxRequest(stub, 'call', path, args);
+  };
+  
+  return new Proxy(proxyFunction, {
     get(target, prop, receiver) {
       if (typeof prop === 'symbol') {
         return undefined;
+      }
+      
+      // Handle promise-like behavior for await
+      if (prop === 'then') {
+        // When someone tries to await this proxy, get the property value
+        const promise = makeCtxRequest(stub, 'get', path);
+        return promise.then.bind(promise);
+      }
+      if (prop === 'catch') {
+        const promise = makeCtxRequest(stub, 'get', path);
+        return promise.catch.bind(promise);
       }
       
       const newPath = [...path, prop as string];
@@ -182,12 +203,14 @@ async function makeCtxRequest(stub: any, type: 'get' | 'call', path: string[], a
   const serializedResult = JSON.parse(responseText);
   const result = deserialize(serializedResult);
   
-  if (!result.success) {
-    throw new Error(`DO ctx proxy error: ${result.error}`);
+  // If response status indicates error (500) and result is an Error, throw it
+  // Otherwise, Error objects from normal operations (200 status) are returned as data
+  if (response.status === 500 && result instanceof Error) {
+    throw result;
   }
   
-  // Always await the result to handle both sync and async operations uniformly
-  return await result.result;
+  // Return result directly - let the caller await if needed
+  return result;
 }
 
 /**
