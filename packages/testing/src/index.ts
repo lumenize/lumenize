@@ -1,7 +1,7 @@
 // Export production-ready testing utilities
 export * from './types.js';
-export * from './simulate-ws-upgrade.js';
-export * from './run-in-durable-object.js';
+// export * from './simulate-ws-upgrade.js';  // Temporarily disabled due to cloudflare:test import issues
+// export * from './run-in-durable-object.js';  // Temporarily disabled due to cloudflare:test import issues
 
 // Export instrumentation utilities (stubs)
 export * from './instrument-do.js';
