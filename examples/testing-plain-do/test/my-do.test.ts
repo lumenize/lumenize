@@ -1,17 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import { testDOProject } from '@lumenize/testing';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
-import { env } from 'cloudflare:test';
+import { env, createExecutionContext } from 'cloudflare:test';
 
 describe('MyDO', () => {
 
   it('should do something inside MyDO', async () => {
     await testDOProject(async (SELF, durableObjects, helpers) => {
-      // First test the original SELF.fetch call
-      const myDO1Ws = SELF.fetch('https://example.com/my-do/instance-name');
-      expect(myDO1Ws).toBeDefined();
-      console.log('%o', { myDO1Ws });
-
+      
       // Now test all Durable Object access patterns
       
       // Pattern 1: Using getByName (direct named access)
@@ -29,6 +25,13 @@ describe('MyDO', () => {
       console.log('Created unique ID:', uniqueId.toString());
       const uniqueStub = env.MY_DO.get(uniqueId);
       console.log('Got unique stub:', uniqueStub);
+      
+      // Test the instrumentation by calling a testing endpoint
+      const testResponse = await directStub.fetch(new Request('https://example.com/__testing/ping'));
+      const testData = await testResponse.json();
+      console.log('Testing endpoint response:', testData);
+      expect(testData.status).toBe('ok');
+      expect(testData.className).toBeDefined();
       
       // Check if our durableObjects map was populated
       expect(durableObjects).toBeDefined();
