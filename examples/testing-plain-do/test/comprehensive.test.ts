@@ -3,9 +3,26 @@ import { testDOProject } from '@lumenize/testing';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { env, createExecutionContext } from 'cloudflare:test';
 
-describe('MyDO', () => {
+/**
+ * Comprehensive Testing Suite for @lumenize/testing
+ * 
+ * This file provides thorough validation of all features and edge cases
+ * in the @lumenize/testing library. It focuses on happy-path testing
+ * with comprehensive coverage of:
+ * 
+ * - All DO access patterns and edge cases
+ * - Complete ctx proxy functionality 
+ * - Three-method API validation
+ * - Map serialization with structured clone
+ * - DO instance isolation
+ * - Registry tracking and management
+ * 
+ * This test suite will eventually be migrated to the main @lumenize/testing
+ * package for proper CI/CD integration.
+ */
+describe('Comprehensive @lumenize/testing Validation', () => {
 
-  it('should be used to experiment', async () => {
+  it('validates complete library functionality', async () => {
     await testDOProject(async (SELF, stubs, helpers) => {
       
       // Now test all Durable Object access patterns
