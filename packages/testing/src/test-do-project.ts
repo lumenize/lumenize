@@ -1,5 +1,6 @@
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF, env } from 'cloudflare:test';
+import { serialize, deserialize } from '@ungap/structured-clone';
 
 /**
  * Represents a Durable Object stub with dynamic access to internal state
@@ -167,14 +168,19 @@ function createCtxProxy(stub: any, path: string[] = []): any {
  * Makes a request to the DO's ctx testing endpoint
  */
 async function makeCtxRequest(stub: any, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
+  const serializedData = serialize({ type, path, args });
+  const serializedBody = JSON.stringify(serializedData);
+  
   const request = new Request('https://example.com/__testing/ctx', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, path, args })
+    body: serializedBody
   });
   
   const response = await stub.fetch(request);
-  const result = await response.json();
+  const responseText = await response.text();
+  const serializedResult = JSON.parse(responseText);
+  const result = deserialize(serializedResult);
   
   if (!result.success) {
     throw new Error(`DO ctx proxy error: ${result.error}`);

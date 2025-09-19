@@ -39,9 +39,9 @@ describe('MyDO', () => {
       // Test the ctx proxy - this is the key functionality
       const storageList = await directStub.ctx.storage.list();
       expect(storageList).toBeDefined();
-      expect(typeof storageList).toBe('object');
+      expect(storageList).toBeInstanceOf(Map);
       // Fresh DO should have empty storage
-      expect(Object.keys(storageList)).toHaveLength(0);
+      expect(storageList.size).toBe(0);
       
       // More comprehensive ctx proxy tests
       // Test storage operations through ctx proxy
@@ -83,7 +83,17 @@ describe('MyDO', () => {
       expect(ctxProxy).toBeDefined();
       expect(ctxProxy).toBe(directStub.ctx); // Direct access to the ctx
       const storageFromProxy = await ctxProxy.storage.list();
-      expect(storageFromProxy).toEqual(storageList); // Should be the same as direct access
+      
+      // At this point, storage should have the data we put in earlier
+      expect(storageFromProxy).toBeInstanceOf(Map);
+      expect(storageFromProxy.get('number-key')).toBe(42);
+      expect(storageFromProxy.get('object-key')).toEqual({ test: 'data' });
+      expect(storageFromProxy.has('test-key')).toBe(false); // This was deleted
+      
+      // Test that storage.list() now works correctly with structured clone!
+      expect(storageFromProxy.size).toBe(2); // Should have 2 items
+      expect([...storageFromProxy.keys()]).toContain('number-key');
+      expect([...storageFromProxy.keys()]).toContain('object-key');
       
       // Test ctx proxy operations on different stub
       const namedCtxProxy = stubs.ctx('MY_DO', 'my-instance-name');

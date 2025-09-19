@@ -1,3 +1,5 @@
+import { serialize, deserialize } from '@ungap/structured-clone';
+
 /**
  * Instruments a Durable Obj    private async handleTestingEndpoint(pathname: string, request: Request): Promise<Response> {
       switch (pathname) {
@@ -76,8 +78,9 @@ export function instrumentDO<T>(DOClass: T): T {
 
     private async handleCtxProxy(request: Request): Promise<Response> {
       try {
-        const body = await request.json() as any;
-        const { type, path, args } = body;
+        const requestText = await request.text();
+        const serializedBody = JSON.parse(requestText);
+        const { type, path, args } = deserialize(serializedBody);
         
         let target = this.__testingCtx;
         let parent = this.__testingCtx;
@@ -112,17 +115,26 @@ export function instrumentDO<T>(DOClass: T): T {
         } else {
           throw new Error(`Unknown operation type: ${type}`);
         }
-        
-        return Response.json({
+
+        const serializedResponse = serialize({
           success: true,
           result: result
         });
         
+        return new Response(JSON.stringify(serializedResponse), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
       } catch (error) {
-        return Response.json({
+        const serializedError = serialize({
           success: false,
           error: error instanceof Error ? error.message : String(error)
-        }, { status: 500 });
+        });
+        
+        return new Response(JSON.stringify(serializedError), { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
       }
     }
   }
