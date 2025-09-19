@@ -44,6 +44,14 @@ describe('Basic Usage', () => {
     });
   });
 
+  it('supports direct RPC calls to DO methods', async () => {
+    await testDOProject(async (SELF, stubs, helpers) => {
+      const stub = env.MY_DO.getByName('rpc-test-instance');
+      const rpcResponse = await stub.sayHello();
+      expect(rpcResponse).toBe('Hello, World!');
+    });
+  });
+
 });
 
 describe('Limitations and quirks', () =>{

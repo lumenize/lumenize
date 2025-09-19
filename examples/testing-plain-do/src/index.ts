@@ -45,6 +45,10 @@ export class MyDO extends DurableObject{
     );
   }
 
+  async sayHello(): Promise<string> {
+    return "Hello, World!";
+  }
+
   async #handleIncrement() {
     let count = (await this.ctx.storage.get<number>("count")) ?? 0;
     void this.ctx.storage.put("count", ++count);
