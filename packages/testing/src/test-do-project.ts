@@ -2,36 +2,82 @@
 import { SELF, env } from 'cloudflare:test';
 
 /**
- * Represents a Durable Object instance proxy with dynamic access to internal state
- * via instrumentation endpoints
+ * Represents a Durable Object stub with dynamic access to internal state
+ * via instrumentation endpoints. This wraps the standard DurableObjectStub
+ * with additional testing capabilities like the .ctx proxy.
  */
-interface DurableObjectProxy {
-  /** Dynamic access to any properties/methods on the real DO instance */
+export interface TestingStub {
+  /** Dynamic access to any properties/methods on the real DO via the stub */
   [key: string]: any;
 }
 
 /**
- * Map of DO instances by their name/id
+ * Map of testing stubs by their name/id key
  */
-type DurableObjectInstanceMap = Map<string, DurableObjectProxy>;
+export type TestingStubMap = Map<string, TestingStub>;
 
 /**
- * Map of DO bindings, each containing a map of instances
+ * Map of DO namespace bindings, each containing a map of testing stubs
  */
-type DurableObjectsMap = Map<string, DurableObjectInstanceMap>;
+export type TestingStubRegistry = Map<string, TestingStubMap>;
+
+/**
+ * Creates a proxy that intercepts property access and method calls
+ * and forwards them to the DO's ctx via the testing endpoint
+ */
+function createCtxProxy(stub: any, path: string[] = []): any {
+  return new Proxy(function() {}, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'symbol') {
+        return undefined;
+      }
+      
+      const newPath = [...path, prop as string];
+      
+      // Return another proxy for chaining
+      return createCtxProxy(stub, newPath);
+    },
+    
+    apply(target, thisArg, args) {
+      // This is a method call - call with the current path
+      return makeCtxRequest(stub, 'call', path, args);
+    }
+  });
+}
+
+/**
+ * Makes a request to the DO's ctx testing endpoint
+ */
+async function makeCtxRequest(stub: any, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
+  const request = new Request('https://example.com/__testing/ctx', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, path, args })
+  });
+  
+  const response = await stub.fetch(request);
+  const result = await response.json();
+  
+  if (!result.success) {
+    throw new Error(`DO ctx proxy error: ${result.error}`);
+  }
+  
+  // Always await the result to handle both sync and async operations uniformly
+  return await result.result;
+}
 
 /**
  * Sets up a test environment for a Durable Object project
- * @param testFn - Test function that receives SELF, durableObjects, and helpers
+ * @param testFn - Test function that receives SELF, testingStubRegistry, and helpers
  * @param options - Optional configuration for the test environment
  * @returns Promise that resolves when test completes
  */
 export async function testDOProject<T = any>(
-  testFn: (SELF: any, durableObjects: DurableObjectsMap, helpers: any) => Promise<void> | void,
+  testFn: (SELF: any, testingStubRegistry: TestingStubRegistry, helpers: any) => Promise<void> | void,
   options?: T
 ): Promise<void> {
-  // Create durableObjects map to track instances
-  const durableObjects = new Map<string, DurableObjectInstanceMap>();
+  // Create testingStubRegistry map to track testing stubs
+  const testingStubRegistry = new Map<string, TestingStubMap>();
   
   // Track original methods for restoration
   const originalMethods = new Map<string, any>();
@@ -55,10 +101,10 @@ export async function testDOProject<T = any>(
     const namespace = env[bindingName];
     
     // Initialize map for this binding
-    if (!durableObjects.has(bindingName)) {
-      durableObjects.set(bindingName, new Map());
+    if (!testingStubRegistry.has(bindingName)) {
+      testingStubRegistry.set(bindingName, new Map());
     }
-    const instanceMap = durableObjects.get(bindingName)!;
+    const testingStubMap = testingStubRegistry.get(bindingName)!;
     
     // Store original methods
     originalMethods.set(`${bindingName}.getByName`, namespace.getByName);
@@ -71,8 +117,11 @@ export async function testDOProject<T = any>(
       
       console.log(`[testDOProject] ${bindingName}.getByName('${name}') -> ${idString}`);
       
+      // Add ctx proxy to the stub
+      stub.ctx = createCtxProxy(stub);
+      
       // Use the name as the key for the map
-      instanceMap.set(name, stub);
+      testingStubMap.set(name, stub);
       
       return stub;
     };
@@ -85,14 +134,17 @@ export async function testDOProject<T = any>(
       // Get name directly from the stub
       const stubName = stub.name || stub.id?.name;
       
+      // Add ctx proxy to the stub
+      stub.ctx = createCtxProxy(stub);
+      
       if (stubName) {
         console.log(`[testDOProject] ${bindingName}.get('${idString}') -> ${stubName}`);
         // Use the name as the key
-        instanceMap.set(stubName, stub);
+        testingStubMap.set(stubName, stub);
       } else {
         console.log(`[testDOProject] ${bindingName}.get('${idString}') -> anonymous`);
-        // Use the ID string as the key for anonymous instances
-        instanceMap.set(idString, stub);
+        // Use the ID string as the key for anonymous testing stubs
+        testingStubMap.set(idString, stub);
       }
       
       return stub;
@@ -120,8 +172,8 @@ export async function testDOProject<T = any>(
   };
   
   try {
-    // Call the test function with the real SELF and populated durableObjects map
-    await testFn(SELF, durableObjects, helpers);
+    // Call the test function with the real SELF and populated testingStubRegistry
+    await testFn(SELF, testingStubRegistry, helpers);
   } finally {
     // Always restore original methods
     helpers._restore();

@@ -5,43 +5,62 @@ import { env, createExecutionContext } from 'cloudflare:test';
 
 describe('MyDO', () => {
 
-  it('should do something inside MyDO', async () => {
-    await testDOProject(async (SELF, durableObjects, helpers) => {
+  it('should be used to experiment', async () => {
+    await testDOProject(async (SELF, testingStubRegistry, helpers) => {
       
       // Now test all Durable Object access patterns
       
       // Pattern 1: Using getByName (direct named access)
       const directStub = env.MY_DO.getByName('my-direct-instance');
-      console.log('Got direct stub:', directStub);
+      expect(directStub).toBeDefined();
+      expect(directStub.name).toBe('my-direct-instance');
       
       // Pattern 2: Using idFromName + get (two-step named access)
       const namedId = env.MY_DO.idFromName('my-instance-name');
-      console.log('Created named ID:', namedId.toString());
       const namedStub = env.MY_DO.get(namedId);
-      console.log('Got named stub:', namedStub);
+      expect(namedStub).toBeDefined();
+      expect(namedStub.name).toBe('my-instance-name');
       
       // Pattern 3: Using newUniqueId + get (anonymous instances)
       const uniqueId = env.MY_DO.newUniqueId();
-      console.log('Created unique ID:', uniqueId.toString());
       const uniqueStub = env.MY_DO.get(uniqueId);
-      console.log('Got unique stub:', uniqueStub);
+      expect(uniqueStub).toBeDefined();
+      expect(uniqueStub.name).toBeUndefined(); // Anonymous instances have no name
       
       // Test the instrumentation by calling a testing endpoint
-      const testResponse = await directStub.fetch(new Request('https://example.com/__testing/ping'));
+      const testResponse = await directStub.fetch(new Request('https://example.com/__testing/info'));
+      expect(testResponse.ok).toBe(true);
       const testData = await testResponse.json();
-      console.log('Testing endpoint response:', testData);
-      expect(testData.status).toBe('ok');
-      expect(testData.className).toBeDefined();
+      expect(testData.className).toBe('MyDO');
+      expect(testData.isInstrumented).toBe(true);
+      expect(testData.ctxProxyAvailable).toBe(true);
+      expect(typeof testData.timestamp).toBe('number');
       
-      // Check if our durableObjects map was populated
-      expect(durableObjects).toBeDefined();
-      console.log('durableObjects map:');
-      for (const [bindingName, instanceMap] of durableObjects) {
-        console.log(`  ${bindingName}:`);
-        for (const [instanceId, stub] of instanceMap) {
-          console.log(`    ${instanceId}: ${stub}`);
-        }
-      }
+      // Test the ctx proxy - this is the key functionality
+      const storageList = await directStub.ctx.storage.list();
+      expect(storageList).toBeDefined();
+      expect(typeof storageList).toBe('object');
+      // Fresh DO should have empty storage
+      expect(Object.keys(storageList)).toHaveLength(0);
+      
+      // Check if our testingStubRegistry was populated correctly
+      expect(testingStubRegistry).toBeDefined();
+      expect(testingStubRegistry.size).toBe(1); // Should have MY_DO binding
+      
+      const myDoTestingStubs = testingStubRegistry.get('MY_DO');
+      expect(myDoTestingStubs).toBeDefined();
+      expect(myDoTestingStubs!.size).toBe(3); // Should have 3 testing stubs
+      
+      // Check named testing stubs are accessible by name
+      expect(myDoTestingStubs!.has('my-direct-instance')).toBe(true);
+      expect(myDoTestingStubs!.has('my-instance-name')).toBe(true);
+      
+      // Anonymous testing stub should be accessible by ID string
+      const anonymousKey = Array.from(myDoTestingStubs!.keys()).find(key => 
+        key !== 'my-direct-instance' && key !== 'my-instance-name'
+      );
+      expect(anonymousKey).toBeDefined();
+      expect(anonymousKey!.length).toBeGreaterThan(32); // Should be a long opaque ID
 
       helpers.flush();
     }, {
