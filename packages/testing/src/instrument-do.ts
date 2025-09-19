@@ -90,7 +90,7 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
 }
 
 /**
- * Instruments user's DO with endpoints to enable ctx inspection and other testing functionality
+ * Instruments user's DO with RPC methods to enable ctx inspection and other testing functionality
  */
 export function instrumentDO<T>(DOClass: T): T {
   if (typeof DOClass !== 'function') {
@@ -99,29 +99,17 @@ export function instrumentDO<T>(DOClass: T): T {
 
   // Create instrumented class that extends the original
   class InstrumentedDO extends (DOClass as any) {
-    private __testingCtx: any;
+    private __ctxForTesting: any;
 
     constructor(ctx: any, env: any) {
       super(ctx, env);
       // Store a reference to ctx for testing access
-      this.__testingCtx = ctx;
-    }
-
-    async fetch(request: Request): Promise<Response> {
-      const url = new URL(request.url);
-      
-      // Handle testing endpoints
-      if (url.pathname.startsWith('/__testing/')) {
-        return this.handleTestingEndpoint(url.pathname, request);
-      }
-      
-      // Delegate to original fetch method
-      return super.fetch(request);
+      this.__ctxForTesting = ctx;
     }
 
     // RPC method for getting property values from ctx
     async __testing_ctx_get(path: string[]): Promise<any> {
-      let target = this.__testingCtx;
+      let target = this.__ctxForTesting;
       
       // Navigate to the target object using the path
       for (const prop of path) {
@@ -140,7 +128,7 @@ export function instrumentDO<T>(DOClass: T): T {
 
     // RPC method for calling methods on ctx
     async __testing_ctx_call(path: string[], args: any[] = []): Promise<any> {
-      let target = this.__testingCtx;
+      let target = this.__ctxForTesting;
       
       // Navigate to the target object using the path
       for (let i = 0; i < path.length - 1; i++) {
@@ -163,25 +151,6 @@ export function instrumentDO<T>(DOClass: T): T {
       }
       
       return result;
-    }
-
-    private async handleTestingEndpoint(pathname: string, request: Request): Promise<Response> {
-      switch (pathname) {
-        case '/__testing/info':
-          return Response.json({
-            className: this.constructor.name,
-            timestamp: Date.now(),
-            isInstrumented: true,
-            availableEndpoints: [
-              '/__testing/info'
-            ],
-            // Note: ctx access now available via RPC methods __testing_ctx_get and __testing_ctx_call
-            ctxProxyAvailable: true
-          });
-        
-        default:
-          return new Response('Testing endpoint not found', { status: 404 });
-      }
     }
   }
 

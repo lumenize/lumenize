@@ -42,23 +42,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
     });
   });
 
-  it('provides DO instrumentation with testing endpoints', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('instrumented-instance');
-      
-      // Test the instrumentation by calling a testing endpoint
-      const testResponse = await stub.fetch(new Request('https://example.com/__testing/info'));
-      expect(testResponse.ok).toBe(true);
-      
-      const testData = await testResponse.json();
-      expect(testData.className).toBe('MyDO');
-      expect(testData.isInstrumented).toBe(true);
-      expect(testData.ctxProxyAvailable).toBe(true);
-      expect(typeof testData.timestamp).toBe('number');
-      
-    });
-  });
-
   it('enables ctx proxy access to DO internals', async () => {
     await testDOProject(async (SELF, stubs, helpers) => {
       const stub = env.MY_DO.getByName('ctx-test-instance');
@@ -103,7 +86,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
     });
   });
 
-  it('implements three-method API (get/ctx/full)', async () => {
+  it('implements three-method API (get/ctx/entry)', async () => {
     await testDOProject(async (SELF, stubs, helpers) => {
       const originalStub = env.MY_DO.getByName('api-test-instance');
       
@@ -115,8 +98,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       const ctxProxy = stubs.ctx('MY_DO', 'api-test-instance');
       expect(ctxProxy).toBe(originalStub.ctx); // Direct access to the ctx
       
-      // 3. stubs.full() - returns full info with both stub and ctx
-      const stubFull = stubs.full('MY_DO', 'api-test-instance');
+      // 3. stubs.entry() - returns full info with both stub and ctx
+      const stubFull = stubs.entry('MY_DO', 'api-test-instance');
       expect(stubFull!.bindingName).toBe('MY_DO');
       expect(stubFull!.name).toBe('api-test-instance');
       expect(stubFull!.stub).toBe(stubFromGet);
@@ -202,7 +185,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       // Access through registry using ID
       const anonymousFromGet = stubs.get('MY_DO', uniqueId.toString());
       const anonymousFromCtx = stubs.ctx('MY_DO', uniqueId.toString());
-      const anonymousFromFull = stubs.full('MY_DO', uniqueId.toString());
+      const anonymousFromFull = stubs.entry('MY_DO', uniqueId.toString());
       
       expect(anonymousFromGet).toBe(anonymousStub);
       expect(anonymousFromCtx).toBe(anonymousStub.ctx);
