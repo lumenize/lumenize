@@ -1,8 +1,6 @@
-import structuredClone, { serialize, deserialize } from '@ungap/structured-clone';
-
 /**
  * Preprocesses an object to replace functions with descriptive strings
- * so they can be transported through structured clone.
+ * so they can be transported through RPC calls.
  * 
  * Functions are replaced with strings like "functionName [Function]" 
  * to provide a discoverable API surface.
@@ -92,7 +90,7 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
 }
 
 /**
- * Configuration for test utilities
+ * Instruments user's DO with endpoints to enable ctx inspection and other testing functionality
  */
 export function instrumentDO<T>(DOClass: T): T {
   if (typeof DOClass !== 'function') {
@@ -121,6 +119,52 @@ export function instrumentDO<T>(DOClass: T): T {
       return super.fetch(request);
     }
 
+    // RPC method for getting property values from ctx
+    async __testing_ctx_get(path: string[]): Promise<any> {
+      let target = this.__testingCtx;
+      
+      // Navigate to the target object using the path
+      for (const prop of path) {
+        target = target[prop];
+        if (target === undefined || target === null) {
+          // Return undefined for non-existent properties instead of throwing
+          // This matches the natural JavaScript behavior
+          return undefined;
+        }
+      }
+      
+      // For get requests, preprocess functions to make them discoverable
+      // This transforms the object to replace functions with "functionName [Function]" strings
+      return preprocessFunctions(target);
+    }
+
+    // RPC method for calling methods on ctx
+    async __testing_ctx_call(path: string[], args: any[] = []): Promise<any> {
+      let target = this.__testingCtx;
+      
+      // Navigate to the target object using the path
+      for (let i = 0; i < path.length - 1; i++) {
+        target = target[path[i]];
+        if (target === undefined || target === null) {
+          throw new Error(`Path not found: ${path.slice(0, i + 1).join('.')}`);
+        }
+      }
+      
+      const finalProp = path[path.length - 1];
+      const method = target[finalProp];
+      
+      // Let the natural JavaScript runtime error occur when calling non-functions
+      // This gives more authentic error messages that match what would happen in the DO
+      const result = method.apply(target, args || []);
+      
+      // Await promises on the DO side and return result
+      if (result && typeof result.then === 'function') {
+        return await result;
+      }
+      
+      return result;
+    }
+
     private async handleTestingEndpoint(pathname: string, request: Request): Promise<Response> {
       switch (pathname) {
         case '/__testing/info':
@@ -129,77 +173,14 @@ export function instrumentDO<T>(DOClass: T): T {
             timestamp: Date.now(),
             isInstrumented: true,
             availableEndpoints: [
-              '/__testing/info',
-              '/__testing/ctx'
+              '/__testing/info'
             ],
-            // Add any other metadata that's not accessible via ctx proxy
+            // Note: ctx access now available via RPC methods __testing_ctx_get and __testing_ctx_call
             ctxProxyAvailable: true
           });
         
-        case '/__testing/ctx':
-          return this.handleCtxProxy(request);
-        
         default:
           return new Response('Testing endpoint not found', { status: 404 });
-      }
-    }
-
-    private async handleCtxProxy(request: Request): Promise<Response> {
-      try {
-        const requestText = await request.text();
-        const serializedBody = JSON.parse(requestText);
-        const { type, path, args } = deserialize(serializedBody);
-        
-        let target = this.__testingCtx;
-        let parent = this.__testingCtx;
-        let result: any;
-        
-        // Navigate to the target object using the path, keeping track of parent for context
-        for (let i = 0; i < path.length - 1; i++) {
-          parent = target;
-          target = target[path[i]];
-          if (target === undefined || target === null) {
-            throw new Error(`Path not found: ${path.slice(0, i + 1).join('.')}`);
-          }
-        }
-        
-        const finalProp = path[path.length - 1];
-        
-        if (type === 'get') {
-          result = target[finalProp];
-          
-          // For GET requests, preprocess functions to make them discoverable
-          // This transforms the object to replace functions with "functionName [Function]" strings
-          // so developers can see the complete API surface when accessing properties via await
-          result = preprocessFunctions(result);
-        } else if (type === 'call') {
-          const method = target[finalProp];
-          
-          // Let the natural JavaScript runtime error occur when calling non-functions
-          // This gives more authentic error messages that match what would happen in the DO
-          result = method.apply(target, args || []);
-          
-          // Await promises on the DO side
-          if (result && typeof result.then === 'function') {
-            result = await result;
-          }
-        } else {
-          throw new Error(`Unknown operation type: ${type}`);
-        }
-
-        const serializedResponse = serialize(result);
-        
-        return new Response(JSON.stringify(serializedResponse), {
-          headers: { 'Content-Type': 'application/json' }
-        });
-        
-      } catch (error) {
-        const serializedError = serialize(error);  // Send the Error object directly
-        
-        return new Response(JSON.stringify(serializedError), { 
-          status: 500,
-          headers: { 'Content-Type': 'application/json' }
-        });
       }
     }
   }

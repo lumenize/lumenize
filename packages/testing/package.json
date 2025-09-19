@@ -32,12 +32,10 @@
     "vitest": "3.2.4"
   },
   "dependencies": {
-    "@lumenize/utils": "file:../utils",
-    "@ungap/structured-clone": "^1.3.0"
+    "@lumenize/utils": "file:../utils"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
-    "@types/ungap__structured-clone": "^1.2.0",
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",

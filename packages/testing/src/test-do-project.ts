@@ -1,6 +1,5 @@
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF, env } from 'cloudflare:test';
-import { serialize, deserialize } from '@ungap/structured-clone';
 
 /**
  * Represents a Durable Object stub with dynamic access to internal state
@@ -186,31 +185,16 @@ function createCtxProxy(stub: any, path: string[] = []): any {
 }
 
 /**
- * Makes a request to the DO's ctx testing endpoint
+ * Makes a request to the DO's ctx via RPC calls
  */
 async function makeCtxRequest(stub: any, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
-  const serializedData = serialize({ type, path, args });
-  const serializedBody = JSON.stringify(serializedData);
-  
-  const request = new Request('https://example.com/__testing/ctx', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: serializedBody
-  });
-  
-  const response = await stub.fetch(request);
-  const responseText = await response.text();
-  const serializedResult = JSON.parse(responseText);
-  const result = deserialize(serializedResult);
-  
-  // If response status indicates error (500) and result is an Error, throw it
-  // Otherwise, Error objects from normal operations (200 status) are returned as data
-  if (response.status === 500 && result instanceof Error) {
-    throw result;
+  if (type === 'get') {
+    // Use RPC method for getting property values
+    return await stub.__testing_ctx_get(path);
+  } else {
+    // Use RPC method for calling methods
+    return await stub.__testing_ctx_call(path, args);
   }
-  
-  // Return result directly - let the caller await if needed
-  return result;
 }
 
 /**
