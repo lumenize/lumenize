@@ -39,7 +39,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       const uniqueStub = env.MY_DO.get(uniqueId);
       expect(uniqueStub.name).toBeUndefined(); // Anonymous instances have no name
       
-      helpers.flush();
     });
   });
 
@@ -57,7 +56,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(testData.ctxProxyAvailable).toBe(true);
       expect(typeof testData.timestamp).toBe('number');
       
-      helpers.flush();
     });
   });
 
@@ -89,7 +87,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       const deletedValue = await stub.ctx.storage.get('test-key');
       expect(deletedValue).toBeUndefined();
       
-      helpers.flush();
     });
   });
 
@@ -103,7 +100,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       // Access to passThroughOnException through ctx proxy
       expect(typeof stub.ctx.passThroughOnException).toBe('function');
       
-      helpers.flush();
     });
   });
 
@@ -126,7 +122,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(stubFull!.stub).toBe(stubFromGet);
       expect(stubFull!.ctx).toBe(ctxProxy);
       
-      helpers.flush();
     });
   });
 
@@ -147,7 +142,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect([...storageList.keys()]).toContain('number-key');
       expect([...storageList.keys()]).toContain('object-key');
       
-      helpers.flush();
     });
   });
 
@@ -172,7 +166,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(instance1OwnData).toBe('value1');
       expect(instance2OwnData).toBe('value2');
       
-      helpers.flush();
     });
   });
 
@@ -197,7 +190,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         expect(stubFull.ctx).toBeDefined();
       }
       
-      helpers.flush();
     });
   });
 
@@ -227,7 +219,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       const valueViaStub = await anonymousStub.ctx.storage.get('anonymous-key');
       expect(valueViaStub).toBe('anonymous-value');
       
-      helpers.flush();
     });
   });
 
@@ -378,7 +369,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(allStorageData.get('uint8array-key')).toBeInstanceOf(Uint8Array);
       expect(allStorageData.get('regex-key')).toBeInstanceOf(RegExp);
       
-      helpers.flush();
     });
   });
 
@@ -428,7 +418,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(retrievedCircular.self.metadata.parent).toBe(retrievedCircular);
       expect(retrievedCircular.metadata.parent.self).toBe(retrievedCircular);
       
-      helpers.flush();
     });
   });
 
@@ -481,7 +470,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(retrievedErrorInfo.metadata.source).toBe('test-suite');
       expect(retrievedErrorInfo.metadata.timestamp).toBeInstanceOf(Date);
 
-      helpers.flush();
     });
   });
 
@@ -532,7 +520,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       // This proves there's no Proxy limitation - the complete nested structure 
       // with function discovery works perfectly in a single object assertion!
       
-      helpers.flush();
     });
   });
 
@@ -580,7 +567,6 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         await stub.ctx.storage.nonExistentMethod();
       }).rejects.toThrow('Cannot read properties of undefined (reading \'apply\')');
       
-      helpers.flush();
     });
   });
 

@@ -12,7 +12,7 @@ import { env } from 'cloudflare:test';
  * Focus: Core library features and what you can do with created stubs.
  * Note: More comprehensive testing patterns are in comprehensive.test.ts
  */
-describe('Basic @lumenize/testing Usage', () => {
+describe('Basic Usage', () => {
 
   it('demonstrates essential DO testing with ctx proxy access', async () => {
     await testDOProject(async (SELF, stubs, helpers) => {
@@ -41,8 +41,36 @@ describe('Basic @lumenize/testing Usage', () => {
       const ctx = stubs.ctx('MY_DO', 'my-instance');
       await ctx.storage.put('score:high', 500);
       expect(await ctx.storage.get('score:high')).toBe(500);
+    });
+  });
+
+});
+
+describe('Limitations and quirks', () =>{
+
+  it('requires await for all ctx proxy access, even non-async functions and static properties', async () => {
+    await testDOProject(async (SELF, stubs, helpers) => {
+      const stub = env.MY_DO.getByName('quirks-test');
       
-      helpers.flush();
+      // 1. True async function - naturally requires await
+      await stub.ctx.storage.put('async-key', 'async-value');
+      const asyncResult = await stub.ctx.storage.get('async-key');
+      expect(asyncResult).toBe('async-value');
+      
+      // 2. Non-async function - still requires await due to proxy architecture
+      // ctx.storage.kv.put() is synchronous but we must await it through the proxy
+      await stub.ctx.storage.kv.put('kv-key', 'kv-value');
+      const kvResult = await stub.ctx.storage.kv.get('kv-key');
+      expect(kvResult).toBe('kv-value');
+      
+      // 3. Static property - even properties require await through the proxy
+      // storage.sql.databaseSize is just a number property, but proxy requires await
+      const dbSize = await stub.ctx.storage.sql.databaseSize;
+      expect(typeof dbSize).toBe('number');
+      expect(dbSize).toBeGreaterThanOrEqual(0);
+      
+      // This is the proxy quirk: everything looks like a function until awaited
+      expect(typeof stub.ctx.storage.sql.databaseSize).toBe('function');
     });
   });
 
