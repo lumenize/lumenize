@@ -17,9 +17,127 @@ export interface TestingStub {
 export type TestingStubMap = Map<string, TestingStub>;
 
 /**
- * Map of DO namespace bindings, each containing a map of testing stubs
+ * Information about a testing stub for listing purposes
  */
-export type TestingStubRegistry = Map<string, TestingStubMap>;
+export interface TestingStubInfo {
+  bindingName: string;
+  name?: string;
+  id: string;
+  stub: any;  // The DurableObjectStub (currently has testing annotations, future: clean)
+  ctx: any;   // Direct ctx proxy for testing internals
+}
+
+/**
+ * Registry for managing testing stubs across DO namespace bindings
+ */
+export class TestingStubRegistry {
+  private registry = new Map<string, TestingStubMap>();
+
+  /**
+   * Get a Durable Object stub optimized for production-like usage
+   * @param bindingName - The DO namespace binding name (e.g., 'MY_DO')
+   * @param stubIdentifier - The stub name or ID
+   * @returns The DurableObjectStub (currently has .ctx, future: clean stub)
+   */
+  get(bindingName: string, stubIdentifier: string): any | undefined {
+    const testingStub = this._getTestingStub(bindingName, stubIdentifier);
+    if (!testingStub) return undefined;
+    
+    // For now, return the testing stub but document that .ctx is available
+    // TODO: In the future, we could create a proper clean stub
+    return testingStub;
+  }
+
+  /**
+   * Get the ctx proxy for direct access to DO internals
+   * @param bindingName - The DO namespace binding name (e.g., 'MY_DO')
+   * @param stubIdentifier - The stub name or ID
+   * @returns The ctx proxy, or undefined if not found
+   */
+  ctx(bindingName: string, stubIdentifier: string): any | undefined {
+    const testingStub = this._getTestingStub(bindingName, stubIdentifier);
+    return testingStub?.ctx;
+  }
+
+  /**
+   * Get full information about a testing stub including stub and ctx
+   * @param bindingName - The DO namespace binding name (e.g., 'MY_DO')
+   * @param stubIdentifier - The stub name or ID
+   * @returns TestingStubInfo with all details, or undefined if not found
+   */
+  full(bindingName: string, stubIdentifier: string): TestingStubInfo | undefined {
+    const testingStub = this._getTestingStub(bindingName, stubIdentifier);
+    if (!testingStub) return undefined;
+
+    return {
+      bindingName,
+      name: testingStub.name,
+      id: stubIdentifier,
+      stub: testingStub, // For now, same as testing stub
+      ctx: testingStub.ctx
+    };
+  }
+
+  /**
+   * List all testing stubs, optionally filtered by binding name
+   * @param bindingName - Optional binding name to filter by
+   * @returns Array of testing stub information
+   */
+  list(bindingName?: string): TestingStubInfo[] {
+    const result: TestingStubInfo[] = [];
+    
+    if (bindingName) {
+      // List only stubs for the specified binding
+      const stubMap = this.registry.get(bindingName);
+      if (stubMap) {
+        for (const [stubId, testingStub] of stubMap) {
+          result.push({
+            bindingName,
+            name: testingStub.name,
+            id: stubId,
+            stub: testingStub, // For now, same as testing stub
+            ctx: testingStub.ctx
+          });
+        }
+      }
+    } else {
+      // List all stubs across all bindings
+      for (const [currentBindingName, stubMap] of this.registry) {
+        for (const [stubId, testingStub] of stubMap) {
+          result.push({
+            bindingName: currentBindingName,
+            name: testingStub.name,
+            id: stubId,
+            stub: testingStub, // For now, same as testing stub
+            ctx: testingStub.ctx
+          });
+        }
+      }
+    }
+    
+    return result;
+  }
+
+  // Internal methods for the testing framework
+  
+  /** @internal */
+  private _getTestingStub(bindingName: string, stubIdentifier: string): TestingStub | undefined {
+    const stubMap = this.registry.get(bindingName);
+    return stubMap?.get(stubIdentifier);
+  }
+
+  /** @internal */
+  _ensureBinding(bindingName: string): void {
+    if (!this.registry.has(bindingName)) {
+      this.registry.set(bindingName, new Map());
+    }
+  }
+
+  /** @internal */
+  _getStubMap(bindingName: string): TestingStubMap {
+    return this.registry.get(bindingName)!;
+  }
+}
 
 /**
  * Creates a proxy that intercepts property access and method calls
@@ -68,16 +186,16 @@ async function makeCtxRequest(stub: any, type: 'get' | 'call', path: string[], a
 
 /**
  * Sets up a test environment for a Durable Object project
- * @param testFn - Test function that receives SELF, testingStubRegistry, and helpers
+  * @param testFn - Test function that receives SELF, stubs, and helpers
  * @param options - Optional configuration for the test environment
  * @returns Promise that resolves when test completes
  */
 export async function testDOProject<T = any>(
-  testFn: (SELF: any, testingStubRegistry: TestingStubRegistry, helpers: any) => Promise<void> | void,
+  testFn: (SELF: any, stubs: TestingStubRegistry, helpers: any) => Promise<void> | void,
   options?: T
 ): Promise<void> {
-  // Create testingStubRegistry map to track testing stubs
-  const testingStubRegistry = new Map<string, TestingStubMap>();
+  // Create testingStubRegistry to track testing stubs
+  const testingStubRegistry = new TestingStubRegistry();
   
   // Track original methods for restoration
   const originalMethods = new Map<string, any>();
@@ -101,10 +219,8 @@ export async function testDOProject<T = any>(
     const namespace = env[bindingName];
     
     // Initialize map for this binding
-    if (!testingStubRegistry.has(bindingName)) {
-      testingStubRegistry.set(bindingName, new Map());
-    }
-    const testingStubMap = testingStubRegistry.get(bindingName)!;
+    testingStubRegistry._ensureBinding(bindingName);
+    const testingStubMap = testingStubRegistry._getStubMap(bindingName);
     
     // Store original methods
     originalMethods.set(`${bindingName}.getByName`, namespace.getByName);
