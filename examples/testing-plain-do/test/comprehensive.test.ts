@@ -437,8 +437,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       const stub = env.MY_DO.getByName('error-test');
       
       // First, let's test Error serialization through structured clone
-      // Structured clone (both spec and polyfills) only preserves name/message from Error objects
-      // Custom properties are discarded by design - see @ungap/structured-clone serialize.js
+      // Structured clone only preserves message/stack from Error objects
+      // Custom properties like 'code' are lost during serialization
       const customError = new Error('Test error message');
       customError.name = 'CustomTestError';
       (customError as any).code = 'TEST_ERROR_CODE';
@@ -480,7 +480,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(retrievedErrorInfo.code).toBe('TEST_ERROR_CODE');
       expect(retrievedErrorInfo.metadata.source).toBe('test-suite');
       expect(retrievedErrorInfo.metadata.timestamp).toBeInstanceOf(Date);
-      
+
       helpers.flush();
     });
   });
