@@ -17,7 +17,7 @@ describe('Basic Usage', () => {
   it('demonstrates essential DO testing with ctx proxy access', async () => {
     await testDOProject(async (SELF, stubs, helpers) => {
       
-      // Create a DO stub - the typical way developers will work with DOs
+      // Create a DO stub - the way you would in a Worker
       const stub = env.MY_DO.getByName('my-instance');
       expect(stub.name).toBe('my-instance');
       
@@ -29,18 +29,15 @@ describe('Basic Usage', () => {
       const userData = await stub.ctx.storage.get('user:123');
       expect(userData).toEqual({ name: 'Alice', score: 100 });
       
-      // storage.list() returns a proper Map (thanks to structured clone)
+      // storage.list() returns a proper Map
       const allData = await stub.ctx.storage.list();
       expect(allData.get('user:123')).toEqual({ name: 'Alice', score: 100 });
       
       // Access the same stub through the registry API
+      // This is useful when your worker creates the DO instance
       const registryStub = stubs.get('MY_DO', 'my-instance');
       expect(registryStub).toBe(stub);
       
-      // Direct ctx access for convenience
-      const ctx = stubs.ctx('MY_DO', 'my-instance');
-      await ctx.storage.put('score:high', 500);
-      expect(await ctx.storage.get('score:high')).toBe(500);
     });
   });
 

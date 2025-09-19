@@ -2,3 +2,4 @@
 export * from './get-do-namespace-from-pathname.js';
 export * from './get-do-stub-from-pathname.js';
 export * from './websocket-utils.js';
+export * from './route-do-request.js';

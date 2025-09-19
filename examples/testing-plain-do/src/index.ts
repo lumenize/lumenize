@@ -1,22 +1,9 @@
 import { DurableObject } from "cloudflare:workers";
-import { getDOStubFromPathname, DOBindingNotFoundError } from '@lumenize/utils'
+import { routeDORequest, RouteOptions } from '@lumenize/utils';
 
 export const ALLOWED_ORIGINS = [
   'https://example.com',
 ];
-
-// Follows hono convention for handlers/middleware, returning undefined if it's not a match
-function routeToDO(request: Request, env: Env): Response | undefined {
-  try {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
-    const stub = getDOStubFromPathname(pathname, env);
-    return stub.fetch(request);
-  } catch(error: any) {
-    if (error.instanceOf(DOBindingNotFoundError)) return undefined
-    throw(error);
-  };
-}
 
 // Worker
 export default {
@@ -29,7 +16,7 @@ export default {
     // }
     
     return (
-      routeToDO(request, env) ||
+      routeDORequest(request, env) ||
       new Response("Not Found", { status: 404 })
     );
   }
