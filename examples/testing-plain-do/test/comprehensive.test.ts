@@ -380,6 +380,11 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       // This should return the entire DO instance structure, preprocessed for discovery
       const rootInstance = await instance;
       // console.log('%o', rootInstance);
+
+      // Verify that private methods are truly inaccessible (even if user knows they exist)
+      await expect(async () => {
+        await instance['#handleIncrement']();
+      }).rejects.toThrow("Method '#handleIncrement' does not exist on MyDO");
       
       // Verify we get the complete instance structure
       expect(rootInstance).toBeDefined();
