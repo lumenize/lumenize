@@ -39,6 +39,10 @@ function extractInstanceName(pathname: string): string | null {
  * // URL: /userSession/guid-456/data  
  * // Env has: { UserSession: durableObjectNamespace }
  * const stub = getDOStubFromPathname('/userSession/guid-456/data', env);
+ * 
+ * // URL: /my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99/connect
+ * // Handles unique IDs (64-char hex strings) using idFromString instead of getByName
+ * const stub = getDOStubFromPathname('/my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99/connect', env);
  * ```
  */
 export function getDOStubFromPathname(pathname: string, env: Record<string, any>): any {
@@ -51,6 +55,15 @@ export function getDOStubFromPathname(pathname: string, env: Record<string, any>
     throw new InvalidStubPathError(pathname);
   }
   
-  // Create and return the stub (no case conversion on instance name)
-  return namespace.getByName(instanceName);
+  // Determine if this is a unique ID (64-char hex string) or a named instance
+  const isUniqueId = /^[a-f0-9]{64}$/.test(instanceName);
+  
+  if (isUniqueId) {
+    // For unique IDs, use idFromString to get the proper DurableObjectId
+    const id = namespace.idFromString(instanceName);
+    return namespace.get(id);
+  } else {
+    // For named instances, use getByName as before
+    return namespace.getByName(instanceName);
+  }
 }

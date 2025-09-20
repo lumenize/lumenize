@@ -3,7 +3,7 @@ export * from './types.js';
 // export * from './simulate-ws-upgrade.js';  // Temporarily disabled due to cloudflare:test import issues
 // export * from './run-in-durable-object.js';  // Temporarily disabled due to cloudflare:test import issues
 
-// Export instrumentation utilities (stubs)
+// Export instrumentation utilities (DO access tracking and ctx proxy)
 export * from './instrument-do.js';
 export * from './instrument-worker.js';
 export * from './test-do-project.js';

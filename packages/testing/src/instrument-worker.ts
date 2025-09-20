@@ -1,10 +1,7 @@
-// Global storage for stubs created during Worker execution
-const workerCreatedStubs = new Map<string, any>();
-
 /**
- * Instruments a Worker export object to capture DO stubs created during execution
+ * Instruments a Worker export object to track DO access during execution
  * @param workerExport - The original Worker export object
- * @returns Instrumented Worker export with stub capture
+ * @returns Instrumented Worker export with DO access tracking
  */
 export function instrumentWorker<TEnv extends Record<string, unknown> | undefined>(
   workerExport: { fetch: (request: Request, env: TEnv, ctx: ExecutionContext) => Response | Promise<Response> }
@@ -18,11 +15,10 @@ export function instrumentWorker<TEnv extends Record<string, unknown> | undefine
 }
 
 /**
- * Instruments an environment object to capture DO stubs created during execution.
- * This allows accessing stubs that were created within the Worker context without
- * triggering I/O isolation errors.
+ * Instruments an environment object to track DO access during execution.
+ * This registers accessed DOs in the test context registry for tracking purposes.
  */
-function instrumentEnvironment(env: Record<string, unknown> | undefined): Record<string, unknown> {
+export function instrumentEnvironment(env: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!env) {
     return {};
   }
@@ -42,43 +38,51 @@ function instrumentEnvironment(env: Record<string, unknown> | undefined): Record
 }
 
 /**
- * Instruments a DO binding to capture stub creation
+ * Instruments a DO binding to track access
  */
 function instrumentDOBinding(originalBinding: any, bindingName: string): any {
   return {
     ...originalBinding,
     
     get: (...args: any[]) => {
-      const stub = originalBinding.get(...args);
-      const key = `${bindingName}:${args[0]?.toString() || 'anonymous'}`;
-      workerCreatedStubs.set(key, stub);
-      return stub;
+      const doStub = originalBinding.get(...args);
+      const id = args[0];
+      let instanceName: string;
+      
+      // Try to extract the name from the ID object if it has one
+      if (id && typeof id === 'object') {
+        // Check if the ID object has a name property (from idFromName)
+        instanceName = id.name || id.toString();
+      } else {
+        // Fallback to string representation
+        instanceName = id?.toString() || 'anonymous';
+      }
+      
+      // Register in testDOProject context registry if available
+      const registerContext = (globalThis as any).__testingContextRegistry;
+      if (registerContext && typeof registerContext === 'function') {
+        registerContext(bindingName, instanceName);
+      }
+      
+      return doStub;
     },
     
     getByName: (...args: any[]) => {
-      const stub = originalBinding.getByName(...args);
-      const key = `${bindingName}:${args[0]}`;
-      workerCreatedStubs.set(key, stub);
-      return stub;
+      const doStub = originalBinding.getByName(...args);
+      const instanceName = args[0];
+      
+      // Register in testDOProject context registry if available
+      const registerContext = (globalThis as any).__testingContextRegistry;
+      if (registerContext && typeof registerContext === 'function') {
+        registerContext(bindingName, instanceName);
+      }
+      
+      return doStub;
     },
     
-    // Preserve other methods like idFromName, etc.
+    // Preserve other methods without extra tracking since we don't need the mapping approach
     idFromName: originalBinding.idFromName?.bind(originalBinding),
     idFromString: originalBinding.idFromString?.bind(originalBinding),
     newUniqueId: originalBinding.newUniqueId?.bind(originalBinding),
   };
-}
-
-/**
- * Get a stub that was created during Worker execution
- */
-export function getWorkerCreatedStub(bindingName: string, instanceName: string) {
-  return workerCreatedStubs.get(`${bindingName}:${instanceName}`);
-}
-
-/**
- * Check if a stub was created during Worker execution
- */
-export function hasWorkerCreatedStub(bindingName: string, instanceName: string): boolean {
-  return workerCreatedStubs.has(`${bindingName}:${instanceName}`);
 }

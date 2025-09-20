@@ -148,39 +148,8 @@ export async function testDOProject<T = any>(
     });
   }
   
-  // Monkey patch DO namespace methods to auto-register accessed DOs
-  const originalMethods = new Map<any, { getByName?: Function, get?: Function }>();
-  
-  function monkeyPatchDONamespace(bindingName: string, namespace: any) {
-    const original = {
-      getByName: namespace.getByName?.bind(namespace),
-      get: namespace.get?.bind(namespace)
-    };
-    originalMethods.set(namespace, original);
-    
-    if (namespace.getByName) {
-      namespace.getByName = function(name: string) {
-        registerDOContext(bindingName, name);
-        return original.getByName!(name);
-      };
-    }
-    
-    if (namespace.get) {
-      namespace.get = function(id: any) {
-        // For get(), we need to extract the name from the ID
-        const name = typeof id === 'string' ? id : id.toString();
-        registerDOContext(bindingName, name);
-        return original.get!(id);
-      };
-    }
-  }
-  
-  // Apply monkey patches to all DO bindings in env
-  for (const [key, value] of Object.entries(env)) {
-    if (value && typeof value === 'object' && ('getByName' in value || 'get' in value)) {
-      monkeyPatchDONamespace(key, value);
-    }
-  }
+  // TODO: Remove monkey patching since instrumentWorker should handle this
+  // But let's test if instrumentWorker is actually working for auto-registration
   
   // Create context registry that provides direct access to DO contexts
   const contextRegistry: ContextRegistry = {
@@ -206,8 +175,13 @@ export async function testDOProject<T = any>(
     }
   };
   
-  // Store env globally for routeDORequest
-  (globalThis as any).__testingEnv = env;
+  // Store env and registration function globally
+  // Important: We need to provide the instrumented env for custom Workers
+  const { instrumentEnvironment } = await import('./instrument-worker.js');
+  const instrumentedEnv = instrumentEnvironment(env);
+  
+  (globalThis as any).__testingEnv = instrumentedEnv;
+  (globalThis as any).__testingContextRegistry = registerDOContext;
   
   // Create simple helpers object
   const helpers = {
@@ -220,17 +194,8 @@ export async function testDOProject<T = any>(
     // Call the test function with SELF, contexts, and helpers
     await testFn(SELF, contextRegistry, helpers);
   } finally {
-    // Restore original DO namespace methods
-    for (const [namespace, methods] of originalMethods.entries()) {
-      if (methods.getByName) {
-        namespace.getByName = methods.getByName;
-      }
-      if (methods.get) {
-        namespace.get = methods.get;
-      }
-    }
-    
     // Cleanup globals
     delete (globalThis as any).__testingEnv;
+    delete (globalThis as any).__testingContextRegistry;
   }
 }
