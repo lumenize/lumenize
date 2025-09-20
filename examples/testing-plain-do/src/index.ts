@@ -60,7 +60,14 @@ export class MyDO extends DurableObject{
     
     await this.#trackOperation('fetch', operation);
 
-    if (url.protocol === 'wss:' || url.pathname.includes('/wss')) {  // TODO: Change this to key off of headers for WS upgrade
+    if (url.pathname.endsWith('/increment')) {
+      const count = await this.#handleIncrement();
+      return new Response(count.toString(), { 
+        headers: { 'Content-Type': 'text/plain' } 
+      });
+    }
+
+    if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       const webSocketPair = new WebSocketPair();
       const [client, server] = Object.values(webSocketPair);
       
@@ -98,6 +105,7 @@ export class MyDO extends DurableObject{
         headers: responseHeaders
       });
     }
+
     return new Response('Not found', { status: 404 });
   }
 
