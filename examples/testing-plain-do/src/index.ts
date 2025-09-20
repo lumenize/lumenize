@@ -16,7 +16,7 @@ export default {
     // }
     
     return (
-      routeDORequest(request, env) ||
+      await routeDORequest(request, env) ||
       new Response("Not Found", { status: 404 })
     );
   }

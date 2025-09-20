@@ -1,21 +1,131 @@
 import { getDOStubFromPathname } from './get-do-stub-from-pathname.js';
-import { DOBindingNotFoundError } from './get-do-namespace-from-pathname.js';
+import { DOBindingNotFoundError, InvalidPathError } from './get-do-namespace-from-pathname.js';
 
+/**
+ * Configuration options for DO request routing and authentication hooks.
+ */
 export interface RouteOptions {
-  onBeforeConnect?: (request: Request) => Response | undefined | void;
-  onBeforeRequest?: (request: Request) => Response | undefined | void;
+  /**
+   * Hook called before WebSocket requests (Upgrade: websocket) reach the Durable Object.
+   * 
+   * @param request - The incoming WebSocket upgrade request
+   * @param context - Routing context with DO binding name and instance name
+   * @returns Response to block request, Request to modify request, undefined/void to continue
+   */
+  onBeforeConnect?: (request: Request, context: { party: string; name: string }) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
+  
+  /**
+   * Hook called before non-WebSocket HTTP requests reach the Durable Object.
+   * 
+   * @param request - The incoming HTTP request  
+   * @param context - Routing context with DO binding name and instance name
+   * @returns Response to block request, Request to modify request, undefined/void to continue
+   */
+  onBeforeRequest?: (request: Request, context: { party: string; name: string }) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
+  
+  /**
+   * URL prefix that must be present before DO routing path.
+   * 
+   * @example '/agents' makes it match '/agents/my-do/instance' but not '/my-do/instance'
+   */
   prefix?: string;
 }
 
-// Expects same format as Cloudflare agents package and PartyKit 
-// `/${prefix}/${doBindingName}/${instanceName}`
-// However, it's much less picky about the case of the doBindingName
-// If the binding name is MY_DO, it'll match my-do, MyDO, MyDo, etc.
-// And there is no confusing renaming of doBindingName to agent or party
-// nor instanceName to name or room
-// 
-// Follows hono convention for handlers/middleware, returning undefined if it's not a match
-export function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Response | undefined {
+/**
+ * Routes requests to Durable Objects with support for authentication hooks and prefix matching.
+ * 
+ * This function provides a drop-in replacement for Cloudflare's routeAgentRequest and PartyKit's
+ * routePartyRuest with enhanced flexibility for DO binding name matching and clear, consistent 
+ * naming conventions.
+ * 
+ * **URL Format:**
+ * `[/${prefix}]/${doBindingName}/${instanceName}[/path...]`
+ * 
+ * **Key Features:**
+ * - Case-insensitive DO binding name matching (MY_DO matches my-do, MyDO, MyDo, etc.)
+ * - No confusing renaming: doBindingName stays doBindingName, instanceName stays instanceName
+ *   rather than party/agent, room/name
+ * - Follows Hono convention: returns undefined if the request doesn't match
+ * - Pre-request/connect hooks to check authentication
+ * 
+ * **Hook Behavior (matches Cloudflare agents and PartyServer):**
+ * - WebSocket requests (Upgrade: websocket) → calls `onBeforeConnect` only
+ * - Non-WebSocket requests → calls `onBeforeRequest` only  
+ * 
+ * @param request - The incoming HTTP request to route
+ * @param env - Environment object containing DO bindings (e.g., { MY_DO: DurableObjectNamespace })
+ * @param options - Configuration options for routing and hooks
+ * @param options.prefix - URL prefix to match before DO routing (default: none)
+ * @param options.onBeforeConnect - Hook called before WebSocket requests reach the DO
+ * @param options.onBeforeRequest - Hook called before non-WebSocket requests reach the DO
+ * 
+ * @returns Promise resolving to Response if request was handled, undefined if not matched
+ * 
+ * @throws {Error} Propagates errors from DO fetch calls or hook execution
+ * 
+ * @example
+ * ```typescript
+ * // Basic usage in a Worker fetch handler
+ * export default {
+ *   async fetch(request: Request, env: Env): Promise<Response> {
+ *     // Try to route to DOs first
+ *     const doResponse = await routeDORequest(request, env);
+ *     if (doResponse) return doResponse;
+ *     
+ *     // Fallback for non-DO requests
+ *     return new Response("Not Found", { status: 404 });
+ *   }
+ * };
+ * 
+ * // Advanced usage with authentication and prefix
+ * const response = await routeDORequest(request, env, {
+ *   // Route only URLs starting with /agents/
+ *   prefix: '/agents',
+ *   
+ *   // Authentication for WebSocket connections
+ *   onBeforeConnect: async (request, { party, name }) => {
+ *     // Validate WebSocket auth token
+ *     const token = request.headers.get('Authorization');
+ *     if (!token || !await validateToken(token)) {
+ *       // Return Response to block connection
+ *       return new Response('Unauthorized', { status: 401 });
+ *     }
+ *     
+ *     // Add user info to headers for DO
+ *     const modifiedRequest = new Request(request);
+ *     modifiedRequest.headers.set('X-User-ID', await getUserId(token));
+ *     return modifiedRequest; // Return modified Request to continue
+ *     
+ *     // Return nothing/undefined to continue with original request
+ *   },
+ *   
+ *   // Authentication for HTTP requests  
+ *   onBeforeRequest: async (request, { party, name }) => {
+ *     // Log request for analytics
+ *     console.log(`HTTP request to ${party}:${name}`, request.method, request.url);
+ *     
+ *     // API key validation
+ *     const apiKey = request.headers.get('X-API-Key');
+ *     if (request.method !== 'GET' && !apiKey) {
+ *       return Response.json(
+ *         { error: 'API key required for write operations' }, 
+ *         { status: 403 }
+ *       );
+ *     }
+ *     
+ *     // Continue processing - return nothing
+ *   }
+ * });
+ * 
+ * // URL Examples:
+ * // /my-do/instance123        → routes to env.MY_DO.get(id('instance123'))
+ * // /chat-room/lobby          → routes to env.CHAT_ROOM.get(id('lobby'))  
+ * // /agents/user-do/john      → with prefix, routes to env.USER_DO.get(id('john'))
+ * // /websocket-do/game1       → WebSocket upgrade calls onBeforeConnect
+ * // /regular-do/service       → HTTP request calls onBeforeRequest
+ * ```
+ */
+export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
   try {
     const url = new URL(request.url);
     let pathname = url.pathname;
@@ -39,28 +149,44 @@ export function routeDORequest(request: Request, env: any, options: RouteOptions
       pathname = pathname.slice(prefixWithoutTrailingSlash.length) || '/';
     }
 
-    // Check if this is a WebSocket upgrade request
-    const isWebSocketUpgrade = request.method === 'GET' &&
-      request.headers.get('upgrade')?.toLowerCase() === 'websocket' &&
-      request.headers.get('connection')?.toLowerCase().includes('upgrade');
+    // Parse DO binding name and instance name from pathname
+    const pathParts = pathname.split('/').filter(Boolean);
+    if (pathParts.length < 2) {
+      return undefined; // Not enough path parts for a valid DO request
+    }
+    
+    const namespace = pathParts[0]; // DO binding name
+    const name = pathParts[1]; // DO instance name
 
-    // Run appropriate before hooks
-    if (isWebSocketUpgrade && options.onBeforeConnect) {
-      const beforeConnectResult = options.onBeforeConnect(request);
-      if (beforeConnectResult instanceof Response) {
-        return beforeConnectResult;
-      }
-    } else if (!isWebSocketUpgrade && options.onBeforeRequest) {
-      const beforeRequestResult = options.onBeforeRequest(request);
-      if (beforeRequestResult instanceof Response) {
-        return beforeRequestResult;
-      }
+    // Call hooks based on request type (matching Cloudflare's if/else behavior)
+    const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+    
+    if (isWebSocket) {
+        if (options?.onBeforeConnect) {
+            const result = await options.onBeforeConnect(request, { party: namespace, name });
+            if (result instanceof Response) {
+                return result;
+            }
+            if (result instanceof Request) {
+                request = result;
+            }
+        }
+    } else {
+        if (options?.onBeforeRequest) {
+            const result = await options.onBeforeRequest(request, { party: namespace, name });
+            if (result instanceof Response) {
+                return result;
+            }
+            if (result instanceof Request) {
+                request = result;
+            }
+        }
     }
     
     const stub = getDOStubFromPathname(pathname, env);
-    return stub.fetch(request);
+    return await stub.fetch(request);
   } catch(error: any) {
-    if (error.instanceOf && error.instanceOf(DOBindingNotFoundError)) return undefined
+    if (error instanceof DOBindingNotFoundError || error instanceof InvalidPathError) return undefined
     throw(error);
   }
 }
