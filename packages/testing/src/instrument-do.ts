@@ -1,3 +1,6 @@
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { serialize, deserialize } = require('@ungap/structured-clone');
+
 /**
  * Preprocesses an object to replace functions with descriptive strings
  * so they can be transported through RPC calls.
@@ -145,7 +148,8 @@ export function instrumentDO<T>(DOClass: T): T {
 
     async handleCtxProxy(request: Request): Promise<Response> {
       try {
-        const requestBody = await request.json() as { type: 'get' | 'call', path: string[], args?: any[] };
+        const requestData = await request.json();
+        const requestBody = deserialize(requestData) as { type: 'get' | 'call', path: string[], args?: any[] };
         const { type, path, args } = requestBody;
         
         let target = this.__ctxForTesting;
@@ -179,20 +183,9 @@ export function instrumentDO<T>(DOClass: T): T {
         // Debug logging
         // console.log(`[handleCtxProxy] ${type} ${path.join('.')} -> ${typeof result}:`, result);
         
-        // Handle undefined by returning null (JSON-serializable)
-        if (result === undefined) {
-          return Response.json(null);
-        }
-        
-        // Handle Maps by converting to a special format
-        if (result instanceof Map) {
-          return Response.json({
-            __isMap: true,
-            entries: Array.from(result.entries())
-          });
-        }
-        
-        return Response.json(result);
+        // Use structured-clone for proper serialization, including special cases
+        const serialized = serialize(result);
+        return Response.json(serialized);
       } catch (error: any) {
         console.error(`[handleCtxProxy] Error:`, error);
         return Response.json({ 
