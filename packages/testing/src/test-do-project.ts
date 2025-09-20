@@ -14,6 +14,22 @@ export interface ContextRegistry {
    * @returns A proxy to the DO's ctx
    */
   get(bindingName: string, instanceName: string): any;
+  
+  /**
+   * List all contexts or contexts for a specific binding
+   * @param bindingName - Optional binding name to filter by
+   * @returns Array of context entries
+   */
+  list(bindingName?: string): ContextEntry[];
+}
+
+/**
+ * Context entry information
+ */
+export interface ContextEntry {
+  bindingName: string;
+  name: string;
+  ctx: any;
 }
 
 /**
@@ -109,10 +125,84 @@ export async function testDOProject<T = any>(
   testFn: (SELF: any, contexts: ContextRegistry, helpers: any) => Promise<void> | void,
   options?: T
 ): Promise<void> {
+  // Track created contexts for the list() method
+  const createdContexts = new Map<string, ContextEntry>();
+  
+  // Function to register a DO context when accessed
+  function registerDOContext(bindingName: string, instanceName: string) {
+    const key = `${bindingName}:${instanceName}`;
+    
+    // Don't duplicate if already exists
+    if (createdContexts.has(key)) {
+      return;
+    }
+    
+    // Create new context proxy
+    const ctx = createPureContextProxy(bindingName, instanceName);
+    
+    // Track this context
+    createdContexts.set(key, {
+      bindingName,
+      name: instanceName,
+      ctx
+    });
+  }
+  
+  // Monkey patch DO namespace methods to auto-register accessed DOs
+  const originalMethods = new Map<any, { getByName?: Function, get?: Function }>();
+  
+  function monkeyPatchDONamespace(bindingName: string, namespace: any) {
+    const original = {
+      getByName: namespace.getByName?.bind(namespace),
+      get: namespace.get?.bind(namespace)
+    };
+    originalMethods.set(namespace, original);
+    
+    if (namespace.getByName) {
+      namespace.getByName = function(name: string) {
+        registerDOContext(bindingName, name);
+        return original.getByName!(name);
+      };
+    }
+    
+    if (namespace.get) {
+      namespace.get = function(id: any) {
+        // For get(), we need to extract the name from the ID
+        const name = typeof id === 'string' ? id : id.toString();
+        registerDOContext(bindingName, name);
+        return original.get!(id);
+      };
+    }
+  }
+  
+  // Apply monkey patches to all DO bindings in env
+  for (const [key, value] of Object.entries(env)) {
+    if (value && typeof value === 'object' && ('getByName' in value || 'get' in value)) {
+      monkeyPatchDONamespace(key, value);
+    }
+  }
+  
   // Create context registry that provides direct access to DO contexts
   const contextRegistry: ContextRegistry = {
     get(bindingName: string, instanceName: string) {
-      return createPureContextProxy(bindingName, instanceName);
+      const key = `${bindingName}:${instanceName}`;
+      
+      // Check if we already have this context
+      if (createdContexts.has(key)) {
+        return createdContexts.get(key)!.ctx;
+      }
+      
+      // Register this context
+      registerDOContext(bindingName, instanceName);
+      return createdContexts.get(key)!.ctx;
+    },
+    
+    list(bindingName?: string): ContextEntry[] {
+      const entries = Array.from(createdContexts.values());
+      if (bindingName) {
+        return entries.filter(entry => entry.bindingName === bindingName);
+      }
+      return entries;
     }
   };
   
@@ -130,7 +220,17 @@ export async function testDOProject<T = any>(
     // Call the test function with SELF, contexts, and helpers
     await testFn(SELF, contextRegistry, helpers);
   } finally {
-    // Cleanup
+    // Restore original DO namespace methods
+    for (const [namespace, methods] of originalMethods.entries()) {
+      if (methods.getByName) {
+        namespace.getByName = methods.getByName;
+      }
+      if (methods.get) {
+        namespace.get = methods.get;
+      }
+    }
+    
+    // Cleanup globals
     delete (globalThis as any).__testingEnv;
   }
 }

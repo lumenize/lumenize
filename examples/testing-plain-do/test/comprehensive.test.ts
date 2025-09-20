@@ -22,102 +22,47 @@ import { env } from 'cloudflare:test';
  */
 describe('Comprehensive @lumenize/testing Validation', () => {
 
-  it('supports all Durable Object access patterns', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      
-      // Pattern 1: Using getByName (direct named access)
-      const directStub = env.MY_DO.getByName('my-direct-instance');
-      expect(directStub.name).toBe('my-direct-instance');
-      
-      // Pattern 2: Using idFromName + get (two-step named access)
-      const namedId = env.MY_DO.idFromName('my-instance-name');
-      const namedStub = env.MY_DO.get(namedId);
-      expect(namedStub.name).toBe('my-instance-name');
-      
-      // Pattern 3: Using newUniqueId + get (anonymous instances)
-      const uniqueId = env.MY_DO.newUniqueId();
-      const uniqueStub = env.MY_DO.get(uniqueId);
-      expect(uniqueStub.name).toBeUndefined(); // Anonymous instances have no name
-      
-    });
-  });
-
   it('enables ctx proxy access to DO internals', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('ctx-test-instance');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'ctx-test-instance');
       
       // Test initial empty storage
-      const initialStorage = await stub.ctx.storage.list();
+      const initialStorage = await ctx.storage.list();
       expect(initialStorage).toBeInstanceOf(Map);
       expect(initialStorage.size).toBe(0);
       
       // Test storage operations through ctx proxy
-      await stub.ctx.storage.put('test-key', 'test-value');
-      const retrievedValue = await stub.ctx.storage.get('test-key');
+      await ctx.storage.put('test-key', 'test-value');
+      const retrievedValue = await ctx.storage.get('test-key');
       expect(retrievedValue).toBe('test-value');
       
       // Test different data types
-      await stub.ctx.storage.put('number-key', 42);
-      await stub.ctx.storage.put('object-key', { test: 'data' });
+      await ctx.storage.put('number-key', 42);
+      await ctx.storage.put('object-key', { test: 'data' });
       
-      const numberValue = await stub.ctx.storage.get('number-key');
-      const objectValue = await stub.ctx.storage.get('object-key');
+      const numberValue = await ctx.storage.get('number-key');
+      const objectValue = await ctx.storage.get('object-key');
       expect(numberValue).toBe(42);
       expect(objectValue).toEqual({ test: 'data' });
       
       // Test storage delete
-      await stub.ctx.storage.delete('test-key');
-      const deletedValue = await stub.ctx.storage.get('test-key');
+      await ctx.storage.delete('test-key');
+      const deletedValue = await ctx.storage.get('test-key');
       expect(deletedValue).toBeUndefined();
       
     });
   });
 
-  it('provides ctx proxy access to other DO context methods', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('ctx-methods-instance');
-      
-      // Access to waitUntil through ctx proxy
-      expect(typeof stub.ctx.waitUntil).toBe('function');
-      
-      // Access to passThroughOnException through ctx proxy
-      expect(typeof stub.ctx.passThroughOnException).toBe('function');
-      
-    });
-  });
-
-  it('implements three-method API (get/ctx/entry)', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const originalStub = env.MY_DO.getByName('api-test-instance');
-      
-      // 1. stubs.get() - returns the enhanced stub
-      const stubFromGet = stubs.get('MY_DO', 'api-test-instance');
-      expect(stubFromGet).toBe(originalStub); // Same object
-      
-      // 2. stubs.ctx() - returns ctx proxy directly
-      const ctxProxy = stubs.ctx('MY_DO', 'api-test-instance');
-      expect(ctxProxy).toBe(originalStub.ctx); // Direct access to the ctx
-      
-      // 3. stubs.entry() - returns full info with both stub and ctx
-      const stubFull = stubs.entry('MY_DO', 'api-test-instance');
-      expect(stubFull!.bindingName).toBe('MY_DO');
-      expect(stubFull!.name).toBe('api-test-instance');
-      expect(stubFull!.stub).toBe(stubFromGet);
-      expect(stubFull!.ctx).toBe(ctxProxy);
-      
-    });
-  });
-
   it('properly serializes Maps with structured clone', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('serialization-test-instance');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'serialization-test-instance');
       
       // Put test data into storage
-      await stub.ctx.storage.put('number-key', 42);
-      await stub.ctx.storage.put('object-key', { test: 'data' });
+      await ctx.storage.put('number-key', 42);
+      await ctx.storage.put('object-key', { test: 'data' });
       
       // Test that storage.list() returns proper Map with structured clone
-      const storageList = await stub.ctx.storage.list();
+      const storageList = await ctx.storage.list();
       expect(storageList).toBeInstanceOf(Map);
       expect(storageList.size).toBe(2);
       expect(storageList.get('number-key')).toBe(42);
@@ -129,98 +74,69 @@ describe('Comprehensive @lumenize/testing Validation', () => {
   });
 
   it('ensures storage isolation between DO instances', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub1 = env.MY_DO.getByName('isolation-instance-1');
-      const stub2 = env.MY_DO.getByName('isolation-instance-2');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx1 = contexts.get('MY_DO', 'instance1');
+      const ctx2 = contexts.get('MY_DO', 'instance2');
       
       // Store data in each instance
-      await stub1.ctx.storage.put('instance1-data', 'value1');
-      await stub2.ctx.storage.put('instance2-data', 'value2');
+      await ctx1.storage.put('instance1-data', 'value1');
+      await ctx2.storage.put('instance2-data', 'value2');
       
       // Verify isolation - data should not cross between instances
-      const instance1CrossCheck = await stub1.ctx.storage.get('instance2-data');
-      const instance2CrossCheck = await stub2.ctx.storage.get('instance1-data');
+      const instance1CrossCheck = await ctx1.storage.get('instance2-data');
+      const instance2CrossCheck = await ctx2.storage.get('instance1-data');
       expect(instance1CrossCheck).toBeUndefined();
       expect(instance2CrossCheck).toBeUndefined();
       
       // Verify each instance has its own data
-      const instance1OwnData = await stub1.ctx.storage.get('instance1-data');
-      const instance2OwnData = await stub2.ctx.storage.get('instance2-data');
+      const instance1OwnData = await ctx1.storage.get('instance1-data');
+      const instance2OwnData = await ctx2.storage.get('instance2-data');
       expect(instance1OwnData).toBe('value1');
       expect(instance2OwnData).toBe('value2');
       
     });
   });
 
-  it('tracks stubs in registry correctly', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      // Create multiple stubs
-      const directStub = env.MY_DO.getByName('registry-test-1');
-      const namedStub = env.MY_DO.get(env.MY_DO.idFromName('registry-test-2'));
-      const uniqueStub = env.MY_DO.get(env.MY_DO.newUniqueId());
+  it('tracks contexts in registry correctly', async () => {
+    await testDOProject(async (SELF, contexts, helpers) => {
+      // Create multiple contexts
+      await SELF.fetch('https://example.com/my-do/one/increment');
+      await SELF.fetch('https://example.com/my-do/two/increment');
+      await SELF.fetch('https://example.com/my-do/three/increment');
       
       // Check registry tracking
-      const allStubs = stubs.list();
-      expect(allStubs.length).toBeGreaterThanOrEqual(3);
+      const allContexts = contexts.list();
+      expect(allContexts.length).toBe(3);
       
-      const myDoStubs = stubs.list('MY_DO');
-      expect(myDoStubs.length).toBeGreaterThanOrEqual(3);
+      const myDOContexts = contexts.list('MY_DO');
+      expect(myDOContexts.length).toBe(3);
       
-      // Verify all stubs have both stub and ctx
-      for (const stubFull of myDoStubs) {
-        expect(stubFull.bindingName).toBe('MY_DO');
-        expect(stubFull.stub).toBeDefined();
-        expect(stubFull.ctx).toBeDefined();
+      // Verify all contexts have both stub and ctx
+      for (const context of myDOContexts) {
+        expect(context.bindingName).toBe('MY_DO');
+        expect(context.ctx).toBeDefined();
+        expect(['one', 'two', 'three'].includes(context.name)).toBe(true);
       }
       
     });
   });
 
-  it('handles anonymous stubs through registry API', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      // Create anonymous stub
-      const uniqueId = env.MY_DO.newUniqueId();
-      const anonymousStub = env.MY_DO.get(uniqueId);
-      
-      // Access through registry using ID
-      const anonymousFromGet = stubs.get('MY_DO', uniqueId.toString());
-      const anonymousFromCtx = stubs.ctx('MY_DO', uniqueId.toString());
-      const anonymousFromFull = stubs.entry('MY_DO', uniqueId.toString());
-      
-      expect(anonymousFromGet).toBe(anonymousStub);
-      expect(anonymousFromCtx).toBe(anonymousStub.ctx);
-      expect(anonymousFromFull!.stub).toBe(anonymousFromGet);
-      expect(anonymousFromFull!.ctx).toBe(anonymousFromCtx);
-      expect(anonymousFromFull!.name).toBeUndefined(); // Anonymous
-      
-      // Test storage operations on anonymous stub
-      await anonymousFromCtx.storage.put('anonymous-key', 'anonymous-value');
-      const anonymousValue = await anonymousFromCtx.storage.get('anonymous-key');
-      expect(anonymousValue).toBe('anonymous-value');
-      
-      // Verify consistency between stub.ctx and stubs.ctx()
-      const valueViaStub = await anonymousStub.ctx.storage.get('anonymous-key');
-      expect(valueViaStub).toBe('anonymous-value');
-      
-    });
-  });
-
   it('supports all structured clone types in storage operations', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('structured-clone-test');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'structured-clone-test');
       
       // Test Date objects
       const testDate = new Date('2025-09-19T10:30:00.000Z');
-      await stub.ctx.storage.put('date-key', testDate);
-      const retrievedDate = await stub.ctx.storage.get('date-key');
+      await ctx.storage.put('date-key', testDate);
+      const retrievedDate = await ctx.storage.get('date-key');
       expect(retrievedDate).toBeInstanceOf(Date);
       expect(retrievedDate.getTime()).toBe(testDate.getTime());
       expect(retrievedDate.toISOString()).toBe('2025-09-19T10:30:00.000Z');
       
       // Test Set objects
       const testSet = new Set(['apple', 'banana', 'cherry', 42, true]);
-      await stub.ctx.storage.put('set-key', testSet);
-      const retrievedSet = await stub.ctx.storage.get('set-key');
+      await ctx.storage.put('set-key', testSet);
+      const retrievedSet = await ctx.storage.get('set-key');
       expect(retrievedSet).toBeInstanceOf(Set);
       expect(retrievedSet.size).toBe(5);
       expect(retrievedSet.has('apple')).toBe(true);
@@ -238,8 +154,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         [{ nested: 'object' }, 'object-key-value'],
         ['array-value', [1, 2, 3, { deep: 'nested' }]]
       ]);
-      await stub.ctx.storage.put('complex-map-key', testMap);
-      const retrievedMap = await stub.ctx.storage.get('complex-map-key');
+      await ctx.storage.put('complex-map-key', testMap);
+      const retrievedMap = await ctx.storage.get('complex-map-key');
       expect(retrievedMap).toBeInstanceOf(Map);
       expect(retrievedMap.size).toBe(5);
       expect(retrievedMap.get('string-key')).toBe('string-value');
@@ -253,8 +169,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       view.setInt32(0, 42, true); // little endian
       view.setFloat64(8, 3.14159, true);
       
-      await stub.ctx.storage.put('arraybuffer-key', buffer);
-      const retrievedBuffer = await stub.ctx.storage.get('arraybuffer-key');
+      await ctx.storage.put('arraybuffer-key', buffer);
+      const retrievedBuffer = await ctx.storage.get('arraybuffer-key');
       expect(retrievedBuffer).toBeInstanceOf(ArrayBuffer);
       expect(retrievedBuffer.byteLength).toBe(16);
       
@@ -264,24 +180,24 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       
       // Test Uint8Array
       const uint8Array = new Uint8Array([1, 2, 3, 4, 5, 255]);
-      await stub.ctx.storage.put('uint8array-key', uint8Array);
-      const retrievedUint8 = await stub.ctx.storage.get('uint8array-key');
+      await ctx.storage.put('uint8array-key', uint8Array);
+      const retrievedUint8 = await ctx.storage.get('uint8array-key');
       expect(retrievedUint8).toBeInstanceOf(Uint8Array);
       expect(retrievedUint8.length).toBe(6);
       expect(Array.from(retrievedUint8)).toEqual([1, 2, 3, 4, 5, 255]);
       
       // Test Int32Array  
       const int32Array = new Int32Array([-1000, 0, 1000, 2147483647, -2147483648]);
-      await stub.ctx.storage.put('int32array-key', int32Array);
-      const retrievedInt32 = await stub.ctx.storage.get('int32array-key');
+      await ctx.storage.put('int32array-key', int32Array);
+      const retrievedInt32 = await ctx.storage.get('int32array-key');
       expect(retrievedInt32).toBeInstanceOf(Int32Array);
       expect(retrievedInt32.length).toBe(5);
       expect(Array.from(retrievedInt32)).toEqual([-1000, 0, 1000, 2147483647, -2147483648]);
       
       // Test Float64Array
       const float64Array = new Float64Array([3.14159, -2.71828, Number.MAX_VALUE, Number.MIN_VALUE]);
-      await stub.ctx.storage.put('float64array-key', float64Array);
-      const retrievedFloat64 = await stub.ctx.storage.get('float64array-key');
+      await ctx.storage.put('float64array-key', float64Array);
+      const retrievedFloat64 = await ctx.storage.get('float64array-key');
       expect(retrievedFloat64).toBeInstanceOf(Float64Array);
       expect(retrievedFloat64.length).toBe(4);
       expect(retrievedFloat64[0]).toBeCloseTo(3.14159);
@@ -291,8 +207,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       
       // Test RegExp objects
       const testRegex = /^test[0-9]+$/gi;
-      await stub.ctx.storage.put('regex-key', testRegex);
-      const retrievedRegex = await stub.ctx.storage.get('regex-key');
+      await ctx.storage.put('regex-key', testRegex);
+      const retrievedRegex = await ctx.storage.get('regex-key');
       expect(retrievedRegex).toBeInstanceOf(RegExp);
       expect(retrievedRegex.source).toBe('^test[0-9]+$');
       expect(retrievedRegex.flags).toBe('gi');
@@ -323,8 +239,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         ]
       };
       
-      await stub.ctx.storage.put('complex-structure', complexStructure);
-      const retrievedComplex = await stub.ctx.storage.get('complex-structure');
+      await ctx.storage.put('complex-structure', complexStructure);
+      const retrievedComplex = await ctx.storage.get('complex-structure');
       
       // Verify the complex structure maintains all types
       expect(retrievedComplex.metadata.created).toBeInstanceOf(Date);
@@ -343,7 +259,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(retrievedComplex.arrays[2]).toBeInstanceOf(Map);
       
       // Verify storage.list() correctly handles all these types
-      const allStorageData = await stub.ctx.storage.list();
+      const allStorageData = await ctx.storage.list();
       expect(allStorageData).toBeInstanceOf(Map);
       expect(allStorageData.get('date-key')).toBeInstanceOf(Date);
       expect(allStorageData.get('set-key')).toBeInstanceOf(Set);
@@ -356,8 +272,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
   });
 
   it('handles circular object references correctly', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('circular-test');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'circular-test');
       
       // Create a circular object structure
       const circularObj: any = {
@@ -374,10 +290,10 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       circularObj.metadata.parent = circularObj;
       
       // Test what happens when we try to store a circular object
-      await stub.ctx.storage.put('circular-key', circularObj);
+      await ctx.storage.put('circular-key', circularObj);
       
       // The structured clone algorithm successfully handles circular references!
-      const retrievedCircular = await stub.ctx.storage.get('circular-key');
+      const retrievedCircular = await ctx.storage.get('circular-key');
       
       // Verify the basic structure is preserved
       expect(retrievedCircular.name).toBe('parent');
@@ -405,8 +321,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
   });
 
   it('demonstrates error handling and ctx proxy limitations', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('error-test');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'error-test');
       
       // First, let's test Error serialization through structured clone
       // Structured clone only preserves message/stack from Error objects
@@ -421,8 +337,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       };
       
       // Store the error object to see if structured clone preserves it
-      await stub.ctx.storage.put('error-object', customError);
-      const retrievedError = await stub.ctx.storage.get('error-object');
+      await ctx.storage.put('error-object', customError);
+      const retrievedError = await ctx.storage.get('error-object');
       
       // Verify what gets preserved vs. what gets lost with Error objects in structured clone
       expect(retrievedError).toBeInstanceOf(Error);
@@ -443,8 +359,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         stack: customError.stack
       };
       
-      await stub.ctx.storage.put('error-info', errorInfo);
-      const retrievedErrorInfo = await stub.ctx.storage.get('error-info');
+      await ctx.storage.put('error-info', errorInfo);
+      const retrievedErrorInfo = await ctx.storage.get('error-info');
       
       // Regular objects preserve all properties perfectly
       expect(retrievedErrorInfo.message).toBe('Test error message');
@@ -457,12 +373,12 @@ describe('Comprehensive @lumenize/testing Validation', () => {
   });
 
   it('provides function discovery through property access preprocessing', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('function-discovery-test');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'function-discovery-test');
       
       // With function preprocessing, we now see function signatures for discoverability!
       // The storage object reveals its complete API surface including methods from the prototype chain
-      const storageAsProperty = await stub.ctx.storage;
+      const storageAsProperty = await ctx.storage;
       
       // Test that we get a comprehensive function map showing all available methods
       // INCLUDING nested objects like kv and sql with their methods inline!
@@ -507,23 +423,23 @@ describe('Comprehensive @lumenize/testing Validation', () => {
   });
 
   it('demonstrates natural property vs method detection with authentic error handling', async () => {
-    await testDOProject(async (SELF, stubs, helpers) => {
-      const stub = env.MY_DO.getByName('natural-syntax-test');
+    await testDOProject(async (SELF, contexts, helpers) => {
+      const ctx = contexts.get('MY_DO', 'natural-syntax-test');
       
       // Now let's test automatic property vs method detection via natural syntax!
       // The proxy automatically detects usage patterns:
-      // - await stub.ctx.property → gets property value
-      // - stub.ctx.method() → calls method
+      // - await ctx.property → gets property value
+      // - ctx.method() → calls method
       
       // Test automatic property value access by awaiting the proxy directly
       // This is much more natural than $value or $get() - just await the property!
-      const storageAsProperty = await stub.ctx.storage;
+      const storageAsProperty = await ctx.storage;
       expect(storageAsProperty).toBeDefined();
       
       // Functions can't be cloned, but objects, primitives, etc. can be.
       
       // Test accessing a non-existent property on ctx (should be a function proxy)
-      const nonExistentProperty = stub.ctx.nonExistentProperty;
+      const nonExistentProperty = ctx.nonExistentProperty;
       expect(typeof nonExistentProperty).toBe('function');
       
       // Test getting the actual value of a non-existent property (returns undefined, doesn't throw)
@@ -538,16 +454,16 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       
       // Test calling a non-existent method on ctx (should throw with authentic JS error)
       await expect(async () => {
-        await stub.ctx.nonExistentMethod();
+        await ctx.nonExistentMethod();
       }).rejects.toThrow('Cannot read properties of undefined (reading \'apply\')');
       
       // Test accessing a non-existent property on ctx.storage (should be a function proxy)
-      const nonExistentStorageProperty = stub.ctx.storage.nonExistentProperty;
+      const nonExistentStorageProperty = ctx.storage.nonExistentProperty;
       expect(typeof nonExistentStorageProperty).toBe('function');
       
       // Test calling a non-existent method on ctx.storage (should throw with authentic JS error)
       await expect(async () => {
-        await stub.ctx.storage.nonExistentMethod();
+        await ctx.storage.nonExistentMethod();
       }).rejects.toThrow('Cannot read properties of undefined (reading \'apply\')');
       
     });
