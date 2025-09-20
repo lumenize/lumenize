@@ -39,10 +39,13 @@ export interface RouteOptions {
  * naming conventions.
  * 
  * **URL Format:**
- * `[/${prefix}]/${doBindingName}/${instanceName}[/path...]`
+ * `[/${prefix}]/${doBindingName}/${instanceNameOrIdString}[/path...]`
  * 
  * **Key Features:**
  * - Case-insensitive DO binding name matching (MY_DO matches my-do, MyDO, MyDo, etc.)
+ * - Supports both named instances and unique ID strings in the instance path segment
+ * - Automatically detects 64-character hex strings (from newUniqueId().toString()) 
+ *   and routes them using idFromString() + get() instead of getByName()
  * - No confusing renaming: doBindingName stays doBindingName, instanceName stays instanceName
  *   rather than party/agent, room/name
  * - Follows Hono convention: returns undefined if the request doesn't match
@@ -118,11 +121,13 @@ export interface RouteOptions {
  * });
  * 
  * // URL Examples:
- * // /my-do/instance123        → routes to env.MY_DO.get(id('instance123'))
- * // /chat-room/lobby          → routes to env.CHAT_ROOM.get(id('lobby'))  
- * // /agents/user-do/john      → with prefix, routes to env.USER_DO.get(id('john'))
- * // /websocket-do/game1       → WebSocket upgrade calls onBeforeConnect
- * // /regular-do/service       → HTTP request calls onBeforeRequest
+ * // /my-do/instance123                           → routes to env.MY_DO.getByName('instance123')
+ * // /chat-room/lobby                             → routes to env.CHAT_ROOM.getByName('lobby')  
+ * // /my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99  
+ * //                                              → routes to env.MY_DO.get(env.MY_DO.idFromString('8aa7...'))
+ * // /agents/user-do/john                         → with prefix, routes to env.USER_DO.getByName('john')
+ * // /websocket-do/game1                          → WebSocket upgrade calls onBeforeConnect
+ * // /regular-do/service                          → HTTP request calls onBeforeRequest
  * ```
  */
 export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
