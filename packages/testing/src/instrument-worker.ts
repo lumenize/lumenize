@@ -16,7 +16,7 @@ export function instrumentWorker<TEnv extends Record<string, unknown> | undefine
 
 /**
  * Instruments an environment object to track DO access during execution.
- * This registers accessed DOs in the test context registry for tracking purposes.
+ * This registers accessed DOs in the test instance registry for tracking purposes.
  */
 export function instrumentEnvironment(env: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!env) {
@@ -58,10 +58,10 @@ function instrumentDOBinding(originalBinding: any, bindingName: string): any {
         instanceName = id?.toString() || 'anonymous';
       }
       
-      // Register in testDOProject context registry if available
-      const registerContext = (globalThis as any).__testingContextRegistry;
-      if (registerContext && typeof registerContext === 'function') {
-        registerContext(bindingName, instanceName);
+      // Register in testDOProject instance registry if available
+      const registerInstance = (globalThis as any).__testingInstanceRegistry;
+      if (registerInstance && typeof registerInstance === 'function') {
+        registerInstance(bindingName, instanceName);
       }
       
       return doStub;
@@ -71,10 +71,10 @@ function instrumentDOBinding(originalBinding: any, bindingName: string): any {
       const doStub = originalBinding.getByName(...args);
       const instanceName = args[0];
       
-      // Register in testDOProject context registry if available
-      const registerContext = (globalThis as any).__testingContextRegistry;
-      if (registerContext && typeof registerContext === 'function') {
-        registerContext(bindingName, instanceName);
+      // Register in testDOProject instance registry if available
+      const registerInstance = (globalThis as any).__testingInstanceRegistry;
+      if (registerInstance && typeof registerInstance === 'function') {
+        registerInstance(bindingName, instanceName);
       }
       
       return doStub;

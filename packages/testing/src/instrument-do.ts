@@ -93,7 +93,7 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
 }
 
 /**
- * Instruments user's DO with RPC methods to enable ctx inspection and other testing functionality
+ * Instruments user's DO with RPC methods to enable instance inspection and other testing functionality
  */
 export function instrumentDO<T>(DOClass: T): T {
   if (typeof DOClass !== 'function') {
@@ -102,13 +102,6 @@ export function instrumentDO<T>(DOClass: T): T {
 
   // Create instrumented class that extends the original
   class InstrumentedDO extends (DOClass as any) {
-    private __ctxForTesting: any;
-
-    constructor(ctx: any, env: any) {
-      super(ctx, env);
-      // Store a reference to ctx for testing access
-      this.__ctxForTesting = ctx;
-    }
 
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
@@ -133,26 +126,39 @@ export function instrumentDO<T>(DOClass: T): T {
             isInstrumented: true,
             availableEndpoints: [
               '/__testing/info',
-              '/__testing/ctx'
+              '/__testing/instance'
             ],
-            ctxProxyAvailable: true
+            instanceProxyAvailable: true
           });
           
-        case '/__testing/ctx':
-          return this.handleCtxProxy(request);
+        case '/__testing/instance':
+          return this.handleInstanceProxy(request);
           
         default:
           return new Response('Testing endpoint not found', { status: 404 });
       }
     }
 
-    async handleCtxProxy(request: Request): Promise<Response> {
+    async handleInstanceProxy(request: Request): Promise<Response> {
       try {
         const requestData = await request.json();
         const requestBody = deserialize(requestData) as { type: 'get' | 'call', path: string[], args?: any[] };
         const { type, path, args } = requestBody;
         
-        let target = this.__ctxForTesting;
+        let target = this; // Start from the entire DO instance, providing full access to this.ctx, this.env, constructor, and all methods
+        
+        // Handle the case where path is empty (accessing root instance)
+        if (path.length === 0) {
+          if (type === 'get') {
+            // Return the entire instance, preprocessed for discovery
+            const result = preprocessFunctions(this);
+            const serialized = serialize(result);
+            return Response.json(serialized);
+          } else {
+            // For calls on root, we'd need a method name in the path
+            throw new Error('instance root (this) is not a function');
+          }
+        }
         
         // Navigate to the target object using the path
         for (let i = 0; i < path.length - 1; i++) {
@@ -171,7 +177,15 @@ export function instrumentDO<T>(DOClass: T): T {
           result = preprocessFunctions(result);
         } else if (type === 'call') {
           const method = target[finalProp];
-          // Let the natural JavaScript runtime error occur when calling non-functions
+          
+          // Check if the method exists and is callable
+          if (method === undefined || method === null) {
+            throw new Error(`Method '${finalProp}' does not exist on ${target.constructor?.name || 'object'}`);
+          }
+          if (typeof method !== 'function') {
+            throw new Error(`Property '${finalProp}' is not a function (it's a ${typeof method})`);
+          }
+          
           result = method.apply(target, args || []);
           
           // Await promises on the DO side and return result
@@ -181,13 +195,13 @@ export function instrumentDO<T>(DOClass: T): T {
         }
         
         // Debug logging
-        // console.log(`[handleCtxProxy] ${type} ${path.join('.')} -> ${typeof result}:`, result);
+        // console.log(`[handleInstanceProxy] ${type} ${path.join('.')} -> ${typeof result}:`, result);
         
         // Use structured-clone for proper serialization, including special cases
         const serialized = serialize(result);
         return Response.json(serialized);
       } catch (error: any) {
-        console.error(`[handleCtxProxy] Error:`, error);
+        console.error(`[handleInstanceProxy] Error:`, error);
         return Response.json({ 
           error: error.message,
           stack: error.stack 

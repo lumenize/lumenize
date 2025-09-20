@@ -4,42 +4,41 @@ import { SELF, env } from 'cloudflare:test';
 const { serialize, deserialize } = require('@ungap/structured-clone');
 
 /**
- * Context registry that provides direct access to DO contexts without stubs
+ * Instance registry that provides direct access to DO instances
  */
-export interface ContextRegistry {
+export interface InstanceRegistry {
   /**
-   * Get a context proxy for a specific DO instance
+   * Get an instance proxy for a specific DO instance
    * @param bindingName - The binding name (e.g., 'MY_DO')
    * @param instanceName - The instance name/id
-   * @returns A proxy to the DO's ctx
+   * @returns A proxy to the full DO instance (this)
    */
-  get(bindingName: string, instanceName: string): any;
+  (bindingName: string, instanceName: string): any;
   
   /**
-   * List all contexts or contexts for a specific binding
+   * List all instances or instances for a specific binding
    * @param bindingName - Optional binding name to filter by
-   * @returns Array of context entries
+   * @returns Array of instance entries
    */
-  list(bindingName?: string): ContextEntry[];
+  list(bindingName?: string): InstanceEntry[];
 }
 
 /**
- * Context entry information
+ * Instance entry information
  */
-export interface ContextEntry {
+export interface InstanceEntry {
   bindingName: string;
   name: string;
-  ctx: any;
+  instance: any;
 }
 
 /**
- * Creates a pure context proxy that tunnels through Worker fetch to DO
- * No stubs involved - direct Worker → DO routing via fetch
+ * Creates a pure instance proxy that tunnels through Worker fetch to DO
  */
-function createPureContextProxy(bindingName: string, instanceName: string, path: string[] = []): any {
+function createPureInstanceProxy(bindingName: string, instanceName: string, path: string[] = []): any {
   const proxyFunction = function(...args: any[]) {
     // When called as a function, make a 'call' request
-    return makePureCtxRequest(bindingName, instanceName, 'call', path, args);
+    return makePureInstanceRequest(bindingName, instanceName, 'call', path, args);
   };
   
   return new Proxy(proxyFunction, {
@@ -51,27 +50,27 @@ function createPureContextProxy(bindingName: string, instanceName: string, path:
       // Handle promise-like behavior for await
       if (prop === 'then') {
         // When someone tries to await this proxy, get the property value
-        const promise = makePureCtxRequest(bindingName, instanceName, 'get', path);
+        const promise = makePureInstanceRequest(bindingName, instanceName, 'get', path);
         return promise.then.bind(promise);
       }
       
       if (prop === 'catch') {
-        const promise = makePureCtxRequest(bindingName, instanceName, 'get', path);
+        const promise = makePureInstanceRequest(bindingName, instanceName, 'get', path);
         return promise.catch.bind(promise);
       }
       
       // Chain deeper into the property path
       const newPath = [...path, prop as string];
-      return createPureContextProxy(bindingName, instanceName, newPath);
+      return createPureInstanceProxy(bindingName, instanceName, newPath);
     },
     
     apply(target, thisArg, args) {
-      return makePureCtxRequest(bindingName, instanceName, 'call', path, args);
+      return makePureInstanceRequest(bindingName, instanceName, 'call', path, args);
     }
   });
 }
 
-async function makePureCtxRequest(bindingName: string, instanceName: string, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
+async function makePureInstanceRequest(bindingName: string, instanceName: string, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
   // This is the key change: use routeDORequest directly instead of SELF.fetch
   // routeDORequest is designed to work within the current request context
   const requestBody = {
@@ -82,7 +81,7 @@ async function makePureCtxRequest(bindingName: string, instanceName: string, typ
   
   // Convert binding name to URL-friendly format for routing
   const bindingPath = bindingName.toLowerCase().replace(/_/g, '-');
-  const url = `https://fake-host/${bindingPath}/${instanceName}/__testing/ctx`;
+  const url = `https://fake-host/${bindingPath}/${instanceName}/__testing/instance`;
   
   const request = new Request(url, {
     method: 'POST',
@@ -106,7 +105,7 @@ async function makePureCtxRequest(bindingName: string, instanceName: string, typ
   const response = await routeDORequest(request, testEnv);
   
   if (!response || !response.ok) {
-    throw new Error(`Testing ctx request failed: ${response?.status || 'no response'} ${response ? await response.text() : 'routeDORequest returned undefined'}`);
+    throw new Error(`Testing instance request failed: ${response?.status || 'no response'} ${response ? await response.text() : 'routeDORequest returned undefined'}`);
   }
   
   const serializedData = await response.json();
@@ -117,63 +116,66 @@ async function makePureCtxRequest(bindingName: string, instanceName: string, typ
 
 /**
  * Sets up a test environment for a Durable Object project
- * @param testFn - Test function that receives SELF, contexts, and helpers
+ * @param testFn - Test function that receives SELF, instances, and helpers
  * @param options - Optional configuration for the test environment
  * @returns Promise that resolves when test completes
  */
 export async function testDOProject<T = any>(
-  testFn: (SELF: any, contexts: ContextRegistry, helpers: any) => Promise<void> | void,
+  testFn: (SELF: any, instances: InstanceRegistry, helpers: any) => Promise<void> | void,
   options?: T
 ): Promise<void> {
-  // Track created contexts for the list() method
-  const createdContexts = new Map<string, ContextEntry>();
+  // Track created instances for the list() method
+  const createdInstances = new Map<string, InstanceEntry>();
   
-  // Function to register a DO context when accessed
-  function registerDOContext(bindingName: string, instanceName: string) {
+  // Function to register a DO instance when accessed
+  function registerDOInstance(bindingName: string, instanceName: string) {
     const key = `${bindingName}:${instanceName}`;
     
     // Don't duplicate if already exists
-    if (createdContexts.has(key)) {
+    if (createdInstances.has(key)) {
       return;
     }
     
-    // Create new context proxy
-    const ctx = createPureContextProxy(bindingName, instanceName);
+    // Create new instance proxy
+    const instance = createPureInstanceProxy(bindingName, instanceName);
     
-    // Track this context
-    createdContexts.set(key, {
+    // Track this instance
+    createdInstances.set(key, {
       bindingName,
       name: instanceName,
-      ctx
+      instance
     });
   }
   
-  // TODO: Remove monkey patching since instrumentWorker should handle this
-  // But let's test if instrumentWorker is actually working for auto-registration
+  // Note: We have two registration mechanisms:
+  // 1. Manual registration (when users call instances('MY_DO', 'name'))  
+  // 2. Automatic registration (when users call env.MY_DO.getByName() - handled by instrumentWorker)
+  // Both are needed for different use cases
   
-  // Create context registry that provides direct access to DO contexts
-  const contextRegistry: ContextRegistry = {
-    get(bindingName: string, instanceName: string) {
+  // Create instance registry that provides direct access to DO instances
+  const instanceRegistry: InstanceRegistry = Object.assign(
+    function(bindingName: string, instanceName: string) {
       const key = `${bindingName}:${instanceName}`;
       
-      // Check if we already have this context
-      if (createdContexts.has(key)) {
-        return createdContexts.get(key)!.ctx;
+      // Check if we already have this instance
+      if (createdInstances.has(key)) {
+        return createdInstances.get(key)!.instance;
       }
       
-      // Register this context
-      registerDOContext(bindingName, instanceName);
-      return createdContexts.get(key)!.ctx;
+      // Register this instance
+      registerDOInstance(bindingName, instanceName);
+      return createdInstances.get(key)!.instance;
     },
-    
-    list(bindingName?: string): ContextEntry[] {
-      const entries = Array.from(createdContexts.values());
-      if (bindingName) {
-        return entries.filter(entry => entry.bindingName === bindingName);
+    {
+      list(bindingName?: string): InstanceEntry[] {
+        const entries = Array.from(createdInstances.values());
+        if (bindingName) {
+          return entries.filter(entry => entry.bindingName === bindingName);
+        }
+        return entries;
       }
-      return entries;
     }
-  };
+  );
   
   // Store env and registration function globally
   // Important: We need to provide the instrumented env for custom Workers
@@ -181,21 +183,21 @@ export async function testDOProject<T = any>(
   const instrumentedEnv = instrumentEnvironment(env);
   
   (globalThis as any).__testingEnv = instrumentedEnv;
-  (globalThis as any).__testingContextRegistry = registerDOContext;
+  (globalThis as any).__testingInstanceRegistry = registerDOInstance;
   
   // Create simple helpers object
   const helpers = {
     _restore: () => {
-      // No cleanup needed for pure context approach
+      // No cleanup needed for pure instance approach
     }
   };
   
   try {
-    // Call the test function with SELF, contexts, and helpers
-    await testFn(SELF, contextRegistry, helpers);
+    // Call the test function with SELF, instances, and helpers
+    await testFn(SELF, instanceRegistry, helpers);
   } finally {
     // Cleanup globals
     delete (globalThis as any).__testingEnv;
-    delete (globalThis as any).__testingContextRegistry;
+    delete (globalThis as any).__testingInstanceRegistry;
   }
 }

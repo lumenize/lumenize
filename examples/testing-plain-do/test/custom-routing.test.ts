@@ -36,7 +36,7 @@ describe('Custom Routing Worker', () => {
       }
     };
     
-    await testDOProject(async (SELF, contexts, helpers) => {
+    await testDOProject(async (SELF, instances, helpers) => {
       // Override SELF with our custom worker for this test
       const customSELF = {
         fetch: (url: string | Request, init?: RequestInit) => {
@@ -53,20 +53,20 @@ describe('Custom Routing Worker', () => {
       expect(response2.status).toBe(200);
       
       // Verify that instrumentWorker tracked these DO accesses
-      const allContexts = contexts.list();
-      expect(allContexts.length).toBe(2);
+      const allInstances = instances.list();
+      expect(allInstances.length).toBe(2);
       
-      const myDOContexts = contexts.list('MY_DO');
-      expect(myDOContexts.length).toBe(2);
+      const myDOInstances = instances.list('MY_DO');
+      expect(myDOInstances.length).toBe(2);
       
       // Verify the specific instances were tracked
-      const instanceNames = myDOContexts.map(ctx => ctx.name);
+      const instanceNames = myDOInstances.map(entry => entry.name);
       expect(instanceNames).toContain('custom-test-1');
       expect(instanceNames).toContain('custom-test-2');
       
-      // Verify we can still access contexts directly
-      const ctx1 = contexts.get('MY_DO', 'custom-test-1');
-      const count1 = await ctx1.storage.get('count');
+      // Verify we can still access instances directly
+      const instance1 = instances('MY_DO', 'custom-test-1');
+      const count1 = await instance1.ctx.storage.get('count');
       expect(count1).toBe(1); // Should have been incremented by the request
     });
   });
@@ -89,7 +89,7 @@ describe('Custom Routing Worker', () => {
       }
     };
     
-    await testDOProject(async (SELF, contexts, helpers) => {
+    await testDOProject(async (SELF, instances, helpers) => {
       const customSELF = {
         fetch: (url: string | Request, init?: RequestInit) => {
           const request = typeof url === 'string' ? new Request(url, init) : url;
@@ -102,26 +102,26 @@ describe('Custom Routing Worker', () => {
       expect(response.status).toBe(200);
       
       // Verify tracking worked and used the original name, not the hex ID
-      const allContexts = contexts.list();
-      expect(allContexts.length).toBe(1);
+      const allInstances = instances.list();
+      expect(allInstances.length).toBe(1);
       
-      const myDOContexts = contexts.list('MY_DO');
-      expect(myDOContexts.length).toBe(1);
-      expect(myDOContexts[0].name).toBe('test-name-123'); // Should be the original name!
+      const myDOInstances = instances.list('MY_DO');
+      expect(myDOInstances.length).toBe(1);
+      expect(myDOInstances[0].name).toBe('test-name-123'); // Should be the original name!
       
-      // CRITICAL: Verify the ctx proxy tunnel actually works for this tracked context
-      const ctx = myDOContexts[0].ctx;
-      const count = await ctx.storage.get('count');
+      // CRITICAL: Verify the instance proxy tunnel actually works for this tracked instance
+      const instance = instances('MY_DO', 'test-name-123');
+      const count = await instance.ctx.storage.get('count');
       expect(count).toBe(1); // Should have been incremented by the request
       
-      // Verify we can also access it via contexts.get()
-      const ctxViaGet = contexts.get('MY_DO', 'test-name-123');
-      const sameCount = await ctxViaGet.storage.get('count');
+      // Verify we can also access it via instances() directly
+      const sameInstance = instances('MY_DO', 'test-name-123');
+      const sameCount = await sameInstance.ctx.storage.get('count');
       expect(sameCount).toBe(1);
     });
   });
 
-  it('tracks DO access with unique ID (no name available) AND ctx tunnel works', async () => {
+  it('tracks DO access with unique ID (no name available) AND instance tunnel works', async () => {
     let capturedUniqueId: string;
     
     const customWorker = {
@@ -140,7 +140,7 @@ describe('Custom Routing Worker', () => {
       }
     };
     
-    await testDOProject(async (SELF, contexts, helpers) => {
+    await testDOProject(async (SELF, instances, helpers) => {
       const customSELF = {
         fetch: (url: string | Request, init?: RequestInit) => {
           const request = typeof url === 'string' ? new Request(url, init) : url;
@@ -153,35 +153,35 @@ describe('Custom Routing Worker', () => {
       expect(response.status).toBe(200);
       
       // Verify tracking worked and used the hex ID since no name was available
-      const allContexts = contexts.list();
-      expect(allContexts.length).toBe(1);
+      const allInstances = instances.list();
+      expect(allInstances.length).toBe(1);
       
-      const myDOContexts = contexts.list('MY_DO');
-      expect(myDOContexts.length).toBe(1);
-      const trackedName = myDOContexts[0].name;
+      const myDOInstances = instances.list('MY_DO');
+      expect(myDOInstances.length).toBe(1);
+      const trackedName = myDOInstances[0].name;
       
       // Should be a 64-char hex string since no name was provided
       expect(trackedName).toMatch(/^[a-f0-9]{64}$/);
       expect(trackedName).toBe(capturedUniqueId); // Should match what we captured
       
-      // CRITICAL: Verify the ctx proxy tunnel works even with a hex ID as the instance name
-      const ctx = myDOContexts[0].ctx;
-      const count = await ctx.storage.get('count');
+      // CRITICAL: Verify the instance proxy tunnel works even with a hex ID as the instance name
+      const instance = instances('MY_DO', trackedName);
+      const count = await instance.ctx.storage.get('count');
       expect(count).toBe(1); // Should have been incremented by the request
       
-      // CRITICAL: Verify we can also access it via contexts.get() using the hex ID
-      const ctxViaGet = contexts.get('MY_DO', trackedName);
-      const sameCount = await ctxViaGet.storage.get('count');
+      // CRITICAL: Verify we can also access it via instances() using the hex ID
+      const sameInstance = instances('MY_DO', trackedName);
+      const sameCount = await sameInstance.ctx.storage.get('count');
       expect(sameCount).toBe(1);
       
-      // Verify we can modify storage via the ctx proxy
-      await ctxViaGet.storage.put('test-key', 'test-value');
-      const testValue = await ctx.storage.get('test-key');
+      // Verify we can modify storage via the instance proxy
+      await sameInstance.ctx.storage.put('test-key', 'test-value');
+      const testValue = await instance.ctx.storage.get('test-key');
       expect(testValue).toBe('test-value');
     });
   });
 
-  it('tracks DO access with idFromString() + get() pattern AND ctx tunnel works', async () => {
+  it('tracks DO access with idFromString() + get() pattern AND instance tunnel works', async () => {
     let capturedHexId: string;
     
     const customWorker = {
@@ -205,7 +205,7 @@ describe('Custom Routing Worker', () => {
       }
     };
     
-    await testDOProject(async (SELF, contexts, helpers) => {
+    await testDOProject(async (SELF, instances, helpers) => {
       const customSELF = {
         fetch: (url: string | Request, init?: RequestInit) => {
           const request = typeof url === 'string' ? new Request(url, init) : url;
@@ -218,30 +218,30 @@ describe('Custom Routing Worker', () => {
       expect(response.status).toBe(200);
       
       // Verify tracking worked and used the hex ID since idFromString creates a unique ID
-      const allContexts = contexts.list();
-      expect(allContexts.length).toBe(1);
+      const allInstances = instances.list();
+      expect(allInstances.length).toBe(1);
       
-      const myDOContexts = contexts.list('MY_DO');
-      expect(myDOContexts.length).toBe(1);
-      const trackedName = myDOContexts[0].name;
+      const myDOInstances = instances.list('MY_DO');
+      expect(myDOInstances.length).toBe(1);
+      const trackedName = myDOInstances[0].name;
       
       // Should be a 64-char hex string from idFromString
       expect(trackedName).toMatch(/^[a-f0-9]{64}$/);
       expect(trackedName).toBe(capturedHexId); // Should match the original hex string
       
-      // CRITICAL: Verify the ctx proxy tunnel works with idFromString() + get() pattern
-      const ctx = myDOContexts[0].ctx;
-      const count = await ctx.storage.get('count');
+      // CRITICAL: Verify the instance proxy tunnel works with idFromString() + get() pattern
+      const instance = instances('MY_DO', trackedName);
+      const count = await instance.ctx.storage.get('count');
       expect(count).toBe(1); // Should have been incremented by the request
       
-      // CRITICAL: Verify we can also access it via contexts.get() using the hex ID
-      const ctxViaGet = contexts.get('MY_DO', trackedName);
-      const sameCount = await ctxViaGet.storage.get('count');
+      // CRITICAL: Verify we can also access it via instances() using the hex ID
+      const sameInstance = instances('MY_DO', trackedName);
+      const sameCount = await sameInstance.ctx.storage.get('count');
       expect(sameCount).toBe(1);
       
-      // Verify we can modify storage via the ctx proxy  
-      await ctxViaGet.storage.put('from-string-key', 'from-string-value');
-      const testValue = await ctx.storage.get('from-string-key');
+      // Verify we can modify storage via the instance proxy  
+      await sameInstance.ctx.storage.put('from-string-key', 'from-string-value');
+      const testValue = await instance.ctx.storage.get('from-string-key');
       expect(testValue).toBe('from-string-value');
     });
   });
