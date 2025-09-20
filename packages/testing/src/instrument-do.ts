@@ -107,50 +107,99 @@ export function instrumentDO<T>(DOClass: T): T {
       this.__ctxForTesting = ctx;
     }
 
-    // RPC method for getting property values from ctx
-    async __testing_ctx_get(path: string[]): Promise<any> {
-      let target = this.__ctxForTesting;
+    async fetch(request: Request): Promise<Response> {
+      const url = new URL(request.url);
       
-      // Navigate to the target object using the path
-      for (const prop of path) {
-        target = target[prop];
-        if (target === undefined || target === null) {
-          // Return undefined for non-existent properties instead of throwing
-          // This matches the natural JavaScript behavior
-          return undefined;
-        }
+      // Handle testing endpoints - look for /__testing/ anywhere in the path
+      const testingIndex = url.pathname.indexOf('/__testing/');
+      if (testingIndex !== -1) {
+        const testingPath = url.pathname.substring(testingIndex);
+        return this.handleTestingEndpoint(testingPath, request);
       }
       
-      // For get requests, preprocess functions to make them discoverable
-      // This transforms the object to replace functions with "functionName [Function]" strings
-      return preprocessFunctions(target);
+      // Delegate to the original user's fetch method
+      return super.fetch(request);
     }
 
-    // RPC method for calling methods on ctx
-    async __testing_ctx_call(path: string[], args: any[] = []): Promise<any> {
-      let target = this.__ctxForTesting;
-      
-      // Navigate to the target object using the path
-      for (let i = 0; i < path.length - 1; i++) {
-        target = target[path[i]];
-        if (target === undefined || target === null) {
-          throw new Error(`Path not found: ${path.slice(0, i + 1).join('.')}`);
+    async handleTestingEndpoint(pathname: string, request: Request): Promise<Response> {
+      switch (pathname) {
+        case '/__testing/info':
+          return Response.json({
+            className: this.constructor.name,
+            timestamp: Date.now(),
+            isInstrumented: true,
+            availableEndpoints: [
+              '/__testing/info',
+              '/__testing/ctx'
+            ],
+            ctxProxyAvailable: true
+          });
+          
+        case '/__testing/ctx':
+          return this.handleCtxProxy(request);
+          
+        default:
+          return new Response('Testing endpoint not found', { status: 404 });
+      }
+    }
+
+    async handleCtxProxy(request: Request): Promise<Response> {
+      try {
+        const requestBody = await request.json() as { type: 'get' | 'call', path: string[], args?: any[] };
+        const { type, path, args } = requestBody;
+        
+        let target = this.__ctxForTesting;
+        
+        // Navigate to the target object using the path
+        for (let i = 0; i < path.length - 1; i++) {
+          target = target[path[i]];
+          if (target === undefined || target === null) {
+            throw new Error(`Path not found: ${path.slice(0, i + 1).join('.')}`);
+          }
         }
+        
+        const finalProp = path[path.length - 1];
+        let result;
+        
+        if (type === 'get') {
+          result = target[finalProp];
+          // For GET requests, preprocess functions to make them discoverable
+          result = preprocessFunctions(result);
+        } else if (type === 'call') {
+          const method = target[finalProp];
+          // Let the natural JavaScript runtime error occur when calling non-functions
+          result = method.apply(target, args || []);
+          
+          // Await promises on the DO side and return result
+          if (result && typeof result.then === 'function') {
+            result = await result;
+          }
+        }
+        
+        // Debug logging
+        // console.log(`[handleCtxProxy] ${type} ${path.join('.')} -> ${typeof result}:`, result);
+        
+        // Handle undefined by returning null (JSON-serializable)
+        if (result === undefined) {
+          return Response.json(null);
+        }
+        
+        // Handle Maps by converting to a special format
+        if (result instanceof Map) {
+          return Response.json({
+            __isMap: true,
+            entries: Array.from(result.entries())
+          });
+        }
+        
+        return Response.json(result);
+      } catch (error: any) {
+        console.error(`[handleCtxProxy] Error:`, error);
+        return Response.json({ 
+          error: error.message,
+          stack: error.stack 
+        }, { status: 500 });
       }
-      
-      const finalProp = path[path.length - 1];
-      const method = target[finalProp];
-      
-      // Let the natural JavaScript runtime error occur when calling non-functions
-      // This gives more authentic error messages that match what would happen in the DO
-      const result = method.apply(target, args || []);
-      
-      // Await promises on the DO side and return result
-      if (result && typeof result.then === 'function') {
-        return await result;
-      }
-      
-      return result;
     }
   }
 

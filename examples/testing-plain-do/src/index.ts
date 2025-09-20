@@ -50,6 +50,8 @@ export class MyDO extends DurableObject{
 
   async fetch(request: Request) {
     const url = new URL(request.url);    
+    
+    console.log(`[DO] fetch called with pathname: ${url.pathname}`);
 
     const operation = url.searchParams.get('op') || 'unknown';
     const delayMs = parseInt(url.searchParams.get('delay') || '0', 10);
@@ -106,6 +108,10 @@ export class MyDO extends DurableObject{
       });
     }
 
+    // Delegate to super.fetch() for unknown paths (e.g., testing endpoints)
+    if (super.fetch) {
+      return super.fetch(request);
+    }
     return new Response('Not found', { status: 404 });
   }
 

@@ -1,5 +1,6 @@
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF, env } from 'cloudflare:test';
+import { getWorkerCreatedStub, hasWorkerCreatedStub, instrumentWorker } from './instrument-worker.js';
 
 /**
  * Represents a Durable Object stub with dynamic access to internal state
@@ -117,6 +118,13 @@ export class StubRegistry {
   
   /** @internal */
   private _getStub(bindingName: string, stubIdentifier: string): any | undefined {
+    // First check if this stub was created during Worker execution
+    // This avoids I/O isolation issues when accessing stubs after SELF.fetch()
+    if (hasWorkerCreatedStub(bindingName, stubIdentifier)) {
+      return getWorkerCreatedStub(bindingName, stubIdentifier);
+    }
+    
+    // Fall back to registry lookup for manually created stubs
     const stubMap = this.registry.get(bindingName);
     return stubMap?.get(stubIdentifier);
   }
@@ -136,7 +144,7 @@ export class StubRegistry {
 
 /**
  * Creates a proxy that intercepts property access and method calls
- * and forwards them to the DO's ctx via RPC calls.
+ * and forwards them to the DO's ctx via fetch-based tunneling.
  * 
  * This proxy automatically detects usage patterns:
  * - When called as function: sends 'call' request
@@ -180,22 +188,51 @@ function createCtxProxy(stub: any, path: string[] = []): any {
 }
 
 /**
- * Makes a request to the DO's ctx via RPC calls
+ * Makes a request to the DO's ctx via fetch-based tunneling through the Worker
  */
 async function makeCtxRequest(stub: any, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
-  if (type === 'get') {
-    // Use RPC method for getting property values
-    if (!stub.__testing_ctx_get) {
-      throw new Error('Testing RPC method __testing_ctx_get not available on stub');
-    }
-    return await stub.__testing_ctx_get(path);
-  } else {
-    // Use RPC method for calling methods
-    if (!stub.__testing_ctx_call) {
-      throw new Error('Testing RPC method __testing_ctx_call not available on stub');
-    }
-    return await stub.__testing_ctx_call(path, args);
+  // Get SELF from the current test context - we'll need to pass it through somehow
+  // For now, store it globally during test execution
+  const SELF = (globalThis as any).__testingSELF;
+  if (!SELF) {
+    throw new Error('SELF not available for tunneling - this is a testing framework bug');
   }
+  
+  // Route through Worker's fetch handler instead of directly to DO
+  const stubId = stub.id?.toString() || stub.name;
+  const bindingName = (globalThis as any).__testingCurrentBinding;
+  
+  const requestBody = {
+    type,
+    path,
+    args: args || []
+  };
+  
+  // Route through the Worker to the DO, using a special testing path
+  // The stub ID might be long, so use the stub name if available
+  const stubName = stub.name || stub.id?.toString() || stubId;
+  const bindingPath = (bindingName || 'MY_DO').toLowerCase().replace(/_/g, '-');
+  const response = await SELF.fetch(new Request(`https://fake-host/${bindingPath}/${stubName}/__testing/ctx`, {
+    method: 'POST',
+    headers: { 
+      'Content-Type': 'application/json',
+      'X-Testing-Binding': bindingName || 'MY_DO'
+    },
+    body: JSON.stringify(requestBody)
+  }));
+  
+  if (!response.ok) {
+    throw new Error(`Testing ctx request failed: ${response.status} ${await response.text()}`);
+  }
+  
+  const result = await response.json();
+  
+  // Reconstruct Maps from special format
+  if (result && typeof result === 'object' && result.__isMap === true) {
+    return new Map(result.entries);
+  }
+  
+  return result;
 }
 
 /**
@@ -246,6 +283,9 @@ export async function testDOProject<T = any>(
       const idString = stub.id.toString();
       
       console.log(`[testDOProject] ${bindingName}.getByName('${name}') -> ${idString}`);
+      
+      // Store current binding for ctx tunneling
+      (globalThis as any).__testingCurrentBinding = bindingName;
       
       // Add ctx proxy to the stub
       stub.ctx = createCtxProxy(stub);
@@ -301,11 +341,19 @@ export async function testDOProject<T = any>(
     }
   };
   
+  // Instrument SELF for stub capture during execution
+  const instrumentedSELF = SELF; // Don't instrument for now to avoid conflicts
+    
+  // Store SELF globally for ctx tunneling
+  (globalThis as any).__testingSELF = instrumentedSELF;
+  
   try {
-    // Call the test function with the real SELF and populated stub registry
-    await testFn(SELF, stubRegistry, helpers);
+    // Call the test function with the instrumented SELF and populated stub registry
+    await testFn(instrumentedSELF, stubRegistry, helpers);
   } finally {
-    // Always restore original methods
+    // Always restore original methods and cleanup
     helpers._restore();
+    delete (globalThis as any).__testingSELF;
+    delete (globalThis as any).__testingCurrentBinding;
   }
 }

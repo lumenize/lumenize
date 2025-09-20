@@ -16,20 +16,18 @@ describe('Basic Usage', () => {
 
   it('demonstrates full Worker → DO routing with HTTP increment endpoint', async () => {
     await testDOProject(async (SELF, stubs, helpers) => {
-      // Create the DO instance first so we can access its storage
-      const stub = env.MY_DO.getByName('name');
-      
-      // Verify initial storage state is clean
-      const initialCount = await stub.ctx.storage.get('count');
-      expect(initialCount).toBeUndefined();
-      
-      // Call the Worker's fetch handler, which uses routeDORequest to route to DO
+      // Call increment
       const response = await SELF.fetch('https://example.com/my-do/name/increment');
       
-      // Verify the HTTP response contains the incremented count
+      // Verify that we get back the incremented count
       expect(response.status).toBe(200);
       const responseText = await response.text();
       expect(responseText).toBe('1');
+      
+      // Verify that count is correct in storage
+      const stub = stubs.get('MY_DO', 'name');
+      const storedCount = await stub!.ctx.storage.get('count');
+      expect(storedCount).toBe(1);
     });
   });
 
