@@ -53,7 +53,7 @@ describe('Basic Usage', () => {
     });
   });
 
-  it.only('uses raw client ws from `[client, server] = new WebSocketPair()`', async () => {
+  it('uses raw client ws from `[client, server] = new WebSocketPair()`', async () => {
     let onmessageCalled = false;
     await testDOProject(async (SELF, instances, helpers) => {  
       const request = createWSUpgradeRequest('https://example.com/my-do/get-ws', {
