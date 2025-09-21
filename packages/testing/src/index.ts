@@ -1,6 +1,8 @@
 // Export production-ready testing utilities
 export * from './types.js';
 export * from './create-ws-upgrade-request.js';
+export * from './cookie-utils.js';
+export * from './cookie-jar.js';
 // export * from './simulate-ws-upgrade.js';  // Temporarily disabled due to cloudflare:test import issues
 // export * from './run-in-durable-object.js';  // Temporarily disabled due to cloudflare:test import issues
 

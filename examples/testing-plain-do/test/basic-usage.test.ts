@@ -75,6 +75,25 @@ describe('Basic Usage', () => {
     });
   });
 
+  it('cookie jar automatically manages cookies', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // Login sets a cookie automatically
+      await SELF.fetch('https://example.com/login?user=test');
+
+      // Assert the token cookie was stored
+      expect(helpers.cookies.get('token')).toBe('abc123');
+
+      // Manually set an extra cookie
+      helpers.cookies.set('extra', 'manual-value', { domain: 'example.com' });
+
+      // Protected route gets both cookies automatically
+      const res = await SELF.fetch('https://example.com/protected-cookie-echo');
+      const text = await res.text();
+      expect(text).toContain('token=abc123');
+      expect(text).toContain('extra=manual-value');
+    });
+  });
+
 });
 
 describe('Limitations and quirks', () =>{

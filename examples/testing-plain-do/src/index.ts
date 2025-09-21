@@ -8,12 +8,32 @@ export const ALLOWED_ORIGINS = [
 // Worker
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    
     // Check origin
     // TODO: Uncomment to confirm origin checking
     // const origin = request.headers.get('Origin');
     // if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
     //   return new Response('Origin missing or not allowed', { status: 403 });
     // }
+    
+    // Cookie endpoints handled by Worker
+    if (url.pathname.endsWith('/login')) {
+      const user = url.searchParams.get('user');
+      if (user === 'test') {
+        return new Response('OK', {
+          headers: { 'Set-Cookie': 'token=abc123; Path=/' }
+        });
+      }
+      return new Response('Invalid', { status: 401 });
+    }
+
+    if (url.pathname.endsWith('/protected-cookie-echo')) {
+      const cookies = request.headers.get('Cookie') || '';
+      return new Response(`Cookies: ${cookies}`, {
+        status: cookies.includes('token=') ? 200 : 401
+      });
+    }
     
     return (
       await routeDORequest(request, env) ||

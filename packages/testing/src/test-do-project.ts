@@ -2,6 +2,7 @@
 import { SELF, env } from 'cloudflare:test';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
+import { CookieJar } from './cookie-jar.js';
 
 /**
  * Instance registry that provides direct access to DO instances
@@ -115,14 +116,53 @@ async function makePureInstanceRequest(bindingName: string, instanceName: string
 }
 
 /**
+ * Creates a cookie-aware wrapper around SELF.fetch that automatically manages cookies
+ */
+function createCookieAwareSELF(originalSELF: any, cookieJar: CookieJar): any {
+  return {
+    ...originalSELF,
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      // Convert input to Request object for easier manipulation
+      const request = new Request(input, init);
+      
+      // Add cookies to the request if any match
+      const cookieHeader = cookieJar.getCookiesForRequest(request.url);
+      if (cookieHeader) {
+        request.headers.set('Cookie', cookieHeader);
+      }
+      
+      // Make the actual request
+      const response = await originalSELF.fetch(request);
+      
+      // Store any Set-Cookie headers from the response
+      cookieJar.storeCookiesFromResponse(response, request.url);
+      
+      return response;
+    }
+  };
+}
+
+/**
+ * Options for configuring the test environment
+ */
+export interface TestDOProjectOptions {
+  /**
+   * Enable automatic cookie management (default: true)
+   * When enabled, cookies from Set-Cookie headers are automatically stored
+   * and included in subsequent requests based on domain/path matching
+   */
+  cookieJar?: boolean;
+}
+
+/**
  * Sets up a test environment for a Durable Object project
  * @param testFn - Test function that receives SELF, instances, and helpers
  * @param options - Optional configuration for the test environment
  * @returns Promise that resolves when test completes
  */
-export async function testDOProject<T = any>(
+export async function testDOProject(
   testFn: (SELF: any, instances: InstanceRegistry, helpers: any) => Promise<void> | void,
-  options?: T
+  options: TestDOProjectOptions = {}
 ): Promise<void> {
   // Track created instances for the list() method
   const createdInstances = new Map<string, InstanceEntry>();
@@ -185,16 +225,32 @@ export async function testDOProject<T = any>(
   (globalThis as any).__testingEnv = instrumentedEnv;
   (globalThis as any).__testingInstanceRegistry = registerDOInstance;
   
-  // Create simple helpers object
+  // Set up cookie jar if enabled (default: true)
+  const cookieJarEnabled = options.cookieJar !== false;
+  const cookieJar = cookieJarEnabled ? new CookieJar() : null;
+  
+  // Create cookie-aware SELF wrapper
+  const cookieAwareSELF = cookieJarEnabled ? createCookieAwareSELF(SELF, cookieJar!) : SELF;
+  
+  // Create helpers object with cookie management
   const helpers = {
     _restore: () => {
       // No cleanup needed for pure instance approach
-    }
+    },
+    ...(cookieJarEnabled && cookieJar ? {
+      cookies: {
+        get: (name: string, domain?: string) => cookieJar.getCookie(name, domain),
+        set: (name: string, value: string, options?: any) => cookieJar.setCookie(name, value, options),
+        getAll: () => cookieJar.getAllCookies(),
+        remove: (name: string, domain?: string, path?: string) => cookieJar.removeCookie(name, domain, path),
+        clear: () => cookieJar.clear()
+      }
+    } : {})
   };
   
   try {
-    // Call the test function with SELF, instances, and helpers
-    await testFn(SELF, instanceRegistry, helpers);
+    // Call the test function with cookie-aware SELF, instances, and helpers
+    await testFn(cookieAwareSELF, instanceRegistry, helpers);
   } finally {
     // Cleanup globals
     delete (globalThis as any).__testingEnv;
