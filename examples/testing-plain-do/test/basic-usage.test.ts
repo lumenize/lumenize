@@ -59,9 +59,7 @@ describe('Basic Usage', () => {
       const request = createWSUpgradeRequest('https://example.com/my-do/get-ws', {
         protocols: ['protocol1', 'protocol2'],
         origin: 'https://custom-origin.com',
-        headers: {
-          'Custom-Header': 'custom-value'
-        }
+        headers: { 'Custom-Header': 'custom-value' }
       });
       const res = await SELF.fetch(request);
       const ws = res.webSocket as any;
