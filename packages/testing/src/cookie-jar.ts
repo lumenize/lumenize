@@ -7,7 +7,9 @@ import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cook
  * appropriate cookies in subsequent requests based on domain/path matching.
  */
 export class CookieJar {
-  private cookies: Map<string, Cookie> = new Map();
+  private cookies = new Map<string, Cookie>();
+  private inferredHostname?: string;
+  private cookieJarEnabled = true;
 
   /**
    * Store cookies from a response
@@ -16,10 +18,18 @@ export class CookieJar {
    * @param requestUrl - The URL that generated this response (for domain/path defaults)
    */
   storeCookiesFromResponse(response: Response, requestUrl: string): void {
+    if (!this.cookieJarEnabled) return;
+    
     const setCookieHeaders = this.getSetCookieHeaders(response);
     if (setCookieHeaders.length === 0) return;
 
     const url = new URL(requestUrl);
+    
+    // Hostname behavior: first fetch sets it if not manually set, but last manual setting wins
+    if (!this.inferredHostname) {
+      this.inferredHostname = url.hostname;
+    }
+    
     const cookies = parseSetCookies(setCookieHeaders);
 
     for (const cookie of cookies) {
@@ -44,6 +54,8 @@ export class CookieJar {
    * @returns Cookie header value or null if no cookies match
    */
   getCookiesForRequest(requestUrl: string): string | null {
+    if (!this.cookieJarEnabled) return null;
+    
     const url = new URL(requestUrl);
     const matchingCookies: Cookie[] = [];
 
@@ -66,10 +78,25 @@ export class CookieJar {
    * @param options - Optional cookie attributes
    */
   setCookie(name: string, value: string, options: Omit<Cookie, 'name' | 'value'> = {}): void {
+    let domain = options.domain;
+    
+    // Hostname behavior: use provided domain, manually set hostname (last wins), or error
+    if (!domain) {
+      if (!this.inferredHostname) {
+        throw new Error(
+          `Cannot set cookie '${name}' without domain. Either:\n` +
+          `1. Specify domain: helpers.cookies.set('${name}', '${value}', { domain: 'example.com' })\n` +
+          `2. Make a fetch request first to establish default hostname\n` +
+          `3. Set default hostname: helpers.options.hostname = 'example.com'`
+        );
+      }
+      domain = this.inferredHostname;
+    }
+    
     const cookie: Cookie = {
       name,
       value,
-      domain: options.domain || 'localhost',
+      domain,
       path: options.path || '/',
       ...options
     };
@@ -137,6 +164,32 @@ export class CookieJar {
     }
     
     return result;
+  }
+
+  /**
+   * Set the default hostname for manually set cookies
+   * Useful for complex multi-domain scenarios or setting hostname before any fetches
+   * 
+   * @param hostname - Default hostname for cookies
+   */
+  setDefaultHostname(hostname: string): void {
+    this.inferredHostname = hostname;
+  }
+
+  /**
+   * Enable or disable cookie jar functionality
+   * 
+   * @param enabled - Whether to enable cookie jar
+   */
+  setEnabled(enabled: boolean): void {
+    this.cookieJarEnabled = enabled;
+  }
+
+  /**
+   * Check if cookie jar is enabled
+   */
+  isEnabled(): boolean {
+    return this.cookieJarEnabled;
   }
 
   /**

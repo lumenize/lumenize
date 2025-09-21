@@ -77,6 +77,9 @@ describe('Basic Usage', () => {
 
   it('cookie jar automatically manages cookies', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
+      // Set default hostname (could also be inferred from first fetch)
+      helpers.options.hostname = 'example.com';
+      
       // Login sets a cookie automatically
       await SELF.fetch('https://example.com/login?user=test');
 
@@ -84,6 +87,8 @@ describe('Basic Usage', () => {
       expect(helpers.cookies.get('token')).toBe('abc123');
 
       // Manually set an extra cookie
+      // Note: domain is redundant here since hostname was set above,
+      // but shown to demonstrate the explicit option for complex scenarios
       helpers.cookies.set('extra', 'manual-value', { domain: 'example.com' });
 
       // Protected route gets both cookies automatically
@@ -91,6 +96,20 @@ describe('Basic Usage', () => {
       const text = await res.text();
       expect(text).toContain('token=abc123');
       expect(text).toContain('extra=manual-value');
+    });
+  });
+
+  it('demonstrates all available helpers.options (living documentation)', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // Purpose: Set default hostname (used for cookies when domain not explicitly provided)
+      // Default: undefined
+      // Behavior: First fetch sets it if not manually set, but last manual setting wins
+      helpers.options.hostname = 'example.com';
+      
+      // Purpose: Enable/disable automatic cookie management
+      // Default: true (enabled)
+      // When disabled: No cookies stored from Set-Cookie headers or sent with requests
+      helpers.options.cookieJar = false; // Disable automatic cookie handling
     });
   });
 

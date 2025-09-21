@@ -143,26 +143,12 @@ function createCookieAwareSELF(originalSELF: any, cookieJar: CookieJar): any {
 }
 
 /**
- * Options for configuring the test environment
- */
-export interface TestDOProjectOptions {
-  /**
-   * Enable automatic cookie management (default: true)
-   * When enabled, cookies from Set-Cookie headers are automatically stored
-   * and included in subsequent requests based on domain/path matching
-   */
-  cookieJar?: boolean;
-}
-
-/**
  * Sets up a test environment for a Durable Object project
  * @param testFn - Test function that receives SELF, instances, and helpers
- * @param options - Optional configuration for the test environment
  * @returns Promise that resolves when test completes
  */
 export async function testDOProject(
-  testFn: (SELF: any, instances: InstanceRegistry, helpers: any) => Promise<void> | void,
-  options: TestDOProjectOptions = {}
+  testFn: (SELF: any, instances: InstanceRegistry, helpers: any) => Promise<void> | void
 ): Promise<void> {
   // Track created instances for the list() method
   const createdInstances = new Map<string, InstanceEntry>();
@@ -225,27 +211,40 @@ export async function testDOProject(
   (globalThis as any).__testingEnv = instrumentedEnv;
   (globalThis as any).__testingInstanceRegistry = registerDOInstance;
   
-  // Set up cookie jar if enabled (default: true)
-  const cookieJarEnabled = options.cookieJar !== false;
-  const cookieJar = cookieJarEnabled ? new CookieJar() : null;
+  // Set up cookie jar (always available, but can be disabled via options)
+  const cookieJar = new CookieJar();
   
   // Create cookie-aware SELF wrapper
-  const cookieAwareSELF = cookieJarEnabled ? createCookieAwareSELF(SELF, cookieJar!) : SELF;
+  const cookieAwareSELF = createCookieAwareSELF(SELF, cookieJar);
   
-  // Create helpers object with cookie management
+  // Create helpers object with options and cookie management
   const helpers = {
     _restore: () => {
       // No cleanup needed for pure instance approach
     },
-    ...(cookieJarEnabled && cookieJar ? {
-      cookies: {
-        get: (name: string, domain?: string) => cookieJar.getCookie(name, domain),
-        set: (name: string, value: string, options?: any) => cookieJar.setCookie(name, value, options),
-        getAll: () => cookieJar.getAllCookies(),
-        remove: (name: string, domain?: string, path?: string) => cookieJar.removeCookie(name, domain, path),
-        clear: () => cookieJar.clear()
+    options: {
+      get hostname() {
+        // This is a bit tricky - we need to access the internal hostname
+        // For now, return undefined if not set yet
+        return (cookieJar as any).inferredHostname;
+      },
+      set hostname(value: string) {
+        cookieJar.setDefaultHostname(value);
+      },
+      get cookieJar() {
+        return cookieJar.isEnabled();
+      },
+      set cookieJar(enabled: boolean) {
+        cookieJar.setEnabled(enabled);
       }
-    } : {})
+    },
+    cookies: {
+      get: (name: string, domain?: string) => cookieJar.getCookie(name, domain),
+      set: (name: string, value: string, options?: any) => cookieJar.setCookie(name, value, options),
+      getAll: () => cookieJar.getAllCookies(),
+      remove: (name: string, domain?: string, path?: string) => cookieJar.removeCookie(name, domain, path),
+      clear: () => cookieJar.clear()
+    }
   };
   
   try {

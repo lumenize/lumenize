@@ -500,5 +500,110 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       }).rejects.toThrow("Method 'nonExistentMethod' does not exist on DurableObjectStorage");
       
     });
+  });
+
+describe('Cookie Management Comprehensive Tests', () => {
+
+  it('demonstrates hostname inference behavior (first fetch sets if not manual, last manual wins)', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // No hostname set initially
+      expect(helpers.options.hostname).toBeUndefined();
+      
+      // First fetch to example.com sets hostname automatically  
+      await SELF.fetch('https://example.com/login?user=test');
+      expect(helpers.options.hostname).toBe('example.com');
+      
+      // Second fetch to different domain doesn't change hostname (already set)
+      await SELF.fetch('https://other.com/login?user=test');
+      expect(helpers.options.hostname).toBe('example.com'); // Still example.com
+      
+      // Manual change works (last manual setting wins)
+      helpers.options.hostname = 'other.com';
+      expect(helpers.options.hostname).toBe('other.com');
+    });
+  });
+
+  it('demonstrates manual hostname setting prevents fetch override (last manual wins)', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // Manually set hostname first
+      helpers.options.hostname = 'manual.com';
+      expect(helpers.options.hostname).toBe('manual.com');
+      
+      // Fetch to different domain doesn't override manual setting
+      await SELF.fetch('https://example.com/login?user=test');
+      expect(helpers.options.hostname).toBe('manual.com'); // Still manual.com
+      
+      // Another fetch also doesn't override
+      await SELF.fetch('https://other.com/login?user=test');
+      expect(helpers.options.hostname).toBe('manual.com'); // Still manual.com
+      
+      // But another manual setting does override (last manual wins)
+      helpers.options.hostname = 'new-manual.com';
+      expect(helpers.options.hostname).toBe('new-manual.com');
+    });
+  });
+
+  it('can disable and re-enable cookie jar via options', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // Disable cookie jar
+      helpers.options.cookieJar = false;
+      
+      // Login attempt won't store cookies
+      await SELF.fetch('https://example.com/login?user=test');
+      expect(helpers.cookies.get('token')).toBeUndefined();
+      
+      // Re-enable and try again
+      helpers.options.cookieJar = true;
+      helpers.options.hostname = 'example.com';
+      
+      await SELF.fetch('https://example.com/login?user=test');
+      expect(helpers.cookies.get('token')).toBe('abc123');
+    });
+  });
+
+  it('validates cookie domain matching and path handling', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      helpers.options.hostname = 'example.com';
+      
+      // Set cookies with different paths
+      helpers.cookies.set('root-cookie', 'root-value', { path: '/' });
+      helpers.cookies.set('api-cookie', 'api-value', { path: '/api' });
+      
+      // Root path gets both cookies
+      const rootCookies = helpers.cookies.getAll();
+      expect(rootCookies.map((c: any) => c.name)).toContain('root-cookie');
+      expect(rootCookies.map((c: any) => c.name)).toContain('api-cookie');
+      
+      // Test expiration handling
+      const pastDate = new Date('2020-01-01');
+      helpers.cookies.set('expired-cookie', 'expired-value', { expires: pastDate });
+      
+      // Expired cookie should not be retrieved
+      expect(helpers.cookies.get('expired-cookie')).toBeUndefined();
+    });
+  });
+
+  it('handles complex multi-domain cookie scenarios', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // Set up cookies for different domains
+      helpers.cookies.set('example-cookie', 'example-value', { domain: 'example.com' });
+      helpers.cookies.set('test-cookie', 'test-value', { domain: 'test.com' });
+      
+      // Verify domain isolation
+      expect(helpers.cookies.get('example-cookie', 'example.com')).toBe('example-value');
+      expect(helpers.cookies.get('example-cookie', 'test.com')).toBeUndefined();
+      expect(helpers.cookies.get('test-cookie', 'test.com')).toBe('test-value');
+      expect(helpers.cookies.get('test-cookie', 'example.com')).toBeUndefined();
+      
+      // Test cookie removal
+      helpers.cookies.remove('example-cookie', 'example.com');
+      expect(helpers.cookies.get('example-cookie', 'example.com')).toBeUndefined();
+      expect(helpers.cookies.get('test-cookie', 'test.com')).toBe('test-value'); // Still there
+      
+      // Clear all cookies
+      helpers.cookies.clear();
+      expect(helpers.cookies.getAll()).toHaveLength(0);
+    });
+  });
   
 });
