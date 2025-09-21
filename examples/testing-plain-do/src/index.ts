@@ -51,8 +51,6 @@ export class MyDO extends DurableObject{
   async fetch(request: Request) {
     const url = new URL(request.url);    
     
-    console.log(`[DO] fetch called with pathname: ${url.pathname}`);
-
     const operation = url.searchParams.get('op') || 'unknown';
     const delayMs = parseInt(url.searchParams.get('delay') || '0', 10);
     

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { testDOProject } from '@lumenize/testing';
+import { describe, it, expect, vi, WebSocketEvents } from 'vitest';
+import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
 
 /**
  * Basic Usage Examples for @lumenize/testing
@@ -53,6 +53,30 @@ describe('Basic Usage', () => {
     });
   });
 
+  it.only('uses raw client ws from `[client, server] = new WebSocketPair()`', async () => {
+    let onmessageCalled = false;
+    await testDOProject(async (SELF, instances, helpers) => {  
+      const request = createWSUpgradeRequest('https://example.com/my-do/get-ws', {
+        protocols: ['protocol1', 'protocol2'],
+        origin: 'https://custom-origin.com',
+        headers: {
+          'Custom-Header': 'custom-value'
+        }
+      });
+      const res = await SELF.fetch(request);
+      const ws = res.webSocket as any;
+      if (ws && res.status === 101) {
+        ws.accept(); // This works because we're running inside of workerd
+      }
+      ws.onmessage = (event: any) => {
+         expect(event.data).toBe('pong');
+         onmessageCalled = true;
+       };
+       ws.send('ping');
+       await vi.waitFor(() => expect(onmessageCalled).toBe(true), { timeout: 100, interval: 10 })
+    });
+  });
+
 });
 
 describe('Limitations and quirks', () =>{
@@ -60,7 +84,6 @@ describe('Limitations and quirks', () =>{
   it('requires await for all instance proxy access, even non-async functions and static properties', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'quirks');
-      
       
       // 1. True async function - naturally requires await
       await instance.ctx.storage.put('async-key', 'async-value');

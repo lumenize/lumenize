@@ -6,6 +6,7 @@ import {
 } from 'cloudflare:test';
 
 import { WSUpgradeOptions } from './types.js';
+import { createWSUpgradeRequest } from './create-ws-upgrade-request.js';
 
 /**
  * Gets a Cloudflare server-side ws object by simulating a WebSocket upgrade request thru a Worker
@@ -16,31 +17,7 @@ import { WSUpgradeOptions } from './types.js';
  */
 export async function simulateWSUpgrade(url: string, options?: WSUpgradeOptions) {
   const ctx = createExecutionContext();
-  const headers: Record<string, string> = { 
-    Upgrade: "websocket",
-    Connection: "upgrade"
-  };
-  
-  if (options?.protocols && options.protocols.length > 0) {
-    headers['Sec-WebSocket-Protocol'] = options.protocols.join(', ');
-  }
-
-  // Set origin - use explicit option if provided, otherwise derive from URL
-  if (options?.origin) {
-    headers['Origin'] = options.origin;
-  } else {
-    // For testing convenience, derive default origin from URL
-    // This would be a security risk in production but is fine for testing
-    const urlObj = new URL(url);
-    headers['Origin'] = urlObj.origin;
-  }
-
-  // Merge custom headers, allowing them to override shorthand options
-  if (options?.headers) {
-    Object.assign(headers, options.headers);
-  }
-
-  const req = new Request(url, { headers });
+  const req = createWSUpgradeRequest(url, options);
   const res = await SELF.fetch(req, env, ctx);
   const ws = res.webSocket as any;
 
