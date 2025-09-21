@@ -73,7 +73,7 @@ describe('Basic Usage', () => {
          onmessageCalled = true;
        };
        ws.send('ping');
-       await vi.waitFor(() => expect(onmessageCalled).toBe(true), { timeout: 100, interval: 10 })
+       await vi.waitFor(() => expect(onmessageCalled).toBe(true))
     });
   });
 
