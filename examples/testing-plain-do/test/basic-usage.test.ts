@@ -63,6 +63,7 @@ describe('Basic Usage', () => {
       });
       const res = await SELF.fetch(request);
       const ws = res.webSocket as any;
+      console.log('%o', ws);
       if (ws && res.status === 101) {
         ws.accept(); // This works because we're running inside of workerd
       }
@@ -110,6 +111,33 @@ describe('Basic Usage', () => {
       // Default: true (enabled)
       // When disabled: No cookies stored from Set-Cookie headers or sent with requests
       helpers.options.cookieJar = false; // Disable automatic cookie handling
+    });
+  });
+
+  it('demonstrates helpers.WebSocket basic functionality', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      // helpers.WebSocket should be our simple mock
+      expect(helpers.WebSocket).toBeDefined();
+      expect(typeof helpers.WebSocket).toBe('function');
+      
+      // Create a WebSocket instance
+      const ws = new helpers.WebSocket('wss://example.com/my-do/get-ws');
+      
+      // Should have basic WebSocket properties that we actually implement
+      expect(ws.url).toBe('wss://example.com/my-do/get-ws');
+      
+      // Should have basic methods that we actually implement
+      expect(typeof ws.send).toBe('function');
+      expect(typeof ws.close).toBe('function');
+      
+      // Should have WebSocket constants
+      expect(helpers.WebSocket.CONNECTING).toBe(0);
+      expect(helpers.WebSocket.OPEN).toBe(1);
+      expect(helpers.WebSocket.CLOSED).toBe(3);
+      
+      // Test the functionality we actually implement
+      ws.send('test message');
+      ws.close();
     });
   });
 
