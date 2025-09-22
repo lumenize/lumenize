@@ -227,8 +227,6 @@ export async function testDOProject(
     },
     options: {
       get hostname() {
-        // This is a bit tricky - we need to access the internal hostname
-        // For now, return undefined if not set yet
         return (cookieJar as any).inferredHostname;
       },
       set hostname(value: string) {
@@ -249,7 +247,8 @@ export async function testDOProject(
       clear: () => cookieJar.clear()
     },
     // Simple WebSocket mock that converts wss:// to https://
-    WebSocket: getWebSocketShim(cookieAwareSELF)
+    WebSocket: getWebSocketShim(cookieAwareSELF),
+    getWebSocketShim,  // hanging onto helpers in 
   };
   
   try {

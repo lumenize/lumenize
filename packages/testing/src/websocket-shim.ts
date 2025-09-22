@@ -150,7 +150,10 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
           headers.set("Sec-WebSocket-Protocol", list.join(", "));
         }
 
-        const req = new Request(init.url, { method: "GET", headers });
+        // Convert WebSocket URL to HTTP URL for SELF.fetch routing
+        const httpUrl = init.url.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
+
+        const req = new Request(httpUrl, { method: "GET", headers });
         const resp = await SELF.fetch(req);
 
         const ws = (resp as any).webSocket as WebSocket | undefined;
