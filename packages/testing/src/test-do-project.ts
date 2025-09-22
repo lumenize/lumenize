@@ -3,7 +3,9 @@ import { SELF, env } from 'cloudflare:test';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
 import { CookieJar } from './cookie-jar.js';
-import { createSimpleWebSocketMock } from './websocket-simple.js';
+// import { createSimpleWebSocketMock } from './websocket-simple.js';
+import { getWebSocketShim } from './websocket-shim';
+
 
 /**
  * Instance registry that provides direct access to DO instances
@@ -247,7 +249,7 @@ export async function testDOProject(
       clear: () => cookieJar.clear()
     },
     // Simple WebSocket mock that converts wss:// to https://
-    WebSocket: createSimpleWebSocketMock(cookieAwareSELF)
+    WebSocket: getWebSocketShim(cookieAwareSELF)
   };
   
   try {

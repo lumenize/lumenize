@@ -1,7 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { testDOProject } from '@lumenize/testing';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
-import { env } from 'cloudflare:test';
 
 /**
  * Comprehensive Testing Suite for @lumenize/testing

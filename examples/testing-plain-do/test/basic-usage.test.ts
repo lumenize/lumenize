@@ -53,29 +53,6 @@ describe('Basic Usage', () => {
     });
   });
 
-  it('uses raw client ws from `[client, server] = new WebSocketPair()`', async () => {
-    let onmessageCalled = false;
-    await testDOProject(async (SELF, instances, helpers) => {  
-      const request = createWSUpgradeRequest('https://example.com/my-do/get-ws', {
-        protocols: ['protocol1', 'protocol2'],
-        origin: 'https://custom-origin.com',
-        headers: { 'Custom-Header': 'custom-value' }
-      });
-      const res = await SELF.fetch(request);
-      const ws = res.webSocket as any;
-      console.log('%o', ws);
-      if (ws && res.status === 101) {
-        ws.accept(); // This works because we're running inside of workerd
-      }
-      ws.onmessage = (event: any) => {
-         expect(event.data).toBe('pong');
-         onmessageCalled = true;
-       };
-       ws.send('ping');
-       await vi.waitFor(() => expect(onmessageCalled).toBe(true))
-    });
-  });
-
   it('cookie jar automatically manages cookies', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Set default hostname (could also be inferred from first fetch)
@@ -114,7 +91,30 @@ describe('Basic Usage', () => {
     });
   });
 
-  it('demonstrates helpers.WebSocket basic functionality', async () => {
+  it('uses raw client ws from `[client, server] = new WebSocketPair()`', async () => {
+    let onmessageCalled = false;
+    await testDOProject(async (SELF, instances, helpers) => {  
+      const request = createWSUpgradeRequest('https://example.com/my-do/get-ws', {
+        protocols: ['protocol1', 'protocol2'],
+        origin: 'https://custom-origin.com',
+        headers: { 'Custom-Header': 'custom-value' }
+      });
+      const res = await SELF.fetch(request);
+      const ws = res.webSocket as any;
+      if (ws && res.status === 101) {
+        ws.accept(); // This works because we're running inside of workerd
+      }
+      console.log('%o', ws);
+      ws.onmessage = (event: any) => {
+         expect(event.data).toBe('pong');
+         onmessageCalled = true;
+       };
+       ws.send('ping');
+       await vi.waitFor(() => expect(onmessageCalled).toBe(true))
+    });
+  });
+
+  it.only('demonstrates helpers.WebSocket basic functionality', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // helpers.WebSocket should be our simple mock
       expect(helpers.WebSocket).toBeDefined();
