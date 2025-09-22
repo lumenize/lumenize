@@ -155,6 +155,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
 
         const req = new Request(httpUrl, { method: "GET", headers });
         const resp = await SELF.fetch(req);
+        console.log('%o', resp);
 
         const ws = (resp as any).webSocket as WebSocket | undefined;
         if (!ws) {
@@ -170,25 +171,40 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
         // Pull protocol if present (CF sometimes exposes it)
         this.protocol = (ws as any).protocol ?? this.protocol;
 
-        // Event forwarding
+        // Event forwarding - create new events to avoid re-dispatch issues
         ws.addEventListener("open", (e) => {
           // Ensure we aren't forcing a state; raw now reports OPEN.
           this.#stateOverride = null;
-          this.dispatchEvent(e);
-          this.onopen?.(e);
+          const newEvent = new Event("open");
+          this.dispatchEvent(newEvent);
+          this.onopen?.(newEvent);
           void this.#flushQueue();
         });
 
         ws.addEventListener("message", (e) => {
-          this.dispatchEvent(e);
-          this.onmessage?.(e);
+          const newEvent = new MessageEvent("message", {
+            data: e.data,
+            origin: e.origin,
+            lastEventId: e.lastEventId,
+            source: e.source,
+            ports: [...e.ports] // Convert readonly array to mutable
+          });
+          this.dispatchEvent(newEvent);
+          this.onmessage?.(newEvent);
         });
 
         ws.addEventListener("error", (e) => {
           // Clear any override; raw may transition to CLOSED next.
           this.#stateOverride = null;
-          this.dispatchEvent(e);
-          this.onerror?.(e);
+          const newEvent = new ErrorEvent("error", {
+            error: (e as any).error,
+            message: (e as any).message || "WebSocket error",
+            filename: (e as any).filename,
+            lineno: (e as any).lineno,
+            colno: (e as any).colno
+          });
+          this.dispatchEvent(newEvent);
+          this.onerror?.(newEvent);
         });
 
         ws.addEventListener("close", (e: CloseEvent) => {
@@ -196,8 +212,13 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
           this.#stateOverride = null;
           this.#queue.length = 0;
           this.#queuedBytes = 0;
-          this.dispatchEvent(e);
-          this.onclose?.(e);
+          const newEvent = new CloseEvent("close", {
+            code: e.code,
+            reason: e.reason,
+            wasClean: e.wasClean
+          });
+          this.dispatchEvent(newEvent);
+          this.onclose?.(newEvent);
         });
 
         // If the raw is already OPEN (rare), synthesize "open" and flush.

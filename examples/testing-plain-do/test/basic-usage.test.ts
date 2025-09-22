@@ -116,27 +116,23 @@ describe('Basic Usage', () => {
 
   it.only('demonstrates helpers.WebSocket basic functionality', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
-      // helpers.WebSocket should be our simple mock
-      expect(helpers.WebSocket).toBeDefined();
-      expect(typeof helpers.WebSocket).toBe('function');
+      let onMessageCalled = false;
       
-      // Create a WebSocket instance
       const ws = new helpers.WebSocket('wss://example.com/my-do/get-ws');
       
-      // Should have basic WebSocket properties that we actually implement
-      expect(ws.url).toBe('wss://example.com/my-do/get-ws');
+      ws.onmessage = (event: any) => {
+        console.log('%o', event);
+        expect(event.data).toBe('pong');
+        onMessageCalled = true;
+      };
+
+      ws.onerror = (event: any) => {
+        console.log('%o', event);
+      };
       
-      // Should have basic methods that we actually implement
-      expect(typeof ws.send).toBe('function');
-      expect(typeof ws.close).toBe('function');
-      
-      // Should have WebSocket constants
-      expect(helpers.WebSocket.CONNECTING).toBe(0);
-      expect(helpers.WebSocket.OPEN).toBe(1);
-      expect(helpers.WebSocket.CLOSED).toBe(3);
-      
-      // Test the functionality we actually implement
-      ws.send('test message');
+      ws.send('ping');
+
+      await vi.waitFor(() => expect(onMessageCalled).toBe(true));
       ws.close();
     });
   });
