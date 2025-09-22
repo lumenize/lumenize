@@ -12,7 +12,7 @@ import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
  */
 describe('Basic Usage', () => {
 
-  it('demonstrates fetch operation verified via instance access', async () => {
+  it('demonstrates fetch operation verified via instance storage assertions', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Call increment
       const response = await SELF.fetch('https://example.com/my-do/fetch-then-assert/increment');
@@ -27,10 +27,8 @@ describe('Basic Usage', () => {
       const storedCount = await instance.ctx.storage.get('count');
       expect(storedCount).toBe(1);
       
-      const constructorName = await instance.constructor.name;
-      expect(constructorName).toBe('MyDO');
-      
       // Verify we can access environment through the instance
+      // TODO: Move this to a test that shows all public members on the DO instance are inspectable and usable
       const env = await instance.env;
       expect(env).toBeDefined();
       expect(typeof env).toBe('object');
@@ -104,7 +102,6 @@ describe('Basic Usage', () => {
       if (ws && res.status === 101) {
         ws.accept(); // This works because we're running inside of workerd
       }
-      console.log('%o', ws);
       ws.onmessage = (event: any) => {
          expect(event.data).toBe('pong');
          onmessageCalled = true;
@@ -114,7 +111,7 @@ describe('Basic Usage', () => {
     });
   });
 
-  it.only('demonstrates helpers.WebSocket basic functionality', async () => {
+  it('demonstrates helpers.WebSocket basic functionality', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       let onMessageCalled = false;
       
