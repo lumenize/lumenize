@@ -6,52 +6,85 @@ import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
  * 
  * This file demonstrates the essential usage patterns of the @lumenize/testing library.
  * It's designed as living documentation to help developers get started quickly.
- * 
- * Focus: Core library features and what you can do with instances.
- * Note: More comprehensive testing patterns are in comprehensive.test.ts
  */
-describe('Basic Usage', () => {
 
-  it('demonstrates fetch operation verified via instance storage assertions', async () => {
-    await testDOProject(async (SELF, instances, helpers) => {
-      // Call increment
-      const response = await SELF.fetch('https://example.com/my-do/fetch-then-assert/increment');
-      
-      // Verify that we get back the incremented count
-      expect(response.status).toBe(200);
-      const responseText = await response.text();
-      expect(responseText).toBe('1');
-      
-      // Verify that count is correct in storage via instance access
-      const instance = instances('MY_DO', 'fetch-then-assert');
-      const storedCount = await instance.ctx.storage.get('count');
-      expect(storedCount).toBe(1);
-      
-      // Verify we can access environment through the instance
-      // TODO: Move this to a test that shows all public members on the DO instance are inspectable and usable
-      const env = await instance.env;
-      expect(env).toBeDefined();
-      expect(typeof env).toBe('object');
-    });
-  });
+// testDOProject now allows you to:
+//   - Not a drop-in replacement but similar to cloudflare:test's runInDurableObject  
+//   - Use `new WebSocket()` and "wss://..." urls just like you would in a browser
+//   - Inspect the messages that were sent in and out (TODO: implement)
+//   - Assert on close codes and reasons (TODO: implement)
+//   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
+//   - Assert on any state change in instance variables or storage
+//   - Manipulate storage prior to running a test
+//   - Test using multiple WebSocket connections to the same DO instance (TODO: implement)
+//   - Supply Origin and other Headers for WebSocket upgrades (TODO: confirm we have a test for this)
+//   - Automatic cookie jar functionality to test complex auth and other cookie flows
+describe('testDOProject core capabilities', () => {
 
+  // testDOProject allows you to:
+  //   - Pre-populate storage via direct instance access before operations
+  //   - Use fetch operations to manipulate storage
+  //   - Verify results via instance storage assertions
   it('demonstrates pre-populating via instance and then doing a fetch operation', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Verify that count is correct in storage via instance access
-      const instance = instances('MY_DO', 'put-then-fetch');
+      const instance = instances('MY_DO', 'put-fetch-get');
       await instance.ctx.storage.put('count', 10);
-
+  
       // Call increment
-      const response = await SELF.fetch('https://example.com/my-do/put-then-fetch/increment');
+      const response = await SELF.fetch('https://example.com/my-do/put-fetch-get/increment');
       
       // Verify that we get back the incremented count
       expect(response.status).toBe(200);
       const responseText = await response.text();
       expect(responseText).toBe('11');
+
+      // Verify that count is correct in storage via instance access
+      const storedCount = await instance.ctx.storage.get('count');
+      expect(storedCount).toBe(11);
     });
   });
 
-  it('cookie jar automatically manages cookies', async () => {
+  // testDOProject allows you to:
+  //   - Access all public members on the DO instance (env, ctx, custom methods)
+  //   - Inspect complete API surface including nested objects via property access preprocessing
+  it('demonstrates complete DO instance property inspection and function discovery', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      const instanceAsProperty = await instances('MY_DO', 'property-inspection-test');
+      
+      expect(instanceAsProperty).toMatchObject({
+        // DO methods are discoverable
+        increment: "increment [Function]",
+        
+        // DurableObjectState context with complete API
+        ctx: {
+          storage: {
+            get: "get [Function]",
+            put: "put [Function]",
+            // ... other storage methods available
+          },
+          getWebSockets: "getWebSockets [Function]",
+          acceptWebSocket: "acceptWebSocket [Function]",
+          setWebSocketAutoResponse: "setWebSocketAutoResponse [Function]",
+          // ... other ctx methods available
+        },
+        
+        // Environment object with DO bindings
+        env: {
+          MY_DO: {
+            getByName: "getByName [Function]",
+            newUniqueId: "newUniqueId [Function]",
+            // ... other binding methods available
+          },
+          // ... other environment bindings available
+        }
+      });
+    });
+  });
+
+  // testDOProject allows you to:
+  //   - Use automatic cookie jar to test auth and other cookie based flows
+  it('demonstrates cookie jar automatically manages cookies', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Set default hostname (could also be inferred from first fetch)
       helpers.options.hostname = 'example.com';
@@ -75,6 +108,8 @@ describe('Basic Usage', () => {
     });
   });
 
+  // testDOProject allows you to:
+  //   - Configure various helper options for different testing scenarios
   it('demonstrates all available helpers.options (living documentation)', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Purpose: Set default hostname (used for cookies when domain not explicitly provided)
@@ -89,43 +124,26 @@ describe('Basic Usage', () => {
     });
   });
 
-  it('uses raw client ws from `[client, server] = new WebSocketPair()`', async () => {
-    let onmessageCalled = false;
-    await testDOProject(async (SELF, instances, helpers) => {  
-      const request = createWSUpgradeRequest('https://example.com/my-do/get-ws', {
-        protocols: ['protocol1', 'protocol2'],
-        origin: 'https://custom-origin.com',
-        headers: { 'Custom-Header': 'custom-value' }
-      });
-      const res = await SELF.fetch(request);
-      const ws = res.webSocket as any;
-      if (ws && res.status === 101) {
-        ws.accept(); // This works because we're running inside of workerd
-      }
-      ws.onmessage = (event: any) => {
-         expect(event.data).toBe('pong');
-         onmessageCalled = true;
-       };
-       ws.send('ping');
-       await vi.waitFor(() => expect(onmessageCalled).toBe(true))
-    });
-  });
-
-  it('demonstrates helpers.WebSocket basic functionality', async () => {
+  // testDOProject allows you to:
+  //   - Use any client library that directly calls `new WebSocket()` via helpers.WebSocket
+  //   - Browser-compatible WebSocket API that routes through DO testing infrastructure
+  it('demonstrates helpers.WebSocket for libraries using browser WebSocket API', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       let onMessageCalled = false;
       
       const ws = new helpers.WebSocket('wss://example.com/my-do/get-ws');
       
       ws.onmessage = (event: any) => {
-        console.log('%o', event);
         expect(event.data).toBe('pong');
         onMessageCalled = true;
       };
 
       ws.onerror = (event: any) => {
         console.log('%o', event);
+        // TODO: Make it throw an error and add assertion
       };
+
+      // TODO: Are there any other WebSocket methods/properties we should show
       
       ws.send('ping');
 
@@ -134,10 +152,29 @@ describe('Basic Usage', () => {
     });
   });
 
+  // testDOProject allows you to:
+  //   - Call DO methods directly via instance proxy (RPC-style)
+  //   - Support all structured clone types except functions (like Cloudflare native RPC)
+  //   - Inspect ctx (DurableObjectState): storage, getWebSockets, attachments, etc.
+  //   - Use connection tagging with WebSocket names from URL paths
+  it.todo('demonstrates direct DO method calls (RPC) and ctx inspection with WebSocket attachments');
+
+  // testDOProject allows you to:
+  //   - Test using multiple WebSocket connections to the same DO instance
+  //   - Track operations and verify execution order
+  it.todo('demonstrates multiple WebSocket connections and operation tracking');
+
+  // testDOProject allows you to:
+  //   - Supply custom headers via WebSocket factory options
+  //   - Configure WebSocket shim behavior per test
+  it.todo('demonstrates custom headers via WebSocket factory options');
+
 });
 
 describe('Limitations and quirks', () =>{
 
+  // testDOProject has this limitation:
+  //   - All instance proxy access requires await, even for non-async functions and static properties
   it('requires await for all instance proxy access, even non-async functions and static properties', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'quirks');
@@ -163,5 +200,11 @@ describe('Limitations and quirks', () =>{
       expect(typeof instance.ctx.storage.sql.databaseSize).toBe('function');
     });
   });
+
+  // testDOProject does NOT have these limitations (unlike old runInDurableObject):
+  //   - Input gates work naturally (no artificial serialization)
+  //   - No need for mock.sync() - operations complete when they should
+  //   - Native Durable Object behavior preserved
+  it.todo('demonstrates natural input gate behavior vs old runInDurableObject artificial serialization');
 
 });

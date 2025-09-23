@@ -381,8 +381,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
 
       // Verify that private methods are truly inaccessible (even if user knows they exist)
       await expect(async () => {
-        await instance['#handleIncrement']();
-      }).rejects.toThrow("Method '#handleIncrement' does not exist on MyDO");
+        await instance['#nonExistentPrivateMethod']();
+      }).rejects.toThrow("Method '#nonExistentPrivateMethod' does not exist on MyDO");
       
       // Verify we get the complete instance structure
       expect(rootInstance).toBeDefined();
@@ -399,7 +399,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
       expect(rootInstance.fetch).toBe('fetch [Function]');
       
       // Should contain any methods from the user's DO class
-      expect(rootInstance.sayHello).toBe('sayHello [Function]');
+      expect(rootInstance.increment).toBe('increment [Function]');
       
     });
   });

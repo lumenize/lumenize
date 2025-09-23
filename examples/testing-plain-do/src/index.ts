@@ -52,11 +52,7 @@ export class MyDO extends DurableObject{
     );
   }
 
-  async sayHello(): Promise<string> {
-    return "Hello, World!";
-  }
-
-  async #handleIncrement() {
+  async increment(): Promise<number> {
     let count = (await this.ctx.storage.get<number>("count")) ?? 0;
     void this.ctx.storage.put("count", ++count);
     return count;
@@ -81,7 +77,7 @@ export class MyDO extends DurableObject{
     await this.#trackOperation('fetch', operation);
 
     if (url.pathname.endsWith('/increment')) {
-      const count = await this.#handleIncrement();
+      const count = await this.increment();
       return new Response(count.toString(), { 
         headers: { 'Content-Type': 'text/plain' } 
       });
@@ -143,7 +139,7 @@ export class MyDO extends DurableObject{
     }
 
     if (message === 'increment') {
-      return ws.send((await this.#handleIncrement()).toString());
+      return ws.send((await this.increment()).toString());
     }
 
     if (message === 'headers') {
