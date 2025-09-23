@@ -9,21 +9,23 @@ const { serialize, deserialize } = require('@ungap/structured-clone');
  * while primitive values (numbers, strings, etc.) are preserved for 
  * synchronous access without needing await.
  */
-function preprocessFunctions(obj: any, seen = new WeakSet(), basePath: string[] = []): any {
+function preprocessFunctions(obj: any, seen = new WeakMap(), basePath: string[] = []): any {
   // Handle primitive types and null/undefined
   if (obj === null || obj === undefined || typeof obj !== 'object') {
     return obj;
   }
   
-  // Handle circular references
+  // Handle circular references by returning the already-processed object
   if (seen.has(obj)) {
-    return '[Circular Reference]';
+    return seen.get(obj);
   }
-  seen.add(obj);
   
   // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.map(item => preprocessFunctions(item, seen, basePath));
+    const result: any[] = [];
+    seen.set(obj, result); // Set early to handle circular refs
+    result.push(...obj.map(item => preprocessFunctions(item, seen, basePath)));
+    return result;
   }
   
   // Handle built-in types that structured clone handles natively
@@ -35,6 +37,7 @@ function preprocessFunctions(obj: any, seen = new WeakSet(), basePath: string[] 
   
   // Handle plain objects
   const result: any = {};
+  seen.set(obj, result); // Set early to handle circular refs
   
   // First, collect all enumerable properties
   for (const [key, value] of Object.entries(obj)) {

@@ -227,21 +227,23 @@ function convertRemoteFunctionsToProxies(obj: any, bindingName: string, instance
 /**
  * Converts remote function markers to readable "[Function]" strings for __asObject() display
  */
-function convertRemoteFunctionsToStrings(obj: any, seen = new WeakSet()): any {
+function convertRemoteFunctionsToStrings(obj: any, seen = new WeakMap()): any {
   // Handle primitive types and null/undefined - return as-is
   if (obj === null || obj === undefined || typeof obj !== 'object') {
     return obj;
   }
   
-  // Handle circular references
+  // Handle circular references by returning the already-processed object
   if (seen.has(obj)) {
-    return '[Circular Reference]';
+    return seen.get(obj);
   }
-  seen.add(obj);
   
   // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.map(item => convertRemoteFunctionsToStrings(item, seen));
+    const result: any[] = [];
+    seen.set(obj, result); // Set early to handle circular refs
+    result.push(...obj.map(item => convertRemoteFunctionsToStrings(item, seen)));
+    return result;
   }
   
   // Handle built-in types - return as-is
@@ -259,6 +261,7 @@ function convertRemoteFunctionsToStrings(obj: any, seen = new WeakSet()): any {
   
   // Handle plain objects - recursively process but preserve structure
   const result: any = {};
+  seen.set(obj, result); // Set early to handle circular refs
   for (const [key, value] of Object.entries(obj)) {
     result[key] = convertRemoteFunctionsToStrings(value, seen);
   }
