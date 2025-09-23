@@ -127,13 +127,16 @@ describe('testDOProject core capabilities', () => {
   // testDOProject allows you to:
   //   - Use any client library that directly calls `new WebSocket()` via helpers.WebSocket
   //   - Browser-compatible WebSocket API that routes through DO testing infrastructure
-  it('demonstrates helpers.WebSocket for libraries using browser WebSocket API', async () => {
+  it.only('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       let onMessageCalled = false;
       
-      const ws = new helpers.WebSocket('wss://example.com/my-do/get-ws');
+      const ws = new helpers.WebSocket('wss://example.com/my-do/test-ws');
+
+      ws.send('ping');
       
-      ws.onmessage = (event: any) => {
+      ws.onmessage = async (event: any) => {
+        // WebSocketRequestResponsePair("ping", "pong"),
         expect(event.data).toBe('pong');
         onMessageCalled = true;
       };
@@ -144,10 +147,16 @@ describe('testDOProject core capabilities', () => {
       };
 
       // TODO: Are there any other WebSocket methods/properties we should show
-      
-      ws.send('ping');
 
       await vi.waitFor(() => expect(onMessageCalled).toBe(true));
+
+      const webSocketsOnServer = await instances('MY_DO', 'test-ws').ctx.getWebSockets('test-ws');
+      expect(webSocketsOnServer.length).toBe(1);
+
+      const instance = await instances('MY_DO', 'test-ws');
+      const webSocketsOnServer2 = await instance.ctx.getWebSockets('test-ws');
+      expect(webSocketsOnServer2.length).toBe(1);
+
       ws.close();
     });
   });
