@@ -48,11 +48,11 @@ describe('testDOProject core capabilities', () => {
   // testDOProject allows you to:
   //   - Discover all public members on the DO instance (env, ctx, custom methods)
   //   - Make assertions on non-function properties
-  it.skip('demonstrates DO inspection and function discovery using __asObject()', async () => {
+  it('demonstrates DO inspection and function discovery using __asObject()', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'property-inspection-test');
       const instanceAsObject = await instance.__asObject();
-      // console.log('%o', instanceAsObject);
+      console.log('%o', instanceAsObject);
       console.log( JSON.stringify(instanceAsObject, null, 2));
       
       expect(instanceAsObject).toMatchObject({
@@ -66,7 +66,7 @@ describe('testDOProject core capabilities', () => {
             put: "put [Function]",
             // ... other storage methods available
             sql: {
-              // databaseSize: expect.any(Number), // Assert on non-function properties
+              databaseSize: expect.any(Number), // Assert on non-function properties
               // ... other ctx.sql methods
             },
           },

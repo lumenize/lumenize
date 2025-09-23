@@ -53,7 +53,10 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
       
       // Special property to get the actual object (for discovery/debugging)
       if (prop === '__asObject') {
-        return () => makePureInstanceRequest(bindingName, instanceName, 'get', path);
+        return async () => {
+          // Get the result with string conversion instead of proxy conversion
+          return await makePureInstanceRequest(bindingName, instanceName, 'get', path, undefined, 'strings');
+        };
       }
       
       // Handle 'then' property for Promise compatibility
@@ -76,7 +79,14 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
   return proxy;
 }
 
-async function makePureInstanceRequest(bindingName: string, instanceName: string, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
+async function makePureInstanceRequest(
+  bindingName: string, 
+  instanceName: string, 
+  type: 'get' | 'call', 
+  path: string[], 
+  args?: any[], 
+  postProcess: 'proxies' | 'strings' = 'proxies'
+): Promise<any> {
   /**
    * ARCHITECTURE NOTE: Independence from User's Worker Routing
    * 
@@ -162,8 +172,14 @@ async function makePureInstanceRequest(bindingName: string, instanceName: string
   // Use JSON.parse first, then structured-clone deserialize
   const result = deserialize(serializedData);
   
-  // Post-process the result to convert remote functions back to working proxies
-  return convertRemoteFunctionsToProxies(result, bindingName, instanceName);
+  // Post-process the result based on the requested format
+  if (postProcess === 'strings') {
+    // For __asObject() requests, convert remote functions to readable strings
+    return convertRemoteFunctionsToStrings(result);
+  } else {
+    // For normal requests, convert remote functions back to proxies
+    return convertRemoteFunctionsToProxies(result, bindingName, instanceName);
+  }
 }
 
 /**
@@ -203,6 +219,48 @@ function convertRemoteFunctionsToProxies(obj: any, bindingName: string, instance
   const result: any = {};
   for (const [key, value] of Object.entries(obj)) {
     result[key] = convertRemoteFunctionsToProxies(value, bindingName, instanceName, seen);
+  }
+  
+  return result;
+}
+
+/**
+ * Converts remote function markers to readable "[Function]" strings for __asObject() display
+ */
+function convertRemoteFunctionsToStrings(obj: any, seen = new WeakSet()): any {
+  // Handle primitive types and null/undefined - return as-is
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+  
+  // Handle circular references
+  if (seen.has(obj)) {
+    return '[Circular Reference]';
+  }
+  seen.add(obj);
+  
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => convertRemoteFunctionsToStrings(item, seen));
+  }
+  
+  // Handle built-in types - return as-is
+  if (obj instanceof Date || obj instanceof RegExp || obj instanceof Map || 
+      obj instanceof Set || obj instanceof ArrayBuffer || 
+      ArrayBuffer.isView(obj) || obj instanceof Error) {
+    return obj;
+  }
+  
+  // Check if this is a remote function marker (object with special properties)
+  if (obj && typeof obj === 'object' && obj.__isRemoteFunction && obj.__remotePath && obj.__functionName) {
+    // Convert to readable string instead of proxy
+    return `${obj.__functionName} [Function]`;
+  }
+  
+  // Handle plain objects - recursively process but preserve structure
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    result[key] = convertRemoteFunctionsToStrings(value, seen);
   }
   
   return result;
