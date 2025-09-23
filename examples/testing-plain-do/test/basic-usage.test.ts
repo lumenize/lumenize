@@ -11,7 +11,7 @@ import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
 // testDOProject now allows you to:
 //   - Not a drop-in replacement but similar to cloudflare:test's runInDurableObject  
 //   - Use `new WebSocket()` and "wss://..." urls just like you would in a browser
-//   - Inspect the messages that were sent in and out (TODO: implement)
+//   - Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
 //   - Assert on close codes and reasons (TODO: implement)
 //   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
 //   - Assert on any state change in instance variables or storage

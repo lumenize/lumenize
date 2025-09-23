@@ -158,7 +158,7 @@ export class MyDO extends DurableObject{
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    await this.ctx.storage.put("lastWebSocketClose", new Date());
+    await this.ctx.storage.put("lastWebSocketClose", { code, reason, wasClean });
   }
 
   async webSocketError(ws: WebSocket, error: Error) {
