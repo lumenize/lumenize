@@ -2,13 +2,14 @@
 const { serialize, deserialize } = require('@ungap/structured-clone');
 
 /**
- * Preprocesses an object to replace functions with descriptive strings
- * so they can be transported through RPC calls.
+ * Preprocesses an object to replace functions with callable proxy functions
+ * and keep primitive values as-is for direct access.
  * 
- * Functions are replaced with strings like "functionName [Function]" 
- * to provide a discoverable API surface.
+ * Functions are replaced with proxy functions that can be called directly,
+ * while primitive values (numbers, strings, etc.) are preserved for 
+ * synchronous access without needing await.
  */
-function preprocessFunctions(obj: any, seen = new WeakSet()): any {
+function preprocessFunctions(obj: any, seen = new WeakSet(), basePath: string[] = []): any {
   // Handle primitive types and null/undefined
   if (obj === null || obj === undefined || typeof obj !== 'object') {
     return obj;
@@ -22,7 +23,7 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
   
   // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.map(item => preprocessFunctions(item, seen));
+    return obj.map(item => preprocessFunctions(item, seen, basePath));
   }
   
   // Handle built-in types that structured clone handles natively
@@ -37,18 +38,19 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
   
   // First, collect all enumerable properties
   for (const [key, value] of Object.entries(obj)) {
+    const currentPath = [...basePath, key];
+    
     if (typeof value === 'function') {
-      // Replace function with descriptive string
-      const functionName = value.name || 'anonymous';
-      result[key] = `${functionName} [Function]`;
+      // Create a callable proxy function that tunnels back to the DO
+      result[key] = createRemoteFunction(currentPath);
     } else if (typeof value === 'symbol') {
       // Handle symbols
       result[key] = `[Symbol: ${value.toString()}]`;
     } else if (typeof value === 'object' && value !== null) {
       // Recursively process nested objects
-      result[key] = preprocessFunctions(value, seen);
+      result[key] = preprocessFunctions(value, seen, currentPath);
     } else {
-      // Keep primitives as-is
+      // Keep primitives as-is for direct synchronous access
       result[key] = value;
     }
   }
@@ -64,20 +66,20 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
         continue;
       }
       
+      const currentPath = [...basePath, key];
+      
       // Check if it's a method (function)
       if (descriptor.value && typeof descriptor.value === 'function') {
-        const functionName = descriptor.value.name || key;
-        result[key] = `${functionName} [Function]`;
+        result[key] = createRemoteFunction(currentPath);
       }
       // Check if it's a getter that returns a function
       else if (descriptor.get) {
         try {
           const value = descriptor.get.call(obj);
           if (typeof value === 'function') {
-            const functionName = value.name || key;
-            result[key] = `${functionName} [Function]`;
+            result[key] = createRemoteFunction(currentPath);
           } else if (value !== undefined && value !== null) {
-            result[key] = preprocessFunctions(value, seen);
+            result[key] = preprocessFunctions(value, seen, currentPath);
           }
         } catch (error) {
           // If getter throws, just note it
@@ -90,6 +92,19 @@ function preprocessFunctions(obj: any, seen = new WeakSet()): any {
   }
   
   return result;
+}
+
+/**
+ * Creates a serializable remote function marker
+ */
+function createRemoteFunction(path: string[]): any {
+  // Instead of creating an actual function, create a special object marker
+  // that can be serialized and identified on the client side
+  return {
+    __isRemoteFunction: true,
+    __remotePath: path,
+    __functionName: path[path.length - 1] || 'anonymous'
+  };
 }
 
 /**
@@ -192,10 +207,10 @@ export function instrumentDO<T>(DOClass: T): T {
           if (result && typeof result.then === 'function') {
             result = await result;
           }
+          
+          // Preprocess any functions in the call result to make them serializable
+          result = preprocessFunctions(result);
         }
-        
-        // Debug logging
-        // console.log(`[handleInstanceProxy] ${type} ${path.join('.')} -> ${typeof result}:`, result);
         
         // Use structured-clone for proper serialization, including special cases
         const serialized = serialize(result);

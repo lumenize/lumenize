@@ -45,7 +45,7 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
     return makePureInstanceRequest(bindingName, instanceName, 'call', path, args);
   };
   
-  return new Proxy(proxyFunction, {
+  const proxy = new Proxy(proxyFunction, {
     get(target, prop, receiver) {
       if (typeof prop === 'symbol') {
         return undefined;
@@ -56,7 +56,14 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
         return () => makePureInstanceRequest(bindingName, instanceName, 'get', path);
       }
       
-      // Chain deeper into the property path - no promise handling needed
+      // Handle 'then' property for Promise compatibility
+      // This allows `await proxy` to work by making a GET request instead of calling as function
+      if (prop === 'then') {
+        const getValue = makePureInstanceRequest(bindingName, instanceName, 'get', path);
+        return getValue.then.bind(getValue);
+      }
+      
+      // Chain deeper into the property path
       const newPath = [...path, prop as string];
       return createPureInstanceProxy(bindingName, instanceName, newPath);
     },
@@ -65,6 +72,8 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
       return makePureInstanceRequest(bindingName, instanceName, 'call', path, args);
     }
   });
+  
+  return proxy;
 }
 
 async function makePureInstanceRequest(bindingName: string, instanceName: string, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
@@ -151,7 +160,52 @@ async function makePureInstanceRequest(bindingName: string, instanceName: string
   }
   
   // Use JSON.parse first, then structured-clone deserialize
-  return deserialize(serializedData);
+  const result = deserialize(serializedData);
+  
+  // Post-process the result to convert remote functions back to working proxies
+  return convertRemoteFunctionsToProxies(result, bindingName, instanceName);
+}
+
+/**
+ * Converts remote function markers back to working proxy functions
+ */
+function convertRemoteFunctionsToProxies(obj: any, bindingName: string, instanceName: string, seen = new WeakSet()): any {
+  // Handle primitive types and null/undefined - return as-is for direct access
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+  
+  // Handle circular references
+  if (seen.has(obj)) {
+    return '[Circular Reference]';
+  }
+  seen.add(obj);
+  
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => convertRemoteFunctionsToProxies(item, bindingName, instanceName, seen));
+  }
+  
+  // Handle built-in types - return as-is
+  if (obj instanceof Date || obj instanceof RegExp || obj instanceof Map || 
+      obj instanceof Set || obj instanceof ArrayBuffer || 
+      ArrayBuffer.isView(obj) || obj instanceof Error) {
+    return obj;
+  }
+  
+  // Check if this is a remote function marker (object with special properties)
+  if (obj && typeof obj === 'object' && obj.__isRemoteFunction && obj.__remotePath) {
+    // Convert back to a working proxy
+    return createPureInstanceProxy(bindingName, instanceName, obj.__remotePath);
+  }
+  
+  // Handle plain objects - recursively process but preserve structure
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    result[key] = convertRemoteFunctionsToProxies(value, bindingName, instanceName, seen);
+  }
+  
+  return result;
 }
 
 /**
