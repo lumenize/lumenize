@@ -53,7 +53,7 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
       
       // Special property to get the actual object (for discovery/debugging)
       if (prop === '__asObject') {
-        return makePureInstanceRequest(bindingName, instanceName, 'get', path);
+        return () => makePureInstanceRequest(bindingName, instanceName, 'get', path);
       }
       
       // Chain deeper into the property path - no promise handling needed

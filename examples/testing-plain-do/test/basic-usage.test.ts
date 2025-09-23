@@ -19,7 +19,7 @@ import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
 //   - Test using multiple WebSocket connections to the same DO instance (TODO: implement)
 //   - Supply Origin and other Headers for WebSocket upgrades (TODO: confirm we have a test for this)
 //   - Automatic cookie jar functionality to test complex auth and other cookie flows
-describe.skip('testDOProject core capabilities', () => {
+describe('testDOProject core capabilities', () => {
 
   // testDOProject allows you to:
   //   - Pre-populate storage via direct instance access before operations
@@ -48,11 +48,11 @@ describe.skip('testDOProject core capabilities', () => {
   // testDOProject allows you to:
   //   - Access all public members on the DO instance (env, ctx, custom methods)
   //   - Inspect complete API surface including nested objects via property access preprocessing
-  it('demonstrates complete DO instance property inspection and function discovery', async () => {
+  it('demonstrates complete DO instance inspection and function discovery', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
-      const instanceAsProperty = await instances('MY_DO', 'property-inspection-test');
+      const instanceAsObject = await instances('MY_DO', 'property-inspection-test').__asObject();
       
-      expect(instanceAsProperty).toMatchObject({
+      expect(instanceAsObject).toMatchObject({
         // DO methods are discoverable
         increment: "increment [Function]",
         
@@ -186,8 +186,8 @@ describe.skip('testDOProject core capabilities', () => {
 
 describe('Limitations and quirks', () =>{
 
-  // testDOProject has this limitation:
-  //   - Function calls require await, but property access is now synchronous
+  // testDOProject has this characteristic:
+  //   - Function calls require await, property access is synchronous, static values via __asObject()
   it('requires await for even non-async function calls', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'quirks');
@@ -218,10 +218,10 @@ describe('Limitations and quirks', () =>{
       const anotherKvResult = await instance.ctx.storage.kv.get('kv-key');
       expect(anotherKvResult).toBe('kv-value');
       
-      // 5. Static properties can be accessed through the proxy
-      const dbSize = sql.__asObject.databaseSize;  // or await sql.databaseSize
-      expect(typeof dbSize).toBe('number');
-      expect(dbSize).toBeGreaterThanOrEqual(0);
+      // 5. Static properties can be accessed via __asObject() function
+      const sqlObject = await sql.__asObject();
+      expect(typeof sqlObject.databaseSize).toBe('number');
+      expect(sqlObject.databaseSize).toBeGreaterThanOrEqual(0);
 
       
       // Property access returns proxies immediately
