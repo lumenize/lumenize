@@ -192,7 +192,7 @@ describe('Limitations and quirks', () =>{
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'quirks');
       
-      // 1. Function calls require await even if what they are calling is not async
+      // 1. Function calls require await even if what they are calling is not async inside the DO
 
       // using `async ctx.storage.put(...)`
       // requires await even when used in the DO
@@ -222,7 +222,6 @@ describe('Limitations and quirks', () =>{
       const sqlObject = await sql.__asObject();
       expect(typeof sqlObject.databaseSize).toBe('number');
       expect(sqlObject.databaseSize).toBeGreaterThanOrEqual(0);
-
       
       // Property access returns proxies immediately
       expect(typeof instance.ctx).toBe('function'); // Proxy
