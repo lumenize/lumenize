@@ -185,21 +185,23 @@ async function makePureInstanceRequest(
 /**
  * Converts remote function markers back to working proxy functions
  */
-function convertRemoteFunctionsToProxies(obj: any, bindingName: string, instanceName: string, seen = new WeakSet()): any {
+function convertRemoteFunctionsToProxies(obj: any, bindingName: string, instanceName: string, seen = new WeakMap()): any {
   // Handle primitive types and null/undefined - return as-is for direct access
   if (obj === null || obj === undefined || typeof obj !== 'object') {
     return obj;
   }
   
-  // Handle circular references
+  // Handle circular references by returning the already-processed object
   if (seen.has(obj)) {
-    return '[Circular Reference]';
+    return seen.get(obj);
   }
-  seen.add(obj);
   
   // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.map(item => convertRemoteFunctionsToProxies(item, bindingName, instanceName, seen));
+    const result: any[] = [];
+    seen.set(obj, result); // Set early to handle circular refs
+    result.push(...obj.map(item => convertRemoteFunctionsToProxies(item, bindingName, instanceName, seen)));
+    return result;
   }
   
   // Handle built-in types - return as-is
@@ -217,6 +219,7 @@ function convertRemoteFunctionsToProxies(obj: any, bindingName: string, instance
   
   // Handle plain objects - recursively process but preserve structure
   const result: any = {};
+  seen.set(obj, result); // Set early to handle circular refs
   for (const [key, value] of Object.entries(obj)) {
     result[key] = convertRemoteFunctionsToProxies(value, bindingName, instanceName, seen);
   }
