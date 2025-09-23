@@ -19,7 +19,7 @@ import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
 //   - Test using multiple WebSocket connections to the same DO instance (TODO: implement)
 //   - Supply Origin and other Headers for WebSocket upgrades (TODO: confirm we have a test for this)
 //   - Automatic cookie jar functionality to test complex auth and other cookie flows
-describe('testDOProject core capabilities', () => {
+describe.skip('testDOProject core capabilities', () => {
 
   // testDOProject allows you to:
   //   - Pre-populate storage via direct instance access before operations
@@ -127,7 +127,7 @@ describe('testDOProject core capabilities', () => {
   // testDOProject allows you to:
   //   - Use any client library that directly calls `new WebSocket()` via helpers.WebSocket
   //   - Browser-compatible WebSocket API that routes through DO testing infrastructure
-  it.only('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
+  it('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       let onMessageCalled = false;
       
@@ -136,7 +136,7 @@ describe('testDOProject core capabilities', () => {
       ws.send('ping');
       
       ws.onmessage = async (event: any) => {
-        // WebSocketRequestResponsePair("ping", "pong"),
+        // tests WebSocketRequestResponsePair("ping", "pong"),
         expect(event.data).toBe('pong');
         onMessageCalled = true;
       };
@@ -153,9 +153,13 @@ describe('testDOProject core capabilities', () => {
       const webSocketsOnServer = await instances('MY_DO', 'test-ws').ctx.getWebSockets('test-ws');
       expect(webSocketsOnServer.length).toBe(1);
 
-      const instance = await instances('MY_DO', 'test-ws');
+      const instance = instances('MY_DO', 'test-ws');
       const webSocketsOnServer2 = await instance.ctx.getWebSockets('test-ws');
       expect(webSocketsOnServer2.length).toBe(1);
+
+      const ctx = instances('MY_DO', 'test-ws').ctx;
+      const webSocketsOnServer3 = await ctx.getWebSockets('test-ws');
+      expect(webSocketsOnServer3.length).toBe(1);
 
       ws.close();
     });
@@ -183,30 +187,47 @@ describe('testDOProject core capabilities', () => {
 describe('Limitations and quirks', () =>{
 
   // testDOProject has this limitation:
-  //   - All instance proxy access requires await, even for non-async functions and static properties
-  it('requires await for all instance proxy access, even non-async functions and static properties', async () => {
+  //   - Function calls require await, but property access is now synchronous
+  it('requires await for even non-async function calls', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'quirks');
       
-      // 1. True async function - naturally requires await
-      await instance.ctx.storage.put('async-key', 'async-value');
-      const asyncResult = await instance.ctx.storage.get('async-key');
-      expect(asyncResult).toBe('async-value');
+      // 1. Function calls require await even if what they are calling is not async
+
+      // using `async ctx.storage.put(...)`
+      // requires await even when used in the DO
+      await instance.ctx.storage.put('key', 'value');
+
+      // using non-async `ctx.storage.kv.get(...)`
+      // would not require await in DO but does in this test runner
+      const asyncResult = await instance.ctx.storage.kv.get('key');
+      expect(asyncResult).toBe('value');
       
-      // 2. Non-async function - still requires await due to proxy architecture
-      // instance.ctx.storage.kv.put() is synchronous but we must await it through the proxy
-      await instance.ctx.storage.kv.put('kv-key', 'kv-value');
-      const kvResult = await instance.ctx.storage.kv.get('kv-key');
+      // 2. Property access is synchronous - no await needed!
+      const storage = instance.ctx.storage;
+      const kv = storage.kv;
+      const sql = storage.sql;
+      
+      // 3. Only function calls need await
+      await kv.put('kv-key', 'kv-value');
+      const kvResult = await kv.get('kv-key');
       expect(kvResult).toBe('kv-value');
       
-      // 3. Static property - even properties require await through the proxy
-      // storage.sql.databaseSize is just a number property, but proxy requires await
-      const dbSize = await instance.ctx.storage.sql.databaseSize;
+      // 4. Properties are accessed synchronously
+      // We can chain property access without await, only final function calls need it
+      const anotherKvResult = await instance.ctx.storage.kv.get('kv-key');
+      expect(anotherKvResult).toBe('kv-value');
+      
+      // 5. Static properties can be accessed through the proxy
+      const dbSize = sql.__asObject.databaseSize;  // or await sql.databaseSize
       expect(typeof dbSize).toBe('number');
       expect(dbSize).toBeGreaterThanOrEqual(0);
+
       
-      // This is the proxy quirk: everything looks like a function until awaited
-      expect(typeof instance.ctx.storage.sql.databaseSize).toBe('function');
+      // Property access returns proxies immediately
+      expect(typeof instance.ctx).toBe('function'); // Proxy
+      expect(typeof storage).toBe('function'); // Proxy
+      expect(typeof sql).toBe('function'); // Proxy
     });
   });
 

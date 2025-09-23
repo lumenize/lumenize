@@ -51,19 +51,12 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
         return undefined;
       }
       
-      // Handle promise-like behavior for await
-      if (prop === 'then') {
-        // When someone tries to await this proxy, get the property value
-        const promise = makePureInstanceRequest(bindingName, instanceName, 'get', path);
-        return promise.then.bind(promise);
+      // Special property to get the actual object (for discovery/debugging)
+      if (prop === '__asObject') {
+        return makePureInstanceRequest(bindingName, instanceName, 'get', path);
       }
       
-      if (prop === 'catch') {
-        const promise = makePureInstanceRequest(bindingName, instanceName, 'get', path);
-        return promise.catch.bind(promise);
-      }
-      
-      // Chain deeper into the property path
+      // Chain deeper into the property path - no promise handling needed
       const newPath = [...path, prop as string];
       return createPureInstanceProxy(bindingName, instanceName, newPath);
     },
