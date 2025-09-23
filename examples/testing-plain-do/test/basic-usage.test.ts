@@ -222,7 +222,7 @@ describe('Limitations and quirks', () =>{
       const sqlObject = await sql.__asObject();
       expect(typeof sqlObject.databaseSize).toBe('number');
       expect(sqlObject.databaseSize).toBeGreaterThanOrEqual(0);
-      
+
       // Property access returns proxies immediately
       expect(typeof instance.ctx).toBe('function'); // Proxy
       expect(typeof storage).toBe('function'); // Proxy
