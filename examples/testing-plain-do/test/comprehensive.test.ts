@@ -318,7 +318,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
     });
   });
 
-  it('demonstrates error handling and instance proxy limitations', async () => {
+  it('demonstrates Error serialization with structured clone', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'error-test');
       
@@ -374,8 +374,8 @@ describe('Comprehensive @lumenize/testing Validation', () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'function-discovery-test');
       
-      // With function preprocessing, we now see function signatures for discoverability!
-      // The storage object reveals its complete API surface including methods from the prototype chain
+      // Function and static property discovery is available via __asObject()
+      // This shows the complete API surface including methods from the prototype chain
       const storageAsProperty = await instance.ctx.storage.__asObject();
       
       // Test that we get a comprehensive function map showing all available methods
@@ -397,7 +397,7 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         getBookmarkForTime: "getBookmarkForTime [Function]",
         onNextSessionRestoreBookmark: "onNextSessionRestoreBookmark [Function]",
         
-        // Nested kv object with its methods inline - no Proxy limitation!
+        // Nested kv object with its methods inline - accessible via __asObject()!
         kv: {
           get: "get [Function]",
           put: "put [Function]",
@@ -413,19 +413,12 @@ describe('Comprehensive @lumenize/testing Validation', () => {
           databaseSize: expect.any(Number) // Non-function properties preserved
         }
       });
-      
-      // This proves there's no Proxy limitation - the complete nested structure 
-      // with function discovery works perfectly in a single object assertion!
-      
     });
   });
 
-  it('demonstrates natural property vs method detection with helpful error messages', async () => {
+  it('demonstrates how errors are serialized across the tunnel and re-thrown', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'natural-syntax-test');
-      
-      // Test automatic property value access by awaiting the Proxy.__asObject() function
-      // This is much more natural than $value or $get() - just await the property!
       const storageAsProperty = await instance.ctx.storage.__asObject();
       expect(storageAsProperty).toBeDefined();
       
@@ -438,10 +431,10 @@ describe('Comprehensive @lumenize/testing Validation', () => {
         await nonExistentProperty();
       }).rejects.toThrow("nonExistentProperty is not a function");
       
-      // Test calling a non-existent method on instance.ctx (should throw with meaningful error message)
+      // Test calling a non-existent method on instance (should throw with meaningful error message)
       await expect(async () => {
-        await instance.ctx.nonExistentMethod();
-      }).rejects.toThrow("Method 'nonExistentMethod' does not exist on DurableObjectState");      
+        await instance.nonExistentMethod();
+      }).rejects.toThrow("Method 'nonExistentMethod' does not exist on MyDO");      
     });
   });
 

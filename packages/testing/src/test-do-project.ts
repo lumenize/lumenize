@@ -101,11 +101,26 @@ async function makePureInstanceRequest(bindingName: string, instanceName: string
   // Use routeDORequest which is designed to work in the current context
   const response = await routeDORequest(request, testEnv);
   
-  if (!response || !response.ok) {
-    throw new Error(`Testing instance request failed: ${response?.status || 'no response'} ${response ? await response.text() : 'routeDORequest returned undefined'}`);
+  if (!response) {
+    throw new Error('Testing instance request failed: routeDORequest returned undefined');
   }
   
   const serializedData = await response.json();
+  
+  // Handle error responses by re-throwing the original error
+  if (!response.ok) {
+    // The error response contains { error: string, stack?: string }
+    const errorData = serializedData as { error?: string; stack?: string };
+    if (errorData.error) {
+      const error = new Error(errorData.error);
+      if (errorData.stack) {
+        error.stack = errorData.stack;
+      }
+      throw error;
+    } else {
+      throw new Error(`Testing instance request failed: ${response.status} ${JSON.stringify(serializedData)}`);
+    }
+  }
   
   // Use JSON.parse first, then structured-clone deserialize
   return deserialize(serializedData);
