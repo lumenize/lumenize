@@ -68,8 +68,36 @@ function createPureInstanceProxy(bindingName: string, instanceName: string, path
 }
 
 async function makePureInstanceRequest(bindingName: string, instanceName: string, type: 'get' | 'call', path: string[], args?: any[]): Promise<any> {
-  // This is the key change: use routeDORequest directly instead of SELF.fetch
-  // routeDORequest is designed to work within the current request context
+  /**
+   * ARCHITECTURE NOTE: Independence from User's Worker Routing
+   * 
+   * This function uses routeDORequest from @lumenize/utils, which might seem like it creates
+   * a dependency on the user's Worker also using routeDORequest. However, this is NOT the case.
+   * 
+   * The testing framework operates completely independently of the user's Worker routing:
+   * 
+   * 1. SEPARATE ENVIRONMENTS: The testing framework creates its own instrumented environment
+   *    using instrumentEnvironment() which wraps the user's DO bindings. This environment
+   *    is stored in globalThis.__testingEnv and is separate from how the user's Worker works.
+   * 
+   * 2. PROXY TUNNEL BYPASSES USER'S WORKER: When you call instances('MY_DO', 'test').ctx.storage.get(),
+   *    the proxy creates a direct request to the DO instance (__testing/instance endpoint).
+   *    This request goes through routeDORequest IN THE TESTING FRAMEWORK, not through the user's Worker.
+   * 
+   * 3. ROUTEDOREQUEST IS JUST A UTILITY HERE: We use routeDORequest only as a utility to:
+   *    - Parse binding name from URL path (my-do → MY_DO)  
+   *    - Find the correct DO binding in the instrumented environment
+   *    - Get the appropriate DO stub and call fetch() on it
+   * 
+   * 4. PROVEN BY TESTS: The custom-routing.test.ts file demonstrates this works with Workers
+   *    that use completely different routing strategies (direct env.MY_DO.getByName() calls,
+   *    custom URL parsing, etc.) and all instance proxy functionality works perfectly.
+   * 
+   * FLOW: instances().ctx.storage.get() → makePureInstanceRequest() → routeDORequest(testing framework)
+   *       → getDOStubFromPathname() → instrumentedDO.fetch() → handleInstanceProxy() → result
+   * 
+   * The user's Worker routing is never involved in this flow.
+   */
   const requestBody = {
     type,
     path,
