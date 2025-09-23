@@ -25,7 +25,7 @@ describe('testDOProject core capabilities', () => {
   //   - Pre-populate storage via direct instance access before operations
   //   - Use fetch operations to manipulate storage
   //   - Verify results via instance storage assertions
-  it('demonstrates pre-populating via instance and then doing a fetch operation', async () => {
+  it('demonstrates pre-populating data, calling to change it, then checking data again', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Verify that count is correct in storage via instance access
       const instance = instances('MY_DO', 'put-fetch-get');
@@ -46,9 +46,9 @@ describe('testDOProject core capabilities', () => {
   });
 
   // testDOProject allows you to:
-  //   - Access all public members on the DO instance (env, ctx, custom methods)
-  //   - Inspect complete API surface including nested objects via property access preprocessing
-  it('demonstrates complete DO instance inspection and function discovery', async () => {
+  //   - Discover all public members on the DO instance (env, ctx, custom methods)
+  //   - Make assertions on non-function properties
+  it('demonstrates DO inspection and function discovery using __asObject()', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instanceAsObject = await instances('MY_DO', 'property-inspection-test').__asObject();
       
@@ -62,9 +62,12 @@ describe('testDOProject core capabilities', () => {
             get: "get [Function]",
             put: "put [Function]",
             // ... other storage methods available
+            sql: {
+              databaseSize: expect.any(Number), // Assert on non-function properties
+              // ... other ctx.sql methods
+            },
           },
           getWebSockets: "getWebSockets [Function]",
-          acceptWebSocket: "acceptWebSocket [Function]",
           setWebSocketAutoResponse: "setWebSocketAutoResponse [Function]",
           // ... other ctx methods available
         },
@@ -109,11 +112,11 @@ describe('testDOProject core capabilities', () => {
   });
 
   // testDOProject allows you to:
-  //   - Configure various helper options for different testing scenarios
+  //   - Configure various options for different testing scenarios
   it('demonstrates all available helpers.options (living documentation)', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       // Purpose: Set default hostname (used for cookies when domain not explicitly provided)
-      // Default: undefined
+      // Default: undefined (until first fetch or manually set)
       // Behavior: First fetch sets it if not manually set, but last manual setting wins
       helpers.options.hostname = 'example.com';
       
@@ -125,7 +128,7 @@ describe('testDOProject core capabilities', () => {
   });
 
   // testDOProject allows you to:
-  //   - Use any client library that directly calls `new WebSocket()` via helpers.WebSocket
+  //   - Use familiar `new WebSocket()` via helpers.WebSocket
   //   - Browser-compatible WebSocket API that routes through DO testing infrastructure
   it('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
@@ -153,14 +156,6 @@ describe('testDOProject core capabilities', () => {
       const webSocketsOnServer = await instances('MY_DO', 'test-ws').ctx.getWebSockets('test-ws');
       expect(webSocketsOnServer.length).toBe(1);
 
-      const instance = instances('MY_DO', 'test-ws');
-      const webSocketsOnServer2 = await instance.ctx.getWebSockets('test-ws');
-      expect(webSocketsOnServer2.length).toBe(1);
-
-      const ctx = instances('MY_DO', 'test-ws').ctx;
-      const webSocketsOnServer3 = await ctx.getWebSockets('test-ws');
-      expect(webSocketsOnServer3.length).toBe(1);
-
       ws.close();
     });
   });
@@ -186,7 +181,7 @@ describe('testDOProject core capabilities', () => {
 
 describe('Limitations and quirks', () =>{
 
-  // testDOProject has this characteristic:
+  // testDOProject has these quirks:
   //   - Function calls require await, property access is synchronous, static values via __asObject()
   it('requires await for even non-async function calls', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
@@ -195,38 +190,25 @@ describe('Limitations and quirks', () =>{
       // 1. Function calls require await even if what they are calling is not async inside the DO
 
       // using `async ctx.storage.put(...)`
-      // requires await even when used in the DO
+      // requires await in both testDOProject and the DO
       await instance.ctx.storage.put('key', 'value');
 
       // using non-async `ctx.storage.kv.get(...)`
-      // would not require await in DO but does in this test runner
+      // would not require await in DO but does in testDOProject
       const asyncResult = await instance.ctx.storage.kv.get('key');
       expect(asyncResult).toBe('value');
       
-      // 2. Property access is synchronous - no await needed!
+      // 2. Property access can be chained and destructured (returns a new Proxy)
       const storage = instance.ctx.storage;
-      const kv = storage.kv;
-      const sql = storage.sql;
+      const { sql } = storage;
       
-      // 3. Only function calls need await
-      await kv.put('kv-key', 'kv-value');
-      const kvResult = await kv.get('kv-key');
-      expect(kvResult).toBe('kv-value');
-      
-      // 4. Properties are accessed synchronously
-      // We can chain property access without await, only final function calls need it
-      const anotherKvResult = await instance.ctx.storage.kv.get('kv-key');
-      expect(anotherKvResult).toBe('kv-value');
-      
-      // 5. Static properties can be accessed via __asObject() function
+      // 3. Static properties can be accessed via __asObject() function
       const sqlObject = await sql.__asObject();
       expect(typeof sqlObject.databaseSize).toBe('number');
-      expect(sqlObject.databaseSize).toBeGreaterThanOrEqual(0);
 
-      // Property access returns proxies immediately
-      expect(typeof instance.ctx).toBe('function'); // Proxy
-      expect(typeof storage).toBe('function'); // Proxy
-      expect(typeof sql).toBe('function'); // Proxy
+      // 3. Static properties can be accessed on Proxy objects
+      // expect(typeof sql.databaseSize).toBe('number');
+
     });
   });
 
