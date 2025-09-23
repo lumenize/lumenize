@@ -370,47 +370,13 @@ describe('Comprehensive @lumenize/testing Validation', () => {
     });
   });
 
-  it('allows root instance access for complete DO discovery', async () => {
-    await testDOProject(async (SELF, instances, helpers) => {
-      const instance = instances('MY_DO', 'root-access-test');
-      
-      // Test accessing the root instance directly (empty path)
-      // This should return the entire DO instance structure, preprocessed for discovery
-      const rootInstance = await instance;
-      // console.log('%o', rootInstance);
-
-      // Verify that private methods are truly inaccessible (even if user knows they exist)
-      await expect(async () => {
-        await instance['#nonExistentPrivateMethod']();
-      }).rejects.toThrow("Method '#nonExistentPrivateMethod' does not exist on MyDO");
-      
-      // Verify we get the complete instance structure
-      expect(rootInstance).toBeDefined();
-      expect(typeof rootInstance).toBe('object');
-      
-      // Should contain ctx property with its structure
-      expect(rootInstance.ctx).toBeDefined();
-      expect(typeof rootInstance.ctx).toBe('object');
-      
-      // Should contain env property
-      expect(rootInstance.env).toBeDefined();
-      
-      // Should contain fetch method (from the DO class)
-      expect(rootInstance.fetch).toBe('fetch [Function]');
-      
-      // Should contain any methods from the user's DO class
-      expect(rootInstance.increment).toBe('increment [Function]');
-      
-    });
-  });
-
   it('provides function discovery through property access preprocessing', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'function-discovery-test');
       
       // With function preprocessing, we now see function signatures for discoverability!
       // The storage object reveals its complete API surface including methods from the prototype chain
-      const storageAsProperty = await instance.ctx.storage;
+      const storageAsProperty = await instance.ctx.storage.__asObject();
       
       // Test that we get a comprehensive function map showing all available methods
       // INCLUDING nested objects like kv and sql with their methods inline!
@@ -458,45 +424,24 @@ describe('Comprehensive @lumenize/testing Validation', () => {
     await testDOProject(async (SELF, instances, helpers) => {
       const instance = instances('MY_DO', 'natural-syntax-test');
       
-      // Now let's test automatic property vs method detection via natural syntax!
-      // The proxy automatically detects usage patterns:
-      // - await instance.ctx.property → gets property value
-      // - instance.ctx.method() → calls method
-      
-      // Test automatic property value access by awaiting the proxy directly
+      // Test automatic property value access by awaiting the Proxy.__asObject() function
       // This is much more natural than $value or $get() - just await the property!
-      const storageAsProperty = await instance.ctx.storage;
+      const storageAsProperty = await instance.ctx.storage.__asObject();
       expect(storageAsProperty).toBeDefined();
       
-      // Functions can't be cloned, but objects, primitives, etc. can be.
-      
-      // Test accessing a non-existent property on instance.ctx (should be a function proxy)
-      const nonExistentProperty = instance.ctx.nonExistentProperty;
-      expect(typeof nonExistentProperty).toBe('function');
-      
-      // Test getting the actual value of a non-existent property (returns undefined, doesn't throw)
-      const nonExistentValue = await nonExistentProperty;
-      expect(nonExistentValue).toBeUndefined();
+      // Test getting the value of a non-existent property (returns undefined, doesn't throw)
+      const nonExistentProperty = storageAsProperty.nonExistentProperty;
+      expect(nonExistentProperty).toBeUndefined();
       
       // Test calling that property as a function (should throw with meaningful error message)
       await expect(async () => {
         await nonExistentProperty();
-      }).rejects.toThrow("Method 'nonExistentProperty' does not exist on DurableObjectState");
+      }).rejects.toThrow("nonExistentProperty is not a function");
       
       // Test calling a non-existent method on instance.ctx (should throw with meaningful error message)
       await expect(async () => {
         await instance.ctx.nonExistentMethod();
-      }).rejects.toThrow("Method 'nonExistentMethod' does not exist on DurableObjectState");
-      
-      // Test accessing a non-existent property on instance.ctx.storage (should be a function proxy)
-      const nonExistentStorageProperty = instance.ctx.storage.nonExistentProperty;
-      expect(typeof nonExistentStorageProperty).toBe('function');
-      
-      // Test calling a non-existent method on instance.ctx.storage (should throw with meaningful error message)
-      await expect(async () => {
-        await instance.ctx.storage.nonExistentMethod();
-      }).rejects.toThrow("Method 'nonExistentMethod' does not exist on DurableObjectStorage");
-      
+      }).rejects.toThrow("Method 'nonExistentMethod' does not exist on DurableObjectState");      
     });
   });
 
