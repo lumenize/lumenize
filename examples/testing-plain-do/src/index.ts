@@ -148,10 +148,6 @@ export class MyDO extends DurableObject{
       return ws.send(JSON.stringify(attachment.headers));
     }
 
-    if (message === 'test-error') {
-      throw new Error("Test error from DO");
-    }
-
     if (message === 'test-server-close') {   
       return ws.close(4001, "Server initiated close for testing");
     }
@@ -160,9 +156,5 @@ export class MyDO extends DurableObject{
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
     await this.ctx.storage.put("lastWebSocketClose", { code, reason, wasClean });
     ws.close(code, reason);
-  }
-
-  async webSocketError(ws: WebSocket, error: Error) {
-    await this.ctx.storage.put("lastWebSocketError", { message: error.message, timestamp: Date.now() });
   }
 };

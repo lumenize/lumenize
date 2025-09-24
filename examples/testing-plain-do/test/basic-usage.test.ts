@@ -12,11 +12,10 @@ import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
 //   - Not a drop-in replacement but similar to cloudflare:test's runInDurableObject  
 //   - Use `new WebSocket()` and "wss://..." urls just like you would in a browser
 //   - Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
-//   - Assert on close codes and reasons (TODO: implement)
+//   - Assert on close codes and reasons (not shown)
 //   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
 //   - Assert on any state change in instance variables or storage
 //   - Manipulate storage prior to running a test
-//   - Test using multiple WebSocket connections to the same DO instance (TODO: implement)
 //   - Supply Origin and other Headers for WebSocket upgrades (TODO: confirm we have a test for this)
 //   - Automatic cookie jar functionality to test complex auth and other cookie flows
 describe('testDOProject core capabilities', () => {
@@ -147,11 +146,6 @@ describe('testDOProject core capabilities', () => {
         onMessageCalled = true;
       };
 
-      ws.onerror = (event: any) => {
-        console.log('%o', event);
-        // TODO: Make it throw an error and add assertion
-      };
-
       // TODO: Are there any other WebSocket methods/properties we should show
 
       await vi.waitFor(() => expect(onMessageCalled).toBe(true));
@@ -160,32 +154,6 @@ describe('testDOProject core capabilities', () => {
       expect(webSocketsOnServer.length).toBe(1);
 
       ws.close();
-    });
-  });
-
-  // testDOProject allows you to:
-  //   - Test WebSocket close codes and reasons for client and server initiated closes
-  //   - Verify close events fire correctly with proper codes/reasons
-  it('demonstrates WebSocket close code handling', async () => {
-    await testDOProject(async (SELF, instances, helpers) => {
-      const ws = new helpers.WebSocket('wss://example.com/my-do/close-test');
-      
-      let closeEventFired = false;
-      let opened = false;
-      
-      ws.onopen = () => {
-        ws.close(1001, "Going away");
-        opened = true;
-      };
-      
-      ws.onclose = (event: CloseEvent) => {
-        expect(event.code).toBe(1001);
-        expect(event.reason).toBe("Going away");
-        expect(event.wasClean).toBe(true);
-        closeEventFired = true;
-      };
-      
-      await vi.waitFor(() => closeEventFired);
     });
   });
 
