@@ -34,17 +34,17 @@ describe('lumenize server-side functionality', () => {
     expect(LumenizedDO.name).toBe('ExampleDO');
   });
 
-  it('should handle info requests', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
-    const instance = new LumenizedDO(mockCtx, mockEnv);
-    
-    const request = new Request('https://example.com/__rpc/info');
-    const response = await instance.fetch(request);
-    
-    expect(response.status).toBe(200);
-    const data = await response.json() as any;
-    expect(data.isLumenized).toBe(true);
-    expect(data.className).toBe('ExampleDO');
+  it('should throw error for non-function input', () => {
+    // @ts-expect-error - Testing runtime validation for null (TypeScript correctly flags this at compile time)
+    expect(() => lumenize(null)).toThrow('lumenize() expects a Durable Object class (constructor function), got object');
+    // @ts-expect-error - Testing runtime validation for undefined (TypeScript correctly flags this at compile time)
+    expect(() => lumenize(undefined)).toThrow('lumenize() expects a Durable Object class (constructor function), got undefined');
+    // @ts-expect-error - Testing runtime validation for plain object (TypeScript correctly flags this at compile time)
+    expect(() => lumenize({})).toThrow('lumenize() expects a Durable Object class (constructor function), got object');
+    // @ts-expect-error - Testing runtime validation for string (TypeScript correctly flags this at compile time)
+    expect(() => lumenize('string')).toThrow('lumenize() expects a Durable Object class (constructor function), got string');
+    // @ts-expect-error - Testing runtime validation for number (TypeScript correctly flags this at compile time)
+    expect(() => lumenize(42)).toThrow('lumenize() expects a Durable Object class (constructor function), got number');
   });
 
   it('should execute simple operation chains', async () => {
@@ -52,10 +52,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'increment' },
-        { type: 'apply', args: serialize([]) }
-      ]
+        { type: 'apply', args: [] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -78,10 +78,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'add' },
-        { type: 'apply', args: serialize([5, 3]) }
-      ]
+        { type: 'apply', args: [5, 3] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -104,10 +104,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'nonexistentMethod' },
-        { type: 'apply', args: serialize([]) }
-      ]
+        { type: 'apply', args: [] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -140,10 +140,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'getObject' },
-        { type: 'apply', args: serialize([]) }
-      ]
+        { type: 'apply', args: [] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -169,13 +169,13 @@ describe('lumenize server-side functionality', () => {
     
     // First get the object, then call the nested getValue function
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'getObject' },
-        { type: 'apply', args: serialize([]) },
+        { type: 'apply', args: [] },
         { type: 'get', key: 'nested' },
         { type: 'get', key: 'getValue' },
-        { type: 'apply', args: serialize([]) }
-      ]
+        { type: 'apply', args: [] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -198,10 +198,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'throwError' },
-        { type: 'apply', args: serialize(['Test error message']) }
-      ]
+        { type: 'apply', args: ['Test error message'] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -227,10 +227,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'throwString' },
-        { type: 'apply', args: serialize(['Just a string error']) }
-      ]
+        { type: 'apply', args: ['Just a string error'] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -254,10 +254,10 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'getArray' },
-        { type: 'apply', args: serialize([]) }
-      ]
+        { type: 'apply', args: [] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -280,11 +280,11 @@ describe('lumenize server-side functionality', () => {
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'complexData' },
         { type: 'get', key: 'data' },
         { type: 'get', key: 'id' }
-      ]
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -308,12 +308,12 @@ describe('lumenize server-side functionality', () => {
     
     // Test accessing the circular reference: complexData.data should point back to complexData
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'complexData' },
         { type: 'get', key: 'data' },
         { type: 'get', key: 'data' },
         { type: 'get', key: 'id' }
-      ]
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {
@@ -337,12 +337,12 @@ describe('lumenize server-side functionality', () => {
     
     // Test calling the getName method inside complexData.methods
     const rpcRequest: RPCRequest = {
-      operations: [
+      operations: serialize([
         { type: 'get', key: 'complexData' },
         { type: 'get', key: 'methods' },
         { type: 'get', key: 'getName' },
-        { type: 'apply', args: serialize([]) }
-      ]
+        { type: 'apply', args: [] }
+      ])
     };
     
     const request = new Request('https://example.com/__rpc/call', {

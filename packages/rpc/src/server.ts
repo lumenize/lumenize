@@ -26,61 +26,53 @@ const DEFAULT_CONFIG: Required<RPCConfig> = {
  * @param config - Optional RPC configuration
  * @returns Enhanced DO class with RPC endpoints
  */
-export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
+export function lumenize<T extends new (...args: any[]) => any>(DOClass: T, config: RPCConfig = {}): T {
   if (typeof DOClass !== 'function') {
-    return DOClass;
+    throw new Error(`lumenize() expects a Durable Object class (constructor function), got ${typeof DOClass}`);
   }
 
   const rpcConfig = { ...DEFAULT_CONFIG, ...config };
 
   // Create enhanced class that extends the original
-  class LumenizedDO extends (DOClass as any) {
-    async fetch(request: Request): Promise<Response> {
-      const url = new URL(request.url);
-      
-      // Handle RPC endpoints
-      if (url.pathname.startsWith(rpcConfig.basePath)) {
-        return this.handleRPCRequest(request);
-      }
-      
-      // Delegate to original user's fetch method
-      return super.fetch(request);
+  class LumenizedDO extends (DOClass as T) {
+    async fetch(request: Request, env?: any, ctx?: any): Promise<Response> {
+      return (
+        await this.handleRPCRequest(request, env, ctx) ||
+        super.fetch(request, env, ctx)
+      );
     }
 
-    async handleRPCRequest(request: Request): Promise<Response> {
+    private async handleRPCRequest(request: Request, env?: any, ctx?: any): Promise<Response | null> {
+      const url = new URL(request.url);
+      
+      // Only handle RPC endpoints
+      if (!url.pathname.startsWith(rpcConfig.basePath)) {
+        return null; // Not an RPC request, let other handlers deal with it
+      }
+
+      const endpoint = url.pathname.substring(rpcConfig.basePath.length);
+      
       try {
-        const url = new URL(request.url);
-        const endpoint = url.pathname.substring(rpcConfig.basePath.length);
-        
         switch (endpoint) {
-          case '/info':
-            return this.handleInfoRequest();
           case '/call':
             return this.handleCallRequest(request);
           default:
-            return new Response('RPC endpoint not found', { status: 404 });
+            return new Response(`Unknown RPC endpoint: ${endpoint}`, { status: 404 });
         }
       } catch (error: any) {
-        console.error('[RPC] Request handling error:', error);
+        console.error('%o', {
+          type: 'error',
+          where: 'Lumenize.handleRPCRequest',
+          message: 'RPC request handling failed',
+          endpoint,
+          error: error?.message || error
+        });
         const response: RPCResponse = {
           success: false,
           error: serializeError(error)
         };
         return Response.json(response, { status: 500 });
       }
-    }
-
-    async handleInfoRequest(): Promise<Response> {
-      return Response.json({
-        className: this.constructor.name,
-        timestamp: Date.now(),
-        isLumenized: true,
-        availableEndpoints: [
-          `${rpcConfig.basePath}/info`,
-          `${rpcConfig.basePath}/call`
-        ],
-        config: rpcConfig
-      });
     }
 
     async handleCallRequest(request: Request): Promise<Response> {
@@ -91,27 +83,29 @@ export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
       try {
         const rpcRequest = await request.json() as RPCRequest;
         
-        // Validate request
-        this.validateRPCRequest(rpcRequest);
-        
-        // Deserialize arguments in apply operations
+        // Deserialize and validate the entire operations chain in one call
         const deserializedOperations = this.deserializeOperationChain(rpcRequest.operations);
         
         // Execute operation chain
         const result = await this.executeOperationChain(deserializedOperations);
         
-        // Process result for serialization
+        // Replace functions with markers before structured-clone serialization
         const processedResult = this.preprocessResult(result, rpcRequest.operations);
         
         const response: RPCResponse = {
           success: true,
-          result: serialize(processedResult) // Structured-clone serialize the result
+          result: serialize(processedResult) // Structured-clone serialize the processed result
         };
         
         return Response.json(response); // JSON serialize the whole response
         
       } catch (error: any) {
-        console.error('[RPC] Call execution error:', error);
+        console.error('%o', {
+          type: 'error',
+          where: 'Lumenize.handleCallRequest',
+          message: 'RPC call execution failed',
+          error: error?.message || error
+        });
         const response: RPCResponse = {
           success: false,
           error: serializeError(error) // Custom error serialization (already an object)
@@ -120,33 +114,26 @@ export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
       }
     }
 
-    private validateRPCRequest(request: RPCRequest): void {
-      if (!Array.isArray(request.operations)) {
+    private deserializeOperationChain(serializedOperations: any): OperationChain {
+      // Deserialize the entire operations array in one call - much more efficient
+      const operations: OperationChain = deserialize(serializedOperations);
+      
+      // Validate the deserialized operations (parse don't validate principle)
+      if (!Array.isArray(operations)) {
         throw new Error('Invalid RPC request: operations must be an array');
       }
       
-      if (request.operations.length > rpcConfig.maxDepth) {
-        throw new Error(`Operation chain too deep: ${request.operations.length} > ${rpcConfig.maxDepth}`);
+      if (operations.length > rpcConfig.maxDepth) {
+        throw new Error(`Operation chain too deep: ${operations.length} > ${rpcConfig.maxDepth}`);
       }
       
-      for (const operation of request.operations) {
+      for (const operation of operations) {
         if (operation.type === 'apply' && operation.args.length > rpcConfig.maxArgs) {
           throw new Error(`Too many arguments: ${operation.args.length} > ${rpcConfig.maxArgs}`);
         }
       }
-    }
-
-    private deserializeOperationChain(operations: OperationChain): OperationChain {
-      return operations.map(operation => {
-        if (operation.type === 'apply') {
-          // Deserialize the entire args array that was structured-clone serialized by the client
-          return {
-            ...operation,
-            args: deserialize(operation.args)
-          };
-        }
-        return operation; // 'get' operations don't have args to deserialize
-      });
+      
+      return operations;
     }
 
     private async executeOperationChain(operations: OperationChain): Promise<any> {
@@ -162,7 +149,7 @@ export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
         } else if (operation.type === 'apply') {
           // Function call
           if (typeof current !== 'function') {
-            throw new Error(`Cannot call non-function value: ${typeof current}`);
+            throw new Error(`TypeError: ${String(current)} is not a function`);
           }
           
           // Find the correct 'this' context by walking back to the parent object
@@ -191,52 +178,49 @@ export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
       return parent;
     }
 
-    private preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): any {
-      // Handle primitive types and null/undefined
+    private preprocessResult(result: any, operationChain: OperationChain, seen = new WeakSet()): any {
+      // Handle primitives - return as-is, structured-clone will handle them
       if (result === null || result === undefined || typeof result !== 'object') {
         return result;
       }
       
-      // Handle circular references
+      // Handle circular references - prevent infinite recursion in our preprocessing
       if (seen.has(result)) {
-        return seen.get(result);
+        return result;
       }
+      seen.add(result);
       
-      // Handle arrays
-      if (Array.isArray(result)) {
-        const processedArray: any[] = [];
-        seen.set(result, processedArray);
-        processedArray.push(...result.map((item, index) => {
-          const currentChain: OperationChain = [...operationChain, { type: 'get', key: index }];
-          return this.preprocessResult(item, currentChain, seen);
-        }));
-        return processedArray;
-      }
-      
-      // Handle built-in types that structured clone handles natively
+      // Handle built-in types that structured-clone handles natively - return as-is
       if (result instanceof Date || result instanceof RegExp || result instanceof Map || 
           result instanceof Set || result instanceof ArrayBuffer || 
           ArrayBuffer.isView(result) || result instanceof Error) {
         return result;
       }
       
-      // Handle plain objects
+      // Handle arrays - recursively process items for function replacement
+      if (Array.isArray(result)) {
+        return result.map((item, index) => {
+          const currentChain: OperationChain = [...operationChain, { type: 'get', key: index }];
+          return this.preprocessResult(item, currentChain, seen);
+        });
+      }
+      
+      // Handle plain objects - replace functions with markers, recursively process other values
       const processedObject: any = {};
-      seen.set(result, processedObject);
       
       // Process enumerable properties
       for (const [key, value] of Object.entries(result)) {
         const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
         
         if (typeof value === 'function') {
-          // Create remote function marker
-          const marker: RemoteFunctionMarker = {
+          // Replace function with remote function marker
+          processedObject[key] = {
             __isRemoteFunction: true,
             __operationChain: currentChain,
             __functionName: key,
-          };
-          processedObject[key] = marker;
+          } as RemoteFunctionMarker;
         } else {
+          // Recursively process non-function values
           processedObject[key] = this.preprocessResult(value, currentChain, seen);
         }
       }
