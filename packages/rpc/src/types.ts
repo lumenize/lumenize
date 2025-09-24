@@ -3,7 +3,15 @@
  */
 export type Operation = 
   | { type: 'get', key: string | number | symbol }     // Property/element access
-  | { type: 'apply', args: any[] };                    // Function calls
+  | { type: 'apply', args: any[] };                    // Function calls (deserialized, ready for execution)
+
+/**
+ * Wire format operation types (for transport over HTTP)
+ * args are structured-clone serialized for complex type support
+ */
+export type WireOperation = 
+  | { type: 'get', key: string | number | symbol }     // Property/element access
+  | { type: 'apply', args: any };                      // Function calls (serialized args array)
 
 /**
  * Chain of operations to execute on the DO instance
@@ -16,10 +24,15 @@ export type Operation =
 export type OperationChain = Operation[];
 
 /**
- * Request format sent to DO RPC endpoint
+ * Wire format operation chain (for transport over HTTP)
+ */
+export type WireOperationChain = WireOperation[];
+
+/**
+ * Request format sent to DO RPC endpoint (wire format)
  */
 export interface RPCRequest {
-  operations: OperationChain;
+  operations: WireOperationChain;
 }
 
 /**

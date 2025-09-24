@@ -94,8 +94,11 @@ export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
         // Validate request
         this.validateRPCRequest(rpcRequest);
         
+        // Deserialize arguments in apply operations
+        const deserializedOperations = this.deserializeOperationChain(rpcRequest.operations);
+        
         // Execute operation chain
-        const result = await this.executeOperationChain(rpcRequest.operations);
+        const result = await this.executeOperationChain(deserializedOperations);
         
         // Process result for serialization
         const processedResult = this.preprocessResult(result, rpcRequest.operations);
@@ -131,6 +134,19 @@ export function lumenize<T>(DOClass: T, config: RPCConfig = {}): T {
           throw new Error(`Too many arguments: ${operation.args.length} > ${rpcConfig.maxArgs}`);
         }
       }
+    }
+
+    private deserializeOperationChain(operations: OperationChain): OperationChain {
+      return operations.map(operation => {
+        if (operation.type === 'apply') {
+          // Deserialize the entire args array that was structured-clone serialized by the client
+          return {
+            ...operation,
+            args: deserialize(operation.args)
+          };
+        }
+        return operation; // 'get' operations don't have args to deserialize
+      });
     }
 
     private async executeOperationChain(operations: OperationChain): Promise<any> {

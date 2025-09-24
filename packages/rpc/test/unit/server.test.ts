@@ -54,7 +54,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'increment' },
-        { type: 'apply', args: [] }
+        { type: 'apply', args: serialize([]) }
       ]
     };
     
@@ -80,7 +80,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'add' },
-        { type: 'apply', args: [5, 3] }
+        { type: 'apply', args: serialize([5, 3]) }
       ]
     };
     
@@ -106,7 +106,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'nonexistentMethod' },
-        { type: 'apply', args: [] }
+        { type: 'apply', args: serialize([]) }
       ]
     };
     
@@ -142,7 +142,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'getObject' },
-        { type: 'apply', args: [] }
+        { type: 'apply', args: serialize([]) }
       ]
     };
     
@@ -171,10 +171,10 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'getObject' },
-        { type: 'apply', args: [] },
+        { type: 'apply', args: serialize([]) },
         { type: 'get', key: 'nested' },
         { type: 'get', key: 'getValue' },
-        { type: 'apply', args: [] }
+        { type: 'apply', args: serialize([]) }
       ]
     };
     
@@ -200,7 +200,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'throwError' },
-        { type: 'apply', args: ['Test error message'] }
+        { type: 'apply', args: serialize(['Test error message']) }
       ]
     };
     
@@ -229,7 +229,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'throwString' },
-        { type: 'apply', args: ['Just a string error'] }
+        { type: 'apply', args: serialize(['Just a string error']) }
       ]
     };
     
@@ -256,7 +256,7 @@ describe('lumenize server-side functionality', () => {
     const rpcRequest: RPCRequest = {
       operations: [
         { type: 'get', key: 'getArray' },
-        { type: 'apply', args: [] }
+        { type: 'apply', args: serialize([]) }
       ]
     };
     
@@ -341,7 +341,7 @@ describe('lumenize server-side functionality', () => {
         { type: 'get', key: 'complexData' },
         { type: 'get', key: 'methods' },
         { type: 'get', key: 'getName' },
-        { type: 'apply', args: [] }
+        { type: 'apply', args: serialize([]) }
       ]
     };
     
