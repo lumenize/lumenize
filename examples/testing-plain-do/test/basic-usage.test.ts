@@ -132,7 +132,7 @@ describe('testDOProject core capabilities', () => {
   // testDOProject allows you to:
   //   - Use familiar `new WebSocket()` via helpers.WebSocket
   //   - Browser-compatible WebSocket API that routes through DO testing infrastructure
-  it('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
+  it.only('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
     await testDOProject(async (SELF, instances, helpers) => {
       let onMessageCalled = false;
       
@@ -152,6 +152,15 @@ describe('testDOProject core capabilities', () => {
 
       const webSocketsOnServer = await instances('MY_DO', 'test-ws').ctx.getWebSockets('test-ws');
       expect(webSocketsOnServer.length).toBe(1);
+      
+      const serverWS = webSocketsOnServer[0];
+      // console.log('%o', serverWS)
+
+      const { deserializeAttachment } = serverWS;
+      console.log('%o', deserializeAttachment);
+      
+      const attachment = await deserializeAttachment();
+      console.log('%o', attachment)
 
       ws.close();
     });
