@@ -1,29 +1,18 @@
 {
+  "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "allowSyntheticDefaultImports": true,
     "types": ["@cloudflare/workers-types", "vitest/globals"]
   },
   "include": [
-    "src/**/*"
-, "test/index.test.ts"  ],
+    "src/**/*",
+    "test/index.test.ts"
+  ],
   "exclude": [
-    "node_modules",
-    "dist",
     "scratch/**/*",
     "**/*.test.ts"
   ]
