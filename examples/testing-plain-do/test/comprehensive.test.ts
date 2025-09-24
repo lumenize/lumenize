@@ -572,8 +572,9 @@ describe('WebSocket comprehensive testing', () => {
         clientCloseReason = event.reason;
         clientWasClean = event.wasClean;
         
-        // Client-initiated close: Full handshake completes before onclose fires
-        expect(ws.readyState).toBe(3); // WebSocket.CLOSED
+        // Client-initiated close: onclose fires after server responds with Close frame (full handshake)
+        // At this point, the connection is fully closed, so readyState is CLOSED (3)
+        expect(ws.readyState).toBe(3); // WebSocket.CLOSED - handshake complete
       };
       
       ws.onerror = (error: Event) => {
@@ -641,8 +642,8 @@ describe('WebSocket comprehensive testing', () => {
         serverWasClean = event.wasClean;
         
         // Server-initiated close: Client receives Close frame and fires onclose immediately
-        // while still in CLOSING state, before completing its response. This timing is correct.
-        expect(ws.readyState).toBe(2); // WebSocket.CLOSING
+        // Connection is still CLOSING because client hasn't finished sending its response frame yet
+        expect(ws.readyState).toBe(2); // WebSocket.CLOSING - response frame pending
       };
       
       // Wait for connection to be established and server to close it
