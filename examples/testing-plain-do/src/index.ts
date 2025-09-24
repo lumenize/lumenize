@@ -142,12 +142,6 @@ export class MyDO extends DurableObject{
       return ws.send((await this.increment()).toString());
     }
 
-    if (message === 'headers') {
-      const webSockets = this.ctx.getWebSockets();
-      const attachment = webSockets[0].deserializeAttachment();
-      return ws.send(JSON.stringify(attachment.headers));
-    }
-
     if (message === 'test-server-close') {   
       return ws.close(4001, "Server initiated close for testing");
     }
