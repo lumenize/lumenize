@@ -122,7 +122,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
         this.#queuedBytes = 0;
         const ev = new CloseEvent("close", { code, reason, wasClean: true });
         this.dispatchEvent(ev);
-        this.onclose?.(ev);
+        // Don't call this.onclose manually - dispatchEvent handles it
         return;
       }
 
@@ -134,6 +134,10 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
       // Drop anything queued — we won't send after close().
       this.#queue.length = 0;
       this.#queuedBytes = 0;
+      
+      // Call close on the raw WebSocket but DON'T fire close event here
+      // The close event will be fired by the raw WebSocket's close event handler
+      // when the server responds with its Close frame (proper WebSocket protocol)
       try { this.#ws.close(code, reason); } catch {/* ignore */}
       // When the real 'close' arrives, listeners clear the override.
     }
@@ -163,6 +167,13 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
         }
 
         ws.accept(); // take ownership in this worker/test environment
+        
+        // Check if we were closed before the connection completed
+        if (this.readyState === WebSocketShim.CLOSED) {
+          ws.close();
+          return;
+        }
+        
         this.#ws = ws;
 
         // From here on, we proxy raw readyState unless temporarily overridden.
@@ -177,7 +188,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
           this.#stateOverride = null;
           const newEvent = new Event("open");
           this.dispatchEvent(newEvent);
-          this.onopen?.(newEvent);
+          // Don't call this.onopen manually - dispatchEvent handles it
           void this.#flushQueue();
         });
 
@@ -190,7 +201,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
             ports: [...e.ports] // Convert readonly array to mutable
           });
           this.dispatchEvent(newEvent);
-          this.onmessage?.(newEvent);
+          // Don't call this.onmessage manually - dispatchEvent handles it
         });
 
         ws.addEventListener("error", (e) => {
@@ -204,7 +215,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
             colno: (e as any).colno
           });
           this.dispatchEvent(newEvent);
-          this.onerror?.(newEvent);
+          // Don't call this.onerror manually - dispatchEvent handles it
         });
 
         ws.addEventListener("close", (e: CloseEvent) => {
@@ -218,21 +229,21 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
             wasClean: e.wasClean
           });
           this.dispatchEvent(newEvent);
-          this.onclose?.(newEvent);
+          // Don't call this.onclose manually - dispatchEvent handles it
         });
 
         // If the raw is already OPEN (rare), synthesize "open" and flush.
         if ((ws as any).readyState === WebSocketShim.OPEN) {
           const ev = new Event("open");
           this.dispatchEvent(ev);
-          this.onopen?.(ev);
+          // Don't call this.onopen manually - dispatchEvent handles it
           void this.#flushQueue();
         }
       } catch (err) {
         // Connection failed -> error + CLOSED
         const ee = new ErrorEvent("error", { error: err as any, message: (err as any)?.message ?? String(err) });
         this.dispatchEvent(ee);
-        this.onerror?.(ee);
+        // Don't call this.onerror manually - dispatchEvent handles it
 
         this.#stateOverride = WebSocketShim.CLOSED;
         this.#queue.length = 0;
@@ -244,7 +255,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
           wasClean: false,
         });
         this.dispatchEvent(ce);
-        this.onclose?.(ce);
+        // Don't call this.onclose manually - dispatchEvent handles it
       }
     }
 

@@ -164,6 +164,32 @@ describe('testDOProject core capabilities', () => {
   });
 
   // testDOProject allows you to:
+  //   - Test WebSocket close codes and reasons for client and server initiated closes
+  //   - Verify close events fire correctly with proper codes/reasons
+  it('demonstrates WebSocket close code handling', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      const ws = new helpers.WebSocket('wss://example.com/my-do/close-test');
+      
+      let closeEventFired = false;
+      let opened = false;
+      
+      ws.onopen = () => {
+        ws.close(1001, "Going away");
+        opened = true;
+      };
+      
+      ws.onclose = (event: CloseEvent) => {
+        expect(event.code).toBe(1001);
+        expect(event.reason).toBe("Going away");
+        expect(event.wasClean).toBe(true);
+        closeEventFired = true;
+      };
+      
+      await vi.waitFor(() => closeEventFired);
+    });
+  });
+
+  // testDOProject allows you to:
   //   - Call DO methods directly via instance proxy (RPC-style)
   //   - Support all structured clone types except functions (like Cloudflare native RPC)
   //   - Inspect ctx (DurableObjectState): storage, getWebSockets, attachments, etc.

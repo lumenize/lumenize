@@ -543,3 +543,138 @@ describe('Cookie Management Comprehensive Tests', () => {
   });
   
 });
+
+describe('WebSocket comprehensive testing', () => {
+
+  // Comprehensive test covering both client-initiated and server-initiated WebSocket closes
+  // Tests proper WebSocket protocol compliance and event handling
+  it('demonstrates comprehensive WebSocket close code handling for client and server initiated closes', async () => {
+    await testDOProject(async (SELF, instances, helpers) => {
+      
+      // TEST 1: Client-initiated close
+      const clientWs = new helpers.WebSocket('wss://example.com/my-do/client-close-test');
+      
+      let clientCloseEventFired = false;
+      let clientCloseEventCount = 0; // Track event count to ensure no duplicates
+      let clientCloseCode: number | undefined;
+      let clientCloseReason: string | undefined;
+      let clientWasClean: boolean | undefined;
+      let clientOpened = false;
+      
+      clientWs.onopen = () => {
+        clientOpened = true;
+        // Send a test message to ensure connection is working
+        clientWs.send('Hello from client');
+      };
+      
+      clientWs.onclose = (event: CloseEvent) => {
+        clientCloseEventFired = true;
+        clientCloseEventCount++; // Increment event count
+        clientCloseCode = event.code;
+        clientCloseReason = event.reason;
+        clientWasClean = event.wasClean;
+        
+        // Assert readyState inside the close event handler
+        expect(clientWs.readyState).toBe(3); // WebSocket.CLOSED
+      };
+      
+      clientWs.onerror = (error: Event) => {
+        // Error handler for debugging
+      };
+      
+      // Wait for connection to be established
+      await vi.waitFor(() => clientOpened, { timeout: 2000 });
+      
+      // Wait a bit more to ensure everything is fully set up
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Initiate client close with custom code and reason
+      clientWs.close(1001, "Client going away");
+      
+      // Wait for close event to fire and verify
+      await vi.waitFor(() => {
+        return clientCloseEventFired;
+      }, { timeout: 5000 });
+      
+      // Wait a bit for server to process the close
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // ASSERTION: Client-initiated close should fire close event on client
+      // This matches browser WebSocket behavior where calling close() on a WebSocket
+      // triggers the onclose event handler locally
+      // 
+      // ✅ FIXED: Server now properly responds with ws.close() in webSocketClose handler!
+      expect(clientCloseEventFired).toBe(true);
+      expect(clientCloseEventCount).toBe(1); // ✅ Ensure no duplicate events
+      expect(clientCloseCode).toBe(1001);
+      expect(clientCloseReason).toBe("Client going away");
+      expect(clientWasClean).toBe(true); // Client-initiated closes are considered clean
+      expect(clientWs.readyState).toBe(3); // WebSocket.CLOSED
+      
+      // Verify the close was recorded on the server side  
+      // ✅ Server does see the client-initiated close (websocket-shim forwards it properly)
+      const clientCloseData = await instances('MY_DO', 'client-close-test').ctx.storage.get('lastWebSocketClose');
+      expect(clientCloseData).toEqual({
+        code: 1001,
+        reason: "Client going away", 
+        wasClean: true
+      });
+
+      // TEST 2: Server-initiated close
+      const serverWs = new helpers.WebSocket('wss://example.com/my-do/server-close-test');
+      
+      let serverCloseEventFired = false;
+      let serverCloseEventCount = 0; // Track event count to ensure no duplicates
+      let serverCloseCode: number | undefined;
+      let serverCloseReason: string | undefined;
+      let serverWasClean: boolean | undefined;
+      
+      serverWs.onopen = () => {
+        // Send special message to trigger server-initiated close
+        serverWs.send('test-server-close');
+      };
+      
+      serverWs.onclose = (event: CloseEvent) => {
+        serverCloseEventFired = true;
+        serverCloseEventCount++; // Increment event count
+        serverCloseCode = event.code;
+        serverCloseReason = event.reason;
+        serverWasClean = event.wasClean;
+        
+        // Assert readyState - server-initiated closes may be CLOSING (2) or CLOSED (3)
+        expect([2, 3]).toContain(serverWs.readyState); // WebSocket.CLOSING or CLOSED
+      };
+      
+      // Wait for connection to be established and server to close it
+      await vi.waitFor(() => expect(serverCloseEventFired).toBe(true), { timeout: 2000 });
+      
+      // ASSERTION: Server-initiated close should fire close event on client  
+      // This matches browser WebSocket behavior where server closing the connection
+      // triggers the onclose event handler on the client side
+      // 
+      // ✅ Server-initiated closes work correctly in websocket-shim!
+      expect(serverCloseEventFired).toBe(true);
+      expect(serverCloseEventCount).toBe(1); // ✅ Ensure no duplicate events
+      expect(serverCloseCode).toBe(4001); // Custom code from server
+      expect(serverCloseReason).toBe("Server initiated close for testing");
+      expect(serverWasClean).toBe(true); // Server properly initiated close
+      expect([2, 3]).toContain(serverWs.readyState); // WebSocket.CLOSING or CLOSED
+      
+      // ✅ CONFIRMED: Server-initiated closes do NOT trigger the webSocketClose handler
+      // When the server calls ws.close() itself, it does NOT invoke its own webSocketClose method
+      // This is confirmed Cloudflare Workers behavior - only peer-initiated closes trigger the handler
+      const serverCloseData = await instances('MY_DO', 'server-close-test').ctx.storage.get('lastWebSocketClose');
+      expect(serverCloseData).toBeUndefined(); // Server doesn't record its own initiated closes
+
+      // Verify both directions work correctly with proper WebSocket protocol compliance
+      expect(clientCloseEventFired).toBe(true);
+      expect(serverCloseEventFired).toBe(true);
+      
+      // ✅ CRITICAL: Verify no duplicate events were fired (fixed websocket-shim bug)
+      expect(clientCloseEventCount).toBe(1);
+      expect(serverCloseEventCount).toBe(1);
+      expect(serverCloseEventFired).toBe(true);
+    });
+  });
+
+});
