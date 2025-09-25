@@ -1,4 +1,4 @@
-import { getDOStubFromPathname } from './get-do-stub-from-pathname';
+import { getDOStubFromPathname, InvalidStubPathError, PrefixNotFoundError } from './get-do-stub-from-pathname';
 import { DOBindingNotFoundError } from './get-do-namespace-from-path-segment';
 
 /**
@@ -9,20 +9,26 @@ export interface RouteOptions {
    * Hook called before WebSocket requests (Upgrade: websocket) reach the Durable Object.
    * 
    * @param request - The incoming WebSocket upgrade request
-   * @param context - Routing context with DO binding name and instance name
+   * @param context - Routing context with DO stub, namespace, binding name, and instance name
    * @returns Response to block request, Request to modify request, undefined/void to continue
    */
-  onBeforeConnect?: (request: Request, context: { party: string; name: string }) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
-  
+  onBeforeConnect?: (
+    request: Request, 
+    context: { stub: any; namespace: any; doBindingName: string; instanceNameOrId: string }
+  ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
+
   /**
    * Hook called before non-WebSocket HTTP requests reach the Durable Object.
    * 
    * @param request - The incoming HTTP request  
-   * @param context - Routing context with DO binding name and instance name
+   * @param context - Routing context with DO stub, namespace, binding name, and instance name
    * @returns Response to block request, Request to modify request, undefined/void to continue
    */
-  onBeforeRequest?: (request: Request, context: { party: string; name: string }) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
-  
+  onBeforeRequest?: (
+    request: Request, 
+    context: { stub: any; namespace: any; doBindingName: string; instanceNameOrId: string }
+  ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
+
   /**
    * URL prefix that must be present before DO routing path.
    * 
@@ -86,7 +92,7 @@ export interface RouteOptions {
  *   prefix: '/agents',
  *   
  *   // Authentication for WebSocket connections
- *   onBeforeConnect: async (request, { party, name }) => {
+ *   onBeforeConnect: async (request, { doBindingName, instanceNameOrId, stub, namespace }) => {
  *     // Validate WebSocket auth token
  *     const token = request.headers.get('Authorization');
  *     if (!token || !await validateToken(token)) {
@@ -94,7 +100,7 @@ export interface RouteOptions {
  *       return new Response('Unauthorized', { status: 401 });
  *     }
  *     
- *     // Add user info to headers for DO
+ *     // Add user info to headers for DO  
  *     const modifiedRequest = new Request(request);
  *     modifiedRequest.headers.set('X-User-ID', await getUserId(token));
  *     return modifiedRequest; // Return modified Request to continue
@@ -103,9 +109,9 @@ export interface RouteOptions {
  *   },
  *   
  *   // Authentication for HTTP requests  
- *   onBeforeRequest: async (request, { party, name }) => {
+ *   onBeforeRequest: async (request, { doBindingName, instanceNameOrId, stub, namespace }) => {
  *     // Log request for analytics
- *     console.log(`HTTP request to ${party}:${name}`, request.method, request.url);
+ *     console.log(`HTTP request to ${doBindingName}:${instanceNameOrId}`, request.method, request.url);
  *     
  *     // API key validation
  *     const apiKey = request.headers.get('X-API-Key');
@@ -133,65 +139,40 @@ export interface RouteOptions {
 export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
   try {
     const url = new URL(request.url);
-    let pathname = url.pathname;
-    
-    // Check if request matches the prefix (if provided)
-    if (options.prefix) {
-      // Normalize prefix (ensure it starts with / and doesn't end with /)
-      const normalizedPrefix = options.prefix.startsWith('/') 
-        ? options.prefix 
-        : `/${options.prefix}`;
-      const prefixWithoutTrailingSlash = normalizedPrefix.endsWith('/') 
-        ? normalizedPrefix.slice(0, -1) 
-        : normalizedPrefix;
-      
-      // If pathname doesn't start with prefix, this router doesn't handle it
-      if (!pathname.startsWith(prefixWithoutTrailingSlash)) {
-        return undefined;
-      }
-      
-      // Remove the prefix from pathname for DO routing
-      pathname = pathname.slice(prefixWithoutTrailingSlash.length) || '/';
-    }
+    const pathname = url.pathname;
 
-    // Parse DO binding name and instance name from pathname
-    const pathParts = pathname.split('/').filter(Boolean);
-    if (pathParts.length < 2) {
-      return undefined; // Not enough path parts for a valid DO request
-    }
-    
-    const namespace = pathParts[0]; // DO binding name
-    const name = pathParts[1]; // DO instance name
+    // Get the stub and routing info from getDOStubFromPathname
+    const stubAndIntermediates = getDOStubFromPathname(pathname, env, options);
+    const { stub } = stubAndIntermediates;
 
     // Call hooks based on request type (matching Cloudflare's if/else behavior)
     const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
-    
+
     if (isWebSocket) {
-        if (options?.onBeforeConnect) {
-            const result = await options.onBeforeConnect(request, { party: namespace, name });
-            if (result instanceof Response) {
-                return result;
-            }
-            if (result instanceof Request) {
-                request = result;
-            }
+      if (options?.onBeforeConnect) {
+        const result = await options.onBeforeConnect(request, stubAndIntermediates);
+        if (result instanceof Response) {
+          return result;
         }
+        if (result instanceof Request) {
+          request = result;
+        }
+      }
     } else {
-        if (options?.onBeforeRequest) {
-            const result = await options.onBeforeRequest(request, { party: namespace, name });
-            if (result instanceof Response) {
-                return result;
-            }
-            if (result instanceof Request) {
-                request = result;
-            }
+      if (options?.onBeforeRequest) {
+        const result = await options.onBeforeRequest(request, stubAndIntermediates);
+        if (result instanceof Response) {
+          return result;
         }
+        if (result instanceof Request) {
+          request = result;
+        }
+      }
     }
-    
-    const stub = getDOStubFromPathname(pathname, env, options);
+
     return await stub.fetch(request);
-  } catch(error: any) {
-    if (error instanceof DOBindingNotFoundError) return undefined
-    throw(error);
+  } catch (error: any) {
+    if (error instanceof DOBindingNotFoundError || error instanceof PrefixNotFoundError) return undefined
+    throw (error);
   }
 }

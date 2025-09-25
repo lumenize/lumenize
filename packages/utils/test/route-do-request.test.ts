@@ -136,7 +136,12 @@ describe('routeDORequest', () => {
       routeDORequest(request, env, options);
       
       expect(onBeforeRequest).not.toHaveBeenCalled();
-      expect(onBeforeConnect).toHaveBeenCalledWith(request, { party: 'my-do', name: 'instance' });
+      expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
     });
 
     it('should call onBeforeRequest for non-WebSocket requests', () => {
@@ -147,7 +152,12 @@ describe('routeDORequest', () => {
       
       routeDORequest(request, env, options);
       
-      expect(onBeforeRequest).toHaveBeenCalledWith(request, { party: 'my-do', name: 'instance' });
+      expect(onBeforeRequest).toHaveBeenCalledWith(request, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
     });
 
     it('should not call onBeforeConnect for non-WebSocket requests', () => {
@@ -265,7 +275,12 @@ describe('routeDORequest', () => {
       
       routeDORequest(request, env, options);
       
-      expect(onBeforeConnect).toHaveBeenCalledWith(request, { party: 'my-do', name: 'instance' });
+      expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
       expect(onBeforeRequest).not.toHaveBeenCalled();
     });
 
@@ -303,7 +318,12 @@ describe('routeDORequest', () => {
       
       routeDORequest(request, env, options);
       
-      expect(onBeforeConnect).toHaveBeenCalledWith(request, { party: 'my-do', name: 'instance' });
+      expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
       expect(onBeforeRequest).not.toHaveBeenCalled();
     });
   });
@@ -333,7 +353,12 @@ describe('routeDORequest', () => {
       const response = await routeDORequest(request, env, options);
       
       expect(response).toBe(hookResponse);
-      expect(onBeforeConnect).toHaveBeenCalledWith(request, { party: 'my-do', name: 'instance' });
+      expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
       expect(env.MY_DO.getByName).not.toHaveBeenCalled();
     });
 
@@ -349,7 +374,12 @@ describe('routeDORequest', () => {
       const response = await routeDORequest(request, env, options);
       
       expect(response).toBeInstanceOf(Response);
-      expect(onBeforeRequest).toHaveBeenCalledWith(request, { party: 'my-do', name: 'instance' });
+      expect(onBeforeRequest).toHaveBeenCalledWith(request, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
       expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
     });
 
