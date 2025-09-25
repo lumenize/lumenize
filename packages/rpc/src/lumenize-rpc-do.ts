@@ -26,9 +26,9 @@ const DEFAULT_CONFIG: Required<RPCConfig> = {
  * @param config - Optional RPC configuration
  * @returns Enhanced DO class with RPC endpoints
  */
-export function lumenize<T extends new (...args: any[]) => any>(DOClass: T, config: RPCConfig = {}): T {
+export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T, config: RPCConfig = {}): T {
   if (typeof DOClass !== 'function') {
-    throw new Error(`lumenize() expects a Durable Object class (constructor function), got ${typeof DOClass}`);
+    throw new Error(`lumenizeRpcDo() expects a Durable Object class (constructor function), got ${typeof DOClass}`);
   }
 
   const rpcConfig = { ...DEFAULT_CONFIG, ...config };

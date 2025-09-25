@@ -1,4 +1,4 @@
-import { lumenize } from '../src/index.js';
+import { lumenizeRpcDo } from '../src/lumenize-rpc-do.js';
 
 /**
  * Example Durable Object for testing RPC functionality
@@ -96,4 +96,4 @@ class ExampleDO {
 }
 
 // Export the lumenized version
-export default lumenize(ExampleDO);
+export default lumenizeRpcDo(ExampleDO);

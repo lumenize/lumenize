@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lumenize } from '@lumenize/rpc';
+import { lumenizeRpcDo } from '../../src/lumenize-rpc-do.js';
 import type { RPCRequest, RPCResponse } from '@lumenize/rpc';
 import ExampleDO from '../example-do';
 
@@ -7,7 +7,7 @@ import ExampleDO from '../example-do';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
 
-describe('lumenize server-side functionality', () => {
+describe('lumenizeRpcDo server-side functionality', () => {
   
   // Mock constructor arguments for ExampleDO
   let mockData: Record<string, any>;
@@ -29,26 +29,26 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should create lumenized DO class', () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     expect(LumenizedDO).toBeDefined();
     expect(LumenizedDO.name).toBe('ExampleDO');
   });
 
   it('should throw error for non-function input', () => {
     // @ts-expect-error - Testing runtime validation for null (TypeScript correctly flags this at compile time)
-    expect(() => lumenize(null)).toThrow('lumenize() expects a Durable Object class (constructor function), got object');
+    expect(() => lumenizeRpcDo(null)).toThrow('lumenizeRpcDo() expects a Durable Object class (constructor function), got object');
     // @ts-expect-error - Testing runtime validation for undefined (TypeScript correctly flags this at compile time)
-    expect(() => lumenize(undefined)).toThrow('lumenize() expects a Durable Object class (constructor function), got undefined');
+    expect(() => lumenizeRpcDo(undefined)).toThrow('lumenizeRpcDo() expects a Durable Object class (constructor function), got undefined');
     // @ts-expect-error - Testing runtime validation for plain object (TypeScript correctly flags this at compile time)
-    expect(() => lumenize({})).toThrow('lumenize() expects a Durable Object class (constructor function), got object');
+    expect(() => lumenizeRpcDo({})).toThrow('lumenizeRpcDo() expects a Durable Object class (constructor function), got object');
     // @ts-expect-error - Testing runtime validation for string (TypeScript correctly flags this at compile time)
-    expect(() => lumenize('string')).toThrow('lumenize() expects a Durable Object class (constructor function), got string');
+    expect(() => lumenizeRpcDo('string')).toThrow('lumenizeRpcDo() expects a Durable Object class (constructor function), got string');
     // @ts-expect-error - Testing runtime validation for number (TypeScript correctly flags this at compile time)
-    expect(() => lumenize(42)).toThrow('lumenize() expects a Durable Object class (constructor function), got number');
+    expect(() => lumenizeRpcDo(42)).toThrow('lumenizeRpcDo() expects a Durable Object class (constructor function), got number');
   });
 
   it('should execute simple operation chains', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -74,7 +74,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should execute operation chains with arguments', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -100,7 +100,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should handle errors gracefully', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -125,7 +125,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should delegate non-RPC requests to original fetch', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const request = new Request('https://example.com/some-other-path');
@@ -136,7 +136,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should preprocess function results with remote function markers', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -164,7 +164,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should call nested functions and execute them remotely', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     // First get the object, then call the nested getValue function
@@ -194,7 +194,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should execute throwError method', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -223,7 +223,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should handle throwing non-Error values (strings)', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -250,7 +250,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should execute getArray method', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -276,7 +276,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should access complex data properties', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const rpcRequest: RPCRequest = {
@@ -303,7 +303,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should handle circular references in complex data', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     // Test accessing the circular reference: complexData.data should point back to complexData
@@ -332,7 +332,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should call methods in complex data', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     // Test calling the getName method inside complexData.methods
@@ -361,7 +361,7 @@ describe('lumenize server-side functionality', () => {
   });
 
   it('should handle original fetch /increment path', async () => {
-    const LumenizedDO = lumenize(ExampleDO);
+    const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
     const request = new Request('https://example.com/increment');
