@@ -1,5 +1,5 @@
 import { getDOStubFromPathname } from './get-do-stub-from-pathname';
-import { DOBindingNotFoundError, InvalidPathError } from './get-do-namespace-from-pathname';
+import { DOBindingNotFoundError } from './get-do-namespace-from-path-segment';
 
 /**
  * Configuration options for DO request routing and authentication hooks.
@@ -191,7 +191,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     const stub = getDOStubFromPathname(pathname, env, options);
     return await stub.fetch(request);
   } catch(error: any) {
-    if (error instanceof DOBindingNotFoundError || error instanceof InvalidPathError) return undefined
+    if (error instanceof DOBindingNotFoundError) return undefined
     throw(error);
   }
 }

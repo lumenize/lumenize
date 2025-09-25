@@ -49,7 +49,7 @@ describe('getDOStubFromPathname', () => {
     } catch (error: any) {
       expect(error.code).toBe('INVALID_STUB_PATH');
       expect(error.httpErrorCode).toBe(400);
-      expect(error.message).toContain('Expected format: /binding-name/instance-name/...');
+      expect(error.message).toContain('Expected format: [/prefix]/binding-name/instance-name/...');
     }
   });
 });
