@@ -172,7 +172,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
 
     return await stub.fetch(request);
   } catch (error: any) {
-    if (error instanceof DOBindingNotFoundError || error instanceof PrefixNotFoundError) return undefined
+    if (error instanceof DOBindingNotFoundError || error instanceof InvalidStubPathError || error instanceof PrefixNotFoundError) return undefined
     throw (error);
   }
 }

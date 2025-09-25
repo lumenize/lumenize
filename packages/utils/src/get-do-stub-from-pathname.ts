@@ -1,4 +1,4 @@
-import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
+import { DOBindingNotFoundError, getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
 import { type RouteOptions } from './route-do-request'
 
 export class InvalidStubPathError extends Error {
