@@ -91,12 +91,14 @@ export function getDOStubFromPathname(pathname: string, env: Record<string, any>
   // Determine if this is a unique ID (64-char hex string) or a named instance
   const isUniqueId = /^[a-f0-9]{64}$/.test(instanceNameOrIdSegment);
   
+  let stub;
   if (isUniqueId) {
     // For unique IDs, use idFromString to get the proper DurableObjectId
     const id = namespace.idFromString(instanceNameOrIdSegment);
-    return namespace.get(id);
+    stub = namespace.get(id);
   } else {
     // For named instances, use getByName as before
-    return namespace.getByName(instanceNameOrIdSegment);
+    stub = namespace.getByName(instanceNameOrIdSegment);
   }
+  return { stub, namespace, bindingSegment, instanceNameOrIdSegment };
 }
