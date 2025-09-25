@@ -1,5 +1,5 @@
 export interface DOBindingError extends Error {
-  code: 'BINDING_NOT_FOUND' | 'MULTIPLE_BINDINGS_FOUND' | 'INVALID_PATH';
+  code: 'BINDING_NOT_FOUND' | 'MULTIPLE_BINDINGS_FOUND';
   httpErrorCode: number;
   availableBindings: string[];
   attemptedBindings?: string[];
@@ -30,17 +30,6 @@ export class MultipleBindingsFoundError extends Error implements DOBindingError 
     this.name = 'MultipleBindingsFoundError';
     this.availableBindings = matchedBindings;
     this.matchedBindings = matchedBindings;
-  }
-}
-
-export class InvalidPathError extends Error implements DOBindingError {
-  code: 'INVALID_PATH' = 'INVALID_PATH';
-  httpErrorCode: number = 400;
-  availableBindings: string[] = [];
-
-  constructor(pathname: string) {
-    super(`Invalid path: '${pathname}'. Expected format: /binding-name/...`);
-    this.name = 'InvalidPathError';
   }
 }
 
@@ -111,14 +100,7 @@ function generateBindingVariations(pathSegment: string): string[] {
   return Array.from(variations);
 }
 
-/**
- * Extract the first path segment from a URL pathname.
- * Returns null if no valid segment found.
- */
-function extractPathSegment(pathname: string): string | null {
-  const segments = pathname.split('/').filter(Boolean);
-  return segments.length > 0 ? segments[0] : null;
-}
+
 
 /**
  * Get all Durable Object binding names from the environment.
@@ -136,33 +118,26 @@ function getDurableObjectBindings(env: Record<string, any>): string[] {
 }
 
 /**
- * Find a Durable Object namespace from a URL pathname with intelligent case conversion.
+ * Find a Durable Object namespace from a path segment with intelligent case conversion.
  * 
- * @param pathname - The URL pathname (e.g., "/my-do/some/path")
+ * @param pathSegment - The path segment that should match a DO binding (e.g., "my-do", "userSession")
  * @param env - The Cloudflare Workers environment object
  * @returns The DurableObjectNamespace for the matched binding
- * @throws {InvalidPathError} If no path segment provided
  * @throws {DOBindingNotFoundError} If no matching binding found
  * @throws {MultipleBindingsFoundError} If multiple bindings match
  * 
  * @example
  * ```typescript
- * // URL: /my-do/websocket
+ * // Path segment: "my-do"
  * // Env has: { MY_DO: durableObjectNamespace }
- * const namespace = getDONamespaceFromPathname('/my-do/websocket', env);
+ * const namespace = getDONamespaceFromPathSegment('my-do', env);
  * 
- * // URL: /userSession/connect  
+ * // Path segment: "userSession"  
  * // Env has: { UserSession: durableObjectNamespace }
- * const namespace = getDONamespaceFromPathname('/userSession/connect', env);
+ * const namespace = getDONamespaceFromPathSegment('userSession', env);
  * ```
  */
-export function getDONamespaceFromPathname(pathname: string, env: Record<string, any>): any {
-  // Extract the first path segment
-  const pathSegment = extractPathSegment(pathname);
-  if (!pathSegment) {
-    throw new InvalidPathError(pathname);
-  }
-  
+export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<string, any>): any {
   // Get all available DO bindings
   const availableBindings = getDurableObjectBindings(env);
   
@@ -186,3 +161,5 @@ export function getDONamespaceFromPathname(pathname: string, env: Record<string,
   const bindingName = matches[0];
   return env[bindingName];
 }
+
+
