@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDOStubFromPathname, InvalidStubPathError, DOBindingNotFoundError, MultipleBindingsFoundError, InvalidPathError } from '../src/index.js';
+import { getDOStubFromPathname, InvalidStubPathError, DOBindingNotFoundError, MultipleBindingsFoundError } from '../src/index';
 
 describe('getDOStubFromPathname', () => {
   // Mock Durable Object Namespace
@@ -31,7 +31,7 @@ describe('getDOStubFromPathname', () => {
     const env = { OTHER_DO: mockDONamespace };
     
     // Should throw InvalidPathError for empty path
-    expect(() => getDOStubFromPathname('/', env)).toThrow(InvalidPathError);
+    expect(() => getDOStubFromPathname('/', env)).toThrow(InvalidStubPathError);
     
     // Should throw DOBindingNotFoundError for unknown binding
     expect(() => getDOStubFromPathname('/unknown-binding/instance/path', env)).toThrow(DOBindingNotFoundError);

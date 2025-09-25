@@ -6,7 +6,6 @@ describe('getDONamespaceFromPathSegment', () => {
   const mockDONamespace = {
     getByName: () => ({}),
     idFromName: () => ({}),
-    getById: () => ({}),
   };
 
   it('should find exact match', () => {
@@ -76,6 +75,22 @@ describe('getDONamespaceFromPathSegment', () => {
       ANOTHER_STRING: 42
     };
     const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toBe(mockDONamespace);
+  });
+
+  it('should match if it is exact', () => {
+    const env = { 
+      MY_DO: mockDONamespace,
+      MyDo: "just a string",
+    };
+    let result = getDONamespaceFromPathSegment('MY_DO', env);
+    expect(result).toBe(mockDONamespace);
+
+    const multiEnv = { 
+      MyDo: mockDONamespace,
+      MY_DO: "just a string",
+    };
+    result = getDONamespaceFromPathSegment('MyDo', multiEnv);
     expect(result).toBe(mockDONamespace);
   });
 

@@ -100,8 +100,6 @@ function generateBindingVariations(pathSegment: string): string[] {
   return Array.from(variations);
 }
 
-
-
 /**
  * Get all Durable Object binding names from the environment.
  */
@@ -161,5 +159,3 @@ export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<s
   const bindingName = matches[0];
   return env[bindingName];
 }
-
-

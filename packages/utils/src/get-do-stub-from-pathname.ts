@@ -1,22 +1,58 @@
-import { getDONamespaceFromPathname } from './get-do-namespace-from-pathname.js';
+import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
+import { type RouteOptions } from './route-do-request'
 
 export class InvalidStubPathError extends Error {
   code: 'INVALID_STUB_PATH' = 'INVALID_STUB_PATH';
   httpErrorCode: number = 400;
 
   constructor(pathname: string) {
-    super(`Invalid path for DO stub: '${pathname}'. Expected format: /binding-name/instance-name/...`);
+    super(`Invalid path for DO stub: '${pathname}'. Expected format: [/prefix]/binding-name/instance-name/...`);
     this.name = 'InvalidStubPathError';
   }
 }
 
 /**
- * Extract the second path segment from a URL pathname for the DO instance name.
- * Returns null if no valid segment found.
+ * Parse pathname to extract binding segment and instance segment, accounting for optional prefix.
+ * 
+ * @param pathname - The URL pathname (e.g., "/my-do/instance-123/some/path" or "/__rpc/something/my-do/instance-123/path")
+ * @param options - Route options containing optional prefix
+ * @returns Object with bindingSegment and instanceNameOrIdSegment
+ * @throws {InvalidStubPathError} If pathname doesn't have required segments after prefix removal
  */
-function extractInstanceName(pathname: string): string | null {
-  const segments = pathname.split('/').filter(Boolean);
-  return segments.length >= 2 ? segments[1] : null;
+function parsePathname(pathname: string, options?: RouteOptions): { bindingSegment: string; instanceNameOrIdSegment: string } {
+  let processedPathname = pathname;
+  
+  // Handle prefix removal if provided
+  if (options?.prefix) {
+    // Normalize prefix (ensure it starts with / and doesn't end with /)
+    const normalizedPrefix = options.prefix.startsWith('/') 
+      ? options.prefix 
+      : `/${options.prefix}`;
+    const prefixWithoutTrailingSlash = normalizedPrefix.endsWith('/') 
+      ? normalizedPrefix.slice(0, -1) 
+      : normalizedPrefix;
+    
+    // If pathname doesn't start with prefix, throw error
+    if (!pathname.startsWith(prefixWithoutTrailingSlash)) {
+      throw new InvalidStubPathError(pathname);
+    }
+    
+    // Remove the prefix from pathname for DO routing
+    processedPathname = pathname.slice(prefixWithoutTrailingSlash.length) || '/';
+  }
+  
+  // Split pathname into segments, filtering out empty strings
+  const segments = processedPathname.split('/').filter(Boolean);
+  
+  // We need at least 2 segments for binding name and instance name/ID
+  if (segments.length < 2) {
+    throw new InvalidStubPathError(pathname);
+  }
+  
+  const bindingSegment = segments[0];
+  const instanceNameOrIdSegment = segments[1];
+  
+  return { bindingSegment, instanceNameOrIdSegment };
 }
 
 /**
@@ -45,25 +81,22 @@ function extractInstanceName(pathname: string): string | null {
  * const stub = getDOStubFromPathname('/my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99/connect', env);
  * ```
  */
-export function getDOStubFromPathname(pathname: string, env: Record<string, any>): any {
-  // Get the namespace using existing function
-  const namespace = getDONamespaceFromPathname(pathname, env);
-  
+export function getDOStubFromPathname(pathname: string, env: Record<string, any>, options?: RouteOptions): any {
   // Extract the instance name (second path segment)
-  const instanceName = extractInstanceName(pathname);
-  if (!instanceName) {
-    throw new InvalidStubPathError(pathname);
-  }
+  const { bindingSegment, instanceNameOrIdSegment } = parsePathname(pathname, options);
+
+  // Get the namespace using existing function
+  const namespace = getDONamespaceFromPathSegment(bindingSegment, env);
   
   // Determine if this is a unique ID (64-char hex string) or a named instance
-  const isUniqueId = /^[a-f0-9]{64}$/.test(instanceName);
+  const isUniqueId = /^[a-f0-9]{64}$/.test(instanceNameOrIdSegment);
   
   if (isUniqueId) {
     // For unique IDs, use idFromString to get the proper DurableObjectId
-    const id = namespace.idFromString(instanceName);
+    const id = namespace.idFromString(instanceNameOrIdSegment);
     return namespace.get(id);
   } else {
     // For named instances, use getByName as before
-    return namespace.getByName(instanceName);
+    return namespace.getByName(instanceNameOrIdSegment);
   }
 }
