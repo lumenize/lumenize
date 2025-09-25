@@ -6,6 +6,8 @@ describe('getDOStubFromPathname', () => {
   const mockDONamespace = {
     getByName: (name: string) => ({ name, fetch: () => ({}) }),
     idFromName: () => ({}),
+    idFromString: (id: string) => ({ id }),
+    get: (id: any) => ({ id, fetch: () => ({}) }),
     getById: () => ({}),
   };
 
@@ -51,5 +53,84 @@ describe('getDOStubFromPathname', () => {
       expect(error.httpErrorCode).toBe(400);
       expect(error.message).toContain('Expected format: [/prefix]/binding-name/instance-name/...');
     }
+  });
+
+  describe('with prefix options', () => {
+    it('should handle prefix with leading slash', () => {
+      const env = { MY_DO: mockDONamespace };
+      const options = { prefix: '/api' };
+      const result = getDOStubFromPathname('/api/my-do/instance-123/path', env, options);
+      expect(result.name).toBe('instance-123');
+    });
+
+    it('should handle prefix without leading slash', () => {
+      const env = { MY_DO: mockDONamespace };
+      const options = { prefix: 'api' };
+      const result = getDOStubFromPathname('/api/my-do/instance-123/path', env, options);
+      expect(result.name).toBe('instance-123');
+    });
+
+    it('should handle prefix with trailing slash', () => {
+      const env = { MY_DO: mockDONamespace };
+      const options = { prefix: '/api/' };
+      const result = getDOStubFromPathname('/api/my-do/instance-123/path', env, options);
+      expect(result.name).toBe('instance-123');
+    });
+
+    it('should handle multi-segment prefix', () => {
+      const env = { MY_DO: mockDONamespace };
+      const options = { prefix: '__rpc/something' };
+      const result = getDOStubFromPathname('/__rpc/something/my-do/instance-123/path', env, options);
+      expect(result.name).toBe('instance-123');
+    });
+
+    it('should throw InvalidStubPathError when pathname does not match prefix', () => {
+      const env = { MY_DO: mockDONamespace };
+      const options = { prefix: '/api' };
+      expect(() => getDOStubFromPathname('/wrong/my-do/instance-123', env, options)).toThrow(InvalidStubPathError);
+    });
+
+    it('should handle empty pathname after prefix removal', () => {
+      const env = { MY_DO: mockDONamespace };
+      const options = { prefix: '/api' };
+      expect(() => getDOStubFromPathname('/api', env, options)).toThrow(InvalidStubPathError);
+      expect(() => getDOStubFromPathname('/api/', env, options)).toThrow(InvalidStubPathError);
+    });
+  });
+
+  describe('unique ID handling', () => {
+    it('should use idFromString for 64-char hex strings', () => {
+      const env = { MY_DO: mockDONamespace };
+      const uniqueId = '8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99';
+      const result = getDOStubFromPathname(`/my-do/${uniqueId}/path`, env);
+      expect(result.id).toEqual({ id: uniqueId });
+    });
+
+    it('should use getByName for non-unique ID strings', () => {
+      const env = { MY_DO: mockDONamespace };
+      const result = getDOStubFromPathname('/my-do/regular-instance-name/path', env);
+      expect(result.name).toBe('regular-instance-name');
+    });
+
+    it('should use getByName for 63-char strings (not 64)', () => {
+      const env = { MY_DO: mockDONamespace };
+      const shortId = '8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b9'; // 63 chars
+      const result = getDOStubFromPathname(`/my-do/${shortId}/path`, env);
+      expect(result.name).toBe(shortId);
+    });
+
+    it('should use getByName for 65-char strings (not 64)', () => {
+      const env = { MY_DO: mockDONamespace };
+      const longId = '8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b999'; // 65 chars
+      const result = getDOStubFromPathname(`/my-do/${longId}/path`, env);
+      expect(result.name).toBe(longId);
+    });
+
+    it('should use getByName for 64-char strings with non-hex characters', () => {
+      const env = { MY_DO: mockDONamespace };
+      const nonHexId = '8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3bgg'; // contains 'g'
+      const result = getDOStubFromPathname(`/my-do/${nonHexId}/path`, env);
+      expect(result.name).toBe(nonHexId);
+    });
   });
 });

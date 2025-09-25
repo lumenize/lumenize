@@ -16,4 +16,22 @@ export default defineConfig({
       ],
     },
   },
+  coverage: {
+    provider: "istanbul",
+    reporter: ['text', 'json', 'html'],
+    include: [
+      '**/src/**',
+      '**/test/example-do.ts'
+    ],
+    exclude: [
+      '**/node_modules/**', 
+      '**/dist/**', 
+      '**/build/**', 
+      '**/*.config.*',
+      '**/scratch/**',
+      '**/test/**/*.test.ts'
+    ],
+    skipFull: false,
+    all: false,
+  },
 });
