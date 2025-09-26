@@ -221,6 +221,59 @@ describe('routeDORequest', () => {
       expect(response).toBeInstanceOf(Response);
       expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
     });
+
+    it('should transform request when onBeforeRequest returns modified Request', async () => {
+      const env = { MY_DO: createMockNamespace() };
+      const originalRequest = createRequest('http://localhost/my-do/instance/path');
+      const modifiedRequest = new Request('http://localhost/my-do/instance/modified-path', {
+        method: 'POST',
+        headers: { 'X-Modified': 'true' }
+      });
+      const onBeforeRequest = vi.fn().mockReturnValue(modifiedRequest);
+      const options: RouteOptions = { onBeforeRequest };
+      
+      const response = await routeDORequest(originalRequest, env, options);
+      
+      expect(response).toBeInstanceOf(Response);
+      expect(onBeforeRequest).toHaveBeenCalledWith(originalRequest, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
+      
+      // Verify the modified request was passed to the stub
+      const stub = env.MY_DO.getByName.mock.results[0].value;
+      expect(stub.fetch).toHaveBeenCalledWith(modifiedRequest);
+    });
+
+    it('should transform request when onBeforeConnect returns modified Request for WebSocket', async () => {
+      const env = { MY_DO: createMockNamespace() };
+      const originalRequest = createWebSocketRequest('http://localhost/my-do/instance/ws');
+      const modifiedRequest = new Request('http://localhost/my-do/instance/modified-ws', {
+        method: 'GET',
+        headers: { 
+          'Upgrade': 'websocket',
+          'X-Modified': 'true' 
+        }
+      });
+      const onBeforeConnect = vi.fn().mockReturnValue(modifiedRequest);
+      const options: RouteOptions = { onBeforeConnect };
+      
+      const response = await routeDORequest(originalRequest, env, options);
+      
+      expect(response).toBeInstanceOf(Response);
+      expect(onBeforeConnect).toHaveBeenCalledWith(originalRequest, expect.objectContaining({
+        doBindingName: 'my-do',
+        instanceNameOrId: 'instance',
+        stub: expect.any(Object),
+        namespace: expect.any(Object)
+      }));
+      
+      // Verify the modified request was passed to the stub
+      const stub = env.MY_DO.getByName.mock.results[0].value;
+      expect(stub.fetch).toHaveBeenCalledWith(modifiedRequest);
+    });
   });
 
   describe('WebSocket upgrade detection logic', () => {
