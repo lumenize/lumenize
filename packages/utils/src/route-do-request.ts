@@ -1,6 +1,22 @@
 import { getDOStub } from './get-do-stub';
-import { InvalidStubPathError, PrefixNotFoundError, parsePathname } from './parse-pathname';
-import { DOBindingNotFoundError, getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
+import { parsePathname } from './parse-pathname';
+import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
+
+/**
+ * Error thrown when a pathname doesn't have the required segments for DO routing.
+ * 
+ * A valid DO path must have at least 2 segments after prefix removal:
+ * [/prefix]/binding-name/${doInstanceNameOrId}[/additional-path]
+ */
+export class MissingInstanceNameError extends Error {
+  code: 'MISSING_INSTANCE_NAME' = 'MISSING_INSTANCE_NAME';
+  httpErrorCode: number = 400;
+
+  constructor(pathname: string) {
+    super(`binding-name found but doInstanceNameOrId missing. Expected format: [/prefix]/binding-name/doInstanceNameOrId/...`);
+    this.name = 'MissingInstanceNameError';
+  }
+}
 
 /**
  * Configuration options for DO request routing and authentication hooks.
@@ -50,19 +66,19 @@ export interface RouteOptions {
  * naming conventions.
  * 
  * **URL Format:**
- * `[/${prefix}]/${doBindingName}/${instanceNameOrIdString}[/path...]`
+ * `[/${prefix}]/${doBindingName}/${doInstanceNameOrId}[/path...]`
  * 
  * **Key Features:**
  * - Case-insensitive DO binding name matching (MY_DO matches my-do, MyDO, MyDo, etc.)
  * - Supports both named instances and unique ID strings in the instance path segment
  * - Automatically detects 64-character hex strings (from newUniqueId().toString()) 
  *   and routes them using idFromString() + get() instead of getByName()
- * - No confusing renaming: doBindingName stays doBindingName, instanceName stays instanceName
- *   rather than party/agent, room/name
+ * - No confusing renaming: doBindingName stays doBindingName, doInstanceNameOrId stays doInstanceNameOrId
+ *   rather than party/agent, room/name. No lobby concept--just plain Cloudflare DO concepts and identifiers.
  * - Follows Hono convention: returns undefined if the request doesn't match
  * - Pre-request/connect hooks to check authentication
  * 
- * **Hook Behavior (matches Cloudflare agents and PartyServer):**
+ * **Hook Behavior (matches Cloudflare's routeAgentRequest and PartyKit's routePartyRequest):**
  * - WebSocket requests (Upgrade: websocket) → calls `onBeforeConnect` only
  * - Non-WebSocket requests → calls `onBeforeRequest` only  
  * 
@@ -75,6 +91,8 @@ export interface RouteOptions {
  * 
  * @returns Promise resolving to Response if request was handled, undefined if not matched
  * 
+ * @throws {MissingInstanceNameError} When binding name is found but doInstanceNameOrId is missing
+ * @throws {MultipleBindingsFoundError} When multiple DO bindings match the doBindingName segment (configuration error)
  * @throws {Error} Propagates errors from DO fetch calls or hook execution
  * 
  * @example
@@ -146,46 +164,58 @@ export interface RouteOptions {
  * ```
  */
 export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
-  try {
-    const url = new URL(request.url);
-    const pathname = url.pathname;
+  const url = new URL(request.url);
+  const pathname = url.pathname;
 
-    const { doBindingNameSegment, doInstanceNameOrId } = parsePathname(pathname, options);
+  const parseResult = parsePathname(pathname, options);
+  
+  // Return early if no match (prefix doesn't match or no segments)
+  if (!parseResult) {
+    return undefined;
+  }
 
-    // Get the namespace using existing function
-    const doNamespace = getDONamespaceFromPathSegment(doBindingNameSegment, env);
+  const { doBindingNameSegment, doInstanceNameOrId } = parseResult;
 
-    const hookContext = { doNamespace, doInstanceNameOrId };
+  // Throw error if we have a binding but missing instance name
+  if (doInstanceNameOrId === undefined) {
+    throw new MissingInstanceNameError(pathname);
+  }
 
-    // Call hooks based on request type (matching Cloudflare's if/else behavior)
-    const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+  // Get the namespace using existing function
+  const doNamespace = getDONamespaceFromPathSegment(doBindingNameSegment, env);
+  
+  // Return early if no matching binding found
+  if (!doNamespace) {
+    return undefined;
+  }
 
-    if (isWebSocket) {
-      if (options?.onBeforeConnect) {
-        const result = await options.onBeforeConnect(request, hookContext);
-        if (result instanceof Response) {
-          return result;
-        }
-        if (result instanceof Request) {
-          request = result;
-        }
+  const hookContext = { doNamespace, doInstanceNameOrId };
+
+  // Call hooks based on request type (matching Cloudflare's if/else behavior)
+  const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+
+  if (isWebSocket) {
+    if (options?.onBeforeConnect) {
+      const result = await options.onBeforeConnect(request, hookContext);
+      if (result instanceof Response) {
+        return result;
       }
-    } else {
-      if (options?.onBeforeRequest) {
-        const result = await options.onBeforeRequest(request, hookContext);
-        if (result instanceof Response) {
-          return result;
-        }
-        if (result instanceof Request) {
-          request = result;
-        }
+      if (result instanceof Request) {
+        request = result;
       }
     }
-
-    const stub = getDOStub(doNamespace, doInstanceNameOrId);
-    return await stub.fetch(request);
-  } catch (error: any) {
-    if (error instanceof DOBindingNotFoundError || error instanceof InvalidStubPathError || error instanceof PrefixNotFoundError) return undefined
-    throw (error);
+  } else {
+    if (options?.onBeforeRequest) {
+      const result = await options.onBeforeRequest(request, hookContext);
+      if (result instanceof Response) {
+        return result;
+      }
+      if (result instanceof Request) {
+        request = result;
+      }
+    }
   }
+
+  const stub = getDOStub(doNamespace, doInstanceNameOrId);
+  return await stub.fetch(request);
 }

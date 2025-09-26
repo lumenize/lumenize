@@ -1,41 +1,11 @@
 /**
- * Base interface for Durable Object binding resolution errors.
- * Provides structured error information for debugging binding issues.
- */
-export interface DOBindingError extends Error {
-  code: 'BINDING_NOT_FOUND' | 'MULTIPLE_BINDINGS_FOUND';
-  httpErrorCode: number;
-  availableBindings: string[];
-  attemptedBindings?: string[];
-}
-
-/**
- * Error thrown when no Durable Object binding matches the path segment.
- * 
- * Contains detailed information about what bindings were attempted and
- * what bindings are actually available in the environment.
- */
-export class DOBindingNotFoundError extends Error implements DOBindingError {
-  code: 'BINDING_NOT_FOUND' = 'BINDING_NOT_FOUND';
-  httpErrorCode: number = 404;
-  availableBindings: string[];
-  attemptedBindings: string[];
-
-  constructor(pathSegment: string, attemptedBindings: string[], availableBindings: string[]) {
-    super(`Durable Object binding not found for path segment '${pathSegment}'. Tried: ${attemptedBindings.join(', ')}`);
-    this.name = 'DOBindingNotFoundError';
-    this.availableBindings = availableBindings;
-    this.attemptedBindings = attemptedBindings;
-  }
-}
-
-/**
  * Error thrown when multiple Durable Object bindings match the path segment.
  * 
  * This indicates an ambiguous binding resolution that requires more specific
- * environment configuration or path segment naming.
+ * environment configuration or path segment naming. This is a genuine 
+ * configuration error that should be fixed.
  */
-export class MultipleBindingsFoundError extends Error implements DOBindingError {
+export class MultipleBindingsFoundError extends Error {
   code: 'MULTIPLE_BINDINGS_FOUND' = 'MULTIPLE_BINDINGS_FOUND';
   httpErrorCode: number = 400;
   availableBindings: string[];
@@ -144,43 +114,51 @@ function getDurableObjectBindings(env: Record<string, any>): string[] {
  * - `chat-room` → `chatRoom` (camelCase)
  * - `my-d-o` → `MyDO` (handles acronyms)
  * 
- * **Error Handling:**
- * - Throws `DOBindingNotFoundError` with details about attempted variations
- * - Throws `MultipleBindingsFoundError` if ambiguous matches found
- * - Both errors include available bindings for debugging
+ * **Return Behavior:**
+ * - Returns the DurableObjectNamespace if exactly one match is found
+ * - Returns `undefined` if no matching binding is found (no-match scenario)
+ * - Throws `MultipleBindingsFoundError` if multiple bindings match (configuration error)
  * 
  * @param pathSegment - The path segment that should match a DO binding
  * @param env - The Cloudflare Workers environment object containing DO bindings
- * @returns The DurableObjectNamespace for the uniquely matched binding
- * @throws {DOBindingNotFoundError} If no matching binding found after trying all variations
- * @throws {MultipleBindingsFoundError} If multiple bindings match the path segment
+ * @returns The DurableObjectNamespace for the uniquely matched binding, or undefined if no match
+ * @throws {MultipleBindingsFoundError} If multiple bindings match the path segment (genuine error)
  * 
  * @example
  * ```typescript
  * // Kebab-case to SCREAMING_SNAKE_CASE
  * // URL: /my-do/instance → Binding: MY_DO
  * const namespace = getDONamespaceFromPathSegment('my-do', { MY_DO: myDoNamespace });
+ * // → Returns myDoNamespace
  * 
  * // camelCase to PascalCase
  * // URL: /userSession/abc → Binding: UserSession  
  * const namespace = getDONamespaceFromPathSegment('userSession', { UserSession: userNamespace });
+ * // → Returns userNamespace
  * 
  * // Handles acronyms intelligently
  * // URL: /chat-d-o/room → Binding: ChatDO
  * const namespace = getDONamespaceFromPathSegment('chat-d-o', { ChatDO: chatNamespace });
+ * // → Returns chatNamespace
  * 
- * // Error handling
+ * // No match cases return undefined
+ * const namespace = getDONamespaceFromPathSegment('unknown', env);
+ * // → undefined
+ * 
+ * // Multiple matches throw error
  * try {
- *   const namespace = getDONamespaceFromPathSegment('unknown', env);
+ *   const namespace = getDONamespaceFromPathSegment('ambiguous', { 
+ *     AMBIGUOUS: ns1, 
+ *     Ambiguous: ns2 
+ *   });
  * } catch (error) {
- *   if (error instanceof DOBindingNotFoundError) {
- *     console.log('Tried:', error.attemptedBindings);
- *     console.log('Available:', error.availableBindings);
+ *   if (error instanceof MultipleBindingsFoundError) {
+ *     console.log('Matched bindings:', error.matchedBindings);
  *   }
  * }
  * ```
  */
-export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<string, any>): any {
+export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<string, any>): any | undefined {
   // Get all available DO bindings
   const availableBindings = getDurableObjectBindings(env);
   
@@ -193,7 +171,7 @@ export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<s
   );
   
   if (matches.length === 0) {
-    throw new DOBindingNotFoundError(pathSegment, variations, availableBindings);
+    return undefined; // No match - binding not found
   }
   
   if (matches.length > 1) {
