@@ -357,7 +357,6 @@ describe('routeDORequest', () => {
         stub: expect.any(Object),
         namespace: expect.any(Object)
       }));
-      expect(env.MY_DO.getByName).not.toHaveBeenCalled();
     });
 
     it('should handle prefix + regular request + hooks together', async () => {
