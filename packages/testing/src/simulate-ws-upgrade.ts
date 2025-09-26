@@ -5,8 +5,8 @@ import {
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 } from 'cloudflare:test';
 
-import { WSUpgradeOptions } from './types.js';
-import { createWSUpgradeRequest } from './create-ws-upgrade-request.js';
+import { WSUpgradeOptions } from './types';
+import { createWSUpgradeRequest } from './create-ws-upgrade-request';
 
 /**
  * Gets a Cloudflare server-side ws object by simulating a WebSocket upgrade request thru a Worker

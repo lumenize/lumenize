@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { runInDurableObject, runWithSimulatedWSUpgrade } from '../src/index.js';
-import { MyDO } from './test-harness.js';
+import { runInDurableObject, runWithSimulatedWSUpgrade } from '../src/index';
+import { MyDO } from './test-harness';
 
 describe('Comprehensive WebSocket testing framework tests', () => {
 

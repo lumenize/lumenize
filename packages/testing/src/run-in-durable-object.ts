@@ -6,7 +6,7 @@ import {
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 } from 'cloudflare:test';
 
-import { WSUpgradeOptions } from './types.js';
+import { WSUpgradeOptions } from './types';
 
 /**
  * Get all Durable Object binding names from the environment.

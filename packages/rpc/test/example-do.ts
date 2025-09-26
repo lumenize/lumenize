@@ -1,4 +1,4 @@
-import { lumenizeRpcDo } from '../src/lumenize-rpc-do.js';
+import { lumenizeRpcDo } from '../src/lumenize-rpc-do';
 
 /**
  * Example Durable Object for testing RPC functionality

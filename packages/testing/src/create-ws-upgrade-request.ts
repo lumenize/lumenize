@@ -1,4 +1,4 @@
-import { WSUpgradeOptions } from './types.js';
+import { WSUpgradeOptions } from './types';
 
 /**
  * Creates a WebSocket upgrade request with proper headers

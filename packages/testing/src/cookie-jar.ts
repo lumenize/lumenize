@@ -1,4 +1,4 @@
-import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils.js';
+import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils';
 
 /**
  * Cookie jar for managing cookies across HTTP requests

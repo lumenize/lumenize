@@ -2,8 +2,8 @@
 import { SELF, env } from 'cloudflare:test';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
-import { CookieJar } from './cookie-jar.js';
-// import { createSimpleWebSocketMock } from './websocket-simple.js';
+import { CookieJar } from './cookie-jar';
+// import { createSimpleWebSocketMock } from './websocket-simple';
 import { getWebSocketShim } from './websocket-shim';
 
 
@@ -362,7 +362,7 @@ export async function testDOProject(
   
   // Store env and registration function globally
   // Important: We need to provide the instrumented env for custom Workers
-  const { instrumentEnvironment } = await import('./instrument-worker.js');
+  const { instrumentEnvironment } = await import('./instrument-worker');
   const instrumentedEnv = instrumentEnvironment(env);
   
   (globalThis as any).__testingEnv = instrumentedEnv;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { serializeError, deserializeError } from '../../src/serialization.js';
+import { serializeError, deserializeError } from '../../src/serialization';
 
 describe('Error Serialization', () => {
   it('should preserve basic Error with custom properties', () => {
