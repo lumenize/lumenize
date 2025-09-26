@@ -3,16 +3,17 @@ import { routeDORequest, type RouteOptions } from '../src/route-do-request';
 
 describe('routeDORequest', () => {
   // Mock Durable Object Stub
-  const createMockStub = (name: string) => ({
-    name,
-    fetch: vi.fn().mockResolvedValue(new Response(`Response from ${name}`, { status: 200 }))
+  const createMockStub = (nameOrId: any) => ({
+    nameOrId,
+    fetch: vi.fn().mockResolvedValue(new Response(`Response from ${nameOrId}`, { status: 200 }))
   });
 
   // Mock Durable Object Namespace
   const createMockNamespace = () => ({
     getByName: vi.fn((name: string) => createMockStub(name)),
     idFromName: vi.fn(),
-    getById: vi.fn()
+    idFromString: vi.fn((id: string) => id),
+    get: vi.fn((id: any) => createMockStub(id)),
   });
 
   // Helper to create test requests
@@ -122,6 +123,19 @@ describe('routeDORequest', () => {
       
       expect(response).toBeInstanceOf(Response);
       expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
+    });
+
+    it('should work with uniqueIds', async () => {
+      const env = { MY_DO: createMockNamespace() };
+      const request = createRequest('http://localhost/api/my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99');
+      const options: RouteOptions = { prefix: '/api' };
+      
+      const response = await routeDORequest(request, env, options);
+      
+      expect(response).toBeInstanceOf(Response);
+      expect(await response?.text()).toBe('Response from 8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99');
+      
+      expect(env.MY_DO.get).toHaveBeenCalled();
     });
   });
 
