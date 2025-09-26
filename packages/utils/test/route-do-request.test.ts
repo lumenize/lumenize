@@ -137,10 +137,8 @@ describe('routeDORequest', () => {
       
       expect(onBeforeRequest).not.toHaveBeenCalled();
       expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
     });
 
@@ -153,10 +151,8 @@ describe('routeDORequest', () => {
       routeDORequest(request, env, options);
       
       expect(onBeforeRequest).toHaveBeenCalledWith(request, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
     });
 
@@ -236,10 +232,8 @@ describe('routeDORequest', () => {
       
       expect(response).toBeInstanceOf(Response);
       expect(onBeforeRequest).toHaveBeenCalledWith(originalRequest, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
       
       // Verify the modified request was passed to the stub
@@ -264,10 +258,8 @@ describe('routeDORequest', () => {
       
       expect(response).toBeInstanceOf(Response);
       expect(onBeforeConnect).toHaveBeenCalledWith(originalRequest, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
       
       // Verify the modified request was passed to the stub
@@ -327,10 +319,8 @@ describe('routeDORequest', () => {
       routeDORequest(request, env, options);
       
       expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
       expect(onBeforeRequest).not.toHaveBeenCalled();
     });
@@ -370,10 +360,8 @@ describe('routeDORequest', () => {
       routeDORequest(request, env, options);
       
       expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
       expect(onBeforeRequest).not.toHaveBeenCalled();
     });
@@ -405,10 +393,8 @@ describe('routeDORequest', () => {
       
       expect(response).toBe(hookResponse);
       expect(onBeforeConnect).toHaveBeenCalledWith(request, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
     });
 
@@ -425,10 +411,8 @@ describe('routeDORequest', () => {
       
       expect(response).toBeInstanceOf(Response);
       expect(onBeforeRequest).toHaveBeenCalledWith(request, expect.objectContaining({
-        doBindingName: 'my-do',
-        instanceNameOrId: 'instance',
-        stub: expect.any(Object),
-        namespace: expect.any(Object)
+        doInstanceNameOrId: 'instance',
+        doNamespace: expect.any(Object)
       }));
       expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
     });

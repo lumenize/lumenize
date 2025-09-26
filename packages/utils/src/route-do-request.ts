@@ -1,5 +1,6 @@
-import { getDOStubFromPathname, InvalidStubPathError, PrefixNotFoundError } from './get-do-stub-from-pathname';
-import { DOBindingNotFoundError } from './get-do-namespace-from-path-segment';
+import { getDOStub } from './get-do-stub';
+import { InvalidStubPathError, PrefixNotFoundError, parsePathname } from './parse-pathname';
+import { DOBindingNotFoundError, getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
 
 /**
  * Configuration options for DO request routing and authentication hooks.
@@ -14,7 +15,7 @@ export interface RouteOptions {
    */
   onBeforeConnect?: (
     request: Request, 
-    context: { stub: any; namespace: any; doBindingName: string; instanceNameOrId: string }
+    context: { doNamespace: any; doInstanceNameOrId: string }
   ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
 
   /**
@@ -26,7 +27,7 @@ export interface RouteOptions {
    */
   onBeforeRequest?: (
     request: Request, 
-    context: { stub: any; namespace: any; doBindingName: string; instanceNameOrId: string }
+    context: { doNamespace: any; doInstanceNameOrId: string }
   ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
 
   /**
@@ -141,16 +142,19 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    // Get the stub and routing info from getDOStubFromPathname
-    const stubAndIntermediates = getDOStubFromPathname(pathname, env, options);
-    const { stub } = stubAndIntermediates;
+    const { doBindingNameSegment, doInstanceNameOrId } = parsePathname(pathname, options);
+
+    // Get the namespace using existing function
+    const doNamespace = getDONamespaceFromPathSegment(doBindingNameSegment, env);
+
+    const hookContext = { doNamespace, doInstanceNameOrId };
 
     // Call hooks based on request type (matching Cloudflare's if/else behavior)
     const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
 
     if (isWebSocket) {
       if (options?.onBeforeConnect) {
-        const result = await options.onBeforeConnect(request, stubAndIntermediates);
+        const result = await options.onBeforeConnect(request, hookContext);
         if (result instanceof Response) {
           return result;
         }
@@ -160,7 +164,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
       }
     } else {
       if (options?.onBeforeRequest) {
-        const result = await options.onBeforeRequest(request, stubAndIntermediates);
+        const result = await options.onBeforeRequest(request, hookContext);
         if (result instanceof Response) {
           return result;
         }
@@ -170,6 +174,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
       }
     }
 
+    const stub = getDOStub(doNamespace, doInstanceNameOrId);
     return await stub.fetch(request);
   } catch (error: any) {
     if (error instanceof DOBindingNotFoundError || error instanceof InvalidStubPathError || error instanceof PrefixNotFoundError) return undefined
