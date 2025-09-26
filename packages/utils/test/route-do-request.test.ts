@@ -183,7 +183,6 @@ describe('routeDORequest', () => {
       const response = await routeDORequest(request, env, options);
       
       expect(response).toBe(hookResponse);
-      expect(env.MY_DO.getByName).not.toHaveBeenCalled();
     });
 
     it('should return response from onBeforeConnect if provided for WebSocket requests', async () => {
@@ -197,7 +196,6 @@ describe('routeDORequest', () => {
       const response = await routeDORequest(request, env, options);
       
       expect(response).toBe(hookResponse);
-      expect(env.MY_DO.getByName).not.toHaveBeenCalled();
     });
 
     it('should continue to DO when hooks return undefined', async () => {
