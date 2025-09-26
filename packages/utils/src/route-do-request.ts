@@ -10,7 +10,9 @@ export interface RouteOptions {
    * Hook called before WebSocket requests (Upgrade: websocket) reach the Durable Object.
    * 
    * @param request - The incoming WebSocket upgrade request
-   * @param context - Routing context with DO stub, namespace, binding name, and instance name
+   * @param context - Routing context with DO namespace and instance identifier
+   * @param context.doNamespace - The resolved DurableObjectNamespace for the binding
+   * @param context.doInstanceNameOrId - The instance name or unique ID from the URL path
    * @returns Response to block request, Request to modify request, undefined/void to continue
    */
   onBeforeConnect?: (
@@ -22,7 +24,9 @@ export interface RouteOptions {
    * Hook called before non-WebSocket HTTP requests reach the Durable Object.
    * 
    * @param request - The incoming HTTP request  
-   * @param context - Routing context with DO stub, namespace, binding name, and instance name
+   * @param context - Routing context with DO namespace and instance identifier
+   * @param context.doNamespace - The resolved DurableObjectNamespace for the binding
+   * @param context.doInstanceNameOrId - The instance name or unique ID from the URL path
    * @returns Response to block request, Request to modify request, undefined/void to continue
    */
   onBeforeRequest?: (
@@ -93,7 +97,7 @@ export interface RouteOptions {
  *   prefix: '/agents',
  *   
  *   // Authentication for WebSocket connections
- *   onBeforeConnect: async (request, { doBindingName, instanceNameOrId, stub, namespace }) => {
+ *   onBeforeConnect: async (request, { doNamespace, doInstanceNameOrId }) => {
  *     // Validate WebSocket auth token
  *     const token = request.headers.get('Authorization');
  *     if (!token || !await validateToken(token)) {
@@ -110,9 +114,9 @@ export interface RouteOptions {
  *   },
  *   
  *   // Authentication for HTTP requests  
- *   onBeforeRequest: async (request, { doBindingName, instanceNameOrId, stub, namespace }) => {
+ *   onBeforeRequest: async (request, { doNamespace, doInstanceNameOrId }) => {
  *     // Log request for analytics
- *     console.log(`HTTP request to ${doBindingName}:${instanceNameOrId}`, request.method, request.url);
+ *     console.log(`HTTP request to instance: ${doInstanceNameOrId}`, request.method, request.url);
  *     
  *     // API key validation
  *     const apiKey = request.headers.get('X-API-Key');
@@ -122,6 +126,10 @@ export interface RouteOptions {
  *         { status: 403 }
  *       );
  *     }
+ *     
+ *     // You can also create a stub early if needed for validation:
+ *     // const stub = doNamespace.getByName(doInstanceNameOrId);
+ *     // const info = await stub.fetch(new Request('http://internal/info'));
  *     
  *     // Continue processing - return nothing
  *   }

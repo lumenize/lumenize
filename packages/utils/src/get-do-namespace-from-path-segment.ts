@@ -1,3 +1,7 @@
+/**
+ * Base interface for Durable Object binding resolution errors.
+ * Provides structured error information for debugging binding issues.
+ */
 export interface DOBindingError extends Error {
   code: 'BINDING_NOT_FOUND' | 'MULTIPLE_BINDINGS_FOUND';
   httpErrorCode: number;
@@ -5,6 +9,12 @@ export interface DOBindingError extends Error {
   attemptedBindings?: string[];
 }
 
+/**
+ * Error thrown when no Durable Object binding matches the path segment.
+ * 
+ * Contains detailed information about what bindings were attempted and
+ * what bindings are actually available in the environment.
+ */
 export class DOBindingNotFoundError extends Error implements DOBindingError {
   code: 'BINDING_NOT_FOUND' = 'BINDING_NOT_FOUND';
   httpErrorCode: number = 404;
@@ -19,6 +29,12 @@ export class DOBindingNotFoundError extends Error implements DOBindingError {
   }
 }
 
+/**
+ * Error thrown when multiple Durable Object bindings match the path segment.
+ * 
+ * This indicates an ambiguous binding resolution that requires more specific
+ * environment configuration or path segment naming.
+ */
 export class MultipleBindingsFoundError extends Error implements DOBindingError {
   code: 'MULTIPLE_BINDINGS_FOUND' = 'MULTIPLE_BINDINGS_FOUND';
   httpErrorCode: number = 400;
@@ -84,12 +100,12 @@ function generateBindingVariations(pathSegment: string): string[] {
   // Additional variation: MyDO style (PascalCase with final letters capitalized)
   if (pathSegment.includes('-')) {
     const parts = pathSegment.split('-');
-    // Check if last part might be an acronym (2 letters or less)
+    // Check if the last part might be an acronym (2 letters or less)
     if (parts.length >= 2 && parts[parts.length - 1].length <= 2) {
       const pascalWithAcronym = parts
         .map((part, index) => 
           index === parts.length - 1 
-            ? part.toUpperCase() // Last part as acronym
+            ? part.toUpperCase() // Treat final short part as acronym
             : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase()
         )
         .join('');
@@ -118,21 +134,50 @@ function getDurableObjectBindings(env: Record<string, any>): string[] {
 /**
  * Find a Durable Object namespace from a path segment with intelligent case conversion.
  * 
- * @param pathSegment - The path segment that should match a DO binding (e.g., "my-do", "userSession")
- * @param env - The Cloudflare Workers environment object
- * @returns The DurableObjectNamespace for the matched binding
- * @throws {DOBindingNotFoundError} If no matching binding found
- * @throws {MultipleBindingsFoundError} If multiple bindings match
+ * This function bridges the gap between URL path segments (typically kebab-case) and
+ * TypeScript/Cloudflare environment binding names (various case conventions). It generates
+ * multiple case variations of the path segment and finds the matching binding in the environment.
+ * 
+ * **Supported Case Conversions:**
+ * - `my-do` → `MY_DO` (SCREAMING_SNAKE_CASE)
+ * - `user-session` → `UserSession` (PascalCase)  
+ * - `chat-room` → `chatRoom` (camelCase)
+ * - `my-d-o` → `MyDO` (handles acronyms)
+ * 
+ * **Error Handling:**
+ * - Throws `DOBindingNotFoundError` with details about attempted variations
+ * - Throws `MultipleBindingsFoundError` if ambiguous matches found
+ * - Both errors include available bindings for debugging
+ * 
+ * @param pathSegment - The path segment that should match a DO binding
+ * @param env - The Cloudflare Workers environment object containing DO bindings
+ * @returns The DurableObjectNamespace for the uniquely matched binding
+ * @throws {DOBindingNotFoundError} If no matching binding found after trying all variations
+ * @throws {MultipleBindingsFoundError} If multiple bindings match the path segment
  * 
  * @example
  * ```typescript
- * // Path segment: "my-do"
- * // Env has: { MY_DO: durableObjectNamespace }
- * const namespace = getDONamespaceFromPathSegment('my-do', env);
+ * // Kebab-case to SCREAMING_SNAKE_CASE
+ * // URL: /my-do/instance → Binding: MY_DO
+ * const namespace = getDONamespaceFromPathSegment('my-do', { MY_DO: myDoNamespace });
  * 
- * // Path segment: "userSession"  
- * // Env has: { UserSession: durableObjectNamespace }
- * const namespace = getDONamespaceFromPathSegment('userSession', env);
+ * // camelCase to PascalCase
+ * // URL: /userSession/abc → Binding: UserSession  
+ * const namespace = getDONamespaceFromPathSegment('userSession', { UserSession: userNamespace });
+ * 
+ * // Handles acronyms intelligently
+ * // URL: /chat-d-o/room → Binding: ChatDO
+ * const namespace = getDONamespaceFromPathSegment('chat-d-o', { ChatDO: chatNamespace });
+ * 
+ * // Error handling
+ * try {
+ *   const namespace = getDONamespaceFromPathSegment('unknown', env);
+ * } catch (error) {
+ *   if (error instanceof DOBindingNotFoundError) {
+ *     console.log('Tried:', error.attemptedBindings);
+ *     console.log('Available:', error.availableBindings);
+ *   }
+ * }
  * ```
  */
 export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<string, any>): any {
@@ -155,7 +200,7 @@ export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<s
     throw new MultipleBindingsFoundError(pathSegment, matches);
   }
   
-  // Return the matched binding
+  // Success: exactly one match found, return the namespace
   const bindingName = matches[0];
   return env[bindingName];
 }
