@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { lumenizeRpcDo } from '@lumenize/rpc';
 import type { RPCRequest, RPCResponse } from '@lumenize/rpc';
-import ExampleDO from '../example-do';
+import { ExampleDO } from '../example-do';
 
 // Use real structured-clone for sociable unit testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -31,7 +31,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
   it('should create lumenized DO class', () => {
     const LumenizedDO = lumenizeRpcDo(ExampleDO);
     expect(LumenizedDO).toBeDefined();
-    expect(LumenizedDO.name).toBe('ExampleDO');
+    expect(LumenizedDO.name).toBe('_ExampleDO');
   });
 
   it('should throw error for non-function input', () => {
