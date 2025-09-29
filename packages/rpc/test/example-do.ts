@@ -1,11 +1,15 @@
 import { lumenizeRpcDo } from '../src/lumenize-rpc-do';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
+// @ts-expect-error For some reason this import is not always recognized
+import { Env } from 'cloudflare:test';
+
+console.log('%o', DurableObject);
 
 /**
  * Example Durable Object for testing RPC functionality
  */
-class _ExampleDO extends DurableObject {
+class _ExampleDO extends DurableObject<Env> {
   // public readonly ctx: DurableObjectState;
   // public readonly env: Env;
   public readonly complexData: any;

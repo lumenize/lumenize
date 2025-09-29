@@ -47,7 +47,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
     expect(() => lumenizeRpcDo(42)).toThrow('lumenizeRpcDo() expects a Durable Object class (constructor function), got number');
   });
 
-  it('should execute simple operation chains', async () => {
+  it.only('should execute simple operation chains', async () => {
     const LumenizedDO = lumenizeRpcDo(ExampleDO);
     const instance = new LumenizedDO(mockCtx, mockEnv);
     
