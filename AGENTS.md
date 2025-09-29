@@ -21,8 +21,8 @@ All code is written in TypeScript, but no build step is used during development.
 - Only when importing an item that's from the same npm package.json workspace, and it is not an export from the package's index.ts file, should we use `import { something } from './some-other-file.ts'`
 
 ### Testing
-- Unit testing is only used for tight smallish functionality that can be unit tested without extensive mocking
-- Integration testing is our primary way to get coverage
+- Unit testing is only used for algorithmically tricky code and ui components that can be unit tested without extensive mocking.
+- Integration testing is our primary way to get coverage of code that runs in a Worker or DO. Since @lumenize/testing is an integration test runner for DOs, we should dogfood that unless there is a good reason not to.
 - We are shooting for close to 100% branch coverage and will never accept less than 80% branch coverage. Only branches that are unlikely exception conditions can be left uncovered.
 - I'm just as likely to remove functionality after a refactor than I am to upgrade a test to cover less useful code with tests.
 - You should not attempt to make the tests pass at all costs especially after a refactor. We do not want tests to be ossification of behavior we should deprecate.
@@ -37,7 +37,7 @@ When publishing, all packages are published in a single batch. This ensures that
 - You are pre-approved to look in and suggest improvements to the scripts section of package.json for guidance on other common tasks. Use `npm run ${scriptName}` to run scripts.
 - You are pre-approved to use use non-destructive command line tools like `ls`, `cat`, `grep`, `find`, `tree`, etc.
 - If there are no pending file edits that have not been committed, you are free to use command line tools that make destructive file changes in the repository (mv, rm, mkdir, etc.).
-- You are pre-approved to make requested coding edits so long as you successfully create a rollback checkpoint in the chat history.
+- You are pre-approved to make requested coding edits so long as you successfully create a rollback checkpoint in the chat history. If there is some reason you cannot create a rollback checkpoint, point that out so we can resolve that before moving on.
 - Only after you receive the human coder's approval can you use `npx ...` or other command line tools that might impact files outside of the repo.
 - Only after you receive the human coder's approval can you use destructive commands when there is no commit or checkpoint rollback capapability.
 - Ask permission before installing any npm packages.
@@ -74,9 +74,7 @@ Further, if a capability is inspired by code we found elsewhere or implements a 
 - Always favor backward breaking improvements over backward compatibility for internal dependencies. Never create an alias or backward-compatible function signature for something that is not exported by the index.ts of the package.
 - Favor backward breaking changes over living with bad design decisions even for exported capability. Everything is versioned. Warn me to set a flag that the next semver increment should indicate backward-breaking behavior by incrementing the major semver segment.
 
-## Code
-
-### Cloudflare Durable Object (DO) mindset shifts
+## Cloudflare Durable Object (DO) mindset shifts
 - DOs are written as TypeScript classes but they aren't instantiated in production as you might expect.
 - Each DO id is globally unique. Even the ids that are generated from a name are globally unique. That id can be represented as a 64 character hex string, but most ids are generated from a "name" that is provided by the caller and known in some system outside of the DO.
 - The id encapsulates geolocation information to assist with routing. The initial geolocation is chosen and embedded in the id based upon any juristiction hints provided when it is first accessed or by picking the location closest to the creator.
