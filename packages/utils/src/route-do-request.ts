@@ -61,9 +61,10 @@ export interface RouteOptions {
 /**
  * Routes requests to Durable Objects with support for authentication hooks and prefix matching.
  * 
- * This function provides a drop-in replacement for Cloudflare's routeAgentRequest and PartyKit's
- * routePartyRuest with enhanced flexibility for DO binding name matching and clear, consistent 
- * naming conventions.
+ * This function provides a near drop-in replacement for Cloudflare's routeAgentRequest and PartyKit's
+ * routePartyRuest. The only place it deviates from those is to enhance the flexibility for matching 
+ * a URL segment to the DO binding name matching and to use Cloudflare naming conventions instead of
+ * party/agent-specific identifiers. 
  * 
  * **URL Format:**
  * `[/${prefix}]/${doBindingName}/${doInstanceNameOrId}[/path...]`

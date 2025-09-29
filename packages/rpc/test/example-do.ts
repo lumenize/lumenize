@@ -1,16 +1,19 @@
 import { lumenizeRpcDo } from '../src/lumenize-rpc-do';
+import { routeDORequest } from '@lumenize/utils';
+import { DurableObject } from 'cloudflare:workers';
 
 /**
  * Example Durable Object for testing RPC functionality
  */
-class ExampleDO {
-  public readonly ctx: DurableObjectState;
-  public readonly env: Env;
+class _ExampleDO extends DurableObject {
+  // public readonly ctx: DurableObjectState;
+  // public readonly env: Env;
   public readonly complexData: any;
 
   constructor(ctx: DurableObjectState, env: Env) {
-    this.ctx = ctx;
-    this.env = env;
+    super(ctx, env);
+    // this.ctx = ctx;
+    // this.env = env;
     
     // Create a complex object with circular reference
     this.complexData = {
@@ -96,4 +99,29 @@ class ExampleDO {
 }
 
 // Export the lumenized version
-export default lumenizeRpcDo(ExampleDO);
+const ExampleDO = lumenizeRpcDo(_ExampleDO);
+export { ExampleDO };
+
+/**
+ * Worker fetch handler that uses routeDORequest to handle RPC requests
+ * and falls back to existing Worker handlers/responses for non-RPC requests
+ */
+export default {
+  async fetch(request: Request, env: any): Promise<Response> {
+    // Try to route RPC requests first using routeDORequest
+    const doResponse = await routeDORequest(request, env);
+    if (doResponse) return doResponse;
+
+    // Try something else
+    const workerPingResponse = this.handleWorkerPing();
+    if (workerPingResponse) return workerPingResponse;
+
+    // Fall back to existing DO logic for non-RPC requests
+    // This handles direct requests to the DO that don't match the routing pattern
+    return new Response('Not Found', { status: 404 });
+  },
+
+  handleWorkerPing: () => {
+    return new Response('pong from Worker');
+  }
+}

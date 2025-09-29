@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lumenizeRpcDo } from '../../src/lumenize-rpc-do';
+import { lumenizeRpcDo } from '@lumenize/rpc';
 import type { RPCRequest, RPCResponse } from '@lumenize/rpc';
 import ExampleDO from '../example-do';
 

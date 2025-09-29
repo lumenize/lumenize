@@ -1,0 +1,99 @@
+# Lumenize Project Context
+
+## Overview
+Lumenize is a collection of liberally licensed (MIT) and more restrictively licensed (BSI-1.1) open-source packages targeting Cloudflare's Durable Objects, which are part of Cloudflare's Workers edge computing platform. There are two complementary but distinct goals:
+1. Provide a *de*light*ful*suite of packages that any developer can use to build scalable, high-quality, and maintainable products (MIT licensed).
+2. Build the ultimate framework for vibe coding enterprise or B2B SaaS software products in a rapid and secure manner. It will be BSI-1.1 licensed, available to enterprises via commercial licenses, and offered as a platform as a service (PaaS) with generous free tier.
+
+## Guiding Principles
+- **Quality**: Highest code and documentation quality achieved with high test coverage and doc testing, which assures that the examples in the documentation always work.
+- **Opinionated where it matters. Flexible where it counts**: For example, the LumenizeBase class is minimal but opinionated about best practices while also providing a flexible plugin system to extend functionality along with batteries-included plugins for common use cases.
+- **No foot-guns**: Vibe coders are experts in their field, but not necessarily coding or operations. Lumenize makes it easy for both the product creator AND the LLM they are using to follow best practices. For example, Durable Objects were designed to make parallel programming safer if you follow certain patterns, but will happily allow you to violate those patterns without warning. Even when Lumenize allows you to break the rules, you are loudly warned of the risks.
+- **Security**: Authentication and access control are built-in and on by default. You have to jump through hoops to avoid them. At the same time, they are flexible and can be adapted to any context.
+
+## How we do things around here
+
+### No build except on publish
+All code is written in TypeScript, but no build step is used during development. Intra-package dependencies are managed using npm workspaces. This means that we can run and debug code directly from the source without needing to build first. The only time a build is done is when publishing using Lerna. This happens only after all builds, code tests, and doc tests pass.
+
+### Imports
+- If the item you are importing is exported from the source package's index.ts, use `import { something } from '@lumenize/some-other-package'`
+- Only when importing an item that's from the same npm package.json workspace, and it is not an export from the package's index.ts file, should we use `import { something } from './some-other-file.ts'`
+
+### Testing
+- Unit testing is only used for tight smallish functionality that can be unit tested without extensive mocking
+- Integration testing is our primary way to get coverage
+- We are shooting for close to 100% branch coverage and will never accept less than 80% branch coverage. Only branches that are unlikely exception conditions can be left uncovered.
+- I'm just as likely to remove functionality after a refactor than I am to upgrade a test to cover less useful code with tests.
+- You should not attempt to make the tests pass at all costs especially after a refactor. We do not want tests to be ossification of behavior we should deprecate.
+- Never create an alias just so we don't have to modify a bunch of tests. Fixing the tests now is much better than living with that technical debt.
+
+### Publish in synchronous batches
+When publishing, all packages are published in a single batch. This ensures that all packages are always in sync with each other. It also means that we can make breaking changes across multiple packages in a single commit and publish them all at once.
+
+### Pre-approved commands
+- You (our AI coding partner) are pre-approved to use `vitest --run ${filterPattern}` to run tests matching the filter pattern.
+- You are pre-approved to use `vitest --run --coverage` to check test coverage.
+- You are pre-approved to look in and suggest improvements to the scripts section of package.json for guidance on other common tasks. Use `npm run ${scriptName}` to run scripts.
+- You are pre-approved to use use non-destructive command line tools like `ls`, `cat`, `grep`, `find`, `tree`, etc.
+- If there are no pending file edits that have not been committed, you are free to use command line tools that make destructive file changes in the repository (mv, rm, mkdir, etc.).
+- You are pre-approved to make requested coding edits so long as you successfully create a rollback checkpoint in the chat history.
+- Only after you receive the human coder's approval can you use `npx ...` or other command line tools that might impact files outside of the repo.
+- Only after you receive the human coder's approval can you use destructive commands when there is no commit or checkpoint rollback capapability.
+- Ask permission before installing any npm packages.
+
+### NPM packages
+- Avoid npm package dependencies if possible. If a package is under 100 SLOC (source lines of code), I'm more inclined to copy the code with proper attribution than to install the package. If a package is under 1000 SLOC but I only need a subset of its functionality, I'm more inclined to copy the relevant code and modify it with proper attribution than to install the package. See #Attribution section below on how to attribute such code.
+- Use only well-known, well-maintained packages with permissive licenses (MIT, Apache-2.0, BSD-3-Clause, ISC).
+- Favor packages with the smallest once-built footprint over the fastest.
+- Favor packages with the strongest compatibility with Cloudflare Workers.
+- Never install an npm package globally.
+
+### Attributions and inspirations
+When copying liberally-licensed code (usually under 1000 SLOC copied), we maintain an `ATTRIBUTIONS.md` file in the repository root with content as follows:
+```
+## [Source Name]
+- **Original Source**: [URL to original project/code]
+- **License**: [License Name]([License URL])
+- **Files Using Code**: 
+  - `packages/rpc/src/file.ts` (lines X-Y)
+- **Description**: [How you're using the copied code]
+- **Date Added**: [YYYY-MM-DD]
+- **Attribution Method**: [Brief note about how you credited the original]
+
+## [Another Source]
+[Repeat the format above]
+```
+We also include a line or two of comment(s) immediately above the copied code mentioning the original author(s) and linking to the code.
+
+This approach provides centralized, discoverable attribution while keeping code files clean. All copied code should be properly attributed in `ATTRIBUTIONS.md` before merging.
+
+Further, if a capability is inspired by code we found elsewhere or implements a similar call signature, include comment(s) identifying the source and the nature of the inspiration. For example, our routeDORequest is a near drop-in replacement for routeAgentRequest and routePartyRequest but none of that code was used in routeDORequest's creation so both are mentioned in the comments for routeDORequest.
+
+### Favor backward breaking over living with bad design decisions
+- Always favor backward breaking improvements over backward compatibility for internal dependencies. Never create an alias or backward-compatible function signature for something that is not exported by the index.ts of the package.
+- Favor backward breaking changes over living with bad design decisions even for exported capability. Everything is versioned. Warn me to set a flag that the next semver increment should indicate backward-breaking behavior by incrementing the major semver segment.
+
+## Code
+
+### Cloudflare Durable Object (DO) mindset shifts
+- DOs are written as TypeScript classes but they aren't instantiated in production as you might expect.
+- Each DO id is globally unique. Even the ids that are generated from a name are globally unique. That id can be represented as a 64 character hex string, but most ids are generated from a "name" that is provided by the caller and known in some system outside of the DO.
+- The id encapsulates geolocation information to assist with routing. The initial geolocation is chosen and embedded in the id based upon any juristiction hints provided when it is first accessed or by picking the location closest to the creator.
+- The system gurantees that only one instance by that name/id is running at a time anywhere in the world.
+- The term "Durable Object" or "DO" is defined to mean "Durable Object instance" but it is often mis-used to mean the Durable Object class or namespace. We should try be explicit but in the absense of perfect clarity it's best to assume that "DO" or "Durable Object" means "Durable Object instance" or ask.
+- The "Durable" aspect of DOs come into play because each DO instance has a dedicated SQLite database that can store up to 10GB of data that is only accessible through the code of the DO.
+- Access to the SQLite database can through one of three APIs:
+  - The legacy async key-value (KV) API which we should never use. It is there only to support migration from the DO system's now deprecated storage backend. These are found in `this.ctx.storage.put()`, `this.ctx.storage.get()`, etc. We should never write code to this API.
+  - Synchronous KV API with the same method names as the legacy async KV API but these return values instead of a Promise. These are found in `this.ctx.storage.kv.put()`, etc.
+  - Synchronous SQLite-flavored SQL API accessed by `this.storage.sql.exec()`.
+- It's a bit of a mindset shift to use storage sychronously but it's perfectly fine because SQLite is an embedded database that is run in the same process and memory space as the DO code. It has fundamentally different performance characteristics because there is no network hop nor even a CPU context switch. In most cases, N+1 queries are just as efficient as, and sometimes more efficient than, a single query with a join.
+- Because of this, all reads and writes in a single request or message handler are considered in the same virtual "transaction" so long as our code doesn't access the outside world (fetch()) or use setTimeout, setInterval.
+- So long as you avoid fetching, setTimeout, setInterval, DOs have a mechanism of input and output gates that assure messages and requests are processed in order and the next one in queue doesn't start until the last one's storage operations are persisted.
+- The DO system can evict a DO instance from memory for any number of reasons at any time including idleness. The next time the DO instance is accessed via name or id, it will be reinstantiated and the constructor will be called again.
+- However, the DO keeps around a cache of most frequently accessed storage even after the DO has left memory and the DO can maintain WebSocket connections through "hibernation".
+- Cloudflare DOs can be thought of as implementing a form of the Actor programming model popularlized by Erlang/BEAM although it lacks supervisory control that other Actor implementations implement.
+- So, what this means is that:
+  - Only use instance variables to capture DO constructor parameters `this.ctx`/`this.env`, or when the in-memory form of data is an expensive transformation from the on-disk form. However, we should avoid situations where the in-memory form of the data is an expensive transformation from the on-disk form unless absolutely necessary.
+  - Rather, each request/message handler should fetch what it needs from storage to process that message/request.
+  - Also, since it can be evicted from memory at any time, state changes must be persisted to storage before returning from the message/request handler.
