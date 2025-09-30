@@ -11,6 +11,16 @@ Lumenize is a collection of liberally licensed (MIT) and more restrictively lice
 - **No foot-guns**: Vibe coders are experts in their field, but not necessarily coding or operations. Lumenize makes it easy for both the product creator AND the LLM they are using to follow best practices. For example, Durable Objects were designed to make parallel programming safer if you follow certain patterns, but will happily allow you to violate those patterns without warning. Even when Lumenize allows you to break the rules, you are loudly warned of the risks.
 - **Security**: Authentication and access control are built-in and on by default. You have to jump through hoops to avoid them. At the same time, they are flexible and can be adapted to any context.
 
+## Development Workflow Instructions
+
+We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and track progress on them. The contents are broken down into phases and steps or for smaller efforts, just steps.
+
+### General Development Rules
+- When we change our minds on the plan from learning of earlier steps, propose updates to the plan in WIP.md.
+- Provide clear summaries of what was implemented after each step.
+- Explain design decisions and trade-offs.
+- After each step/phase, ask for code review before proceeding. Ask "Ready to proceed with [next step/phase]?" after completing each step or phase.
+
 ## How we do things around here
 
 ### No build except on publish
