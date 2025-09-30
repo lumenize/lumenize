@@ -1,12 +1,12 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
 
-import type { 
-  OperationChain, 
-  RPCRequest, 
-  RPCResponse, 
+import type {
+  OperationChain,
+  RPCRequest,
+  RPCResponse,
   RPCConfig,
-  RemoteFunctionMarker 
+  RemoteFunctionMarker
 } from './types';
 import { serializeError } from './serialization';
 
@@ -35,14 +35,15 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
 
   // Create enhanced class that extends the original
   class LumenizedDO extends (DOClass as T) {
-    async fetch(request: Request, env?: any, ctx?: any): Promise<Response> {
+
+    async fetch(request: Request): Promise<Response> {
       return (
-        await this.handleRPCRequest(request, env, ctx) ||
-        super.fetch(request, env, ctx)
+        await this.handleRPCRequest(request) ||
+        super.fetch(request)
       );
     }
 
-    private async handleRPCRequest(request: Request, env?: any, ctx?: any): Promise<Response | null> {
+    private async handleRPCRequest(request: Request): Promise<Response | null> {
       const url = new URL(request.url);
       
       // Only handle RPC endpoints

@@ -6,13 +6,6 @@ export default defineWorkersProject({
   test: {
     testTimeout: 2000, // 2 second global timeout
     globals: true,
-    // Use different pools based on folder structure (disabled for coverage)
-    // poolMatchGlobs: process.env.COVERAGE ? [] : [
-    //   // Integration tests use workers pool
-    //   ['**/test/integration/**/*.test.ts', '@cloudflare/vitest-pool-workers'],
-    //   // Unit tests use default forks pool  
-    //   ['**/test/unit/**/*.test.ts', 'forks']
-    // ],
     poolOptions: {
       workers: {
         isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
