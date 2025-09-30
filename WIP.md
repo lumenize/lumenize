@@ -40,6 +40,8 @@
 - [x] Implement RPCTransport class
 - [x] HTTP request execution
 - [x] Error handling and timeout logic
+- [ ] Create one test that uses SELF.fetch before writing more tests
+- [ ] **PROMPT DEVELOPER TO REVIEW AND DON'T END THIS REVIEW STEP WITHOUT PERMISSION**
 - [ ] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
 - [ ] Get all tests to pass
 - [ ] Get coverage to no less than 80% branch coverage
