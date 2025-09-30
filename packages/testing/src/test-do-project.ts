@@ -4,7 +4,7 @@ import { SELF, env } from 'cloudflare:test';
 const { serialize, deserialize } = require('@ungap/structured-clone');
 import { CookieJar } from './cookie-jar';
 // import { createSimpleWebSocketMock } from './websocket-simple';
-import { getWebSocketShim } from './websocket-shim';
+import { getWebSocketShim } from '@lumenize/rpc';
 
 
 /**
