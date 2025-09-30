@@ -58,7 +58,7 @@ export interface RPCConfig {
    * Base path for RPC endpoints
    * @default "/__rpc"
    */
-  basePath?: string;
+  prefix?: string;
   
   /**
    * Maximum depth for operation chains (security)

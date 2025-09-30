@@ -112,12 +112,18 @@ export { ExampleDO };
  */
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
+    console.debug('%o', {
+      type: 'debug',
+      where: 'example-do.ts Worker fetch handler',
+      request,
+      env
+    });
     // Try to route RPC requests first using routeDORequest
-    const doResponse = await routeDORequest(request, env);
+    const doResponse = await routeDORequest(request, env, { prefix: '/__rpc' });
     if (doResponse) return doResponse;
 
     // Try something else
-    const workerPingResponse = this.handleWorkerPing();
+    const workerPingResponse = this.handleWorkerPing(request);
     if (workerPingResponse) return workerPingResponse;
 
     // Fall back to existing DO logic for non-RPC requests
@@ -125,7 +131,12 @@ export default {
     return new Response('Not Found', { status: 404 });
   },
 
-  handleWorkerPing: () => {
-    return new Response('pong from Worker');
+  handleWorkerPing: (request: Request) => {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/ping')) {
+      return new Response('pong from Worker');
+    } else {
+      return undefined;
+    }
   }
 }

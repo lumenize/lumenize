@@ -1,4 +1,5 @@
-import type { OperationChain } from './types';
+import type { OperationChain, RPCClientConfig} from './types';
+import { RPCTransport } from './http-post-transport';
 
 /**
  * Internal state for proxy objects (not exported - implementation detail)
@@ -20,17 +21,13 @@ function isProxyObject(obj: any): obj is ProxyState & Record<string | symbol, an
   return obj && typeof obj === 'object' && obj[PROXY_STATE_SYMBOL] !== undefined;
 }
 
-/**
- * RPC client implementation
- * (This will be implemented in the next step)
- */
 export class RPCClient {
-  private config: Required<import('./types').RPCClientConfig>;
+  #config: Required<RPCClientConfig>;
 
-  constructor(config: import('./types').RPCClientConfig) {
+  constructor(config: RPCClientConfig) {
     // Set defaults and merge with user config
-    this.config = {
-      basePath: '/__rpc',
+    this.#config = {
+      prefix: '/__rpc',
       maxDepth: 50,
       maxArgs: 100,
       baseUrl: typeof location !== 'undefined' ? location.origin : 'http://localhost:8787',
@@ -43,12 +40,12 @@ export class RPCClient {
 
   execute(operations: OperationChain): Promise<any> {
     // Create transport instance with current config
-    const transport = new (require('./http-post-transport').RPCTransport)({
-      baseUrl: this.config.baseUrl,
-      basePath: this.config.basePath,
-      timeout: this.config.timeout,
-      fetch: this.config.fetch,
-      headers: this.config.headers
+    const transport = new RPCTransport({
+      baseUrl: this.#config.baseUrl,
+      prefix: this.#config.prefix,
+      timeout: this.#config.timeout,
+      fetch: this.#config.fetch,
+      headers: this.#config.headers
     });
 
     // Execute the operation chain via HTTP transport

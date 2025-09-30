@@ -23,6 +23,9 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 
 ## How we do things around here
 
+## Coding style
+- Never use Typescript keyword `private`. Rather use JavaScript equivalent of starting the identifier with "#".
+
 ### No build except on publish
 All code is written in TypeScript, but no build step is used during development. Intra-package dependencies are managed using npm workspaces. This means that we can run and debug code directly from the source without needing to build first. The only time a build is done is when publishing using Lerna. This happens only after all builds, code tests, and doc tests pass.
 
