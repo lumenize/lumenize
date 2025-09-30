@@ -8,7 +8,7 @@ import type {
   RPCConfig,
   RemoteFunctionMarker
 } from './types';
-import { serializeError } from './serialization';
+import { serializeError } from './error-serialization';
 
 /**
  * Default RPC configuration

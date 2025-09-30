@@ -89,7 +89,7 @@ export interface RemoteFunctionMarker {
 /**
  * RPC client configuration
  */
-export interface BrowserRPCConfig extends RPCConfig {
+export interface RPCClientConfig extends RPCConfig {
   /**
    * Base URL for the Durable Object RPC endpoints
    * @default location.origin

@@ -29,17 +29,17 @@
 - [x] Move internal types to browser-client.ts
 
 #### RPC Client Implementation
-- [ ] Create browser-client.ts file
-- [ ] Implement RPCClient class constructor
-- [ ] Implement createProxy() method with Proxy factory
-- [ ] **AWAITING REVIEW** - Proxy handler implementation
-- [ ] **AWAITING REVIEW** - Operation chain building logic
+- [x] Create browser-client.ts file
+- [x] Implement RPCClient class constructor
+- [x] Implement createProxy() method with Proxy factory
+- [x] Proxy handler implementation
+- [x] Operation chain building logic
 
 #### Transport Layer
-- [ ] Create http-post-transport.ts file
-- [ ] Implement RPCTransport class
-- [ ] **AWAITING REVIEW** - HTTP request execution
-- [ ] **AWAITING REVIEW** - Error handling and timeout logic
+- [x] Create http-post-transport.ts file
+- [x] Implement RPCTransport class
+- [x] HTTP request execution
+- [x] Error handling and timeout logic
 - [ ] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
 - [ ] Get all tests to pass
 - [ ] Get coverage to no less than 80% branch coverage
