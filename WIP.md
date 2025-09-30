@@ -4,7 +4,7 @@
 
 - DO-level: Class factory returning a new DO class that is a subclass of the user's class but has an __rpc endpoint
 - Worker-level: instruct user to use routeDORequest with __rpc prefix
-- Browser-client: JavaScript Proxy based interface similar to what we have in @lumenize/testing but instead using the OperationChain approach we've already implemented in the DO-level
+- Client-level: JavaScript Proxy based interface similar to what we have in @lumenize/testing but instead using the OperationChain approach we've already implemented in the DO-level
 
 ## Implementation Phases
 
@@ -24,9 +24,9 @@
 - [x] Add ProxyState interface for proxy object state
 - [x] Add PROXY_STATE_SYMBOL for proxy identification
 - [x] Add type guard functions (isProxyObject, isRemoteFunctionMarker)
-- [ ] **AWAITING REVIEW** - Merge browser-types.ts into types.ts
-- [ ] **AWAITING REVIEW** - Remove browser-types.ts file
-- [ ] **AWAITING REVIEW** - Update imports if needed
+- [x] Merge browser-types.ts into types.ts
+- [x] Remove browser-types.ts file
+- [x] Move internal types to browser-client.ts
 
 #### RPC Client Implementation
 - [ ] Create browser-client.ts file
@@ -36,10 +36,9 @@
 - [ ] **AWAITING REVIEW** - Operation chain building logic
 
 #### Transport Layer
-- [ ] Create browser-transport.ts file
+- [ ] Create http-post-transport.ts file
 - [ ] Implement RPCTransport class
 - [ ] **AWAITING REVIEW** - HTTP request execution
-- [ ] **AWAITING REVIEW** - Environment detection (browser vs test)
 - [ ] **AWAITING REVIEW** - Error handling and timeout logic
 - [ ] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
 - [ ] Get all tests to pass

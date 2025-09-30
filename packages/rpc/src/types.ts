@@ -83,11 +83,11 @@ export interface RemoteFunctionMarker {
 }
 
 // =====================================================================================
-// BROWSER-SPECIFIC TYPES
+// CLIENT-SPECIFIC TYPES
 // =====================================================================================
 
 /**
- * Browser-specific RPC client configuration
+ * RPC client configuration
  */
 export interface BrowserRPCConfig extends RPCConfig {
   /**
@@ -114,25 +114,7 @@ export interface BrowserRPCConfig extends RPCConfig {
   headers?: Record<string, string>;
 }
 
-/**
- * Internal state for proxy objects
- */
-export interface ProxyState {
-  operationChain: OperationChain;
-  rpcClient: any; // Will be the concrete RPCClient class instance
-}
 
-/**
- * Symbol used to identify proxy objects
- */
-export const PROXY_STATE_SYMBOL = Symbol('lumenize-rpc-proxy-state');
-
-/**
- * Type guard to check if an object is a proxy with state
- */
-export function isProxyObject(obj: any): obj is ProxyState & Record<string | symbol, any> {
-  return obj && typeof obj === 'object' && obj[PROXY_STATE_SYMBOL] !== undefined;
-}
 
 /**
  * Type guard to check if an object is a remote function marker
