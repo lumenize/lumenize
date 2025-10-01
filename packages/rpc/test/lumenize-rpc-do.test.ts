@@ -458,4 +458,44 @@ describe('lumenizeRpcDo server-side functionality', () => {
       expect(data.error).toBeDefined();
     });
   });
+
+  it('should handle class instances with prototype methods', async () => {
+    // Tests that #preprocessResult walks the prototype chain to find methods
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getClassInstance' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      
+      // Check instance properties are preserved
+      expect(result.value).toBe(42);
+      expect(result.name).toBe('TestModel');
+      
+      // Check that prototype methods were converted to remote markers
+      expect(result.getValue.__isRemoteFunction).toBe(true);
+      expect(result.getValue.__functionName).toBe('getValue');
+      expect(result.getName.__isRemoteFunction).toBe(true);
+      expect(result.getName.__functionName).toBe('getName');
+      expect(result.compute.__isRemoteFunction).toBe(true);
+      expect(result.compute.__functionName).toBe('compute');
+    });
+  });
 });

@@ -5,6 +5,31 @@ import { DurableObject } from 'cloudflare:workers';
 import { Env } from 'cloudflare:test';
 
 /**
+ * Example class with methods on prototype (for testing prototype chain walking)
+ */
+class DataModel {
+  public value: number;
+  public name: string;
+
+  constructor(value: number, name: string) {
+    this.value = value;
+    this.name = name;
+  }
+
+  getValue(): number {
+    return this.value;
+  }
+
+  getName(): string {
+    return this.name;
+  }
+
+  compute(): number {
+    return this.value * 2;
+  }
+}
+
+/**
  * Example Durable Object for testing RPC functionality
  */
 class _ExampleDO extends DurableObject<Env> {
@@ -109,6 +134,11 @@ class _ExampleDO extends DurableObject<Env> {
       enumerable: true
     });
     return obj;
+  }
+
+  // Method that returns a class instance (for testing prototype chain walking)
+  getClassInstance(): DataModel {
+    return new DataModel(42, 'TestModel');
   }
 
   // Original fetch method (would handle user's business logic)

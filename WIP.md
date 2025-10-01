@@ -40,16 +40,16 @@
 - [x] Implement RPCTransport class
 - [x] HTTP request execution
 - [x] Error handling and timeout logic
-- [ ] Create one test that uses SELF.fetch before writing more tests
-- [ ] **PROMPT DEVELOPER TO REVIEW AND DON'T END THIS REVIEW STEP WITHOUT PERMISSION**
-- [ ] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
-- [ ] Get all tests to pass
+- [x] Create one test that uses SELF.fetch before writing more tests
+- [x] **PROMPT DEVELOPER TO REVIEW AND DON'T END THIS REVIEW STEP WITHOUT PERMISSION**
+- [x] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
+- [x] Get all tests to pass
 - [ ] Get coverage to no less than 80% branch coverage
 
 ### ⏳ Phase 3: Advanced Features  
-- [ ] Implement result processing and error reconstruction
-- [ ] Handle RemoteFunctionMarker objects
-- [ ] Add TypeScript generics for type safety
+- [ ] Export handleRPCRequest and document a usage mode where they don't use lumenizeRpcDo factory function but instead use their own routing to handleRPCRequest
+- [x] Implement result processing and error reconstruction
+- [x] Handle RemoteFunctionMarker objects
 
 ### ⏳ Phase 4: Error Handling & Edge Cases
 - [ ] Implement comprehensive error handling

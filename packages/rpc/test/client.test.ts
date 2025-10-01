@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
-import { runInDurableObject, env, SELF } from 'cloudflare:test';
+import { SELF } from 'cloudflare:test';
 import { RpcClientFactory as RpcClientFactory } from '../src/client';
 import type { RpcClientFactoryConfig } from '../src/types';
 

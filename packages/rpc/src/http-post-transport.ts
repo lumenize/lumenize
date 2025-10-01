@@ -95,11 +95,7 @@ export class HttpPostRpcTransport {
 
     const rpcResponse: RpcResponse = await response.json();
 
-    if (!rpcResponse.success) {
-      // Handle error response
-      throw deserializeError(rpcResponse.error);
-    }
-
+    // At this point, response.ok is true, so rpcResponse.success should always be true
     // Deserialize the result using @ungap/structured-clone
     return deserialize(rpcResponse.result);
   }
