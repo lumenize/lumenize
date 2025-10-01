@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { ManualRoutingDO } from './example-do';
+import { ManualRoutingDO } from './test-worker-and-dos';
 import { createRpcClient, type RpcClientConfig } from '../src/client';
 
 describe('Manual RPC routing', () => {

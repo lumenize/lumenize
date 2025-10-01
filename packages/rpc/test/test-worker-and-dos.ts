@@ -287,9 +287,8 @@ export default {
   async fetch(request: Request, env: any): Promise<Response> {
     console.debug('%o', {
       type: 'debug',
-      where: 'example-do.ts Worker fetch handler',
-      request,
-      env
+      where: 'test-worker-and-dos.ts Worker fetch handler',
+      url: request.url,
     });
     
     // Try to route RPC requests first using routeDORequest

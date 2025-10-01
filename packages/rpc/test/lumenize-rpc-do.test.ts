@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { runInDurableObject, env } from 'cloudflare:test';
 import { lumenizeRpcDo } from '@lumenize/rpc';
 import type { RpcRequest, RpcResponse } from '@lumenize/rpc';
+import worker from './test-worker-and-dos';
 
 // Use real structured-clone for sociable unit testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -501,9 +502,6 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
   it('should handle non-RPC requests at worker level', async () => {
     // Test that non-RPC requests fall through to custom worker handlers
-    // Import the worker default export
-    const workerModule = await import('./example-do.js');
-    const worker = workerModule.default;
 
     // Test the /ping endpoint which is handled by handleWorkerPing
     const request = new Request('https://example.com/ping');
@@ -516,8 +514,6 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
   it('should return 404 for unhandled worker routes', async () => {
     // Test that unknown routes return 404
-    const workerModule = await import('./example-do.js');
-    const worker = workerModule.default;
 
     const request = new Request('https://example.com/unknown-route');
     const response = await worker.fetch(request, env);

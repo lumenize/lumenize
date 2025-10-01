@@ -1,6 +1,6 @@
 {
-  "name": "lumenize-rpc-example",
-  "main": "test/example-do.ts",
+  "name": "lumenize-rpc",
+  "main": "test/test-worker-and-dos.ts",
   "compatibility_date": "2024-09-23",
   "durable_objects": {
     "bindings": [

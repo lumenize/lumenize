@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, type RpcClientConfig } from '../src/client';
 
-import { ExampleDO } from './example-do';
+import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = InstanceType<typeof ExampleDO>;
 
 // Base configuration shared across all tests

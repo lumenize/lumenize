@@ -325,7 +325,7 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
       console.debug('%o', {
         type: 'debug',
         where: 'LumenizeDO in factory lumenizeRpcDo',
-        request,
+        url: request.url,
       });
       
       // Use the exported handleRPCRequest function
