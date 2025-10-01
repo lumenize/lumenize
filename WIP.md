@@ -60,18 +60,18 @@
 - [x] Refactor `RpcClient` constructor to store WebSocketClass
 - [x] Create transport factory function (`createTransport()`) that instantiates correct transport
 
-#### Phase 4.2: WebSocket RPC Transport (Client-Side)
-- [ ] Add comprehensive JSDoc to websocket-shim.ts explaining usage
-- [ ] Create `websocket-rpc-transport.ts` implementing `RpcTransport` interface:
-  - [ ] Lazy connection: connect on first `execute()` call
-  - [ ] Auto-reconnect: if connection dropped, reconnect on next `execute()`
-  - [ ] Message protocol: `{ id, type: '__rpc', wireOperations }`
-  - [ ] Response protocol: `{ id, type: '__rpc', success, result/error }`
-  - [ ] Track pending operations with Map<id, {resolve, reject}>
-  - [ ] Handle WebSocket events: open, message, close, error
-  - [ ] Implement `isConnected()` checking `ws.readyState === WebSocket.OPEN`
-  - [ ] Implement `disconnect()` closing WebSocket and rejecting pending ops
-- [ ] Update `HttpPostRpcTransport` name/exports for clarity
+#### ✅ Phase 4.2: WebSocket RPC Transport (Client-Side)
+- [x] Add comprehensive JSDoc to websocket-shim.ts explaining usage
+- [x] Create `websocket-rpc-transport.ts` implementing `RpcTransport` interface:
+  - [x] Lazy connection: connect on first `execute()` call
+  - [x] Auto-reconnect: if connection dropped, reconnect on next `execute()`
+  - [x] Message protocol: `{ id, type: '__rpc', wireOperations }`
+  - [x] Response protocol: `{ id, type: '__rpc', success, result/error }`
+  - [x] Track pending operations with Map<id, {resolve, reject}>
+  - [x] Handle WebSocket events: open, message, close, error
+  - [x] Implement `isConnected()` checking `ws.readyState === WebSocket.OPEN`
+  - [x] Implement `disconnect()` closing WebSocket and rejecting pending ops
+- [x] Update client.ts to use WebSocketRpcTransport when transport === 'websocket'
 
 #### Phase 4.3: WebSocket RPC Handler (Server-Side)
 - [ ] Create `handleWebSocketRPCMessage` function:

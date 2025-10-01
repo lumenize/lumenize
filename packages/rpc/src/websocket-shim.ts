@@ -1,23 +1,82 @@
-// Cloudflare (cloudflare:test) WebSocket shim with CONNECTING queue
-// and hybrid readyState that mostly proxies the raw socket.
-//
-// Usage:
-//   // Basic usage (browser-compatible):
-//   const WebSocketShimClass = getWebSocketShim(SELF);
-//   const ws1 = new WebSocketShimClass("wss://example.test/room/42");
-//   const ws2 = new WebSocketShimClass("wss://example.test/room/42", ["chat.v2", "chat.v1"]);
-//
-//   // With testing-specific options (headers, queue limits):
-//   const WebSocketShimClass = getWebSocketShim(SELF, {
-//     headers: { "Authorization": "Bearer token" },
-//     maxQueueBytes: 1024
-//   });
-//   const ws3 = new WebSocketShimClass("wss://example.test/room/42");
-//
-//   ws.send("hello while connecting is OK"); // queued
-//   ws.onopen = () => ws.send("hi after open");
-//   ws.onmessage = (e) => console.log("msg:", e.data);
-//   ws.onclose = (e) => console.log("closed:", e.code, e.reason);
+/**
+ * WebSocket shim for Cloudflare Workers test environment (cloudflare:test).
+ * 
+ * Provides a browser-compatible WebSocket API that works in Cloudflare's test
+ * environment by using SELF.fetch() to initiate WebSocket upgrade requests.
+ * 
+ * ## Key Features
+ * 
+ * - **Browser-compatible API**: Matches standard WebSocket interface
+ * - **Protocol negotiation**: Supports Sec-WebSocket-Protocol header
+ * - **Custom headers**: Allows injection of headers for testing (auth, etc.)
+ * 
+ * ## Usage
+ * 
+ * ### Basic usage (browser-compatible):
+ * ```typescript
+ * import { getWebSocketShim } from '@lumenize/rpc';
+ * import { SELF } from 'cloudflare:test';
+ * 
+ * const WebSocketShimClass = getWebSocketShim(SELF);
+ * const ws = new WebSocketShimClass("wss://example.test/room/42");
+ * 
+ * ws.onopen = () => {
+ *   console.log('Connected!');
+ *   ws.send("Hello server");
+ * };
+ * 
+ * ws.onmessage = (e) => {
+ *   console.log("Received:", e.data);
+ * };
+ * 
+ * ws.onerror = (e) => {
+ *   console.error("WebSocket error:", e);
+ * };
+ * 
+ * ws.onclose = (e) => {
+ *   console.log("Closed:", e.code, e.reason);
+ * };
+ * ```
+ * 
+ * ### With protocol negotiation:
+ * ```typescript
+ * const ws = new WebSocketShimClass(
+ *   "wss://example.test/room/42",
+ *   ["chat.v2", "chat.v1"]
+ * );
+ * 
+ * ws.onopen = () => {
+ *   console.log('Server selected protocol:', ws.protocol);
+ * };
+ * ```
+ * 
+ * ### With testing-specific options (headers, queue limits):
+ * ```typescript
+ * const WebSocketShimClass = getWebSocketShim(SELF, {
+ *   headers: { "Authorization": "Bearer test-token" },
+ *   maxQueueBytes: 1024 * 1024 // 1MB queue limit
+ * });
+ * 
+ * const ws = new WebSocketShimClass("wss://example.test/room/42");
+ * ```
+ * 
+ * ## Implementation Details
+ * 
+ * This shim works by:
+ * 1. Converting WebSocket URLs (ws://, wss://) to HTTP URLs (http://, https://)
+ * 2. Making an HTTP request with `Upgrade: websocket` header via SELF.fetch()
+ * 3. Extracting the WebSocket from the response and calling accept()
+ * 4. Forwarding all WebSocket events (open, message, error, close)
+ * 5. Queuing messages sent during CONNECTING state
+ * 
+ * ## Differences from Browser WebSocket
+ * 
+ * - Uses SELF.fetch() instead of native WebSocket constructor for connection establishment
+ * - Provides explicit `maxQueueBytes` configuration for CONNECTING state buffer limits
+ * - Allows injection of headers for testing (auth, etc.)
+ * 
+ * @module websocket-shim
+ */
 
 type WSData = string | ArrayBuffer | Blob | Uint8Array;
 

@@ -1,6 +1,7 @@
 import type { OperationChain, RemoteFunctionMarker, RpcClientConfig, RpcClientProxy, RpcTransport } from './types';
 import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
+import { WebSocketRpcTransport } from './websocket-rpc-transport';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -95,8 +96,14 @@ export class RpcClient<T> {
       });
     } else {
       // Create WebSocket transport (default)
-      // TODO: Implement WebSocketRpcTransport
-      throw new Error('WebSocket transport not yet implemented. Use transport: "http" for now.');
+      return new WebSocketRpcTransport({
+        baseUrl: this.#config.baseUrl,
+        prefix: this.#config.prefix,
+        doBindingName: this.#config.doBindingName,
+        doInstanceName: this.#config.doInstanceName,
+        timeout: this.#config.timeout,
+        WebSocketClass: this.#config.WebSocketClass
+      });
     }
   }
 
