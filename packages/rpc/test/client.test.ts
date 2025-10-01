@@ -17,7 +17,7 @@ const rpcClientFactory = new RpcClientFactory(rpcClientConfig);
 
 describe('RPC client-side functionality', () => {
 
-  it('should execute simple RPC calls via client proxy', async () => {
+  it.only('should execute simple RPC calls via client proxy', async () => {
     // Create proxy for the DO instance
     const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'simple-rpc-call');
 

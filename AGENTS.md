@@ -20,6 +20,8 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 - Provide clear summaries of what was implemented after each step.
 - Explain design decisions and trade-offs.
 - After each step/phase, ask for code review before proceeding. Ask "Ready to proceed with [next step/phase]?" after completing each step or phase.
+- We are often refactoring the API of a package before the package has ever been published. When this is the case, do not worry about backward compatibility.
+- When we change the API of a package, mark one test as .only and get the new calling pattern working rather than edit all tests every time we make a change to the API like this. Once that one test passes, we can refactor the other tests.
 
 ## How we do things around here
 
