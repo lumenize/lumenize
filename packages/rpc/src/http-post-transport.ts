@@ -1,15 +1,24 @@
-import type { OperationChain, RPCRequest, RPCResponse } from './types';
+import type { OperationChain, RpcRequest, RpcResponse } from './types';
 import { deserializeError } from './error-serialization';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
 
 /**
+ * Utility function to remove leading and trailing slashes from a URL segment
+ */
+function cleanSegment(segment: string): string {
+  return segment.replace(/^\/+|\/+$/g, '');
+}
+
+/**
  * HTTP transport layer for RPC communication using POST requests
  */
-export class RPCTransport {
+export class HttpPostRpcTransport {
   #config: {
     baseUrl: string;
     prefix: string;
+    doBindingName: string;
+    doInstanceName: string;
     timeout: number;
     fetch: typeof fetch;
     headers: Record<string, string>;
@@ -18,6 +27,8 @@ export class RPCTransport {
   constructor(config: {
     baseUrl: string;
     prefix: string;
+    doBindingName: string;
+    doInstanceName: string;
     timeout: number;
     fetch: typeof fetch;
     headers: Record<string, string>;
@@ -29,27 +40,23 @@ export class RPCTransport {
    * Execute an operation chain via HTTP POST
    */
   async execute(operations: OperationChain): Promise<any> {
-    const url = `${this.#config.baseUrl}${this.#config.prefix}/call`;
+    // Build URL with four segments: ${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call
+    const baseUrl = cleanSegment(this.#config.baseUrl);
+    const prefix = cleanSegment(this.#config.prefix);
+    const doBindingName = cleanSegment(this.#config.doBindingName);
+    const doInstanceName = cleanSegment(this.#config.doInstanceName);
 
-    // const request: RPCRequest = {
-    //   operations: operations.map(op => {
-    //     if (op.type === 'get') {
-    //       return { type: 'get', key: op.key };
-    //     } else {
-    //       return { type: 'apply', args: op.args };
-    //     }
-    //   })
-    // };
+    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call`;
 
-    const serializedOperations = serialize(operations);
+    const wireOperations = serialize(operations);
     console.debug('%o', {
       type: 'debug',
       where: 'HttpPostTransport.execute',
       operations,
-      serializedOperations
+      wireOperations
     });
 
-    const request = { operations: serializedOperations };
+    const request: RpcRequest = { wireOperations };
 
     const headers = {
       'Content-Type': 'application/json',
@@ -67,7 +74,7 @@ export class RPCTransport {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const rpcResponse: RPCResponse = await response.json();
+    const rpcResponse: RpcResponse = await response.json();
 
     if (!rpcResponse.success) {
       // Handle error response

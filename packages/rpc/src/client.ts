@@ -1,5 +1,5 @@
-import type { OperationChain, RPCClientConfig} from './types';
-import { RPCTransport } from './http-post-transport';
+import type { OperationChain, RpcClientFactoryConfig} from './types';
+import { HttpPostRpcTransport } from './http-post-transport';
 
 /**
  * Internal state for proxy objects (not exported - implementation detail)
@@ -21,10 +21,10 @@ function isProxyObject(obj: any): obj is ProxyState & Record<string | symbol, an
   return obj && typeof obj === 'object' && obj[PROXY_STATE_SYMBOL] !== undefined;
 }
 
-export class RPCClient {
-  #config: Required<RPCClientConfig>;
+export class RpcClientFactory {
+  #config: Required<RpcClientFactoryConfig>;
 
-  constructor(config: RPCClientConfig) {
+  constructor(config: RpcClientFactoryConfig) {
     // Set defaults and merge with user config
     this.#config = {
       prefix: '/__rpc',
@@ -38,11 +38,13 @@ export class RPCClient {
     };
   }
 
-  execute(operations: OperationChain): Promise<any> {
+  execute(operations: OperationChain, doBindingName: string, doInstanceName: string): Promise<any> {
     // Create transport instance with current config
-    const transport = new RPCTransport({
+    const transport = new HttpPostRpcTransport({
       baseUrl: this.#config.baseUrl,
       prefix: this.#config.prefix,
+      doBindingName,
+      doInstanceName,
       timeout: this.#config.timeout,
       fetch: this.#config.fetch,
       headers: this.#config.headers
@@ -52,28 +54,28 @@ export class RPCClient {
     return transport.execute(operations);
   }
 
-  createProxy<T>(doNamespace: any, doId: any): T {
+  createRpcProxy<T>(doBindingName: string, doInstanceNameOrId: string): T {
     // Create initial proxy with empty operation chain
-    const handler = new ProxyHandler(this);
+    const handler = new ProxyHandler(this, doBindingName, doInstanceNameOrId);
     return new Proxy(() => {}, handler) as T;
   }
 }
 
-/**
- * Proxy handler for building operation chains and executing RPC calls
- * (This will be implemented in the next step)
- */
 class ProxyHandler {
-  private operationChain: import('./types').OperationChain = [];
-  private rpcClient: RPCClient;
+  #operationChain: import('./types').OperationChain = [];
+  #rpcClient: RpcClientFactory;
+  #doBindingName: string;
+  #doInstanceNameOrId: string;
 
-  constructor(rpcClient: RPCClient) {
-    this.rpcClient = rpcClient;
+  constructor(rpcClient: RpcClientFactory, doBindingName: string, doInstanceNameOrId: string) {
+    this.#rpcClient = rpcClient;
+    this.#doBindingName = doBindingName;
+    this.#doInstanceNameOrId = doInstanceNameOrId;
   }
 
   get(target: any, key: string | symbol): any {
     // Add 'get' operation to chain
-    this.operationChain.push({ type: 'get', key });
+    this.#operationChain.push({ type: 'get', key });
 
     // Return a new proxy that will handle the next operation
     return this.createProxyWithCurrentChain();
@@ -81,14 +83,14 @@ class ProxyHandler {
 
   apply(target: any, thisArg: any, args: any[]): any {
     // Add 'apply' operation to chain and execute
-    this.operationChain.push({ type: 'apply', args });
+    this.#operationChain.push({ type: 'apply', args });
 
     // Execute the operation chain
-    return this.rpcClient.execute([...this.operationChain]);
+    return this.#rpcClient.execute([...this.#operationChain], this.#doBindingName, this.#doInstanceNameOrId);
   }
 
   private createProxyWithCurrentChain(): any {
-    const currentChain = [...this.operationChain];
+    const currentChain = [...this.#operationChain];
 
     return new Proxy(() => {}, {
       get: (target: any, key: string | symbol) => {
@@ -97,7 +99,7 @@ class ProxyHandler {
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         currentChain.push({ type: 'apply', args });
-        return this.rpcClient.execute(currentChain);
+        return this.#rpcClient.execute(currentChain, this.#doBindingName, this.#doInstanceNameOrId);
       }
     });
   }
@@ -110,7 +112,7 @@ class ProxyHandler {
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args }];
-        return this.rpcClient.execute(finalChain);
+        return this.#rpcClient.execute(finalChain, this.#doBindingName, this.#doInstanceNameOrId);
       }
     });
   }

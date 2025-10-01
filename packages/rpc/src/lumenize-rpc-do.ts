@@ -3,9 +3,9 @@ const { serialize, deserialize } = require('@ungap/structured-clone');
 
 import type {
   OperationChain,
-  RPCRequest,
-  RPCResponse,
-  RPCConfig,
+  RpcRequest,
+  RpcResponse,
+  RpcConfig,
   RemoteFunctionMarker
 } from './types';
 import { serializeError } from './error-serialization';
@@ -13,7 +13,7 @@ import { serializeError } from './error-serialization';
 /**
  * Default RPC configuration
  */
-const DEFAULT_CONFIG: Required<RPCConfig> = {
+const DEFAULT_CONFIG: Required<RpcConfig> = {
   prefix: '/__rpc',
   maxDepth: 50,
   maxArgs: 100,
@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: Required<RPCConfig> = {
  * @param config - Optional RPC configuration
  * @returns Enhanced DO class with RPC endpoints
  */
-export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T, config: RPCConfig = {}): T {
+export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T, config: RpcConfig = {}): T {
   if (typeof DOClass !== 'function') {
     throw new Error(`lumenizeRpcDo() expects a Durable Object class (constructor function), got ${typeof DOClass}`);
   }
@@ -74,7 +74,7 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
           endpoint,
           error: error?.message || error
         });
-        const response: RPCResponse = {
+        const response: RpcResponse = {
           success: false,
           error: serializeError(error)
         };
@@ -88,20 +88,20 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
       }
 
       try {
-        const rpcRequest = await request.json() as RPCRequest;
+        const rpcRequest = await request.json() as RpcRequest;
 
-        console.log('%o', { operations: rpcRequest.operations });
+        console.log('%o', { wireOperations: rpcRequest.wireOperations });
 
         // Deserialize and validate the entire operations chain in one call
-        const deserializedOperations = this.#deserializeOperationChain(rpcRequest.operations);
+        const deserializedOperations = this.#deserializeOperationChain(rpcRequest.wireOperations);
         
         // Execute operation chain
         const result = await this.#executeOperationChain(deserializedOperations);
         
         // Replace functions with markers before structured-clone serialization
-        const processedResult = this.#preprocessResult(result, rpcRequest.operations);
+        const processedResult = this.#preprocessResult(result, rpcRequest.wireOperations);
         
-        const response: RPCResponse = {
+        const response: RpcResponse = {
           success: true,
           result: serialize(processedResult) // Structured-clone serialize the processed result
         };
@@ -115,7 +115,7 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
           message: 'RPC call execution failed',
           error: error?.message || error
         });
-        const response: RPCResponse = {
+        const response: RpcResponse = {
           success: false,
           error: serializeError(error) // Custom error serialization (already an object)
         };
@@ -123,9 +123,9 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
       }
     }
 
-    #deserializeOperationChain(serializedOperations: any): OperationChain {
+    #deserializeOperationChain(wireOperations: any): OperationChain {
       // Deserialize the entire operations array in one call - much more efficient
-      const operations: OperationChain = deserialize(serializedOperations);
+      const operations: OperationChain = deserialize(wireOperations);
       
       // Validate the deserialized operations (parse don't validate principle)
       if (!Array.isArray(operations)) {

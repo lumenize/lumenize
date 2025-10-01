@@ -5,13 +5,13 @@ export type Operation =
   | { type: 'get', key: string | number | symbol }     // Property/element access
   | { type: 'apply', args: any[] };                    // Function calls (deserialized, ready for execution)
 
-/**
- * Wire format operation types (for transport over HTTP)
- * args are structured-clone serialized for complex type support
- */
-export type WireOperation = 
-  | { type: 'get', key: string | number | symbol }     // Property/element access
-  | { type: 'apply', args: any };                      // Function calls (serialized args array)
+// /**
+//  * Wire format operation types (for transport over HTTP)
+//  * args are structured-clone serialized for complex type support
+//  */
+// export type WireOperation = 
+//   | { type: 'get', key: string | number | symbol }     // Property/element access
+//   | { type: 'apply', args: any };                      // Function calls (serialized args array)
 
 /**
  * Chain of operations to execute on the DO instance
@@ -23,16 +23,16 @@ export type WireOperation =
  */
 export type OperationChain = Operation[];
 
-/**
- * Wire format operation chain (for transport over HTTP)
- */
-export type WireOperationChain = WireOperation[];
+// /**
+//  * Wire format operation chain (for transport over HTTP)
+//  */
+// export type WireOperationChain = WireOperation[];
 
 /**
  * Request format sent to DO RPC endpoint (wire format)
  */
-export interface RPCRequest {
-  operations: WireOperationChain;
+export interface RpcRequest {
+  wireOperations: any;  // TODO: Type with whatever @ungap/structured-clone serialize emits
 }
 
 /**
@@ -44,7 +44,7 @@ export interface RPCRequest {
  * - Overall response: Uses JSON.stringify (required anyway when sending HTTP responses)
  * - Client-side: Uses @ungap/structured-clone ONLY on `result` field after JSON.parse
  */
-export interface RPCResponse {
+export interface RpcResponse {
   success: boolean;
   result?: any; // Serialized with structured-clone, preserves Cloudflare types
   error?: any;  // Custom-serialized Error object preserving all properties
@@ -53,7 +53,7 @@ export interface RPCResponse {
 /**
  * Configuration for RPC system
  */
-export interface RPCConfig {
+export interface RpcConfig {
   /**
    * Base path for RPC endpoints
    * @default "/__rpc"
@@ -89,7 +89,7 @@ export interface RemoteFunctionMarker {
 /**
  * RPC client configuration
  */
-export interface RPCClientConfig extends RPCConfig {
+export interface RpcClientFactoryConfig extends RpcConfig {
   /**
    * Base URL for the Durable Object RPC endpoints
    * @default location.origin

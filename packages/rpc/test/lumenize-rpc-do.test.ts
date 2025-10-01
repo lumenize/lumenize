@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { runInDurableObject, env } from 'cloudflare:test';
 import { lumenizeRpcDo } from '@lumenize/rpc';
-import type { RPCRequest, RPCResponse } from '@lumenize/rpc';
+import type { RpcRequest, RpcResponse } from '@lumenize/rpc';
 
 // Use real structured-clone for sociable unit testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -29,8 +29,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'increment' },
           { type: 'apply', args: [] }
         ])
@@ -45,7 +45,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toBe(1);
@@ -58,8 +58,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'add' },
           { type: 'apply', args: [5, 3] }
         ])
@@ -74,7 +74,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toBe(8);
@@ -87,8 +87,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'nonexistentMethod' },
           { type: 'apply', args: [] }
         ])
@@ -103,7 +103,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
     });
@@ -129,8 +129,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'getObject' },
           { type: 'apply', args: [] }
         ])
@@ -145,7 +145,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result.value).toBe(42);
@@ -161,8 +161,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // First get the object, then call the nested getValue function
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'getObject' },
           { type: 'apply', args: [] },
           { type: 'get', key: 'nested' },
@@ -180,7 +180,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toBe(42); // The getValue function should return this.value which is 42
@@ -193,8 +193,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'throwError' },
           { type: 'apply', args: ['Test error message'] }
         ])
@@ -209,7 +209,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
       expect(data.error.message).toBe('Test error message');
@@ -225,8 +225,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'throwString' },
           { type: 'apply', args: ['Just a string error'] }
         ])
@@ -241,7 +241,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
       // When you throw a string, it should be passed through as-is by serializeError
@@ -255,8 +255,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'getArray' },
           { type: 'apply', args: [] }
         ])
@@ -271,7 +271,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toEqual([1, 2, 3, 4, 5]);
@@ -284,8 +284,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'id' }
@@ -301,7 +301,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toBe('complex-data');
@@ -315,8 +315,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // Test accessing the circular reference: complexData.data should point back to complexData
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'data' },
@@ -333,7 +333,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toBe('complex-data');
@@ -347,8 +347,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // Test calling the getName method inside complexData.methods
-      const rpcRequest: RPCRequest = {
-        operations: serialize([
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'methods' },
           { type: 'get', key: 'getName' },
@@ -365,7 +365,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RPCResponse;
+      const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
       const result = deserialize(data.result);
       expect(result).toBe('ExampleDO');
