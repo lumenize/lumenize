@@ -526,4 +526,308 @@ describe('lumenizeRpcDo server-side functionality', () => {
     const text = await response.text();
     expect(text).toBe('Not Found');
   });
+
+  it('should return 405 for non-POST requests to /call endpoint', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'GET'
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(405);
+      const text = await response.text();
+      expect(text).toBe('Method not allowed');
+    });
+  });
+
+  it('should reject non-array operations payload', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest = {
+        wireOperations: serialize('not an array') // Invalid: string instead of array
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(500);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(false);
+      expect(data.error?.message).toContain('Invalid RPC request: operations must be an array');
+    });
+  });
+
+  it('should reject operation chains exceeding maxDepth', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      // Create a chain longer than the default maxDepth (50)
+      const operations = Array(51).fill({ type: 'get', key: 'someProperty' });
+      
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize(operations)
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(500);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(false);
+      expect(data.error?.message).toContain('Operation chain too deep');
+      expect(data.error?.message).toContain('51 > 50');
+    });
+  });
+
+  it('should reject operations with too many arguments', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      // Create an apply operation with more than maxArgs (100)
+      const tooManyArgs = Array(101).fill(0);
+      
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'add' },
+          { type: 'apply', args: tooManyArgs }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(500);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(false);
+      expect(data.error?.message).toContain('Too many arguments');
+      expect(data.error?.message).toContain('101 > 100');
+    });
+  });
+
+  it('should handle Date objects in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getDate' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(Date);
+    });
+  });
+
+  it('should handle RegExp objects in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getRegExp' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(RegExp);
+      expect(result.source).toBe('[0-9]+');
+    });
+  });
+
+  it('should handle Map objects in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getMap' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(Map);
+      expect(result.get('key')).toBe('value');
+    });
+  });
+
+  it('should handle Set objects in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getSet' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(Set);
+      expect(result.has(1)).toBe(true);
+      expect(result.has(2)).toBe(true);
+    });
+  });
+
+  it('should handle ArrayBuffer in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getArrayBuffer' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(ArrayBuffer);
+      expect(result.byteLength).toBe(8);
+    });
+  });
+
+  it('should handle TypedArray (Uint8Array) in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getTypedArray' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(result.length).toBe(4);
+      expect(result[0]).toBe(1);
+      expect(result[3]).toBe(4);
+    });
+  });
+
+  it('should handle Error objects in results', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getError' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      expect(result).toBeInstanceOf(Error);
+      expect(result.message).toBe('Test error');
+    });
+  });
 });

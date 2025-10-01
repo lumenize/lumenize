@@ -7,6 +7,10 @@
       {
         "name": "EXAMPLE_DO",
         "class_name": "ExampleDO"
+      },
+      {
+        "name": "MANUAL_ROUTING_DO",
+        "class_name": "ManualRoutingDO"
       }
     ]
   },
@@ -15,6 +19,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "ExampleDO"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "ManualRoutingDO"
       ]
     }
   ]

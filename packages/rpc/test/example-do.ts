@@ -1,4 +1,4 @@
-import { lumenizeRpcDo } from '../src/lumenize-rpc-do';
+import { lumenizeRpcDo, handleRPCRequest } from '../src/lumenize-rpc-do';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
@@ -163,6 +163,35 @@ class _ExampleDO extends DurableObject<Env> {
     };
   }
 
+  // Methods for testing built-in type handling
+  getDate(): Date {
+    return new Date('2025-01-01T00:00:00Z');
+  }
+
+  getRegExp(): RegExp {
+    return /[0-9]+/g;
+  }
+
+  getMap(): Map<string, string> {
+    return new Map([['key', 'value']]);
+  }
+
+  getSet(): Set<number> {
+    return new Set([1, 2, 3]);
+  }
+
+  getArrayBuffer(): ArrayBuffer {
+    return new ArrayBuffer(8);
+  }
+
+  getTypedArray(): Uint8Array {
+    return new Uint8Array([1, 2, 3, 4]);
+  }
+
+  getError(): Error {
+    return new Error('Test error');
+  }
+
   // Original fetch method (would handle user's business logic)
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -181,6 +210,69 @@ const ExampleDO = lumenizeRpcDo(_ExampleDO);
 export { ExampleDO };
 
 /**
+ * Example Durable Object that uses manual routing instead of the factory
+ * This demonstrates how to use handleRPCRequest directly for custom routing
+ */
+export class ManualRoutingDO extends DurableObject<Env> {
+  #rpcConfig = {
+    prefix: '/__rpc'
+  };
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+  }
+
+  // Simple method for RPC testing
+  async increment(): Promise<number> {
+    const count = await this.ctx.storage.get<number>('count') || 0;
+    const newCount = count + 1;
+    await this.ctx.storage.put('count', newCount);
+    return newCount;
+  }
+
+  // Method with arguments
+  add(a: number, b: number): number {
+    return a + b;
+  }
+
+  // Method that returns the current counter value
+  async getCounter(): Promise<number> {
+    return await this.ctx.storage.get<number>('count') || 0;
+  }
+
+  // Custom routing implementation
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    
+    // Custom route 1: Health check
+    if (url.pathname === '/health') {
+      return new Response('OK', { status: 200 });
+    }
+    
+    // Custom route 2: Direct counter access via REST
+    if (url.pathname === '/counter') {
+      const counter = await this.getCounter();
+      return Response.json({ counter });
+    }
+    
+    // Custom route 3: Reset counter
+    if (url.pathname === '/reset' && request.method === 'POST') {
+      await this.ctx.storage.put('count', 0);
+      return Response.json({ message: 'Counter reset' });
+    }
+    
+    // RPC handling - user manually calls handleRPCRequest
+    const rpcResponse = await handleRPCRequest(request, this, this.#rpcConfig);
+    if (rpcResponse) {
+      return rpcResponse;
+    }
+    
+    // Fallback
+    return new Response('Not found', { status: 404 });
+  }
+}
+
+/**
  * Worker fetch handler that uses routeDORequest to handle RPC requests
  * and falls back to existing Worker handlers/responses for non-RPC requests
  */
@@ -192,7 +284,34 @@ export default {
       request,
       env
     });
-    // Try to route RPC requests first using routeDORequest
+    
+    const url = new URL(request.url);
+    
+    // Try to route RPC requests first using routeDORequest (with /manual prefix support)
+    if (url.pathname.startsWith('/manual/__rpc/')) {
+      // Remove /manual prefix for RPC routing
+      const newUrl = new URL(url);
+      newUrl.pathname = url.pathname.replace('/manual', '');
+      const newRequest = new Request(newUrl, request);
+      const doResponse = await routeDORequest(newRequest, env, { prefix: '/__rpc' });
+      if (doResponse) return doResponse;
+    }
+    
+    // Route to ManualRoutingDO if path starts with /manual/
+    if (url.pathname.startsWith('/manual/')) {
+      const instanceId = url.searchParams.get('instance') || 'default';
+      const doStub = env.MANUAL_ROUTING_DO.getByName(instanceId);
+      
+      // Remove /manual prefix before forwarding to the DO
+      const newPath = url.pathname.replace('/manual', '');
+      const newUrl = new URL(newPath || '/', url.origin);
+      newUrl.search = url.search;
+      
+      const newRequest = new Request(newUrl, request);
+      return await doStub.fetch(newRequest);
+    }
+    
+    // Try to route other RPC requests using routeDORequest
     const doResponse = await routeDORequest(request, env, { prefix: '/__rpc' });
     if (doResponse) return doResponse;
 
@@ -201,7 +320,6 @@ export default {
     if (workerPingResponse) return workerPingResponse;
 
     // Handle direct DO requests (non-RPC) - forward to DO instance
-    const url = new URL(request.url);
     if (url.pathname.startsWith('/do/')) {
       // Extract DO instance ID from path like /do/{instanceId}/increment
       const pathParts = url.pathname.split('/');
