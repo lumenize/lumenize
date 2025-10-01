@@ -4,8 +4,6 @@ import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
 
-console.log('%o', DurableObject);
-
 /**
  * Example Durable Object for testing RPC functionality
  */
@@ -87,6 +85,30 @@ class _ExampleDO extends DurableObject<Env> {
   // Method that returns array
   getArray(): number[] {
     return [1, 2, 3, 4, 5];
+  }
+
+  // Method that returns array with functions (for testing array preprocessing)
+  getArrayWithFunctions(): any[] {
+    return [
+      1,
+      2,
+      () => 'hello',
+      { value: 42, getValue: function() { return this.value; } },
+      5
+    ];
+  }
+
+  // Method that returns an object that will cause preprocessing to throw
+  // This uses a getter that throws when accessed
+  getProblematicObject(): any {
+    const obj: any = { value: 42 };
+    Object.defineProperty(obj, 'badGetter', {
+      get() {
+        throw new Error('Getter throws error');
+      },
+      enumerable: true
+    });
+    return obj;
   }
 
   // Original fetch method (would handle user's business logic)

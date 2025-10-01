@@ -90,8 +90,6 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
       try {
         const rpcRequest = await request.json() as RpcRequest;
 
-        console.log('%o', { wireOperations: rpcRequest.wireOperations });
-
         // Deserialize and validate the entire operations chain in one call
         const deserializedOperations = this.#deserializeOperationChain(rpcRequest.wireOperations);
         
@@ -210,6 +208,17 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
       if (Array.isArray(result)) {
         return result.map((item, index) => {
           const currentChain: OperationChain = [...operationChain, { type: 'get', key: index }];
+          
+          // Check if the array item itself is a function and convert to marker
+          if (typeof item === 'function') {
+            const marker: RemoteFunctionMarker = {
+              __isRemoteFunction: true,
+              __operationChain: currentChain,
+              __functionName: `[${index}]`, // Use array index as function name
+            };
+            return marker;
+          }
+          
           return this.#preprocessResult(item, currentChain, seen);
         });
       }

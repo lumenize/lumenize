@@ -94,11 +94,9 @@ export class HttpPostRpcTransport {
     }
 
     const rpcResponse: RpcResponse = await response.json();
-    console.log('Transport: Successful response:', rpcResponse);
 
     if (!rpcResponse.success) {
       // Handle error response
-      console.log('Transport: Throwing deserialized error');
       throw deserializeError(rpcResponse.error);
     }
 

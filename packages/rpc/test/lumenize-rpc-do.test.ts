@@ -245,7 +245,6 @@ describe('lumenizeRpcDo server-side functionality', () => {
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
       // When you throw a string, it should be passed through as-is by serializeError
-      console.log('Thrown string error:', data.error);
     });
   });
 
@@ -384,6 +383,79 @@ describe('lumenizeRpcDo server-side functionality', () => {
       expect(response.status).toBe(200);
       const text = await response.text();
       expect(parseInt(text)).toBeGreaterThan(0); // Should be a positive number
+    });
+  });
+
+  it('should handle arrays with functions in results', async () => {
+    // Tests that #preprocessResult handles arrays and converts functions to remote markers
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getArrayWithFunctions' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(200);
+
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(true);
+      const result = deserialize(data.result);
+      
+      // Check array structure
+      expect(Array.isArray(result)).toBe(true);
+      expect(result.length).toBe(5);
+      expect(result[0]).toBe(1);
+      expect(result[1]).toBe(2);
+      
+      // Check function was converted to remote marker
+      expect(result[2].__isRemoteFunction).toBe(true);
+      expect(result[2].__operationChain).toBeDefined();
+      
+      // Check object with function was processed
+      expect(result[3].value).toBe(42);
+      expect(result[3].getValue.__isRemoteFunction).toBe(true);
+      
+      expect(result[4]).toBe(5);
+    });
+  });
+
+  it('should handle errors during preprocessing', async () => {
+    // Tests error handling in the fetch method when preprocessResult throws
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
+      const rpcRequest: RpcRequest = {
+        wireOperations: serialize([
+          { type: 'get', key: 'getProblematicObject' },
+          { type: 'apply', args: [] }
+        ])
+      };
+
+      const request = new Request('https://example.com/__rpc/call', {
+        method: 'POST',
+        body: JSON.stringify(rpcRequest),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      
+      // Should return error response when preprocessing fails
+      expect(response.status).toBe(500);
+      const data = await response.json() as RpcResponse;
+      expect(data.success).toBe(false);
+      expect(data.error).toBeDefined();
     });
   });
 });
