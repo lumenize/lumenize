@@ -1,51 +1,143 @@
-import type { OperationChain, RpcClientFactoryConfig, RemoteFunctionMarker} from './types';
+import type { OperationChain, RemoteFunctionMarker} from './types';
 import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 
-export class RpcClientFactory {
-  #config: Required<RpcClientFactoryConfig>;
+// RpcTransport interface - any transport must implement execute()
+interface RpcTransport {
+  execute(operations: OperationChain): Promise<any>;
+}
 
-  constructor(config: RpcClientFactoryConfig) {
+// Configuration for creating an RpcClient
+export interface RpcClientConfig {
+  doBindingName: string;
+  doInstanceName: string;
+  baseUrl?: string;
+  prefix?: string;
+  timeout?: number;
+  fetch?: typeof globalThis.fetch;
+  headers?: Record<string, string>;
+}
+
+// Lifecycle methods available on $rpc namespace
+export interface RpcLifecycle {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+  isConnected(): boolean;
+}
+
+/**
+ * Creates an RPC client that proxies method calls to a remote Durable Object.
+ * Returns a Proxy that merges DO methods (type T) with lifecycle methods ($rpc namespace).
+ * 
+ * Usage:
+ *   const client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceName: 'instance-1' });
+ *   await client.$rpc.connect();
+ *   const result = await client.myMethod(); // Calls DO method
+ *   await client.$rpc.disconnect();
+ */
+export function createRpcClient<T>(config: RpcClientConfig): T & { $rpc: RpcLifecycle } {
+  const client = new RpcClient<T>(config);
+  return client as any; // Constructor returns Proxy, so type is correct
+}
+
+/**
+ * RPC Client that maintains a persistent connection to a Durable Object.
+ * The constructor returns a Proxy that forwards unknown methods to the DO.
+ */
+export class RpcClient<T> {
+  #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceName'>> & { doBindingName: string; doInstanceName: string };
+  #transport: RpcTransport | null = null;
+  #isConnected: boolean = false;
+  #doProxy: T | null = null;
+
+  constructor(config: RpcClientConfig) {
     // Set defaults and merge with user config
     this.#config = {
       prefix: '/__rpc',
-      maxDepth: 50,
-      maxArgs: 100,
       baseUrl: typeof location !== 'undefined' ? location.origin : 'http://localhost:8787',
       timeout: 30000,
       fetch: globalThis.fetch,
       headers: {},
       ...config
     };
+
+    // Create the DO proxy handler
+    const proxyHandler = new ProxyHandler(this);
+    this.#doProxy = new Proxy(() => {}, proxyHandler) as T;
+
+    // Return a Proxy that merges lifecycle methods with DO methods
+    return new Proxy(this, {
+      get: (target, prop, receiver) => {
+        // Check if it's a lifecycle method access via $rpc
+        if (prop === '$rpc') {
+          return {
+            connect: () => target.connect(),
+            disconnect: () => target.disconnect(),
+            isConnected: () => target.isConnected()
+          };
+        }
+
+        // Otherwise, delegate to the DO proxy
+        return Reflect.get(this.#doProxy as any, prop, receiver);
+      }
+    }) as any;
   }
 
-  async execute(operations: OperationChain, doBindingName: string, doInstanceName: string): Promise<any> {
-    // Create transport instance with current config
-    const transport = new HttpPostRpcTransport({
+  // Lifecycle methods (accessed via $rpc namespace)
+  async connect(): Promise<void> {
+    if (this.#isConnected) {
+      return; // Already connected
+    }
+
+    // For now, create HTTP transport (WebSocket transport will be added later)
+    this.#transport = new HttpPostRpcTransport({
       baseUrl: this.#config.baseUrl,
       prefix: this.#config.prefix,
-      doBindingName,
-      doInstanceName,
+      doBindingName: this.#config.doBindingName,
+      doInstanceName: this.#config.doInstanceName,
       timeout: this.#config.timeout,
       fetch: this.#config.fetch,
       headers: this.#config.headers
     });
 
-    // Execute the operation chain via HTTP transport
-    const result = await transport.execute(operations);
-    
-    // Process the result to convert remote function markers to proxies
-    return this.processRemoteFunctions(result, [], doBindingName, doInstanceName);
+    this.#isConnected = true;
   }
 
-  processRemoteFunctions(obj: any, baseOperations: any[], doBindingName: string, doInstanceName: string): any {
+  async disconnect(): Promise<void> {
+    if (!this.#isConnected) {
+      return; // Not connected
+    }
+
+    // Clean up transport
+    this.#transport = null;
+    this.#isConnected = false;
+  }
+
+  isConnected(): boolean {
+    return this.#isConnected;
+  }
+
+  // Internal method to execute operations (called by ProxyHandler)
+  async execute(operations: OperationChain): Promise<any> {
+    if (!this.#transport) {
+      throw new Error('RpcClient is not connected. Call $rpc.connect() first.');
+    }
+
+    // Execute the operation chain via transport
+    const result = await this.#transport.execute(operations);
+    
+    // Process the result to convert remote function markers to proxies
+    return this.processRemoteFunctions(result, []);
+  }
+
+  processRemoteFunctions(obj: any, baseOperations: any[]): any {
     // Base case: if it's a remote function marker, create a proxy for it
     if (obj && typeof obj === 'object' && isRemoteFunctionMarker(obj)) {
       const remoteFn = obj as RemoteFunctionMarker;
       return new Proxy(() => {}, {
         apply: (target, thisArg, args) => {
           const operations: OperationChain = [...baseOperations, ...remoteFn.__operationChain, { type: 'apply', args }];
-          return this.execute(operations, doBindingName, doInstanceName);
+          return this.execute(operations);
         }
       });
     }
@@ -55,34 +147,24 @@ export class RpcClientFactory {
     }
 
     if (Array.isArray(obj)) {
-      return obj.map(item => this.processRemoteFunctions(item, baseOperations, doBindingName, doInstanceName));
+      return obj.map(item => this.processRemoteFunctions(item, baseOperations));
     }
 
     // Process object properties recursively
     const processed: any = {};
     for (const [key, value] of Object.entries(obj)) {
-      processed[key] = this.processRemoteFunctions(value, baseOperations, doBindingName, doInstanceName);
+      processed[key] = this.processRemoteFunctions(value, baseOperations);
     }
     return processed;
-  }
-
-  createRpcProxy<T>(doBindingName: string, doInstanceNameOrId: string): T {
-    // Create initial proxy with empty operation chain
-    const handler = new ProxyHandler(this, doBindingName, doInstanceNameOrId);
-    return new Proxy(() => {}, handler) as T;
   }
 }
 
 class ProxyHandler {
-  #operationChain: import('./types').OperationChain = [];
-  #rpcClient: RpcClientFactory;
-  #doBindingName: string;
-  #doInstanceNameOrId: string;
+  #operationChain: OperationChain = [];
+  #rpcClient: RpcClient<any>;
 
-  constructor(rpcClient: RpcClientFactory, doBindingName: string, doInstanceNameOrId: string) {
+  constructor(rpcClient: RpcClient<any>) {
     this.#rpcClient = rpcClient;
-    this.#doBindingName = doBindingName;
-    this.#doInstanceNameOrId = doInstanceNameOrId;
   }
 
   get(target: any, key: string | symbol): any {
@@ -101,8 +183,18 @@ class ProxyHandler {
     this.#operationChain.push({ type: 'apply', args });
 
     // Execute the operation chain and wrap result in thenable proxy
-    const resultPromise = this.#rpcClient.execute([...this.#operationChain], this.#doBindingName, this.#doInstanceNameOrId);
+    const resultPromise = this.executeOperations([...this.#operationChain]);
     return this.createThenableProxy(resultPromise);
+  }
+
+  // Helper to execute operations
+  private executeOperations(operations: OperationChain): Promise<any> {
+    return this.#rpcClient.execute(operations);
+  }
+
+  // Helper to process remote functions
+  private processRemoteFunctions(obj: any, baseOperations: any[]): any {
+    return this.#rpcClient.processRemoteFunctions(obj, baseOperations);
   }
 
   private createThenableProxy(promise: Promise<any>): any {
@@ -124,7 +216,7 @@ class ProxyHandler {
         const nestedPromise = promise.then((resolved: any) => {
           const propertyValue = resolved?.[key];
           // Process the property value to convert any remote function markers
-          return self.#rpcClient.processRemoteFunctions(propertyValue, [], self.#doBindingName, self.#doInstanceNameOrId);
+          return self.processRemoteFunctions(propertyValue, []);
         });
         
         // Important: Don't wrap the result in a thenable proxy if it's already a proxy (from processRemoteFunctions)
@@ -139,7 +231,7 @@ class ProxyHandler {
             // Further property access - chain another thenable proxy
             const furtherPromise = nestedPromise.then((r: any) => {
               const furtherValue = r?.[k];
-              return self.#rpcClient.processRemoteFunctions(furtherValue, [], self.#doBindingName, self.#doInstanceNameOrId);
+              return self.processRemoteFunctions(furtherValue, []);
             });
             return self.createThenableProxy(furtherPromise);
           },
@@ -183,7 +275,7 @@ class ProxyHandler {
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         currentChain.push({ type: 'apply', args });
-        const resultPromise = this.#rpcClient.execute(currentChain, this.#doBindingName, this.#doInstanceNameOrId);
+        const resultPromise = this.executeOperations(currentChain);
         return this.createThenableProxy(resultPromise);
       }
     });
@@ -197,7 +289,7 @@ class ProxyHandler {
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args }];
-        const resultPromise = this.#rpcClient.execute(finalChain, this.#doBindingName, this.#doInstanceNameOrId);
+        const resultPromise = this.executeOperations(finalChain);
         return this.createThenableProxy(resultPromise);
       }
     });

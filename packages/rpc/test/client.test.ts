@@ -1,115 +1,156 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { RpcClientFactory as RpcClientFactory } from '../src/client';
-import type { RpcClientFactoryConfig } from '../src/types';
+import { createRpcClient, type RpcClientConfig } from '../src/client';
 
 import { ExampleDO } from './example-do';
 type ExampleDO = InstanceType<typeof ExampleDO>;
 
-// Shared configuration for tests that don't need custom config
-const rpcClientConfig: RpcClientFactoryConfig = {
+// Base configuration shared across all tests
+const baseConfig: Omit<RpcClientConfig, 'doInstanceName'> = {
+  doBindingName: 'example-do',
   baseUrl: 'https://fake-host.com',
   prefix: '__rpc',
   fetch: SELF.fetch.bind(SELF),
-}
-const rpcClientFactory = new RpcClientFactory(rpcClientConfig);
+};
 
 describe('RPC client-side functionality', () => {
 
-  it.only('should execute simple RPC calls via client proxy', async () => {
-    // Create proxy for the DO instance
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'simple-rpc-call');
+  it('should execute simple RPC calls via client proxy', async () => {
+    // Create RPC client for the DO instance
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'simple-rpc-call',
+    });
+
+    // Connect to the DO
+    await client.$rpc.connect();
 
     // Execute simple method call through proxy
-    const result = await rpcProxy.increment();
+    const result = await client.increment();
 
     expect(result).toBe(1);
+
+    // Disconnect
+    await client.$rpc.disconnect();
   });
 
   it('should execute RPC calls with arguments', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'rpc-call-with-args');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'rpc-call-with-args',
+    });
+    await client.$rpc.connect();
 
     // Execute method with arguments
-    const result = await rpcProxy.add(5, 3);
+    const result = await client.add(5, 3);
 
     expect(result).toBe(8);
+    await client.$rpc.disconnect();
   });
 
   it('should handle nested property access and method calls', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'nested-access-test');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'nested-access-test',
+    });
+    await client.$rpc.connect();
 
     // Access nested object and call method - should work with promise chaining
-    const result = await rpcProxy.getObject().nested.getValue();
+    const result = await client.getObject().nested.getValue();
 
     expect(result).toBe(42);
+    await client.$rpc.disconnect();
   });
 
   it('should handle errors thrown by remote methods', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'error-test');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'error-test',
+    });
+    await client.$rpc.connect();
 
     // Expect error to be thrown and properly reconstructed
-    await expect(rpcProxy.throwError('Test error message')).rejects.toThrow('Test error message');
+    await expect(client.throwError('Test error message')).rejects.toThrow('Test error message');
+    await client.$rpc.disconnect();
   });
 
   it('should handle complex return values with arrays', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'array-test');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'array-test',
+    });
+    await client.$rpc.connect();
 
     // Get array return value
-    const result = await rpcProxy.getArray();
+    const result = await client.getArray();
 
     expect(result).toEqual([1, 2, 3, 4, 5]);
+    await client.$rpc.disconnect();
   });
 
   it('should handle custom configuration options', async () => {
     // Create client with custom configuration
-    const rpcClientConfig: RpcClientFactoryConfig = {
-      baseUrl: 'https://fake-host.com',
-      prefix: '__rpc',
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'config-test',
       timeout: 5000,
       headers: {
         'Authorization': 'Bearer test-token',
         'X-Custom-Header': 'test-value'
       },
-      fetch: SELF.fetch.bind(SELF),
-    }
-    const rpcClientFactory = new RpcClientFactory(rpcClientConfig);
-
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'config-test');
+    });
+    await client.$rpc.connect();
 
     // Execute simple call to verify config is applied
-    const result = await rpcProxy.increment();
+    const result = await client.increment();
 
     expect(result).toBe(1);
+    await client.$rpc.disconnect();
   });
 
   it('should work with test environment SELF.fetch', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'self-fetch-test');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'self-fetch-test',
+    });
+    await client.$rpc.connect();
 
     // This should work in both browser and cloudflare:test environments
-    const result = await rpcProxy.increment();
+    const result = await client.increment();
 
     expect(result).toBe(1);
+    await client.$rpc.disconnect();
   });
 
   it('should handle deeply nested property access', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'deep-nest-test');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'deep-nest-test',
+    });
+    await client.$rpc.connect();
 
     // Test deep chaining: a.b.c.d()
-    const result = await rpcProxy.getDeeplyNested().level1.level2.level3.getValue();
+    const result = await client.getDeeplyNested().level1.level2.level3.getValue();
 
     expect(result).toBe('deeply nested value');
+    await client.$rpc.disconnect();
   });
 
   it('should throw error when trying to call a non-function property', async () => {
-    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'non-function-test');
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'non-function-test',
+    });
+    await client.$rpc.connect();
 
     // Get the object with a non-function property and try to call it
     // This should throw an error
     await expect(
       // @ts-expect-error - Testing runtime error when calling a non-function value
-      rpcProxy.getObjectWithNonFunction().notAFunction()
+      client.getObjectWithNonFunction().notAFunction()
     ).rejects.toThrow('Attempted to call a non-function value');
+    await client.$rpc.disconnect();
   });
 
   it('should not interfere with DO internal routing', async () => {
