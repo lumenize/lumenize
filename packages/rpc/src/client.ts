@@ -24,7 +24,6 @@ export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy 
 export class RpcClient<T> {
   #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceName'>> & { doBindingName: string; doInstanceName: string };
   #transport: RpcTransport | null = null;
-  #isConnected: boolean = false;
   #doProxy: T | null = null;
 
   constructor(config: RpcClientConfig) {
@@ -63,7 +62,7 @@ export class RpcClient<T> {
 
   // Lifecycle methods (accessed via $rpc namespace)
   async connect(): Promise<void> {
-    if (this.#isConnected) {
+    if (this.#transport?.isConnected?.()) {
       return; // Already connected
     }
 
@@ -78,21 +77,28 @@ export class RpcClient<T> {
       headers: this.#config.headers
     });
 
-    this.#isConnected = true;
+    // Call transport's connect() if it exists (for stateful transports like WebSocket)
+    if (this.#transport.connect) {
+      await this.#transport.connect();
+    }
   }
 
   async disconnect(): Promise<void> {
-    if (!this.#isConnected) {
-      return; // Not connected
+    if (!this.#transport) {
+      return; // No transport to disconnect
+    }
+
+    // Call transport's disconnect() if it exists (for stateful transports like WebSocket)
+    if (this.#transport.disconnect) {
+      await this.#transport.disconnect();
     }
 
     // Clean up transport
     this.#transport = null;
-    this.#isConnected = false;
   }
 
   isConnected(): boolean {
-    return this.#isConnected;
+    return this.#transport?.isConnected?.() ?? false;
   }
 
   // Internal method to execute operations (called by ProxyHandler)

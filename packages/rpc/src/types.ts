@@ -173,16 +173,15 @@ export interface RpcClientProxy {
 }
 
 /**
- * Transport layer interface for RPC communication.
- * Implement this interface to create custom transport mechanisms
- * (e.g., WebSocket, HTTP/2, etc.).
+ * Transport interface for executing RPC operations.
+ * Different transports can be implemented (HTTP, WebSocket, etc.).
  */
 export interface RpcTransport {
-  /**
-   * Execute an operation chain and return the result.
-   * @param operations - The chain of operations to execute on the DO
-   * @returns The result of executing the operation chain
-   */
   execute(operations: OperationChain): Promise<any>;
+  
+  // Optional lifecycle methods for stateful transports (e.g., WebSocket)
+  connect?(): Promise<void>;
+  disconnect?(): Promise<void>;
+  isConnected?(): boolean;
 }
 

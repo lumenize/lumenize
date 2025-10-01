@@ -101,4 +101,9 @@ export class HttpPostRpcTransport implements RpcTransport {
     return deserialize(rpcResponse.result);
   }
 
+  isConnected(): boolean {
+    // HTTP transport is stateless and always "connected"
+    return true;
+  }
+
 }
