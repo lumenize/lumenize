@@ -139,12 +139,29 @@ export interface RpcClientConfig {
  * Type representing the proxy object returned by createRpcClient().
  * Merges the DO's methods (type T) with lifecycle methods in the $rpc namespace.
  * 
+ * Implements Symbol.asyncDispose for automatic cleanup with 'using' keyword.
+ * 
  * @example
  * ```typescript
+ * // Manual lifecycle management:
  * const client: MyDO & RpcClientProxy = createRpcClient<MyDO>({ ... });
  * await client.$rpc.connect();
  * const result = await client.myMethod();
  * await client.$rpc.disconnect();
+ * 
+ * // Automatic cleanup with 'using' (recommended for UI frameworks):
+ * {
+ *   await using client = createRpcClient<MyDO>({ ... });
+ *   await client.$rpc.connect();
+ *   const result = await client.myMethod();
+ * } // client.$rpc.disconnect() called automatically here
+ * 
+ * // React example with useEffect:
+ * useEffect(() => {
+ *   const client = createRpcClient<MyDO>({ ... });
+ *   client.$rpc.connect();
+ *   return () => client[Symbol.asyncDispose](); // or client.$rpc.disconnect()
+ * }, []);
  * ```
  */
 export interface RpcClientProxy {
@@ -162,6 +179,8 @@ export interface RpcClientProxy {
     /**
      * Close the connection to the Durable Object.
      * Cleans up transport resources.
+     * 
+     * Note: This is called automatically when using 'await using' syntax.
      */
     disconnect(): Promise<void>;
     
@@ -170,6 +189,20 @@ export interface RpcClientProxy {
      */
     isConnected(): boolean;
   };
+  
+  /**
+   * Automatic cleanup when using 'await using' syntax.
+   * Calls disconnect() automatically when the client goes out of scope.
+   * 
+   * @see https://github.com/tc39/proposal-explicit-resource-management
+   */
+  [Symbol.asyncDispose](): Promise<void>;
+  
+  /**
+   * Synchronous cleanup when using 'using' syntax.
+   * Note: Prefer Symbol.asyncDispose for proper async cleanup.
+   */
+  [Symbol.dispose](): void;
 }
 
 /**

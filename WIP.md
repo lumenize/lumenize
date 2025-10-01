@@ -56,6 +56,7 @@
 - [ ] Implement comprehensive error handling
 - [ ] Handle serialization edge cases
 - [ ] Add proper timeout management
+- [ ] Test our Symbol.dispose functionality in a browser. We can't test it in the Cloudflare environment.
 
 ### ⏳ Phase 5: Test Coverage
 - [ ] Get coverage up to near 100%. Only branches for error conditions that are hard to duplicate outside of production should be untested

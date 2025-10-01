@@ -101,6 +101,20 @@ export class RpcClient<T> {
     return this.#transport?.isConnected?.() ?? false;
   }
 
+  // Explicit resource management (Symbol.dispose)
+  // Enables: using client = createRpcClient(...);
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.disconnect();
+  }
+
+  // Synchronous dispose (calls async version)
+  // For environments that only support Symbol.dispose
+  [Symbol.dispose](): void {
+    // Schedule async disconnect but don't wait
+    // Note: This is not ideal but required for sync dispose
+    void this.disconnect();
+  }
+
   // Internal method to execute operations (called by ProxyHandler)
   async execute(operations: OperationChain): Promise<any> {
     if (!this.#transport) {
