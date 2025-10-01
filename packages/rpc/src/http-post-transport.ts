@@ -1,4 +1,4 @@
-import type { OperationChain, RpcRequest, RpcResponse } from './types';
+import type { OperationChain, RpcRequest, RpcResponse, RpcTransport } from './types';
 import { deserializeError } from './error-serialization';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { serialize, deserialize } = require('@ungap/structured-clone');
@@ -11,9 +11,10 @@ function cleanSegment(segment: string): string {
 }
 
 /**
- * HTTP transport layer for RPC communication using POST requests
+ * HTTP transport layer for RPC communication using POST requests.
+ * Implements the RpcTransport interface.
  */
-export class HttpPostRpcTransport {
+export class HttpPostRpcTransport implements RpcTransport {
   #config: {
     baseUrl: string;
     prefix: string;

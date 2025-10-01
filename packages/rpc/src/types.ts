@@ -5,14 +5,6 @@ export type Operation =
   | { type: 'get', key: string | number | symbol }     // Property/element access
   | { type: 'apply', args: any[] };                    // Function calls (deserialized, ready for execution)
 
-// /**
-//  * Wire format operation types (for transport over HTTP)
-//  * args are structured-clone serialized for complex type support
-//  */
-// export type WireOperation = 
-//   | { type: 'get', key: string | number | symbol }     // Property/element access
-//   | { type: 'apply', args: any };                      // Function calls (serialized args array)
-
 /**
  * Chain of operations to execute on the DO instance
  * 
@@ -23,16 +15,15 @@ export type Operation =
  */
 export type OperationChain = Operation[];
 
-// /**
-//  * Wire format operation chain (for transport over HTTP)
-//  */
-// export type WireOperationChain = WireOperation[];
-
 /**
  * Request format sent to DO RPC endpoint (wire format)
+ * 
+ * wireOperations is the serialized OperationChain using @ungap/structured-clone.
+ * It's typed as `any` because structured-clone creates an opaque serialized format
+ * that we deserialize on the DO side.
  */
 export interface RpcRequest {
-  wireOperations: any;  // TODO: Type with whatever @ungap/structured-clone serialize emits
+  wireOperations: any;
 }
 
 /**
@@ -51,7 +42,8 @@ export interface RpcResponse {
 }
 
 /**
- * Configuration for RPC system
+ * Configuration for RPC system on the Durable Object (server) side.
+ * Used by both lumenizeRpcDo() factory and handleRPCRequest() for manual routing.
  */
 export interface RpcConfig {
   /**
@@ -74,52 +66,123 @@ export interface RpcConfig {
 }
 
 /**
- * Internal marker for remote functions during serialization
+ * Internal marker for remote functions during serialization.
+ * When the DO returns an object with functions, those functions are replaced
+ * with these markers. The client converts them back to callable proxies.
  */
 export interface RemoteFunctionMarker {
   __isRemoteFunction: true;
   __operationChain: OperationChain;
-  __functionName?: string;
+  __functionName: string;
+}
+
+/**
+ * Type guard to check if an object is a remote function marker.
+ * Used internally by the client to identify functions that should be
+ * converted back to callable proxies.
+ */
+export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
+  return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
 }
 
 // =====================================================================================
-// CLIENT-SPECIFIC TYPES
+// CLIENT-SIDE TYPES
 // =====================================================================================
 
 /**
- * RPC client configuration
+ * Configuration for creating an RPC client.
+ * Used by createRpcClient() to establish connection to a Durable Object.
  */
-export interface RpcClientFactoryConfig extends RpcConfig {
+export interface RpcClientConfig {
   /**
-   * Base URL for the Durable Object RPC endpoints
-   * @default location.origin
+   * Name of the DO binding in your wrangler config
+   */
+  doBindingName: string;
+  
+  /**
+   * Instance ID or name for the specific DO instance
+   */
+  doInstanceName: string;
+  
+  /**
+   * Base URL for the RPC endpoints
+   * @default location.origin (browser) or 'http://localhost:8787' (Node)
    */
   baseUrl?: string;
-
+  
+  /**
+   * RPC endpoint prefix (must match server-side RpcConfig.prefix)
+   * @default '/__rpc'
+   */
+  prefix?: string;
+  
   /**
    * Request timeout in milliseconds
    * @default 30000
    */
   timeout?: number;
-
+  
   /**
    * Custom fetch function (for testing or alternative implementations)
    * @default globalThis.fetch
    */
-  fetch?: typeof fetch;
-
+  fetch?: typeof globalThis.fetch;
+  
   /**
    * Request headers to include in all RPC requests
+   * @default {}
    */
   headers?: Record<string, string>;
 }
 
-
+/**
+ * Type representing the proxy object returned by createRpcClient().
+ * Merges the DO's methods (type T) with lifecycle methods in the $rpc namespace.
+ * 
+ * @example
+ * ```typescript
+ * const client: MyDO & RpcClientProxy = createRpcClient<MyDO>({ ... });
+ * await client.$rpc.connect();
+ * const result = await client.myMethod();
+ * await client.$rpc.disconnect();
+ * ```
+ */
+export interface RpcClientProxy {
+  /**
+   * Lifecycle methods for managing the RPC client connection.
+   * Access these via client.$rpc.connect(), client.$rpc.disconnect(), etc.
+   */
+  $rpc: {
+    /**
+     * Establish connection to the Durable Object.
+     * Must be called before making RPC calls.
+     */
+    connect(): Promise<void>;
+    
+    /**
+     * Close the connection to the Durable Object.
+     * Cleans up transport resources.
+     */
+    disconnect(): Promise<void>;
+    
+    /**
+     * Check if the client is currently connected.
+     */
+    isConnected(): boolean;
+  };
+}
 
 /**
- * Type guard to check if an object is a remote function marker
+ * Transport layer interface for RPC communication.
+ * Implement this interface to create custom transport mechanisms
+ * (e.g., WebSocket, HTTP/2, etc.).
  */
-export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
-  return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
+export interface RpcTransport {
+  /**
+   * Execute an operation chain and return the result.
+   * @param operations - The chain of operations to execute on the DO
+   * @returns The result of executing the operation chain
+   */
+  execute(operations: OperationChain): Promise<any>;
 }
 

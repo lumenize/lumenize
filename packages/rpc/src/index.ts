@@ -1,5 +1,8 @@
-// DO-side exports
-export { lumenizeRpcDo } from './lumenize-rpc-do';
+// DO-side (server) exports
+export { lumenizeRpcDo, handleRPCRequest } from './lumenize-rpc-do';
+
+// Client-side exports  
+export { createRpcClient } from './client';
 
 // WebSocket shim for testing
 export { getWebSocketShim } from './websocket-shim';

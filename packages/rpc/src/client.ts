@@ -1,29 +1,6 @@
-import type { OperationChain, RemoteFunctionMarker} from './types';
+import type { OperationChain, RemoteFunctionMarker, RpcClientConfig, RpcClientProxy, RpcTransport } from './types';
 import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
-
-// RpcTransport interface - any transport must implement execute()
-interface RpcTransport {
-  execute(operations: OperationChain): Promise<any>;
-}
-
-// Configuration for creating an RpcClient
-export interface RpcClientConfig {
-  doBindingName: string;
-  doInstanceName: string;
-  baseUrl?: string;
-  prefix?: string;
-  timeout?: number;
-  fetch?: typeof globalThis.fetch;
-  headers?: Record<string, string>;
-}
-
-// Lifecycle methods available on $rpc namespace
-export interface RpcLifecycle {
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
-  isConnected(): boolean;
-}
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -35,7 +12,7 @@ export interface RpcLifecycle {
  *   const result = await client.myMethod(); // Calls DO method
  *   await client.$rpc.disconnect();
  */
-export function createRpcClient<T>(config: RpcClientConfig): T & { $rpc: RpcLifecycle } {
+export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy {
   const client = new RpcClient<T>(config);
   return client as any; // Constructor returns Proxy, so type is correct
 }

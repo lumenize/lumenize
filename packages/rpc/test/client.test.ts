@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, type RpcClientConfig } from '../src/client';
+import { createRpcClient, type RpcClientConfig } from '../src/index';
 
 import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = InstanceType<typeof ExampleDO>;

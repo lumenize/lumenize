@@ -90,9 +90,9 @@ export async function handleRPCRequest(
 
 /**
  * Handle RPC call requests
- * @internal - exported for advanced use cases, typically called via handleRPCRequest
+ * @internal - implementation detail of handleRPCRequest
  */
-export async function handleCallRequest(
+async function handleCallRequest(
   request: Request,
   doInstance: any,
   config: Required<RpcConfig>

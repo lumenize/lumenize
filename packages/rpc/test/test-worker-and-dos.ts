@@ -1,4 +1,5 @@
 import { lumenizeRpcDo, handleRPCRequest } from '../src/lumenize-rpc-do';
+import type { RpcConfig } from '../src/types';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
@@ -217,7 +218,7 @@ export { ExampleDO };
  * This demonstrates how to use handleRPCRequest directly for custom routing
  */
 export class ManualRoutingDO extends DurableObject<Env> {
-  #rpcConfig = {
+  #rpcConfig: RpcConfig = {
     prefix: '/__rpc'
   };
 
