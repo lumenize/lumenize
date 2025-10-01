@@ -153,6 +153,53 @@ describe('RPC client-side functionality', () => {
     await client.$rpc.disconnect();
   });
 
+  it('should handle double-connect gracefully', async () => {
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'double-connect-test',
+    });
+
+    // Connect once
+    await client.$rpc.connect();
+    expect(client.$rpc.isConnected()).toBe(true);
+
+    // Connect again - should be idempotent
+    await client.$rpc.connect();
+    expect(client.$rpc.isConnected()).toBe(true);
+
+    // Should still work
+    const result = await client.increment();
+    expect(result).toBe(1);
+
+    await client.$rpc.disconnect();
+  });
+
+  it('should handle double-disconnect gracefully', async () => {
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'double-disconnect-test',
+    });
+
+    // Connect and disconnect
+    await client.$rpc.connect();
+    await client.$rpc.disconnect();
+    expect(client.$rpc.isConnected()).toBe(false);
+
+    // Disconnect again - should be idempotent
+    await client.$rpc.disconnect();
+    expect(client.$rpc.isConnected()).toBe(false);
+  });
+
+  it('should throw error when calling DO method without connecting', async () => {
+    const client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceName: 'not-connected-test',
+    });
+
+    // Try to call method without connecting
+    await expect(client.increment()).rejects.toThrow('RpcClient is not connected. Call $rpc.connect() first.');
+  });
+
   it('should not interfere with DO internal routing', async () => {
     // Test that lumenizeRpcDo doesn't break the DO's original fetch routing
     // Make a direct (non-RPC) request to the DO's /increment endpoint
