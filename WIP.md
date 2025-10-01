@@ -35,7 +35,7 @@
 - [x] Proxy handler implementation
 - [x] Operation chain building logic
 
-#### Transport Layer
+#### HTTP POST Transport Layer
 - [x] Create http-post-transport.ts file
 - [x] Implement RPCTransport class
 - [x] HTTP request execution
@@ -44,7 +44,7 @@
 - [x] **PROMPT DEVELOPER TO REVIEW AND DON'T END THIS REVIEW STEP WITHOUT PERMISSION**
 - [x] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
 - [x] Get all tests to pass
-- [ ] Get coverage to no less than 80% branch coverage
+- [x] Get coverage to no less than 80% branch coverage
 
 ### ⏳ Phase 3: Advanced Features  
 - [ ] Export handleRPCRequest and document a usage mode where they don't use lumenizeRpcDo factory function but instead use their own routing to handleRPCRequest
