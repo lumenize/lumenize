@@ -22,18 +22,24 @@ export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy 
  * The constructor returns a Proxy that forwards unknown methods to the DO.
  */
 export class RpcClient<T> {
-  #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceName'>> & { doBindingName: string; doInstanceName: string };
+  #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceName' | 'WebSocketClass'>> & { 
+    doBindingName: string; 
+    doInstanceName: string;
+    WebSocketClass?: typeof WebSocket;
+  };
   #transport: RpcTransport | null = null;
   #doProxy: T | null = null;
 
   constructor(config: RpcClientConfig) {
     // Set defaults and merge with user config
     this.#config = {
+      transport: 'websocket',
       prefix: '/__rpc',
       baseUrl: typeof location !== 'undefined' ? location.origin : 'http://localhost:8787',
       timeout: 30000,
       fetch: globalThis.fetch,
       headers: {},
+      WebSocketClass: typeof WebSocket !== 'undefined' ? WebSocket : undefined,
       ...config
     };
 
@@ -66,20 +72,31 @@ export class RpcClient<T> {
       return; // Already connected
     }
 
-    // For now, create HTTP transport (WebSocket transport will be added later)
-    this.#transport = new HttpPostRpcTransport({
-      baseUrl: this.#config.baseUrl,
-      prefix: this.#config.prefix,
-      doBindingName: this.#config.doBindingName,
-      doInstanceName: this.#config.doInstanceName,
-      timeout: this.#config.timeout,
-      fetch: this.#config.fetch,
-      headers: this.#config.headers
-    });
+    // Create transport based on configuration
+    this.#transport = this.createTransport();
 
     // Call transport's connect() if it exists (for stateful transports like WebSocket)
     if (this.#transport.connect) {
       await this.#transport.connect();
+    }
+  }
+
+  private createTransport(): RpcTransport {
+    if (this.#config.transport === 'http') {
+      // Create HTTP POST transport
+      return new HttpPostRpcTransport({
+        baseUrl: this.#config.baseUrl,
+        prefix: this.#config.prefix,
+        doBindingName: this.#config.doBindingName,
+        doInstanceName: this.#config.doInstanceName,
+        timeout: this.#config.timeout,
+        fetch: this.#config.fetch,
+        headers: this.#config.headers
+      });
+    } else {
+      // Create WebSocket transport (default)
+      // TODO: Implement WebSocketRpcTransport
+      throw new Error('WebSocket transport not yet implemented. Use transport: "http" for now.');
     }
   }
 

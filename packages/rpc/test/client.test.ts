@@ -8,6 +8,7 @@ type ExampleDO = InstanceType<typeof ExampleDO>;
 
 // Base configuration shared across all tests
 const baseConfig: Omit<RpcClientConfig, 'doInstanceName'> = {
+  transport: 'http', // Use HTTP transport for now (WebSocket not yet implemented)
   doBindingName: 'example-do',
   baseUrl: 'https://fake-host.com',
   prefix: '__rpc',

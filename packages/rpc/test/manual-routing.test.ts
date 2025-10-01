@@ -7,6 +7,7 @@ import { createRpcClient, type RpcClientConfig } from '../src/index';
 describe('Manual RPC routing', () => {
   // Base configuration for RPC client using MANUAL_ROUTING_DO binding
   const baseConfig: Omit<RpcClientConfig, 'doInstanceName'> = {
+    transport: 'http', // Use HTTP transport for now (WebSocket not yet implemented)
     doBindingName: 'manual-routing-do',
     baseUrl: 'https://fake-host.com',
     prefix: '/__rpc',

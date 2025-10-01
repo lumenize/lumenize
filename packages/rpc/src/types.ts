@@ -105,6 +105,12 @@ export interface RpcClientConfig {
   doInstanceName: string;
   
   /**
+   * Transport type to use for RPC communication
+   * @default 'websocket'
+   */
+  transport?: 'websocket' | 'http';
+  
+  /**
    * Base URL for the RPC endpoints
    * @default location.origin (browser) or 'http://localhost:8787' (Node)
    */
@@ -133,6 +139,12 @@ export interface RpcClientConfig {
    * @default {}
    */
   headers?: Record<string, string>;
+  
+  /**
+   * WebSocket class to use (for testing or alternative implementations)
+   * @default globalThis.WebSocket
+   */
+  WebSocketClass?: typeof WebSocket;
 }
 
 /**
