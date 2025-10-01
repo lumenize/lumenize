@@ -177,17 +177,17 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
 
   const { doBindingNameSegment, doInstanceNameOrId } = parseResult;
 
-  // Throw error if we have a binding but missing instance name
-  if (doInstanceNameOrId === undefined) {
-    throw new MissingInstanceNameError(pathname);
-  }
-
   // Get the namespace using existing function
   const doNamespace = getDONamespaceFromPathSegment(doBindingNameSegment, env);
   
   // Return early if no matching binding found
   if (!doNamespace) {
     return undefined;
+  }
+
+  // Throw error if we have a matching binding but missing instance name
+  if (doInstanceNameOrId === undefined) {
+    throw new MissingInstanceNameError(pathname);
   }
 
   const hookContext = { doNamespace, doInstanceNameOrId };

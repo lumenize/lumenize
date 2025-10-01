@@ -5,17 +5,12 @@ import { ManualRoutingDO } from './example-do';
 import { createRpcClient, type RpcClientConfig } from '../src/client';
 
 describe('Manual RPC routing', () => {
-  // Base configuration for RPC client
+  // Base configuration for RPC client using MANUAL_ROUTING_DO binding
   const baseConfig: Omit<RpcClientConfig, 'doInstanceName'> = {
     doBindingName: 'manual-routing-do',
     baseUrl: 'https://fake-host.com',
     prefix: '/__rpc',
-    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-      // Route through /manual prefix to hit ManualRoutingDO
-      const url = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
-      const manualUrl = url.replace('fake-host.com', 'fake-host.com/manual');
-      return SELF.fetch(manualUrl, init);
-    }
+    fetch: (input: RequestInfo | URL, init?: RequestInit) => SELF.fetch(input, init)
   };
 
   describe('RPC functionality', () => {
@@ -36,7 +31,7 @@ describe('Manual RPC routing', () => {
 
   describe('Custom routes', () => {
     it('should handle custom /health endpoint', async () => {
-      const response = await SELF.fetch('https://fake-host.com/manual/health?instance=health-test');
+      const response = await SELF.fetch('https://fake-host.com/manual-routing-do/health-test/health');
       expect(response.status).toBe(200);
       expect(await response.text()).toBe('OK');
     });
@@ -55,8 +50,8 @@ describe('Manual RPC routing', () => {
       expect(r1).toBeGreaterThan(0);
       client.$rpc.disconnect();
 
-      // Then check via custom REST endpoint
-      const response = await SELF.fetch(`https://fake-host.com/manual/counter?instance=${instanceName}`);
+      // Then check via custom REST endpoint using routeDORequest path format
+      const response = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/counter`);
       expect(response.status).toBe(200);
       
       const data = await response.json() as { counter: number };
@@ -78,7 +73,7 @@ describe('Manual RPC routing', () => {
       client.$rpc.disconnect();
 
       // Reset via custom endpoint
-      const response = await SELF.fetch(`https://fake-host.com/manual/reset?instance=${instanceName}`, {
+      const response = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/reset`, {
         method: 'POST'
       });
       expect(response.status).toBe(200);
@@ -87,13 +82,13 @@ describe('Manual RPC routing', () => {
       expect(resetData).toEqual({ message: 'Counter reset' });
 
       // Verify counter is now 0
-      const counterResponse = await SELF.fetch(`https://fake-host.com/manual/counter?instance=${instanceName}`);
+      const counterResponse = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/counter`);
       const data = await counterResponse.json() as { counter: number };
       expect(data.counter).toBe(0);
     });
 
     it('should return 404 for unknown routes', async () => {
-      const response = await SELF.fetch('https://fake-host.com/manual/unknown-route?instance=404-test');
+      const response = await SELF.fetch('https://fake-host.com/manual-routing-do/404-test/unknown-route');
       expect(response.status).toBe(404);
       expect(await response.text()).toBe('Not found');
     });
@@ -117,7 +112,7 @@ describe('Manual RPC routing', () => {
       client.$rpc.disconnect();
 
       // Use REST to check counter
-      const response = await SELF.fetch(`https://fake-host.com/manual/counter?instance=${instanceName}`);
+      const response = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/counter`);
       const data = await response.json() as { counter: number };
       expect(data.counter).toBeGreaterThan(0);
     });

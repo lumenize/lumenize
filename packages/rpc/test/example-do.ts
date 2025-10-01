@@ -196,7 +196,10 @@ class _ExampleDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     
-    if (url.pathname === '/increment') {
+    // Route based on the last segment(s) of the path, ignoring binding/instance prefix
+    // Path might be /increment or /binding-name/instance-name/increment
+    // We check if the path ends with /increment
+    if (url.pathname.endsWith('/increment')) {
       const count = await this.increment();
       return new Response(count.toString());
     }
@@ -244,19 +247,23 @@ export class ManualRoutingDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     
+    // Route based on the last segment(s) of the path, ignoring binding/instance prefix
+    // Path might be /health or /manual-routing-do/instance-name/health
+    // We check if the path ends with the route we're looking for
+    
     // Custom route 1: Health check
-    if (url.pathname === '/health') {
+    if (url.pathname.endsWith('/health')) {
       return new Response('OK', { status: 200 });
     }
     
     // Custom route 2: Direct counter access via REST
-    if (url.pathname === '/counter') {
+    if (url.pathname.endsWith('/counter')) {
       const counter = await this.getCounter();
       return Response.json({ counter });
     }
     
     // Custom route 3: Reset counter
-    if (url.pathname === '/reset' && request.method === 'POST') {
+    if (url.pathname.endsWith('/reset') && request.method === 'POST') {
       await this.ctx.storage.put('count', 0);
       return Response.json({ message: 'Counter reset' });
     }
@@ -285,57 +292,19 @@ export default {
       env
     });
     
-    const url = new URL(request.url);
-    
-    // Try to route RPC requests first using routeDORequest (with /manual prefix support)
-    if (url.pathname.startsWith('/manual/__rpc/')) {
-      // Remove /manual prefix for RPC routing
-      const newUrl = new URL(url);
-      newUrl.pathname = url.pathname.replace('/manual', '');
-      const newRequest = new Request(newUrl, request);
-      const doResponse = await routeDORequest(newRequest, env, { prefix: '/__rpc' });
-      if (doResponse) return doResponse;
-    }
-    
-    // Route to ManualRoutingDO if path starts with /manual/
-    if (url.pathname.startsWith('/manual/')) {
-      const instanceId = url.searchParams.get('instance') || 'default';
-      const doStub = env.MANUAL_ROUTING_DO.getByName(instanceId);
-      
-      // Remove /manual prefix before forwarding to the DO
-      const newPath = url.pathname.replace('/manual', '');
-      const newUrl = new URL(newPath || '/', url.origin);
-      newUrl.search = url.search;
-      
-      const newRequest = new Request(newUrl, request);
-      return await doStub.fetch(newRequest);
-    }
-    
-    // Try to route other RPC requests using routeDORequest
-    const doResponse = await routeDORequest(request, env, { prefix: '/__rpc' });
-    if (doResponse) return doResponse;
+    // Try to route RPC requests first using routeDORequest
+    const rpcResponse = await routeDORequest(request, env, { prefix: '/__rpc' });
+    if (rpcResponse) return rpcResponse;
 
-    // Try something else
+    // Try worker-level custom handlers
     const workerPingResponse = this.handleWorkerPing(request);
     if (workerPingResponse) return workerPingResponse;
 
-    // Handle direct DO requests (non-RPC) - forward to DO instance
-    if (url.pathname.startsWith('/do/')) {
-      // Extract DO instance ID from path like /do/{instanceId}/increment
-      const pathParts = url.pathname.split('/');
-      if (pathParts.length >= 3) {
-        const instanceId = pathParts[2];
-        const doStub = env.EXAMPLE_DO.get(env.EXAMPLE_DO.idFromName(instanceId));
-        // Forward the request to the DO, but rewrite the path to remove /do/{instanceId}
-        const newPath = '/' + pathParts.slice(3).join('/');
-        const newUrl = new URL(newPath, request.url);
-        const newRequest = new Request(newUrl, request);
-        return await doStub.fetch(newRequest);
-      }
-    }
+    // Try to route non-RPC DO requests using routeDORequest (no prefix)
+    const doResponse = await routeDORequest(request, env);
+    if (doResponse) return doResponse;
 
-    // Fall back to existing DO logic for non-RPC requests
-    // This handles direct requests to the DO that don't match the routing pattern
+    // Fall back for unhandled routes
     return new Response('Not Found', { status: 404 });
   },
 
