@@ -47,7 +47,7 @@
 - [x] Get coverage to no less than 80% branch coverage
 
 ### ⏳ Phase 3: Advanced Features  
-- [ ] Export handleRPCRequest and document a usage mode where they don't use lumenizeRpcDo factory function but instead use their own routing to handleRPCRequest
+- [x] Export handleRPCRequest and document a usage mode where they don't use lumenizeRpcDo factory function but instead use their own routing to handleRPCRequest
 - [x] Implement result processing and error reconstruction
 - [x] Handle RemoteFunctionMarker objects
 - [ ] Add Websocket transport, make it the default, and make HttpPostTransport usable via configuration
