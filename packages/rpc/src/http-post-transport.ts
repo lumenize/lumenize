@@ -71,13 +71,34 @@ export class HttpPostRpcTransport {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      // Try to parse as RPC error response first
+      try {
+        const responseText = await response.text();
+        const rpcResponse: RpcResponse = JSON.parse(responseText);
+
+        if (!rpcResponse.success && rpcResponse.error) {
+          // This is an RPC error response, deserialize and throw the actual error
+          throw deserializeError(rpcResponse.error);
+        }
+        
+        // If we get here, it was a valid JSON response but not an RPC error response
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      } catch (error) {
+        // If error is already deserialized, re-throw it
+        if (error instanceof Error && error.message !== `HTTP ${response.status}: ${response.statusText}`) {
+          throw error;
+        }
+        // Otherwise, it was a parse error - fall back to generic HTTP error
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
     }
 
     const rpcResponse: RpcResponse = await response.json();
+    console.log('Transport: Successful response:', rpcResponse);
 
     if (!rpcResponse.success) {
       // Handle error response
+      console.log('Transport: Throwing deserialized error');
       throw deserializeError(rpcResponse.error);
     }
 

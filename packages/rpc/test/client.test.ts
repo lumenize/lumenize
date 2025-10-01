@@ -39,7 +39,7 @@ describe('RPC client-side functionality', () => {
   it('should handle nested property access and method calls', async () => {
     const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'nested-access-test');
 
-    // Access nested object and call method
+    // Access nested object and call method - should work with promise chaining
     const result = await rpcProxy.getObject().nested.getValue();
 
     expect(result).toBe(42);

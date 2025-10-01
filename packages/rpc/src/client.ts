@@ -1,25 +1,6 @@
-import type { OperationChain, RpcClientFactoryConfig} from './types';
+import type { OperationChain, RpcClientFactoryConfig, RemoteFunctionMarker} from './types';
+import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
-
-/**
- * Internal state for proxy objects (not exported - implementation detail)
- */
-interface ProxyState {
-  operationChain: OperationChain;
-  rpcClient: any; // Will be the concrete RPCClient class instance
-}
-
-/**
- * Symbol used to identify proxy objects (not exported - implementation detail)
- */
-const PROXY_STATE_SYMBOL = Symbol('lumenize-rpc-proxy-state');
-
-/**
- * Type guard to check if an object is a proxy with state (internal use only)
- */
-function isProxyObject(obj: any): obj is ProxyState & Record<string | symbol, any> {
-  return obj && typeof obj === 'object' && obj[PROXY_STATE_SYMBOL] !== undefined;
-}
 
 export class RpcClientFactory {
   #config: Required<RpcClientFactoryConfig>;
@@ -38,7 +19,7 @@ export class RpcClientFactory {
     };
   }
 
-  execute(operations: OperationChain, doBindingName: string, doInstanceName: string): Promise<any> {
+  async execute(operations: OperationChain, doBindingName: string, doInstanceName: string): Promise<any> {
     // Create transport instance with current config
     const transport = new HttpPostRpcTransport({
       baseUrl: this.#config.baseUrl,
@@ -51,7 +32,38 @@ export class RpcClientFactory {
     });
 
     // Execute the operation chain via HTTP transport
-    return transport.execute(operations);
+    const result = await transport.execute(operations);
+    
+    // Process the result to convert remote function markers to proxies
+    return this.processRemoteFunctions(result, [], doBindingName, doInstanceName);
+  }
+
+  processRemoteFunctions(obj: any, baseOperations: any[], doBindingName: string, doInstanceName: string): any {
+    // Base case: if it's a remote function marker, create a proxy for it
+    if (obj && typeof obj === 'object' && isRemoteFunctionMarker(obj)) {
+      const remoteFn = obj as RemoteFunctionMarker;
+      return new Proxy(() => {}, {
+        apply: (target, thisArg, args) => {
+          const operations: OperationChain = [...baseOperations, ...remoteFn.__operationChain, { type: 'apply', args }];
+          return this.execute(operations, doBindingName, doInstanceName);
+        }
+      });
+    }
+
+    if (obj === null || typeof obj !== 'object') {
+      return obj; // Primitive values pass through unchanged
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.processRemoteFunctions(item, baseOperations, doBindingName, doInstanceName));
+    }
+
+    // Process object properties recursively
+    const processed: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      processed[key] = this.processRemoteFunctions(value, baseOperations, doBindingName, doInstanceName);
+    }
+    return processed;
   }
 
   createRpcProxy<T>(doBindingName: string, doInstanceNameOrId: string): T {
@@ -85,8 +97,82 @@ class ProxyHandler {
     // Add 'apply' operation to chain and execute
     this.#operationChain.push({ type: 'apply', args });
 
-    // Execute the operation chain
-    return this.#rpcClient.execute([...this.#operationChain], this.#doBindingName, this.#doInstanceNameOrId);
+    // Execute the operation chain and wrap result in thenable proxy
+    const resultPromise = this.#rpcClient.execute([...this.#operationChain], this.#doBindingName, this.#doInstanceNameOrId);
+    return this.createThenableProxy(resultPromise);
+  }
+
+  private createThenableProxy(promise: Promise<any>): any {
+    const self = this;
+    
+    // Use a function as the proxy target so it can be called
+    const callableTarget = function() {};
+    
+    return new Proxy(callableTarget, {
+      get(target: any, key: string | symbol, receiver: any) {
+        // Allow standard Promise methods by delegating to the promise
+        if (key === 'then' || key === 'catch' || key === 'finally') {
+          const method = (promise as any)[key];
+          return typeof method === 'function' ? method.bind(promise) : method;
+        }
+        
+        if (key === Symbol.toStringTag) {
+          return (promise as any)[key];
+        }
+        
+        // For other properties, create a new thenable proxy that accesses the property after resolution
+        // AND processes it through processRemoteFunctions
+        const nestedPromise = promise.then((resolved: any) => {
+          const propertyValue = resolved?.[key];
+          // Process the property value to convert any remote function markers
+          return self.#rpcClient.processRemoteFunctions(propertyValue, [], self.#doBindingName, self.#doInstanceNameOrId);
+        });
+        
+        // Important: Don't wrap the result in a thenable proxy if it's already a proxy (from processRemoteFunctions)
+        // Instead, return a proxy that will behave correctly whether the result is a function/proxy or a value
+        const nestedCallableTarget = function() {};
+        return new Proxy(nestedCallableTarget, {
+          get(t: any, k: string | symbol) {
+            if (k === 'then' || k === 'catch' || k === 'finally') {
+              const method = (nestedPromise as any)[k];
+              return typeof method === 'function' ? method.bind(nestedPromise) : method;
+            }
+            if (k === Symbol.toStringTag) {
+              return (nestedPromise as any)[k];
+            }
+            // Further property access - chain another thenable proxy
+            const furtherPromise = nestedPromise.then((r: any) => {
+              const furtherValue = r?.[k];
+              return self.#rpcClient.processRemoteFunctions(furtherValue, [], self.#doBindingName, self.#doInstanceNameOrId);
+            });
+            return self.createThenableProxy(furtherPromise);
+          },
+          apply(t: any, thisArg: any, args: any[]) {
+            // Call as function - the promise resolves to a callable (proxy or function)
+            return nestedPromise.then((fnOrProxy: any) => {
+              // Try to call it - if it's a proxy with apply trap or a function, this will work
+              try {
+                return fnOrProxy.apply(thisArg, args);
+              } catch (e) {
+                throw new Error(`Attempted to call a non-function value: ${e}`);
+              }
+            });
+          }
+        });
+      },
+      apply(target: any, thisArg: any, args: any[]) {
+        // The promise itself is being called as a function
+        // This means the previous property access resolved to a function
+        return promise.then((fn: any) => {
+          // Try to call it - if it's a proxy with apply trap or a function, this will work
+          try {
+            return fn.apply(thisArg, args);
+          } catch (e) {
+            throw new Error(`Attempted to call a non-function value: ${e}`);
+          }
+        });
+      }
+    });
   }
 
   private createProxyWithCurrentChain(): any {
@@ -99,7 +185,8 @@ class ProxyHandler {
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         currentChain.push({ type: 'apply', args });
-        return this.#rpcClient.execute(currentChain, this.#doBindingName, this.#doInstanceNameOrId);
+        const resultPromise = this.#rpcClient.execute(currentChain, this.#doBindingName, this.#doInstanceNameOrId);
+        return this.createThenableProxy(resultPromise);
       }
     });
   }
@@ -112,15 +199,9 @@ class ProxyHandler {
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args }];
-        return this.#rpcClient.execute(finalChain, this.#doBindingName, this.#doInstanceNameOrId);
+        const resultPromise = this.#rpcClient.execute(finalChain, this.#doBindingName, this.#doInstanceNameOrId);
+        return this.createThenableProxy(resultPromise);
       }
     });
   }
 }
-
-/**
- * Export internal types only for use within this module
- * These are not part of the public API
- */
-export type { ProxyState };
-export { PROXY_STATE_SYMBOL, isProxyObject };

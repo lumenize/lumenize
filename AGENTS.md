@@ -23,7 +23,11 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 
 ## How we do things around here
 
-## Coding style
+### Tools
+- Use `npm`. Never `pnpm` or `yarn`.
+- If the library is installed never use `npx` because it requires me to approve it.
+
+### Coding style
 - Never use Typescript keyword `private`. Rather use JavaScript equivalent of starting the identifier with "#".
 
 ### No build except on publish

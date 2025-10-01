@@ -99,7 +99,7 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
         const result = await this.#executeOperationChain(deserializedOperations);
         
         // Replace functions with markers before structured-clone serialization
-        const processedResult = this.#preprocessResult(result, rpcRequest.wireOperations);
+        const processedResult = this.#preprocessResult(result, deserializedOperations);
         
         const response: RpcResponse = {
           success: true,
@@ -223,11 +223,12 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
         
         if (typeof value === 'function') {
           // Replace function with remote function marker
-          processedObject[key] = {
+          const marker = {
             __isRemoteFunction: true,
             __operationChain: currentChain,
             __functionName: key,
           } as RemoteFunctionMarker;
+          processedObject[key] = marker;
         } else {
           // Recursively process non-function values
           processedObject[key] = this.#preprocessResult(value, currentChain, seen);
