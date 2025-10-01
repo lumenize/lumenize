@@ -94,6 +94,9 @@ class ProxyHandler {
   }
 
   apply(target: any, thisArg: any, args: any[]): any {
+    // NOTE: This trap is not called in normal operation. The proxy returned by createProxyWithCurrentChain
+    // handles the apply operation. This trap would only be called if the initial proxy (before any property
+    // access) were called directly as a function, which is not a supported use case.
     // Add 'apply' operation to chain and execute
     this.#operationChain.push({ type: 'apply', args });
 
@@ -116,10 +119,6 @@ class ProxyHandler {
           return typeof method === 'function' ? method.bind(promise) : method;
         }
         
-        if (key === Symbol.toStringTag) {
-          return (promise as any)[key];
-        }
-        
         // For other properties, create a new thenable proxy that accesses the property after resolution
         // AND processes it through processRemoteFunctions
         const nestedPromise = promise.then((resolved: any) => {
@@ -136,9 +135,6 @@ class ProxyHandler {
             if (k === 'then' || k === 'catch' || k === 'finally') {
               const method = (nestedPromise as any)[k];
               return typeof method === 'function' ? method.bind(nestedPromise) : method;
-            }
-            if (k === Symbol.toStringTag) {
-              return (nestedPromise as any)[k];
             }
             // Further property access - chain another thenable proxy
             const furtherPromise = nestedPromise.then((r: any) => {
@@ -176,6 +172,8 @@ class ProxyHandler {
   }
 
   private createProxyWithCurrentChain(): any {
+    // This is the main entry point for handling property access and method calls.
+    // The returned proxy handles both further property access (via get trap) and method calls (via apply trap).
     const currentChain = [...this.#operationChain];
 
     return new Proxy(() => {}, {

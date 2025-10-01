@@ -141,6 +141,28 @@ class _ExampleDO extends DurableObject<Env> {
     return new DataModel(42, 'TestModel');
   }
 
+  // Method that returns an object with deeply nested properties for testing chaining
+  getDeeplyNested() {
+    return {
+      level1: {
+        level2: {
+          level3: {
+            value: 'deep',
+            getValue: () => 'deeply nested value'
+          }
+        }
+      }
+    };
+  }
+
+  // Method that returns an object with a non-function property to test error handling
+  getObjectWithNonFunction() {
+    return {
+      notAFunction: 42,
+      data: { value: 'test' }
+    };
+  }
+
   // Original fetch method (would handle user's business logic)
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -177,6 +199,22 @@ export default {
     // Try something else
     const workerPingResponse = this.handleWorkerPing(request);
     if (workerPingResponse) return workerPingResponse;
+
+    // Handle direct DO requests (non-RPC) - forward to DO instance
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/do/')) {
+      // Extract DO instance ID from path like /do/{instanceId}/increment
+      const pathParts = url.pathname.split('/');
+      if (pathParts.length >= 3) {
+        const instanceId = pathParts[2];
+        const doStub = env.EXAMPLE_DO.get(env.EXAMPLE_DO.idFromName(instanceId));
+        // Forward the request to the DO, but rewrite the path to remove /do/{instanceId}
+        const newPath = '/' + pathParts.slice(3).join('/');
+        const newUrl = new URL(newPath, request.url);
+        const newRequest = new Request(newUrl, request);
+        return await doStub.fetch(newRequest);
+      }
+    }
 
     // Fall back to existing DO logic for non-RPC requests
     // This handles direct requests to the DO that don't match the routing pattern

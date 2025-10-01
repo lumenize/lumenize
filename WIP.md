@@ -50,6 +50,7 @@
 - [ ] Export handleRPCRequest and document a usage mode where they don't use lumenizeRpcDo factory function but instead use their own routing to handleRPCRequest
 - [x] Implement result processing and error reconstruction
 - [x] Handle RemoteFunctionMarker objects
+- [ ] Add Websocket transport, make it the default, and make HttpPostTransport usable via configuration
 
 ### ⏳ Phase 4: Error Handling & Edge Cases
 - [ ] Implement comprehensive error handling

@@ -91,4 +91,38 @@ describe('RPC client-side functionality', () => {
 
     expect(result).toBe(1);
   });
+
+  it('should handle deeply nested property access', async () => {
+    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'deep-nest-test');
+
+    // Test deep chaining: a.b.c.d()
+    const result = await rpcProxy.getDeeplyNested().level1.level2.level3.getValue();
+
+    expect(result).toBe('deeply nested value');
+  });
+
+  it('should throw error when trying to call a non-function property', async () => {
+    const rpcProxy = rpcClientFactory.createRpcProxy<ExampleDO>('example-do', 'non-function-test');
+
+    // Get the object with a non-function property and try to call it
+    // This should throw an error
+    await expect(
+      // @ts-expect-error - Testing runtime error when calling a non-function value
+      rpcProxy.getObjectWithNonFunction().notAFunction()
+    ).rejects.toThrow('Attempted to call a non-function value');
+  });
+
+  it('should not interfere with DO internal routing', async () => {
+    // Test that lumenizeRpcDo doesn't break the DO's original fetch routing
+    // Make a direct (non-RPC) request to the DO's /increment endpoint
+    const doId = 'direct-routing-test';
+    const url = `https://fake-host.com/do/${doId}/increment`;
+    
+    const response = await SELF.fetch(url);
+    
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    const count = parseInt(text);
+    expect(count).toBeGreaterThan(0); // Should return incremented count from DO's fetch method
+  });
 });

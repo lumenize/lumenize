@@ -498,4 +498,32 @@ describe('lumenizeRpcDo server-side functionality', () => {
       expect(result.compute.__functionName).toBe('compute');
     });
   });
+
+  it('should handle non-RPC requests at worker level', async () => {
+    // Test that non-RPC requests fall through to custom worker handlers
+    // Import the worker default export
+    const workerModule = await import('./example-do.js');
+    const worker = workerModule.default;
+
+    // Test the /ping endpoint which is handled by handleWorkerPing
+    const request = new Request('https://example.com/ping');
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).toBe('pong from Worker');
+  });
+
+  it('should return 404 for unhandled worker routes', async () => {
+    // Test that unknown routes return 404
+    const workerModule = await import('./example-do.js');
+    const worker = workerModule.default;
+
+    const request = new Request('https://example.com/unknown-route');
+    const response = await worker.fetch(request, env);
+
+    expect(response.status).toBe(404);
+    const text = await response.text();
+    expect(text).toBe('Not Found');
+  });
 });
