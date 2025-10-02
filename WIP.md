@@ -1,166 +1,161 @@
-# Work In Progress (WiP): 
+# Work In Progress (WIP): Documentation & Build Automation
 
-@lumenize/rpc over HTTP POST transport
-
-- DO-level: Class factory returning a new DO class that is a subclass of the user's class but has an __rpc endpoint
-- Worker-level: instruct user to use routeDORequest with __rpc prefix
-- Client-level: JavaScript Proxy based interface similar to what we have in @lumenize/testing but instead using the OperationChain approach we've already implemented in the DO-level
+**Goals:**
+1. **Testable Documentation**: Write text-heavy getting started guides and blog posts in .md/.mdx with embedded code examples that are automatically extracted and run as tests (using vitest with Cloudflare Workers pool). Failed assertions should fail the build.
+2. **API Documentation**: Extract JSDoc from source code to generate API reference docs (call signatures, types, etc.).
+3. **Automated Release Process**: Top-level build orchestration that runs all tests, ensures clean git state, builds all packages, uses Lerna to version/tag/publish packages to npm, and publishes docs to Cloudflare.
 
 ## Implementation Phases
 
-### ✅ Phase 0: DO-level __rpc handling
+### Phase 1: Research & Tool Selection
 
-### ✅ Phase 1: Architecture Design
-- [x] Analyze existing RPC system architecture
-- [x] Design browser-side client architecture  
-- [x] Define implementation strategy and phases
-- [x] Plan integration with existing test harness
+#### 1.1: Testable Documentation Tools
+- [ ] Research existing solutions for extracting code from markdown:
+  - [ ] Docusaurus plugins for runnable code examples
+  - [ ] Standalone tools (e.g., markdown-it plugins, remark/rehype plugins)
+  - [ ] TypeDoc with live-code examples
+  - [ ] mdx-test or similar testing frameworks
+  - [ ] Look at how others do this (React docs, Storybook, etc.)
+- [ ] Evaluate requirements:
+  - [ ] Must support Docusaurus frontmatter and .mdx syntax
+  - [ ] Must extract code blocks (with imports) for testing
+  - [ ] Must integrate with vitest + @cloudflare/vitest-pool-workers
+  - [ ] Must fail Docusaurus build on test failure
+  - [ ] Should support rapid iteration on single document
+  - [ ] Decide: imports in comments vs. actual code blocks
+- [ ] **Checkpoint**: Review findings and select tooling approach
 
-### 🚧 Phase 2: Core Infrastructure (In Progress)
+#### 1.2: API Documentation Tools
+- [ ] Research JSDoc extraction tools:
+  - [ ] TypeDoc (TypeScript-first)
+  - [ ] Docusaurus plugin-content-docs with TypeDoc integration
+  - [ ] API Extractor (@microsoft/api-extractor)
+  - [ ] typedoc-plugin-markdown for Docusaurus integration
+- [ ] Evaluate requirements:
+  - [ ] Extract JSDoc comments from TypeScript source
+  - [ ] Generate Docusaurus-compatible markdown/mdx
+  - [ ] Render call signatures, types, interfaces
+  - [ ] Optionally: support runnable examples in JSDoc (or skip)
+- [ ] **Checkpoint**: Review findings and select JSDoc tooling
 
-#### Browser-Specific Type Definitions
-- [x] Create browser-types.ts with BrowserRPCConfig interface
-- [x] Add RPCClient forward declaration interface
-- [x] Add ProxyState interface for proxy object state
-- [x] Add PROXY_STATE_SYMBOL for proxy identification
-- [x] Add type guard functions (isProxyObject, isRemoteFunctionMarker)
-- [x] Merge browser-types.ts into types.ts
-- [x] Remove browser-types.ts file
-- [x] Move internal types to browser-client.ts
+#### 1.3: Monorepo Build & Release Automation
+- [ ] Research Lerna alternatives and best practices (2025):
+  - [ ] Lerna vs. Changesets vs. nx vs. Turborepo
+  - [ ] npm workspaces + custom scripts
+  - [ ] pnpm workspace features
+- [ ] Design build orchestration requirements:
+  - [ ] Run all package tests (including extracted doc tests)
+  - [ ] Build all packages
+  - [ ] Ensure git is clean (no uncommitted changes)
+  - [ ] Version packages together (synchronized versions)
+  - [ ] Create git tag
+  - [ ] Publish to npm
+  - [ ] Build and publish website to Cloudflare
+  - [ ] Atomic: fail entire process if any step fails
+- [ ] **Checkpoint**: Review findings and design build process
 
-#### RPC Client Implementation
-- [x] Create browser-client.ts file
-- [x] Implement RPCClient class constructor
-- [x] Implement createProxy() method with Proxy factory
-- [x] Proxy handler implementation
-- [x] Operation chain building logic
+### Phase 2: Testable Documentation Prototype
 
-#### HTTP POST Transport Layer
-- [x] Create http-post-transport.ts file
-- [x] Implement RPCTransport class
-- [x] HTTP request execution
-- [x] Error handling and timeout logic
-- [x] Create one test that uses SELF.fetch before writing more tests
-- [x] **PROMPT DEVELOPER TO REVIEW AND DON'T END THIS REVIEW STEP WITHOUT PERMISSION**
-- [x] Create tests using example-do.ts test harness using cloudflare:test SELF.fetch 
-- [x] Get all tests to pass
-- [x] Get coverage to no less than 80% branch coverage
+#### 2.1: Create Proof-of-Concept
+- [ ] Choose one @lumenize/rpc guide to prototype (e.g., "Getting Started")
+- [ ] Set up directory structure in lumenize/website/docs/
+- [ ] Write sample .mdx file with:
+  - [ ] Frontmatter
+  - [ ] Narrative text (headings, paragraphs, lists)
+  - [ ] Code blocks with imports and assertions
+- [ ] Create extraction script/plugin:
+  - [ ] Extract code from markdown
+  - [ ] Generate vitest test file(s)
+  - [ ] Configure vitest with cloudflare workers pool
+- [ ] Verify extracted tests run successfully
+- [ ] **Checkpoint**: Review proof-of-concept approach
 
-### ✅ Phase 3: Advanced Features  
-- [x] Export handleRPCRequest and document a usage mode where they don't use lumenizeRpcDo factory function but instead use their own routing to handleRPCRequest
-- [x] Implement result processing and error reconstruction
-- [x] Handle RemoteFunctionMarker objects
+#### 2.2: Integrate with Docusaurus Build
+- [ ] Create Docusaurus plugin or build hook:
+  - [ ] Run extracted tests during docusaurus build
+  - [ ] Fail build if tests fail
+  - [ ] Report which document/assertion failed
+- [ ] Set up watch mode for rapid iteration on single doc
+- [ ] Document workflow for writing testable docs
+- [ ] **Checkpoint**: Verify integration works end-to-end
 
-### 🚧 Phase 4: WebSocket Transport Implementation (In Progress)
+### Phase 3: API Documentation Setup
 
-#### ✅ Phase 4.1: Transport Configuration & Selection
-- [x] Update `RpcClientConfig` in types.ts:
-  - [x] Add `transport?: 'websocket' | 'http'` (default: 'websocket')
-  - [x] Add `WebSocketClass?: typeof WebSocket` for injection (testing with websocket-shim)
-- [x] Refactor `RpcClient` constructor to store WebSocketClass
-- [x] Create transport factory function (`createTransport()`) that instantiates correct transport
+#### 3.1: Configure TypeDoc/Tool
+- [ ] Install and configure selected JSDoc extraction tool
+- [ ] Set up output to generate Docusaurus-compatible markdown
+- [ ] Configure to scan all packages in lumenize/packages/
+- [ ] Generate initial API docs for @lumenize/rpc
+- [ ] Review output quality and adjust configuration
+- [ ] **Checkpoint**: Review generated API docs
 
-#### ✅ Phase 4.2: WebSocket RPC Transport (Client-Side)
-- [x] Add comprehensive JSDoc to websocket-shim.ts explaining usage
-- [x] Create `websocket-rpc-transport.ts` implementing `RpcTransport` interface:
-  - [x] Lazy connection: connect on first `execute()` call
-  - [x] Auto-reconnect: if connection dropped, reconnect on next `execute()`
-  - [x] Message protocol: `{ id, type: '__rpc', wireOperations }`
-  - [x] Response protocol: `{ id, type: '__rpc', success, result/error }`
-  - [x] Track pending operations with Map<id, {resolve, reject}>
-  - [x] Handle WebSocket events: open, message, close, error
-  - [x] Implement `isConnected()` checking `ws.readyState === WebSocket.OPEN`
-  - [x] Implement `disconnect()` closing WebSocket and rejecting pending ops
-- [x] Update client.ts to use WebSocketRpcTransport when transport === 'websocket'
+#### 3.2: Integrate with Docusaurus
+- [ ] Add generated API docs to Docusaurus site
+- [ ] Configure sidebars for API reference section
+- [ ] Set up automatic regeneration during build
+- [ ] Ensure styling/formatting matches site theme
+- [ ] **Checkpoint**: Verify API docs render correctly
 
-#### ✅ Phase 4.3: WebSocket RPC Handler (Server-Side)
-- [x] Create `handleWebSocketRPCMessage` function:
-  - [x] Parse message envelope checking `{ id, type: '__rpc', scEncodedOperations }`
-  - [x] Extract and deserialize `scEncodedOperations` from message
-  - [x] Reuse existing `deserializeOperationChain` logic
-  - [x] Reuse existing `executeOperationChain` logic
-  - [x] Reuse existing `preprocessResult` logic
-  - [x] Send response: `{ id, type: '__rpc', success, scEncodedResult/error }`
-  - [x] Handle errors with proper serialization
-- [x] Update `lumenizeRpcDo` factory to detect WebSocket upgrade:
-  - [x] Check for `Upgrade: websocket` header in fetch()
-  - [x] Create WebSocketPair and accept WebSocket
-  - [x] Return 101 Switching Protocols response
-  - [x] Handle incoming messages by calling `handleWebSocketRPCMessage`
-  - [x] Delegate non-RPC messages to original webSocketMessage handler
-- [x] Export `handleWebSocketRPCMessage` for manual routing scenarios
+### Phase 4: Build & Release Automation
 
-#### ✅ Phase 4.4: Testing
-- [x] Create `websocket-integration.test.ts`:
-  - [x] Write one proof-of-concept test demonstrating testing approach
-  - [x] Extract `baseConfig` pattern for test reuse
-  - [x] **DEVELOPER REVIEW COMPLETED**: API finalized with lazy connection, no $rpc namespace
-- [x] Key API decisions made:
-  - [x] Removed `$rpc` namespace entirely (connect/disconnect/isConnected)
-  - [x] Connection is lazy - established automatically on first RPC call
-  - [x] Cleanup via `Symbol.asyncDispose` using `await using` syntax
-  - [x] Created `RpcAccessible<T>` type utility to expose protected `ctx`/`env` without @ts-expect-error
-- [x] Naming refactor: `wireOperations` → `scEncodedOperations` (structured-clone encoded)
-- [x] MAJOR REFACTOR: Removed scEncoded terminology, switched to stringify/parse on entire message objects
-  - [x] Root cause analysis: Date objects becoming {} due to double-encoding (serialize→JSON.stringify)
-  - [x] Solution: Use `@ungap/structured-clone/json` stringify/parse at transport boundaries only
-  - [x] Updated types: `operations: OperationChain` (was scEncodedOperations), `result?: any` (was scEncodedResult)
-  - [x] Updated all transports: http-post-transport.ts, websocket-rpc-transport.ts
-  - [x] Updated server: lumenize-rpc-do.ts
-  - [x] Fixed client: processRemoteFunctions() now uses prototype check instead of instanceof checks
-  - [x] Updated all 56 tests to new protocol
-  - [x] All tests passing with Date, Map, Set, ArrayBuffer, TypedArray properly serialized
-- [x] **Continue with additional WebSocket integration tests**:
-  - [x] Error handling: Test remote method throwing errors over WebSocket
-  - [x] Connection resilience: Test behavior when WebSocket connection drops (implicitly tested via lazy connect)
-  - [x] Concurrent operations: Multiple pending RPC calls simultaneously
-  - [x] Complex data types: Test serialization of Maps, Sets, Dates, ArrayBuffers
-  - [x] Remote function calls: Test returned functions that execute remotely
-    - [x] Array processing fix: Moved array check before prototype check in processRemoteFunctions()
-    - [x] Functions in nested objects work correctly
-    - [x] Functions in arrays work correctly
-    - [x] Methods on objects within arrays work correctly
-  - [ ] State persistence: Verify multiple calls maintain DO state correctly (already tested implicitly)
-  - [ ] Protected property access: More tests accessing `ctx.storage`, `ctx.id`, `env` properties (already tested)
-  - [ ] Mixed transport comparison: Same test scenarios with HTTP vs WebSocket (optional - both work identically)
-- [ ] Ensure all tests pass with both transports
-- [ ] Verify test coverage remains high (80%+ branch coverage)
+#### 4.1: Install & Configure Lerna (or alternative)
+- [ ] Install Lerna in monorepo root (or selected alternative)
+- [ ] Configure lerna.json or equivalent:
+  - [ ] Synchronized versioning across packages
+  - [ ] Package locations (packages/*, examples/*)
+  - [ ] npm registry configuration
+- [ ] Set up version bump commands
+- [ ] Test dry-run of version bump
+- [ ] **Checkpoint**: Verify Lerna configuration
 
-#### ✅ Phase 4.5: Test Coverage Review (Completed)
-- [x] **Coverage-driven test writing completed**:
-  - [x] `websocket-rpc-transport.ts`: 74.5% statements, 53.57% branches
-    - Analyzed all uncovered lines (199-205, 220-227, 233-239, 256, 288-289, 305-310, 321, 335-336)
-    - Added test for explicit disconnect with pending operations (lines 321, 335-336)
-    - Confirmed line 256 covered (coverage tool glitch)
-    - Intentionally skipped defensive code: non-string messages, wrong message type, send errors, CONNECTING state
-    - Determined unknown operation ID (lines 233-239) unreachable without mocking
-  - [x] `lumenize-rpc-do.ts`: 93.07% statements, 83.51% branches (↑ from 90.29%/80.64%)
-    - Added test for unknown RPC endpoint (line 73)
-    - Removed redundant outer try-catch (lines 76-87) - handleCallRequest already handles all errors
-    - Remaining uncovered: WebSocket validation (366-371), parse error catch (429), parent webSocketMessage (508)
-    - All intentionally skipped - defensive code or low-value edge cases
-  - [x] `client.ts`: 85.84% statements, 78.68% branches
-    - Lines 292, 322: Defensive error handlers for calling non-functions (requires malformed responses)
-    - Lines 339-340: Known coverage tool limitation - Proxy trap handlers not properly instrumented
-    - Code IS tested and working, but Istanbul/V8 coverage can't track Proxy traps
-  - [x] `websocket-shim.ts`: 55.83% coverage - intentionally low, will improve when used more extensively
-- [x] **Overall project coverage**: 81.31% statements, 71.98% branches (↑ from 80.76%/71.12%)
-- [x] **Final test count**: 63 tests passing
+#### 4.2: Create Build Orchestration Script
+- [ ] Create top-level build script (e.g., scripts/release.sh or npm script):
+  - [ ] Step 1: Check git status (fail if uncommitted changes)
+  - [ ] Step 2: Run all package tests (pnpm -r test)
+  - [ ] Step 3: Run documentation tests (extracted from .mdx)
+  - [ ] Step 4: Build all packages (pnpm -r build)
+  - [ ] Step 5: Build website (docusaurus build)
+  - [ ] Step 6: Version bump with Lerna (interactive or automatic)
+  - [ ] Step 7: Create git tag
+  - [ ] Step 8: Git push with tags
+  - [ ] Step 9: Publish packages to npm (lerna publish or pnpm publish -r)
+  - [ ] Step 10: Publish website to Cloudflare
+- [ ] Add dry-run mode for testing
+- [ ] **Checkpoint**: Test build orchestration end-to-end (dry-run)
 
-**Coverage Analysis Summary:**
-- All realistic user scenarios are well-tested
-- Remaining uncovered code is primarily:
-  1. Known coverage tool limitations (Proxy trap handlers in client.ts)
-  2. Defensive error handling for unrealistic scenarios
-  3. Code paths intentionally skipped per no-mock testing philosophy
-- Coverage targets achieved: 80%+ statement coverage across all critical files
+#### 4.3: CI/CD Integration (Optional)
+- [ ] Consider GitHub Actions workflow for automated releases
+- [ ] Set up secrets for npm and Cloudflare tokens
+- [ ] Configure workflow to run on git tags or manual trigger
+- [ ] **Checkpoint**: Decide if CI/CD is needed now or later
 
-### ⏳ Phase 5: Documentation with Testable Examples
-- [ ] Research literate programming approaches for documentation
-- [ ] Investigate Docusaurus plugins for executable code examples
-- [ ] Explore ways to write documentation with code examples that are actually run as tests
-- [ ] Ensure documentation stays in sync with code through automated validation
-- [ ] Create comprehensive API documentation with verified examples
+### Phase 5: Documentation Content Creation
+
+#### 5.1: Write @lumenize/rpc Documentation
+- [ ] Getting Started guide with testable examples
+- [ ] HTTP Transport usage guide
+- [ ] WebSocket Transport usage guide
+- [ ] Error handling guide
+- [ ] Advanced topics (custom serialization, timeouts, etc.)
+- [ ] Migration guide (if applicable)
+- [ ] **Checkpoint**: Review documentation for completeness
+
+#### 5.2: Generate and Review API Docs
+- [ ] Generate API docs for all @lumenize packages
+- [ ] Review for completeness and clarity
+- [ ] Add cross-references between guides and API docs
+- [ ] **Checkpoint**: Final documentation review
+
+### Phase 6: Testing & Refinement
+
+- [ ] Run full build process from clean state
+- [ ] Test failure scenarios (failing test in docs, dirty git, build errors)
+- [ ] Verify all documentation examples execute correctly
+- [ ] Verify API docs are accurate and complete
+- [ ] Test publishing to npm (maybe using npm dry-run)
+- [ ] Test publishing website to Cloudflare
+- [ ] Document the release process for future reference
+- [ ] **Checkpoint**: Ready for first real release
 
 ## Checkpoints
 - After each step completion, ask for review. During review:
