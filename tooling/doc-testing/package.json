@@ -1,0 +1,32 @@
+{
+  "name": "@lumenize/doc-testing",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Internal tooling for extracting and testing code from documentation",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./remark-plugin": "./dist/remark-plugin.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "unified": "^11.0.5",
+    "remark-parse": "^11.0.0",
+    "remark-frontmatter": "^5.0.0",
+    "remark-mdx": "^3.1.0",
+    "unist-util-visit": "^5.0.0",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/fs-extra": "^11.0.4",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

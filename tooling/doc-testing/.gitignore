@@ -1,0 +1,4 @@
+# Generated test workspaces - do not commit
+test/generated/
+dist/
+node_modules/

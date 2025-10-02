@@ -1,7 +1,7 @@
 {
   "name": "lumenize-rpc",
   "main": "test/test-worker-and-dos.ts",
-  "compatibility_date": "2024-09-23",
+  "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [
       {

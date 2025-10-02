@@ -1,0 +1,114 @@
+---
+title: Getting Started with @lumenize/rpc
+de```jsonc wrangler
+{
+  "name": "doc-test-getting-started",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",tion: Learn how to create RPC endpoints on Cloudflare Durable Objects
+---
+
+# Getting Started with @lumenize/rpc
+
+@lumenize/rpc allows you to create type-safe RPC endpoints on Cloudflare Durable Objects with minimal boilerplate.
+
+## Installation
+
+```bash npm2yarn
+npm install @lumenize/rpc
+```
+
+## Basic Example
+
+Let's create a simple counter Durable Object with RPC support.
+
+### Create Your Durable Object
+
+First, define your Durable Object class with the methods you want to expose:
+
+```typescript src/index.ts
+import { lumenizeRpcDo } from '@lumenize/rpc';
+import { DurableObject } from 'cloudflare:workers';
+
+class Counter extends DurableObject {
+  count = 0;
+  
+  increment() {
+    this.count++;
+    return this.count;
+  }
+  
+  getValue() {
+    return this.count;
+  }
+}
+
+// Wrap with RPC support
+export const CounterDO = lumenizeRpcDo(Counter);
+```
+
+### Configure Wrangler
+
+Add the Durable Object binding to your `wrangler.jsonc`:
+
+```jsonc wrangler
+{
+  "name": "doc-test-getting-started",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-01-01",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COUNTER",
+        "class_name": "CounterDO"
+      }
+    ]
+  }
+}
+```
+
+### Test It Works
+
+Now let's verify our counter works correctly:
+
+```typescript test
+import { describe, it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+import { createRpcClient } from '@lumenize/rpc';
+
+// Import the Counter type from our source
+import { CounterDO } from '../src/index';
+type Counter = InstanceType<typeof CounterDO>;
+
+describe('Counter RPC', () => {
+  it('should increment the counter', async () => {
+    // Create RPC client pointing to our test environment
+    const client = createRpcClient<Counter>({
+      transport: 'http',
+      baseUrl: 'http://test',
+      doBindingName: 'COUNTER',
+      doInstanceNameOrId: 'test-counter',
+      prefix: '__rpc',
+      fetch: SELF.fetch.bind(SELF),
+    });
+    
+    // Test increment
+    const result1 = await client.increment();
+    expect(result1).toBe(1);
+    
+    // Test again
+    const result2 = await client.increment();
+    expect(result2).toBe(2);
+    
+    // Verify getValue
+    const value = await client.getValue();
+    expect(value).toBe(2);
+  });
+});
+```
+
+## What's Next?
+
+- Learn about [WebSocket transport](./websocket-guide.mdx) for persistent connections
+- Explore [advanced error handling](./error-handling.mdx)
+- See [API reference](./api-reference.mdx) for all options
