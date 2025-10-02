@@ -98,4 +98,50 @@ describe('WebSocket RPC Integration', () => {
     expect(Array.from(typedArray)).toEqual([1, 2, 3, 4]);
   });
 
+  it('should handle remote function calls over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-remote-function-test',
+    });
+
+    // Get object with nested function
+    const obj = await client.getObject();
+    expect(obj.value).toBe(42);
+    expect(obj.nested.value).toBe(42);
+    
+    // Call the remote function on nested object
+    const nestedValue = await obj.nested.getValue();
+    expect(nestedValue).toBe(42);
+
+    // Get array with functions
+    const arr = await client.getArrayWithFunctions();
+    expect(arr[0]).toBe(1);
+    expect(arr[1]).toBe(2);
+    
+    // Call remote function from array
+    const fnResult = await arr[2]();
+    expect(fnResult).toBe('hello');
+    
+    // Call remote method on object in array
+    const objValue = await arr[3].getValue();
+    expect(objValue).toBe(42);
+    
+    expect(arr[4]).toBe(5);
+  });
+
+  it('should handle deeply nested property access with intermediate proxies over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-deep-proxy-test',
+    });
+
+    // Store intermediate proxy - should return a new Proxy that can be used for further access
+    const storage = client.ctx.storage;
+    
+    // Access deeply nested property through the intermediate proxy
+    const databaseSize = await storage.sql.databaseSize;
+    expect(typeof databaseSize).toBe('number');
+    expect(databaseSize).toBeGreaterThanOrEqual(0);
+  });
+
 });

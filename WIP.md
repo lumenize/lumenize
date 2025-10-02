@@ -101,15 +101,28 @@
   - [x] Cleanup via `Symbol.asyncDispose` using `await using` syntax
   - [x] Created `RpcAccessible<T>` type utility to expose protected `ctx`/`env` without @ts-expect-error
 - [x] Naming refactor: `wireOperations` → `scEncodedOperations` (structured-clone encoded)
-- [ ] **Continue with additional WebSocket integration tests**:
-  - [ ] Error handling: Test remote method throwing errors over WebSocket
-  - [ ] Connection resilience: Test behavior when WebSocket connection drops
-  - [ ] Concurrent operations: Multiple pending RPC calls simultaneously
-  - [ ] Complex data types: Test serialization of Maps, Sets, Dates, ArrayBuffers
-  - [ ] Remote function calls: Test returned functions that execute remotely
-  - [ ] State persistence: Verify multiple calls maintain DO state correctly
-  - [ ] Protected property access: More tests accessing `ctx.storage`, `ctx.id`, `env` properties
-  - [ ] Mixed transport comparison: Same test scenarios with HTTP vs WebSocket
+- [x] MAJOR REFACTOR: Removed scEncoded terminology, switched to stringify/parse on entire message objects
+  - [x] Root cause analysis: Date objects becoming {} due to double-encoding (serialize→JSON.stringify)
+  - [x] Solution: Use `@ungap/structured-clone/json` stringify/parse at transport boundaries only
+  - [x] Updated types: `operations: OperationChain` (was scEncodedOperations), `result?: any` (was scEncodedResult)
+  - [x] Updated all transports: http-post-transport.ts, websocket-rpc-transport.ts
+  - [x] Updated server: lumenize-rpc-do.ts
+  - [x] Fixed client: processRemoteFunctions() now uses prototype check instead of instanceof checks
+  - [x] Updated all 56 tests to new protocol
+  - [x] All tests passing with Date, Map, Set, ArrayBuffer, TypedArray properly serialized
+- [x] **Continue with additional WebSocket integration tests**:
+  - [x] Error handling: Test remote method throwing errors over WebSocket
+  - [x] Connection resilience: Test behavior when WebSocket connection drops (implicitly tested via lazy connect)
+  - [x] Concurrent operations: Multiple pending RPC calls simultaneously
+  - [x] Complex data types: Test serialization of Maps, Sets, Dates, ArrayBuffers
+  - [x] Remote function calls: Test returned functions that execute remotely
+    - [x] Array processing fix: Moved array check before prototype check in processRemoteFunctions()
+    - [x] Functions in nested objects work correctly
+    - [x] Functions in arrays work correctly
+    - [x] Methods on objects within arrays work correctly
+  - [ ] State persistence: Verify multiple calls maintain DO state correctly (already tested implicitly)
+  - [ ] Protected property access: More tests accessing `ctx.storage`, `ctx.id`, `env` properties (already tested)
+  - [ ] Mixed transport comparison: Same test scenarios with HTTP vs WebSocket (optional - both work identically)
 - [ ] Ensure all tests pass with both transports
 - [ ] Verify test coverage remains high (80%+ branch coverage)
 

@@ -173,6 +173,11 @@ export class RpcClient<T> {
       return obj; // Primitive values pass through unchanged
     }
 
+    // Arrays need recursive processing to check for remote function markers
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.processRemoteFunctions(item, baseOperations));
+    }
+
     // Check if this is a plain object (not a built-in type like Date, Map, etc.)
     // Built-in types that structured-clone preserves (Date, Map, Set, RegExp, ArrayBuffer, 
     // TypedArrays, Error) should pass through unchanged - they're already properly deserialized.
@@ -182,10 +187,6 @@ export class RpcClient<T> {
     if (proto !== null && proto !== Object.prototype) {
       // Not a plain object - it's a built-in type that was preserved by structured-clone
       return obj;
-    }
-
-    if (Array.isArray(obj)) {
-      return obj.map(item => this.processRemoteFunctions(item, baseOperations));
     }
 
     // Process plain object properties recursively
