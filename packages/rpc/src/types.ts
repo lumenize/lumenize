@@ -128,9 +128,12 @@ export interface RpcClientConfig {
   doBindingName: string;
   
   /**
-   * Instance ID or name for the specific DO instance
+   * Instance ID or name for the specific DO instance.
+   * Can be either:
+   * - A named instance (any string)
+   * - A unique ID (64-character hex string)
    */
-  doInstanceName: string;
+  doInstanceNameOrId: string;
   
   /**
    * Transport type to use for RPC communication

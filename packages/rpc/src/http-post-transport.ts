@@ -19,7 +19,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     baseUrl: string;
     prefix: string;
     doBindingName: string;
-    doInstanceName: string;
+    doInstanceNameOrId: string;
     timeout: number;
     fetch: typeof fetch;
     headers: Record<string, string>;
@@ -29,7 +29,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     baseUrl: string;
     prefix: string;
     doBindingName: string;
-    doInstanceName: string;
+    doInstanceNameOrId: string;
     timeout: number;
     fetch: typeof fetch;
     headers: Record<string, string>;
@@ -41,13 +41,13 @@ export class HttpPostRpcTransport implements RpcTransport {
    * Execute an operation chain via HTTP POST
    */
   async execute(operations: OperationChain): Promise<any> {
-    // Build URL with four segments: ${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call
+    // Build URL with four segments: ${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call
     const baseUrl = cleanSegment(this.#config.baseUrl);
     const prefix = cleanSegment(this.#config.prefix);
     const doBindingName = cleanSegment(this.#config.doBindingName);
-    const doInstanceName = cleanSegment(this.#config.doInstanceName);
+    const doInstanceNameOrId = cleanSegment(this.#config.doInstanceNameOrId);
 
-    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call`;
+    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
 
     const scEncodedOperations = serialize(operations);
     console.debug('%o', {

@@ -15,7 +15,7 @@ async function myComponent() {
   // Client automatically disconnects when scope exits
   await using client = createRpcClient<MyDO>({
     doBindingName: 'my-do',
-    doInstanceName: 'instance-1'
+    doInstanceNameOrId: 'instance-1'
   });
   
   await client.$rpc.connect();
@@ -31,7 +31,7 @@ function MyComponent() {
   useEffect(() => {
     const client = createRpcClient<MyDO>({
       doBindingName: 'my-do',
-      doInstanceName: 'instance-1'
+      doInstanceNameOrId: 'instance-1'
     });
     
     client.$rpc.connect();
@@ -51,7 +51,7 @@ function MyComponent() {
 ```typescript
 const client = createRpcClient<MyDO>({
   doBindingName: 'my-do',
-  doInstanceName: 'instance-1'
+  doInstanceNameOrId: 'instance-1'
 });
 
 await client.$rpc.connect();

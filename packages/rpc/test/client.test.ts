@@ -7,7 +7,7 @@ import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = InstanceType<typeof ExampleDO>;
 
 // Base configuration shared across all tests
-const baseConfig: Omit<RpcClientConfig, 'doInstanceName'> = {
+const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
   transport: 'http', // Use HTTP transport for now (WebSocket not yet implemented)
   doBindingName: 'example-do',
   baseUrl: 'https://fake-host.com',
@@ -21,7 +21,7 @@ describe('RPC client-side functionality', () => {
     // Create RPC client for the DO instance
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'simple-rpc-call',
+      doInstanceNameOrId: 'simple-rpc-call',
     });
 
     // Connect to the DO
@@ -37,7 +37,7 @@ describe('RPC client-side functionality', () => {
   it('should execute RPC calls with arguments', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'rpc-call-with-args',
+      doInstanceNameOrId: 'rpc-call-with-args',
     });
 
     // Execute method with arguments
@@ -49,7 +49,7 @@ describe('RPC client-side functionality', () => {
   it('should handle nested property access and method calls', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'nested-access-test',
+      doInstanceNameOrId: 'nested-access-test',
     });
 
     // Access nested object and call method - should work with promise chaining
@@ -61,7 +61,7 @@ describe('RPC client-side functionality', () => {
   it('should handle errors thrown by remote methods', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'error-test',
+      doInstanceNameOrId: 'error-test',
     });
 
     // Expect error to be thrown and properly reconstructed
@@ -71,7 +71,7 @@ describe('RPC client-side functionality', () => {
   it('should handle complex return values with arrays', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'array-test',
+      doInstanceNameOrId: 'array-test',
     });
 
     // Get array return value
@@ -84,7 +84,7 @@ describe('RPC client-side functionality', () => {
     // Create client with custom configuration
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'config-test',
+      doInstanceNameOrId: 'config-test',
       timeout: 5000,
       headers: {
         'Authorization': 'Bearer test-token',
@@ -101,7 +101,7 @@ describe('RPC client-side functionality', () => {
   it('should work with test environment SELF.fetch', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'self-fetch-test',
+      doInstanceNameOrId: 'self-fetch-test',
     });
 
     // This should work in both browser and cloudflare:test environments
@@ -113,7 +113,7 @@ describe('RPC client-side functionality', () => {
   it('should handle deeply nested property access', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'deep-nest-test',
+      doInstanceNameOrId: 'deep-nest-test',
     });
 
     // Test deep chaining: a.b.c.d()
@@ -125,7 +125,7 @@ describe('RPC client-side functionality', () => {
   it('should throw error when trying to call a non-function property', async () => {
     const client = createRpcClient<ExampleDO>({
       ...baseConfig,
-      doInstanceName: 'non-function-test',
+      doInstanceNameOrId: 'non-function-test',
     });
 
     // Get the object with a non-function property and try to call it

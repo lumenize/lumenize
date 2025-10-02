@@ -6,7 +6,7 @@ import { createRpcClient, type RpcClientConfig } from '../src/index';
 
 describe('Manual RPC routing', () => {
   // Base configuration for RPC client using MANUAL_ROUTING_DO binding
-  const baseConfig: Omit<RpcClientConfig, 'doInstanceName'> = {
+  const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
     transport: 'http', // Use HTTP transport for now (WebSocket not yet implemented)
     doBindingName: 'manual-routing-do',
     baseUrl: 'https://fake-host.com',
@@ -18,7 +18,7 @@ describe('Manual RPC routing', () => {
     it('should handle RPC calls through manual routing', async () => {
       const client = createRpcClient<ManualRoutingDO>({
         ...baseConfig,
-        doInstanceName: `rpc-test-${Date.now()}`
+        doInstanceNameOrId: `rpc-test-${Date.now()}`
       });
 
       
@@ -40,7 +40,7 @@ describe('Manual RPC routing', () => {
       // First increment via RPC
       const client = createRpcClient<ManualRoutingDO>({
         ...baseConfig,
-        doInstanceName: instanceName
+        doInstanceNameOrId: instanceName
       });
 
       const r1 = await client.increment();
@@ -60,7 +60,7 @@ describe('Manual RPC routing', () => {
       // Increment via RPC
       const client = createRpcClient<ManualRoutingDO>({
         ...baseConfig,
-        doInstanceName: instanceName
+        doInstanceNameOrId: instanceName
       });
 
       const r1 = await client.increment();
@@ -94,7 +94,7 @@ describe('Manual RPC routing', () => {
       
       const client = createRpcClient<ManualRoutingDO>({
         ...baseConfig,
-        doInstanceName: instanceName
+        doInstanceNameOrId: instanceName
       });
 
       

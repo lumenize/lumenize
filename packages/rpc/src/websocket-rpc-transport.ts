@@ -47,7 +47,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     baseUrl: string;
     prefix: string;
     doBindingName: string;
-    doInstanceName: string;
+    doInstanceNameOrId: string;
     timeout: number;
     WebSocketClass?: typeof WebSocket;
   };
@@ -61,7 +61,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     baseUrl: string;
     prefix: string;
     doBindingName: string;
-    doInstanceName: string;
+    doInstanceNameOrId: string;
     timeout: number;
     WebSocketClass?: typeof WebSocket;
   }) {
@@ -150,9 +150,9 @@ export class WebSocketRpcTransport implements RpcTransport {
     const baseUrl = cleanSegment(this.#config.baseUrl);
     const prefix = cleanSegment(this.#config.prefix);
     const doBindingName = cleanSegment(this.#config.doBindingName);
-    const doInstanceName = cleanSegment(this.#config.doInstanceName);
+    const doInstanceNameOrId = cleanSegment(this.#config.doInstanceNameOrId);
     
-    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call`;
+    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
     return url;
   }
 

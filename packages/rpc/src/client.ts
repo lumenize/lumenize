@@ -9,12 +9,12 @@ import { WebSocketRpcTransport } from './websocket-rpc-transport';
  * Use 'await using' for automatic cleanup, or manually manage lifecycle.
  * 
  * Usage (recommended - automatic cleanup):
- *   await using client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceName: 'instance-1' });
+ *   await using client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceNameOrId: 'instance-1' });
  *   const result = await client.myMethod(); // Calls DO method, auto-connects if needed
  *   // Connection automatically closed when leaving scope
  * 
  * Usage (manual - no cleanup needed for short-lived clients):
- *   const client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceName: 'instance-1' });
+ *   const client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceNameOrId: 'instance-1' });
  *   const result = await client.myMethod(); // Calls DO method, auto-connects if needed
  *   // WebSocket cleaned up on worker/page unload
  */
@@ -28,9 +28,9 @@ export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy 
  * The constructor returns a Proxy that forwards unknown methods to the DO.
  */
 export class RpcClient<T> {
-  #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceName' | 'WebSocketClass'>> & { 
-    doBindingName: string; 
-    doInstanceName: string;
+  #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceNameOrId' | 'WebSocketClass'>> & { 
+    doBindingName: string;
+    doInstanceNameOrId: string;
     WebSocketClass?: typeof WebSocket;
   };
   #transport: RpcTransport | null = null;
@@ -92,7 +92,7 @@ export class RpcClient<T> {
         baseUrl: this.#config.baseUrl,
         prefix: this.#config.prefix,
         doBindingName: this.#config.doBindingName,
-        doInstanceName: this.#config.doInstanceName,
+        doInstanceNameOrId: this.#config.doInstanceNameOrId,
         timeout: this.#config.timeout,
         fetch: this.#config.fetch,
         headers: this.#config.headers
@@ -103,7 +103,7 @@ export class RpcClient<T> {
         baseUrl: this.#config.baseUrl,
         prefix: this.#config.prefix,
         doBindingName: this.#config.doBindingName,
-        doInstanceName: this.#config.doInstanceName,
+        doInstanceNameOrId: this.#config.doInstanceNameOrId,
         timeout: this.#config.timeout,
         WebSocketClass: this.#config.WebSocketClass
       });
