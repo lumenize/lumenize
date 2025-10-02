@@ -31,7 +31,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'increment' },
           { type: 'apply', args: [] }
         ])
@@ -48,7 +48,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBe(1);
     });
   });
@@ -60,7 +60,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'add' },
           { type: 'apply', args: [5, 3] }
         ])
@@ -77,7 +77,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBe(8);
     });
   });
@@ -89,7 +89,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'nonexistentMethod' },
           { type: 'apply', args: [] }
         ])
@@ -131,7 +131,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getObject' },
           { type: 'apply', args: [] }
         ])
@@ -148,7 +148,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result.value).toBe(42);
       expect(result.nested.getValue.__isRemoteFunction).toBe(true);
       expect(result.nested.getValue.__functionName).toBe('getValue');
@@ -163,7 +163,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // First get the object, then call the nested getValue function
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getObject' },
           { type: 'apply', args: [] },
           { type: 'get', key: 'nested' },
@@ -183,7 +183,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBe(42); // The getValue function should return this.value which is 42
     });
   });
@@ -195,7 +195,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'throwError' },
           { type: 'apply', args: ['Test error message'] }
         ])
@@ -227,7 +227,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'throwString' },
           { type: 'apply', args: ['Just a string error'] }
         ])
@@ -256,7 +256,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getArray' },
           { type: 'apply', args: [] }
         ])
@@ -273,7 +273,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toEqual([1, 2, 3, 4, 5]);
     });
   });
@@ -285,7 +285,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'id' }
@@ -303,7 +303,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBe('complex-data');
     });
   });
@@ -316,7 +316,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // Test accessing the circular reference: complexData.data should point back to complexData
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'data' },
@@ -335,7 +335,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBe('complex-data');
     });
   });
@@ -348,7 +348,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // Test calling the getName method inside complexData.methods
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'methods' },
           { type: 'get', key: 'getName' },
@@ -367,7 +367,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBe('ExampleDO');
     });
   });
@@ -394,7 +394,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getArrayWithFunctions' },
           { type: 'apply', args: [] }
         ])
@@ -411,7 +411,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       
       // Check array structure
       expect(Array.isArray(result)).toBe(true);
@@ -438,7 +438,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getProblematicObject' },
           { type: 'apply', args: [] }
         ])
@@ -467,7 +467,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getClassInstance' },
           { type: 'apply', args: [] }
         ])
@@ -484,7 +484,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       
       // Check instance properties are preserved
       expect(result.value).toBe(42);
@@ -545,7 +545,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest = {
-        wireOperations: serialize('not an array') // Invalid: string instead of array
+        scEncodedOperations: serialize('not an array') // Invalid: string instead of array
       };
 
       const request = new Request('https://example.com/__rpc/call', {
@@ -572,7 +572,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const operations = Array(51).fill({ type: 'get', key: 'someProperty' });
       
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize(operations)
+        scEncodedOperations: serialize(operations)
       };
 
       const request = new Request('https://example.com/__rpc/call', {
@@ -600,7 +600,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const tooManyArgs = Array(101).fill(0);
       
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'add' },
           { type: 'apply', args: tooManyArgs }
         ])
@@ -628,7 +628,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getDate' },
           { type: 'apply', args: [] }
         ])
@@ -645,7 +645,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(Date);
     });
   });
@@ -656,7 +656,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getRegExp' },
           { type: 'apply', args: [] }
         ])
@@ -673,7 +673,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(RegExp);
       expect(result.source).toBe('[0-9]+');
     });
@@ -685,7 +685,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getMap' },
           { type: 'apply', args: [] }
         ])
@@ -702,7 +702,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(Map);
       expect(result.get('key')).toBe('value');
     });
@@ -714,7 +714,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getSet' },
           { type: 'apply', args: [] }
         ])
@@ -731,7 +731,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(Set);
       expect(result.has(1)).toBe(true);
       expect(result.has(2)).toBe(true);
@@ -744,7 +744,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getArrayBuffer' },
           { type: 'apply', args: [] }
         ])
@@ -761,7 +761,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(ArrayBuffer);
       expect(result.byteLength).toBe(8);
     });
@@ -773,7 +773,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getTypedArray' },
           { type: 'apply', args: [] }
         ])
@@ -790,7 +790,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(Uint8Array);
       expect(result.length).toBe(4);
       expect(result[0]).toBe(1);
@@ -804,7 +804,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        wireOperations: serialize([
+        scEncodedOperations: serialize([
           { type: 'get', key: 'getError' },
           { type: 'apply', args: [] }
         ])
@@ -821,7 +821,7 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
       const data = await response.json() as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.result);
+      const result = deserialize(data.scEncodedResult);
       expect(result).toBeInstanceOf(Error);
       expect(result.message).toBe('Test error');
     });

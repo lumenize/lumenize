@@ -16,29 +16,26 @@ export type Operation =
 export type OperationChain = Operation[];
 
 /**
- * Request format sent to DO RPC endpoint (wire format)
+ * Request format sent to DO RPC endpoint.
  * 
- * wireOperations is the serialized OperationChain using @ungap/structured-clone.
- * It's typed as `any` because structured-clone creates an opaque serialized format
- * that we deserialize on the DO side.
+ * scEncodedOperations is the OperationChain encoded using @ungap/structured-clone.
+ * It must be JSON.stringified before sending over the wire.
+ * Typed as `any` because structured-clone creates an opaque encoded format.
  */
 export interface RpcRequest {
-  wireOperations: any;
+  scEncodedOperations: any;
 }
 
 /**
- * Response format from DO RPC endpoint
+ * RPC response payload sent from server to client.
  * 
- * Serialization strategy:
- * - `result`: Uses @ungap/structured-clone for full Cloudflare-native type support
- * - `error`: Uses custom serialization to preserve all Error properties (code, statusCode, etc.)
- * - Overall response: Uses JSON.stringify (required anyway when sending HTTP responses)
- * - Client-side: Uses @ungap/structured-clone ONLY on `result` field after JSON.parse
+ * scEncodedResult is the result encoded using @ungap/structured-clone.
+ * The entire response object is JSON.stringified before sending.
  */
 export interface RpcResponse {
   success: boolean;
-  result?: any; // Serialized with structured-clone, preserves Cloudflare types
-  error?: any;  // Custom-serialized Error object preserving all properties
+  scEncodedResult?: any;
+  error?: any;
 }
 
 /**

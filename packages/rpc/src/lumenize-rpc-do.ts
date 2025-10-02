@@ -105,7 +105,7 @@ async function handleCallRequest(
     const rpcRequest = await request.json() as RpcRequest;
 
     // Deserialize and validate the entire operations chain in one call
-    const deserializedOperations = deserializeOperationChain(rpcRequest.wireOperations, config);
+    const deserializedOperations = deserializeOperationChain(rpcRequest.scEncodedOperations, config);
     
     // Execute operation chain
     const result = await executeOperationChain(deserializedOperations, doInstance);
@@ -115,10 +115,10 @@ async function handleCallRequest(
     
     const response: RpcResponse = {
       success: true,
-      result: serialize(processedResult) // Structured-clone serialize the processed result
+      scEncodedResult: serialize(processedResult) // Structured-clone encode the processed result
     };
     
-    return Response.json(response); // JSON serialize the whole response
+    return Response.json(response); // JSON stringify the whole response
     
   } catch (error: any) {
     console.error('%o', {
@@ -135,9 +135,9 @@ async function handleCallRequest(
   }
 }
 
-function deserializeOperationChain(wireOperations: any, config: Required<RpcConfig>): OperationChain {
+function deserializeOperationChain(scEncodedOperations: any, config: Required<RpcConfig>): OperationChain {
   // Deserialize the entire operations array in one call - much more efficient
-  const operations: OperationChain = deserialize(wireOperations);
+  const operations: OperationChain = deserialize(scEncodedOperations);
   
   // Validate the deserialized operations (parse don't validate principle)
   if (!Array.isArray(operations)) {
@@ -286,6 +286,147 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
 }
 
 // ============================================================================
+// WebSocket RPC Handler
+// ============================================================================
+
+/**
+ * RPC message envelope sent from client to server via WebSocket.
+ * scEncodedOperations is encoded with @ungap/structured-clone, then the
+ * entire envelope is JSON.stringified for transmission.
+ */
+interface RpcWebSocketRequest {
+  id: string;
+  type: string; // e.g., '__rpc'
+  scEncodedOperations: any;
+}
+
+/**
+ * RPC response envelope sent from server to client via WebSocket.
+ * scEncodedResult is encoded with @ungap/structured-clone, then the
+ * entire envelope is JSON.stringified for transmission.
+ */
+interface RpcWebSocketResponse {
+  id: string;
+  type: string; // e.g., '__rpc'
+  success: boolean;
+  scEncodedResult?: any;
+  error?: any;
+}
+
+/**
+ * Handle RPC messages received via WebSocket.
+ * Returns true if the message was handled as an RPC message, false otherwise.
+ * 
+ * This function is called from the webSocketMessage handler to check if
+ * an incoming message is an RPC request and handle it accordingly.
+ * 
+ * @param ws - The WebSocket connection
+ * @param message - The incoming message
+ * @param doInstance - The Durable Object instance to operate on
+ * @param config - Optional RPC configuration
+ * @returns true if message was handled as RPC, false if not an RPC message
+ * 
+ * @example
+ * ```typescript
+ * export class MyDO extends DurableObject {
+ *   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+ *     // Handle RPC messages
+ *     if (await handleWebSocketRPCMessage(ws, message, this)) {
+ *       return; // Message was handled as RPC
+ *     }
+ *     
+ *     // Handle other custom WebSocket messages
+ *     if (message === 'ping') {
+ *       ws.send('pong');
+ *     }
+ *   }
+ * }
+ * ```
+ */
+export async function handleWebSocketRPCMessage(
+  ws: WebSocket,
+  message: string | ArrayBuffer,
+  doInstance: any,
+  config: RpcConfig = {}
+): Promise<boolean> {
+  // Only handle string messages
+  if (typeof message !== 'string') {
+    return false;
+  }
+
+  const rpcConfig = { ...DEFAULT_CONFIG, ...config };
+  
+  // Extract message type from prefix (remove leading/trailing slashes)
+  const messageType = rpcConfig.prefix.replace(/^\/+|\/+$/g, '');
+
+  try {
+    // Try to parse as JSON
+    const request: RpcWebSocketRequest = JSON.parse(message);
+
+    // Check if this is an RPC message by verifying the type field
+    if (request.type !== messageType) {
+      return false; // Not an RPC message
+    }
+
+    // Verify required fields
+    if (!request.id || !request.scEncodedOperations) {
+      console.warn('%o', {
+        type: 'warn',
+        where: 'handleWebSocketRPCMessage',
+        message: 'Invalid RPC WebSocket request: missing id or scEncodedOperations'
+      });
+      return false;
+    }
+
+    // Process the RPC request
+    try {
+      // Deserialize and validate the operation chain
+      const deserializedOperations = deserializeOperationChain(request.scEncodedOperations, rpcConfig);
+      
+      // Execute operation chain
+      const result = await executeOperationChain(deserializedOperations, doInstance);
+      
+      // Replace functions with markers before structured-clone serialization
+      const processedResult = preprocessResult(result, deserializedOperations);
+      
+      // Send success response
+      const response: RpcWebSocketResponse = {
+        id: request.id,
+        type: messageType,
+        success: true,
+        scEncodedResult: serialize(processedResult)
+      };
+      
+      ws.send(JSON.stringify(response));
+      
+    } catch (error: any) {
+      console.error('%o', {
+        type: 'error',
+        where: 'handleWebSocketRPCMessage',
+        message: 'RPC operation execution failed',
+        error: error?.message || error
+      });
+      
+      // Send error response
+      const response: RpcWebSocketResponse = {
+        id: request.id,
+        type: messageType,
+        success: false,
+        error: serializeError(error)
+      };
+      
+      ws.send(JSON.stringify(response));
+    }
+
+    return true; // Message was handled as RPC
+    
+  } catch (parseError) {
+    // Not valid JSON or not an RPC message
+    return false;
+  }
+}
+
+// ============================================================================
 // Factory Function (uses the standalone handlers above)
 // ============================================================================
 
@@ -333,6 +474,16 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
         await handleRPCRequest(request, this, rpcConfig) ||
         super.fetch(request)
       );
+    }
+
+    async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+      // Try to handle as RPC message
+      const wasHandled = await handleWebSocketRPCMessage(ws, message, this, rpcConfig);
+      
+      // If not handled as RPC, call parent's webSocketMessage (if it exists)
+      if (!wasHandled && super.webSocketMessage) {
+        return super.webSocketMessage(ws, message);
+      }
     }
   }
 

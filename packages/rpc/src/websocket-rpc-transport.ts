@@ -5,22 +5,26 @@ import type { RpcTransport, OperationChain, RpcResponse } from './types';
 import { deserializeError } from './error-serialization';
 
 /**
- * RPC message envelope sent from client to server
+ * RPC message envelope sent from client to server.
+ * scEncodedOperations is encoded with @ungap/structured-clone, then the
+ * entire envelope is JSON.stringified for transmission.
  */
 interface RpcWebSocketRequest {
   id: string;
   type: string; // Derived from prefix, e.g., '__rpc'
-  wireOperations: any;
+  scEncodedOperations: any;
 }
 
 /**
- * RPC response envelope sent from server to client
+ * RPC response envelope sent from server to client.
+ * scEncodedResult is encoded with @ungap/structured-clone, then the
+ * entire envelope is JSON.stringified for transmission.
  */
 interface RpcWebSocketResponse {
   id: string;
   type: string; // Derived from prefix, e.g., '__rpc'
   success: boolean;
-  result?: any;
+  scEncodedResult?: any;
   error?: any;
 }
 
@@ -229,7 +233,7 @@ export class WebSocketRpcTransport implements RpcTransport {
       // Handle response
       if (response.success) {
         // Deserialize result using structured-clone
-        const result = deserialize(response.result);
+        const result = deserialize(response.scEncodedResult);
         pending.resolve(result);
       } else {
         // Reconstruct error
@@ -262,7 +266,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     const request: RpcWebSocketRequest = {
       id,
       type: this.#messageType,
-      wireOperations: serialize(operations)
+      scEncodedOperations: serialize(operations)
     };
 
     // Create promise for response

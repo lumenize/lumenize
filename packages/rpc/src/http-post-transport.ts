@@ -49,15 +49,15 @@ export class HttpPostRpcTransport implements RpcTransport {
 
     const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call`;
 
-    const wireOperations = serialize(operations);
+    const scEncodedOperations = serialize(operations);
     console.debug('%o', {
       type: 'debug',
       where: 'HttpPostTransport.execute',
       operations,
-      wireOperations
+      scEncodedOperations
     });
 
-    const request: RpcRequest = { wireOperations };
+    const request: RpcRequest = { scEncodedOperations };
 
     const headers = {
       'Content-Type': 'application/json',
@@ -98,7 +98,7 @@ export class HttpPostRpcTransport implements RpcTransport {
 
     // At this point, response.ok is true, so rpcResponse.success should always be true
     // Deserialize the result using @ungap/structured-clone
-    return deserialize(rpcResponse.result);
+    return deserialize(rpcResponse.scEncodedResult);
   }
 
   isConnected(): boolean {
