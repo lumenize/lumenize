@@ -65,26 +65,11 @@ export async function handleRPCRequest(
   const pathnameSegments = url.pathname.split('/');
   const endpoint = pathnameSegments.at(-1);
   
-  try {
-    switch (endpoint) {
-      case 'call':
-        return handleCallRequest(request, doInstance, rpcConfig);
-      default:
-        return new Response(`Unknown RPC endpoint: ${url.pathname}`, { status: 404 });
-    }
-  } catch (error: any) {
-    console.error('%o', {
-      type: 'error',
-      where: 'handleRPCRequest',
-      message: 'RPC request handling failed',
-      endpoint,
-      error: error?.message || error
-    });
-    const response: RpcResponse = {
-      success: false,
-      error: serializeError(error)
-    };
-    return Response.json(response, { status: 500 });
+  switch (endpoint) {
+    case 'call':
+      return handleCallRequest(request, doInstance, rpcConfig);
+    default:
+      return new Response(`Unknown RPC endpoint: ${url.pathname}`, { status: 404 });
   }
 }
 

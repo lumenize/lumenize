@@ -850,4 +850,24 @@ describe('lumenizeRpcDo server-side functionality', () => {
       expect(result.message).toBe('Test error');
     });
   });
+
+  it('should return 404 for unknown RPC endpoint', async () => {
+    const id = env.EXAMPLE_DO.newUniqueId();
+    const stub = env.EXAMPLE_DO.get(id);
+
+    await runInDurableObject(stub, async (instance: any) => {
+      // Request to an unknown endpoint (not 'call')
+      const request = new Request('https://example.com/__rpc/unknown', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await instance.fetch(request);
+      expect(response.status).toBe(404);
+      
+      const responseText = await response.text();
+      expect(responseText).toContain('Unknown RPC endpoint');
+      expect(responseText).toContain('/__rpc/unknown');
+    });
+  });
 });

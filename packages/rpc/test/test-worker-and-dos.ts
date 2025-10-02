@@ -164,6 +164,12 @@ class _ExampleDO extends DurableObject<Env> {
     };
   }
 
+  // Method with built-in delay for testing pending operations
+  async slowIncrement(delayMs: number = 100): Promise<number> {
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    return this.increment();
+  }
+
   // Methods for testing built-in type handling
   getDate(): Date {
     return new Date('2025-01-01T00:00:00Z');

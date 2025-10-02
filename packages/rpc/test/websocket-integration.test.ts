@@ -144,4 +144,81 @@ describe('WebSocket RPC Integration', () => {
     expect(databaseSize).toBeGreaterThanOrEqual(0);
   });
 
+  it('should handle method calls through stored intermediate proxies over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-stored-proxy-method-test',
+    });
+
+    // Set up data first
+    await client.increment();
+    await client.increment();
+    
+    // Store intermediate proxy
+    const storage = client.ctx.storage;
+    
+    // Call method through the stored proxy
+    const value = await storage.kv.get('count');
+    expect(value).toBe(2);
+  });
+
+  it('should handle storing multiple levels of intermediate proxies over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-multi-level-proxy-test',
+    });
+
+    // Store intermediate proxies at different levels
+    const storage = client.ctx.storage;
+    const sql = storage.sql;
+    
+    // Access property through the deepest stored proxy
+    const size = await sql.databaseSize;
+    expect(typeof size).toBe('number');
+    expect(size).toBeGreaterThanOrEqual(0);
+  });
+
+  it('should handle reusing stored proxies for multiple operations over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-reuse-proxy-test',
+    });
+
+    // Set up data
+    await client.increment();
+    await client.increment();
+    
+    // Store intermediate proxy
+    const storage = client.ctx.storage;
+    
+    // Reuse the stored proxy for multiple operations
+    const size1 = await storage.sql.databaseSize;
+    expect(typeof size1).toBe('number');
+    
+    const size2 = await storage.sql.databaseSize;  // Second call to same path
+    expect(size2).toBe(size1);  // Should return same value
+    
+    const value = await storage.kv.get('count');  // Different path from same proxy
+    expect(value).toBe(2);
+  });
+
+  it('should reject pending operations when explicitly disconnected', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-explicit-disconnect-test',
+    });
+
+    // Start a slow operation that will still be in-flight when we disconnect
+    const promise = client.slowIncrement(500); // 500ms delay
+    
+    // Give it a moment to ensure the request is sent
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
+    // Explicitly disconnect while operation is pending
+    await client[Symbol.asyncDispose]();
+    
+    // Operation should be rejected with disconnect error
+    await expect(promise).rejects.toThrow('WebSocket disconnected');
+  });
+
 });
