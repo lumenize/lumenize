@@ -213,6 +213,17 @@ class ProxyHandler {
       return undefined;
     }
 
+    // Special case: 'then' property access should execute the operation chain
+    // but not add 'then' to the chain. This makes proxies thenable (for await)
+    // without contaminating the operation chain with 'then' operations.
+    if (key === 'then') {
+      // Return a .then method that executes the current operation chain
+      const operations = [...this.#operationChain];
+      this.#operationChain = [];
+      const promise = this.#rpcClient.execute(operations);
+      return promise.then.bind(promise);
+    }
+
     // Add 'get' operation to chain
     this.#operationChain.push({ type: 'get', key });
 
@@ -323,6 +334,11 @@ class ProxyHandler {
 
     return new Proxy(() => {}, {
       get: (target: any, key: string | symbol) => {
+        // Special case: 'then' should execute the chain but not add 'then' to it
+        if (key === 'then') {
+          const promise = this.executeOperations(currentChain);
+          return promise.then.bind(promise);
+        }
         currentChain.push({ type: 'get', key });
         return this.createProxyWithCurrentChainForChain(currentChain);
       },
@@ -338,6 +354,11 @@ class ProxyHandler {
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
     return new Proxy(() => {}, {
       get: (target: any, key: string | symbol) => {
+        // Special case: 'then' should execute the chain but not add 'then' to it
+        if (key === 'then') {
+          const promise = this.executeOperations(chain);
+          return promise.then.bind(promise);
+        }
         const newChain: import('./types').OperationChain = [...chain, { type: 'get', key }];
         return this.createProxyWithCurrentChainForChain(newChain);
       },
