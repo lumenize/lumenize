@@ -155,18 +155,12 @@
   3. Code paths intentionally skipped per no-mock testing philosophy
 - Coverage targets achieved: 80%+ statement coverage across all critical files
 
-#### Phase 4.6: Documentation & Cleanup
-- [ ] Update type documentation with WebSocket examples
-- [ ] Add WebSocket usage examples to README
-- [ ] Document transport selection strategy
-- [ ] Create comprehensive API documentation
-
-### ⏳ Phase 5: Polish & Advanced Features
-- [ ] Implement operation queuing during connection/reconnection (advanced feature)
-- [ ] Implement comprehensive error handling for edge cases
-- [ ] Handle serialization edge cases
-- [ ] Add proper timeout management
-- [ ] Test Symbol.dispose functionality in a browser
+### ⏳ Phase 5: Documentation with Testable Examples
+- [ ] Research literate programming approaches for documentation
+- [ ] Investigate Docusaurus plugins for executable code examples
+- [ ] Explore ways to write documentation with code examples that are actually run as tests
+- [ ] Ensure documentation stays in sync with code through automated validation
+- [ ] Create comprehensive API documentation with verified examples
 
 ## Checkpoints
 - After each step completion, ask for review. During review:
