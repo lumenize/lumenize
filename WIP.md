@@ -73,31 +73,45 @@
   - [x] Implement `disconnect()` closing WebSocket and rejecting pending ops
 - [x] Update client.ts to use WebSocketRpcTransport when transport === 'websocket'
 
-#### Phase 4.3: WebSocket RPC Handler (Server-Side)
-- [ ] Create `handleWebSocketRPCMessage` function:
-  - [ ] Parse message envelope checking `{ type: '__rpc', ... }` (using prefix without slashes)
-  - [ ] Extract `wireOperations` from message
-  - [ ] Reuse existing `deserializeOperationChain` logic
-  - [ ] Reuse existing `executeOperationChain` logic
-  - [ ] Reuse existing `preprocessResult` logic
-  - [ ] Send response: `{ id, type: '__rpc', success, result/error }`
-  - [ ] Call `super()` if message doesn't match RPC envelope
-- [ ] Update `lumenizeRpcDo` factory to add `webSocketMessage` handler:
-  - [ ] Trap `webSocketMessage(ws, message)` method
-  - [ ] Check if message is string and matches RPC envelope
-  - [ ] Call `handleWebSocketRPCMessage` or delegate to super
-- [ ] Update `handleRPCRequest` JSDoc to mention WebSocket support
+#### ✅ Phase 4.3: WebSocket RPC Handler (Server-Side)
+- [x] Create `handleWebSocketRPCMessage` function:
+  - [x] Parse message envelope checking `{ id, type: '__rpc', scEncodedOperations }`
+  - [x] Extract and deserialize `scEncodedOperations` from message
+  - [x] Reuse existing `deserializeOperationChain` logic
+  - [x] Reuse existing `executeOperationChain` logic
+  - [x] Reuse existing `preprocessResult` logic
+  - [x] Send response: `{ id, type: '__rpc', success, scEncodedResult/error }`
+  - [x] Handle errors with proper serialization
+- [x] Update `lumenizeRpcDo` factory to detect WebSocket upgrade:
+  - [x] Check for `Upgrade: websocket` header in fetch()
+  - [x] Create WebSocketPair and accept WebSocket
+  - [x] Return 101 Switching Protocols response
+  - [x] Handle incoming messages by calling `handleWebSocketRPCMessage`
+  - [x] Delegate non-RPC messages to original webSocketMessage handler
+- [x] Export `handleWebSocketRPCMessage` for manual routing scenarios
 
-#### Phase 4.4: Testing
-- [ ] Create `websocket-rpc-transport.test.ts`:
-  - [ ] Test lazy connection on first execute
-  - [ ] Test auto-reconnect after connection drop
-  - [ ] Test concurrent operations (multiple pending promises)
-  - [ ] Test error handling (connection failures, message errors)
-  - [ ] Test disconnect() cleanup
-- [ ] Update `test-worker-and-dos.ts` to support WebSocket RPC
-- [ ] Add WebSocket tests to existing test suites
+#### ✅ Phase 4.4: Testing
+- [x] Create `websocket-integration.test.ts`:
+  - [x] Write one proof-of-concept test demonstrating testing approach
+  - [x] Extract `baseConfig` pattern for test reuse
+  - [x] **DEVELOPER REVIEW COMPLETED**: API finalized with lazy connection, no $rpc namespace
+- [x] Key API decisions made:
+  - [x] Removed `$rpc` namespace entirely (connect/disconnect/isConnected)
+  - [x] Connection is lazy - established automatically on first RPC call
+  - [x] Cleanup via `Symbol.asyncDispose` using `await using` syntax
+  - [x] Created `RpcAccessible<T>` type utility to expose protected `ctx`/`env` without @ts-expect-error
+- [x] Naming refactor: `wireOperations` → `scEncodedOperations` (structured-clone encoded)
+- [ ] **Continue with additional WebSocket integration tests**:
+  - [ ] Error handling: Test remote method throwing errors over WebSocket
+  - [ ] Connection resilience: Test behavior when WebSocket connection drops
+  - [ ] Concurrent operations: Multiple pending RPC calls simultaneously
+  - [ ] Complex data types: Test serialization of Maps, Sets, Dates, ArrayBuffers
+  - [ ] Remote function calls: Test returned functions that execute remotely
+  - [ ] State persistence: Verify multiple calls maintain DO state correctly
+  - [ ] Protected property access: More tests accessing `ctx.storage`, `ctx.id`, `env` properties
+  - [ ] Mixed transport comparison: Same test scenarios with HTTP vs WebSocket
 - [ ] Ensure all tests pass with both transports
+- [ ] Verify test coverage remains high (80%+ branch coverage)
 
 #### Phase 4.5: Documentation & Cleanup
 - [ ] Update type documentation with WebSocket examples

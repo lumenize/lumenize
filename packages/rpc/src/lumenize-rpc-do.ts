@@ -383,6 +383,15 @@ export async function handleWebSocketRPCMessage(
       // Deserialize and validate the operation chain
       const deserializedOperations = deserializeOperationChain(request.scEncodedOperations, rpcConfig);
       
+      console.debug('%o', {
+        type: 'debug',
+        where: 'handleWebSocketRPCMessage',
+        message: 'Processing RPC request',
+        operations: deserializedOperations,
+        doInstanceType: doInstance?.constructor?.name,
+        hasIncrement: typeof doInstance?.increment
+      });
+      
       // Execute operation chain
       const result = await executeOperationChain(deserializedOperations, doInstance);
       
@@ -469,7 +478,26 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
         url: request.url,
       });
       
-      // Use the exported handleRPCRequest function
+      // Check for WebSocket upgrade request
+      if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+        const url = new URL(request.url);
+        
+        // Only handle WebSocket upgrades for RPC endpoints
+        if (url.pathname.startsWith(rpcConfig.prefix)) {
+          const webSocketPair = new WebSocketPair();
+          const [client, server] = Object.values(webSocketPair);
+          
+          // Accept the WebSocket connection
+          (this as any).ctx.acceptWebSocket(server);
+          
+          return new Response(null, {
+            status: 101,
+            webSocket: client,
+          });
+        }
+      }
+      
+      // Use the exported handleRPCRequest function for HTTP requests
       return (
         await handleRPCRequest(request, this, rpcConfig) ||
         super.fetch(request)

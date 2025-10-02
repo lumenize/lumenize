@@ -5,13 +5,18 @@ import { WebSocketRpcTransport } from './websocket-rpc-transport';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
- * Returns a Proxy that merges DO methods (type T) with lifecycle methods ($rpc namespace).
+ * Connection is established automatically on first method call (lazy connection).
+ * Use 'await using' for automatic cleanup, or manually manage lifecycle.
  * 
- * Usage:
+ * Usage (recommended - automatic cleanup):
+ *   await using client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceName: 'instance-1' });
+ *   const result = await client.myMethod(); // Calls DO method, auto-connects if needed
+ *   // Connection automatically closed when leaving scope
+ * 
+ * Usage (manual - no cleanup needed for short-lived clients):
  *   const client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceName: 'instance-1' });
- *   await client.$rpc.connect();
- *   const result = await client.myMethod(); // Calls DO method
- *   await client.$rpc.disconnect();
+ *   const result = await client.myMethod(); // Calls DO method, auto-connects if needed
+ *   // WebSocket cleaned up on worker/page unload
  */
 export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy {
   const client = new RpcClient<T>(config);
@@ -52,23 +57,21 @@ export class RpcClient<T> {
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
     return new Proxy(this, {
       get: (target, prop, receiver) => {
-        // Check if it's a lifecycle method access via $rpc
-        if (prop === '$rpc') {
-          return {
-            connect: () => target.connect(),
-            disconnect: () => target.disconnect(),
-            isConnected: () => target.isConnected()
-          };
+        // Handle disposal symbols for explicit resource management
+        // Bind to the target (RpcClient instance) not the receiver (proxy)
+        if (prop === Symbol.asyncDispose || prop === Symbol.dispose) {
+          const method = Reflect.get(target, prop, target); // Use target as receiver
+          return typeof method === 'function' ? method.bind(target) : method;
         }
 
-        // Otherwise, delegate to the DO proxy
+        // Delegate all other property access to the DO proxy
         return Reflect.get(this.#doProxy as any, prop, receiver);
       }
     }) as any;
   }
 
-  // Lifecycle methods (accessed via $rpc namespace)
-  async connect(): Promise<void> {
+  // Internal method to establish connection (called lazily on first execute)
+  private async connect(): Promise<void> {
     if (this.#transport?.isConnected?.()) {
       return; // Already connected
     }
@@ -107,7 +110,8 @@ export class RpcClient<T> {
     }
   }
 
-  async disconnect(): Promise<void> {
+  // Internal method to disconnect (called by Symbol.asyncDispose)
+  private async disconnect(): Promise<void> {
     if (!this.#transport) {
       return; // No transport to disconnect
     }
@@ -119,10 +123,6 @@ export class RpcClient<T> {
 
     // Clean up transport
     this.#transport = null;
-  }
-
-  isConnected(): boolean {
-    return this.#transport?.isConnected?.() ?? false;
   }
 
   // Explicit resource management (Symbol.dispose)
@@ -141,8 +141,13 @@ export class RpcClient<T> {
 
   // Internal method to execute operations (called by ProxyHandler)
   async execute(operations: OperationChain): Promise<any> {
+    // Lazy initialization: create transport on first use if not already connected
     if (!this.#transport) {
-      throw new Error('RpcClient is not connected. Call $rpc.connect() first.');
+      await this.connect();
+    }
+
+    if (!this.#transport) {
+      throw new Error('Failed to initialize RPC transport');
     }
 
     // Execute the operation chain via transport
@@ -190,11 +195,22 @@ class ProxyHandler {
   }
 
   get(target: any, key: string | symbol): any {
+    // Symbols can't be serialized for RPC, so return undefined for any symbol access
+    // (lifecycle symbols like Symbol.asyncDispose are handled by the outer proxy)
+    if (typeof key === 'symbol') {
+      return undefined;
+    }
+
     // Add 'get' operation to chain
     this.#operationChain.push({ type: 'get', key });
 
     // Return a new proxy that will handle the next operation
-    return this.createProxyWithCurrentChain();
+    const proxy = this.createProxyWithCurrentChain();
+    
+    // Reset the operation chain after creating the proxy with the current chain
+    this.#operationChain = [];
+    
+    return proxy;
   }
 
   apply(target: any, thisArg: any, args: any[]): any {

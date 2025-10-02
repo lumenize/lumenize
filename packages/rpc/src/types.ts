@@ -87,6 +87,37 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
 // =====================================================================================
 
 /**
+ * Utility type that exposes Durable Object protected properties for RPC access.
+ * 
+ * When accessing Durable Object instances via RPC, TypeScript's protected modifier
+ * is enforced at compile-time but does not restrict runtime access. This type utility
+ * makes protected properties (like `ctx` and `env`) accessible in the type system
+ * to match the runtime behavior.
+ * 
+ * This works by using Omit to remove the protected properties from the base type,
+ * then intersecting with explicit public declarations that match the actual
+ * Cloudflare Workers types.
+ * 
+ * @example
+ * ```typescript
+ * import type { RpcAccessible } from '@lumenize/rpc';
+ * import { DurableObject } from 'cloudflare:workers';
+ * 
+ * class MyDO extends DurableObject {
+ *   async myMethod() { ... }
+ * }
+ * 
+ * const client = createRpcClient<RpcAccessible<MyDO>>({ ... });
+ * const storage = await client.ctx.storage.get('key'); // No TypeScript error
+ * await client.myMethod(); // Original methods still work
+ * ```
+ */
+export type RpcAccessible<T> = Omit<T, 'ctx' | 'env'> & {
+  ctx: DurableObjectState;
+  env: any;
+};
+
+/**
  * Configuration for creating an RPC client.
  * Used by createRpcClient() to establish connection to a Durable Object.
  */
@@ -146,72 +177,45 @@ export interface RpcClientConfig {
 
 /**
  * Type representing the proxy object returned by createRpcClient().
- * Merges the DO's methods (type T) with lifecycle methods in the $rpc namespace.
+ * Provides transparent RPC access to Durable Object methods with automatic connection management.
  * 
- * Implements Symbol.asyncDispose for automatic cleanup with 'using' keyword.
+ * Connection is established automatically on first method call (lazy connection).
+ * Implements Symbol.asyncDispose for automatic cleanup with 'await using' keyword.
  * 
  * @example
  * ```typescript
- * // Manual lifecycle management:
- * const client: MyDO & RpcClientProxy = createRpcClient<MyDO>({ ... });
- * await client.$rpc.connect();
- * const result = await client.myMethod();
- * await client.$rpc.disconnect();
- * 
- * // Automatic cleanup with 'using' (recommended for UI frameworks):
+ * // Recommended: Automatic cleanup with 'await using':
  * {
  *   await using client = createRpcClient<MyDO>({ ... });
- *   await client.$rpc.connect();
- *   const result = await client.myMethod();
- * } // client.$rpc.disconnect() called automatically here
+ *   const result = await client.myMethod(); // Auto-connects on first call
+ * } // Connection automatically closed when leaving scope
+ * 
+ * // Manual: No explicit cleanup needed for short-lived clients:
+ * const client = createRpcClient<MyDO>({ ... });
+ * const result = await client.myMethod(); // Auto-connects on first call
+ * // WebSocket cleaned up on worker/page unload
  * 
  * // React example with useEffect:
  * useEffect(() => {
  *   const client = createRpcClient<MyDO>({ ... });
- *   client.$rpc.connect();
- *   return () => client[Symbol.asyncDispose](); // or client.$rpc.disconnect()
+ *   // Cleanup using Symbol.asyncDispose
+ *   return () => client[Symbol.asyncDispose]();
  * }, []);
  * ```
  */
 export interface RpcClientProxy {
   /**
-   * Lifecycle methods for managing the RPC client connection.
-   * Access these via client.$rpc.connect(), client.$rpc.disconnect(), etc.
-   */
-  $rpc: {
-    /**
-     * Establish connection to the Durable Object.
-     * Must be called before making RPC calls.
-     */
-    connect(): Promise<void>;
-    
-    /**
-     * Close the connection to the Durable Object.
-     * Cleans up transport resources.
-     * 
-     * Note: This is called automatically when using 'await using' syntax.
-     */
-    disconnect(): Promise<void>;
-    
-    /**
-     * Check if the client is currently connected.
-     */
-    isConnected(): boolean;
-  };
-  
-  /**
    * Automatic cleanup when using 'await using' syntax.
-   * Calls disconnect() automatically when the client goes out of scope.
+   * Disconnects and cleans up transport resources automatically when the client goes out of scope.
    * 
-   * @see https://github.com/tc39/proposal-explicit-resource-management
+   * @example
+   * ```typescript
+   * await using client = createRpcClient<MyDO>({ ... });
+   * // Use client here - auto-connects on first method call
+   * // disconnect() called automatically at end of scope
+   * ```
    */
   [Symbol.asyncDispose](): Promise<void>;
-  
-  /**
-   * Synchronous cleanup when using 'using' syntax.
-   * Note: Prefer Symbol.asyncDispose for proper async cleanup.
-   */
-  [Symbol.dispose](): void;
 }
 
 /**

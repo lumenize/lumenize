@@ -21,12 +21,9 @@ describe('Manual RPC routing', () => {
         doInstanceName: `rpc-test-${Date.now()}`
       });
 
-      await client.$rpc.connect();
       
       const result1 = await client.increment();
       expect(result1).toBeGreaterThan(0);
-      
-      client.$rpc.disconnect();
     });
   });
 
@@ -46,10 +43,8 @@ describe('Manual RPC routing', () => {
         doInstanceName: instanceName
       });
 
-      await client.$rpc.connect();
       const r1 = await client.increment();
       expect(r1).toBeGreaterThan(0);
-      client.$rpc.disconnect();
 
       // Then check via custom REST endpoint using routeDORequest path format
       const response = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/counter`);
@@ -68,10 +63,8 @@ describe('Manual RPC routing', () => {
         doInstanceName: instanceName
       });
 
-      await client.$rpc.connect();
       const r1 = await client.increment();
       expect(r1).toBeGreaterThan(0);
-      client.$rpc.disconnect();
 
       // Reset via custom endpoint
       const response = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/reset`, {
@@ -104,13 +97,10 @@ describe('Manual RPC routing', () => {
         doInstanceName: instanceName
       });
 
-      await client.$rpc.connect();
       
       // Use RPC to increment
       const r1 = await client.increment();
       expect(r1).toBeGreaterThan(0);
-      
-      client.$rpc.disconnect();
 
       // Use REST to check counter
       const response = await SELF.fetch(`https://fake-host.com/manual-routing-do/${instanceName}/counter`);

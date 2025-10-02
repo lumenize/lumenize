@@ -25,7 +25,6 @@ describe('RPC client-side functionality', () => {
     });
 
     // Connect to the DO
-    await client.$rpc.connect();
 
     // Execute simple method call through proxy
     const result = await client.increment();
@@ -33,7 +32,6 @@ describe('RPC client-side functionality', () => {
     expect(result).toBe(1);
 
     // Disconnect
-    await client.$rpc.disconnect();
   });
 
   it('should execute RPC calls with arguments', async () => {
@@ -41,13 +39,11 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'rpc-call-with-args',
     });
-    await client.$rpc.connect();
 
     // Execute method with arguments
     const result = await client.add(5, 3);
 
     expect(result).toBe(8);
-    await client.$rpc.disconnect();
   });
 
   it('should handle nested property access and method calls', async () => {
@@ -55,13 +51,11 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'nested-access-test',
     });
-    await client.$rpc.connect();
 
     // Access nested object and call method - should work with promise chaining
     const result = await client.getObject().nested.getValue();
 
     expect(result).toBe(42);
-    await client.$rpc.disconnect();
   });
 
   it('should handle errors thrown by remote methods', async () => {
@@ -69,11 +63,9 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'error-test',
     });
-    await client.$rpc.connect();
 
     // Expect error to be thrown and properly reconstructed
     await expect(client.throwError('Test error message')).rejects.toThrow('Test error message');
-    await client.$rpc.disconnect();
   });
 
   it('should handle complex return values with arrays', async () => {
@@ -81,13 +73,11 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'array-test',
     });
-    await client.$rpc.connect();
 
     // Get array return value
     const result = await client.getArray();
 
     expect(result).toEqual([1, 2, 3, 4, 5]);
-    await client.$rpc.disconnect();
   });
 
   it('should handle custom configuration options', async () => {
@@ -101,13 +91,11 @@ describe('RPC client-side functionality', () => {
         'X-Custom-Header': 'test-value'
       },
     });
-    await client.$rpc.connect();
 
     // Execute simple call to verify config is applied
     const result = await client.increment();
 
     expect(result).toBe(1);
-    await client.$rpc.disconnect();
   });
 
   it('should work with test environment SELF.fetch', async () => {
@@ -115,13 +103,11 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'self-fetch-test',
     });
-    await client.$rpc.connect();
 
     // This should work in both browser and cloudflare:test environments
     const result = await client.increment();
 
     expect(result).toBe(1);
-    await client.$rpc.disconnect();
   });
 
   it('should handle deeply nested property access', async () => {
@@ -129,13 +115,11 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'deep-nest-test',
     });
-    await client.$rpc.connect();
 
     // Test deep chaining: a.b.c.d()
     const result = await client.getDeeplyNested().level1.level2.level3.getValue();
 
     expect(result).toBe('deeply nested value');
-    await client.$rpc.disconnect();
   });
 
   it('should throw error when trying to call a non-function property', async () => {
@@ -143,7 +127,6 @@ describe('RPC client-side functionality', () => {
       ...baseConfig,
       doInstanceName: 'non-function-test',
     });
-    await client.$rpc.connect();
 
     // Get the object with a non-function property and try to call it
     // This should throw an error
@@ -151,54 +134,6 @@ describe('RPC client-side functionality', () => {
       // @ts-expect-error - Testing runtime error when calling a non-function value
       client.getObjectWithNonFunction().notAFunction()
     ).rejects.toThrow('Attempted to call a non-function value');
-    await client.$rpc.disconnect();
-  });
-
-  it('should handle double-connect gracefully', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceName: 'double-connect-test',
-    });
-
-    // Connect once
-    await client.$rpc.connect();
-    expect(client.$rpc.isConnected()).toBe(true);
-
-    // Connect again - should be idempotent
-    await client.$rpc.connect();
-    expect(client.$rpc.isConnected()).toBe(true);
-
-    // Should still work
-    const result = await client.increment();
-    expect(result).toBe(1);
-
-    await client.$rpc.disconnect();
-  });
-
-  it('should handle double-disconnect gracefully', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceName: 'double-disconnect-test',
-    });
-
-    // Connect and disconnect
-    await client.$rpc.connect();
-    await client.$rpc.disconnect();
-    expect(client.$rpc.isConnected()).toBe(false);
-
-    // Disconnect again - should be idempotent
-    await client.$rpc.disconnect();
-    expect(client.$rpc.isConnected()).toBe(false);
-  });
-
-  it('should throw error when calling DO method without connecting', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceName: 'not-connected-test',
-    });
-
-    // Try to call method without connecting
-    await expect(client.increment()).rejects.toThrow('RpcClient is not connected. Call $rpc.connect() first.');
   });
 
   it('should not interfere with DO internal routing', async () => {

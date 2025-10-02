@@ -144,8 +144,15 @@ export class WebSocketRpcTransport implements RpcTransport {
    * Build WebSocket URL from config
    */
   #buildWebSocketUrl(): string {
-    // Build WebSocket URL path
-    const url = `${this.#config.baseUrl}${this.#config.prefix}/${this.#config.doBindingName}/${this.#config.doInstanceName}/call`;
+    // Clean segments to avoid double slashes
+    const cleanSegment = (segment: string): string => segment.replace(/^\/+|\/+$/g, '');
+    
+    const baseUrl = cleanSegment(this.#config.baseUrl);
+    const prefix = cleanSegment(this.#config.prefix);
+    const doBindingName = cleanSegment(this.#config.doBindingName);
+    const doInstanceName = cleanSegment(this.#config.doInstanceName);
+    
+    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceName}/call`;
     return url;
   }
 
