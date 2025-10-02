@@ -7,7 +7,7 @@ import worker from './test-worker-and-dos';
 
 // Use real structured-clone for sociable unit testing
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { serialize, deserialize } = require('@ungap/structured-clone');
+const { stringify, parse } = require('@ungap/structured-clone/json');
 
 describe('lumenizeRpcDo server-side functionality', () => {
 
@@ -31,24 +31,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'increment' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBe(1);
     });
   });
@@ -60,24 +61,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'add' },
           { type: 'apply', args: [5, 3] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBe(8);
     });
   });
@@ -89,22 +91,23 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'nonexistentMethod' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
     });
@@ -131,24 +134,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getObject' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result.value).toBe(42);
       expect(result.nested.getValue.__isRemoteFunction).toBe(true);
       expect(result.nested.getValue.__functionName).toBe('getValue');
@@ -163,27 +167,28 @@ describe('lumenizeRpcDo server-side functionality', () => {
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // First get the object, then call the nested getValue function
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getObject' },
           { type: 'apply', args: [] },
           { type: 'get', key: 'nested' },
           { type: 'get', key: 'getValue' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBe(42); // The getValue function should return this.value which is 42
     });
   });
@@ -195,22 +200,23 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'throwError' },
           { type: 'apply', args: ['Test error message'] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
       expect(data.error.message).toBe('Test error message');
@@ -227,22 +233,23 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'throwString' },
           { type: 'apply', args: ['Just a string error'] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
       // When you throw a string, it should be passed through as-is by serializeError
@@ -256,24 +263,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getArray' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toEqual([1, 2, 3, 4, 5]);
     });
   });
@@ -285,25 +293,26 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'id' }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBe('complex-data');
     });
   });
@@ -316,26 +325,27 @@ describe('lumenizeRpcDo server-side functionality', () => {
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // Test accessing the circular reference: complexData.data should point back to complexData
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'data' },
           { type: 'get', key: 'id' }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBe('complex-data');
     });
   });
@@ -348,26 +358,27 @@ describe('lumenizeRpcDo server-side functionality', () => {
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       // Test calling the getName method inside complexData.methods
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'complexData' },
           { type: 'get', key: 'methods' },
           { type: 'get', key: 'getName' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBe('ExampleDO');
     });
   });
@@ -394,24 +405,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getArrayWithFunctions' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       
       // Check array structure
       expect(Array.isArray(result)).toBe(true);
@@ -438,15 +450,15 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getProblematicObject' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -454,7 +466,8 @@ describe('lumenizeRpcDo server-side functionality', () => {
       
       // Should return error response when preprocessing fails
       expect(response.status).toBe(500);
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error).toBeDefined();
     });
@@ -467,24 +480,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any, ctx: any, mock: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getClassInstance' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       
       // Check instance properties are preserved
       expect(result.value).toBe(42);
@@ -545,19 +559,20 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest = {
-        scEncodedOperations: serialize('not an array') // Invalid: string instead of array
+        operations: 'not an array' as any // Invalid: string instead of array
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error?.message).toContain('Invalid RPC request: operations must be an array');
     });
@@ -572,19 +587,20 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const operations = Array(51).fill({ type: 'get', key: 'someProperty' });
       
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize(operations)
+        operations
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error?.message).toContain('Operation chain too deep');
       expect(data.error?.message).toContain('51 > 50');
@@ -600,22 +616,23 @@ describe('lumenizeRpcDo server-side functionality', () => {
       const tooManyArgs = Array(101).fill(0);
       
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'add' },
           { type: 'apply', args: tooManyArgs }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(500);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(false);
       expect(data.error?.message).toContain('Too many arguments');
       expect(data.error?.message).toContain('101 > 100');
@@ -628,24 +645,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getDate' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(Date);
     });
   });
@@ -656,24 +674,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getRegExp' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(RegExp);
       expect(result.source).toBe('[0-9]+');
     });
@@ -685,24 +704,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getMap' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(Map);
       expect(result.get('key')).toBe('value');
     });
@@ -714,24 +734,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getSet' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(Set);
       expect(result.has(1)).toBe(true);
       expect(result.has(2)).toBe(true);
@@ -744,24 +765,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getArrayBuffer' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(ArrayBuffer);
       expect(result.byteLength).toBe(8);
     });
@@ -773,24 +795,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getTypedArray' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(Uint8Array);
       expect(result.length).toBe(4);
       expect(result[0]).toBe(1);
@@ -804,24 +827,25 @@ describe('lumenizeRpcDo server-side functionality', () => {
 
     await runInDurableObject(stub, async (instance: any) => {
       const rpcRequest: RpcRequest = {
-        scEncodedOperations: serialize([
+        operations: [
           { type: 'get', key: 'getError' },
           { type: 'apply', args: [] }
-        ])
+        ]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: JSON.stringify(rpcRequest),
+        body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
       const response = await instance.fetch(request);
       expect(response.status).toBe(200);
 
-      const data = await response.json() as RpcResponse;
+      const responseText = await response.text();
+      const data = parse(responseText) as RpcResponse;
       expect(data.success).toBe(true);
-      const result = deserialize(data.scEncodedResult);
+      const result = data.result;
       expect(result).toBeInstanceOf(Error);
       expect(result.message).toBe('Test error');
     });

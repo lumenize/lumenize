@@ -1,7 +1,7 @@
 import type { OperationChain, RpcRequest, RpcResponse, RpcTransport } from './types';
 import { deserializeError } from './error-serialization';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { serialize, deserialize } = require('@ungap/structured-clone');
+const { stringify, parse } = require('@ungap/structured-clone/json');
 
 /**
  * Utility function to remove leading and trailing slashes from a URL segment
@@ -49,56 +49,48 @@ export class HttpPostRpcTransport implements RpcTransport {
 
     const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
 
-    const scEncodedOperations = serialize(operations);
+    const request: RpcRequest = { operations };
+
     console.debug('%o', {
       type: 'debug',
       where: 'HttpPostTransport.execute',
       operations,
-      scEncodedOperations
+      request
     });
-
-    const request: RpcRequest = { scEncodedOperations };
 
     const headers = {
       'Content-Type': 'application/json',
       ...this.#config.headers
     };
 
+    // Use stringify on the entire request object
+    const requestBody = stringify(request);
+
     const response = await this.#config.fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify(request),
+      body: requestBody,
       signal: AbortSignal.timeout(this.#config.timeout)
     });
 
-    if (!response.ok) {
-      // Try to parse as RPC error response first
-      try {
-        const responseText = await response.text();
-        const rpcResponse: RpcResponse = JSON.parse(responseText);
+    // Parse the entire response using @ungap/structured-clone/json
+    const responseText = await response.text();
+    const rpcResponse: RpcResponse = parse(responseText);
 
-        if (!rpcResponse.success && rpcResponse.error) {
-          // This is an RPC error response, deserialize and throw the actual error
-          throw deserializeError(rpcResponse.error);
-        }
-        
-        // If we get here, it was a valid JSON response but not an RPC error response
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      } catch (error) {
-        // If error is already deserialized, re-throw it
-        if (error instanceof Error && error.message !== `HTTP ${response.status}: ${response.statusText}`) {
-          throw error;
-        }
-        // Otherwise, it was a parse error - fall back to generic HTTP error
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!response.ok) {
+      // Handle error response
+      if (!rpcResponse.success && rpcResponse.error) {
+        // This is an RPC error response, deserialize and throw the actual error
+        throw deserializeError(rpcResponse.error);
       }
+      
+      // Fallback to generic HTTP error
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const rpcResponse: RpcResponse = await response.json();
-
     // At this point, response.ok is true, so rpcResponse.success should always be true
-    // Deserialize the result using @ungap/structured-clone
-    return deserialize(rpcResponse.scEncodedResult);
+    // Return the result directly (already deserialized by parse)
+    return rpcResponse.result;
   }
 
   isConnected(): boolean {

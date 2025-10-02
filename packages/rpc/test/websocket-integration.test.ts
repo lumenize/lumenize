@@ -35,4 +35,67 @@ describe('WebSocket RPC Integration', () => {
     expect(storedCount).toBe(2);
   });
 
+  it('should handle errors thrown by remote methods over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-error-test',
+    });
+
+    // Call a method that throws an error
+    await expect(client.throwError('WebSocket test error')).rejects.toThrow('WebSocket test error');
+  });
+
+  it('should handle concurrent RPC calls over the same WebSocket connection', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-concurrent-test',
+    });
+
+    // Make multiple concurrent calls
+    const [result1, result2, result3] = await Promise.all([
+      client.add(10, 20),
+      client.add(5, 15),
+      client.add(100, 200),
+    ]);
+
+    expect(result1).toBe(30);
+    expect(result2).toBe(20);
+    expect(result3).toBe(300);
+  });
+
+  it('should handle complex data types (Map, Set, Date, ArrayBuffer) over WebSocket', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      ...baseConfig,
+      doInstanceNameOrId: 'websocket-complex-types-test',
+    });
+
+    // Test Date
+    const date = await client.getDate();
+    expect(date).toBeInstanceOf(Date);
+    expect(date.toISOString()).toBe('2025-01-01T00:00:00.000Z');
+
+    // Test Map
+    const map = await client.getMap();
+    expect(map).toBeInstanceOf(Map);
+    expect(map.get('key')).toBe('value');
+
+    // Test Set
+    const set = await client.getSet();
+    expect(set).toBeInstanceOf(Set);
+    expect(set.has(1)).toBe(true);
+    expect(set.has(2)).toBe(true);
+    expect(set.has(3)).toBe(true);
+    expect(set.size).toBe(3);
+
+    // Test ArrayBuffer
+    const arrayBuffer = await client.getArrayBuffer();
+    expect(arrayBuffer).toBeInstanceOf(ArrayBuffer);
+    expect(arrayBuffer.byteLength).toBe(8);
+
+    // Test TypedArray
+    const typedArray = await client.getTypedArray();
+    expect(typedArray).toBeInstanceOf(Uint8Array);
+    expect(Array.from(typedArray)).toEqual([1, 2, 3, 4]);
+  });
+
 });

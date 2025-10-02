@@ -1,14 +1,14 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { serialize, deserialize } = require('@ungap/structured-clone');
-
 import type {
   OperationChain,
+  Operation,
   RpcRequest,
   RpcResponse,
   RpcConfig,
   RemoteFunctionMarker
 } from './types';
 import { serializeError } from './error-serialization';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { stringify, parse } = require('@ungap/structured-clone/json');
 
 /**
  * Default RPC configuration
@@ -102,23 +102,29 @@ async function handleCallRequest(
   }
 
   try {
-    const rpcRequest = await request.json() as RpcRequest;
+    // Parse the entire request using @ungap/structured-clone/json
+    const requestBody = await request.text();
+    const rpcRequest: RpcRequest = parse(requestBody);
 
-    // Deserialize and validate the entire operations chain in one call
-    const deserializedOperations = deserializeOperationChain(rpcRequest.scEncodedOperations, config);
+    // Validate the operations chain
+    const operations = validateOperationChain(rpcRequest.operations, config);
     
     // Execute operation chain
-    const result = await executeOperationChain(deserializedOperations, doInstance);
+    const result = await executeOperationChain(operations, doInstance);
     
     // Replace functions with markers before structured-clone serialization
-    const processedResult = preprocessResult(result, deserializedOperations);
+    const processedResult = preprocessResult(result, operations);
     
     const response: RpcResponse = {
       success: true,
-      scEncodedResult: serialize(processedResult) // Structured-clone encode the processed result
+      result: processedResult
     };
     
-    return Response.json(response); // JSON stringify the whole response
+    // Use stringify on the entire response object
+    const responseBody = stringify(response);
+    return new Response(responseBody, {
+      headers: { 'Content-Type': 'application/json' }
+    });
     
   } catch (error: any) {
     console.error('%o', {
@@ -129,17 +135,19 @@ async function handleCallRequest(
     });
     const response: RpcResponse = {
       success: false,
-      error: serializeError(error) // Custom error serialization (already an object)
+      error: serializeError(error)
     };
-    return Response.json(response, { status: 500 }); // JSON serialize the whole response
+    // Use stringify on the entire error response
+    const responseBody = stringify(response);
+    return new Response(responseBody, {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
 
-function deserializeOperationChain(scEncodedOperations: any, config: Required<RpcConfig>): OperationChain {
-  // Deserialize the entire operations array in one call - much more efficient
-  const operations: OperationChain = deserialize(scEncodedOperations);
-  
-  // Validate the deserialized operations (parse don't validate principle)
+function validateOperationChain(operations: OperationChain, config: Required<RpcConfig>): OperationChain {
+  // Validate the operations (parse doesn't validate principle)
   if (!Array.isArray(operations)) {
     throw new Error('Invalid RPC request: operations must be an array');
   }
@@ -291,25 +299,25 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
 
 /**
  * RPC message envelope sent from client to server via WebSocket.
- * scEncodedOperations is encoded with @ungap/structured-clone, then the
- * entire envelope is JSON.stringified for transmission.
+ * The entire request object (including the operations array) is encoded using
+ * @ungap/structured-clone/json stringify() before transmission.
  */
 interface RpcWebSocketRequest {
   id: string;
   type: string; // e.g., '__rpc'
-  scEncodedOperations: any;
+  operations: OperationChain;
 }
 
 /**
  * RPC response envelope sent from server to client via WebSocket.
- * scEncodedResult is encoded with @ungap/structured-clone, then the
- * entire envelope is JSON.stringified for transmission.
+ * The entire response object (including result) will be encoded using
+ * @ungap/structured-clone/json stringify() before transmission.
  */
 interface RpcWebSocketResponse {
   id: string;
   type: string; // e.g., '__rpc'
   success: boolean;
-  scEncodedResult?: any;
+  result?: any;
   error?: any;
 }
 
@@ -360,8 +368,8 @@ export async function handleWebSocketRPCMessage(
   const messageType = rpcConfig.prefix.replace(/^\/+|\/+$/g, '');
 
   try {
-    // Try to parse as JSON
-    const request: RpcWebSocketRequest = JSON.parse(message);
+    // Parse the entire message using @ungap/structured-clone/json
+    const request: RpcWebSocketRequest = parse(message);
 
     // Check if this is an RPC message by verifying the type field
     if (request.type !== messageType) {
@@ -369,44 +377,45 @@ export async function handleWebSocketRPCMessage(
     }
 
     // Verify required fields
-    if (!request.id || !request.scEncodedOperations) {
+    if (!request.id || !request.operations) {
       console.warn('%o', {
         type: 'warn',
         where: 'handleWebSocketRPCMessage',
-        message: 'Invalid RPC WebSocket request: missing id or scEncodedOperations'
+        message: 'Invalid RPC WebSocket request: missing id or operations'
       });
       return false;
     }
 
     // Process the RPC request
     try {
-      // Deserialize and validate the operation chain
-      const deserializedOperations = deserializeOperationChain(request.scEncodedOperations, rpcConfig);
+      // Validate the operation chain
+      const operations = validateOperationChain(request.operations, rpcConfig);
       
       console.debug('%o', {
         type: 'debug',
         where: 'handleWebSocketRPCMessage',
         message: 'Processing RPC request',
-        operations: deserializedOperations,
+        operations,
         doInstanceType: doInstance?.constructor?.name,
         hasIncrement: typeof doInstance?.increment
       });
       
       // Execute operation chain
-      const result = await executeOperationChain(deserializedOperations, doInstance);
+      const result = await executeOperationChain(operations, doInstance);
       
-      // Replace functions with markers before structured-clone serialization
-      const processedResult = preprocessResult(result, deserializedOperations);
+      // Replace functions with markers before serialization
+      const processedResult = preprocessResult(result, operations);
       
       // Send success response
       const response: RpcWebSocketResponse = {
         id: request.id,
         type: messageType,
         success: true,
-        scEncodedResult: serialize(processedResult)
+        result: processedResult
       };
       
-      ws.send(JSON.stringify(response));
+      // Use stringify on the entire response
+      ws.send(stringify(response));
       
     } catch (error: any) {
       console.error('%o', {
@@ -424,7 +433,8 @@ export async function handleWebSocketRPCMessage(
         error: serializeError(error)
       };
       
-      ws.send(JSON.stringify(response));
+      // Use stringify on the entire error response
+      ws.send(stringify(response));
     }
 
     return true; // Message was handled as RPC

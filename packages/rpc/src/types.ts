@@ -18,23 +18,22 @@ export type OperationChain = Operation[];
 /**
  * Request format sent to DO RPC endpoint.
  * 
- * scEncodedOperations is the OperationChain encoded using @ungap/structured-clone.
- * It must be JSON.stringified before sending over the wire.
- * Typed as `any` because structured-clone creates an opaque encoded format.
+ * The entire request object (including operations array) will be encoded using
+ * @ungap/structured-clone/json stringify() at the transport boundary.
  */
 export interface RpcRequest {
-  scEncodedOperations: any;
+  operations: OperationChain;
 }
 
 /**
  * RPC response payload sent from server to client.
  * 
- * scEncodedResult is the result encoded using @ungap/structured-clone.
- * The entire response object is JSON.stringified before sending.
+ * The entire response object (including result) will be encoded using
+ * @ungap/structured-clone/json stringify() at the transport boundary.
  */
 export interface RpcResponse {
   success: boolean;
-  scEncodedResult?: any;
+  result?: any;
   error?: any;
 }
 

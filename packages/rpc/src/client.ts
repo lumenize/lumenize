@@ -173,11 +173,19 @@ export class RpcClient<T> {
       return obj; // Primitive values pass through unchanged
     }
 
+    // Handle built-in types that structured-clone handles natively - return as-is
+    // These types have already been properly deserialized by @ungap/structured-clone/json parse()
+    if (obj instanceof Date || obj instanceof RegExp || obj instanceof Map || 
+        obj instanceof Set || obj instanceof ArrayBuffer || 
+        ArrayBuffer.isView(obj) || obj instanceof Error) {
+      return obj;
+    }
+
     if (Array.isArray(obj)) {
       return obj.map(item => this.processRemoteFunctions(item, baseOperations));
     }
 
-    // Process object properties recursively
+    // Process object properties recursively (for plain objects only)
     const processed: any = {};
     for (const [key, value] of Object.entries(obj)) {
       processed[key] = this.processRemoteFunctions(value, baseOperations);

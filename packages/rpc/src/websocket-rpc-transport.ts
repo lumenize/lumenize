@@ -1,30 +1,29 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { serialize, deserialize } = require('@ungap/structured-clone');
-
 import type { RpcTransport, OperationChain, RpcResponse } from './types';
 import { deserializeError } from './error-serialization';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { stringify, parse } = require('@ungap/structured-clone/json');
 
 /**
  * RPC message envelope sent from client to server.
- * scEncodedOperations is encoded with @ungap/structured-clone, then the
- * entire envelope is JSON.stringified for transmission.
+ * The entire request object (including the operations array) is encoded using
+ * @ungap/structured-clone/json stringify() before transmission.
  */
 interface RpcWebSocketRequest {
   id: string;
   type: string; // Derived from prefix, e.g., '__rpc'
-  scEncodedOperations: any;
+  operations: OperationChain;
 }
 
 /**
  * RPC response envelope sent from server to client.
- * scEncodedResult is encoded with @ungap/structured-clone, then the
- * entire envelope is JSON.stringified for transmission.
+ * The entire response object (including result) will be encoded using
+ * @ungap/structured-clone/json stringify() before transmission.
  */
 interface RpcWebSocketResponse {
   id: string;
   type: string; // Derived from prefix, e.g., '__rpc'
   success: boolean;
-  scEncodedResult?: any;
+  result?: any;
   error?: any;
 }
 
@@ -207,7 +206,14 @@ export class WebSocketRpcTransport implements RpcTransport {
     }
 
     try {
-      const response: RpcWebSocketResponse = JSON.parse(data);
+      console.log('Client received raw data:', data);
+      
+      // Parse the entire response using @ungap/structured-clone/json
+      const response: RpcWebSocketResponse = parse(data);
+
+      console.log('Client parsed response:', response);
+      console.log('Client response.result:', response.result);
+      console.log('Client response.result instanceof Date:', response.result instanceof Date);
 
       // Verify this is an RPC response
       if (response.type !== this.#messageType) {
@@ -239,9 +245,8 @@ export class WebSocketRpcTransport implements RpcTransport {
 
       // Handle response
       if (response.success) {
-        // Deserialize result using structured-clone
-        const result = deserialize(response.scEncodedResult);
-        pending.resolve(result);
+        // Result is already deserialized by parse()
+        pending.resolve(response.result);
       } else {
         // Reconstruct error
         const error = deserializeError(response.error);
@@ -273,7 +278,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     const request: RpcWebSocketRequest = {
       id,
       type: this.#messageType,
-      scEncodedOperations: serialize(operations)
+      operations
     };
 
     // Create promise for response
@@ -292,9 +297,9 @@ export class WebSocketRpcTransport implements RpcTransport {
       });
     });
 
-    // Send request
+    // Send request - use stringify on the entire request
     try {
-      this.#ws!.send(JSON.stringify(request));
+      this.#ws!.send(stringify(request));
     } catch (error) {
       // Remove pending operation and reject
       const pending = this.#pendingOperations.get(id);
