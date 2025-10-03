@@ -96,6 +96,96 @@ it('should increment', async () => {
 });
 ```
 
+## Async Testing Pattern with vi.waitFor()
+
+**Use when:** Testing async events like WebSocket messages, timers, or state changes
+
+**❌ Old pattern (manual Promise):**
+```typescript
+// Don't do this - requires manual timeout management
+const messagePromise = new Promise<string>((resolve, reject) => {
+  const timeout = setTimeout(() => reject(new Error('timeout')), 1000);
+  ws.addEventListener('message', (event) => {
+    clearTimeout(timeout);
+    resolve(event.data);
+  });
+});
+
+const message = await messagePromise;
+expect(message).toBe('expected');
+```
+
+**✅ New pattern (vi.waitFor):**
+```typescript
+import { vi } from 'vitest';
+
+// Do this - cleaner and more readable
+let receivedMessage = '';
+ws.addEventListener('message', (event) => {
+  receivedMessage = event.data;
+});
+
+ws.send('request');
+
+await vi.waitFor(() => {
+  expect(receivedMessage).toBe('expected');
+});
+```
+
+**Benefits:**
+- ✅ No manual timeout management
+- ✅ No cleanup required (`clearTimeout`)
+- ✅ Built-in retry logic with polling
+- ✅ Better error messages (shows expected vs actual)
+- ✅ More readable - clear intent
+
+**Connection waiting example:**
+```typescript
+// Wait for WebSocket to connect
+let wsConnected = false;
+ws.addEventListener('open', () => { wsConnected = true; });
+ws.addEventListener('error', (err) => { throw err; });
+
+await vi.waitFor(() => {
+  expect(wsConnected).toBe(true);
+});
+```
+
+**Multiple messages example:**
+```typescript
+// Test multiple async events
+let receivedPong = '';
+ws.addEventListener('message', (event) => {
+  if (event.data === 'PONG') {
+    receivedPong = event.data;
+  }
+});
+
+// First message
+ws.send('PING');
+await vi.waitFor(() => {
+  expect(receivedPong).toBe('PONG');
+});
+
+// Reset and test again
+receivedPong = '';
+ws.send('PING');
+await vi.waitFor(() => {
+  expect(receivedPong).toBe('PONG');
+});
+```
+
+**Configuration:**
+```typescript
+// Customize timeout and interval
+await vi.waitFor(() => {
+  expect(condition).toBe(true);
+}, {
+  timeout: 2000,  // Wait up to 2 seconds
+  interval: 50,   // Check every 50ms
+});
+```
+
 ## Custom Handler Coexistence Pattern
 
 **Use when:** Testing RPC alongside custom routes/messages

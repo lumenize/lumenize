@@ -350,6 +350,13 @@ Like GitHub Actions matrices, we'll define behavior tests once and run them thro
 
 ## Future Enhancements
 
+- [x] **Test user custom WebSocket coexistence** - Verified that a user's own `new WebSocket()` connection (using websocket-shim.ts) can coexist with RPC client's WebSocket connection
+  - Both connections work independently ✅
+  - Custom WebSocket for user messages (e.g., streaming, notifications) ✅  
+  - RPC client WebSocket for RPC calls ✅
+  - No interference between connections ✅
+  - Test: `test/websocket-integration.test.ts` - "should allow user custom WebSocket to coexist with RPC client WebSocket"
+
 - [ ] Add timeout testing to matrix
 - [ ] Add concurrent request testing  
 - [ ] Add memory leak testing (WebSocket connections)

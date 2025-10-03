@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim, type RpcClientConfig, type RpcAccessible } from '../src/index';
@@ -147,6 +147,69 @@ describe('WebSocket RPC Integration', () => {
       await expect(promise2).rejects.toThrow('WebSocket');
     } finally {
       // Already disposed
+    }
+  });
+
+  // Test user's custom WebSocket coexistence with RPC client
+  it('should allow user custom WebSocket to coexist with RPC client WebSocket', async () => {
+    const instanceId = 'websocket-custom-coexist-test';
+    const WebSocketClass = getWebSocketShim(SELF);
+    
+    // User creates their own WebSocket connection (e.g., for streaming, notifications, etc.)
+    const customWsUrl = `wss://fake-host.com/__rpc/manual-routing-do/${instanceId}`;
+    const customWs = new WebSocketClass(customWsUrl);
+    
+    // Wait for custom WebSocket to connect
+    let wsConnected = false;
+    customWs.addEventListener('open', () => { wsConnected = true; });
+    customWs.addEventListener('error', (err) => { throw err; });
+    
+    await vi.waitFor(() => {
+      expect(wsConnected).toBe(true);
+    });
+
+    try {  // OK because there is no catch block, only here so finally can cleanup
+      // User sends/receives custom messages on their WebSocket
+      let receivedPong = '';
+      customWs.addEventListener('message', (event: MessageEvent) => {
+        if (event.data === 'PONG') {
+          receivedPong = event.data;
+        }
+      });
+      
+      customWs.send('PING');
+      await vi.waitFor(() => {
+        expect(receivedPong).toBe('PONG');
+      });
+
+      // Meanwhile, user also creates RPC client (which creates its own WebSocket)
+      const client = createRpcClient<ExampleDO>({
+        doBindingName: 'manual-routing-do',
+        doInstanceNameOrId: instanceId,
+        transport: 'websocket',
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass,
+      });
+
+      // RPC client should work fine (separate WebSocket connection)
+      const count1 = await client.increment();
+      expect(count1).toBeGreaterThan(0);
+
+      const count2 = await client.increment();
+      expect(count2).toBe(count1 + 1);
+
+      // Custom WebSocket should still work (send another PING)
+      receivedPong = ''; // Reset
+      customWs.send('PING');
+      await vi.waitFor(() => {
+        expect(receivedPong).toBe('PONG');
+      });
+
+      // Both connections coexist - clean up
+      await client[Symbol.asyncDispose]();
+    } finally {
+      customWs.close();
     }
   });
 

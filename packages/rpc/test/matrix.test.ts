@@ -264,26 +264,23 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
     const ws = new WebSocketClass(wsUrl);
     
     // Wait for connection
-    await new Promise<void>((resolve, reject) => {
-      ws.addEventListener('open', () => resolve());
-      ws.addEventListener('error', (err) => reject(err));
+    await vi.waitFor(() => {
+      expect(ws.readyState).toBe(WebSocket.OPEN);
     });
 
     try {
       // Test custom WebSocket message (PING/PONG)
-      const pongPromise = new Promise<string>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('PONG timeout')), 1000);
-        ws.addEventListener('message', (event: MessageEvent) => {
-          if (event.data === 'PONG') {
-            clearTimeout(timeout);
-            resolve(event.data);
-          }
-        });
+      let receivedPong = '';
+      ws.addEventListener('message', (event: MessageEvent) => {
+        if (event.data === 'PONG') {
+          receivedPong = event.data;
+        }
       });
       
       ws.send('PING');
-      const pong = await pongPromise;
-      expect(pong).toBe('PONG');
+      await vi.waitFor(() => {
+        expect(receivedPong).toBe('PONG');
+      });
 
       // Now create RPC client and verify RPC still works after custom message
       const client = createRpcClient<ExampleDOType>({
