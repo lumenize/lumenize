@@ -37,26 +37,28 @@ Like GitHub Actions matrices, we'll define behavior tests once and run them thro
 
 **Goal:** Identify and extract reusable behavior test functions
 
+**Status:** ✅ Complete
+
 ### Tasks
 
-- [ ] **Audit existing tests** - Review all test files to identify behavior vs config tests
+- [x] **Audit existing tests** - Review all test files to identify behavior vs config tests
   - `packages/rpc/test/*.test.ts` - categorize each test
   - Behavior tests: increment, add, error handling, object inspection, getters, etc.
   - Config tests: transport setup, routing, connection management
 
-- [ ] **Create behavior test utilities** - `test/shared/behavior-tests.ts`
-  - [ ] Extract increment/counter tests
-  - [ ] Extract method invocation tests (add, with args)
-  - [ ] Extract error handling tests (throwError, throwString)
-  - [ ] Extract object preprocessing tests (getObject, getArray, etc.)
-  - [ ] Extract prototype chain tests (getClassInstance, DataModel)
-  - [ ] Extract built-in type tests (Date, RegExp, Map, Set, etc.)
-  - [ ] Extract getter property tests (databaseSize, ctx.storage.sql properties)
-  - [ ] Extract `__asObject()` inspection tests
-  - [ ] Extract deeply nested object tests
-  - [ ] Extract circular reference handling tests
+- [x] **Create behavior test utilities** - `test/shared/behavior-tests.ts`
+  - [x] Extract increment/counter tests
+  - [x] Extract method invocation tests (add, with args)
+  - [x] Extract error handling tests (throwError, throwString)
+  - [x] Extract object preprocessing tests (getObject, getArray, etc.)
+  - [x] Extract prototype chain tests (getClassInstance, DataModel)
+  - [x] Extract built-in type tests (Date, RegExp, Map, Set, etc.)
+  - [x] Extract getter property tests (databaseSize, ctx.storage.sql properties)
+  - [x] Extract `__asObject()` inspection tests
+  - [x] Extract deeply nested object tests
+  - [x] Extract circular reference handling tests (in complexData)
 
-- [ ] **Define test function interface**
+- [x] **Define test function interface**
   ```typescript
   interface TestableClient<T> {
     client: RpcAccessible<T>;
@@ -65,6 +67,28 @@ Like GitHub Actions matrices, we'll define behavior tests once and run them thro
   
   type BehaviorTest<T> = (testable: TestableClient<T>) => Promise<void>;
   ```
+
+- [x] **Create shared DO methods** - `test/shared/do-methods.ts`
+  - All ExampleDO methods extracted for reuse
+  - DataModel class for prototype testing
+  - createComplexData() helper for circular references (parameterized by name)
+
+- [x] **Refactor test-worker-and-dos.ts**
+  - ExampleDO now implements same methods as before (for backward compatibility)
+  - ManualRoutingDO now has ALL same methods as ExampleDO
+  - Both use identical implementations (copy-paste for now due to `this` typing)
+  - complexData structure identical in both DOs (with respective names)
+
+- [x] **Verify all tests pass**
+  - ✅ All 65 tests passing
+  - No regressions from refactoring
+
+## Success Criteria
+
+### Phase 1 Complete
+- [x] All behavior tests extracted to reusable functions
+- [x] Behavior tests pass in isolation
+- [x] Clear interface for running behavior tests
 
 ## Phase 2: Implement Matrix Test Infrastructure
 

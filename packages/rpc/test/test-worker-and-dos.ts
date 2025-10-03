@@ -4,83 +4,35 @@ import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-
-/**
- * Example class with methods on prototype (for testing prototype chain walking)
- */
-class DataModel {
-  public value: number;
-  public name: string;
-
-  constructor(value: number, name: string) {
-    this.value = value;
-    this.name = name;
-  }
-
-  getValue(): number {
-    return this.value;
-  }
-
-  getName(): string {
-    return this.name;
-  }
-
-  compute(): number {
-    return this.value * 2;
-  }
-}
+import { sharedDOMethods, createComplexData, DataModel } from './shared/do-methods';
 
 /**
  * Example Durable Object for testing RPC functionality
+ * Implements shared methods directly to avoid 'this' typing issues
  */
 class _ExampleDO extends DurableObject<Env> {
-  // public readonly ctx: DurableObjectState;
-  // public readonly env: Env;
   public readonly complexData: any;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // this.ctx = ctx;
-    // this.env = env;
-    
-    // Create a complex object with circular reference
-    this.complexData = {
-      id: 'complex-data',
-      config: {
-        name: 'ExampleDO'
-      },
-      numbers: [1, 2, 3],
-      methods: {
-        getName: () => 'ExampleDO'
-      },
-      collections: {
-        tags: new Set(['test', 'rpc']),
-        metadata: new Map<string, any>([
-          ['created', Date.now()],
-          ['features', ['increment', 'add']]
-        ])
-      }
-    };
-    
-    // Create circular references
-    this.complexData.data = this.complexData; // Points back to root
-    this.complexData.parent = this; // Points back to DO instance
+    // Create complex data structure with circular references
+    this.complexData = createComplexData(this, 'ExampleDO');
   }
 
   // Simple method
   async increment(): Promise<number> {
-    const count = await this.ctx.storage.get<number>('count') || 0;
+    const count = (await this.ctx.storage.get('count') as number | undefined) || 0;
     const newCount = count + 1;
     this.ctx.storage.kv.put('count', newCount);
     return newCount;
   }
 
-  // Method with arguments
+  // Method with arguments  
   add(a: number, b: number): number {
     return a + b;
   }
 
-  // Method that throws an error (for testing error handling)
+  // Method that throws an error
   throwError(message: string): void {
     const error = new Error(message) as any;
     error.code = 'TEST_ERROR';
@@ -89,12 +41,12 @@ class _ExampleDO extends DurableObject<Env> {
     throw error;
   }
 
-  // Method that throws a string (not an Error object)
+  // Method that throws a string
   throwString(message: string): void {
-    throw message; // This throws a string, not an Error instance
+    throw message;
   }
 
-  // Method that returns object with remote functions (for testing preprocessing)
+  // Method that returns object with remote functions
   getObject() {
     const nested = {
       value: 42,
@@ -113,7 +65,7 @@ class _ExampleDO extends DurableObject<Env> {
     return [1, 2, 3, 4, 5];
   }
 
-  // Method that returns array with functions (for testing array preprocessing)
+  // Method that returns array with functions
   getArrayWithFunctions(): any[] {
     return [
       1,
@@ -124,8 +76,7 @@ class _ExampleDO extends DurableObject<Env> {
     ];
   }
 
-  // Method that returns an object that will cause preprocessing to throw
-  // This uses a getter that throws when accessed
+  // Method that returns an object with throwing getter
   getProblematicObject(): any {
     const obj: any = { value: 42 };
     Object.defineProperty(obj, 'badGetter', {
@@ -137,12 +88,12 @@ class _ExampleDO extends DurableObject<Env> {
     return obj;
   }
 
-  // Method that returns a class instance (for testing prototype chain walking)
+  // Method that returns a class instance
   getClassInstance(): DataModel {
     return new DataModel(42, 'TestModel');
   }
 
-  // Method that returns an object with deeply nested properties for testing chaining
+  // Method that returns deeply nested object
   getDeeplyNested() {
     return {
       level1: {
@@ -156,7 +107,7 @@ class _ExampleDO extends DurableObject<Env> {
     };
   }
 
-  // Method that returns an object with a non-function property to test error handling
+  // Method with non-function property
   getObjectWithNonFunction() {
     return {
       notAFunction: 42,
@@ -164,13 +115,13 @@ class _ExampleDO extends DurableObject<Env> {
     };
   }
 
-  // Method with built-in delay for testing pending operations
+  // Method with delay
   async slowIncrement(delayMs: number = 100): Promise<number> {
     await new Promise(resolve => setTimeout(resolve, delayMs));
     return this.increment();
   }
 
-  // Methods for testing built-in type handling
+  // Built-in types
   getDate(): Date {
     return new Date('2025-01-01T00:00:00Z');
   }
@@ -199,13 +150,14 @@ class _ExampleDO extends DurableObject<Env> {
     return new Error('Test error');
   }
 
-  // Original fetch method (would handle user's business logic)
+  async getCounter(): Promise<number> {
+    return (await this.ctx.storage.get('count') as number | undefined) || 0;
+  }
+
+  // Original fetch method
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     
-    // Route based on the last segment(s) of the path, ignoring binding/instance prefix
-    // Path might be /increment or /binding-name/instance-name/increment
-    // We check if the path ends with /increment
     if (url.pathname.endsWith('/increment')) {
       const count = await this.increment();
       return new Response(count.toString());
@@ -222,41 +174,147 @@ export { ExampleDO };
 /**
  * Example Durable Object that uses manual routing instead of the factory
  * This demonstrates how to use handleRPCRequest directly for custom routing
+ * Has same methods as ExampleDO for consistent testing
  */
 export class ManualRoutingDO extends DurableObject<Env> {
   #rpcConfig: RpcConfig = {
     prefix: '/__rpc'
   };
+  
+  public readonly complexData: any;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    // Create complex data structure (same as ExampleDO)
+    this.complexData = createComplexData(this, 'ManualRoutingDO');
   }
 
-  // Simple method for RPC testing
+  // Same methods as ExampleDO
   async increment(): Promise<number> {
-    const count = await this.ctx.storage.get<number>('count') || 0;
+    const count = (await this.ctx.storage.get('count') as number | undefined) || 0;
     const newCount = count + 1;
     await this.ctx.storage.put('count', newCount);
     return newCount;
   }
 
-  // Method with arguments
   add(a: number, b: number): number {
     return a + b;
   }
 
-  // Method that returns the current counter value
+  throwError(message: string): void {
+    const error = new Error(message) as any;
+    error.code = 'TEST_ERROR';
+    error.statusCode = 400;
+    error.metadata = { timestamp: Date.now(), source: 'ManualRoutingDO' };
+    throw error;
+  }
+
+  throwString(message: string): void {
+    throw message;
+  }
+
+  getObject() {
+    const nested = {
+      value: 42,
+      getValue(): number {
+        return this.value;
+      }
+    };
+    return {
+      value: 42,
+      nested
+    };
+  }
+
+  getArray(): number[] {
+    return [1, 2, 3, 4, 5];
+  }
+
+  getArrayWithFunctions(): any[] {
+    return [
+      1,
+      2,
+      () => 'hello',
+      { value: 42, getValue: function() { return this.value; } },
+      5
+    ];
+  }
+
+  getProblematicObject(): any {
+    const obj: any = { value: 42 };
+    Object.defineProperty(obj, 'badGetter', {
+      get() {
+        throw new Error('Getter throws error');
+      },
+      enumerable: true
+    });
+    return obj;
+  }
+
+  getClassInstance(): DataModel {
+    return new DataModel(42, 'TestModel');
+  }
+
+  getDeeplyNested() {
+    return {
+      level1: {
+        level2: {
+          level3: {
+            value: 'deep',
+            getValue: () => 'deeply nested value'
+          }
+        }
+      }
+    };
+  }
+
+  getObjectWithNonFunction() {
+    return {
+      notAFunction: 42,
+      data: { value: 'test' }
+    };
+  }
+
+  async slowIncrement(delayMs: number = 100): Promise<number> {
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    return this.increment();
+  }
+
+  getDate(): Date {
+    return new Date('2025-01-01T00:00:00Z');
+  }
+
+  getRegExp(): RegExp {
+    return /[0-9]+/g;
+  }
+
+  getMap(): Map<string, string> {
+    return new Map([['key', 'value']]);
+  }
+
+  getSet(): Set<number> {
+    return new Set([1, 2, 3]);
+  }
+
+  getArrayBuffer(): ArrayBuffer {
+    return new ArrayBuffer(8);
+  }
+
+  getTypedArray(): Uint8Array {
+    return new Uint8Array([1, 2, 3, 4]);
+  }
+
+  getError(): Error {
+    return new Error('Test error');
+  }
+
   async getCounter(): Promise<number> {
-    return await this.ctx.storage.get<number>('count') || 0;
+    return (await this.ctx.storage.get('count') as number | undefined) || 0;
   }
 
   // Custom routing implementation
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    
-    // Route based on the last segment(s) of the path, ignoring binding/instance prefix
-    // Path might be /health or /manual-routing-do/instance-name/health
-    // We check if the path ends with the route we're looking for
     
     // Custom route 1: Health check
     if (url.pathname.endsWith('/health')) {
