@@ -17,6 +17,7 @@ const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
 
 describe('RPC client-side functionality', () => {
 
+  // KEPT: HTTP-specific baseline test (matrix tests focus on behavior patterns, not HTTP baseline)
   it('should execute simple RPC calls via client proxy', async () => {
     // Create RPC client for the DO instance
     const client = createRpcClient<ExampleDO>({
@@ -24,62 +25,13 @@ describe('RPC client-side functionality', () => {
       doInstanceNameOrId: 'simple-rpc-call',
     });
 
-    // Connect to the DO
-
     // Execute simple method call through proxy
     const result = await client.increment();
 
     expect(result).toBe(1);
-
-    // Disconnect
   });
 
-  it('should execute RPC calls with arguments', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'rpc-call-with-args',
-    });
-
-    // Execute method with arguments
-    const result = await client.add(5, 3);
-
-    expect(result).toBe(8);
-  });
-
-  it('should handle nested property access and method calls', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'nested-access-test',
-    });
-
-    // Access nested object and call method - should work with promise chaining
-    const result = await client.getObject().nested.getValue();
-
-    expect(result).toBe(42);
-  });
-
-  it('should handle errors thrown by remote methods', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'error-test',
-    });
-
-    // Expect error to be thrown and properly reconstructed
-    await expect(client.throwError('Test error message')).rejects.toThrow('Test error message');
-  });
-
-  it('should handle complex return values with arrays', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'array-test',
-    });
-
-    // Get array return value
-    const result = await client.getArray();
-
-    expect(result).toEqual([1, 2, 3, 4, 5]);
-  });
-
+  // KEPT: Custom configuration testing (timeout, headers) - unique to this test
   it('should handle custom configuration options', async () => {
     // Create client with custom configuration
     const client = createRpcClient<ExampleDO>({
@@ -98,44 +50,7 @@ describe('RPC client-side functionality', () => {
     expect(result).toBe(1);
   });
 
-  it('should work with test environment SELF.fetch', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'self-fetch-test',
-    });
-
-    // This should work in both browser and cloudflare:test environments
-    const result = await client.increment();
-
-    expect(result).toBe(1);
-  });
-
-  it('should handle deeply nested property access', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'deep-nest-test',
-    });
-
-    // Test deep chaining: a.b.c.d()
-    const result = await client.getDeeplyNested().level1.level2.level3.getValue();
-
-    expect(result).toBe('deeply nested value');
-  });
-
-  it('should throw error when trying to call a non-function property', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'non-function-test',
-    });
-
-    // Get the object with a non-function property and try to call it
-    // This should throw an error
-    await expect(
-      // @ts-expect-error - Testing runtime error when calling a non-function value
-      client.getObjectWithNonFunction().notAFunction()
-    ).rejects.toThrow('Attempted to call a non-function value');
-  });
-
+  // KEPT: DO internal routing preservation - edge case not covered by matrix
   it('should not interfere with DO internal routing', async () => {
     // Test that lumenizeRpcDo doesn't break the DO's original fetch routing
     // Make a direct (non-RPC) request to the DO's /increment endpoint using routeDORequest path format
