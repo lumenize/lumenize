@@ -34,13 +34,16 @@ describe('Counter RPC over HTTP', () => {
 
 describe('WebSocket RPC Transport', () => {
   it('should show all members of Counter class', async () => {
-    await using client = createRpcClient<ExampleDO>({
+    await using client = createRpcClient<Counter>({
       doBindingName: 'counter',  // auto case-converts
       WebSocketClass: getWebSocketShim(SELF),
       doInstanceNameOrId: 'test-counter-over-websocket',
     });
 
-    expect(client.ctx).toMatchObject({
+    // Get object representation for inspection
+    const clientAsObject = await (client as any).__asObject();
+
+    expect(clientAsObject).toMatchObject({
       // DO methods are discoverable
       increment: "increment [Function]",
       
@@ -62,7 +65,7 @@ describe('WebSocket RPC Transport', () => {
       
       // Environment object with DO bindings
       env: {
-        MY_DO: {
+        COUNTER: {
           getByName: "getByName [Function]",
           newUniqueId: "newUniqueId [Function]",
           // ... other binding methods available
