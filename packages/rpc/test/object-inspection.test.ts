@@ -72,10 +72,10 @@ describe('Object Inspection (__asObject)', () => {
             delete: "delete [Function]"
           },
           
-          // Nested sql object with methods
+          // Nested sql object with methods and properties
           sql: {
             exec: "exec [Function]",
-            // Note: databaseSize is a property, not serialized in current implementation
+            databaseSize: expect.any(Number),
           },
         },
         getWebSockets: "getWebSockets [Function]",

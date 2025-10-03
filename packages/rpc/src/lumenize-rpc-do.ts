@@ -251,7 +251,7 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
     }
   }
   
-  // Also check prototype chain for methods
+  // Also check prototype chain for methods and getters
   let proto = Object.getPrototypeOf(result);
   while (proto && proto !== Object.prototype && proto !== null) {
     const descriptors = Object.getOwnPropertyDescriptors(proto);
@@ -261,14 +261,37 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
         continue;
       }
       
+      const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
+      
+      // Check if it's a method (function value)
       if (descriptor.value && typeof descriptor.value === 'function') {
-        const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
         const marker: RemoteFunctionMarker = {
           __isRemoteFunction: true,
           __operationChain: currentChain,
           __functionName: key,
         };
         processedObject[key] = marker;
+      }
+      // Check if it's a getter
+      else if (descriptor.get) {
+        try {
+          const value = descriptor.get.call(result);
+          if (typeof value === 'function') {
+            // Getter returns a function - create marker
+            const marker: RemoteFunctionMarker = {
+              __isRemoteFunction: true,
+              __operationChain: currentChain,
+              __functionName: key,
+            };
+            processedObject[key] = marker;
+          } else if (value !== undefined && value !== null) {
+            // Getter returns a non-function value - recursively process it
+            processedObject[key] = preprocessResult(value, currentChain, seen);
+          }
+        } catch (error) {
+          // If getter throws, just skip it
+          // We could optionally mark it: processedObject[key] = '[Getter throws]';
+        }
       }
     }
     
