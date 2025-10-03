@@ -195,14 +195,8 @@ export class WebSocketRpcTransport implements RpcTransport {
    */
   #handleMessage(data: string): void {
     try {
-      console.log('Client received raw data:', data);
-      
       // Parse the entire response using @ungap/structured-clone/json
       const response: RpcWebSocketResponse = parse(data);
-
-      console.log('Client parsed response:', response);
-      console.log('Client response.result:', response.result);
-      console.log('Client response.result instanceof Date:', response.result instanceof Date);
 
       // Verify this is an RPC response
       if (response.type !== this.#messageType) {

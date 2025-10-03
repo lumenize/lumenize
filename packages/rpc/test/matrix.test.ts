@@ -195,6 +195,94 @@ MATRIX.forEach((matrixConfig) => {
         });
       });
     });
+
+    describe('Concurrency', () => {
+      it('should handle concurrent increment requests correctly', async () => {
+        const instanceId = `matrix-${matrixConfig.doBindingName}-concurrent-increment-${Date.now()}`;
+        const testable = createMatrixClient(matrixConfig, instanceId);
+        
+        try {
+          const { client } = testable;
+          
+          // Fire 9 increments simultaneously
+          const promises = Array.from({ length: 9 }, () => (client as any).increment());
+          const results = await Promise.all(promises);
+          
+          // All should succeed
+          expect(results).toHaveLength(9);
+          results.forEach(result => {
+            expect(typeof result).toBe('number');
+            expect(result).toBeGreaterThan(0);
+          });
+          
+          // All should have unique values (no race conditions)
+          const uniqueValues = new Set(results);
+          expect(uniqueValues.size).toBe(9);
+          
+          // Results should be in sequential order (1-9) - promises resolve in creation order
+          expect(results).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        } finally {
+          if (testable.cleanup) await testable.cleanup();
+        }
+      });
+
+      it('should handle mixed concurrent operations correctly', async () => {
+        const instanceId = `matrix-${matrixConfig.doBindingName}-concurrent-mixed-${Date.now()}`;
+        const testable = createMatrixClient(matrixConfig, instanceId);
+        
+        try {
+          const { client } = testable;
+          
+          // Fire mixed operations simultaneously
+          const promises = [
+            (client as any).increment(),
+            (client as any).add(5, 3),
+            (client as any).increment(),
+            (client as any).getArray(),
+            (client as any).increment(),
+            (client as any).add(10, 20),
+          ];
+          const results = await Promise.all(promises);
+          
+          // All should succeed
+          expect(results).toHaveLength(6);
+          
+          // Check specific results for operations that don't depend on state
+          expect(results[1]).toBe(8);  // add(5, 3)
+          expect(results[3]).toEqual([1, 2, 3, 4, 5]);  // getArray()
+          expect(results[5]).toBe(30);  // add(10, 20)
+          
+          // Increment results should be in order (1, 2, 3) - promises resolve in creation order
+          expect(results[0]).toBe(1);  // First increment
+          expect(results[2]).toBe(2);  // Second increment
+          expect(results[4]).toBe(3);  // Third increment
+        } finally {
+          if (testable.cleanup) await testable.cleanup();
+        }
+      });
+
+      it('should handle high concurrency (50 requests)', async () => {
+        const instanceId = `matrix-${matrixConfig.doBindingName}-concurrent-high-${Date.now()}`;
+        const testable = createMatrixClient(matrixConfig, instanceId);
+        
+        try {
+          const { client } = testable;
+          
+          // Fire 50 increments simultaneously
+          const promises = Array.from({ length: 50 }, () => (client as any).increment());
+          const results = await Promise.all(promises);
+          
+          // All should succeed
+          expect(results).toHaveLength(50);
+          
+          // Results should be in sequential order (1-50) - promises resolve in creation order
+          const expected = Array.from({ length: 50 }, (_, i) => i + 1);
+          expect(results).toEqual(expected);
+        } finally {
+          if (testable.cleanup) await testable.cleanup();
+        }
+      });
+    });
   });
 });
 

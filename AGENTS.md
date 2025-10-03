@@ -28,6 +28,7 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 ### Tools
 - Use `npm`. Never `pnpm` or `yarn`.
 - If the library is installed never use `npx` because it requires me to approve it.
+- Use `run_in_terminal` tool instead of terminal commands that require user approval (zsh, etc.).
 
 ### Coding style
 - Never use Typescript keyword `private`. Rather use JavaScript equivalent of starting the identifier with "#".
@@ -60,6 +61,7 @@ When publishing, all packages are published in a single batch. This ensures that
 - Only after you receive the human coder's approval can you use `npx ...` or other command line tools that might impact files outside of the repo.
 - Only after you receive the human coder's approval can you use destructive commands when there is no commit or checkpoint rollback capapability.
 - Ask permission before installing any npm packages.
+- **CRITICAL: ALWAYS use the `run_in_terminal` tool for ALL command execution. NEVER use direct shell/zsh/bash commands as they require user approval. This includes npm, git, ls, cat, grep, find, and ALL other commands.**
 
 ### NPM packages
 - Avoid npm package dependencies if possible. If a package is under 100 SLOC (source lines of code), I'm more inclined to copy the code with proper attribution than to install the package. If a package is under 1000 SLOC but I only need a subset of its functionality, I'm more inclined to copy the relevant code and modify it with proper attribution than to install the package. See #Attribution section below on how to attribute such code.

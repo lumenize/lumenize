@@ -399,15 +399,6 @@ export async function handleWebSocketRPCMessage(
       // Validate the operation chain
       const operations = validateOperationChain(request.operations, rpcConfig);
       
-      console.debug('%o', {
-        type: 'debug',
-        where: 'handleWebSocketRPCMessage',
-        message: 'Processing RPC request',
-        operations,
-        doInstanceType: doInstance?.constructor?.name,
-        hasIncrement: typeof doInstance?.increment
-      });
-      
       // Execute operation chain
       const result = await executeOperationChain(operations, doInstance);
       

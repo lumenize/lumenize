@@ -142,13 +142,15 @@ export class RpcClient<T> {
 
   // Internal method to execute operations (called by ProxyHandler)
   async execute(operations: OperationChain, skipProcessing = false): Promise<any> {
-    // Lazy initialization: create transport on first use if not already connected
+    // Lazy initialization: create transport on first use if not already created
     if (!this.#transport) {
-      await this.connect();
+      // Create transport synchronously to avoid race conditions
+      this.#transport = this.createTransport();
     }
-
-    if (!this.#transport) {
-      throw new Error('Failed to initialize RPC transport');
+    
+    // Ensure connection is established (for stateful transports like WebSocket)
+    if (!this.#transport.isConnected?.()) {
+      await this.connect();
     }
 
     // Execute the operation chain via transport
@@ -359,12 +361,14 @@ class ProxyHandler {
           const promise = this.executeOperations(currentChain);
           return promise.then.bind(promise);
         }
-        currentChain.push({ type: 'get', key });
-        return this.createProxyWithCurrentChainForChain(currentChain);
+        // Create NEW chain to avoid mutation of shared closure variable
+        const newChain: OperationChain = [...currentChain, { type: 'get', key }];
+        return this.createProxyWithCurrentChainForChain(newChain);
       },
       apply: (target: any, thisArg: any, args: any[]) => {
-        currentChain.push({ type: 'apply', args });
-        const resultPromise = this.executeOperations(currentChain);
+        // Create NEW chain to avoid mutation of shared closure variable
+        const finalChain: OperationChain = [...currentChain, { type: 'apply', args }];
+        const resultPromise = this.executeOperations(finalChain);
         return this.createThenableProxy(resultPromise);
       }
     });
