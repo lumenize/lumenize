@@ -155,8 +155,9 @@ describe('WebSocket RPC Integration', () => {
     const instanceId = 'websocket-custom-coexist-test';
     const WebSocketClass = getWebSocketShim(SELF);
     
-    // User creates their own WebSocket connection (e.g., for streaming, notifications, etc.)
-    const customWsUrl = `wss://fake-host.com/__rpc/manual-routing-do/${instanceId}`;
+    // User creates their own WebSocket connection on a separate endpoint
+    // This simulates a custom WebSocket for streaming, notifications, etc.
+    const customWsUrl = `wss://fake-host.com/manual-routing-do/${instanceId}/custom-ws`;
     const customWs = new WebSocketClass(customWsUrl);
     
     // Wait for custom WebSocket to connect
@@ -182,7 +183,7 @@ describe('WebSocket RPC Integration', () => {
         expect(receivedPong).toBe('PONG');
       });
 
-      // Meanwhile, user also creates RPC client (which creates its own WebSocket)
+      // Meanwhile, user also creates RPC client (which creates its own WebSocket on RPC endpoint)
       const client = createRpcClient<ExampleDO>({
         doBindingName: 'manual-routing-do',
         doInstanceNameOrId: instanceId,
@@ -192,7 +193,7 @@ describe('WebSocket RPC Integration', () => {
         WebSocketClass,
       });
 
-      // RPC client should work fine (separate WebSocket connection)
+      // RPC client should work fine (separate WebSocket connection on /__rpc endpoint)
       const count1 = await client.increment();
       expect(count1).toBeGreaterThan(0);
 
@@ -206,7 +207,7 @@ describe('WebSocket RPC Integration', () => {
         expect(receivedPong).toBe('PONG');
       });
 
-      // Both connections coexist - clean up
+      // Both connections coexist independently - clean up
       await client[Symbol.asyncDispose]();
     } finally {
       customWs.close();

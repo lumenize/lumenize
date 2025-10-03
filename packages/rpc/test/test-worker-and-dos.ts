@@ -367,7 +367,21 @@ export class ManualRoutingDO extends DurableObject<Env> {
     
     // Check for WebSocket upgrade request
     if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
-      // Only handle WebSocket upgrades for RPC endpoints
+      // Handle custom WebSocket endpoint (completely separate from RPC)
+      if (url.pathname.endsWith('/custom-ws')) {
+        const webSocketPair = new WebSocketPair();
+        const [client, server] = Object.values(webSocketPair);
+        
+        // Accept the WebSocket connection
+        this.ctx.acceptWebSocket(server);
+        
+        return new Response(null, {
+          status: 101,
+          webSocket: client,
+        });
+      }
+      
+      // Handle WebSocket upgrades for RPC endpoints
       if (url.pathname.startsWith(this.#rpcConfig.prefix!)) {
         const webSocketPair = new WebSocketPair();
         const [client, server] = Object.values(webSocketPair);
@@ -411,14 +425,20 @@ export class ManualRoutingDO extends DurableObject<Env> {
 
   // WebSocket message handler
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    // Custom WebSocket message handling (e.g., PING/PONG)
+    // Try to handle as RPC message first
+    const wasRpcMessage = await handleWebSocketRPCMessage(ws, message, this, this.#rpcConfig);
+    if (wasRpcMessage) {
+      return; // RPC message handled
+    }
+    
+    // Not an RPC message, handle custom WebSocket messages for /custom-ws endpoint
     if (typeof message === 'string' && message === 'PING') {
       ws.send('PONG');
       return;
     }
     
-    // Handle RPC messages using handleWebSocketRPCMessage
-    await handleWebSocketRPCMessage(ws, message, this, this.#rpcConfig);
+    // Unrecognized message - ignore it
+    // (In a real app, you might want to log or handle other custom messages here)
   }
 }
 
