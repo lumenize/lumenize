@@ -77,7 +77,7 @@ Add the Durable Object binding to your `wrangler.jsonc`:
 
 ## See it in action over HTTP
 
-We'll show it being used in a test, but it's a general purpose RPC framework that you can use in production as long as you secure it.
+Here's how you might use it.
 
 ```typescript test
 import { describe, it, expect } from 'vitest';
@@ -120,8 +120,7 @@ describe('Counter RPC over HTTP', () => {
 The WebSocket transport is slightly more efficient and it will be the basis for
 planned bidirectional capability. It is the default.
 
-We're going to keep showing off the capabilities of @lumenize/rpc in the form
-of a test. Note, everything shown here for WebSocket transport can be done with
+Note, everything shown here for WebSocket transport can be done with
 HTTP transport and vice-versa.
 
 ```typescript test
@@ -172,3 +171,5 @@ describe('WebSocket RPC Transport', () => {
 ```
 
 ## Securing your RPC endpoint
+
+## Use for testing

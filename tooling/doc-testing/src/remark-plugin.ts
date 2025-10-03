@@ -31,6 +31,115 @@ export interface RemarkTestableDocsOptions {
    * @default false
    */
   skip?: boolean;
+
+  /**
+   * Inject testable documentation notice
+   * @default true
+   */
+  injectNotice?: boolean;
+}
+
+/**
+ * Creates AST nodes for the testable documentation notice.
+ * Uses mdxJsxFlowElement to create a proper Docusaurus Admonition component.
+ */
+function createTestableNoticeNodes(): any[] {
+  return [
+    {
+      type: 'mdxJsxFlowElement',
+      name: 'details',
+      attributes: [],
+      children: [
+        {
+          type: 'mdxJsxFlowElement',
+          name: 'summary',
+          attributes: [],
+          children: [
+            {
+              type: 'paragraph',
+              children: [
+                {
+                  type: 'strong',
+                  children: [{ type: 'text', value: '📘 Doc-testing' }]
+                },
+                {
+                  type: 'text',
+                  value: ' – Why do these examples look like tests?'
+                }
+              ]
+            }
+          ]
+        },
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'text',
+              value: 'This documentation uses '
+            },
+            {
+              type: 'strong',
+              children: [{ type: 'text', value: 'testable code examples' }]
+            },
+            {
+              type: 'text',
+              value: ' to ensure accuracy and reliability:'
+            }
+          ]
+        },
+        {
+          type: 'list',
+          ordered: false,
+          children: [
+            {
+              type: 'listItem',
+              children: [
+                {
+                  type: 'paragraph',
+                  children: [
+                    { type: 'strong', children: [{ type: 'text', value: 'Guaranteed accuracy' }] },
+                    { type: 'text', value: ' – All code examples are tested before release' }
+                  ]
+                }
+              ]
+            },
+            {
+              type: 'listItem',
+              children: [
+                {
+                  type: 'paragraph',
+                  children: [
+                    { type: 'strong', children: [{ type: 'text', value: 'Always up-to-date' }] },
+                    { type: 'text', value: ' – Breaking changes are caught before publication' }
+                  ]
+                }
+              ]
+            },
+            {
+              type: 'listItem',
+              children: [
+                {
+                  type: 'paragraph',
+                  children: [
+                    { type: 'strong', children: [{ type: 'text', value: 'Copy-paste ready' }] },
+                    { type: 'text', value: ' – Examples work exactly as shown' }
+                  ]
+                }
+              ]
+            },
+          ]
+        },
+        {
+          type: 'paragraph',
+          children: [
+            { type: 'text', value: 'Ignore the test boilerplate ' },
+            { type: 'inlineCode', value: "describe(... { it(...{<copy-paste-able code>})})" },
+            { type: 'text', value: " and focus on what's inside." }
+          ]
+        }
+      ]
+    }
+  ];
 }
 
 /**
@@ -64,6 +173,7 @@ export default function remarkTestableDocs(options: RemarkTestableDocsOptions = 
     outputDir = 'test/extracted',
     verbose = false,
     skip = false,
+    injectNotice = true,
   } = options;
 
   return async function transformer(tree: Root, file: VFile) {
@@ -115,6 +225,26 @@ export default function remarkTestableDocs(options: RemarkTestableDocsOptions = 
         console.log(`[remark-testable-docs] Skipping ${file.path} (no testable: true in frontmatter)`);
       }
       return;
+    }
+
+    if (verbose) {
+      console.log(`[remark-testable-docs] Found testable: true in ${file.path}`);
+    }
+
+    // Inject testable notice at the very top (after frontmatter) if enabled
+    if (injectNotice) {
+      // Find where to inject: after frontmatter (yaml/toml) or at position 0
+      let injectPosition = 0;
+      if (tree.children.length > 0 && ['yaml', 'toml'].includes(tree.children[0].type)) {
+        injectPosition = 1; // After frontmatter
+      }
+      
+      const noticeNodes = createTestableNoticeNodes();
+      tree.children.splice(injectPosition, 0, ...noticeNodes);
+
+      if (verbose) {
+        console.log(`[remark-testable-docs] ✅ Injected testable notice at position ${injectPosition} in ${file.path}`);
+      }
     }
 
     try {
