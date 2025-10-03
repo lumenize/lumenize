@@ -62,16 +62,14 @@ describe('Error Serialization', () => {
     
     const roundTrip = deserializeError(serializeError(original));
     
+    // Test that it can be thrown with the correct message
     expect(() => {
       throw roundTrip;
     }).toThrow('Throwable error');
     
-    try {
-      throw roundTrip;
-    } catch (caught: any) {
-      expect(caught).toBeInstanceOf(Error);
-      expect(caught.code).toBe('ERR_THROW');
-    }
+    // Test properties directly on the roundTrip object
+    expect(roundTrip).toBeInstanceOf(Error);
+    expect((roundTrip as any).code).toBe('ERR_THROW');
   });
   
   it('should pass through non-Error objects unchanged', () => {
