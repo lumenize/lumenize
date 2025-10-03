@@ -1,4 +1,4 @@
-import { lumenizeRpcDo, handleRPCRequest } from '../src/lumenize-rpc-do';
+import { lumenizeRpcDo, handleRPCRequest, handleWebSocketRPCMessage } from '../src/lumenize-rpc-do';
 import type { RpcConfig } from '../src/types';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
@@ -172,6 +172,55 @@ const ExampleDO = lumenizeRpcDo(_ExampleDO);
 export { ExampleDO };
 
 /**
+ * Subclass of ExampleDO for testing inheritance through RPC
+ */
+class _SubclassDO extends _ExampleDO {
+  // New property only in subclass
+  private readonly subclassProperty = 'I am a subclass';
+
+  // New method only in subclass
+  multiply(a: number, b: number): number {
+    return a * b;
+  }
+
+  // New method that uses inherited functionality
+  async doubleIncrement(): Promise<number> {
+    await this.increment();
+    return this.increment();
+  }
+
+  // Override existing method
+  override async increment(): Promise<number> {
+    // Call super, then add bonus
+    const count = await super.increment();
+    // Add 1000 bonus for subclass increments
+    const bonusCount = count + 1000;
+    await this.ctx.storage.put('count', bonusCount);
+    return bonusCount;
+  }
+
+  // Override method that returns different value
+  override add(a: number, b: number): number {
+    // Add 100 bonus to subclass additions
+    return super.add(a, b) + 100;
+  }
+
+  // Getter to test getter support in subclass
+  get subclassName(): string {
+    return 'SubclassDO';
+  }
+
+  // Method that returns subclass property
+  getSubclassProperty(): string {
+    return this.subclassProperty;
+  }
+}
+
+// Export the lumenized version
+const SubclassDO = lumenizeRpcDo(_SubclassDO);
+export { SubclassDO };
+
+/**
  * Example Durable Object that uses manual routing instead of the factory
  * This demonstrates how to use handleRPCRequest directly for custom routing
  * Has same methods as ExampleDO for consistent testing
@@ -316,6 +365,23 @@ export class ManualRoutingDO extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     
+    // Check for WebSocket upgrade request
+    if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+      // Only handle WebSocket upgrades for RPC endpoints
+      if (url.pathname.startsWith(this.#rpcConfig.prefix!)) {
+        const webSocketPair = new WebSocketPair();
+        const [client, server] = Object.values(webSocketPair);
+        
+        // Accept the WebSocket connection
+        this.ctx.acceptWebSocket(server);
+        
+        return new Response(null, {
+          status: 101,
+          webSocket: client,
+        });
+      }
+    }
+    
     // Custom route 1: Health check
     if (url.pathname.endsWith('/health')) {
       return new Response('OK', { status: 200 });
@@ -341,6 +407,18 @@ export class ManualRoutingDO extends DurableObject<Env> {
     
     // Fallback
     return new Response('Not found', { status: 404 });
+  }
+
+  // WebSocket message handler
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    // Custom WebSocket message handling (e.g., PING/PONG)
+    if (typeof message === 'string' && message === 'PING') {
+      ws.send('PONG');
+      return;
+    }
+    
+    // Handle RPC messages using handleWebSocketRPCMessage
+    await handleWebSocketRPCMessage(ws, message, this, this.#rpcConfig);
   }
 }
 

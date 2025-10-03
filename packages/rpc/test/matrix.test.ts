@@ -28,13 +28,12 @@ const MATRIX = [
     doBindingName: 'example-do',
     description: 'WebSocket transport with lumenizeRpcDo factory wrapper',
   },
-  // NOTE: WebSocket + handleRPCRequest disabled until Phase 4 (handleRPCMessage implementation)
-  // {
-  //   name: 'WebSocket + handleRPCRequest',
-  //   transport: 'websocket' as const,
-  //   doBindingName: 'manual-routing-do',
-  //   description: 'WebSocket transport with manual handleRPCRequest routing',
-  // },
+  {
+    name: 'WebSocket + handleRPCRequest',
+    transport: 'websocket' as const,
+    doBindingName: 'manual-routing-do',
+    description: 'WebSocket transport with manual handleRPCRequest routing',
+  },
   {
     name: 'HTTP + lumenizeRpcDo',
     transport: 'http' as const,
@@ -256,8 +255,56 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
     }
   });
 
-  // NOTE: WebSocket coexistence test disabled until Phase 4 (handleRPCMessage implementation)
-  // it.skip('should allow mixing RPC and custom REST endpoints with WebSocket', async () => {
-  //   // Will be enabled when ManualRoutingDO gets webSocket() method with handleRPCMessage
-  // });
+  it('should allow mixing RPC and custom WebSocket messages with WebSocket transport', async () => {
+    const instanceId = `custom-coexist-ws-${Date.now()}`;
+    const WebSocketClass = getWebSocketShim(SELF);
+    
+    // Create a direct WebSocket connection to test custom message handling
+    const wsUrl = `wss://fake-host.com/__rpc/manual-routing-do/${instanceId}`;
+    const ws = new WebSocketClass(wsUrl);
+    
+    // Wait for connection
+    await new Promise<void>((resolve, reject) => {
+      ws.addEventListener('open', () => resolve());
+      ws.addEventListener('error', (err) => reject(err));
+    });
+
+    try {
+      // Test custom WebSocket message (PING/PONG)
+      const pongPromise = new Promise<string>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('PONG timeout')), 1000);
+        ws.addEventListener('message', (event: MessageEvent) => {
+          if (event.data === 'PONG') {
+            clearTimeout(timeout);
+            resolve(event.data);
+          }
+        });
+      });
+      
+      ws.send('PING');
+      const pong = await pongPromise;
+      expect(pong).toBe('PONG');
+
+      // Now create RPC client and verify RPC still works after custom message
+      const client = createRpcClient<ExampleDOType>({
+        doBindingName: 'manual-routing-do',
+        doInstanceNameOrId: instanceId,
+        transport: 'websocket',
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass,
+      });
+
+      const count = await (client as any).increment();
+      expect(typeof count).toBe('number');
+      expect(count).toBeGreaterThan(0);
+
+      const count2 = await (client as any).increment();
+      expect(count2).toBe(count + 1);
+
+      await client[Symbol.asyncDispose]();
+    } finally {
+      ws.close();
+    }
+  });
 });

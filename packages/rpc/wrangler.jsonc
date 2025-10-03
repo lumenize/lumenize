@@ -9,6 +9,10 @@
         "class_name": "ExampleDO"
       },
       {
+        "name": "SUBCLASS_DO",
+        "class_name": "SubclassDO"
+      },
+      {
         "name": "MANUAL_ROUTING_DO",
         "class_name": "ManualRoutingDO"
       }
@@ -25,6 +29,12 @@
       "tag": "v2",
       "new_sqlite_classes": [
         "ManualRoutingDO"
+      ]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": [
+        "SubclassDO"
       ]
     }
   ]
