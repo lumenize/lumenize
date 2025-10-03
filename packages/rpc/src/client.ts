@@ -31,7 +31,7 @@ export class RpcClient<T> {
   #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceNameOrId' | 'WebSocketClass'>> & { 
     doBindingName: string;
     doInstanceNameOrId: string;
-    WebSocketClass?: typeof WebSocket;
+    WebSocketClass?: RpcClientConfig['WebSocketClass'];
   };
   #transport: RpcTransport | null = null;
   #doProxy: T | null = null;
@@ -45,7 +45,7 @@ export class RpcClient<T> {
       timeout: 30000,
       fetch: globalThis.fetch,
       headers: {},
-      WebSocketClass: typeof WebSocket !== 'undefined' ? WebSocket : undefined,
+      WebSocketClass: WebSocket,
       ...config
     };
 

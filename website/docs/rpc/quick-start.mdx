@@ -1,0 +1,171 @@
+---
+sidebar_position: 1
+title: Quick Start
+description: Get started with Lumenize RPC in minutes
+testable: true
+---
+
+# RPC Quick Start
+
+This guide shows you how to create a simple Durable Object with RPC support using Lumenize.
+
+## Installation
+
+```bash npm2yarn
+npm install @lumenize/rpc
+```
+
+## Create a Durable Object
+
+First, create a simple Counter Durable Object `_Counter` and Worker. Then wrap the DO so it gets RPC support using `lumenizeRpcDo` and export that as `Counter`:
+
+```typescript src/index.ts
+import { lumenizeRpcDo } from '@lumenize/rpc';
+import { routeDORequest } from '@lumenize/utils';
+import { DurableObject } from 'cloudflare:workers';
+
+class _Counter extends DurableObject {
+  increment() {
+    const count = this.ctx.storage.kv.get('count') + 1 || 1;
+    this.ctx.storage.kv.put('count', count);
+    return count;
+  }
+}
+
+// Wrap with RPC support
+export const Counter = lumenizeRpcDo(_Counter);
+
+// Export a default worker to route RPC requests
+export default {
+  async fetch(request: Request, env: any): Promise<Response> {
+    // Route RPC requests to the Durable Object. Works for https:// or wss://
+    // See: https://lumenize.com/docs/utilities/route-do-request
+    const rpcResponse = await routeDORequest(request, env, { prefix: '__rpc' });
+    if (rpcResponse) return rpcResponse;
+    
+    // Fallback for non-RPC requests
+    return new Response('Not Found', { status: 404 });
+  },
+};
+```
+
+## Configure Wrangler
+
+Add the Durable Object binding to your `wrangler.jsonc`:
+
+```jsonc wrangler
+{
+  "name": "my-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COUNTER",
+        "class_name": "Counter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Counter"]
+    }
+  ]
+}
+```
+
+## See it in action over HTTP
+
+We'll show it being used in a test, but it's a general purpose RPC framework that you can use in production as long as you secure it.
+
+```typescript test
+import { describe, it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+import { createRpcClient, RpcAccessible, getWebSocketShim } from '@lumenize/rpc';
+
+import { Counter } from '../src/index';
+type Counter = RpcAccessible<InstanceType<typeof Counter>>;
+
+describe('Counter RPC over HTTP', () => {
+  it('should increment the counter', async () => {
+    // Create RPC client pointing to our test environment
+    const client = createRpcClient<Counter>({
+      transport: 'http',  // default: 'websocket'
+      baseUrl: 'http://test',
+      doBindingName: 'COUNTER',  // or 'counter' for nice urls
+      doInstanceNameOrId: 'test-counter-over-http',
+      prefix: '__rpc',  // default: '__rpc'
+      fetch: SELF.fetch.bind(SELF),  // default: globalThis.fetch()
+    });
+    
+    // Test increment
+    const result1 = await client.increment();
+    expect(result1).toBe(1);
+    
+    // Test again
+    const result2 = await client.increment();
+    expect(result2).toBe(2);
+    
+    // Verify value in storage
+    const value = await client.ctx.storage.kv.get('count');  // await always required
+    expect(value).toBe(2);
+  });
+});
+```
+
+## Websocket transport
+
+The WebSocket transport is slightly more efficient and it will be the basis for
+planned bidirectional capability. It is the default.
+
+We're going to keep showing off the capabilities of @lumenize/rpc in the form
+of a test. Note, everything shown here for WebSocket transport can be done with
+HTTP transport and vice-versa.
+
+```typescript test
+describe('WebSocket RPC Transport', () => {
+  it('should show all members of Counter class', async () => {
+    await using client = createRpcClient<ExampleDO>({
+      doBindingName: 'counter',  // auto case-converts
+      WebSocketClass: getWebSocketShim(SELF),
+      doInstanceNameOrId: 'test-counter-over-websocket',
+    });
+
+    expect(client.ctx).toMatchObject({
+      // DO methods are discoverable
+      increment: "increment [Function]",
+      
+      // DurableObjectState context with complete API
+      ctx: {
+        storage: {
+          get: "get [Function]",
+          put: "put [Function]",
+          // ... other storage methods available
+          sql: {
+            databaseSize: expect.any(Number), // Assert on non-function properties
+            // ... other ctx.sql methods
+          },
+        },
+        getWebSockets: "getWebSockets [Function]",
+        setWebSocketAutoResponse: "setWebSocketAutoResponse [Function]",
+        // ... other ctx methods available
+      },
+      
+      // Environment object with DO bindings
+      env: {
+        MY_DO: {
+          getByName: "getByName [Function]",
+          newUniqueId: "newUniqueId [Function]",
+          // ... other binding methods available
+        },
+        // ... other environment bindings available
+      }
+    });
+  });
+});
+
+```
+
+## Securing your RPC endpoint

@@ -8,11 +8,11 @@ type ExampleDO = RpcAccessible<InstanceType<typeof ExampleDO>>;
 
 // Base configuration for WebSocket tests
 const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
-  transport: 'websocket' as const,
+  transport: 'websocket',
   doBindingName: 'example-do',
   baseUrl: 'https://fake-host.com',
   prefix: '__rpc',
-  WebSocketClass: getWebSocketShim(SELF) as any,
+  WebSocketClass: getWebSocketShim(SELF),
 };
 
 describe('WebSocket RPC Integration', () => {

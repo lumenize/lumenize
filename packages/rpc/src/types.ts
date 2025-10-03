@@ -174,7 +174,7 @@ export interface RpcClientConfig {
    * WebSocket class to use (for testing or alternative implementations)
    * @default globalThis.WebSocket
    */
-  WebSocketClass?: typeof WebSocket;
+  WebSocketClass?: new (url: string, protocols?: string | string[]) => WebSocket;
 }
 
 /**

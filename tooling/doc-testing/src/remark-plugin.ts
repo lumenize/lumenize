@@ -9,8 +9,8 @@ import { visit } from 'unist-util-visit';
 import type { Root } from 'mdast';
 import type { VFile } from 'vfile';
 import path from 'path';
-import { extractFromMarkdown } from './extractor';
-import type { ExtractionResult } from './types';
+import { extractFromMarkdown } from './extractor.js';
+import type { ExtractionResult } from './types.js';
 
 export interface RemarkTestableDocsOptions {
   /**
@@ -60,7 +60,7 @@ export interface RemarkTestableDocsOptions {
  * ```
  */
 export default function remarkTestableDocs(options: RemarkTestableDocsOptions = {}) {
-  const {
+  const { 
     outputDir = 'test/extracted',
     verbose = false,
     skip = false,
@@ -80,17 +80,64 @@ export default function remarkTestableDocs(options: RemarkTestableDocsOptions = 
       return;
     }
 
+    if (verbose) {
+      console.log(`[remark-testable-docs] Processing ${file.path}`);
+      console.log(`[remark-testable-docs] Tree children[0]:`, tree.children[0]?.type);
+    }
+
+    // Check frontmatter for testable flag
+    // In MDX files, frontmatter is in a YAML node at the start of the tree
+    let frontmatter: any = {};
+    if (tree.children.length > 0 && tree.children[0].type === 'yaml') {
+      try {
+        // Parse YAML frontmatter
+        const yamlContent = (tree.children[0] as any).value;
+        // Simple YAML parsing - look for testable: true
+        frontmatter = Object.fromEntries(
+          yamlContent.split('\n')
+            .filter((line: string) => line.includes(':'))
+            .map((line: string) => {
+              const [key, ...valueParts] = line.split(':');
+              const value = valueParts.join(':').trim();
+              return [key.trim(), value === 'true' ? true : value === 'false' ? false : value];
+            })
+        );
+      } catch (e) {
+        // Failed to parse frontmatter, skip this file
+        if (verbose) {
+          console.log(`[remark-testable-docs] Could not parse frontmatter in ${file.path}`);
+        }
+      }
+    }
+    
+    if (!frontmatter.testable) {
+      if (verbose) {
+        console.log(`[remark-testable-docs] Skipping ${file.path} (no testable: true in frontmatter)`);
+      }
+      return;
+    }
+
     try {
-      // Extract the document name from the file path
-      // e.g., /path/to/docs/getting-started.mdx -> getting-started
-      const docName = path.basename(file.path, path.extname(file.path));
+      // Determine output path based on frontmatter
+      let workspacePath: string;
+      
+      if (typeof frontmatter.testable === 'string') {
+        // Custom workspace name: testable: "my-custom-name"
+        workspacePath = frontmatter.testable;
+      } else {
+        // Preserve folder structure from docs/
+        // e.g., docs/rpc/quick-start.mdx -> rpc/quick-start
+        const docsDir = path.join(file.cwd || process.cwd(), 'docs');
+        const relativePath = path.relative(docsDir, file.path);
+        workspacePath = relativePath.replace(/\.(mdx?|md)$/, '');
+      }
       
       // Create output path relative to website root
-      // file.cwd is typically the website directory
-      const absoluteOutputDir = path.join(file.cwd || process.cwd(), outputDir, docName);
+      const absoluteOutputDir = path.join(file.cwd || process.cwd(), outputDir, workspacePath);
 
       if (verbose) {
         console.log(`[remark-testable-docs] Processing ${file.path}`);
+        console.log(`[remark-testable-docs] Workspace: ${workspacePath}`);
         console.log(`[remark-testable-docs] Output: ${absoluteOutputDir}`);
       }
 
@@ -98,7 +145,7 @@ export default function remarkTestableDocs(options: RemarkTestableDocsOptions = 
       // This returns an ExtractionResult and writes files to disk
       const result = await extractFromMarkdown(
         file.path,
-        path.dirname(absoluteOutputDir), // outputBaseDir (parent of docName folder)
+        path.dirname(absoluteOutputDir), // outputBaseDir (parent of workspace folder)
         verbose
       );
 
@@ -113,12 +160,12 @@ export default function remarkTestableDocs(options: RemarkTestableDocsOptions = 
       }
 
       if (verbose) {
-        console.log(`[remark-testable-docs] ✅ Extracted ${fileCount} files for ${docName}`);
+        console.log(`[remark-testable-docs] ✅ Extracted ${fileCount} files for ${workspacePath}`);
       }
 
       // Add a custom property to the file for debugging/testing
       file.data.extractedTests = {
-        docName,
+        workspacePath,
         outputDir: absoluteOutputDir,
         fileCount,
         success: result.success,

@@ -9,8 +9,9 @@ import { join } from 'path';
 import { extractFromMarkdown } from './extractor.js';
 
 interface CliOptions {
-  docsDir: string;
+  docsDir?: string;
   outputDir: string;
+  file?: string;
   verbose: boolean;
 }
 
@@ -39,7 +40,6 @@ async function main() {
   
   // Parse arguments
   const options: CliOptions = {
-    docsDir: '',
     outputDir: '',
     verbose: false,
   };
@@ -49,6 +49,8 @@ async function main() {
     
     if (arg === '--docs-dir' && i + 1 < args.length) {
       options.docsDir = args[++i];
+    } else if (arg === '--file' && i + 1 < args.length) {
+      options.file = args[++i];
     } else if (arg === '--output-dir' && i + 1 < args.length) {
       options.outputDir = args[++i];
     } else if (arg === '--verbose' || arg === '-v') {
@@ -59,19 +61,33 @@ async function main() {
     }
   }
   
-  if (!options.docsDir || !options.outputDir) {
-    console.error('Usage: extract --docs-dir <dir> --output-dir <dir> [--verbose]');
+  if ((!options.docsDir && !options.file) || !options.outputDir) {
+    console.error('Usage: doc-testing [--docs-dir <dir> | --file <file>] --output-dir <dir> [--verbose]');
+    console.error('');
+    console.error('Examples:');
+    console.error('  # Extract all docs');
+    console.error('  doc-testing --docs-dir ./docs --output-dir ./test/extracted');
+    console.error('');
+    console.error('  # Extract single file');
+    console.error('  doc-testing --file ./docs/rpc/quick-start.mdx --output-dir ./test/extracted');
     process.exit(1);
   }
   
   console.log('Extracting code blocks from documentation...');
-  console.log(`  Docs dir: ${options.docsDir}`);
   console.log(`  Output dir: ${options.outputDir}`);
-  console.log('');
   
-  // Find all .mdx files
-  const mdxFiles = await findMdxFiles(options.docsDir);
-  console.log(`Found ${mdxFiles.length} documentation files`);
+  // Determine which files to process
+  let mdxFiles: string[];
+  if (options.file) {
+    console.log(`  File: ${options.file}`);
+    mdxFiles = [options.file];
+  } else if (options.docsDir) {
+    console.log(`  Docs dir: ${options.docsDir}`);
+    mdxFiles = await findMdxFiles(options.docsDir);
+    console.log(`  Found ${mdxFiles.length} documentation files`);
+  } else {
+    mdxFiles = [];
+  }
   console.log('');
   
   // Extract from each file

@@ -4,15 +4,20 @@
   "private": true,
   "description": "Internal tooling for extracting and testing code from documentation",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": {
+    "doc-testing": "./dist/index.js"
+  },
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
     "./remark-plugin": "./dist/remark-plugin.js"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
     "test": "vitest"
   },
   "dependencies": {

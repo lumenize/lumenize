@@ -19,11 +19,10 @@ export default defineWorkersProject({
         },
         // Point to the worker entrypoint
         // For extracted tests, this will be the src/index.ts in each workspace
-        // We'll need to configure this per-workspace, but for now use a generic pattern
         wrangler: {
-          configPath: './test/extracted/quick-start/wrangler.jsonc',
+          configPath: './test/extracted/rpc/quick-start/wrangler.jsonc',
         },
-        main: './test/extracted/quick-start/src/index.ts',
+        main: './test/extracted/rpc/quick-start/src/index.ts',
       },
     },
   },

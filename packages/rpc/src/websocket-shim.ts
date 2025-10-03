@@ -92,7 +92,7 @@ interface InternalInit {
   maxQueueBytes?: number;
 }
 
-export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
+export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit): new (url: string, protocols?: string | string[]) => WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)
     static readonly CONNECTING = 0;
@@ -335,7 +335,7 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit) {
     }
   }
 
-  return WebSocketShim;
+  return WebSocketShim as any;
 }
 
 // Helper: approximate byte length for bufferedAmount accounting

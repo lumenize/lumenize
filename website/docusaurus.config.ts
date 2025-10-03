@@ -48,11 +48,7 @@ const config: Config = {
           editUrl: 'https://github.com/lumenize/lumenize/tree/main/website/',
           // Add remark plugin for extracting testable code
           remarkPlugins: [
-            [remarkTestableDocs, {
-              outputDir: 'test/extracted',
-              verbose: process.env.NODE_ENV === 'development',
-              skip: false, // Set to true to disable extraction during development
-            }],
+            () => remarkTestableDocs({ outputDir: 'test/extracted', verbose: false, skip: false }),
           ],
         },
         blog: {
