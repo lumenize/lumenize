@@ -358,6 +358,11 @@ Like GitHub Actions matrices, we'll define behavior tests once and run them thro
   - Test: `test/websocket-integration.test.ts` - "should allow user custom WebSocket to coexist with RPC client WebSocket"
 
 - [ ] Add timeout testing to matrix
-- [ ] Add concurrent request testing  
+- [x] **Add concurrent request testing** ✅ 
+  - 12 concurrent tests added (3 per matrix configuration)
+  - Tests verify Promise.all ordering guarantees
+  - Fixed race condition bug: lazy WebSocket connection caused first promise to resolve last
+  - All tests verify actual sequential order (no sorting workarounds needed)
+  - Tests: 9-request, mixed operations, and 50-request high concurrency
 - [ ] Add memory leak testing (WebSocket connections)
 - [ ] Test with actual Cloudflare Workers runtime (not just vitest)
