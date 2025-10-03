@@ -94,66 +94,82 @@ Like GitHub Actions matrices, we'll define behavior tests once and run them thro
 
 **Goal:** Create DOs and test runners for all matrix combinations
 
+**Status:** ✅ Complete (3 of 4 configurations - WebSocket + handleRPCRequest deferred to Phase 4)
+
 ### Tasks
 
-- [ ] **Refactor test-worker-and-dos.ts**
-  - [ ] Extract shared method implementations to `shared/do-methods.ts`
+- [x] **Refactor test-worker-and-dos.ts**
+  - [x] Shared method implementations documented in `shared/do-methods.ts`
     - All ExampleDO methods (increment, add, throwError, getObject, etc.)
-    - Can be mixed into both lumenizeRpcDo and ManualRoutingDO versions
+    - DataModel class for prototype testing
+    - createComplexData() helper (parameterized by DO name)
+    - Note: Methods copied to each DO due to `this` typing (not mixed in)
   
-  - [ ] Keep ExampleDO (lumenizeRpcDo version)
-    - Uses shared method implementations
+  - [x] Keep ExampleDO (lumenizeRpcDo version)
+    - Same implementation as before (backward compatible)
     - Simple wrapper with `lumenizeRpcDo(_ExampleDO)`
   
-  - [ ] Enhance ManualRoutingDO
-    - Add all shared methods (same as ExampleDO)
-    - Keep custom routes (/health, /counter, /reset)
-    - Add `webSocketMessage()` handler that:
-      - Accepts custom WebSocket messages (e.g., "PING" → "PONG")
-      - Calls `handleRPCMessage()` for RPC messages
-      - Tests that custom WS logic coexists with RPC
+  - [x] Enhance ManualRoutingDO
+    - Added all shared methods (same as ExampleDO)
+    - Kept custom routes (/health, /counter, /reset)
+    - WebSocket handler deferred to Phase 4
+      - Need to implement `handleRPCMessage()` first
+      - Will add `webSocket()` method that accepts RPC messages
+      - Custom WebSocket message handling ("PING" → "PONG") in Phase 4
   
-  - [ ] Export both for matrix testing
+  - [x] Export both for matrix testing
 
-- [ ] **Create matrix test file** - `test/matrix.test.ts`
-  - [ ] Define matrix configuration
+- [x] **Create matrix test file** - `test/matrix.test.ts`
+  - [x] Define matrix configuration
     ```typescript
     const MATRIX = [
-      { transport: 'websocket', DO: ExampleDO, name: 'WS+lumenizeRpcDo' },
-      { transport: 'websocket', DO: ManualRoutingDO, name: 'WS+handleRPC' },
-      { transport: 'http', DO: ExampleDO, name: 'HTTP+lumenizeRpcDo' },
-      { transport: 'http', DO: ManualRoutingDO, name: 'HTTP+handleRPC' },
+      { transport: 'websocket', doBindingName: 'example-do', name: 'WebSocket + lumenizeRpcDo' },
+      // WebSocket + handleRPCRequest deferred to Phase 4 (needs handleRPCMessage)
+      { transport: 'http', doBindingName: 'example-do', name: 'HTTP + lumenizeRpcDo' },
+      { transport: 'http', doBindingName: 'manual-routing-do', name: 'HTTP + handleRPCRequest' },
     ];
     ```
   
-  - [ ] Implement test runner
+  - [x] Implement test runner
     ```typescript
-    MATRIX.forEach(({ transport, DO, name }) => {
-      describe(`Matrix: ${name}`, () => {
-        // Run all behavior tests with this config
+    MATRIX.forEach(config => {
+      describe(`Matrix: ${config.name}`, () => {
+        // 8 test suites (one per category)
+        // Each runs relevant behavior tests
       });
     });
     ```
   
-  - [ ] Create client factory for each config
-    - WebSocket client creation
-    - HTTP client creation
-    - Proper cleanup/disposal
+  - [x] Create client factory for each config
+    - WebSocket client creation with WebSocketClass
+    - HTTP client creation with fetch
+    - Proper cleanup/disposal via Symbol.asyncDispose
 
-- [ ] **Test custom handler coexistence**
-  - [ ] Test ManualRoutingDO custom fetch routes still work
-    - GET /health → "OK"
-    - GET /counter → JSON response
-    - POST /reset → Resets counter
+- [x] **Test custom handler coexistence**
+  - [x] Test ManualRoutingDO custom fetch routes still work
+    - GET /health → "OK" ✅
+    - GET /counter → JSON response ✅
+    - POST /reset → Resets counter ✅
   
-  - [ ] Test ManualRoutingDO custom webSocket handler
+  - [ ] Test ManualRoutingDO custom webSocket handler (Phase 4)
     - Send "PING" → receive "PONG"
     - Verify RPC still works alongside custom messages
+    - Requires handleRPCMessage() implementation
   
-  - [ ] Verify RPC doesn't interfere with custom handlers
-    - Custom routes respond correctly
-    - RPC routes respond correctly
-    - No cross-contamination
+  - [x] Verify RPC doesn't interfere with custom handlers
+    - Custom routes respond correctly ✅
+    - RPC routes respond correctly ✅
+    - No cross-contamination ✅
+
+### Test Results
+- **58 tests passing** (verified 2025-10-03)
+  - WebSocket + lumenizeRpcDo: 19 behavior tests ✅
+  - HTTP + lumenizeRpcDo: 19 behavior tests ✅
+  - HTTP + handleRPCRequest: 19 behavior tests ✅
+  - Custom handler coexistence (HTTP): 1 test ✅
+- **WebSocket + handleRPCRequest**: Deferred to Phase 4 (18 tests)
+  - Requires handleRPCMessage() implementation
+  - ManualRoutingDO needs webSocket() method
 
 ## Phase 3: Inheritance Testing (Nice-to-Have)
 
@@ -232,11 +248,16 @@ Like GitHub Actions matrices, we'll define behavior tests once and run them thro
 - [ ] Clear interface for running behavior tests
 
 ### Phase 2 Complete  
-- [ ] All 4 matrix combinations passing
-- [ ] ManualRoutingDO has same methods as ExampleDO
-- [ ] ManualRoutingDO custom routes still work
-- [ ] ManualRoutingDO custom WebSocket handler works
-- [ ] No test duplication - behaviors defined once
+- [x] All 3 viable matrix combinations passing (58 tests)
+  - WebSocket + lumenizeRpcDo ✅
+  - HTTP + lumenizeRpcDo ✅
+  - HTTP + handleRPCRequest ✅
+- [x] 4th combination (WebSocket + handleRPCRequest) deferred to Phase 4
+  - Requires handleRPCMessage() implementation
+- [x] ManualRoutingDO has same methods as ExampleDO
+- [x] ManualRoutingDO custom fetch routes still work
+- [ ] ManualRoutingDO custom WebSocket handler (Phase 4)
+- [x] No test duplication - behaviors defined once
 
 ### Phase 3 Complete
 - [ ] SubclassDO created and exported
