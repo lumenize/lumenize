@@ -193,18 +193,7 @@ export class WebSocketRpcTransport implements RpcTransport {
   /**
    * Handle incoming WebSocket message
    */
-  #handleMessage(data: string | ArrayBuffer | Blob): void {
-    // Only handle string messages for now
-    if (typeof data !== 'string') {
-      console.warn('%o', {
-        type: 'warn',
-        where: 'WebSocketRpcTransport.handleMessage',
-        message: 'Received non-string message, ignoring',
-        dataType: typeof data
-      });
-      return;
-    }
-
+  #handleMessage(data: string): void {
     try {
       console.log('Client received raw data:', data);
       
