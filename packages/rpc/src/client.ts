@@ -2,6 +2,7 @@ import type { OperationChain, RemoteFunctionMarker, RpcClientConfig, RpcClientPr
 import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
+import { convertRemoteFunctionsToStrings } from './object-inspection';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -140,7 +141,7 @@ export class RpcClient<T> {
   }
 
   // Internal method to execute operations (called by ProxyHandler)
-  async execute(operations: OperationChain): Promise<any> {
+  async execute(operations: OperationChain, skipProcessing = false): Promise<any> {
     // Lazy initialization: create transport on first use if not already connected
     if (!this.#transport) {
       await this.connect();
@@ -152,6 +153,11 @@ export class RpcClient<T> {
 
     // Execute the operation chain via transport
     const result = await this.#transport.execute(operations);
+    
+    // Optionally skip processing (for __asObject which handles conversion itself)
+    if (skipProcessing) {
+      return result;
+    }
     
     // Process the result to convert remote function markers to proxies
     return this.processRemoteFunctions(result, []);
@@ -211,6 +217,20 @@ class ProxyHandler {
     // (lifecycle symbols like Symbol.asyncDispose are handled by the outer proxy)
     if (typeof key === 'symbol') {
       return undefined;
+    }
+
+    // Special method for debugging/testing: __asObject() returns the object structure
+    // with functions as readable strings like "functionName [Function]"
+    if (key === '__asObject') {
+      return async () => {
+        // Execute the current operation chain to get the object
+        const operations = [...this.#operationChain];
+        this.#operationChain = [];
+        // Skip normal processing to avoid circular reference issues
+        const result = await this.#rpcClient.execute(operations, true);
+        // Convert remote function markers to readable strings
+        return convertRemoteFunctionsToStrings(result);
+      };
     }
 
     // Special case: 'then' property access should execute the operation chain

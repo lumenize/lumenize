@@ -218,6 +218,28 @@ export interface RpcClientProxy {
    * ```
    */
   [Symbol.asyncDispose](): Promise<void>;
+
+  /**
+   * Returns a plain object representation of the proxied object with functions
+   * represented as readable strings like "functionName [Function]".
+   * Useful for debugging and testing.
+   * 
+   * @example
+   * ```typescript
+   * const client = createRpcClient<MyDO>({ ... });
+   * const structure = await client.__asObject();
+   * // {
+   * //   increment: "increment [Function]",
+   * //   ctx: {
+   * //     storage: {
+   * //       get: "get [Function]",
+   * //       ...
+   * //     }
+   * //   }
+   * // }
+   * ```
+   */
+  __asObject?(): Promise<any>;
 }
 
 /**

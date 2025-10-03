@@ -242,3 +242,8 @@ Test Files  1 passed (1)
   - Only after the developer confirms that the review is complete can you proceed to...
 - Confirm that developer has committed code
 - Ask for permission before proceeding to the next step
+
+## Later and possibly unrelated
+
+- [ ] Refactor testing to be a matrix WebSocket vs HTTP, Self-instrumented w/ handlers vs lumenizeRpcDo, sub-classed vs not
+- [ ] 
