@@ -278,35 +278,40 @@ expect(await client.ctx.storage.get('user-session')).toBeDefined();
 
 **Decision:** Updated in place first, will move to `@lumenize/utils` after cookie jar implementation
 
-### Phase 1: Cookie Utilities (from @lumenize/testing)
-- [ ] Port `cookie-utils.ts` to `@lumenize/utils/src/`
-  - [ ] `Cookie` interface
-  - [ ] `parseSetCookie()` function
-  - [ ] `parseSetCookies()` function
-  - [ ] `serializeCookies()` function
-  - [ ] `cookieMatches()` function
-- [ ] Add tests for cookie utilities
-  - [ ] Parsing Set-Cookie headers
-  - [ ] Domain/path matching
-  - [ ] Expiration handling
-  - [ ] Edge cases
+### Phase 1: Cookie Utilities (COMPLETED ✅)
+- [x] Port `cookie-utils.ts` to `@lumenize/utils/src/`
+  - [x] `Cookie` interface
+  - [x] `parseSetCookie()` function
+  - [x] `parseSetCookies()` function
+  - [x] `serializeCookies()` function
+  - [x] `cookieMatches()` function
+- [x] Add tests for cookie utilities
+  - [x] Parsing Set-Cookie headers (18 tests)
+  - [x] Domain/path matching (15 tests)
+  - [x] Expiration handling
+  - [x] Edge cases
+  - [x] All 33 cookie-utils tests passing ✅
 
-### Phase 2: CookieJar Class (from @lumenize/testing)
-- [ ] Port `cookie-jar.ts` to `@lumenize/utils/src/`
-  - [ ] Implement `getFetch()` method (NEW API)
-  - [ ] Migrate `storeCookiesFromResponse()`
-  - [ ] Migrate `getCookiesForRequest()`
-  - [ ] Migrate `getCookie()`, `setCookie()`, `getAllCookies()`
-  - [ ] Migrate `removeCookie()`, `clear()`
-  - [ ] Migrate `setDefaultHostname()`, hostname inference
-  - [ ] Migrate `setEnabled()`, `isEnabled()`
-- [ ] Add tests for CookieJar
-  - [ ] `getFetch()` wraps fetch correctly
-  - [ ] Cookies stored from response
-  - [ ] Cookies sent in subsequent requests
-  - [ ] Domain/path isolation
-  - [ ] Hostname inference behavior
-  - [ ] Enable/disable toggle
+### Phase 2: CookieJar Class (COMPLETED ✅)
+- [x] Port `cookie-jar.ts` to `@lumenize/utils/src/`
+  - [x] Implement `getFetch()` method (NEW API - clean design!)
+  - [x] Migrate `storeCookiesFromResponse()`
+  - [x] Migrate `getCookiesForRequest()`
+  - [x] Migrate `getCookie()`, `setCookie()`, `getAllCookies()`
+  - [x] Migrate `removeCookie()`, `clear()`
+  - [x] Migrate `setDefaultHostname()`, hostname inference
+  - [x] Migrate `setEnabled()`, `isEnabled()`
+- [x] Add tests for CookieJar
+  - [x] `getFetch()` wraps fetch correctly
+  - [x] Cookies stored from response
+  - [x] Cookies sent in subsequent requests
+  - [x] Domain/path isolation
+  - [x] Hostname inference behavior
+  - [x] Enable/disable toggle
+  - [x] Integration tests (full login/session flow, multi-domain)
+  - [x] All 23 CookieJar tests passing ✅
+- [x] Export from `@lumenize/utils/src/index.ts`
+- [x] **Total: 128 tests passing in @lumenize/utils** ✅
 
 ### Phase 3: Move WebSocket Shim to @lumenize/utils
 - [ ] Move `websocket-shim.ts` from `@lumenize/rpc/src` to `@lumenize/utils/src`
