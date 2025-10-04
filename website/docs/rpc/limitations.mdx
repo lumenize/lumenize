@@ -1,0 +1,158 @@
+---
+sidebar_position: 99
+title: Limitations and Quirks
+description: Important behaviors to understand when using RPC
+---
+
+# Limitations and Quirks
+
+Lumenize RPC works seamlessly for most use cases, but there are a few behaviors to understand.
+
+## Always Use `await`
+
+**The most important rule**: You must `await` all RPC calls, even for synchronous-looking operations.
+
+### Why?
+
+RPC calls go over the network (HTTP or WebSocket), so they're inherently asynchronous. Even if the DO method is synchronous, the RPC call is not.
+
+### Examples
+
+```typescript
+// ❌ WRONG - Missing await
+const value = client.ctx.storage.kv.get('key');  // Returns a Promise, not the value!
+
+// ✅ CORRECT - Always await
+const value = await client.ctx.storage.kv.get('key');  // Returns the actual value
+
+// ❌ WRONG - Even for methods that look synchronous in DO
+const size = client.ctx.storage.sql.databaseSize;  // Returns a Promise!
+
+// ✅ CORRECT - Must await
+const size = await client.ctx.storage.sql.databaseSize;
+
+// ❌ WRONG - Property access without await
+const env = client.env;  // Returns a Proxy, not the actual env
+
+// ✅ CORRECT - Use __asObject() for static inspection
+const envObject = await client.__asObject();
+console.log(envObject.env);  // Now you can see the env structure
+```
+
+### Property Access vs Function Calls
+
+```typescript
+// Property access is synchronous (returns a Proxy for chaining)
+const storage = client.ctx.storage;  // OK - returns Proxy
+const sql = storage.sql;              // OK - returns Proxy
+
+// But getting actual values requires await
+const size = await sql.databaseSize;  // MUST await to get the number
+
+// Function calls always require await
+await client.increment();             // MUST await
+await client.ctx.storage.put('k', 'v');  // MUST await
+```
+
+### The `__asObject()` Helper
+
+Use `__asObject()` to inspect the structure without calling functions:
+
+```typescript
+const clientAsObject = await client.__asObject();
+
+// Now you can see the structure
+console.log(clientAsObject.ctx.storage.sql.databaseSize);  // The actual number
+
+// But you can't call methods from the object
+// clientAsObject.increment();  // ❌ This won't work - it's not a function anymore
+```
+
+## Type Safety Caveat
+
+TypeScript can't enforce the `await` requirement at compile time:
+
+```typescript
+// This compiles but is WRONG
+const value = client.increment();  // TypeScript allows this
+// value is a Promise<number>, not a number!
+
+// You must remember to await
+const value = await client.increment();  // CORRECT
+```
+
+**Solution**: Enable `@typescript-eslint/no-floating-promises` in your ESLint config to catch missing awaits.
+
+## Function Serialization
+
+Functions cannot be serialized over RPC (StructuredClone limitation):
+
+```typescript
+// ❌ This won't work
+const obj = {
+  data: 42,
+  getData: () => this.data,  // Function won't serialize
+};
+await client.ctx.storage.put('obj', obj);
+
+// ✅ Use methods on the DO instead
+class MyDO extends DurableObject {
+  getData() {
+    const obj = this.ctx.storage.get('obj');
+    return obj.data;
+  }
+}
+```
+
+## Circular References
+
+Circular object references work fine (thanks to StructuredClone):
+
+```typescript
+// ✅ This works
+const obj: any = { name: 'test' };
+obj.self = obj;  // Circular reference
+await client.ctx.storage.put('circular', obj);
+
+const retrieved = await client.ctx.storage.get('circular');
+// Circular structure preserved
+expect(retrieved.self).toBe(retrieved);
+```
+
+## WebSocket vs HTTP Behavior
+
+Both transports have identical functionality, but different characteristics:
+
+### HTTP
+- One request per RPC call
+- No persistent connection overhead
+- Slightly higher latency per call
+- Stateless (good for serverless/edge)
+
+### WebSocket  
+- Persistent connection for multiple calls
+- Initial connection overhead
+- Lower latency for subsequent calls
+- Requires connection management
+
+Choose based on your use case:
+- **Few calls**: HTTP is simpler
+- **Many calls**: WebSocket is more efficient
+- **Serverless/Edge**: HTTP is more reliable
+- **Interactive apps**: WebSocket is better
+
+## Summary
+
+1. **Always `await`** - Even synchronous-looking calls
+2. **No functions** - Can't serialize functions across RPC
+3. **Circular refs OK** - StructuredClone handles them
+4. **Choose transport wisely** - HTTP for simplicity, WebSocket for performance
+
+That's it! With these quirks in mind, RPC will feel natural and predictable.
+
+---
+
+**Need help?** Check out the other guides:
+- [Quick Start](./quick-start.mdx) - Get started quickly
+- [WebSocket Testing](./websocket-testing.mdx) - Test WebSocket features
+- [Error Handling](./error-handling.mdx) - Handle errors properly

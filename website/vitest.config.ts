@@ -1,7 +1,7 @@
 import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 
 // Simple vitest config for website-level tests
-// Each extracted workspace has its own wrangler.jsonc that vitest will discover
+// Each extracted workspace has its own wrangler.jsonc and src/index.ts
 export default defineWorkersProject({
   test: {
     globals: true,
@@ -17,12 +17,7 @@ export default defineWorkersProject({
           compatibilityDate: '2025-09-12',
           compatibilityFlags: ['nodejs_compat'],
         },
-        // Point to the worker entrypoint
-        // For extracted tests, this will be the src/index.ts in each workspace
-        wrangler: {
-          configPath: './test/extracted/rpc/quick-start/wrangler.jsonc',
-        },
-        main: './test/extracted/rpc/quick-start/src/index.ts',
+        // Vitest will automatically discover wrangler.jsonc and main from each workspace
       },
     },
   },

@@ -7,6 +7,7 @@ export default defineWorkersProject({
     poolOptions: {
       workers: {
         isolatedStorage: false,
+        main: './src/index.ts',
         wrangler: {
           configPath: './wrangler.jsonc',
         },

@@ -1,0 +1,84 @@
+---
+sidebar_position: 0
+title: Introduction
+description: Understanding Lumenize RPC for Durable Objects
+---
+
+# Introduction to Lumenize RPC
+
+Lumenize RPC provides type-safe remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
+
+## Key Features
+
+- **Type Safety**: Full TypeScript support with autocomplete
+- **Dual Transport**: HTTP (stateless) or WebSocket (persistent connection)
+- **Rich Types**: Supports all StructuredClone types (Date, Map, Set, RegExp, circular objects, etc.)
+- **Testing First**: Built-in support for comprehensive DO testing
+- **Flexible**: Works with or without instrumentation wrappers
+
+## Supported Types
+
+RPC automatically serializes and deserializes all StructuredClone-compatible types:
+
+- **Primitives**: `string`, `number`, `boolean`, `null`, `undefined`, `bigint`
+- **Objects**: Plain objects with circular references
+- **Arrays**: Including nested arrays
+- **Built-ins**: `Date`, `RegExp`, `Map`, `Set`, `ArrayBuffer`, `TypedArray`
+- **Errors**: `Error` instances with stack traces
+
+**Not supported**: Functions, Symbols, DOM nodes, or anything not supported by the [structured clone algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm).
+
+## Transport Options
+
+### HTTP Transport
+- Stateless, one request per RPC call
+- Simple, familiar request/response pattern
+- Best for: Infrequent calls, serverless functions, edge cases
+
+### WebSocket Transport (Default)
+- Persistent connection for multiple calls
+- Lower latency for repeated operations
+- Best for: Interactive applications, real-time features
+- Future: Bidirectional RPC (server-to-client calls)
+
+## Two Instrumentation Approaches
+
+### 1. Automatic (Recommended)
+Wrap your DO class with `lumenizeRpcDo()`:
+
+```typescript
+import { lumenizeRpcDo } from '@lumenize/rpc';
+
+class _MyDO extends DurableObject {
+  increment() { /* ... */ }
+}
+
+export const MyDO = lumenizeRpcDo(_MyDO);
+```
+
+### 2. Manual
+Implement your own routing with `handleRPCRequest()` and `handleWebSocketRPCMessage()`:
+
+```typescript
+import { handleRPCRequest, handleWebSocketRPCMessage } from '@lumenize/rpc';
+
+export class MyDO extends DurableObject {
+  increment() { /* ... */ }
+  
+  async fetch(request: Request) {
+    // Custom routing first
+    if (new URL(request.url).pathname === '/health') {
+      return new Response('OK');
+    }
+    
+    // RPC handling
+    return await handleRPCRequest(request, this);
+  }
+}
+```
+
+See [Manual Instrumentation](./manual-instrumentation.mdx) for details.
+
+## Getting Started
+
+Continue to the [Quick Start](./quick-start.mdx) guide to build your first RPC-enabled Durable Object.

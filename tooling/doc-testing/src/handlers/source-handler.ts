@@ -18,17 +18,21 @@ export class SourceHandler implements CodeBlockHandler {
     // Use metadata as file path
     const filePath = metadata;
     
-    if (context.files.has(filePath)) {
-      context.errors.push(
-        `Duplicate source file "${filePath}" in ${context.sourceFile} at line ${line}`
-      );
-      return;
+    // Check if this file already exists - if so, append
+    const existing = context.files.get(filePath);
+    if (existing) {
+      // Append with separator (like TestHandler does)
+      context.files.set(filePath, {
+        content: existing.content + '\n\n' + code,
+        append: true,
+      });
+    } else {
+      // First occurrence - set as new file
+      context.files.set(filePath, {
+        content: code,
+        append: false,
+      });
     }
-    
-    context.files.set(filePath, {
-      content: code,
-      append: false,
-    });
     
     // Parse imports for dependencies
     const imports = parseImports(code);

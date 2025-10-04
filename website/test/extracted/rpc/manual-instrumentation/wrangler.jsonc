@@ -1,0 +1,11 @@
+{
+  "name": "manual-routing-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [{ "name": "MY_DO", "class_name": "MyDO" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["MyDO"] }
+  ]
+}
