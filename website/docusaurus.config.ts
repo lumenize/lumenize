@@ -39,48 +39,40 @@ const config: Config = {
 
   plugins: [
     [
-      'docusaurus-plugin-typedoc',
-      {
-        // TypeDoc options
-        entryPoints: ['../packages/rpc/src/index.ts'],
-        tsconfig: '../packages/rpc/tsconfig.json',
-        
-        // Output options - put API docs under the rpc package section
-        out: 'docs/rpc/api',
-        sidebar: {
-          pretty: true,  // Generate _category_.json files with proper labels
-          categoryLabel: 'Type Utilities',
+        'docusaurus-plugin-typedoc',
+        {
+          entryPoints: ['../packages/rpc/src/index.ts'],
+          tsconfig: '../packages/rpc/tsconfig.json',
+          out: 'docs/rpc/api',
+          sidebar: {
+            autoConfiguration: true,
+          },
+          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+          excludeInternal: true,
+          excludeExternals: true,
+          excludePrivate: true,
+          readme: 'none',
+          hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
-        
-        // Rendering options - use .md files (not .mdx) to avoid JSX parsing issues
-        fileExtension: '.md',
-        readme: 'none',
-        disableSources: false,
-        excludePrivate: true,
-        excludeProtected: false,
-        excludeInternal: true,
-        excludeExternals: true,
-        
-        // Navigation
-        hideGenerator: true,
-        hideBreadcrumbs: false,
-        
-        // Additional options
-        includeVersion: false,
-        watch: process.env.TYPEDOC_WATCH === 'true',
-        
-        // Rename categories
-        categorizeByGroup: false,
-        
-        // Text content rendering
-        textContentMappings: {
-          'header.title': '{projectName}',
-          'header.docs': 'API Reference',
-          'kind.typeAlias': 'Type Utility',
-          'kind.plural.typeAlias': 'Type Utilities',
+      ],
+      [
+        'docusaurus-plugin-typedoc',
+        {
+          id: 'utils',
+          entryPoints: ['../packages/utils/src/index.ts'],
+          tsconfig: '../packages/utils/tsconfig.json',
+          out: 'docs/utils/api',
+          sidebar: {
+            autoConfiguration: true,
+          },
+          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+          excludeInternal: true,
+          excludeExternals: true,
+          excludePrivate: true,
+          readme: 'none',
+          hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
-      },
-    ],
+      ],
   ],
 
   presets: [

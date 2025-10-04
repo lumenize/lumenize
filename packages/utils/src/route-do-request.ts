@@ -6,7 +6,7 @@ import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segm
  * Error thrown when a pathname doesn't have the required segments for DO routing.
  * 
  * A valid DO path must have at least 2 segments after prefix removal:
- * [/prefix]/binding-name/${doInstanceNameOrId}[/additional-path]
+ * [/prefix]/binding-name/instance-name-or-id[/additional-path]
  */
 export class MissingInstanceNameError extends Error {
   code: 'MISSING_INSTANCE_NAME' = 'MISSING_INSTANCE_NAME';
@@ -84,7 +84,7 @@ export interface RouteOptions {
  * - Non-WebSocket requests → calls `onBeforeRequest` only  
  * 
  * @param request - The incoming HTTP request to route
- * @param env - Environment object containing DO bindings (e.g., { MY_DO: DurableObjectNamespace })
+ * @param env - Environment object containing DO bindings
  * @param options - Configuration options for routing and hooks
  * @param options.prefix - URL prefix to match before DO routing (default: none)
  * @param options.onBeforeConnect - Hook called before WebSocket requests reach the DO
