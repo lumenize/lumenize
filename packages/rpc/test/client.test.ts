@@ -98,7 +98,7 @@ describe('RPC client-side functionality', () => {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',
       timeout: 50, // Very short timeout - 50ms
-      WebSocketClass: getWebSocketShim(SELF),
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
     });
 
     // Try to call a slow method that will exceed the timeout
@@ -160,7 +160,7 @@ describe('RPC client-side functionality', () => {
       doInstanceNameOrId: 'ws-reconnect-test',
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',
-      WebSocketClass: getWebSocketShim(SELF),
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
     });
 
     // First call establishes connection
@@ -187,7 +187,7 @@ describe('RPC client-side functionality', () => {
         doInstanceNameOrId: 'async-dispose-test',
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
-        WebSocketClass: getWebSocketShim(SELF),
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
       });
       
       client = c;

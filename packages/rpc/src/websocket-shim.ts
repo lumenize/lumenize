@@ -2,7 +2,7 @@
  * WebSocket shim for Cloudflare Workers test environment (cloudflare:test).
  * 
  * Provides a browser-compatible WebSocket API that works in Cloudflare's test
- * environment by using SELF.fetch() to initiate WebSocket upgrade requests.
+ * environment by using a fetch function to initiate WebSocket upgrade requests.
  * 
  * ## Key Features
  * 
@@ -17,7 +17,7 @@
  * import { getWebSocketShim } from '@lumenize/rpc';
  * import { SELF } from 'cloudflare:test';
  * 
- * const WebSocketShimClass = getWebSocketShim(SELF);
+ * const WebSocketShimClass = getWebSocketShim(SELF.fetch.bind(SELF));
  * const ws = new WebSocketShimClass("wss://example.test/room/42");
  * 
  * ws.onopen = () => {
@@ -52,7 +52,7 @@
  * 
  * ### With testing-specific options (headers, queue limits):
  * ```typescript
- * const WebSocketShimClass = getWebSocketShim(SELF, {
+ * const WebSocketShimClass = getWebSocketShim(SELF.fetch.bind(SELF), {
  *   headers: { "Authorization": "Bearer test-token" },
  *   maxQueueBytes: 1024 * 1024 // 1MB queue limit
  * });
@@ -64,14 +64,14 @@
  * 
  * This shim works by:
  * 1. Converting WebSocket URLs (ws://, wss://) to HTTP URLs (http://, https://)
- * 2. Making an HTTP request with `Upgrade: websocket` header via SELF.fetch()
+ * 2. Making an HTTP request with `Upgrade: websocket` header via the provided fetch function
  * 3. Extracting the WebSocket from the response and calling accept()
  * 4. Forwarding all WebSocket events (open, message, error, close)
  * 5. Queuing messages sent during CONNECTING state
  * 
  * ## Differences from Browser WebSocket
  * 
- * - Uses SELF.fetch() instead of native WebSocket constructor for connection establishment
+ * - Uses a fetch function instead of native WebSocket constructor for connection establishment
  * - Provides explicit `maxQueueBytes` configuration for CONNECTING state buffer limits
  * - Allows injection of headers for testing (auth, etc.)
  * 
@@ -92,7 +92,7 @@ interface InternalInit {
   maxQueueBytes?: number;
 }
 
-export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit): new (url: string, protocols?: string | string[]) => WebSocket {
+export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryInit): new (url: string, protocols?: string | string[]) => WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)
     static readonly CONNECTING = 0;
@@ -213,11 +213,11 @@ export function getWebSocketShim(SELF: any, factoryInit?: FactoryInit): new (url
           headers.set("Sec-WebSocket-Protocol", list.join(", "));
         }
 
-        // Convert WebSocket URL to HTTP URL for SELF.fetch routing
+        // Convert WebSocket URL to HTTP URL for fetch routing
         const httpUrl = init.url.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://');
 
         const req = new Request(httpUrl, { method: "GET", headers });
-        const resp = await SELF.fetch(req);
+        const resp = await fetchFn(req);
         console.log('%o', resp);
 
         const ws = (resp as any).webSocket as WebSocket | undefined;

@@ -39,7 +39,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
       };
 
       if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF);
+        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
       } else {
         config.fetch = SELF.fetch.bind(SELF);
       }
@@ -78,7 +78,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
       };
 
       if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF);
+        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
       } else {
         config.fetch = SELF.fetch.bind(SELF);
       }
@@ -113,7 +113,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
       };
 
       if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF);
+        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
       } else {
         config.fetch = SELF.fetch.bind(SELF);
       }
@@ -155,7 +155,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
       };
 
       if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF);
+        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
       } else {
         config.fetch = SELF.fetch.bind(SELF);
       }
@@ -197,7 +197,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
       };
 
       if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF);
+        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
       } else {
         config.fetch = SELF.fetch.bind(SELF);
       }

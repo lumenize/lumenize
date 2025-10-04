@@ -12,7 +12,7 @@ const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
   doBindingName: 'example-do',
   baseUrl: 'https://fake-host.com',
   prefix: '__rpc',
-  WebSocketClass: getWebSocketShim(SELF),
+  WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
 };
 
 /**
@@ -153,7 +153,7 @@ describe('WebSocket RPC Integration', () => {
   // Test user's custom WebSocket coexistence with RPC client
   it('should allow user custom WebSocket to coexist with RPC client WebSocket', async () => {
     const instanceId = 'websocket-custom-coexist-test';
-    const WebSocketClass = getWebSocketShim(SELF);
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
     
     // User creates their own WebSocket connection on a separate endpoint
     // This simulates a custom WebSocket for streaming, notifications, etc.

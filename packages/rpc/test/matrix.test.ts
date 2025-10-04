@@ -61,7 +61,7 @@ function createMatrixClient(config: typeof MATRIX[number], instanceId: string): 
 
   // Add transport-specific config
   if (config.transport === 'websocket') {
-    (baseConfig as any).WebSocketClass = getWebSocketShim(SELF);
+    (baseConfig as any).WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
   } else {
     (baseConfig as any).fetch = SELF.fetch.bind(SELF);
   }
@@ -345,7 +345,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
 
   it('should allow mixing RPC and custom WebSocket messages with WebSocket transport', async () => {
     const instanceId = `custom-coexist-ws-${Date.now()}`;
-    const WebSocketClass = getWebSocketShim(SELF);
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
     
     // Create a direct WebSocket connection to test custom message handling
     const wsUrl = `wss://fake-host.com/__rpc/manual-routing-do/${instanceId}`;
