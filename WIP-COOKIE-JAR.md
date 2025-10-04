@@ -313,12 +313,17 @@ expect(await client.ctx.storage.get('user-session')).toBeDefined();
 - [x] Export from `@lumenize/utils/src/index.ts`
 - [x] **Total: 128 tests passing in @lumenize/utils** ✅
 
-### Phase 3: Move WebSocket Shim to @lumenize/utils
-- [ ] Move `websocket-shim.ts` from `@lumenize/rpc/src` to `@lumenize/utils/src`
-- [ ] Update `@lumenize/utils/src/index.ts` to export `getWebSocketShim`
-- [ ] Update `@lumenize/rpc/src/index.ts` to re-export from `@lumenize/utils`
-- [ ] Update imports in all RPC test files
-- [ ] Verify all tests still pass
+### Phase 3: Move WebSocket Shim to @lumenize/utils (COMPLETED ✅)
+- [x] Move `websocket-shim.ts` from `@lumenize/rpc/src` to `@lumenize/utils/src`
+- [x] Update `@lumenize/utils/src/index.ts` to export `getWebSocketShim`
+- [x] Update `@lumenize/rpc/src/index.ts` to re-export from `@lumenize/utils`
+- [x] Add `@lumenize/utils` dependency to `@lumenize/rpc/package.json`
+- [x] Remove old `websocket-shim.ts` from `@lumenize/rpc`
+- [x] Verify all tests still pass
+  - [x] All 129 RPC tests passing ✅
+  - [x] All 128 utils tests passing ✅
+
+**Result:** WebSocket shim now lives in `@lumenize/utils` and is re-exported by `@lumenize/rpc` for backward compatibility. Users can now import from either package, enabling cookie-aware WebSocket connections!
 
 ### Phase 4: Documentation & Examples
 - [ ] Add CookieJar to `@lumenize/utils` README
