@@ -1,5 +1,6 @@
 /**
  * Operation types that align with JavaScript Proxy traps
+ * @internal
  */
 export type Operation = 
   | { type: 'get', key: string | number | symbol }     // Property/element access
@@ -12,6 +13,7 @@ export type Operation =
  * 1. A "prefix" chain stored in cached intermediate proxies (e.g., myDO.ctx.storage)
  * 2. An "extension" chain for the current operation (e.g., .get('key'))
  * These are concatenated before sending over the wire to form the complete operation sequence.
+ * @internal
  */
 export type OperationChain = Operation[];
 
@@ -20,6 +22,7 @@ export type OperationChain = Operation[];
  * 
  * The entire request object (including operations array) will be encoded using
  * @ungap/structured-clone/json stringify() at the transport boundary.
+ * @internal
  */
 export interface RpcRequest {
   operations: OperationChain;
@@ -30,6 +33,7 @@ export interface RpcRequest {
  * 
  * The entire response object (including result) will be encoded using
  * @ungap/structured-clone/json stringify() at the transport boundary.
+ * @internal
  */
 export interface RpcResponse {
   success: boolean;
@@ -65,6 +69,7 @@ export interface RpcConfig {
  * Internal marker for remote functions during serialization.
  * When the DO returns an object with functions, those functions are replaced
  * with these markers. The client converts them back to callable proxies.
+ * @internal
  */
 export interface RemoteFunctionMarker {
   __isRemoteFunction: true;
@@ -76,6 +81,7 @@ export interface RemoteFunctionMarker {
  * Type guard to check if an object is a remote function marker.
  * Used internally by the client to identify functions that should be
  * converted back to callable proxies.
+ * @internal
  */
 export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
   return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
@@ -245,6 +251,7 @@ export interface RpcClientProxy {
 /**
  * Transport interface for executing RPC operations.
  * Different transports can be implemented (HTTP, WebSocket, etc.).
+ * @internal
  */
 export interface RpcTransport {
   execute(operations: OperationChain): Promise<any>;

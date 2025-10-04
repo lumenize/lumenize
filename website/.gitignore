@@ -8,6 +8,13 @@
 .docusaurus
 .cache-loader
 
+# TypeDoc generated API documentation
+/docs/rpc/api
+/docs/**/api
+
+# Extracted testable code from documentation
+/test/extracted
+
 # Misc
 .DS_Store
 .env.local

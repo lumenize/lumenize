@@ -9,15 +9,11 @@ import { convertRemoteFunctionsToStrings } from './object-inspection';
  * Connection is established automatically on first method call (lazy connection).
  * Use 'await using' for automatic cleanup, or manually manage lifecycle.
  * 
- * Usage (recommended - automatic cleanup):
- *   await using client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceNameOrId: 'instance-1' });
- *   const result = await client.myMethod(); // Calls DO method, auto-connects if needed
- *   // Connection automatically closed when leaving scope
+ * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client) - Complete tested examples
  * 
- * Usage (manual - no cleanup needed for short-lived clients):
- *   const client = createRpcClient<MyDO>({ doBindingName: 'MY_DO', doInstanceNameOrId: 'instance-1' });
- *   const result = await client.myMethod(); // Calls DO method, auto-connects if needed
- *   // WebSocket cleaned up on worker/page unload
+ * @typeParam T - The type of the Durable Object being called. Use {@link RpcAccessible} to expose protected properties like `ctx` and `env`.
+ * @param config - Configuration for the RPC client
+ * @returns A proxy object with both lifecycle methods and DO method calls
  */
 export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy {
   const client = new RpcClient<T>(config);

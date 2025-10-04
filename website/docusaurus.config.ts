@@ -37,6 +37,52 @@ const config: Config = {
     locales: ['en'],
   },
 
+  plugins: [
+    [
+      'docusaurus-plugin-typedoc',
+      {
+        // TypeDoc options
+        entryPoints: ['../packages/rpc/src/index.ts'],
+        tsconfig: '../packages/rpc/tsconfig.json',
+        
+        // Output options - put API docs under the rpc package section
+        out: 'docs/rpc/api',
+        sidebar: {
+          pretty: true,  // Generate _category_.json files with proper labels
+          categoryLabel: 'Type Utilities',
+        },
+        
+        // Rendering options - use .md files (not .mdx) to avoid JSX parsing issues
+        fileExtension: '.md',
+        readme: 'none',
+        disableSources: false,
+        excludePrivate: true,
+        excludeProtected: false,
+        excludeInternal: true,
+        excludeExternals: true,
+        
+        // Navigation
+        hideGenerator: true,
+        hideBreadcrumbs: false,
+        
+        // Additional options
+        includeVersion: false,
+        watch: process.env.TYPEDOC_WATCH === 'true',
+        
+        // Rename categories
+        categorizeByGroup: false,
+        
+        // Text content rendering
+        textContentMappings: {
+          'header.title': '{projectName}',
+          'header.docs': 'API Reference',
+          'kind.typeAlias': 'Type Utility',
+          'kind.plural.typeAlias': 'Type Utilities',
+        },
+      },
+    ],
+  ],
+
   presets: [
     [
       'classic',
