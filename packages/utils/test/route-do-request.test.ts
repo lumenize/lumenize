@@ -390,6 +390,31 @@ describe('routeDORequest', () => {
       
       expect(response).toBeUndefined();
     });
+
+    it('should throw MissingInstanceNameError when binding found but instance name missing', async () => {
+      const env = { MY_DO: createMockNamespace() };
+      const request = createRequest('http://localhost/my-do'); // No instance name
+      
+      await expect(routeDORequest(request, env)).rejects.toThrow('binding-name found but doInstanceNameOrId missing');
+      await expect(routeDORequest(request, env)).rejects.toMatchObject({
+        name: 'MissingInstanceNameError',
+        code: 'MISSING_INSTANCE_NAME',
+        httpErrorCode: 400
+      });
+    });
+
+    it('should throw MissingInstanceNameError with prefix when binding found but instance missing', async () => {
+      const env = { MY_DO: createMockNamespace() };
+      const request = createRequest('http://localhost/api/my-do'); // Has prefix and binding but no instance
+      const options: RouteOptions = { prefix: '/api' };
+      
+      await expect(routeDORequest(request, env, options)).rejects.toThrow('binding-name found but doInstanceNameOrId missing');
+      await expect(routeDORequest(request, env, options)).rejects.toMatchObject({
+        name: 'MissingInstanceNameError',
+        code: 'MISSING_INSTANCE_NAME',
+        httpErrorCode: 400
+      });
+    });
   });
 
   describe('complex scenarios', () => {

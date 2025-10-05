@@ -56,22 +56,29 @@
 - [ ] Configure workflow to run on git tags or manual trigger
 - [ ] **Checkpoint**: Decide if CI/CD is needed now or later
 
-### Phase 2: Documentation Content Creation
+### Phase 2: Documentation Content & Review
 
-#### 2.1: Write @lumenize/rpc Documentation
-- [ ] Getting Started guide with testable examples
-- [ ] HTTP Transport usage guide
-- [ ] WebSocket Transport usage guide
-- [ ] Error handling guide
-- [ ] Advanced topics (custom serialization, timeouts, etc.)
-- [ ] Migration guide (if applicable)
-- [ ] **Checkpoint**: Review documentation for completeness
+#### 2.1: Write @lumenize/rpc Documentation ✅ **COMPLETE**
+- [x] Getting Started guide with testable examples
+- [x] HTTP Transport usage guide (covered in quick-start)
+- [x] WebSocket Transport usage guide (testable)
+- [x] Error handling guide (testable)
+- [x] Manual Instrumentation guide (testable)
+- [x] Introduction page
+- [x] Limitations page
 
-#### 2.2: Generate and Review API Docs
-- [ ] Generate API docs for all @lumenize packages
-- [ ] Review for completeness and clarity
-- [ ] Add cross-references between guides and API docs
-- [ ] **Checkpoint**: Final documentation review
+#### 2.2: Write @lumenize/utils Documentation ✅ **COMPLETE**
+- [x] Route DO Request guide
+- [x] Cookie Jar guide (testable)
+- [x] WebSocket Shim guide
+
+#### 2.3: Generate and Review API Docs ✅ **GENERATED** (needs manual review)
+- [x] Generate API docs for all @lumenize packages
+- [x] Configure TypeDoc integration with Docusaurus
+- [x] Add cross-references between guides and API docs
+- [ ] **Manual Review**: Review all generated API reference pages (~dozen+ pages)
+- [ ] **Manual Review**: Review all guide pages for accuracy
+- [ ] **Checkpoint**: Final documentation review complete
 
 ### Phase 3: Testing & Refinement
 
@@ -96,6 +103,7 @@
 
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
+- [ ] Move SonarQube account over to the lumenize repo
 - [ ] Refactor testing to be a matrix WebSocket vs HTTP, Self-instrumented w/ handlers vs lumenizeRpcDo, sub-classed vs not
 - [ ] Also need test(s) that confirm we haven't messed up their own request and message handlers. Don't worry about crossing the streams of using HTTP for RPC but using WebSockets for message handling and vice-versa. Those are good tests.
 - [ ] Add use cases to either quick-start or some other document for @lumenize/rpc. Testing is one, but...
