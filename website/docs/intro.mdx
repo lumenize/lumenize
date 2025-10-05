@@ -5,17 +5,74 @@
 
 ## What is Lumenize?
 
-Lumenize is a framework and a collection of utilities for building applications on Cloudflare Durable Objects (DOs). It provides a set of tools and best practices to help developers create scalable and maintainable applications.
+### Today (October, 2025)
+Today, this repo contains a collection of utilities for building and testing scalable/maintainable applications on Cloudflare Durable Objects (DOs). The primary use-cases you can use today center around Lumenize RPC.
 
-## Opinionated Yet Flexible
+### In-process Integration Testing
+
+1. **Purpose**: High-fidelity in-process integration testing.
+   - No need for a server running in a different process.
+   - Enables a structured 4-step test process:
+     - **Step 1**: Set up storage and state at the beginning of the test.
+     - **Step 2**: Interact with Durable Objects (DOs) as the application would.
+     - **Step 3**: Inspect responses from the interaction.
+     - **Step 4**: Inspect storage and state after the interaction.
+
+2. **Features**:
+   - Test coverage-friendly design.
+   - Robust documentation and examples provided for any test scenario.
+   - Access to `ctx` and `env` from outside the DO.
+   - Ideal for testing your DO's WebSocket features:
+     - `getWebSockets()` for WebSocket testing.
+     - Testing WebSocket auto-response pairs.
+     - Inspecting connection tags.
+
+3. **Client Library Support**:
+   - Compatible with libraries like `AgentClient` and `PartySocket`.
+
+4. **Comparison with `cloudflare:test`**:
+   - Unlike `runInDurableObject`, it does not bypass input/output gates.
+   - Allows you to identify race conditions during testing.
+   
+### In-production RPC
+
+1. **Purpose**: Interact with your DOs from a browser client as if you were running inside.
+
+2. **Supports**:
+   - Any StructuredCloneable type, including:
+     - `Set`, `Map`, `Date`, circular objects, etc.
+   - Full support for `Error` objects:
+     - Errors thrown by your DO propagate back to the client and are re-thrown.
+   - Communicate over HTTP or WebSockets.
+
+3. **Secure**:
+   - Hooks and examples provided to assure security.
+
+4. **Example Usage**:
+   ```typescript
+   await client.ctx.storage.kv.put('count', '10');
+   const currentCount = await client.increment();  // 11
+   ```
+
+### Going Forward
+
+Although not yet released as open source, this is also going to be the home of two other projects: LumenizeBase and Lumenize.
+
+**LumenizeBase** is a modular base class and set of plugins for your DOs with features that differentiate it from Actor, Agent, and McpAgent.
+
+**Lumenize** is the ultimate platform for vibe coding internal enterprise or B2B SaaS applications. It's MCP-first meaning that the only API it exposes is MCP making it out of the box ready for agentic AI workflows. It's also the first MCP platform that requires access control. You have to work hard to make it unsecure, not the other way around.
+
+## *De*light*ful* Developer Experience
+
+### Opinionated Yet Flexible
 
 Lumenize is designed to be opinionated where it matters, providing clear guidance and best practices for building robust scalable applications on DOs. At the same time, it remains flexible wherever that's possible, allowing you to install only the plugins you need, and exposing the same plugin system so you can extend it in the same modular way.
 
-## Shoulders of Giants
+### Shoulders of Giants
 
 Lumenize is the result of taking the best ideas and code from `Agent`, `PartyKit`, `Actor`, and `durable-utils`, adding robustness, and our own unique capabilities. Here is a [blog post that says more about the Lumenize journey](/blog/shoulders-of-giants).
 
-## Engineering Excellence
+### Engineering Excellence
 
 - 90%+ test coverage with meaningful assertions, not just happy path
 - Comprehensive documentation with examples
@@ -38,21 +95,27 @@ Most of what we built is not yet published under an open source license and/or l
   </thead>
   <tbody>
     <tr>
-      <td style={{textAlign: 'left'}}>@lumenize/do-testing</td>
-      <td style={{textAlign: 'left'}}>In-process integration testing (including WebSockets from any JavaScript/TypeScript client without modification)</td>
+      <td style={{textAlign: 'left'}}>@lumenize/rpc for testing</td>
+      <td style={{textAlign: 'left'}}>In-process Integration Testing</td>
       <td style={{textAlign: 'center'}}>MIT</td>
       <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>@lumenize/rpc for production</td>
+      <td style={{textAlign: 'left'}}>In-production RPC w/ browser client</td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>@lumenize/lumenize-base</td>
+      <td style={{textAlign: 'left'}}>LumenizeBase base class</td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'center'}}></td>
     </tr>
     <tr>
       <td style={{textAlign: 'left'}}>@lumenize/lumenize</td>
-      <td style={{textAlign: 'left'}}>LumenizeBase base class</td>
-      <td style={{textAlign: 'center'}}>MIT</td>
-      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
-    </tr>
-    <tr>
-      <td style={{textAlign: 'left'}}>@lumenize/sql</td>
-      <td style={{textAlign: 'left'}}><code>sql</code> template literal custom tag function that gives you string insertion readability with parameterized query security</td>
-      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'left'}}>Vibe coding enterprise or B2B SaaS application</td>
+      <td style={{textAlign: 'center'}}>BSI 1.1</td>
       <td style={{textAlign: 'center'}}></td>
     </tr>
   </tbody>

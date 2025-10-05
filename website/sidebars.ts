@@ -72,7 +72,7 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'intro',
     
-    // Manual RPC section with imported TypeDoc sidebar
+    // RPC
     {
       type: 'category',
       label: 'RPC',
@@ -89,7 +89,7 @@ const sidebars: SidebarsConfig = {
       ],
     },
     
-    // Manual Utils section with imported TypeDoc sidebar
+    // Utils
     {
       type: 'category',
       label: 'Utils',
@@ -102,6 +102,31 @@ const sidebars: SidebarsConfig = {
           : []),
       ],
     },
+
+    // LumenizeBase
+    {
+      type: 'category',
+      label: 'LumenizeBase',
+      items: [
+        'lumenize-base/introduction',
+        // ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
+        //   ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
+        //   : []),
+      ],
+    },
+
+    // Lumenize
+    {
+      type: 'category',
+      label: 'Lumenize',
+      items: [
+        'lumenize/introduction',
+        // ...(typedocLumenizeSidebar && typedocLumenizeSidebar.length > 0
+        //   ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
+        //   : []),
+      ],
+    },
+
   ],
 };
 
