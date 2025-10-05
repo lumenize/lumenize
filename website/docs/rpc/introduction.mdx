@@ -1,5 +1,4 @@
 ---
-sidebar_position: 0
 title: Introduction
 description: Understanding Lumenize RPC for Durable Objects
 ---
@@ -10,11 +9,10 @@ Lumenize RPC provides type-safe remote procedure calls to Cloudflare Durable Obj
 
 ## Key Features
 
-- **Type Safety**: Full TypeScript support with autocomplete
-- **Dual Transport**: HTTP (stateless) or WebSocket (persistent connection)
-- **Rich Types**: Supports all StructuredClone types (Date, Map, Set, RegExp, circular objects, etc.)
-- **Testing First**: Built-in support for comprehensive DO testing
-- **Flexible**: Works with or without instrumentation wrappers
+- **Use for Testing or Production**: Use to "see inside" your DOs for testing or as an RPC system that goes all the way to the client/browser
+- **StructuredClone Types**: Supports all StructuredClone types (Date, Map, Set, RegExp, circular objects, etc.) for parameters and returns
+- **Instrumentation Flexiblity**: Auto-instrumentation of your existing DOs or custom instrumentation
+- **TypeScript Support**: Full TypeScript support with generics for your own DOs
 
 ## Supported Types
 

@@ -1,0 +1,197 @@
+---
+title: Request Routing
+description: Route HTTP and WebSocket requests to Durable Objects with authentication hooks
+---
+
+# Request Routing with `routeDORequest`
+
+The `routeDORequest` function provides intelligent routing of HTTP and WebSocket requests to Durable Objects with support for authentication hooks and prefix matching. It's a near drop-in replacement for Cloudflare's `routeAgentRequest` and PartyKit's `routePartyRequest`, but uses standard Cloudflare naming conventions.
+
+## Installation
+
+```bash npm2yarn
+npm install @lumenize/utils
+```
+
+## Basic Usage
+
+```typescript
+import { routeDORequest } from '@lumenize/utils';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Try to route to DOs first
+    const doResponse = await routeDORequest(request, env);
+    if (doResponse) return doResponse;
+    
+    // Fallback for non-DO requests
+    return new Response("Not Found", { status: 404 });
+  }
+};
+```
+
+## URL Format
+
+Requests must follow this format:
+
+```
+[/${prefix}]/${doBindingName}/${doInstanceNameOrId}[/path...]
+```
+
+**Examples:**
+- `/my-do/instance123` → routes to `env.MY_DO.getByName('instance123')`
+- `/chat-room/lobby` → routes to `env.CHAT_ROOM.getByName('lobby')`
+- `/agents/user-do/john` → with `prefix: '/agents'`, routes to `env.USER_DO.getByName('john')`
+
+## Supported Case Conversions
+
+The function intelligently converts URL path segments to match various binding naming conventions:
+
+| URL Path Segment | Matches Binding Names |
+|------------------|----------------------|
+| `/my-do/...` | `MY_DO`, `MyDO`, `MyDo`, `myDo`, `my-do` |
+| `/user-session/...` | `USER_SESSION`, `UserSession`, `userSession`, `user-session` |
+| `/my-d-o/...` | `MY_D_O`, `MyDO`, `MyDO`, `myDO`, `my-d-o` |
+| `/api-handler/...` | `API_HANDLER`, `ApiHandler`, `apiHandler`, `api-handler` |
+
+## Authentication Hooks
+
+Use hooks to validate requests before they reach your Durable Objects:
+
+```typescript
+const response = await routeDORequest(request, env, {
+  // Hook for WebSocket connections
+  onBeforeConnect: async (request, { doNamespace, doInstanceNameOrId }) => {
+    const token = request.headers.get('Authorization');
+    if (!token || !await validateToken(token)) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    // Add user info to headers
+    const modifiedRequest = new Request(request);
+    modifiedRequest.headers.set('X-User-ID', await getUserId(token));
+    return modifiedRequest;
+  },
+  
+  // Hook for HTTP requests
+  onBeforeRequest: async (request, { doNamespace, doInstanceNameOrId }) => {
+    console.log(`Request to instance: ${doInstanceNameOrId}`);
+    
+    const apiKey = request.headers.get('X-API-Key');
+    if (request.method !== 'GET' && !apiKey) {
+      return Response.json(
+        { error: 'API key required' }, 
+        { status: 403 }
+      );
+    }
+  }
+});
+```
+
+### Hook Behavior
+
+- **WebSocket requests** (`Upgrade: websocket`) → calls `onBeforeConnect` only
+- **HTTP requests** → calls `onBeforeRequest` only
+
+### Hook Return Values
+
+- **`Response`** - Block the request and return this response immediately
+- **`Request`** - Modify the request before forwarding to the DO
+- **`undefined` / `void`** - Continue with the original request
+
+## Prefix Matching
+
+Use the `prefix` option to scope routing to a specific URL path:
+
+```typescript
+// Only route URLs starting with /api/
+const response = await routeDORequest(request, env, {
+  prefix: '/api'
+});
+
+// Now only /api/my-do/instance123 routes, not /my-do/instance123
+```
+
+## Instance ID Handling
+
+The function automatically detects 64-character hex strings (from `newUniqueId().toString()`) and uses `idFromString()` instead of `getByName()`:
+
+```typescript
+// Named instance
+// /my-do/lobby → env.MY_DO.getByName('lobby')
+
+// Unique ID (64-char hex)
+// /my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99
+// → env.MY_DO.get(env.MY_DO.idFromString('8aa7...'))
+```
+
+## Error Handling
+
+The function throws errors for invalid requests:
+
+- **`MissingInstanceNameError`** (400) - Binding name found but instance name/ID missing
+- **`MultipleBindingsFoundError`** (400) - Multiple DO bindings match the path segment (configuration error)
+- **`DOBindingNotFoundError`** (404) - No matching binding found
+
+Each error includes an `httpErrorCode` property for easy HTTP response handling:
+
+```typescript
+try {
+  const stub = getDOStubFromPathname(url.pathname, env);
+  return stub.fetch(request);
+} catch (error: any) {
+  const status = error.httpErrorCode || 500;
+  return new Response(error.message, { status });
+}
+```
+
+## Complete Example
+
+```typescript
+import { routeDORequest } from '@lumenize/utils';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Route all /do/* requests to Durable Objects
+    const doResponse = await routeDORequest(request, env, {
+      prefix: '/do',
+      
+      onBeforeConnect: async (request, context) => {
+        // Validate WebSocket connections
+        if (!request.headers.get('Authorization')) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+      },
+      
+      onBeforeRequest: async (request, context) => {
+        // Log all HTTP requests
+        console.log(`HTTP ${request.method} to ${context.doInstanceNameOrId}`);
+      }
+    });
+    
+    if (doResponse) return doResponse;
+    
+    // Handle non-DO routes
+    if (request.url.endsWith('/health')) {
+      return new Response('OK');
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  }
+};
+```
+
+## Key Features
+
+- **Case-insensitive binding name matching** - Flexible naming conventions
+- **Automatic ID detection** - Handles both named instances and unique IDs
+- **Authentication hooks** - Validate requests before they reach DOs
+- **Prefix support** - Scope routing to specific URL paths
+- **Hono-style behavior** - Returns `undefined` if request doesn't match
+- **Standard Cloudflare naming** - No confusing party/agent/room terminology
+
+## See Also
+
+- [API Reference](/docs/utils/api/functions/routeDORequest)
+- [getDONamespaceFromPathSegment API](/docs/utils/api/functions/getDONamespaceFromPathSegment)
+- [RPC Quick Start](/docs/rpc/quick-start) - Uses `routeDORequest` internally

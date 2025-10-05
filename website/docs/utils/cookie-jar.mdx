@@ -1,0 +1,376 @@
+---
+title: Cookie Jar for Testing
+description: Test cookie-based authentication flows in Durable Objects
+testable: true
+---
+
+# Cookie Jar for Testing
+
+The `CookieJar` class helps you test Durable Objects and Workers that use cookies for authentication, sessions, etc. It automatically manages cookies across HTTP requests and WebSocket upgrades, simulating browser-like behavior in your tests.
+
+## Installation
+
+```bash npm2yarn
+npm install @lumenize/utils
+```
+
+## Basic Usage
+
+The simplest way to use `CookieJar` is to wrap your fetch function:
+
+```typescript test
+import { describe, it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+import { CookieJar } from '@lumenize/utils';
+
+describe('Basic Cookie Usage', () => {
+  it('should automatically manage cookies', async () => {
+    const cookieJar = new CookieJar();
+    const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
+    
+    // Cookies are automatically stored and sent
+    // (We'll see this in action in the next examples)
+    expect(cookieJar).toBeDefined();
+    expect(typeof cookieAwareFetch).toBe('function');
+  });
+});
+```
+
+## Creating a Test Durable Object with Authentication
+
+Let's create a simple Durable Object that uses cookie-based sessions. This DO will have:
+- A login endpoint that sets a session cookie
+- A protected endpoint that requires authentication
+- A WebSocket endpoint that validates sessions
+
+```typescript src/index.ts
+import { lumenizeRpcDo } from '@lumenize/rpc';
+import { routeDORequest } from '@lumenize/utils';
+import { DurableObject } from 'cloudflare:workers';
+
+class _SessionDO extends DurableObject {
+  // Login endpoint - sets session cookie
+  async login(username: string) {
+    const sessionId = crypto.randomUUID();
+    await this.ctx.storage.put(`session:${sessionId}`, { username, createdAt: Date.now() });
+    
+    // Return response with Set-Cookie header
+    return new Response(JSON.stringify({ success: true, username }), {
+      headers: {
+        'Set-Cookie': `sessionid=${sessionId}; Path=/; HttpOnly; SameSite=Strict`
+      }
+    });
+  }
+  
+  // Protected endpoint - requires session cookie
+  async getProfile() {
+    // In a real DO, you'd get the session from the request headers
+    // For this example, we'll simulate it
+    const sessions = await this.ctx.storage.list({ prefix: 'session:' });
+    const session = Array.from(sessions.values())[0];
+    
+    if (!session) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+    
+    return new Response(JSON.stringify({
+      username: session.username,
+      createdAt: session.createdAt
+    }));
+  }
+  
+  // WebSocket handler - validates session
+  async webSocketMessage(ws: WebSocket, message: string) {
+    // Echo the message back
+    ws.send(`Echo: ${message}`);
+  }
+  
+  // Helper to get session info for testing
+  async getSessionCount() {
+    const sessions = await this.ctx.storage.list({ prefix: 'session:' });
+    return sessions.size;
+  }
+}
+
+export const SessionDO = lumenizeRpcDo(_SessionDO);
+
+export default {
+  async fetch(request: Request, env: any): Promise<Response> {
+    const url = new URL(request.url);
+    const rpcResponse = await routeDORequest(request, env, { prefix: '__rpc' });
+    if (rpcResponse) return rpcResponse;
+    
+    // Handle custom endpoints
+    const stub = env.SESSION_DO.getByName('test');
+    const instance = new _SessionDO(stub.state, env);
+    
+    if (url.pathname.startsWith('/session/')) {
+      const parts = url.pathname.split('/');
+      const instanceName = parts[2];
+      
+      if (url.pathname.endsWith('/login')) {
+        const username = url.searchParams.get('username') || 'guest';
+        return await instance.login(username);
+      }
+      
+      if (url.pathname.endsWith('/profile')) {
+        return await instance.getProfile();
+      }
+      
+      // WebSocket upgrade
+      if (request.headers.get('Upgrade') === 'websocket') {
+        const pair = new WebSocketPair();
+        const [client, server] = Object.values(pair);
+        
+        server.accept();
+        server.addEventListener('message', (event) => {
+          instance.webSocketMessage(server, event.data as string);
+        });
+        
+        return new Response(null, {
+          status: 101,
+          webSocket: client as any
+        });
+      }
+    }
+    
+    return new Response('Not Found', { status: 404 });
+  }
+};
+```
+
+## Configure Wrangler
+
+```jsonc wrangler
+{
+  "name": "cookie-jar-example",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SESSION_DO",
+        "class_name": "SessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SessionDO"]
+    }
+  ]
+}
+```
+
+## Testing HTTP Authentication Flow
+
+Now let's test the login and protected endpoints with automatic cookie management:
+
+```typescript test
+import { createRpcClient, RpcAccessible } from '@lumenize/rpc';
+import { SessionDO } from '../src/index';
+type SessionDO = RpcAccessible<InstanceType<typeof SessionDO>>;
+
+describe('HTTP Cookie Authentication', () => {
+  it('should handle login and session flow', async () => {
+    const cookieJar = new CookieJar();
+    const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
+    
+    // Step 1: Login (sets session cookie)
+    const loginResponse = await cookieAwareFetch(
+      'http://test/session/test-user/login?username=alice'
+    );
+    expect(loginResponse.ok).toBe(true);
+    
+    // Verify cookie was stored
+    const sessionCookie = cookieJar.getCookie('sessionid');
+    expect(sessionCookie).toBeDefined();
+    expect(sessionCookie).toMatch(/^[0-9a-f-]+$/); // UUID format
+    
+    // Step 2: Access protected endpoint (cookie sent automatically)
+    const profileResponse = await cookieAwareFetch(
+      'http://test/session/test-user/profile'
+    );
+    expect(profileResponse.ok).toBe(true);
+    
+    const profile = await profileResponse.json();
+    expect(profile.username).toBe('alice');
+    
+    // Step 3: Verify session was created via RPC (separate from cookie flow)
+    const rpcClient = createRpcClient<SessionDO>({
+      fetch: SELF.fetch.bind(SELF), // Plain fetch, no cookies
+      baseUrl: 'http://test',
+      doBindingName: 'SESSION_DO',
+      doInstanceNameOrId: 'test-user'
+    });
+    
+    const sessionCount = await rpcClient.getSessionCount();
+    expect(sessionCount).toBe(1);
+  });
+});
+```
+
+## Testing WebSocket with Cookies
+
+WebSockets can also use cookies for authentication. Use `getWebSocketShim` with your cookie-aware fetch:
+
+```typescript test
+import { getWebSocketShim } from '@lumenize/utils';
+
+describe('WebSocket with Cookies', () => {
+  it('should authenticate WebSocket connections with cookies', async () => {
+    const cookieJar = new CookieJar();
+    const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
+    
+    // Step 1: Login to get session cookie
+    await cookieAwareFetch('http://test/session/ws-user/login?username=bob');
+    expect(cookieJar.getCookie('sessionid')).toBeDefined();
+    
+    // Step 2: Create WebSocket with cookie-aware fetch
+    const WebSocketClass = getWebSocketShim(cookieAwareFetch);
+    const ws = new WebSocketClass('ws://test/session/ws-user/websocket');
+    
+    // Wait for connection
+    await new Promise((resolve) => {
+      ws.onopen = resolve;
+    });
+    
+    // Step 3: Send message and verify echo
+    let receivedMessage: string | null = null;
+    ws.onmessage = (event) => {
+      receivedMessage = event.data;
+    };
+    
+    ws.send('Hello with cookies!');
+    
+    // Wait for response
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    
+    expect(receivedMessage).toBe('Echo: Hello with cookies!');
+    
+    ws.close();
+  });
+});
+```
+
+## Mixing Cookie-Aware and RPC Connections
+
+A common pattern is to use cookie-aware fetch for testing your user-facing endpoints, while using RPC (without cookies) to inspect internal state:
+
+```typescript test
+describe('Mixed Cookie and RPC Usage', () => {
+  it('should handle both authentication and state inspection', async () => {
+    const cookieJar = new CookieJar();
+    const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
+    
+    // User-facing authentication flow (with cookies)
+    await cookieAwareFetch('http://test/session/mixed-user/login?username=charlie');
+    const profileResponse = await cookieAwareFetch('http://test/session/mixed-user/profile');
+    const profile = await profileResponse.json();
+    expect(profile.username).toBe('charlie');
+    
+    // Internal state inspection via RPC (no cookies)
+    const rpcClient = createRpcClient<SessionDO>({
+      fetch: SELF.fetch.bind(SELF),
+      baseUrl: 'http://test',
+      doBindingName: 'SESSION_DO',
+      doInstanceNameOrId: 'mixed-user'
+    });
+    
+    // Inspect internal state
+    const sessionCount = await rpcClient.getSessionCount();
+    expect(sessionCount).toBe(1);
+    
+    // Inspect storage directly
+    const sessions = await rpcClient.ctx.storage.list({ prefix: 'session:' });
+    expect(sessions.size).toBe(1);
+  });
+});
+```
+
+## Manual Cookie Management
+
+You can also manually inspect and manipulate cookies:
+
+```typescript test
+describe('Manual Cookie Management', () => {
+  it('should allow manual cookie operations', async () => {
+    const cookieJar = new CookieJar();
+    
+    // Set hostname manually (or let first fetch infer it)
+    cookieJar.setDefaultHostname('test.com');
+    
+    // Manually set cookies
+    cookieJar.setCookie('custom', 'value123', {
+      path: '/',
+      expires: new Date(Date.now() + 86400000) // 24 hours
+    });
+    
+    // Get specific cookie
+    const customCookie = cookieJar.getCookie('custom');
+    expect(customCookie).toBe('value123');
+    
+    // Get all cookies
+    const allCookies = cookieJar.getAllCookies();
+    expect(allCookies).toHaveLength(1);
+    expect(allCookies[0]?.name).toBe('custom');
+    
+    // Remove cookie
+    cookieJar.removeCookie('custom');
+    expect(cookieJar.getCookie('custom')).toBeUndefined();
+    
+    // Clear all cookies
+    cookieJar.clear();
+    expect(cookieJar.getAllCookies()).toHaveLength(0);
+  });
+});
+```
+
+## Advanced: Multi-Domain Testing
+
+Cookie jar handles multiple domains correctly:
+
+```typescript test
+describe('Multi-Domain Cookies', () => {
+  it('should isolate cookies by domain', async () => {
+    const cookieJar = new CookieJar();
+    
+    // Set cookies for different domains
+    cookieJar.setCookie('site1-token', 'token1', { domain: 'site1.com' });
+    cookieJar.setCookie('site2-token', 'token2', { domain: 'site2.com' });
+    
+    // Verify domain isolation
+    expect(cookieJar.getCookie('site1-token', 'site1.com')).toBe('token1');
+    expect(cookieJar.getCookie('site1-token', 'site2.com')).toBeUndefined();
+    
+    expect(cookieJar.getCookie('site2-token', 'site2.com')).toBe('token2');
+    expect(cookieJar.getCookie('site2-token', 'site1.com')).toBeUndefined();
+    
+    // Get all cookies
+    const allCookies = cookieJar.getAllCookies();
+    expect(allCookies).toHaveLength(2);
+  });
+});
+```
+
+## API Reference
+
+For complete API documentation, see the [Cookie Jar API reference](/docs/utils/api/classes/CookieJar).
+
+## Key Features
+
+- **Automatic cookie management**: Cookies are stored from `Set-Cookie` headers and included in subsequent requests
+- **Domain and path matching**: RFC-compliant cookie matching based on domain and path
+- **Expiration handling**: Expired cookies are automatically filtered out
+- **WebSocket support**: Works with `getWebSocketShim` for cookie-aware WebSocket connections
+- **Manual control**: Full API for inspecting, setting, and removing cookies
+- **Multi-domain support**: Properly isolates cookies by domain
+- **Enable/disable toggle**: Turn cookie jar on/off as needed
+
+## Next Steps
+
+- Learn about [WebSocket testing](/docs/rpc/websocket-testing)
+- Explore the [RPC Quick Start](/docs/rpc/quick-start)
+- Check out [routeDORequest API](/docs/utils/api/functions/routeDORequest)

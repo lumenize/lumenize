@@ -2,18 +2,18 @@
 
 A *de*light*ful* RPC system for Cloudflare Durable Objects that makes your DOs accessible via intuitive proxy calls.
 
-## Security Warning
-
-⚠️ **IMPORTANT**: This package exposes your DO internals via RPC endpoints. Only use in development or secure the endpoints appropriately for production use.
-
-## Usage
-
-Coming soon...
+For complete documentation, visit **[https://lumenize.com](https://lumenize.com)**
 
 ## Features
 
-Coming soon...
+- **Use for Testing or Production**: Use to "see inside" your DOs for testing or as an RPC system that goes all the way to the client/browser
+- **StructuredClone Types**: Supports all StructuredClone types (Date, Map, Set, RegExp, circular objects, etc.) for parameters and returns
+- **Instrumentation Flexiblity**: Auto-instrumentation of your existing DOs or custom instrumentation
+- **TypeScript Support**: Full TypeScript support with generics for your own DOs
 
-## Documentation
 
-Coming soon...
+## Installation
+
+```bash
+npm install @lumenize/rpc
+```
