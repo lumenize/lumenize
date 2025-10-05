@@ -1,89 +1,4 @@
-/**
- * WebSocket shim for Cloudflare Workers test environment (cloudflare:test).
- * 
- * Provides a browser-compatible WebSocket API that works in Cloudflare's test
- * environment by using a fetch function to initiate WebSocket upgrade requests.
- * 
- * ## Key Features
- * 
- * - **Browser-compatible API**: Matches standard WebSocket interface
- * - **Protocol negotiation**: Supports Sec-WebSocket-Protocol header
- * - **Custom headers**: Allows injection of headers for testing (auth, etc.)
- * 
- * ## Usage
- * 
- * ### Basic usage (browser-compatible):
- * ```typescript
- * import { getWebSocketShim } from '@lumenize/rpc';
- * import { SELF } from 'cloudflare:test';
- * 
- * const WebSocketShimClass = getWebSocketShim(SELF.fetch.bind(SELF));
- * const ws = new WebSocketShimClass("wss://example.test/room/42");
- * 
- * ws.onopen = () => {
- *   console.log('Connected!');
- *   ws.send("Hello server");
- * };
- * 
- * ws.onmessage = (e) => {
- *   console.log("Received:", e.data);
- * };
- * 
- * ws.onerror = (e) => {
- *   console.error("WebSocket error:", e);
- * };
- * 
- * ws.onclose = (e) => {
- *   console.log("Closed:", e.code, e.reason);
- * };
- * ```
- * 
- * ### With protocol negotiation:
- * ```typescript
- * const ws = new WebSocketShimClass(
- *   "wss://example.test/room/42",
- *   ["chat.v2", "chat.v1"]
- * );
- * 
- * ws.onopen = () => {
- *   console.log('Server selected protocol:', ws.protocol);
- * };
- * ```
- * 
- * ### With testing-specific options (headers, queue limits):
- * ```typescript
- * const WebSocketShimClass = getWebSocketShim(SELF.fetch.bind(SELF), {
- *   headers: { "Authorization": "Bearer test-token" },
- *   maxQueueBytes: 1024 * 1024 // 1MB queue limit
- * });
- * 
- * const ws = new WebSocketShimClass("wss://example.test/room/42");
- * ```
- * 
- * ## Implementation Details
- * 
- * This shim works by:
- * 1. Converting WebSocket URLs (ws://, wss://) to HTTP URLs (http://, https://)
- * 2. Making an HTTP request with `Upgrade: websocket` header via the provided fetch function
- * 3. Extracting the WebSocket from the response and calling accept()
- * 4. Forwarding all WebSocket events (open, message, error, close)
- * 5. Queuing messages sent during CONNECTING state
- * 
- * ## Differences from Browser WebSocket
- * 
- * - Uses a fetch function instead of native WebSocket constructor for connection establishment
- * - Provides explicit `maxQueueBytes` configuration for CONNECTING state buffer limits
- * - Allows injection of headers for testing (auth, etc.)
- * 
- * @module websocket-shim
- */
-
 type WSData = string | ArrayBuffer | Blob | Uint8Array;
-
-export interface FactoryInit {
-  headers?: Record<string, string>;
-  maxQueueBytes?: number; // optional cap for queued bytes during CONNECTING
-}
 
 interface InternalInit {
   url: string;
@@ -92,6 +7,26 @@ interface InternalInit {
   maxQueueBytes?: number;
 }
 
+/**
+ * Configuration options for creating a WebSocket shim factory.
+ */
+export interface FactoryInit {
+  /** Optional headers to include in the WebSocket upgrade request (e.g., for authentication). */
+  headers?: Record<string, string>;
+  /** Optional maximum number of bytes that can be queued while in CONNECTING state. Defaults to unlimited. */
+  maxQueueBytes?: number;
+}
+
+/**
+ * Creates a WebSocket shim class for use in Cloudflare Workers test environments.
+ * 
+ * Returns a browser-compatible WebSocket constructor that uses a provided fetch function to initiate
+ * WebSocket connections, enabling testing without a separate server.
+ * 
+ * @param fetchFn - The fetch function to use for WebSocket upgrade requests (e.g., `SELF.fetch.bind(SELF)`).
+ * @param factoryInit - Optional configuration for headers and queue limits.
+ * @returns A WebSocket-compatible constructor class.
+ */
 export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryInit): new (url: string, protocols?: string | string[]) => WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)

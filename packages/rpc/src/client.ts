@@ -6,7 +6,9 @@ import { convertRemoteFunctionsToStrings } from './object-inspection';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
- * Connection is established automatically on first method call (lazy connection).
+ * Connection is established automatically on first method call (lazy connection)
+ * and auto-reconnected on first call after disconnect.
+ * 
  * Use 'await using' for automatic cleanup, or manually manage lifecycle.
  * 
  * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client) - Complete tested examples

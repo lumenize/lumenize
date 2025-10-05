@@ -165,29 +165,32 @@ export interface RpcClientConfig {
   timeout?: number;
   
   /**
-   * Custom fetch function (for testing or alternative implementations)
+   * Alternative fetch function (e.g. `SELF.fetch.bind(SELF)` for in vitest Workers pool env)
    * @default globalThis.fetch
    */
   fetch?: typeof globalThis.fetch;
   
   /**
-   * Request headers to include in all RPC requests
+   * Request headers to include in all HTTP RPC requests
    * @default {}
    */
   headers?: Record<string, string>;
   
   /**
-   * WebSocket class to use (for testing or alternative implementations)
+   * WebSocket class. Use the WebSocket that's returned from `getWebSocketShim(...)` in vitest Workers pool env
    * @default globalThis.WebSocket
    */
   WebSocketClass?: new (url: string, protocols?: string | string[]) => WebSocket;
 }
 
 /**
- * Type representing the proxy object returned by createRpcClient().
+ * Type representing the Proxy object returned by createRpcClient().
+ * 
  * Provides transparent RPC access to Durable Object methods with automatic connection management.
  * 
- * Connection is established automatically on first method call (lazy connection).
+ * Connection is established automatically on first method call (lazy connection)
+ * and auto-reconnects on first call after disconnect.
+ * 
  * Implements Symbol.asyncDispose for automatic cleanup with 'await using' keyword.
  * 
  * @example
