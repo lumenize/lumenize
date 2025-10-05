@@ -21,7 +21,7 @@
 
 type WSData = string | ArrayBuffer | Blob | Uint8Array;
 
-interface FactoryInit {
+export interface FactoryInit {
   headers?: Record<string, string>;
   maxQueueBytes?: number; // optional cap for queued bytes during CONNECTING
 }

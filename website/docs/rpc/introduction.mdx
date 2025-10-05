@@ -7,76 +7,73 @@ description: Understanding Lumenize RPC for Durable Objects
 
 Lumenize RPC provides type-safe remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
 
-## Key Features
+Lumenize RPC has two different use cases:
 
-- **Use for Testing or Production**: Use to "see inside" your DOs for testing or as an RPC system that goes all the way to the client/browser
-- **StructuredClone Types**: Supports all StructuredClone types (Date, Map, Set, RegExp, circular objects, etc.) for parameters and returns
-- **Instrumentation Flexiblity**: Auto-instrumentation of your existing DOs or custom instrumentation
-- **TypeScript Support**: Full TypeScript support with generics for your own DOs
+## Use Case: In-process Integration Testing
 
-## Supported Types
+1. **Purpose**: High-fidelity in-process integration testing.
+   - No need for a server running in a different process.
+   - Enables a structured 4-step test process:
+     - **Step 1**: Set up storage and state at the beginning of the test.
+     - **Step 2**: Interact with Durable Objects (DOs) as the application would.
+     - **Step 3**: Inspect responses from the interaction.
+     - **Step 4**: Inspect storage and state after the interaction.
 
-RPC automatically serializes and deserializes all StructuredClone-compatible types:
+2. **Features**:
+   - CI-friendly because there is no need to run a server in a separate process.
+   - Robust documentation and examples provided for any test scenario.
+   - Access to `ctx`, `env`, your own methods... all of it, from outside the DO.
+   - Ideal for testing your DO's WebSocket features:
+     - `getWebSockets()` for WebSocket testing.
+     - Testing WebSocket auto-response pairs.
+     - Inspecting connection tags.
 
-- **Primitives**: `string`, `number`, `boolean`, `null`, `undefined`, `bigint`
-- **Objects**: Plain objects with circular references
-- **Arrays**: Including nested arrays
-- **Built-ins**: `Date`, `RegExp`, `Map`, `Set`, `ArrayBuffer`, `TypedArray`
-- **Errors**: `Error` instances with stack traces
+3. **Client library support**:
+   - Compatible with libraries like `AgentClient` and `PartySocket` or your own WebSocket-based client
+   - Get test coverage of both your client and the server
 
-**Not supported**: Functions, Symbols, DOM nodes, or anything not supported by the [structured clone algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm).
+4. **Comparison with `cloudflare:test`**:
+   - Unlike `runInDurableObject`:
+     - It does not bypass input/output gates.
+     - It is friendly to test coverage instrumentation.
+   - Allows you to identify race conditions during testing.
+   
+## Use Case: In-production RPC
 
-## Transport Options
+1. **Purpose**: Interact with your DOs from a browser client as if you were running inside.
 
-### HTTP Transport
-- Stateless, one request per RPC call
-- Simple, familiar request/response pattern
-- Best for: Infrequent calls, serverless functions, edge cases
+2. **Supports**:
+   - Any StructuredCloneable type, including:
+     - `Set`, `Map`, `Date`, circular objects, etc.
+   - Errors thrown by your DO propagate back to the client and are re-thrown.
+   - Communicate over HTTP or WebSockets.
 
-### WebSocket Transport (Default)
+3. **Secure**:
+   - Hooks and examples provided to assure security.
+
+4. **Example Usage**:
+   ```typescript
+   await client.ctx.storage.kv.put('count', '10');
+   const currentCount = await client.increment();  // 11
+   ```
+
+## WebSocket vs HTTP
+
+At the moment, both transports have identical functionality, but different characteristics.
+
+### WebSocket (default)
 - Persistent connection for multiple calls
-- Lower latency for repeated operations
-- Best for: Interactive applications, real-time features
-- Future: Bidirectional RPC (server-to-client calls)
+- Initial connection overhead
+- Lower latency for subsequent calls
+- Utilizes automatic connection management
+- Will lazy reconnect on next call after drop
 
-## Two Instrumentation Approaches
+### HTTP
+- One request per RPC call
+- No persistent connection overhead
+- Slightly higher latency per call
 
-### 1. Automatic (Recommended)
-Wrap your DO class with `lumenizeRpcDo()`:
-
-```typescript
-import { lumenizeRpcDo } from '@lumenize/rpc';
-
-class _MyDO extends DurableObject {
-  increment() { /* ... */ }
-}
-
-export const MyDO = lumenizeRpcDo(_MyDO);
-```
-
-### 2. Manual
-Implement your own routing with `handleRPCRequest()` and `handleWebSocketRPCMessage()`:
-
-```typescript
-import { handleRPCRequest, handleWebSocketRPCMessage } from '@lumenize/rpc';
-
-export class MyDO extends DurableObject {
-  increment() { /* ... */ }
-  
-  async fetch(request: Request) {
-    // Custom routing first
-    if (new URL(request.url).pathname === '/health') {
-      return new Response('OK');
-    }
-    
-    // RPC handling
-    return await handleRPCRequest(request, this);
-  }
-}
-```
-
-See [Manual Instrumentation](./manual-instrumentation.mdx) for details.
-
-## Getting Started
-
-Continue to the [Quick Start](./quick-start.mdx) guide to build your first RPC-enabled Durable Object.
+Choose based on your use case:
+- **When in doubt**: WebSocket is usually as reliable and almost always more efficient
+- **In-production use with unknown network intermediaries**: HTTP is potentially more reliable
+- **Future proof**: To-be-released Lumenize uses WebSocket for server-client communications like for state synchronization

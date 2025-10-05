@@ -6,53 +6,15 @@
 ## What is Lumenize?
 
 ### Today (October, 2025)
-Today, this repo contains a collection of utilities for building and testing scalable/maintainable applications on Cloudflare Durable Objects (DOs). The primary use-cases you can use today center around Lumenize RPC.
+Today, this repo contains a collection of utilities for building and testing scalable/maintainable applications on Cloudflare Durable Objects (DOs). The primary use-cases you can use today center around Lumenize RPC:
 
-### In-process Integration Testing
+1. **In-process integration testing**. More capability and more *de*light*ful* DX than `cloudflare:test`'s runInDurableObjects particularly for testing DOs that implement WebSockets. Supports: `new WebSockets()`, client libraries, test auto response pair, test coverage, etc.
 
-1. **Purpose**: High-fidelity in-process integration testing.
-   - No need for a server running in a different process.
-   - Enables a structured 4-step test process:
-     - **Step 1**: Set up storage and state at the beginning of the test.
-     - **Step 2**: Interact with Durable Objects (DOs) as the application would.
-     - **Step 3**: Inspect responses from the interaction.
-     - **Step 4**: Inspect storage and state after the interaction.
-
-2. **Features**:
-   - Test coverage-friendly design.
-   - Robust documentation and examples provided for any test scenario.
-   - Access to `ctx` and `env` from outside the DO.
-   - Ideal for testing your DO's WebSocket features:
-     - `getWebSockets()` for WebSocket testing.
-     - Testing WebSocket auto-response pairs.
-     - Inspecting connection tags.
-
-3. **Client Library Support**:
-   - Compatible with libraries like `AgentClient` and `PartySocket`.
-
-4. **Comparison with `cloudflare:test`**:
-   - Unlike `runInDurableObject`, it does not bypass input/output gates.
-   - Allows you to identify race conditions during testing.
-   
-### In-production RPC
-
-1. **Purpose**: Interact with your DOs from a browser client as if you were running inside.
-
-2. **Supports**:
-   - Any StructuredCloneable type, including:
-     - `Set`, `Map`, `Date`, circular objects, etc.
-   - Full support for `Error` objects:
-     - Errors thrown by your DO propagate back to the client and are re-thrown.
-   - Communicate over HTTP or WebSockets.
-
-3. **Secure**:
-   - Hooks and examples provided to assure security.
-
-4. **Example Usage**:
-   ```typescript
-   await client.ctx.storage.kv.put('count', '10');
-   const currentCount = await client.increment();  // 11
-   ```
+2. **In-production RPC all the way from a browser**. Provides all the capability you need to securly run in production, also, with a *de*light*ful* DX:
+  ```typescript
+  await client.ctx.storage.kv.put('count', '10');
+  const currentCount = await client.increment();  // 11
+  ```
 
 ### Going Forward
 
@@ -60,7 +22,7 @@ Although not yet released as open source, this is also going to be the home of t
 
 **LumenizeBase** is a modular base class and set of plugins for your DOs with features that differentiate it from Actor, Agent, and McpAgent.
 
-**Lumenize** is the ultimate platform for vibe coding internal enterprise or B2B SaaS applications. It's MCP-first meaning that the only API it exposes is MCP making it out of the box ready for agentic AI workflows. It's also the first MCP platform that requires access control. You have to work hard to make it unsecure, not the other way around.
+**Lumenize** is the ultimate platform for vibe coding internal enterprise or B2B SaaS applications. It's MCP-first meaning that the only API it exposes is MCP. Without any additional effort, it's ready for agentic AI workflows. It's also the first MCP platform that where it is difficult to make it unsecure, as opposed to the other way around.
 
 ## *De*light*ful* Developer Experience
 
