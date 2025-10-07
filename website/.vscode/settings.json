@@ -1,0 +1,9 @@
+{
+  // Allow Mermaid in Markdown Preview Enhanced / Mermaid extensions
+  "markdown-preview-enhanced.mermaidTheme": "default",
+  "markdown-preview-enhanced.enableScriptExecution": true,
+  // Built-in markdown preview security (if using other Mermaid previewers)
+  "markdown.preview.security.level": "allow-scripts",
+  // Some mermaid plugins use fenced code block like ```mermaid
+  "markdown.extension.print.validateUrls": false
+}
