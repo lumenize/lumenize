@@ -27,7 +27,6 @@ const config: Config = {
   projectName: 'lumenize', // Usually your repo name.
 
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
@@ -110,9 +109,12 @@ const config: Config = {
     ],
   ],
 
-  // Enable Mermaid in Markdown/MDX
+  // Enable Mermaid and configure Markdown hooks
   markdown: {
     mermaid: true,
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
   },
   themes: ['@docusaurus/theme-mermaid'],
 
@@ -148,7 +150,7 @@ const config: Config = {
           items: [
             {
               label: 'What is Lumenize?',
-              to: '/docs/intro#what-is-lumenize',
+              to: '/docs/introduction#what-is-lumenize',
             },
           ],
         },

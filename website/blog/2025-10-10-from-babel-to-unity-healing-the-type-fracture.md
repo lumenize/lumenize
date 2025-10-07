@@ -1,5 +1,5 @@
 ---
-title: From Babel to Unity: Healing the Type Fracture
+title: "From Babel to Unity: Healing the Type Fracture"
 slug: from-babel-to-unity-healing-the-type-fracture
 authors: [larry]
 tags: [personal]
@@ -12,6 +12,8 @@ The history of software is one long pendulum swing between unification and fract
 We’re in that moment again. You’re reading the room exactly right: TypeSpec sits in that ever-expanding Venn diagram overlap of types, schemas, validation, and code generation — the same patch of cognitive quicksand already occupied by TypeScript, JSON Schema, Zod, and friends.
 
 From where I stand — building Lumenize to implement the Model Context Protocol (MCP) — I can’t remain neutral. I’m forced to choose. And that choice matters, because MCP is all about context portability: moving structured data democratically across agents, runtimes, and languages. Your type/design system has to survive the journey.
+
+<!-- truncate -->
 
 ⸻
 
@@ -85,72 +87,36 @@ This separation keeps your internal code flexible and expressive, and your wire 
 
 ⸻
 
-## Visual: Four paths to types and validation
+## Visuals: two simple pipelines (narrative-first)
 
-### 1) Zod v4 + TypeScript
-
-```mermaid
-flowchart LR
-  Dev[Developer] --> Zod[Zod v4 Schemas]
-  Zod -- infer --> TS[TypeScript types]
-  Data[Runtime data] -->|z.parse() / z.safeParse()| Zod --> Valid[Validated data]
-  Zod -- toJSONSchema() --> JSchema[JSON Schema]
-  JSchema -. potential gaps/caveats .-> Eco[External tooling (codegen, docs)]
-  JSchema --> MCP[MCP (tools/clients)]
-```
-
-- Strengths: TS-native ergonomics, expressive combinators, great DX. Now exports JSON Schema in v4.
-- Caveats: JSON Schema export may not be 1:1 with every consumer; performance varies by shape/depth.
-- MCP: Can consume JSON Schema produced from Zod v4 for tool/contract definitions.
-
-### 2) Zod v4 + TypeScript + Ajv
+### Python SDK today — a linear pipeline
 
 ```mermaid
 flowchart LR
-  Dev[Developer] --> Zod[Zod v4 Schemas]
-  Zod -- infer --> TS[TypeScript types]
-  Zod -- toJSONSchema() --> JSchema[JSON Schema]
-  JSchema --> AJV[Ajv compile()]
-  JSchema --> MCP[MCP (tools/clients)]
-  Data[Runtime data] --> AJV --> Valid[Validated data]
+  PyTypes["Python type hints / Pydantic v2 models"] --> JSC["Generate JSON Schema for tools"]
+  JSC -->|wire| Wire["JSON Schema on the wire\n(tools.inputSchema/outputSchema, elicitation.requestedSchema)"]
+  Wire --> JSV["jsonschema validation at runtime"]
 ```
 
-- Why: Use Ajv for high-performance/runtime-standard JSON Schema validation while authoring in Zod.
-- Trade-offs: Two-step pipeline (Zod → JSON Schema → Ajv). Keep an eye on conversion fidelity and bundle size.
-- MCP: Consumes the JSON Schema branch for interoperable tool definitions and contracts.
+Notes
+- Author tools in Python using type hints and Pydantic; the SDK derives JSON Schema for tool input/output where needed.
+- On the wire, JSON Schema is used for tool discovery and validation (including elicitation). Validation is performed by the `jsonschema` library at runtime.
 
-### 3) TypeBox + TypeScript + TypeBox Value
+### Lumenize — TypeBox-first with one small branch
 
 ```mermaid
 flowchart LR
-  Dev[Developer] --> TB[TypeBox Schema (JSON Schema)]
-  TB -- Static<TSchema> --> TS[TypeScript types]
-  Data[Runtime data] -->|Value.Check(schema)| VAL[TypeBox Value validator]
-  TB --> Eco[JSON Schema ecosystem (OpenAPI, codegen, docs)]
-  TB --> MCP[MCP (tools/clients)]
-  TB -. optional .-> AJV[Ajv compile()] -. optional .-> VAL2[Validated (Ajv path)]
+  TB["TypeBox schema (JSON Schema native)"]
+  TB --> TSTypes["Static<T> (TypeScript types, in-process)"]
+  TB --> JSC["JSON Schema (wire contract)"]
+  JSC -. optional .-> Ajv["Ajv validators"]
+  TB -. optional .-> Value["TypeBox Value (interpreter, edge-safe)"]
 ```
 
-- Strengths: Schemas are native JSON Schema; zero new DSL. TypeBox Value validates plain JSON Schema (no eval, edge-friendly). Static<TSchema> gives types.
-- Options: Ajv remains available when you want JIT-compiled validators; Value works great in sandboxed/edge runtimes.
-
-### 4) TypeSpec + Emitters (OpenAPI / JSON Schema / Protobuf) + Validators/Codegen
-
-```mermaid
-flowchart LR
-  Dev[Developer] --> TSpec[TypeSpec DSL (.tsp)]
-  TSpec --> OAS[OpenAPI 3.x (emitter)]
-  TSpec --> JSchema[JSON Schema (emitter)]
-  TSpec --> Proto[Protobuf (emitter)]
-  OAS --> Tooling[Gateways, client/server codegen, docs]
-  OAS -. component schemas .-> MCP[MCP (tools/clients)]
-  JSchema --> AJV[Ajv / JSON Schema validators]
-  JSchema --> MCP
-  Proto --> GRPC[gRPC stubs]
-```
-
-- Strengths: Single-source API design with multi-protocol emitters; strong editor tooling and linting.
-- Considerations: Adds a DSL and compile step; runtime validation and type generation depend on emitted artifacts and downstream tools.
+Notes
+- We author wire contracts directly as JSON Schema via TypeBox.
+- We infer TypeScript types in memory for implementation ergonomics.
+- Validation is either interpreter-based (TypeBox Value) for codegen-hostile runtimes, or Ajv when compiled performance is desired.
 
 ## Choosing Fewer Fractures Over False Unity
 
@@ -164,3 +130,59 @@ TypeSpec promises a new world. Zod 4 makes progress toward compatibility. But Ty
 	•	It aligns with the Rule of Wire Separation.
 
 That’s why Lumenize is built around it. We don’t demand you throw away everything. We just demand coherence: that code and schema speak the same language on both sides of the wire.
+
+## Receipts: what we found (specific, linkable examples)
+
+Concrete places where starting from TS/Zod and emitting JSON Schema, or mixing dialects/validators, caused friction. These support designing wire contracts as JSON Schema first (or with TypeBox, which is JSON Schema–native).
+
+- Non‑standard enumNames vs JSON Schema
+  - Historically used `enumNames` (non-standard) for enum display labels. Fixes replace with standard patterns (for example, `oneOf` with `const`+`title`).
+  - Evidence: TypeScript SDK PR “Replace non‑standard enumNames with standard oneOf” (#844)
+    https://github.com/modelcontextprotocol/typescript-sdk/pull/844
+  - Evidence: Spec work “Elicitation Enum Schema Improvements and Standards Compliance” (#1148 PR, #1330 issue)
+    https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1148
+    https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1330
+
+- Dialect mismatch (draft‑07 vs 2020‑12)
+  - Clients/tools increasingly assume JSON Schema 2020‑12 while generated schema remained draft‑07 for a period, causing incompatibilities.
+  - Evidence: Spec issue “Support full JSON Schema 2020‑12” (#834) and PR “Tools inputSchema & outputSchema conform to JSON Schema 2020‑12” (#881)
+    https://github.com/modelcontextprotocol/modelcontextprotocol/issues/834
+    https://github.com/modelcontextprotocol/modelcontextprotocol/pull/881
+  - Evidence: Spec proposal “Establish JSON Schema 2020‑12 as Default Dialect for MCP” (#1613)
+    https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1613
+  - Evidence: TS SDK issue “MCP TypeScript SDK generates JSON Schema draft‑07…” (#745)
+    https://github.com/modelcontextprotocol/typescript-sdk/issues/745
+
+- Zod → JSON Schema conversion fidelity gaps
+  - Some Zod features don’t round‑trip cleanly to JSON Schema (e.g., transforms, certain unions), leading to lost intent on the wire.
+  - Evidence: TS SDK issue “Zod transform functions are lost during JSON Schema conversion, breaking union types” (#702)
+    https://github.com/modelcontextprotocol/typescript-sdk/issues/702
+  - Evidence: “fix: Zod to JSONSchema pipe strategies” (#962)
+    https://github.com/modelcontextprotocol/typescript-sdk/pull/962
+
+- Format/annotation mismatches
+  - Incorrect or non‑standard `format` values in generated schemas and custom formats requiring out‑of‑band support (for example, `uri-template`). Spec TS uses JSDoc `@TJS-type` hints to steer generation, which can drift from normative JSON Schema.
+  - Evidence: Spec PR “Fix format value for websiteUrl in draft schema.json” (#1529)
+    https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1529
+
+- Elicitation specifics: subset design and cross‑SDK differences
+  - Elicitation’s `requestedSchema` is a restricted subset of JSON Schema (primitives only). Multiple iterations aligned behavior (defaults, enums, accept without content), plus runtime/env issues.
+  - Evidence: Spec PR “Add default values for all primitive types in elicitation schemas” (#1035)
+    https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1035
+  - Evidence: Python SDK issue “inconsistent actions between python sdk and specification for Elicitation” (#1056)
+    https://github.com/modelcontextprotocol/python-sdk/issues/1056
+  - Evidence: TS SDK Cloudflare Workers incompatibility: “Elicitation feature fails on Cloudflare Workers due to AJV code generation (EvalError…)” (#689) and follow‑up fix PR (#1012)
+    https://github.com/modelcontextprotocol/typescript-sdk/issues/689
+    https://github.com/modelcontextprotocol/typescript-sdk/pull/1012
+
+- Fresh schema/detail drift in generated outputs
+  - Example: missing fields (like `_meta`) in generated JSON Schema that were expected by the TS source/spec.
+  - Evidence: Spec issue (#1616)
+    https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1616
+
+Why this matters for elicitation in particular
+- Elicitation already specifies JSON Schema as the lingua franca (even if restricted). Designing it as JSON Schema first, or with TypeBox (JSON Schema‑native), would have:
+  - avoided non‑standard fields like `enumNames` from leaking into wire contracts;
+  - made dialect and formats explicit up front;
+  - simplified validator choice (e.g., interpreter validators where codegen is disallowed);
+  - reduced cross‑SDK drift by anchoring to the JSON Schema document as the normative source.
