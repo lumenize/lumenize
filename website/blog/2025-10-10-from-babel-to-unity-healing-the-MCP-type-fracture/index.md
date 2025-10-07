@@ -5,11 +5,11 @@ authors: [larry]
 tags: [personal]
 ---
 
-![Kids playing the telephone game](./telephone-game-illustration.svg)
+![Kids playing the broken telephone game](./broken-telephone-game.png)
 
 # From Babel to Unity: Healing the MCP Type Fracture
 
-Remeber that game from childhood called "telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? The lesson of that exercise was that every translatation from brain to words and back to brain was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
+Remeber that childhood game called "broken telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? The lesson of that exercise was that every translatation from brain to words and back to brain was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
 
 Software systems, and APIs in particular, are no different. Every layer of translation results in just a little bit of loss in fidelity. This is no more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
 
@@ -27,21 +27,28 @@ That’s where the real work began. Choosing an architecture for types, schemas,
 
 ## The Type/Schema/Validation Babel that MCP is Today
 
-At a glance, MCP’s types and validation story looks straightforward. In practice, it’s a patchwork that varies by SDK, validation engine, and even runtime.
+MCP’s types and validation story is a patchwork that varies by SDK, validation engine, and even runtime.
 
 - Canonical source (spec): TypeScript first
   - The MCP spec defines canonical protocol types in TypeScript (schema.ts). From those, JSON Schema artifacts are generated and published for interoperability on the wire.
   - This gives TypeScript a great authoring experience, but JSON Schema becomes a derived artifact—already one translation away from the source of truth.
 
-- TypeScript SDK (server and client): Zod + conversion + Ajv
-  - Server authoring and validation: tools are authored with Zod. The server validates tool inputs (and optionally outputs) with Zod at runtime.
-  - Wire contracts: to expose tool schemas to clients (`tools/list`), Zod is converted to JSON Schema. Now we have Zod → JSON Schema conversions in the path.
-  - Client/runtime validation: clients compile Ajv validators from those JSON Schemas and validate structured outputs on `tools/call`.
-  - Elicitation: when the server requests additional information via JSON Schema, it validates that elicitation schema with Ajv as well (separate from Zod). Two validation engines are now in play.
+- TypeScript SDK (server and client): Zod + JSON Schema + Ajv
+  - Authoring and validation (server):
+    - Zod path: define tool input/output with Zod; the server parses/validates inputs (and optionally outputs) with Zod at runtime.
+    - JSON Schema path: define tool input/output directly as JSON Schema; the server validates with Ajv at runtime (Zod not involved).
+  - Wire contracts:
+    - Zod path: to expose tool schemas to clients (`tools/list`), Zod is converted to JSON Schema (Zod → JSON Schema step in the path).
+    - JSON Schema path: schemas are used as‑is; no conversion required.
+  - Client/runtime validation: clients compile Ajv validators from the received JSON Schemas (from either path) and validate structured outputs on `tools/call`.
 
-- Elicitation (spec): defined directly in JSON Schema
+- Elicitation is a special case: defined directly in JSON Schema
   - Elicitation needed semantics that JSON Schema supports cleanly but TypeScript types do not (for example, the restricted primitives-only shape, defaults, and UI-ready constraints). So this part of the spec is authored directly in JSON Schema—not in TS types.
   - Result: the spec now has mixed authorship. Some parts originate in TS, others in JSON Schema. SDKs must reconcile both.
+  - Validation across SDKs: in the TypeScript SDK, elicitation payloads are validated with Ajv (regardless of whether tools were authored with Zod or JSON Schema). In the Python SDK, elicitation is validated with the `jsonschema` library. Clients also validate elicitation using Ajv-compiled validators.
+  - Why it’s a special case: elicitation uses a restricted subset of JSON Schema (primitives only), has opinionated defaults and enum handling, and must be robust across diverse runtimes. This introduces extra surface area and coordination overhead.
+
+Practical complexity: two validation engines often coexist in JS runtimes—Zod for Zod-authored tools, and Ajv for JSON Schema and elicitation—which can complicate bundling and constrained environments (see Receipts for examples). Interpreter validators (e.g., TypeBox Value) can help when codegen is disallowed.
 
 - Python SDK: Python-first types + JSON Schema on the wire
   - Authoring: tools are written using Python type hints and Pydantic v2 models. From those, the SDK derives JSON Schema for input/output where needed.
