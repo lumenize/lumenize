@@ -5,6 +5,8 @@ authors: [larry]
 tags: [personal]
 ---
 
+![Kids playing the telephone game](./telephone-game-illustration.svg)
+
 # From Babel to Unity: Healing the MCP Type Fracture
 
 Remeber that game from childhood called "telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? The lesson of that exercise was that every translatation from brain to words and back to brain was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
@@ -24,6 +26,44 @@ Lumenize is an MCP server platform. The obvious path would be to consume the MCP
 That’s where the real work began. Choosing an architecture for types, schemas, and validation in MCP opened a can of worms: dialect drift, conversion fidelity, validator choices, and runtime constraints. This post is about that can of worms, the choices I made for Lumenize, and why.
 
 ## The Type/Schema/Validation Babel that MCP is Today
+
+At a glance, MCP’s types and validation story looks straightforward. In practice, it’s a patchwork that varies by SDK, validation engine, and even runtime.
+
+- Canonical source (spec): TypeScript first
+  - The MCP spec defines canonical protocol types in TypeScript (schema.ts). From those, JSON Schema artifacts are generated and published for interoperability on the wire.
+  - This gives TypeScript a great authoring experience, but JSON Schema becomes a derived artifact—already one translation away from the source of truth.
+
+- TypeScript SDK (server and client): Zod + conversion + Ajv
+  - Server authoring and validation: tools are authored with Zod. The server validates tool inputs (and optionally outputs) with Zod at runtime.
+  - Wire contracts: to expose tool schemas to clients (`tools/list`), Zod is converted to JSON Schema. Now we have Zod → JSON Schema conversions in the path.
+  - Client/runtime validation: clients compile Ajv validators from those JSON Schemas and validate structured outputs on `tools/call`.
+  - Elicitation: when the server requests additional information via JSON Schema, it validates that elicitation schema with Ajv as well (separate from Zod). Two validation engines are now in play.
+
+- Elicitation (spec): defined directly in JSON Schema
+  - Elicitation needed semantics that JSON Schema supports cleanly but TypeScript types do not (for example, the restricted primitives-only shape, defaults, and UI-ready constraints). So this part of the spec is authored directly in JSON Schema—not in TS types.
+  - Result: the spec now has mixed authorship. Some parts originate in TS, others in JSON Schema. SDKs must reconcile both.
+
+- Python SDK: Python-first types + JSON Schema on the wire
+  - Authoring: tools are written using Python type hints and Pydantic v2 models. From those, the SDK derives JSON Schema for input/output where needed.
+  - Wire/runtime: JSON Schema is used on the wire and validated at runtime using the `jsonschema` library (including for elicitation). This is JSON Schema–centric, with Python types as the developer ergonomics layer.
+
+- Other SDKs and ecosystems: choose-your-own source-of-truth
+  - Some key off JSON Schema directly (treating the published schema as the normative wire contract), then either generate native types from it or work dynamically without compile-time types.
+  - Trade-offs:
+    - Codegen from JSON Schema → native types provides dev-time safety but introduces another translation step and drift risk when schemas evolve.
+    - Hand-maintained native models (redefined from docs/spec) can diverge silently.
+    - Dynamic-only (validate at runtime) avoids codegen but gives up compile-time type safety and shifts errors later.
+
+- Environmental constraints: not all validators fit everywhere
+  - Ajv’s codegen performs well but can be incompatible with constrained runtimes (e.g., Cloudflare Workers without eval). Interpreter-based validation (like TypeBox Value) works broadly but has different performance characteristics.
+
+The net effect
+- We have multiple sources of truth: TS types (spec), generated JSON Schema, Zod schemas (SDK), elicitation’s direct JSON Schema, and per-language SDK models.
+- Each translation—TS → JSON Schema, Zod ↔ JSON Schema, JSON Schema → native types—introduces opportunities for drift and nuance loss.
+- Different dialects (draft-07 vs 2020-12), non-standard fields (like enumNames), and format mismatches compound the problem.
+- Cross-SDK behavior can diverge in subtle ways, especially around elicitation’s constrained subset and defaulting rules.
+
+If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times—sometimes by automation, sometimes by humans—almost always with some fidelity loss. See the Receipts below for concrete examples and links.
 
 
 So, how do we fix this?
@@ -145,7 +185,11 @@ Value.Check(schema, { name: 'Larry', age: 42 })  // → true
 
 No Ajv. No compile-time tricks. No eval. This works in Cloudflare Workers, Vercel Edge, or any sandboxed JS runtime. That means fewer moving parts, smaller downloads, and lower operational complexity.
 
-When tested under repeated validation workloads, TypeBox’s compiled paths show dramatic multipliers over naive validation — especially vs Zod 3 or interpretive Zod 4. The exact numbers vary by environment, but the architectural headroom is real.
+TypeBox's interpreted validation is significantly faster than Zod's parsing particularly Zod v3 but also v4. TypeBox also supports pre-compiled validation (which we are not planning on using in Lumenize unless we hit a performance wall) show dramatic multipliers over interpreted validation. It seems a step or two behind Ajv in raw pre-compiled validation speed, but Ajv is a big additional package. It's raw speed advantage in a pre-compiled situation is traded off against the fact that it adds to package size as well as development and operational complexity. In a serverless environment, cold starts are a function of package size. 
+
+Going back to thinking about interpreted mode, TypeBox out paces Ajv for another reason. Ajv doesn't have a true interpretted mode. Rather, it's a just in time compile. In a serverless environment, that may rarely be reused and is a huge performance hit.
+
+The exact numbers vary by environment, but the architectural advantage is significant under most conditions and particularly in Lumenize's which is running on the edge serverless environment, Cloudflare.
 
 ### The Rule of Wire Separation for Types
 

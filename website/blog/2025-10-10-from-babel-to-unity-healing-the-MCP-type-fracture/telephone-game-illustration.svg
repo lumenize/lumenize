@@ -1,0 +1,91 @@
+<!--
+  Kids playing the telephone game — simple stick-figure illustration
+  License: CC0 1.0 (Public Domain) — https://creativecommons.org/publicdomain/zero/1.0/
+  Author: Lumenize (2025)
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Telephone game illustration</title>
+  <desc id="desc">Five kids passing a message along a string-and-cup telephone, hinting at small losses at each step.</desc>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#f7fafc"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <style>
+      .head{fill:#fff;stroke:#2d3748;stroke-width:4}
+      .body{stroke:#2d3748;stroke-width:4;stroke-linecap:round}
+      .cup{fill:#63b3ed;stroke:#2b6cb0;stroke-width:3}
+      .string{stroke:#718096;stroke-width:3;stroke-linecap:round;stroke-dasharray:4 6}
+      .whisper{fill:#ecc94b;opacity:.18}
+      .ground{stroke:#e2e8f0;stroke-width:2}
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="360" fill="url(#bgGrad)"/>
+  <line x1="60" y1="330" x2="1140" y2="330" class="ground"/>
+
+  <!-- positions for five kids -->
+  <g id="kid1" transform="translate(120,60)">
+    <circle cx="0" cy="0" r="28" class="head"/>
+    <line x1="0" y1="28" x2="0" y2="120" class="body"/>
+    <line x1="0" y1="70" x2="-30" y2="110" class="body"/>
+    <line x1="0" y1="70" x2="30" y2="110" class="body"/>
+    <line x1="0" y1="120" x2="-24" y2="168" class="body"/>
+    <line x1="0" y1="120" x2="24" y2="168" class="body"/>
+    <path d="M 28,-4 l 20,8 l -6,18 l -22,-8 z" class="cup"/>
+  </g>
+
+  <g id="kid2" transform="translate(360,60)">
+    <circle cx="0" cy="0" r="28" class="head"/>
+    <line x1="0" y1="28" x2="0" y2="120" class="body"/>
+    <line x1="0" y1="70" x2="-30" y2="110" class="body"/>
+    <line x1="0" y1="70" x2="30" y2="110" class="body"/>
+    <line x1="0" y1="120" x2="-24" y2="168" class="body"/>
+    <line x1="0" y1="120" x2="24" y2="168" class="body"/>
+    <path d="M -28,-4 l -20,8 l 6,18 l 22,-8 z" class="cup"/>
+  </g>
+
+  <g id="kid3" transform="translate(600,60)">
+    <circle cx="0" cy="0" r="28" class="head"/>
+    <line x1="0" y1="28" x2="0" y2="120" class="body"/>
+    <line x1="0" y1="70" x2="-30" y2="110" class="body"/>
+    <line x1="0" y1="70" x2="30" y2="110" class="body"/>
+    <line x1="0" y1="120" x2="-24" y2="168" class="body"/>
+    <line x1="0" y1="120" x2="24" y2="168" class="body"/>
+    <path d="M -28,-4 l -20,8 l 6,18 l 22,-8 z" class="cup"/>
+    <path d="M 28,-4 l 20,8 l -6,18 l -22,-8 z" class="cup"/>
+  </g>
+
+  <g id="kid4" transform="translate(840,60)">
+    <circle cx="0" cy="0" r="28" class="head"/>
+    <line x1="0" y1="28" x2="0" y2="120" class="body"/>
+    <line x1="0" y1="70" x2="-30" y2="110" class="body"/>
+    <line x1="0" y1="70" x2="30" y2="110" class="body"/>
+    <line x1="0" y1="120" x2="-24" y2="168" class="body"/>
+    <line x1="0" y1="120" x2="24" y2="168" class="body"/>
+    <path d="M -28,-4 l -20,8 l 6,18 l 22,-8 z" class="cup"/>
+  </g>
+
+  <g id="kid5" transform="translate(1080,60)">
+    <circle cx="0" cy="0" r="28" class="head"/>
+    <line x1="0" y1="28" x2="0" y2="120" class="body"/>
+    <line x1="0" y1="70" x2="-30" y2="110" class="body"/>
+    <line x1="0" y1="70" x2="30" y2="110" class="body"/>
+    <line x1="0" y1="120" x2="-24" y2="168" class="body"/>
+    <line x1="0" y1="120" x2="24" y2="168" class="body"/>
+    <path d="M -28,-4 l -20,8 l 6,18 l 22,-8 z" class="cup"/>
+  </g>
+
+  <!-- string connecting cups -->
+  <path d="M 168,56 C 220,30 300,30 332,56" class="string"/>
+  <path d="M 388,56 C 460,30 540,30 572,56" class="string"/>
+  <path d="M 628,56 C 700,30 780,30 812,56" class="string"/>
+  <path d="M 868,56 C 940,30 1020,30 1052,56" class="string"/>
+
+  <!-- subtle whisper clouds showing loss of fidelity -->
+  <ellipse cx="210" cy="14" rx="38" ry="16" class="whisper"/>
+  <ellipse cx="450" cy="14" rx="30" ry="14" class="whisper"/>
+  <ellipse cx="690" cy="14" rx="24" ry="12" class="whisper"/>
+  <ellipse cx="930" cy="14" rx="18" ry="10" class="whisper"/>
+  
+</svg>
