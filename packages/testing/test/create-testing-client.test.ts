@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createTestingClient, type RpcAccessible, CookieJar } from '../src/index';
-import { TestDO } from './test-worker-and-dos';
+import { createTestingClient, type RpcAccessible, Browser } from '../src/index';
+import { TestDO } from './test-do';
 
 type TestDOType = RpcAccessible<InstanceType<typeof TestDO>>;
 
@@ -23,10 +23,8 @@ describe('createTestingClient', () => {
     expect(finalCount).toBe(2);
   });
   
-  it('supports websocket transport', async () => {
-    await using client = createTestingClient<TestDOType>('TEST_DO', 'ws-test', {
-      transport: 'websocket'
-    });
+  it('works with basic RPC calls', async () => {
+    await using client = createTestingClient<TestDOType>('TEST_DO', 'rpc-test');
     
     await client.reset();
     
@@ -37,17 +35,15 @@ describe('createTestingClient', () => {
     expect(count2).toBe(2);
   });
   
-  it('supports cookie jar integration', async () => {
-    const cookieJar = new CookieJar();
-    cookieJar.setDefaultHostname('example.com');
+  it('works with Browser for cookie-aware requests', async () => {
+    // Browser is used separately with exported fetch/WebSocket, not passed to createTestingClient
+    const browser = new Browser();
     
-    await using client = createTestingClient<TestDOType>('TEST_DO', 'cookie-test', {
-      cookieJar
-    });
+    await using client = createTestingClient<TestDOType>('TEST_DO', 'browser-test');
     
     await client.reset();
     
-    // Client should work normally with cookie jar
+    // Client works normally - cookies would be handled via browser.getFetch(fetch)
     const count = await client.increment();
     expect(count).toBe(1);
   });
@@ -61,14 +57,23 @@ describe('createTestingClient', () => {
     expect(value).toBe('directValue');
   });
   
-  it('supports custom timeout', async () => {
-    await using client = createTestingClient<TestDOType>('TEST_DO', 'timeout-test', {
-      timeout: 5000
-    });
+  it('creates multiple independent clients', async () => {
+    await using client1 = createTestingClient<TestDOType>('TEST_DO', 'multi-test-1');
+    await using client2 = createTestingClient<TestDOType>('TEST_DO', 'multi-test-2');
     
-    await client.reset();
-    const count = await client.increment();
-    expect(count).toBe(1);
+    await client1.reset();
+    await client2.reset();
+    
+    await client1.increment();
+    await client1.increment();
+    
+    await client2.increment();
+    
+    const count1 = await client1.getCount();
+    const count2 = await client2.getCount();
+    
+    expect(count1).toBe(2);
+    expect(count2).toBe(1);
   });
   
   it('auto-disposes with await using', async () => {

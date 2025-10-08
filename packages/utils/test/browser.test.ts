@@ -246,8 +246,8 @@ describe('Browser', () => {
     });
   });
 
-  describe('setDefaultHostname / hostname inference', () => {
-    it('should use first fetch hostname if not manually set', async () => {
+  describe('hostname inference for cookie domain', () => {
+    it('should use first fetch hostname for cookies without explicit domain', async () => {
       // Manually store a cookie to set hostname
       browser.storeCookiesFromResponse(
         new Response(null, {
@@ -256,27 +256,19 @@ describe('Browser', () => {
         'https://example.com/test'
       );
 
-      // Now we can set cookies without domain
+      // Now we can set cookies without domain - inferred from first fetch
       browser.setCookie('test', 'value');
       expect(browser.getCookie('test', 'example.com')).toBe('value');
     });
 
-    it('should allow manual hostname setting before fetch', () => {
-      browser.setDefaultHostname('manual.com');
-
-      browser.setCookie('test', 'value');
-      expect(browser.getCookie('test', 'manual.com')).toBe('value');
+    it('should require domain if no fetch has been made yet', () => {
+      expect(() => {
+        browser.setCookie('test', 'value');
+      }).toThrow(/Cannot set cookie 'test' without domain/);
     });
 
-    it('should preserve manually set hostname after fetch', async () => {
-      browser.setDefaultHostname('manual.com');
-
-      const mockFetch = async () => new Response(null);
-      const cookieAwareFetch = browser.getFetch(mockFetch);
-      await cookieAwareFetch('https://different.com/test');
-
-      // Should still use manual hostname
-      browser.setCookie('test', 'value');
+    it('should allow explicit domain even without prior fetch', () => {
+      browser.setCookie('test', 'value', { domain: 'manual.com' });
       expect(browser.getCookie('test', 'manual.com')).toBe('value');
     });
   });
@@ -362,15 +354,13 @@ describe('Browser', () => {
   });
 
   describe('getWebSocket', () => {
-    it('should automatically add Origin header from hostname if set', () => {
-      browser.setDefaultHostname('example.com');
-      
+    it('should not add Origin header automatically', () => {
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
         const req = new Request(input);
         const origin = req.headers.get('Origin');
         
-        // Verify Origin was automatically added
-        expect(origin).toBe('https://example.com');
+        // Origin should NOT be added automatically
+        expect(origin).toBeNull();
         
         // Return mock WebSocket upgrade response
         const ws = {} as any;
@@ -382,15 +372,15 @@ describe('Browser', () => {
       expect(WebSocketClass).toBeDefined();
     });
 
-    it('should not override explicit Origin header', () => {
-      browser.setDefaultHostname('example.com');
-      
+    it('should pass through custom headers including Origin', () => {
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
         const req = new Request(input);
         const origin = req.headers.get('Origin');
+        const custom = req.headers.get('X-Custom');
         
-        // Verify explicit Origin was preserved
+        // Verify explicit headers are passed through
         expect(origin).toBe('https://custom.com');
+        expect(custom).toBe('value');
         
         // Return mock WebSocket upgrade response
         const ws = {} as any;
@@ -399,12 +389,15 @@ describe('Browser', () => {
       };
 
       const WebSocketClass = browser.getWebSocket(mockFetch, {
-        headers: { 'Origin': 'https://custom.com' }
+        headers: { 
+          'Origin': 'https://custom.com',
+          'X-Custom': 'value'
+        }
       });
       expect(WebSocketClass).toBeDefined();
     });
 
-    it('should not add Origin if no hostname is set', () => {
+    it('should include cookies in WebSocket upgrade request', async () => {
       // No hostname set - Origin should not be added automatically
       
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {

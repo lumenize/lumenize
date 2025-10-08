@@ -157,7 +157,6 @@ describe('@lumenize/testing core capabilities', () => {
   it('demonstrates cookie sharing between fetch and WebSocket from same browser', async () => {
     // Create ONE browser instance
     const browser = new Browser();
-    browser.setDefaultHostname('example.com');
     
     // Get BOTH cookie-aware fetch and WebSocket from the SAME browser
     const cookieAwareFetch = browser.getFetch(fetch);
@@ -169,8 +168,8 @@ describe('@lumenize/testing core capabilities', () => {
     // 2. Verify cookie was stored in the browser
     expect(browser.getCookie('token')).toBe('abc123');
     
-    // 3. Manually add additional cookies
-    browser.setCookie('extra', 'manual-value', { domain: 'example.com' });
+    // 3. Manually add additional cookies - domain is inferred from first fetch
+    browser.setCookie('extra', 'manual-value');
     
     // 4. Make another fetch request - gets BOTH cookies automatically
     const res = await cookieAwareFetch('https://example.com/protected-cookie-echo');

@@ -78,44 +78,39 @@ export class Browser {
   }
 
   /**
-   * Create a cookie-aware WebSocket constructor that automatically includes cookies
+   * Get a WebSocket constructor that automatically includes cookies from this browser
+   * 
+   * This returns a WebSocket class that:
+   * - Includes cookies in the upgrade request
+   * - Updates cookies from Set-Cookie headers
+   * - Supports custom headers and maxQueueBytes options
+   * 
+   * Note: Does NOT add Origin header automatically. Use createPage() if you need Origin.
    * 
    * @param baseFetch - The base fetch function to wrap (e.g., SELF.fetch.bind(SELF))
-   * @param options - Optional WebSocket factory configuration (headers, maxQueueBytes)
+   * @param options - Optional WebSocket configuration
    * @returns A WebSocket constructor that automatically handles cookies
    * 
    * @example
    * ```typescript
-   * import { getWebSocketShim } from '@lumenize/utils';
+   * import { Browser } from '@lumenize/utils';
    * 
-   * const cookieJar = new CookieJar();
-   * cookieJar.setDefaultHostname('example.com'); // Will be used as Origin if not explicitly set
+   * const browser = new Browser();
    * 
-   * const CookieWebSocket = cookieJar.getWebSocket(SELF.fetch.bind(SELF), {
-   *   headers: { 'X-Custom-Header': 'value' }, // Origin auto-added from hostname
+   * const CookieWebSocket = browser.getWebSocket(fetch, {
+   *   headers: { 'X-Custom-Header': 'value' },
    *   maxQueueBytes: 1024 * 1024 // 1MB
    * });
    * 
-   * // WebSocket upgrade request includes cookies, Origin, AND custom headers automatically
+   * // WebSocket upgrade request includes cookies and custom headers automatically
    * const ws = new CookieWebSocket('wss://example.com/ws');
    * ```
    */
   getWebSocket(baseFetch: typeof fetch, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): new (url: string | URL, protocols?: string | string[]) => WebSocket {
     const cookieAwareFetch = this.getFetch(baseFetch);
     
-    // If we have a hostname (inferred or manual) and no explicit Origin header, add it
-    const headers = { ...options?.headers };
-    if (this.inferredHostname && !headers['Origin'] && !headers['origin']) {
-      headers['Origin'] = `https://${this.inferredHostname}`;
-    }
-    
-    return getWebSocketShim(cookieAwareFetch, {
-      ...options,
-      headers
-    });
-  }
-
-  /**
+    return getWebSocketShim(cookieAwareFetch, options);
+  }  /**
    * Create a page context with an origin for CORS testing
    * 
    * Returns fetch and WebSocket that simulate requests from a page loaded from the given origin.
@@ -257,7 +252,7 @@ export class Browser {
    * 
    * @example
    * ```typescript
-   * cookieJar.setCookie('session', 'abc123', {
+   * browser.setCookie('session', 'abc123', {
    *   domain: 'example.com',
    *   path: '/',
    *   expires: new Date(Date.now() + 86400000) // 24 hours
@@ -267,14 +262,13 @@ export class Browser {
   setCookie(name: string, value: string, options: Omit<Cookie, 'name' | 'value'> = {}): void {
     let domain = options.domain;
     
-    // Hostname behavior: use provided domain, manually set hostname (last wins), or error
+    // Domain behavior: use provided domain, inferred from first fetch, or error
     if (!domain) {
       if (!this.inferredHostname) {
         throw new Error(
           `Cannot set cookie '${name}' without domain. Either:\n` +
-          `1. Specify domain: cookieJar.setCookie('${name}', '${value}', { domain: 'example.com' })\n` +
-          `2. Make a fetch request first to establish default hostname\n` +
-          `3. Set default hostname: cookieJar.setDefaultHostname('example.com')`
+          `1. Specify domain: browser.setCookie('${name}', '${value}', { domain: 'example.com' })\n` +
+          `2. Make a fetch request first to automatically infer domain from the URL`
         );
       }
       domain = this.inferredHostname;
@@ -351,16 +345,6 @@ export class Browser {
     }
     
     return result;
-  }
-
-  /**
-   * Set the default hostname for manually set cookies
-   * Useful for complex multi-domain scenarios or setting hostname before any fetches
-   * 
-   * @param hostname - Default hostname for cookies
-   */
-  setDefaultHostname(hostname: string): void {
-    this.inferredHostname = hostname;
   }
 
   /**
