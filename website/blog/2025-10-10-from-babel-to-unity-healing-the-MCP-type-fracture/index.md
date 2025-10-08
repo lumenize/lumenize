@@ -1,25 +1,25 @@
 ---
-title: "From Babel to Unity: Healing the MCP Type Fracture"
-slug: from-babel-to-unity-healing-the-mcp-type-fracture
+title: "From Flirtation to Vows: Healing the MCP Type Fracture"
+slug: from-flirtation-to-vows-healing-the-mcp-type-fracture
 authors: [larry]
 tags: [personal]
 ---
 
 ![Kids playing the broken telephone game](./broken-telephone-game.png)
 
-# From Babel to Unity: Healing the MCP Type Fracture
+# From Flirtation to Vows: Healing the MCP Type Fracture
 
-Remeber that childhood game called "broken telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? The lesson of that exercise was that every translatation from brain to words and back to brain was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
+Remember that childhood game called "broken telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? The lesson of that exercise was that every translation from brain to words and back again was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
 
-Software systems, and APIs in particular, are no different. Every layer of translation results in just a little bit of loss in fidelity. This is no more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
+Software systems, and APIs in particular, are no different. Every layer of translation results in just a little bit of loss in fidelity. This is nowhere more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
 
 MCP is all about context portability: moving structured data democratically across agents, runtimes, and languages. The type/schema has to remain the same throughout the journey around the circle of friends. Tooling decisions have very real consequences for portability and correctness. So imagine my surprise when I discovered the Babel of type/schema translations running in MCP stacks today.
 
 <!-- truncate -->
 
-⸻
+---
 
-## Why this post (Lumenize’s decision, MCP‑first)
+## Motivation
 
 Lumenize is an MCP server platform. The obvious path would be to consume the MCP TypeScript SDK directly (as the Cloudflare `agents` npm package does). But for our initial scope, we only needed Resources and Tools — a subset that looked straightforward to implement directly from the spec, without pulling in the rest of the SDK’s baggage.
 
@@ -35,24 +35,22 @@ MCP’s types and validation story is a patchwork that varies by SDK, validation
 
 - TypeScript SDK (server and client): Zod + JSON Schema + Ajv
   - Authoring and validation (server):
-    - Zod path: define tool input/output with Zod; the server parses/validates inputs (and optionally outputs) with Zod at runtime.
+    - Zod path: define tool input/output with Zod; the server parses/validates with Zod at runtime.
     - JSON Schema path: define tool input/output directly as JSON Schema; the server validates with Ajv at runtime (Zod not involved).
   - Wire contracts:
     - Zod path: to expose tool schemas to clients (`tools/list`), Zod is converted to JSON Schema (Zod → JSON Schema step in the path).
     - JSON Schema path: schemas are used as‑is; no conversion required.
-  - Client/runtime validation: clients compile Ajv validators from the received JSON Schemas (from either path) and validate structured outputs on `tools/call`.
+  - Client/runtime validation: clients JIT‑compile Ajv validators at runtime from the received JSON Schemas. In constrained runtimes that forbid eval (e.g., some edge environments), the SDK takes an edge‑safe fallback path; otherwise Ajv codegen is used. Even assuming the edge-safe fallback is consistent, Ajv takes a big performance hit the first time a schema is validated.
 
 - Elicitation is a special case: defined directly in JSON Schema
   - Elicitation needed semantics that JSON Schema supports cleanly but TypeScript types do not (for example, the restricted primitives-only shape, defaults, and UI-ready constraints). So this part of the spec is authored directly in JSON Schema—not in TS types.
   - Result: the spec now has mixed authorship. Some parts originate in TS, others in JSON Schema. SDKs must reconcile both.
-  - Validation across SDKs: in the TypeScript SDK, elicitation payloads are validated with Ajv (regardless of whether tools were authored with Zod or JSON Schema). In the Python SDK, elicitation is validated with the `jsonschema` library. Clients also validate elicitation using Ajv-compiled validators.
+  - Elicitation payloads are validated with Ajv (regardless of whether tools were authored with Zod or JSON Schema). Clients also validate elicitation using Ajv-compiled validators.
   - Why it’s a special case: elicitation uses a restricted subset of JSON Schema (primitives only), has opinionated defaults and enum handling, and must be robust across diverse runtimes. This introduces extra surface area and coordination overhead.
 
 Practical complexity: two validation engines often coexist in JS runtimes—Zod for Zod-authored tools, and Ajv for JSON Schema and elicitation—which can complicate bundling and constrained environments (see Receipts for examples). Interpreter validators (e.g., TypeBox Value) can help when codegen is disallowed.
 
-- Python SDK: Python-first types + JSON Schema on the wire
-  - Authoring: tools are written using Python type hints and Pydantic v2 models. From those, the SDK derives JSON Schema for input/output where needed.
-  - Wire/runtime: JSON Schema is used on the wire and validated at runtime using the `jsonschema` library (including for elicitation). This is JSON Schema–centric, with Python types as the developer ergonomics layer.
+All of the mess described above is for the TypeScript SDK. It gets even messier when you consider other SDKs.
 
 - Other SDKs and ecosystems: choose-your-own source-of-truth
   - Some key off JSON Schema directly (treating the published schema as the normative wire contract), then either generate native types from it or work dynamically without compile-time types.
@@ -70,34 +68,34 @@ The net effect
 - Different dialects (draft-07 vs 2020-12), non-standard fields (like enumNames), and format mismatches compound the problem.
 - Cross-SDK behavior can diverge in subtle ways, especially around elicitation’s constrained subset and defaulting rules.
 
-If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times—sometimes by automation, sometimes by humans—almost always with some fidelity loss. See the Receipts below for concrete examples and links.
-
+If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times--sometimes by automation, sometimes by humans--always with the risk of fidelity loss. See the Receipts below for concrete examples and links I was able to gather in an afternoon. I'm sure it just scratches the surface.
 
 So, how do we fix this?
 
-## TypeSpec (a recent suggestion), briefly
+## TypeSpec - A Brief Flirtation
 
-If the situation we find ourselves in feels like the [Tower of Babel](https://en.wikipedia.org/wiki/Tower_of_Babel), then TypeSpec feels like [Esperanto](https://en.wikipedia.org/wiki/Esperanto): a designed universal language promising unity across dialects — but adopting it still means learning a new language and depending on a new toolchain.
+If the situation we find ourselves in feels like the [Tower of Babel](https://en.wikipedia.org/wiki/Tower_of_Babel), then TypeSpec feels like [Esperanto](https://en.wikipedia.org/wiki/Esperanto): a designed universal language promising unity across dialects.
 
-TypeSpec (the evolution of Cadl) is seductive. One DSL to rule APIs, models, validation, client SDKs, and docs. In theory: write once, emit many. In practice: you’re introducing a new syntax, a new compiler, and a new ecosystem for each team to absorb.
+TypeSpec (the evolution of Cadl) is seductive. One DSL to rule APIs, models, validation, client SDKs, and docs. In theory: write once, emit many. I thought I was falling in love. 
 
-That’s not unification. It’s another layer. TypeSpec could centralize parts of a system internally, but it also introduces translation friction with existing tools (OpenAPI, JSON Schema, Zod, etc.). In a world that already speaks JSON Schema, asking everyone to learn a new language risks further fracture, not harmony.
+Then I realized she was high‑maintenance. Behind the spark was a list of demands: a new syntax to learn, a new compiler to run, and a whole ecosystem to care for. That isn’t unity; it’s more ceremony. TypeSpec can tidy things up inside one shop, but every doorway back to the real world (OpenAPI, JSON Schema, Zod, etc.) adds translation friction. In a world that already speaks JSON Schema, asking everyone to switch tongues risks more heartache than harmony.
 
-⸻
+I tried to let her down easy with “It’s me, not you,” but I don’t think she believed me.
 
-## Zod in the New Era: Better, but Still Local
+---
 
-The MCP TypeScript SDK uses Zod. That made sense historically: Zod is intuitive, expressive, and TS-native. With Version 4, Zod became even more attractive by adding native JSON Schema support via toJSONSchema() and a global registry approach. (zod.dev)
+## Zod v4: Better, but...
 
-However, Zod was not originally designed around JSON Schema (which is the wire schema specification format for MCP) so it comes with a few caveats:
-	•	The conversion is mediated by Zod’s internal representation, so some JSON Schema nuances are lost or approximated.
-	•	Not all JSON Schema consumers will accept the output exactly as intended.
-	•	The conversion makes Zod more interoperable but doesn’t eliminate the performance or bundling difficulties.
-	•	Cross-ecosystem “false friends” still exist. For example: OpenAPI 3.0’s `nullable: true` is not the same as JSON Schema 2020-12, which represents nullability via a union type (e.g., `type: ["string", "null"]`). And `default` never implies required—OpenAPI marks parameter presence with a top-level `required: true`, while JSON Schema uses a `required: []` array on the parent object to enforce presence.
+The MCP TypeScript SDK uses Zod. Zod is intuitive, expressive, and TS-native. As of this writing, the latest released version is still on Zod v3, but Lumenize didn't have to be. With Version 4, Zod became even more attractive in a few ways:
+  - It adds native JSON Schema support via toJSONSchema() and a global registry approach. (zod.dev). 
+  - Many reports cite Zod 4 being ~2x-4x times faster than Zod 3, but it's still ~4-10x slower than a compiled parser/validator.
+  - Zod 4 is also reported to have a significantly smaller bundle size.
 
-Regarding speed, many reports cite Zod 4 being several times faster and more memory efficient than Zod 3 (e.g. ~2–4×), but it's still ~4-10x slower than a compiled parser/validator.
+However, that doesn't change the fact that Zod was not originally designed around JSON Schema (which is the wire schema specification format for MCP) semantics, so some JSON Schema nuances are lost or approximated; for example, OpenAPI 3.0’s `nullable: true` is not the same as JSON Schema 2020-12 (which represents nullability via `type: ["string", "null"]`), and `default` never implies required—OpenAPI marks parameter presence with top-level `required: true`, while JSON Schema uses a `required: []` array on the parent object.
 
-⸻
+Bottom line, the new version makes Zod more performant, lighter, and interoperable out of the box but doesn’t completely eliminate the performance delta and it does nothing for the bundling complexity--you still need Ajv or something else for runtime validation. Most importantly, it has the same subtle semantic differences with JSON Schema as the previous version.
+
+---
 
 :::note
 
@@ -164,78 +162,22 @@ Why this matters for elicitation in particular
 
 ## Enter TypeBox
 
-I hadn't known much about TypeBox when I started this research but as soon as I dug into it, it became a strong candidate. TypeBox doesn’t lobby for replacing everything. It sets out to bring JSON Schema semantics and validation to TypeScript projects.
+Every story needs the steady one. TypeBox was the approachable friend I’d never considered “marriage material.” Not flashy—just compatible. It speaks the language the world already uses ([JSON Schema](https://json-schema.org/)), and it lets me keep speaking TypeScript at home. No grand gestures, fewer surprises.
 
-If TypeSpec is Esperanto, then [JSON Schema](https://json-schema.org/) is English—the [lingua franca](https://en.wikipedia.org/wiki/Lingua_franca) of APIs today. TypeBox is English with a great style guide: you speak JSON Schema grammar, and you get precise TypeScript types as well as runtime validation for free. That combination travels well across gateways, languages, and runtimes without asking teams to learn a completely new language if you think of TypeBox as just a TypeScript way of writing JSON Schema.
+If TypeSpec was the high‑maintenance crush, TypeBox is the low‑drama partner: you write in JSON Schema grammar and get precise TypeScript types back, plus runtime validation when it matters. That combination travels well across gateways, languages, and runtimes without asking teams to learn a new language—think of TypeBox as a TypeScript way to author JSON Schema, not a new dialect.
 
-TypeBox Value works on plain JSON Schema
+And the part that shows up on moving day? TypeBox’s Value validator. It’s lightweight, edge‑safe, and fast in interpreted mode, with an option to pre‑compile when you need near‑Ajv speed.
 
-The revelation that makes an architecture simpler: TypeBox’s Value validator can accept arbitrary JSON Schema — you don’t need to define a TypeBox schema object. It just expects a schema object that aligns with the kinds of constructs it supports.
+The moment my eyes opened: Value validates plain JSON Schema. Use TypeBox definitions when they’re available; otherwise validate the over‑the‑wire schema. One package covers all our Lumenize paths.
 
-For example:
+No Zod. No Ajv. No compile‑time tricks. No eval. It’s edge‑safe (Cloudflare Workers, Vercel Edge), and interpreted validation is faster than Zod with optional pre‑compile when you need more—without hauling in Ajv’s bundle or first‑hit JIT cost. That mix of portability and performance was the proposal I couldn’t refuse—so I said yes.
 
-```TypeScript
-import { Value } from '@sinclair/typebox/value'
+And after saying yes, we wrote our vows—the simple commitments that keep the relationship healthy in practice.
 
-const schema = {
-  type: 'object',
-  properties: {
-    name: { type: 'string' },
-    age: { type: 'number', minimum: 0 }
-  },
-  required: ['name', 'age'],
-  additionalProperties: false
-}
-
-Value.Check(schema, { name: 'Larry', age: 42 })  // → true
-```
-
-No Ajv. No compile-time tricks. No eval. This works in Cloudflare Workers, Vercel Edge, or any sandboxed JS runtime. That means fewer moving parts, smaller downloads, and lower operational complexity.
-
-TypeBox's interpreted validation is significantly faster than Zod's parsing particularly Zod v3 but also v4. TypeBox also supports pre-compiled validation (which we are not planning on using in Lumenize unless we hit a performance wall) show dramatic multipliers over interpreted validation. It seems a step or two behind Ajv in raw pre-compiled validation speed, but Ajv is a big additional package. It's raw speed advantage in a pre-compiled situation is traded off against the fact that it adds to package size as well as development and operational complexity. In a serverless environment, cold starts are a function of package size. 
-
-Going back to thinking about interpreted mode, TypeBox out paces Ajv for another reason. Ajv doesn't have a true interpretted mode. Rather, it's a just in time compile. In a serverless environment, that may rarely be reused and is a huge performance hit.
-
-The exact numbers vary by environment, but the architectural advantage is significant under most conditions and particularly in Lumenize's which is running on the edge serverless environment, Cloudflare.
-
-### The Rule of Wire Separation for Types
-
-In Lumenize, our decision to follow a principle I'm hereby minting:
-
-> **The Wire Separation of Types**
+> **Our vows: The Wire Separation of Types**
 >
 > - **Use TypeScript for everything that never leaves your process.**
 > - **Use TypeBox for everything that crosses a process, network, or persistence boundary.**
 
-That boundary is sacred. TypeScript’s types model what code believes about data. TypeBox’s schemas model what machines must prove about data when it crosses that boundary.
-This separation keeps your internal code flexible and expressive, and your wire contracts stable, serializable, and enforceable
-
-⸻
-
-## Lumenize Type Pipeline Visual
-
-```mermaid
-flowchart LR
-  TB["TypeBox schema (JSON Schema native)"]
-  TB --> TSTypes["Static<T> (TypeScript types, in-process)"]
-  TB --> JSC["JSON Schema (wire contract)"]
-  TB -. optional .-> Value["TypeBox Value (interpreter, edge-safe)"]
-```
-
-Notes
-- We author wire contracts directly as JSON Schema via TypeBox.
-- We infer TypeScript types in memory for implementation ergonomics.
-- Validation is either interpreter-based (TypeBox Value) for codegen-hostile runtimes, or Ajv when compiled performance is desired.
-
-## Choosing Fewer Fractures Over False Unity
-
-You don’t need another “Type Babel” in your stack. You need pragmatic boundaries. You need composability across languages, runtimes, and services. You need portability.
-
-TypeSpec promises a new world. Zod 4 makes progress toward compatibility. But TypeBox today offers something that actually works in the messy, multi-tenant reality we already live in:
-	•	It lives in TypeScript.
-	•	It is designed around JSON Schema semantics natively.
-	•	Its Value engine can validate with plain JSON Schema directly, no extra tooling.
-	•	It gives us performance headroom, especially in compiled/AOT modes.
-	•	It aligns with the Rule of Wire Separation.
-
-That’s why Lumenize is built around it.
+That boundary is sacred. TypeScript’s types model what code believes about data. TypeBox’s schemas model what machines must prove about data when it crosses a boundary.
+This separation keeps our internal code flexible and expressive, and our wire contracts stable, serializable, and enforceable.
