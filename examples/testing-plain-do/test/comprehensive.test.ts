@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { testDOProject } from '@lumenize/testing';
+import { createTestingClient, type RpcAccessible, SELF } from '@lumenize/testing';
+import { MyDO } from './test-harness';
+
+type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
 
 /**
  * Comprehensive Testing Suite for @lumenize/testing
@@ -20,78 +23,90 @@ import { testDOProject } from '@lumenize/testing';
 describe('Comprehensive @lumenize/testing Validation', () => {
 
   it('enables instance proxy access to DO internals', async () => {
-    await testDOProject(async (SELF, instances, helpers) => {
-      const instance = instances('MY_DO', 'instance-test-example');
-      
-      // Test initial empty storage
-      const initialStorage = await instance.ctx.storage.list();
-      expect(initialStorage).toBeInstanceOf(Map);
-      expect(initialStorage.size).toBe(0);
-      
-      // Test storage operations through instance proxy
-      await instance.ctx.storage.put('test-key', 'test-value');
-      const retrievedValue = await instance.ctx.storage.get('test-key');
-      expect(retrievedValue).toBe('test-value');
-      
-      // Test different data types
-      await instance.ctx.storage.put('number-key', 42);
-      await instance.ctx.storage.put('object-key', { test: 'data' });
-      
-      const numberValue = await instance.ctx.storage.get('number-key');
-      const objectValue = await instance.ctx.storage.get('object-key');
-      expect(numberValue).toBe(42);
-      expect(objectValue).toEqual({ test: 'data' });
-      
-      // Test storage delete
-      await instance.ctx.storage.delete('test-key');
-      const deletedValue = await instance.ctx.storage.get('test-key');
-      expect(deletedValue).toBeUndefined();
-      
-    });
+    await using client = createTestingClient<MyDOType>('MY_DO', 'instance-test-example');
+    
+    // Test initial empty storage
+    const initialStorage = await client.ctx.storage.list();
+    expect(initialStorage).toBeInstanceOf(Map);
+    expect(initialStorage.size).toBe(0);
+    
+    // Test storage operations through instance proxy
+    await client.ctx.storage.put('test-key', 'test-value');
+    const retrievedValue = await client.ctx.storage.get('test-key');
+    expect(retrievedValue).toBe('test-value');
+    
+    // Test different data types
+    await client.ctx.storage.put('number-key', 42);
+    await client.ctx.storage.put('object-key', { test: 'data' });
+    
+    const numberValue = await client.ctx.storage.get('number-key');
+    const objectValue = await client.ctx.storage.get('object-key');
+    expect(numberValue).toBe(42);
+    expect(objectValue).toEqual({ test: 'data' });
+    
+    // Test storage delete
+    await client.ctx.storage.delete('test-key');
+    const deletedValue = await client.ctx.storage.get('test-key');
+    expect(deletedValue).toBeUndefined();
   });
 
   it('properly serializes Maps with structured clone', async () => {
-    await testDOProject(async (SELF, instances, helpers) => {
-      const instance = instances('MY_DO', 'serialization-test-instance');
-      
-      // Put test data into storage
-      await instance.ctx.storage.put('number-key', 42);
-      await instance.ctx.storage.put('object-key', { test: 'data' });
-      
-      // Test that storage.list() returns proper Map with structured clone
-      const storageList = await instance.ctx.storage.list();
-      expect(storageList).toBeInstanceOf(Map);
-      expect(storageList.size).toBe(2);
-      expect(storageList.get('number-key')).toBe(42);
-      expect(storageList.get('object-key')).toEqual({ test: 'data' });
-      expect([...storageList.keys()]).toContain('number-key');
-      expect([...storageList.keys()]).toContain('object-key');
-      
-    });
+    await using client = createTestingClient<MyDOType>('MY_DO', 'serialization-test-instance');
+    
+    // Put test data into storage
+    await client.ctx.storage.put('number-key', 42);
+    await client.ctx.storage.put('object-key', { test: 'data' });
+    
+    // Test that storage.list() returns proper Map with structured clone
+    const storageList = await client.ctx.storage.list();
+    expect(storageList).toBeInstanceOf(Map);
+    expect(storageList.size).toBe(2);
+    expect(storageList.get('number-key')).toBe(42);
+    expect(storageList.get('object-key')).toEqual({ test: 'data' });
+    expect([...storageList.keys()]).toContain('number-key');
+    expect([...storageList.keys()]).toContain('object-key');
   });
 
   it('ensures storage isolation between DO instances', async () => {
-    await testDOProject(async (SELF, instances, helpers) => {
-      const instance1 = instances('MY_DO', 'instance1');
-      const instance2 = instances('MY_DO', 'instance2');
-      
-      // Store data in each instance
-      await instance1.ctx.storage.put('instance1-data', 'value1');
-      await instance2.ctx.storage.put('instance2-data', 'value2');
-      
-      // Verify isolation - data should not cross between instances
-      const instance1CrossCheck = await instance1.ctx.storage.get('instance2-data');
-      const instance2CrossCheck = await instance2.ctx.storage.get('instance1-data');
-      expect(instance1CrossCheck).toBeUndefined();
-      expect(instance2CrossCheck).toBeUndefined();
-      
-      // Verify each instance has its own data
-      const instance1OwnData = await instance1.ctx.storage.get('instance1-data');
-      const instance2OwnData = await instance2.ctx.storage.get('instance2-data');
-      expect(instance1OwnData).toBe('value1');
-      expect(instance2OwnData).toBe('value2');
-      
-    });
+    await using client1 = createTestingClient<MyDOType>('MY_DO', 'instance1');
+    await using client2 = createTestingClient<MyDOType>('MY_DO', 'instance2');
+    
+    // Store data in each instance
+    await client1.ctx.storage.put('instance1-data', 'value1');
+    await client2.ctx.storage.put('instance2-data', 'value2');
+    
+    // Verify isolation - data should not cross between instances
+    const instance1CrossCheck = await client1.ctx.storage.get('instance2-data');
+    const instance2CrossCheck = await client2.ctx.storage.get('instance1-data');
+    expect(instance1CrossCheck).toBeUndefined();
+    expect(instance2CrossCheck).toBeUndefined();
+    
+    // Verify each instance has its own data
+    const instance1OwnData = await client1.ctx.storage.get('instance1-data');
+    const instance2OwnData = await client2.ctx.storage.get('instance2-data');
+    expect(instance1OwnData).toBe('value1');
+    expect(instance2OwnData).toBe('value2');
+  });
+
+  it('tracks instances in registry correctly', async () => {
+    // Create multiple instances via fetch
+    await SELF.fetch('https://example.com/my-do/one/increment');
+    await SELF.fetch('https://example.com/my-do/two/increment');
+    await SELF.fetch('https://example.com/my-do/three/increment');
+    
+    // Access those instances to verify they were created
+    await using client1 = createTestingClient<MyDOType>('MY_DO', 'one');
+    await using client2 = createTestingClient<MyDOType>('MY_DO', 'two');
+    await using client3 = createTestingClient<MyDOType>('MY_DO', 'three');
+    
+    // Verify each instance has the correct count
+    const count1 = await client1.ctx.storage.get('count');
+    const count2 = await client2.ctx.storage.get('count');
+    const count3 = await client3.ctx.storage.get('count');
+    
+    expect(count1).toBe(1);
+    expect(count2).toBe(1);
+    expect(count3).toBe(1);
   });
   });
 
