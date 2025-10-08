@@ -11,7 +11,7 @@ tags: [personal]
 
 Remember that childhood game called "broken telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? If you were lucky, you might land beside the person you secretly liked—the tiny thrill of whispering anything into their ear. The lesson was that every translation from brain to words and back again was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
 
-Software systems, and APIs in particular, are no different. Every layer of translation risk just a little bit of loss in fidelity. This is nowhere more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
+Software systems, and APIs in particular, are no different. Every layer of translation risks just a little bit of loss in fidelity. This is nowhere more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
 
 MCP is all about context portability: moving structured data democratically across agents, runtimes, and languages. The type/schema has to remain the same throughout the journey around the circle of friends. Tooling decisions have very real consequences for portability and correctness. So imagine my surprise when I discovered the Babel of type/schema translations running in MCP stacks today.
 
@@ -42,7 +42,7 @@ MCP’s types and validation story is a patchwork that varies by SDK, validation
   - Wire contracts:
     - Zod path: to expose tool schemas to clients (`tools/list`), Zod is converted to JSON Schema (Zod → JSON Schema step in the path).
     - JSON Schema path: schemas are used as‑is; no conversion required.
-  - Client/runtime validation: clients JIT‑compile Ajv validators at runtime from the received JSON Schemas. In constrained runtimes that forbid eval (e.g., some edge environments), the SDK takes an edge‑safe fallback path; otherwise Ajv codegen is used. Even assuming the edge-safe fallback is consistent, Ajv takes a big performance hit the first time a schema is validated.
+  - Client/runtime validation: clients JIT‑compile Ajv validators at runtime from the received JSON Schemas. In constrained runtimes that forbid eval (e.g., some edge environments), the SDK takes an edge‑safe fallback path; otherwise Ajv codegen is used. Even assuming the edge-safe fallback is consistent, Ajv's JIT run is a big performance hit the first time a schema is validated.
 
 - Elicitation is a special case: defined directly in JSON Schema
   - Elicitation needed semantics that JSON Schema supports cleanly but TypeScript types do not (for example, the restricted primitives-only shape, defaults, and UI-ready constraints). So this part of the spec is authored directly in JSON Schema—not in TS types.
@@ -164,7 +164,9 @@ Why this matters for elicitation in particular
 
 ## Enter TypeBox
 
-Every story needs the steady one. TypeBox was the approachable friend I’d never considered “marriage material.” Not flashy—just compatible. It speaks the language the world already uses ([JSON Schema](https://json-schema.org/)), and it lets me keep speaking TypeScript at home. No grand gestures, fewer surprises.
+> TypeBox is a runtime type system that creates in-memory Json Schema objects that infer as TypeScript types. ~1st line in TypeBox documentation
+
+Every story needs the steady one. TypeBox was the approachable friend I’d never considered “marriage material.” Not flashy—just compatible. Its 1st language is the one that the world already uses ([JSON Schema](https://json-schema.org/)), and it lets me keep speaking TypeScript at home. No grand gestures, fewer surprises.
 
 If TypeSpec was the high‑maintenance seductress, TypeBox is the low‑drama partner: you write in JSON Schema grammar and get precise TypeScript types back, plus runtime validation. That combination travels well across gateways, languages, and runtimes without asking teams to learn a new language—think of TypeBox as a TypeScript way to author JSON Schema, not a new dialect.
 
