@@ -7,19 +7,24 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createTestingClient, type RpcAccessible, CookieJar, SELF, getWebSocketShim } from '@lumenize/testing';
+import { createTestingClient, CookieJar, fetch, WebSocket, type RpcAccessible } from '@lumenize/testing';
 import { MyDO } from '../src';
 
 type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
 
-// createTestingClient now allows you to:
-//   - Superset of capabilities provided by cloudflare:test's runInDurableObject, and SELF
+// @lumenize/testing provides:
+//   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance ID!)
+//   - fetch: Simple fetch for making requests to your worker
+//   - WebSocket: Browser-compatible WebSocket for DO connections
+//   - CookieJar: Automatic cookie management for auth flows
+//   
+// Key features:
 //   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
 //   - Assert on any state change in instance variables or storage
 //   - Manipulate storage prior to running a test
-//   - Supply Origin and other Headers for WebSocket upgrades
-//   - Use CookieJar for complex auth and other cookie flows
-//   - Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
+//   - TODO: Supply Origin and other Headers for WebSocket upgrades
+//   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
+//   - No need to worry about internals of cloudflare:test
 describe('@lumenize/testing core capabilities', () => {
 
   // createTestingClient allows you to:
@@ -34,7 +39,7 @@ describe('@lumenize/testing core capabilities', () => {
     await client.ctx.storage.put('count', 10);
 
     // Make a regular fetch call to increment
-    const response = await SELF.fetch('https://example.com/my-do/put-fetch-get/increment');
+    const response = await fetch('https://example.com/my-do/put-fetch-get/increment');
     
     // Verify that we get back the incremented count
     expect(response.status).toBe(200);
@@ -88,32 +93,6 @@ describe('@lumenize/testing core capabilities', () => {
     });
   });
 
-  // createTestingClient with CookieJar allows you to:
-  //   - Use CookieJar to test auth and other cookie based flows
-  it('demonstrates cookie jar automatically manages cookies', async () => {
-    // Create cookie jar
-    const cookieJar = new CookieJar();
-    cookieJar.setDefaultHostname('example.com');
-    
-    // Pass cookie jar to createTestingClient - it will automatically wrap fetch
-    const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
-
-    // Login sets a cookie automatically
-    await cookieAwareFetch('https://example.com/login?user=test');
-
-    // Assert the token cookie was stored
-    expect(cookieJar.getCookie('token')).toBe('abc123');
-
-    // Manually set an extra cookie
-    cookieJar.setCookie('extra', 'manual-value', { domain: 'example.com' });
-
-    // Protected route gets both cookies automatically
-    const res = await cookieAwareFetch('https://example.com/protected-cookie-echo');
-    const text = await res.text();
-    expect(text).toContain('token=abc123');
-    expect(text).toContain('extra=manual-value');
-  });
-
   // createTestingClient allows you to:
   //   - Configure various options for different testing scenarios
   it('demonstrates all available TestingClientOptions (living documentation)', async () => {
@@ -156,16 +135,16 @@ describe('@lumenize/testing core capabilities', () => {
     expect(typeof count).toBe('number');
   });
 
-  // createTestingClient with getWebSocketShim allows you to:
-  //   - Use familiar WebSocket API via getWebSocketShim
+  // createTestingClient with WebSocket allows you to:
+  //   - Use familiar WebSocket API
   //   - Browser-compatible WebSocket that routes through DO testing infrastructure
   it('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
-    // Get WebSocket shim for testing WebSocket connections directly
-    const WebSocketShim = getWebSocketShim(SELF.fetch.bind(SELF));
-    
+    // Use WebSocket directly - no need to call getWebSocketShim!
+    // Note: Cast to `any` needed because Cloudflare's WebSocket type doesn't include event handlers
+    // but our shim implements the full browser WebSocket API
+    const ws = new WebSocket('wss://example.com/my-do/test-ws') as any;
+
     let onMessageCalled = false;
-    
-    const ws = new WebSocketShim('wss://example.com/my-do/test-ws') as any;
 
     ws.send('ping');
     
@@ -208,8 +187,52 @@ describe('@lumenize/testing core capabilities', () => {
   //   - Track operations and verify execution order
   it.todo('demonstrates multiple WebSocket connections and operation tracking');
 
+  // CookieJar shares cookies between fetch and WebSocket:
+  //   - Login via fetch, then WebSocket uses the same session
+  //   - Both use the same CookieJar instance
+  it('demonstrates cookie sharing between fetch and WebSocket from same jar', async () => {
+    // Create ONE cookie jar instance
+    const cookieJar = new CookieJar();
+    cookieJar.setDefaultHostname('example.com');
+    
+    // Get BOTH cookie-aware fetch and WebSocket from the SAME jar
+    const cookieAwareFetch = cookieJar.getFetch(fetch);
+    const CookieWebSocket = cookieJar.getWebSocket(fetch);
+    
+    // 1. Login via fetch - sets session cookie
+    await cookieAwareFetch('https://example.com/login?user=test');
+    
+    // 2. Verify cookie was stored in the jar
+    expect(cookieJar.getCookie('token')).toBe('abc123');
+    
+    // 3. Manually add additional cookies
+    cookieJar.setCookie('extra', 'manual-value', { domain: 'example.com' });
+    
+    // 4. Make another fetch request - gets BOTH cookies automatically
+    const res = await cookieAwareFetch('https://example.com/protected-cookie-echo');
+    const text = await res.text();
+    expect(text).toContain('token=abc123');      // From login
+    expect(text).toContain('extra=manual-value'); // Manually added
+    
+    // 5. WebSocket connection also gets BOTH cookies automatically!
+    // Note: Cast to `any` needed because Cloudflare's WebSocket type doesn't include event handlers
+    const ws = new CookieWebSocket('wss://example.com/my-do/shared-cookies') as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // 6. Verify WebSocket connection was established with cookies
+    await using client = createTestingClient<MyDOType>('MY_DO', 'shared-cookies');
+    const wsList = await client.ctx.getWebSockets('shared-cookies');
+    expect(wsList.length).toBe(1);
+    
+    ws.close();
+  });
+
   // createTestingClient allows you to:
-  //   - Supply custom headers via getWebSocketShim factory options
+  //   - Supply custom headers via WebSocket factory options
   //   - Configure WebSocket shim behavior per test
   it.todo('demonstrates custom headers via WebSocket factory options');
 

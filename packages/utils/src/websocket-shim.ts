@@ -27,7 +27,7 @@ export interface FactoryInit {
  * @param factoryInit - Optional configuration for headers and queue limits.
  * @returns A WebSocket-compatible constructor class.
  */
-export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryInit): new (url: string, protocols?: string | string[]) => WebSocket {
+export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryInit): new (url: string | URL, protocols?: string | string[]) => WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)
     static readonly CONNECTING = 0;
@@ -55,12 +55,15 @@ export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryIni
     #flushing = false;
 
     // Overloaded constructor to match browser WebSocket API
-    constructor(url: string, protocols?: string | string[]) {
+    constructor(url: string | URL, protocols?: string | string[]) {
       super();
+
+      // Convert URL to string if needed (browser compatibility)
+      const urlString = typeof url === 'string' ? url : url.toString();
 
       // Merge factory init with constructor params
       const init: InternalInit = {
-        url,
+        url: urlString,
         protocols,
         headers: factoryInit?.headers,
         maxQueueBytes: factoryInit?.maxQueueBytes ?? Number.POSITIVE_INFINITY

@@ -1,4 +1,5 @@
 import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils';
+import { getWebSocketShim } from './websocket-shim';
 
 /**
  * Cookie jar for managing cookies across HTTP requests
@@ -68,6 +69,28 @@ export class CookieJar {
       
       return response;
     };
+  }
+
+  /**
+   * Create a cookie-aware WebSocket constructor that automatically includes cookies
+   * 
+   * @param baseFetch - The base fetch function to wrap (e.g., SELF.fetch.bind(SELF))
+   * @returns A WebSocket constructor that automatically handles cookies
+   * 
+   * @example
+   * ```typescript
+   * import { getWebSocketShim } from '@lumenize/utils';
+   * 
+   * const cookieJar = new CookieJar();
+   * const CookieWebSocket = cookieJar.getWebSocket(SELF.fetch.bind(SELF));
+   * 
+   * // WebSocket upgrade request includes cookies automatically
+   * const ws = new CookieWebSocket('wss://example.com/ws');
+   * ```
+   */
+  getWebSocket(baseFetch: typeof fetch): new (url: string | URL, protocols?: string | string[]) => WebSocket {
+    const cookieAwareFetch = this.getFetch(baseFetch);
+    return getWebSocketShim(cookieAwareFetch);
   }
 
   /**

@@ -107,6 +107,23 @@ describe('getWebSocketShim', () => {
       
       expect(ws.readyState).toBe(0);
     });
+
+    it('should accept URL object (browser compatibility)', () => {
+      const WebSocketClass = getWebSocketShim(mockFetch);
+      const url = new URL('wss://example.com/socket');
+      const ws = new WebSocketClass(url);
+      
+      expect(ws.url).toBe('wss://example.com/socket');
+      expect(ws.readyState).toBe(0); // CONNECTING
+    });
+
+    it('should accept URL object with query parameters', () => {
+      const WebSocketClass = getWebSocketShim(mockFetch);
+      const url = new URL('wss://example.com/socket?token=abc123');
+      const ws = new WebSocketClass(url);
+      
+      expect(ws.url).toBe('wss://example.com/socket?token=abc123');
+    });
   });
 
   describe('URL conversion', () => {
