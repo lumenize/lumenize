@@ -44,6 +44,87 @@ All code is written in TypeScript, but no build step is used during development.
 - If the item you are importing is exported from the source package's index.ts, use `import { something } from '@lumenize/some-other-package'`
 - Only when importing an item that's from the same npm package.json workspace, and it is not an export from the package's index.ts file, should we use `import { something } from './some-other-file.ts'`
 
+### Package Structure Standards
+
+#### Package.json patterns
+Every package should follow these patterns:
+- `"type": "module"` - Always use ES modules
+- `"main": "src/index.ts"` and `"types": "src/index.ts"` - Point to source files, not dist
+- `exports` field should point to `"./src/index.ts"` for both import and types
+- No build scripts in package.json (build only happens on publish via Lerna)
+- **Always include** `"types": "wrangler types"` script in package.json for generating worker-configuration.d.ts
+- Intra-monorepo dependencies use `"*"` as the version (e.g., `"@lumenize/utils": "*"`)
+- peerDependencies for test tooling: `@cloudflare/vitest-pool-workers` and `vitest`
+- `"license": "MIT"` for all open-source packages
+- `files` array should include `["src/**/*"]` to publish source files
+
+#### Standard package files
+Every package should have:
+- `package.json` - No build script, MIT license, follows patterns above
+- `tsconfig.json` - Extends root (`../../tsconfig.json`), includes `"types": ["vitest/globals"]`
+- `vitest.config.js` - Workers project config (see below)
+- `wrangler.jsonc` - DO bindings and migrations for test DOs
+- `worker-configuration.d.ts` - **NEVER hand-generate this file**. Always generate it by running `npm run types` (which calls `wrangler types`). This file should be regenerated whenever wrangler.jsonc changes.
+- `src/index.ts` - Single export file that re-exports all public API
+- `test/test-worker-and-dos.ts` - Test worker and test DOs wrapped with `lumenizeRpcDo`
+- `README.md` - Brief package description with link to docs (see README.md pattern below)
+- `LICENSE` - MIT license file (copy from another package)
+
+#### README.md pattern
+README.md files should follow this standard structure:
+```markdown
+# @lumenize/package-name
+
+A *de*light*ful* [one-line description].
+
+For complete documentation, visit **[https://lumenize.com/docs/package-name](https://lumenize.com/docs/package-name)**
+
+## Features
+
+- **Feature 1**: Brief description
+- **Feature 2**: Brief description
+- **Feature 3**: Brief description
+
+## Installation
+
+\`\`\`bash
+npm install @lumenize/package-name
+# or for dev dependencies:
+npm install --save-dev @lumenize/package-name
+\`\`\`
+```
+
+**Key principles:**
+- Keep it minimal - just package name, tagline, link to docs, key features, and installation
+- No detailed documentation - the website at https://lumenize.com is the single source of truth
+- No API documentation, examples, or usage guides in README.md
+- Use the *de*light*ful* branding in the description
+- Link directly to the specific docs page for that package
+
+#### Vitest configuration standards
+All vitest.config.js files should:
+- Use `defineWorkersProject` from `@cloudflare/vitest-pool-workers/config`
+- Set `testTimeout: 2000` (2 second global timeout)
+- Set `globals: true` for global test functions
+- Configure `poolOptions.workers`:
+  - `isolatedStorage: false` - Required for WebSocket support (add comment: "Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.")
+  - `wrangler: { configPath: './wrangler.jsonc' }`
+- Coverage configuration:
+  - `provider: "istanbul"`
+  - `reporter: ['text', 'json', 'html']`
+  - `include: ['**/src/**', '**/test/test-worker-and-dos.ts']` - Source and test worker
+  - `exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.config.*', '**/scratch/**', '**/test/**/*.test.ts']`
+  - `skipFull: false` and `all: false`
+
+#### Wrangler configuration standards
+All wrangler.jsonc files should:
+- Use a descriptive `name` (e.g., `"lumenize-rpc"`, `"lumenize-testing"`)
+- Set `main` to test worker: `"test/test-worker-and-dos.ts"`
+- Use recent `compatibility_date` (YYYY-MM-DD format)
+- Define test DOs in `durable_objects.bindings` with uppercase binding names
+- Include `migrations` array with `new_sqlite_classes` for all test DOs
+- Use incremental tags: `"v1"`, `"v2"`, etc.
+
 ### Testing
 - Unit testing is only used for algorithmically tricky code and ui components that can be unit tested without extensive mocking.
 - Integration testing is our primary way to get coverage of code that runs in a Worker or DO. Since @lumenize/testing is an integration test runner for DOs, we should dogfood that unless there is a good reason not to.

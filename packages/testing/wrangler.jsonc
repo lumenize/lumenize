@@ -1,0 +1,21 @@
+{
+  "name": "lumenize-testing",
+  "main": "test/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDOWithRpc"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "TestDOWithRpc"
+      ]
+    }
+  ]
+}

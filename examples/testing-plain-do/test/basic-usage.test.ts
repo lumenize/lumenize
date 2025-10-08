@@ -1,44 +1,34 @@
 /**
- * Basic Usage Examples for @lumenize/rpc
+ * Basic Usage Examples for @lumenize/testing
  * 
- * This file demonstrates the essential usage patterns of the @lumenize/rpc library
- * for testing Durable Objects.
+ * This file demonstrates the essential usage patterns of the @lumenize/testing library
+ * for testing Durable Objects with minimal boilerplate.
  * It's designed as living documentation to help developers get started quickly.
  */
 
 import { describe, it, expect, vi } from 'vitest';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
-import { SELF, env } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, type RpcAccessible } from '@lumenize/rpc';
-import { CookieJar } from '@lumenize/utils';
+import { createTestingClient, type RpcAccessible, CookieJar, SELF, getWebSocketShim } from '@lumenize/testing';
 import { MyDO } from '../src';
 
 type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
 
-// createRpcClient now allows you to:
-//   - Similar to cloudflare:test's runInDurableObject with RPC capabilities
-//   - Use `new WebSocket()` from getWebSocketShim and "wss://..." urls
-//   - Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
-//   - Assert on close codes and reasons (not shown)
+// createTestingClient now allows you to:
+//   - Superset of capabilities provided by cloudflare:test's runInDurableObject, and SELF
 //   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
 //   - Assert on any state change in instance variables or storage
 //   - Manipulate storage prior to running a test
 //   - Supply Origin and other Headers for WebSocket upgrades
 //   - Use CookieJar for complex auth and other cookie flows
-describe('@lumenize/rpc core capabilities', () => {
+//   - Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
+describe('@lumenize/testing core capabilities', () => {
 
-  // createRpcClient allows you to:
+  // createTestingClient allows you to:
   //   - Pre-populate storage via direct instance access before operations
   //   - Use fetch operations to manipulate storage
   //   - Verify results via instance storage assertions
   it('demonstrates pre-populating data, calling to change it, then checking data again', async () => {
-    // Create RPC client to DO instance
-    await using client = createRpcClient<MyDOType>({
-      doBindingName: 'MY_DO',
-      doInstanceNameOrId: 'put-fetch-get',
-      transport: 'http',
-      fetch: SELF.fetch.bind(SELF),
-    });
+    // Create RPC client with minimal config - just binding name and instance ID!
+    await using client = createTestingClient<MyDOType>('MY_DO', 'put-fetch-get');
 
     // Pre-populate storage via RPC
     await client.ctx.storage.put('count', 10);
@@ -56,18 +46,15 @@ describe('@lumenize/rpc core capabilities', () => {
     expect(storedCount).toBe(11);
   });
 
-  // createRpcClient allows you to:
+  // createTestingClient allows you to:
   //   - Discover all public members on the DO instance (env, ctx, custom methods)
   //   - Make assertions on non-function properties
   it('demonstrates DO inspection and function discovery using __asObject()', async () => {
-    await using client = createRpcClient<MyDOType>({
-      doBindingName: 'MY_DO',
-      doInstanceNameOrId: 'property-inspection-test',
-      transport: 'http',
-      fetch: SELF.fetch.bind(SELF),
-    });
+    await using client = createTestingClient<MyDOType>('MY_DO', 'property-inspection-test');
 
     const instanceAsObject = await client.__asObject?.();
+    console.log('%o', instanceAsObject);
+    console.log(JSON.stringify(instanceAsObject, null, 2));
     
     expect(instanceAsObject).toMatchObject({
       // DO methods are discoverable
@@ -101,14 +88,14 @@ describe('@lumenize/rpc core capabilities', () => {
     });
   });
 
-  // createRpcClient with CookieJar allows you to:
+  // createTestingClient with CookieJar allows you to:
   //   - Use CookieJar to test auth and other cookie based flows
   it('demonstrates cookie jar automatically manages cookies', async () => {
     // Create cookie jar
     const cookieJar = new CookieJar();
     cookieJar.setDefaultHostname('example.com');
     
-    // Wrap fetch with cookie jar
+    // Pass cookie jar to createTestingClient - it will automatically wrap fetch
     const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
 
     // Login sets a cookie automatically
@@ -127,58 +114,53 @@ describe('@lumenize/rpc core capabilities', () => {
     expect(text).toContain('extra=manual-value');
   });
 
-  // createRpcClient allows you to:
+  // createTestingClient allows you to:
   //   - Configure various options for different testing scenarios
-  it('demonstrates all available RpcClientConfig options (living documentation)', async () => {
+  it('demonstrates all available TestingClientOptions (living documentation)', async () => {
     const cookieJar = new CookieJar();
     cookieJar.setDefaultHostname('example.com');
     
-    await using client = createRpcClient<MyDOType>({
+    // All options in one place - createTestingClient handles the rest!
+    await using client = createTestingClient<MyDOType>(
       // Required: DO binding name from wrangler.jsonc
-      doBindingName: 'MY_DO',
+      'MY_DO',
       
       // Required: Instance name or ID
-      doInstanceNameOrId: 'config-demo',
+      'config-demo',
       
-      // Required if using http transport: fetch function
-      fetch: cookieJar.getFetch(SELF.fetch.bind(SELF)),
-      
-      // Optional: Transport type ('http' or 'websocket')
-      // Default: 'websocket'
-      transport: 'websocket',
-      
-      // Optional: Base URL for requests
-      // Default: location.origin (browser) or 'http://localhost:8787' (Node)
-      baseUrl: 'https://example.com',
-      
-      // Optional: RPC endpoint prefix
-      // Default: '/__rpc'
-      prefix: '/__rpc',
-      
-      // Optional: Request timeout in milliseconds
-      // Default: 30000
-      timeout: 30000,
-      
-      // Optional: Custom headers for all requests
-      // Default: {}
-      headers: {},
-      
-      // Optional for 'websocket' transport in browser environment: WebSocket class from getWebSocketShim
-      // Required for 'websocket' transport in test environment
-      // Default: globalThis.WebSocket
-      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-    });
+      // Optional configuration object
+      {
+        // Optional: Transport type ('http' or 'websocket')
+        // Default: 'http' (simpler for tests)
+        transport: 'websocket',
+        
+        // Optional: Cookie jar for automatic cookie management
+        // When provided, all requests will include cookies
+        cookieJar,
+        
+        // Optional: Request timeout in milliseconds
+        // Default: 30000
+        timeout: 30000,
+        
+        // Optional: Custom headers for all requests
+        // Default: {}
+        headers: {},
+        
+        // Note: When using websocket transport, createTestingClient automatically
+        // sets up the WebSocket shim - no need to manually configure it!
+      }
+    );
 
     // Client is ready to use
     const count = await client.increment();
     expect(typeof count).toBe('number');
   });
 
-  // createRpcClient with getWebSocketShim allows you to:
+  // createTestingClient with getWebSocketShim allows you to:
   //   - Use familiar WebSocket API via getWebSocketShim
   //   - Browser-compatible WebSocket that routes through DO testing infrastructure
   it('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
-    // Get WebSocket shim
+    // Get WebSocket shim for testing WebSocket connections directly
     const WebSocketShim = getWebSocketShim(SELF.fetch.bind(SELF));
     
     let onMessageCalled = false;
@@ -198,12 +180,7 @@ describe('@lumenize/rpc core capabilities', () => {
     await vi.waitFor(() => expect(onMessageCalled).toBe(true));
 
     // Create RPC client to inspect server-side WebSocket state
-    await using client = createRpcClient<MyDOType>({
-      doBindingName: 'MY_DO',
-      doInstanceNameOrId: 'test-ws',
-      transport: 'http',
-      fetch: SELF.fetch.bind(SELF),
-    });
+    await using client = createTestingClient<MyDOType>('MY_DO', 'test-ws');
 
     const webSocketsOnServer = await client.ctx.getWebSockets('test-ws');
     expect(webSocketsOnServer.length).toBe(1);
@@ -219,19 +196,19 @@ describe('@lumenize/rpc core capabilities', () => {
     ws.close();
   });
 
-  // createRpcClient allows you to:
+  // createTestingClient allows you to:
   //   - Call DO methods directly via RPC client (RPC-style)
   //   - Support all structured clone types except functions (like Cloudflare native RPC)
   //   - Inspect ctx (DurableObjectState): storage, getWebSockets, attachments, etc.
   //   - Use connection tagging with WebSocket names from URL paths
   it.todo('demonstrates direct DO method calls (RPC) and ctx inspection with WebSocket attachments');
 
-  // createRpcClient allows you to:
+  // createTestingClient allows you to:
   //   - Test using multiple WebSocket connections to the same DO instance
   //   - Track operations and verify execution order
   it.todo('demonstrates multiple WebSocket connections and operation tracking');
 
-  // createRpcClient allows you to:
+  // createTestingClient allows you to:
   //   - Supply custom headers via getWebSocketShim factory options
   //   - Configure WebSocket shim behavior per test
   it.todo('demonstrates custom headers via WebSocket factory options');
@@ -240,15 +217,10 @@ describe('@lumenize/rpc core capabilities', () => {
 
 describe('Limitations and quirks', () => {
 
-  // createRpcClient has these quirks:
+  // createTestingClient has these quirks:
   //   - Function calls require await, property access is synchronous, static values via __asObject()
   it('requires await for even non-async function calls', async () => {
-    await using client = createRpcClient<MyDOType>({
-      doBindingName: 'MY_DO',
-      doInstanceNameOrId: 'quirks',
-      transport: 'http',
-      fetch: SELF.fetch.bind(SELF),
-    });
+    await using client = createTestingClient<MyDOType>('MY_DO', 'quirks');
 
     console.log('%o', client);
     
@@ -283,7 +255,7 @@ describe('Limitations and quirks', () => {
     // (Attempting to access it returns undefined since it's not defined on nested proxies)
   });
 
-  // createRpcClient does NOT have these limitations (unlike old runInDurableObject):
+  // createTestingClient does NOT have these limitations (unlike old runInDurableObject):
   //   - Input gates work naturally (no artificial serialization)
   //   - No need for mock.sync() - operations complete when they should
   //   - Native Durable Object behavior preserved

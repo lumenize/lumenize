@@ -1,17 +1,15 @@
-// Export production-ready testing utilities
-export * from './types';
-export * from './create-ws-upgrade-request';
-export * from './cookie-utils';
-export * from './cookie-jar';
-// export * from './websocket-simple';
-// export * from './websocket-shim';
-// export * from './simulate-ws-upgrade';  // Temporarily disabled due to cloudflare:test import issues
-// export * from './run-in-durable-object';  // Temporarily disabled due to cloudflare:test import issues
+// Main export - testing-optimized RPC client
+export { createTestingClient } from './create-testing-client';
+export type { TestingClientOptions } from './create-testing-client';
 
-// Export instrumentation utilities (DO access tracking and ctx proxy)
-export * from './instrument-do';
-export * from './instrument-worker';
-export * from './test-do-project';
+// Re-export useful types from @lumenize/rpc
+export type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 
-// Note: Additional experimental utilities are available in the scratch/ directory
-// but are not exported as they are not production-ready
+// Re-export utilities from @lumenize/utils for convenience
+export { CookieJar, getWebSocketShim } from '@lumenize/utils';
+
+// Re-export SELF and env from cloudflare:test for single source of truth
+export const { SELF, env } = require('cloudflare:test') as {
+  SELF: { fetch: typeof fetch };
+  env: any;
+};

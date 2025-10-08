@@ -7,7 +7,7 @@ import remarkTestableDocs from '@lumenize/doc-testing/remark-plugin';
 
 const config: Config = {
   title: 'Lumenize',
-  tagline: 'De-light-ful Developer eXperience (DDX) on Cloudflare Durable Objects',
+  tagline: 'De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
