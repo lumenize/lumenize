@@ -70,7 +70,7 @@ The net effect
 - Different dialects (draft-07 vs 2020-12), non-standard fields (like enumNames), and format mismatches compound the problem.
 - Cross-SDK behavior can diverge in subtle ways, especially around elicitation’s constrained subset and defaulting rules.
 
-If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times--sometimes by automation, sometimes by humans--always with the risk of fidelity loss. See the Receipts below for links to concrete examples where this has actually happened that I was able to gather in an afternoon. I bet it just scratches the surface.
+If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times--sometimes by automation, sometimes by humans--always with the risk of fidelity loss. See the Receipts below for links to concrete examples where this has actually caused problems. I was able to gather this list in an afternoon. I bet it just scratches the surface.
 
 So, how do we fix this?
 
@@ -93,9 +93,9 @@ The MCP TypeScript SDK uses Zod. Zod is intuitive, expressive, and TS-native. As
   - Many reports cite Zod 4 being ~2x-4x times faster than Zod 3, but it's still ~4-10x slower than a compiled parser/validator.
   - Zod 4 is also reported to have a significantly smaller bundle size.
 
-However, that doesn't change the fact that Zod was not originally designed around JSON Schema (which is the wire schema specification format for MCP) semantics, so some JSON Schema nuances are lost or approximated; for example, OpenAPI 3.0’s `nullable: true` is not the same as JSON Schema 2020-12 (which represents nullability via `type: ["string", "null"]`), and `default` never implies required—OpenAPI marks parameter presence with top-level `required: true`, while JSON Schema uses a `required: []` array on the parent object.
+However, that doesn't change the fact that Zod was not originally designed around JSON Schema semantics, so some JSON Schema nuances are lost or approximated; for example, OpenAPI 3.0’s `nullable: true` is not the same as JSON Schema 2020-12 (which represents nullability via `type: ["string", "null"]`), and `default` never implies required—OpenAPI marks parameter presence with top-level `required: true`, while JSON Schema uses a `required: []` array on the parent object.
 
-Bottom line, the new version makes Zod more performant, lighter, and interoperable out of the box but doesn’t completely eliminate the performance delta and it does nothing for the bundling complexity--you still need Ajv or something else for runtime validation. Most importantly, it has the same subtle semantic differences with JSON Schema as the previous version.
+Bottom line, the new version makes Zod more performant, lighter, and interoperable out of the box but doesn’t completely eliminate the performance delta and it does nothing for the bundling complexity--you still need Ajv or something else for JSON Schema validation. Most importantly, it has the same subtle semantic differences with JSON Schema as the previous version.
 
 ---
 
