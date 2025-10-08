@@ -3,7 +3,6 @@
  * 
  * This file demonstrates the essential usage patterns of the @lumenize/testing library
  * for testing Durable Objects with minimal boilerplate.
- * It's designed as living documentation to help developers get started quickly.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -93,48 +92,6 @@ describe('@lumenize/testing core capabilities', () => {
     });
   });
 
-  // createTestingClient allows you to:
-  //   - Configure various options for different testing scenarios
-  it('demonstrates all available TestingClientOptions (living documentation)', async () => {
-    const cookieJar = new CookieJar();
-    cookieJar.setDefaultHostname('example.com');
-    
-    // All options in one place - createTestingClient handles the rest!
-    await using client = createTestingClient<MyDOType>(
-      // Required: DO binding name from wrangler.jsonc
-      'MY_DO',
-      
-      // Required: Instance name or ID
-      'config-demo',
-      
-      // Optional configuration object
-      {
-        // Optional: Transport type ('http' or 'websocket')
-        // Default: 'http' (simpler for tests)
-        transport: 'websocket',
-        
-        // Optional: Cookie jar for automatic cookie management
-        // When provided, all requests will include cookies
-        cookieJar,
-        
-        // Optional: Request timeout in milliseconds
-        // Default: 30000
-        timeout: 30000,
-        
-        // Optional: Custom headers for all requests
-        // Default: {}
-        headers: {},
-        
-        // Note: When using websocket transport, createTestingClient automatically
-        // sets up the WebSocket shim - no need to manually configure it!
-      }
-    );
-
-    // Client is ready to use
-    const count = await client.increment();
-    expect(typeof count).toBe('number');
-  });
-
   // createTestingClient with WebSocket allows you to:
   //   - Use familiar WebSocket API
   //   - Browser-compatible WebSocket that routes through DO testing infrastructure
@@ -184,8 +141,7 @@ describe('@lumenize/testing core capabilities', () => {
 
   // createTestingClient allows you to:
   //   - Test using multiple WebSocket connections to the same DO instance
-  //   - Track operations and verify execution order
-  it.todo('demonstrates multiple WebSocket connections and operation tracking');
+  it.todo('demonstrates multiple WebSocket connections');
 
   // CookieJar shares cookies between fetch and WebSocket:
   //   - Login via fetch, then WebSocket uses the same session
@@ -241,12 +197,12 @@ describe('@lumenize/testing core capabilities', () => {
 describe('Limitations and quirks', () => {
 
   // createTestingClient has these quirks:
-  //   - Function calls require await, property access is synchronous, static values via __asObject()
+  //   - Even non-async function calls require `await`
+  //   - Property access is synchronous on __asObject(), but...
+  //   - Even static property access requires `await` outside of __asObject()
   it('requires await for even non-async function calls', async () => {
     await using client = createTestingClient<MyDOType>('MY_DO', 'quirks');
 
-    console.log('%o', client);
-    
     // 1. Function calls require await even if what they are calling is not async inside the DO
 
     // using `async ctx.storage.put(...)`
@@ -269,19 +225,9 @@ describe('Limitations and quirks', () => {
     // But it returns the complete nested structure as plain data
     const fullObject = await client.__asObject?.();
     
-    // Access nested static properties from the returned plain object
+    // 5. No `await` needed to access nested static properties from __asObject()
     expect(typeof fullObject?.ctx?.storage?.sql?.databaseSize).toBe('number');
     expect(fullObject?.ctx?.storage?.sql?.databaseSize).toBe(await sql.databaseSize);
-    
-    // This demonstrates: root __asObject() gives you the full tree,
-    // but you can't call __asObject() on nested proxies like sql
-    // (Attempting to access it returns undefined since it's not defined on nested proxies)
   });
-
-  // createTestingClient does NOT have these limitations (unlike old runInDurableObject):
-  //   - Input gates work naturally (no artificial serialization)
-  //   - No need for mock.sync() - operations complete when they should
-  //   - Native Durable Object behavior preserved
-  it.todo('demonstrates natural input gate behavior vs old runInDurableObject artificial serialization');
 
 });

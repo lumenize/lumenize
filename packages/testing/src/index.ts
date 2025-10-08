@@ -1,6 +1,5 @@
 // Main export - testing-optimized RPC client
 export { createTestingClient } from './create-testing-client';
-export type { TestingClientOptions } from './create-testing-client';
 
 // DO project instrumentation
 export { instrumentDOProject } from './instrument-do-project';
