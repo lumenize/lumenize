@@ -3,6 +3,26 @@
  * 
  * This file demonstrates the essential usage patterns of the @lumenize/testing library
  * for testing Durable Objects with minimal boilerplate.
+ * 
+ * @lumenize/testing provides:
+ *   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance name/Id!)
+ *   - fetch: Simple fetch for making requests to your worker
+ *   - WebSocket: Browser-compatible WebSocket for DO connections
+ *   - CookieJar: Automatic cookie management for auth flows
+ *     - CookieJar.getFetch() --> cookie aware fetch
+ *     - CookieJar.getWebSocket() --> cookie aware WebSocket
+ *       - Automatically adds Origin header from CookieJar hostname (if set)
+ *       - Supports custom headers and maxQueueBytes options
+ * 
+ * Key features:
+ *   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
+ *   - Assert on any state change in instance variables or storage
+ *   - Manipulate storage prior to running a test
+ *   - Supply Origin and other Headers for WebSocket upgrades
+ *     - CookieJar automatically adds Origin from hostname (if set)
+ *     - Can override or add additional headers via getWebSocket() options
+ *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
+ *   - No need to worry about internals of cloudflare:test
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -11,19 +31,6 @@ import { MyDO } from '../src';
 
 type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
 
-// @lumenize/testing provides:
-//   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance ID!)
-//   - fetch: Simple fetch for making requests to your worker
-//   - WebSocket: Browser-compatible WebSocket for DO connections
-//   - CookieJar: Automatic cookie management for auth flows
-//   
-// Key features:
-//   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
-//   - Assert on any state change in instance variables or storage
-//   - Manipulate storage prior to running a test
-//   - TODO: Supply Origin and other Headers for WebSocket upgrades
-//   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
-//   - No need to worry about internals of cloudflare:test
 describe('@lumenize/testing core capabilities', () => {
 
   // createTestingClient allows you to:
@@ -187,10 +194,38 @@ describe('@lumenize/testing core capabilities', () => {
     ws.close();
   });
 
-  // createTestingClient allows you to:
-  //   - Supply custom headers via WebSocket factory options
-  //   - Configure WebSocket shim behavior per test
-  it.todo('demonstrates custom headers via WebSocket factory options');
+  // CookieJar.getWebSocket() allows you to:
+  //   - Automatically adds Origin header from CookieJar hostname (when set)
+  //   - Supply additional custom headers for WebSocket upgrades
+  //   - Configure maxQueueBytes for CONNECTING state queue limits
+  it('demonstrates automatic Origin and custom headers via CookieJar.getWebSocket()', async () => {
+    const cookieJar = new CookieJar();
+    // Setting hostname automatically adds Origin: https://example.com to WebSocket upgrades
+    cookieJar.setDefaultHostname('example.com');
+    
+    // Get WebSocket constructor - Origin is automatically added from hostname
+    const CookieWebSocket = cookieJar.getWebSocket(fetch, {
+      headers: {
+        'X-Custom-Header': 'test-value'
+        // No need to specify Origin - it's automatically https://example.com
+      },
+      maxQueueBytes: 1024 * 1024 // 1MB queue limit while CONNECTING
+    });
+    
+    const ws = new CookieWebSocket('wss://example.com/my-do/custom-headers') as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // Verify connection was established with automatic Origin + custom headers
+    await using client = createTestingClient<MyDOType>('MY_DO', 'custom-headers');
+    const wsList = await client.ctx.getWebSockets('custom-headers');
+    expect(wsList.length).toBe(1);
+    
+    ws.close();
+  });
 
 });
 

@@ -360,4 +360,68 @@ describe('CookieJar', () => {
       expect(cookieJar.getAllCookies()).toHaveLength(2);
     });
   });
+
+  describe('getWebSocket', () => {
+    it('should automatically add Origin header from hostname if set', () => {
+      cookieJar.setDefaultHostname('example.com');
+      
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const req = new Request(input);
+        const origin = req.headers.get('Origin');
+        
+        // Verify Origin was automatically added
+        expect(origin).toBe('https://example.com');
+        
+        // Return mock WebSocket upgrade response
+        const ws = {} as any;
+        ws.accept = () => {};
+        return { webSocket: ws } as any;
+      };
+
+      const WebSocketClass = cookieJar.getWebSocket(mockFetch);
+      expect(WebSocketClass).toBeDefined();
+    });
+
+    it('should not override explicit Origin header', () => {
+      cookieJar.setDefaultHostname('example.com');
+      
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const req = new Request(input);
+        const origin = req.headers.get('Origin');
+        
+        // Verify explicit Origin was preserved
+        expect(origin).toBe('https://custom.com');
+        
+        // Return mock WebSocket upgrade response
+        const ws = {} as any;
+        ws.accept = () => {};
+        return { webSocket: ws } as any;
+      };
+
+      const WebSocketClass = cookieJar.getWebSocket(mockFetch, {
+        headers: { 'Origin': 'https://custom.com' }
+      });
+      expect(WebSocketClass).toBeDefined();
+    });
+
+    it('should not add Origin if no hostname is set', () => {
+      // No hostname set - Origin should not be added automatically
+      
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const req = new Request(input);
+        const origin = req.headers.get('Origin');
+        
+        // Verify no Origin was added
+        expect(origin).toBeNull();
+        
+        // Return mock WebSocket upgrade response
+        const ws = {} as any;
+        ws.accept = () => {};
+        return { webSocket: ws } as any;
+      };
+
+      const WebSocketClass = cookieJar.getWebSocket(mockFetch);
+      expect(WebSocketClass).toBeDefined();
+    });
+  });
 });

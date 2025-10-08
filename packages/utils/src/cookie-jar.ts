@@ -75,6 +75,7 @@ export class CookieJar {
    * Create a cookie-aware WebSocket constructor that automatically includes cookies
    * 
    * @param baseFetch - The base fetch function to wrap (e.g., SELF.fetch.bind(SELF))
+   * @param options - Optional WebSocket factory configuration (headers, maxQueueBytes)
    * @returns A WebSocket constructor that automatically handles cookies
    * 
    * @example
@@ -82,15 +83,30 @@ export class CookieJar {
    * import { getWebSocketShim } from '@lumenize/utils';
    * 
    * const cookieJar = new CookieJar();
-   * const CookieWebSocket = cookieJar.getWebSocket(SELF.fetch.bind(SELF));
+   * cookieJar.setDefaultHostname('example.com'); // Will be used as Origin if not explicitly set
    * 
-   * // WebSocket upgrade request includes cookies automatically
+   * const CookieWebSocket = cookieJar.getWebSocket(SELF.fetch.bind(SELF), {
+   *   headers: { 'X-Custom-Header': 'value' }, // Origin auto-added from hostname
+   *   maxQueueBytes: 1024 * 1024 // 1MB
+   * });
+   * 
+   * // WebSocket upgrade request includes cookies, Origin, AND custom headers automatically
    * const ws = new CookieWebSocket('wss://example.com/ws');
    * ```
    */
-  getWebSocket(baseFetch: typeof fetch): new (url: string | URL, protocols?: string | string[]) => WebSocket {
+  getWebSocket(baseFetch: typeof fetch, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): new (url: string | URL, protocols?: string | string[]) => WebSocket {
     const cookieAwareFetch = this.getFetch(baseFetch);
-    return getWebSocketShim(cookieAwareFetch);
+    
+    // If we have a hostname (inferred or manual) and no explicit Origin header, add it
+    const headers = { ...options?.headers };
+    if (this.inferredHostname && !headers['Origin'] && !headers['origin']) {
+      headers['Origin'] = `https://${this.inferredHostname}`;
+    }
+    
+    return getWebSocketShim(cookieAwareFetch, {
+      ...options,
+      headers
+    });
   }
 
   /**
