@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, WebSocketEvents } from 'vitest';
-import { testDOProject, createWSUpgradeRequest } from '@lumenize/testing';
+import { testDOProject } from '@lumenize/testing';
 
 /**
  * Basic Usage Examples for @lumenize/testing
