@@ -9,11 +9,13 @@ tags: [personal]
 
 # From Flirtation to Vows: Healing the MCP Type Fracture
 
-Remember that childhood game called "broken telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? The lesson of that exercise was that every translation from brain to words and back again was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
+Remember that childhood game called "broken telephone" where we lined up in a circle with our friends. Then, one person would whisper something into their neighbor's ear, and they would in turn whisper it into the next friend's ear until you completed the circle? If you were lucky, you might land beside the person you secretly liked—the tiny thrill of whispering anything into their ear. The lesson was that every translation from brain to words and back again was just a little bit lossy. Cumulatively, what came out the other end was nothing like the original message.
 
-Software systems, and APIs in particular, are no different. Every layer of translation results in just a little bit of loss in fidelity. This is nowhere more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
+Software systems, and APIs in particular, are no different. Every layer of translation risk just a little bit of loss in fidelity. This is nowhere more true than in the realm of types, schemas, validation, and code generation — the same patch of cognitive quicksand occupied by TypeScript, JSON Schema, Ajv, Zod, and friends.
 
 MCP is all about context portability: moving structured data democratically across agents, runtimes, and languages. The type/schema has to remain the same throughout the journey around the circle of friends. Tooling decisions have very real consequences for portability and correctness. So imagine my surprise when I discovered the Babel of type/schema translations running in MCP stacks today.
+
+Somewhere between recess and real life we all learned the difference between a childhood crush and a partner you can build with. Flash is fun on the playground; fidelity gets you into adulthood. With Lumenize, I wasn’t looking for puppy love. I was looking for a commitment that would survive different runtimes, languages, and teams.
 
 <!-- truncate -->
 
@@ -21,9 +23,9 @@ MCP is all about context portability: moving structured data democratically acro
 
 ## Motivation
 
-Lumenize is an MCP server platform. The obvious path would be to consume the MCP TypeScript SDK directly (as the Cloudflare `agents` npm package does). But for our initial scope, we only needed Resources and Tools — a subset that looked straightforward to implement directly from the spec, without pulling in the rest of the SDK’s baggage.
+Lumenize is an MCP server platform, and it’s ready to pick a lifelong partner. The obvious date would be the MCP TypeScript SDK (as the Cloudflare `agents` package does). But our initial scope only needed Resources and Tools—a small, well-bounded slice that seemed straightforward to implement from the spec without the baggage of the entire MCP TypeScript SDK.
 
-That’s where the real work began. Choosing an architecture for types, schemas, and validation in MCP opened a can of worms: dialect drift, conversion fidelity, validator choices, and runtime constraints. This post is about that can of worms, the choices I made for Lumenize, and why.
+That’s when the relationship work began. Choosing how we do types, schemas, and validation wasn’t just a technical checkbox—it sets the tone for everything that crosses a boundary. MCP specifies a shared language for the wire (JSON Schema). We want to avoid codependent conversions (TS ↔ Zod ↔ JSON Schema), choose validators that can meet the in‑laws (edge runtimes without eval), and keep performance from being a first‑date surprise. This post is about how we auditioned alternatives, why we passed on some high‑maintenance options, and the simple vows we chose in the end.
 
 ## The Type/Schema/Validation Babel that MCP is Today
 
@@ -64,11 +66,11 @@ All of the mess described above is for the TypeScript SDK. It gets even messier 
 
 The net effect
 - We have multiple sources of truth: TS types (spec), generated JSON Schema, Zod schemas (SDK), elicitation’s direct JSON Schema, and per-language SDK models.
-- Each translation—TS → JSON Schema, Zod ↔ JSON Schema, JSON Schema → native types—introduces opportunities for drift and nuance loss.
+- Each translation—TS → JSON Schema, Zod ↔ JSON Schema, JSON Schema → native types—introduces opportunities for drift and nuanced loss.
 - Different dialects (draft-07 vs 2020-12), non-standard fields (like enumNames), and format mismatches compound the problem.
 - Cross-SDK behavior can diverge in subtle ways, especially around elicitation’s constrained subset and defaulting rules.
 
-If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times--sometimes by automation, sometimes by humans--always with the risk of fidelity loss. See the Receipts below for concrete examples and links I was able to gather in an afternoon. I'm sure it just scratches the surface.
+If this feels like the childhood game of “telephone,” that’s the point. MCP schemas are effectively re-stated multiple times--sometimes by automation, sometimes by humans--always with the risk of fidelity loss. See the Receipts below for links to concrete examples where this has actually happened that I was able to gather in an afternoon. I bet it just scratches the surface.
 
 So, how do we fix this?
 
@@ -164,11 +166,11 @@ Why this matters for elicitation in particular
 
 Every story needs the steady one. TypeBox was the approachable friend I’d never considered “marriage material.” Not flashy—just compatible. It speaks the language the world already uses ([JSON Schema](https://json-schema.org/)), and it lets me keep speaking TypeScript at home. No grand gestures, fewer surprises.
 
-If TypeSpec was the high‑maintenance crush, TypeBox is the low‑drama partner: you write in JSON Schema grammar and get precise TypeScript types back, plus runtime validation when it matters. That combination travels well across gateways, languages, and runtimes without asking teams to learn a new language—think of TypeBox as a TypeScript way to author JSON Schema, not a new dialect.
+If TypeSpec was the high‑maintenance seductress, TypeBox is the low‑drama partner: you write in JSON Schema grammar and get precise TypeScript types back, plus runtime validation. That combination travels well across gateways, languages, and runtimes without asking teams to learn a new language—think of TypeBox as a TypeScript way to author JSON Schema, not a new dialect.
 
 And the part that shows up on moving day? TypeBox’s Value validator. It’s lightweight, edge‑safe, and fast in interpreted mode, with an option to pre‑compile when you need near‑Ajv speed.
 
-The moment my eyes opened: Value validates plain JSON Schema. Use TypeBox definitions when they’re available; otherwise validate the over‑the‑wire schema. One package covers all our Lumenize paths.
+The moment my eyes opened: Value validates plain JSON Schema. Use TypeBox definitions when they’re available; otherwise validate with the over‑the‑wire schema. One package covers all our Lumenize paths.
 
 No Zod. No Ajv. No compile‑time tricks. No eval. It’s edge‑safe (Cloudflare Workers, Vercel Edge), and interpreted validation is faster than Zod with optional pre‑compile when you need more—without hauling in Ajv’s bundle or first‑hit JIT cost. That mix of portability and performance was the proposal I couldn’t refuse—so I said yes.
 
@@ -180,4 +182,4 @@ And after saying yes, we wrote our vows—the simple commitments that keep the r
 > - **Use TypeBox for everything that crosses a process, network, or persistence boundary.**
 
 That boundary is sacred. TypeScript’s types model what code believes about data. TypeBox’s schemas model what machines must prove about data when it crosses a boundary.
-This separation keeps our internal code flexible and expressive, and our wire contracts stable, serializable, and enforceable.
+This separation keeps our internal code expressive with early type mismatch feedback, and our wire contracts stable, serializable, and enforceable.
