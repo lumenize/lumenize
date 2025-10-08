@@ -2,29 +2,35 @@ import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cook
 import { getWebSocketShim } from './websocket-shim';
 
 /**
- * Cookie jar for managing cookies across HTTP requests
+ * Browser simulator for testing Workers and Durable Objects
  * 
- * Automatically stores cookies from Set-Cookie headers and includes
- * appropriate cookies in subsequent requests based on domain/path matching.
+ * Simulates browser behavior including:
+ * - Cookie management across requests (automatic domain/path matching)
+ * - Page contexts with Origin headers for CORS testing
+ * - Shared cookies between fetch and WebSocket connections
  * 
  * ## Usage
  * 
  * ```typescript
- * import { CookieJar } from '@lumenize/utils';
+ * import { Browser } from '@lumenize/utils';
  * 
- * const cookieJar = new CookieJar();
- * const cookieAwareFetch = cookieJar.getFetch(SELF.fetch.bind(SELF));
+ * const browser = new Browser();
  * 
- * // Cookies are automatically managed
- * await cookieAwareFetch('https://example.com/login?user=me&pass=123');
- * await cookieAwareFetch('https://example.com/protected'); // Session cookie sent automatically
+ * // Create a page with an origin (simulates requests from a loaded page)
+ * const { fetch, WebSocket } = browser.createPage(SELF.fetch.bind(SELF), { 
+ *   origin: 'https://example.com' 
+ * });
  * 
- * // Manual cookie access
- * console.log(cookieJar.getCookie('session')); // 'abc123'
- * cookieJar.setCookie('custom', 'value', { domain: 'example.com' });
+ * // Requests include Origin header and cookies automatically
+ * await fetch('https://api.example.com/data');
+ * const ws = new WebSocket('wss://api.example.com/ws');
+ * 
+ * // Manual cookie management
+ * browser.setCookie('session', 'abc123', { domain: 'example.com' });
+ * console.log(browser.getCookie('session')); // 'abc123'
  * ```
  */
-export class CookieJar {
+export class Browser {
   private cookies = new Map<string, Cookie>();
   private inferredHostname?: string;
   private cookieJarEnabled = true;
@@ -107,6 +113,80 @@ export class CookieJar {
       ...options,
       headers
     });
+  }
+
+  /**
+   * Create a page context with an origin for CORS testing
+   * 
+   * Returns fetch and WebSocket that simulate requests from a page loaded from the given origin.
+   * Both automatically include the Origin header and cookies.
+   * 
+   * @param baseFetch - The base fetch function to wrap (e.g., SELF.fetch.bind(SELF))
+   * @param options - Page configuration
+   * @param options.origin - The origin of the page (e.g., 'https://example.com')
+   * @param options.headers - Additional headers to include in WebSocket upgrades
+   * @param options.maxQueueBytes - Queue limit for WebSocket CONNECTING state
+   * @returns Object with fetch and WebSocket constructors
+   * 
+   * @example
+   * ```typescript
+   * const browser = new Browser();
+   * 
+   * // Create a page from example.com
+   * const { fetch, WebSocket } = browser.createPage(SELF.fetch.bind(SELF), { 
+   *   origin: 'https://example.com' 
+   * });
+   * 
+   * // Requests include Origin: https://example.com
+   * await fetch('https://api.example.com/data');
+   * const ws = new WebSocket('wss://api.example.com/ws');
+   * 
+   * // Test cross-origin rejection
+   * const attacker = new Browser();
+   * const { fetch: attackFetch } = attacker.createPage(SELF.fetch.bind(SELF), {
+   *   origin: 'https://evil.com'
+   * });
+   * const res = await attackFetch('https://api.example.com/data'); // May be rejected
+   * ```
+   */
+  createPage(
+    baseFetch: typeof fetch,
+    options: {
+      origin: string;
+      headers?: Record<string, string>;
+      maxQueueBytes?: number;
+    }
+  ): { fetch: typeof fetch; WebSocket: new (url: string | URL, protocols?: string | string[]) => WebSocket } {
+    // Create cookie-aware fetch
+    const cookieAwareFetch = this.getFetch(baseFetch);
+    
+    // Wrap fetch to add Origin header
+    const pageFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const request = new Request(input, init);
+      
+      // Add Origin header if not already present
+      if (!request.headers.has('Origin')) {
+        request.headers.set('Origin', options.origin);
+      }
+      
+      return cookieAwareFetch(request);
+    };
+    
+    // Create WebSocket with Origin header
+    const headers = {
+      Origin: options.origin,
+      ...options.headers
+    };
+    
+    const PageWebSocket = getWebSocketShim(cookieAwareFetch, {
+      headers,
+      maxQueueBytes: options.maxQueueBytes
+    });
+    
+    return {
+      fetch: pageFetch as typeof fetch,
+      WebSocket: PageWebSocket
+    };
   }
 
   /**
@@ -367,3 +447,8 @@ export class CookieJar {
     return setCookieHeaders;
   }
 }
+
+/**
+ * @deprecated Use `Browser` instead. CookieJar has been renamed to Browser to better reflect its purpose.
+ */
+export const CookieJar = Browser;

@@ -5,5 +5,5 @@ export * from './parse-pathname';
 export * from './websocket-utils';
 export * from './route-do-request';
 export * from './cookie-utils';
-export * from './cookie-jar';
+export * from './browser';
 export * from './websocket-shim';

@@ -8,25 +8,26 @@
  *   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance name/Id!)
  *   - fetch: Simple fetch for making requests to your worker
  *   - WebSocket: Browser-compatible WebSocket for DO connections
- *   - CookieJar: Automatic cookie management for auth flows
- *     - CookieJar.getFetch() --> cookie aware fetch
- *     - CookieJar.getWebSocket() --> cookie aware WebSocket
- *       - Automatically adds Origin header from CookieJar hostname (if set)
- *       - Supports custom headers and maxQueueBytes options
+ *   - Browser: Simulates browser behavior for testing
+ *     - Browser.getFetch() --> cookie-aware fetch (no Origin header)
+ *     - Browser.getWebSocket() --> cookie-aware WebSocket (no Origin header)
+ *     - Browser.createPage({ origin }) --> returns { fetch, WebSocket } with Origin header
+ *       - Both automatically include cookies from the Browser instance
+ *       - Simulates requests from a page loaded from the given origin
+ *       - Perfect for testing CORS and Origin validation logic
  * 
  * Key features:
  *   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
  *   - Assert on any state change in instance variables or storage
  *   - Manipulate storage prior to running a test
- *   - Supply Origin and other Headers for WebSocket upgrades
- *     - CookieJar automatically adds Origin from hostname (if set)
- *     - Can override or add additional headers via getWebSocket() options
+ *   - Test Origin validation for both HTTP and WebSocket requests
+ *   - Simulate browser behavior with automatic cookie management
  *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
  *   - No need to worry about internals of cloudflare:test
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { createTestingClient, CookieJar, fetch, WebSocket, type RpcAccessible } from '@lumenize/testing';
+import { createTestingClient, Browser, fetch, WebSocket, type RpcAccessible } from '@lumenize/testing';
 import { MyDO } from '../src';
 
 type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
@@ -150,26 +151,26 @@ describe('@lumenize/testing core capabilities', () => {
   //   - Test using multiple WebSocket connections to the same DO instance
   it.todo('demonstrates multiple WebSocket connections');
 
-  // CookieJar shares cookies between fetch and WebSocket:
+  // Browser shares cookies between fetch and WebSocket:
   //   - Login via fetch, then WebSocket uses the same session
-  //   - Both use the same CookieJar instance
-  it('demonstrates cookie sharing between fetch and WebSocket from same jar', async () => {
-    // Create ONE cookie jar instance
-    const cookieJar = new CookieJar();
-    cookieJar.setDefaultHostname('example.com');
+  //   - Both use the same Browser instance
+  it('demonstrates cookie sharing between fetch and WebSocket from same browser', async () => {
+    // Create ONE browser instance
+    const browser = new Browser();
+    browser.setDefaultHostname('example.com');
     
-    // Get BOTH cookie-aware fetch and WebSocket from the SAME jar
-    const cookieAwareFetch = cookieJar.getFetch(fetch);
-    const CookieWebSocket = cookieJar.getWebSocket(fetch);
+    // Get BOTH cookie-aware fetch and WebSocket from the SAME browser
+    const cookieAwareFetch = browser.getFetch(fetch);
+    const CookieWebSocket = browser.getWebSocket(fetch);
     
     // 1. Login via fetch - sets session cookie
     await cookieAwareFetch('https://example.com/login?user=test');
     
-    // 2. Verify cookie was stored in the jar
-    expect(cookieJar.getCookie('token')).toBe('abc123');
+    // 2. Verify cookie was stored in the browser
+    expect(browser.getCookie('token')).toBe('abc123');
     
     // 3. Manually add additional cookies
-    cookieJar.setCookie('extra', 'manual-value', { domain: 'example.com' });
+    browser.setCookie('extra', 'manual-value', { domain: 'example.com' });
     
     // 4. Make another fetch request - gets BOTH cookies automatically
     const res = await cookieAwareFetch('https://example.com/protected-cookie-echo');
@@ -194,37 +195,52 @@ describe('@lumenize/testing core capabilities', () => {
     ws.close();
   });
 
-  // CookieJar.getWebSocket() allows you to:
-  //   - Automatically adds Origin header from CookieJar hostname (when set)
-  //   - Supply additional custom headers for WebSocket upgrades
+  // Browser.createPage() allows you to:
+  //   - Test Origin validation logic in your Workers/DOs
+  //   - Simulate requests from a page loaded from a specific origin
+  //   - Supply custom headers for WebSocket upgrades
   //   - Configure maxQueueBytes for CONNECTING state queue limits
-  it('demonstrates automatic Origin and custom headers via CookieJar.getWebSocket()', async () => {
-    const cookieJar = new CookieJar();
-    // Setting hostname automatically adds Origin: https://example.com to WebSocket upgrades
-    cookieJar.setDefaultHostname('example.com');
+  it('demonstrates testing Origin validation using Browser.createPage()', async () => {
+    const browser = new Browser();
     
-    // Get WebSocket constructor - Origin is automatically added from hostname
-    const CookieWebSocket = cookieJar.getWebSocket(fetch, {
+    // Create a page context with Origin header
+    // Both fetch and WebSocket will include Origin: https://example.com
+    const { fetch: pageFetch, WebSocket: PageWebSocket } = browser.createPage(fetch, {
+      origin: 'https://example.com',
       headers: {
         'X-Custom-Header': 'test-value'
-        // No need to specify Origin - it's automatically https://example.com
       },
       maxQueueBytes: 1024 * 1024 // 1MB queue limit while CONNECTING
     });
     
-    const ws = new CookieWebSocket('wss://example.com/my-do/custom-headers') as any;
+    // Requests from this page include Origin automatically
+    // This is perfect for testing CORS and Origin validation logic
+    const ws = new PageWebSocket('wss://example.com/my-do/origin-test') as any;
     
     let wsOpened = false;
     ws.onopen = () => { wsOpened = true; };
     
     await vi.waitFor(() => expect(wsOpened).toBe(true));
     
-    // Verify connection was established with automatic Origin + custom headers
-    await using client = createTestingClient<MyDOType>('MY_DO', 'custom-headers');
-    const wsList = await client.ctx.getWebSockets('custom-headers');
+    // Verify connection was established with Origin + custom headers
+    await using client = createTestingClient<MyDOType>('MY_DO', 'origin-test');
+    const wsList = await client.ctx.getWebSockets('origin-test');
     expect(wsList.length).toBe(1);
     
     ws.close();
+    
+    // You can also test cross-origin scenarios
+    const attacker = new Browser();
+    const { fetch: attackFetch } = attacker.createPage(fetch, {
+      origin: 'https://evil.com'
+    });
+    
+    // This request includes Origin: https://evil.com
+    // Your Worker/DO can validate and reject it
+    const response = await attackFetch('https://example.com/my-do/origin-test/increment');
+    // In a real app with Origin validation enabled, you might check:
+    // expect(response.status).toBe(403);
+    expect(response.status).toBe(200); // Our example doesn't validate Origin yet
   });
 
 });

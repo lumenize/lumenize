@@ -9,7 +9,7 @@ export type { InstrumentDOProjectConfig, InstrumentedDOProject } from './instrum
 export type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 
 // Re-export utilities from @lumenize/utils for convenience
-export { CookieJar, getWebSocketShim } from '@lumenize/utils';
+export { Browser, CookieJar, getWebSocketShim } from '@lumenize/utils';
 
 // Re-export SELF and env from cloudflare:test for single source of truth
 const cloudflareTest = require('cloudflare:test') as {

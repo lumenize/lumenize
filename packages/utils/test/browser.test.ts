@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CookieJar } from '../src/cookie-jar';
+import { Browser } from '../src/browser';
 
-describe('CookieJar', () => {
-  let cookieJar: CookieJar;
+describe('Browser', () => {
+  let browser: Browser;
 
   beforeEach(() => {
-    cookieJar = new CookieJar();
+    browser = new Browser();
   });
 
   describe('getFetch', () => {
@@ -22,13 +22,13 @@ describe('CookieJar', () => {
         });
       };
 
-      const cookieAwareFetch = cookieJar.getFetch(mockFetch);
+      const cookieAwareFetch = browser.getFetch(mockFetch);
 
       // First request - no cookies sent
       await cookieAwareFetch('https://example.com/login');
 
       // Cookie should be stored
-      expect(cookieJar.getCookie('sessionid')).toBe('abc123');
+      expect(browser.getCookie('sessionid')).toBe('abc123');
 
       // Second request - cookie should be sent
       let sentCookie: string | null = null;
@@ -38,14 +38,14 @@ describe('CookieJar', () => {
         return new Response(null);
       };
 
-      const cookieAwareFetch2 = cookieJar.getFetch(mockFetch2);
+      const cookieAwareFetch2 = browser.getFetch(mockFetch2);
       await cookieAwareFetch2('https://example.com/protected');
 
       expect(sentCookie).toBe('sessionid=abc123');
     });
 
     it('should not modify fetch when cookie jar is disabled', async () => {
-      cookieJar.setEnabled(false);
+      browser.setEnabled(false);
 
       const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const req = new Request(input, init);
@@ -59,11 +59,11 @@ describe('CookieJar', () => {
         });
       };
 
-      const cookieAwareFetch = cookieJar.getFetch(mockFetch);
+      const cookieAwareFetch = browser.getFetch(mockFetch);
       await cookieAwareFetch('https://example.com/test');
 
       // Cookie should not be stored when disabled
-      expect(cookieJar.getCookie('sessionid')).toBeUndefined();
+      expect(browser.getCookie('sessionid')).toBeUndefined();
     });
   });
 
@@ -72,53 +72,53 @@ describe('CookieJar', () => {
       // Set hostname via fetch - need to use proper Response with getSetCookie
       const mockResponse = new Response(null);
       // Manually store cookies to set hostname
-      cookieJar.storeCookiesFromResponse(
+      browser.storeCookiesFromResponse(
         new Response(null, {
           headers: { 'Set-Cookie': 'init=value; Domain=example.com' }
         }),
         'https://example.com/test'
       );
 
-      cookieJar.setCookie('test', 'value');
-      expect(cookieJar.getCookie('test')).toBe('value');
+      browser.setCookie('test', 'value');
+      expect(browser.getCookie('test')).toBe('value');
     });
 
     it('should set and get cookie with explicit domain', () => {
-      cookieJar.setCookie('test', 'value', { domain: 'example.com' });
-      expect(cookieJar.getCookie('test')).toBe('value');
+      browser.setCookie('test', 'value', { domain: 'example.com' });
+      expect(browser.getCookie('test')).toBe('value');
     });
 
     it('should throw error when setting cookie without domain or hostname', () => {
       expect(() => {
-        cookieJar.setCookie('test', 'value');
+        browser.setCookie('test', 'value');
       }).toThrow('Cannot set cookie');
     });
 
     it('should get cookie by name and domain', () => {
-      cookieJar.setCookie('test', 'value1', { domain: 'example.com' });
-      cookieJar.setCookie('test', 'value2', { domain: 'other.com' });
+      browser.setCookie('test', 'value1', { domain: 'example.com' });
+      browser.setCookie('test', 'value2', { domain: 'other.com' });
 
-      expect(cookieJar.getCookie('test', 'example.com')).toBe('value1');
-      expect(cookieJar.getCookie('test', 'other.com')).toBe('value2');
+      expect(browser.getCookie('test', 'example.com')).toBe('value1');
+      expect(browser.getCookie('test', 'other.com')).toBe('value2');
     });
 
     it('should not return expired cookie', () => {
       const pastDate = new Date(Date.now() - 86400000); // Yesterday
-      cookieJar.setCookie('test', 'value', {
+      browser.setCookie('test', 'value', {
         domain: 'example.com',
         expires: pastDate
       });
 
-      expect(cookieJar.getCookie('test')).toBeUndefined();
+      expect(browser.getCookie('test')).toBeUndefined();
     });
   });
 
   describe('getAllCookies', () => {
     it('should return all non-expired cookies', () => {
-      cookieJar.setCookie('cookie1', 'value1', { domain: 'example.com' });
-      cookieJar.setCookie('cookie2', 'value2', { domain: 'example.com' });
+      browser.setCookie('cookie1', 'value1', { domain: 'example.com' });
+      browser.setCookie('cookie2', 'value2', { domain: 'example.com' });
 
-      const cookies = cookieJar.getAllCookies();
+      const cookies = browser.getAllCookies();
       expect(cookies).toHaveLength(2);
       expect(cookies[0]?.name).toBe('cookie1');
       expect(cookies[1]?.name).toBe('cookie2');
@@ -128,31 +128,31 @@ describe('CookieJar', () => {
       const pastDate = new Date(Date.now() - 86400000);
       const futureDate = new Date(Date.now() + 86400000);
 
-      cookieJar.setCookie('expired', 'value1', {
+      browser.setCookie('expired', 'value1', {
         domain: 'example.com',
         expires: pastDate
       });
-      cookieJar.setCookie('active', 'value2', {
+      browser.setCookie('active', 'value2', {
         domain: 'example.com',
         expires: futureDate
       });
 
-      const cookies = cookieJar.getAllCookies();
+      const cookies = browser.getAllCookies();
       expect(cookies).toHaveLength(1);
       expect(cookies[0]?.name).toBe('active');
     });
 
     it('should return empty array when no cookies', () => {
-      expect(cookieJar.getAllCookies()).toEqual([]);
+      expect(browser.getAllCookies()).toEqual([]);
     });
   });
 
   describe('getAllCookiesAsObject', () => {
     it('should return cookies as name-value object', () => {
-      cookieJar.setCookie('cookie1', 'value1', { domain: 'example.com' });
-      cookieJar.setCookie('cookie2', 'value2', { domain: 'example.com' });
+      browser.setCookie('cookie1', 'value1', { domain: 'example.com' });
+      browser.setCookie('cookie2', 'value2', { domain: 'example.com' });
 
-      const cookies = cookieJar.getAllCookiesAsObject();
+      const cookies = browser.getAllCookiesAsObject();
       expect(cookies).toEqual({
         cookie1: 'value1',
         cookie2: 'value2'
@@ -162,13 +162,13 @@ describe('CookieJar', () => {
     it('should not include expired cookies', () => {
       const pastDate = new Date(Date.now() - 86400000);
 
-      cookieJar.setCookie('expired', 'value1', {
+      browser.setCookie('expired', 'value1', {
         domain: 'example.com',
         expires: pastDate
       });
-      cookieJar.setCookie('active', 'value2', { domain: 'example.com' });
+      browser.setCookie('active', 'value2', { domain: 'example.com' });
 
-      const cookies = cookieJar.getAllCookiesAsObject();
+      const cookies = browser.getAllCookiesAsObject();
       expect(cookies).toEqual({
         active: 'value2'
       });
@@ -177,47 +177,47 @@ describe('CookieJar', () => {
 
   describe('removeCookie', () => {
     it('should remove cookie by name', () => {
-      cookieJar.setCookie('test', 'value', { domain: 'example.com' });
-      expect(cookieJar.getCookie('test')).toBe('value');
+      browser.setCookie('test', 'value', { domain: 'example.com' });
+      expect(browser.getCookie('test')).toBe('value');
 
-      cookieJar.removeCookie('test');
-      expect(cookieJar.getCookie('test')).toBeUndefined();
+      browser.removeCookie('test');
+      expect(browser.getCookie('test')).toBeUndefined();
     });
 
     it('should remove cookie by name and domain', () => {
-      cookieJar.setCookie('test', 'value1', { domain: 'example.com' });
-      cookieJar.setCookie('test', 'value2', { domain: 'other.com' });
+      browser.setCookie('test', 'value1', { domain: 'example.com' });
+      browser.setCookie('test', 'value2', { domain: 'other.com' });
 
-      cookieJar.removeCookie('test', 'example.com');
-      expect(cookieJar.getCookie('test', 'example.com')).toBeUndefined();
-      expect(cookieJar.getCookie('test', 'other.com')).toBe('value2');
+      browser.removeCookie('test', 'example.com');
+      expect(browser.getCookie('test', 'example.com')).toBeUndefined();
+      expect(browser.getCookie('test', 'other.com')).toBe('value2');
     });
 
     it('should remove cookie by name, domain, and path', () => {
-      cookieJar.setCookie('test', 'value1', {
+      browser.setCookie('test', 'value1', {
         domain: 'example.com',
         path: '/api'
       });
-      cookieJar.setCookie('test', 'value2', {
+      browser.setCookie('test', 'value2', {
         domain: 'example.com',
         path: '/admin'
       });
 
-      cookieJar.removeCookie('test', 'example.com', '/api');
-      expect(cookieJar.getAllCookies()).toHaveLength(1);
-      expect(cookieJar.getAllCookies()[0]?.path).toBe('/admin');
+      browser.removeCookie('test', 'example.com', '/api');
+      expect(browser.getAllCookies()).toHaveLength(1);
+      expect(browser.getAllCookies()[0]?.path).toBe('/admin');
     });
   });
 
   describe('clear', () => {
     it('should remove all cookies', () => {
-      cookieJar.setCookie('cookie1', 'value1', { domain: 'example.com' });
-      cookieJar.setCookie('cookie2', 'value2', { domain: 'example.com' });
+      browser.setCookie('cookie1', 'value1', { domain: 'example.com' });
+      browser.setCookie('cookie2', 'value2', { domain: 'example.com' });
 
-      expect(cookieJar.getAllCookies()).toHaveLength(2);
+      expect(browser.getAllCookies()).toHaveLength(2);
 
-      cookieJar.clear();
-      expect(cookieJar.getAllCookies()).toHaveLength(0);
+      browser.clear();
+      expect(browser.getAllCookies()).toHaveLength(0);
     });
   });
 
@@ -226,21 +226,21 @@ describe('CookieJar', () => {
       const pastDate = new Date(Date.now() - 86400000);
       const futureDate = new Date(Date.now() + 86400000);
 
-      cookieJar.setCookie('expired', 'value1', {
+      browser.setCookie('expired', 'value1', {
         domain: 'example.com',
         expires: pastDate
       });
-      cookieJar.setCookie('active', 'value2', {
+      browser.setCookie('active', 'value2', {
         domain: 'example.com',
         expires: futureDate
       });
 
-      expect(cookieJar.getAllCookies()).toHaveLength(1); // getAllCookies already filters expired
+      expect(browser.getAllCookies()).toHaveLength(1); // getAllCookies already filters expired
 
-      cookieJar.cleanupExpiredCookies();
+      browser.cleanupExpiredCookies();
       
       // After cleanup, only active cookie should remain in storage
-      const allCookies = cookieJar.getAllCookies();
+      const allCookies = browser.getAllCookies();
       expect(allCookies).toHaveLength(1);
       expect(allCookies[0]?.name).toBe('active');
     });
@@ -249,7 +249,7 @@ describe('CookieJar', () => {
   describe('setDefaultHostname / hostname inference', () => {
     it('should use first fetch hostname if not manually set', async () => {
       // Manually store a cookie to set hostname
-      cookieJar.storeCookiesFromResponse(
+      browser.storeCookiesFromResponse(
         new Response(null, {
           headers: { 'Set-Cookie': 'init=value; Domain=example.com' }
         }),
@@ -257,39 +257,39 @@ describe('CookieJar', () => {
       );
 
       // Now we can set cookies without domain
-      cookieJar.setCookie('test', 'value');
-      expect(cookieJar.getCookie('test', 'example.com')).toBe('value');
+      browser.setCookie('test', 'value');
+      expect(browser.getCookie('test', 'example.com')).toBe('value');
     });
 
     it('should allow manual hostname setting before fetch', () => {
-      cookieJar.setDefaultHostname('manual.com');
+      browser.setDefaultHostname('manual.com');
 
-      cookieJar.setCookie('test', 'value');
-      expect(cookieJar.getCookie('test', 'manual.com')).toBe('value');
+      browser.setCookie('test', 'value');
+      expect(browser.getCookie('test', 'manual.com')).toBe('value');
     });
 
     it('should preserve manually set hostname after fetch', async () => {
-      cookieJar.setDefaultHostname('manual.com');
+      browser.setDefaultHostname('manual.com');
 
       const mockFetch = async () => new Response(null);
-      const cookieAwareFetch = cookieJar.getFetch(mockFetch);
+      const cookieAwareFetch = browser.getFetch(mockFetch);
       await cookieAwareFetch('https://different.com/test');
 
       // Should still use manual hostname
-      cookieJar.setCookie('test', 'value');
-      expect(cookieJar.getCookie('test', 'manual.com')).toBe('value');
+      browser.setCookie('test', 'value');
+      expect(browser.getCookie('test', 'manual.com')).toBe('value');
     });
   });
 
   describe('setEnabled / isEnabled', () => {
     it('should enable/disable cookie jar', () => {
-      expect(cookieJar.isEnabled()).toBe(true);
+      expect(browser.isEnabled()).toBe(true);
 
-      cookieJar.setEnabled(false);
-      expect(cookieJar.isEnabled()).toBe(false);
+      browser.setEnabled(false);
+      expect(browser.isEnabled()).toBe(false);
 
-      cookieJar.setEnabled(true);
-      expect(cookieJar.isEnabled()).toBe(true);
+      browser.setEnabled(true);
+      expect(browser.isEnabled()).toBe(true);
     });
   });
 
@@ -322,12 +322,12 @@ describe('CookieJar', () => {
         return new Response('Not Found', { status: 404 });
       };
 
-      const cookieAwareFetch = cookieJar.getFetch(mockFetch);
+      const cookieAwareFetch = browser.getFetch(mockFetch);
 
       // Step 1: Login (sets cookie)
       const loginResponse = await cookieAwareFetch('https://example.com/login');
       expect(loginResponse.ok).toBe(true);
-      expect(cookieJar.getCookie('sessionid')).toBe('abc123');
+      expect(browser.getCookie('sessionid')).toBe('abc123');
 
       // Step 2: Access protected resource (cookie automatically sent)
       const protectedResponse = await cookieAwareFetch('https://example.com/protected');
@@ -350,20 +350,20 @@ describe('CookieJar', () => {
         });
       };
 
-      const cookieAwareFetch = cookieJar.getFetch(mockFetch);
+      const cookieAwareFetch = browser.getFetch(mockFetch);
 
       await cookieAwareFetch('https://site1.com/test');
       await cookieAwareFetch('https://site2.com/test');
 
-      expect(cookieJar.getCookie('token', 'site1.com')).toBe('token-site1.com');
-      expect(cookieJar.getCookie('token', 'site2.com')).toBe('token-site2.com');
-      expect(cookieJar.getAllCookies()).toHaveLength(2);
+      expect(browser.getCookie('token', 'site1.com')).toBe('token-site1.com');
+      expect(browser.getCookie('token', 'site2.com')).toBe('token-site2.com');
+      expect(browser.getAllCookies()).toHaveLength(2);
     });
   });
 
   describe('getWebSocket', () => {
     it('should automatically add Origin header from hostname if set', () => {
-      cookieJar.setDefaultHostname('example.com');
+      browser.setDefaultHostname('example.com');
       
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
         const req = new Request(input);
@@ -378,12 +378,12 @@ describe('CookieJar', () => {
         return { webSocket: ws } as any;
       };
 
-      const WebSocketClass = cookieJar.getWebSocket(mockFetch);
+      const WebSocketClass = browser.getWebSocket(mockFetch);
       expect(WebSocketClass).toBeDefined();
     });
 
     it('should not override explicit Origin header', () => {
-      cookieJar.setDefaultHostname('example.com');
+      browser.setDefaultHostname('example.com');
       
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
         const req = new Request(input);
@@ -398,7 +398,7 @@ describe('CookieJar', () => {
         return { webSocket: ws } as any;
       };
 
-      const WebSocketClass = cookieJar.getWebSocket(mockFetch, {
+      const WebSocketClass = browser.getWebSocket(mockFetch, {
         headers: { 'Origin': 'https://custom.com' }
       });
       expect(WebSocketClass).toBeDefined();
@@ -420,8 +420,137 @@ describe('CookieJar', () => {
         return { webSocket: ws } as any;
       };
 
-      const WebSocketClass = cookieJar.getWebSocket(mockFetch);
+      const WebSocketClass = browser.getWebSocket(mockFetch);
       expect(WebSocketClass).toBeDefined();
+    });
+  });
+
+  describe('createPage', () => {
+    it('should create page context with Origin header for both fetch and WebSocket', async () => {
+      let fetchOrigin: string | null = null;
+      let wsOrigin: string | null = null;
+      
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const req = new Request(input);
+        const url = new URL(req.url);
+        
+        if (url.pathname === '/api') {
+          fetchOrigin = req.headers.get('Origin');
+          return new Response('ok');
+        } else {
+          // WebSocket upgrade
+          wsOrigin = req.headers.get('Origin');
+          const ws = {} as any;
+          ws.accept = () => {};
+          return { webSocket: ws } as any;
+        }
+      };
+
+      const { fetch, WebSocket } = browser.createPage(mockFetch, {
+        origin: 'https://example.com'
+      });
+
+      // Test fetch includes Origin
+      await fetch('https://api.example.com/api');
+      expect(fetchOrigin).toBe('https://example.com');
+
+      // Test WebSocket includes Origin
+      new WebSocket('wss://api.example.com/ws');
+      expect(wsOrigin).toBe('https://example.com');
+    });
+
+    it('should allow custom headers in WebSocket via createPage', async () => {
+      let wsHeaders: Record<string, string> = {};
+      
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const req = new Request(input);
+        // Capture headers as plain object
+        req.headers.forEach((value, key) => {
+          wsHeaders[key] = value;
+        });
+        const ws = {} as any;
+        ws.accept = () => {};
+        return { webSocket: ws } as any;
+      };
+
+      const { WebSocket } = browser.createPage(mockFetch, {
+        origin: 'https://example.com',
+        headers: {
+          'X-Custom-Header': 'test-value'
+        }
+      });
+
+      new WebSocket('wss://api.example.com/ws');
+      
+      expect(wsHeaders['origin']).toBe('https://example.com');
+      expect(wsHeaders['x-custom-header']).toBe('test-value');
+    });
+
+    it('should share cookies between page fetch and WebSocket', async () => {
+      let wsCookies: string | null = null;
+      
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        const url = new URL(req.url);
+        
+        if (url.pathname === '/login') {
+          // Return Set-Cookie
+          return new Response('logged in', {
+            headers: {
+              'Set-Cookie': 'session=abc123; Domain=example.com; Path=/'
+            }
+          });
+        } else if (url.pathname === '/api') {
+          // Return cookies sent in request
+          return new Response(req.headers.get('Cookie') || 'no cookies');
+        } else {
+          // WebSocket - capture cookies from request
+          wsCookies = req.headers.get('Cookie');
+          const ws = {} as any;
+          ws.accept = () => {};
+          return { webSocket: ws } as any;
+        }
+      };
+
+      const { fetch, WebSocket } = browser.createPage(mockFetch, {
+        origin: 'https://example.com'
+      });
+
+      // Login to set cookie
+      await fetch('https://example.com/login');
+      
+      // Verify cookie stored
+      expect(browser.getCookie('session')).toBe('abc123');
+      
+      // Verify cookie sent in subsequent fetch
+      const apiRes = await fetch('https://example.com/api');
+      const apiText = await apiRes.text();
+      expect(apiText).toContain('session=abc123');
+      
+      // Verify cookie sent in WebSocket upgrade
+      new WebSocket('wss://example.com/ws');
+      expect(wsCookies).toContain('session=abc123');
+    });
+
+    it('should preserve explicit Origin in fetch request', async () => {
+      let receivedOrigin: string | null = null;
+      
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        receivedOrigin = req.headers.get('Origin');
+        return new Response('ok');
+      };
+
+      const { fetch } = browser.createPage(mockFetch, {
+        origin: 'https://example.com'
+      });
+
+      // Explicit Origin should be preserved
+      await fetch('https://api.example.com/api', {
+        headers: { 'Origin': 'https://override.com' }
+      });
+      
+      expect(receivedOrigin).toBe('https://override.com');
     });
   });
 });
