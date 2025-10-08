@@ -1,21 +1,23 @@
-import { MyDO as Original_MyDO, default as original_worker } from '../src';
-import { lumenizeRpcDo } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import * as sourceModule from '../src';
+import { instrumentDOProject } from '@lumenize/testing';
 
-// Wrap the DO with lumenizeRpcDo to enable RPC functionality
-const MyDO = lumenizeRpcDo(Original_MyDO);
+// Simple case: Auto-detects MyDO since it's the only class export from '../src'
+const instrumented = instrumentDOProject(sourceModule);
 
-// Create a worker that routes RPC requests and falls back to original worker
-const worker = {
-  async fetch(request: Request, env: any, ctx: any): Promise<Response> {
-    // Try to route RPC requests first
-    const rpcResponse = await routeDORequest(request, env, { prefix: '__rpc' });
-    if (rpcResponse) return rpcResponse;
+export const { MyDO } = instrumented.dos;
+export default instrumented;
 
-    // Fall back to original worker handler
-    return original_worker.fetch(request as any, env, ctx);
-  }
-};
+// If you had multiple DO classes in '../src', you'd get a helpful error like:
+//
+// Error: Found multiple class exports: MyDO, AnotherDO, HelperClass
+//
+// Please specify which are Durable Objects by using explicit configuration:
+//
+// const instrumented = instrumentDOProject({
+//   sourceModule,
+//   doClassNames: ['MyDO', 'AnotherDO']  // <-- Keep only the DO classes
+// });
+//
+// export const { MyDO, AnotherDO } = instrumented.dos;
+// export default instrumented;
 
-export { MyDO };
-export default worker;

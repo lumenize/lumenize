@@ -2,6 +2,10 @@
 export { createTestingClient } from './create-testing-client';
 export type { TestingClientOptions } from './create-testing-client';
 
+// DO project instrumentation
+export { instrumentDOProject } from './instrument-do-project';
+export type { InstrumentDOProjectConfig, InstrumentedDOProject } from './instrument-do-project';
+
 // Re-export useful types from @lumenize/rpc
 export type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 
