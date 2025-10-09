@@ -133,6 +133,18 @@ All wrangler.jsonc files should:
 - You should not attempt to make the tests pass at all costs especially after a refactor. We do not want tests to be ossification of behavior we should deprecate.
 - Never create an alias just so we don't have to modify a bunch of tests. Fixing the tests now is much better than living with that technical debt.
 
+### Documentation
+- **All user-facing documentation goes directly into `/website/docs/`** - This is our Docusaurus-based documentation site at https://lumenize.com
+- **Never create temporary documentation files** in package directories (like `IMPLEMENTATION.md`, `FEATURE_GUIDE.md`, etc.)
+- When writing documentation:
+  - Go straight to creating/updating `.mdx` files in `/website/docs/[package-name]/`
+  - **Exclude content meant for internal communication** - Remove sections like "Testing", "Compatibility", "Future Enhancements", success reports, or anything that sounds like you're reporting progress to me
+  - Focus on user-facing content: Overview, Basic Usage, API examples, Advanced Use Cases, Migration Guides, Type Definitions, and Security Considerations
+  - Use proper Docusaurus frontmatter with `title` and `description`
+  - Link between related documentation pages using relative links (e.g., `[CORS Support](/docs/utils/cors-support)`)
+- **Large feature documentation should be separate files** - Create focused documentation files that can be linked from main docs rather than making main docs too long
+- Package README.md files should be minimal - just link to the website docs (see README.md pattern above)
+
 ### Publish in synchronous batches
 When publishing, all packages are published in a single batch. This ensures that all packages are always in sync with each other. It also means that we can make breaking changes across multiple packages in a single commit and publish them all at once.
 

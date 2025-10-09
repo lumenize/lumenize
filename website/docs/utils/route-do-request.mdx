@@ -112,6 +112,45 @@ const response = await routeDORequest(request, env, {
 // Now only /api/my-do/instance123 routes, not /my-do/instance123
 ```
 
+## CORS Support
+
+Enable Cross-Origin Resource Sharing (CORS) to allow requests from different origins:
+
+```typescript
+// Allow all origins (permissive)
+await routeDORequest(request, env, {
+  cors: true
+});
+
+// Whitelist specific origins
+await routeDORequest(request, env, {
+  cors: {
+    origin: ['https://app.example.com', 'https://admin.example.com']
+  }
+});
+
+// Custom validation with request inspection
+await routeDORequest(request, env, {
+  cors: {
+    origin: (origin, request) => {
+      // Check origin and inspect request for advanced validation
+      if (!origin.endsWith('.example.com')) return false;
+      
+      const apiKey = request.headers.get('X-API-Key');
+      return apiKey === 'trusted-key';
+    }
+  }
+});
+```
+
+CORS automatically:
+- Reflects the allowed origin in `Access-Control-Allow-Origin` header
+- Sets `Vary: Origin` for proper caching
+- Handles OPTIONS (preflight) requests
+- Adds headers to both DO responses and hook responses
+
+For complete CORS documentation, advanced use cases, and examples, see [CORS Support](/docs/utils/cors-support).
+
 ## Instance ID Handling
 
 The function automatically detects 64-character hex strings (from `newUniqueId().toString()`) and uses `idFromString()` instead of `getByName()`:
@@ -192,6 +231,7 @@ export default {
 
 ## See Also
 
+- [CORS Support](/docs/utils/cors-support) - Detailed CORS configuration and examples
 - [API Reference](/docs/utils/api/functions/routeDORequest)
 - [getDONamespaceFromPathSegment API](/docs/utils/api/functions/getDONamespaceFromPathSegment)
 - [RPC Quick Start](/docs/rpc/quick-start) - Uses `routeDORequest` internally
