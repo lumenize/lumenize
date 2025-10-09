@@ -19,6 +19,21 @@ export class MissingInstanceNameError extends Error {
 }
 
 /**
+ * CORS configuration options.
+ */
+export type CorsOptions = 
+  | false  // No CORS headers
+  | true   // Permissive: echo any Origin
+  | {
+      /**
+       * Custom origin validation.
+       * - Array of allowed origins: origin must match one of the strings
+       * - Function: called with origin and full request, returns true if allowed
+       */
+      origin: string[] | ((origin: string, request: Request) => boolean);
+    };
+
+/**
  * Configuration options for DO request routing and authentication hooks.
  */
 export interface RouteOptions {
@@ -56,6 +71,97 @@ export interface RouteOptions {
    * @example '/agents' makes it match '/agents/my-do/instance' but not '/my-do/instance'
    */
   prefix?: string;
+
+  /**
+   * CORS configuration for cross-origin requests.
+   * 
+   * - `false` (default): No CORS headers
+   * - `true`: Permissive mode - echo any request's Origin header
+   * - `{ origin: string[] }`: Whitelist of allowed origins
+   * - `{ origin: (origin: string, request: Request) => boolean }`: Custom validation function
+   * 
+   * When enabled and origin is allowed:
+   * - Sets `Access-Control-Allow-Origin: <origin>`
+   * - Sets `Vary: Origin`
+   * - Does NOT set `Access-Control-Allow-Credentials` (not supported)
+   * 
+   * Handles preflight (OPTIONS) requests automatically:
+   * - Returns 204 with CORS headers if origin is allowed
+   * - Returns the request unmodified if no Origin header present
+   * 
+   * @example
+   * ```typescript
+   * // Permissive: allow all origins
+   * { cors: true }
+   * 
+   * // Whitelist specific origins
+   * { cors: { origin: ['https://app.example.com', 'https://admin.example.com'] } }
+   * 
+   * // Custom validation with full request access
+   * { cors: { 
+   *     origin: (origin, request) => {
+   *       // Check origin domain
+   *       if (!origin.endsWith('.example.com')) return false;
+   *       
+   *       // Also check other request properties
+   *       const userAgent = request.headers.get('User-Agent');
+   *       if (userAgent?.includes('bot')) return false;
+   *       
+   *       // Check request method
+   *       if (request.method === 'DELETE') return false;
+   *       
+   *       return true;
+   *     }
+   *   }
+   * }
+   * ```
+   */
+  cors?: CorsOptions;
+}
+
+/**
+ * Check if an origin is allowed based on CORS configuration.
+ * 
+ * @param origin - The Origin header value from the request
+ * @param corsOptions - The CORS configuration
+ * @param request - The full request object for validator function inspection
+ * @returns true if origin is allowed, false otherwise
+ */
+function isOriginAllowed(origin: string, corsOptions: CorsOptions, request: Request): boolean {
+  if (corsOptions === false) {
+    return false;
+  }
+  
+  if (corsOptions === true) {
+    return true;
+  }
+  
+  // Handle object configuration
+  if (Array.isArray(corsOptions.origin)) {
+    return corsOptions.origin.includes(origin);
+  }
+  
+  // Function validator - pass both origin and request
+  return corsOptions.origin(origin, request);
+}
+
+/**
+ * Add CORS headers to a response if origin is allowed.
+ * 
+ * @param response - The response to add headers to
+ * @param origin - The allowed origin to reflect
+ * @returns New Response with CORS headers
+ */
+function addCorsHeaders(response: Response, origin: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set('Access-Control-Allow-Origin', origin);
+  headers.set('Vary', 'Origin');
+  
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
 }
 
 /**
@@ -89,6 +195,7 @@ export interface RouteOptions {
  * @param options.prefix - URL prefix to match before DO routing (default: none)
  * @param options.onBeforeConnect - Hook called before WebSocket requests reach the DO
  * @param options.onBeforeRequest - Hook called before non-WebSocket requests reach the DO
+ * @param options.cors - CORS configuration for cross-origin requests (default: false)
  * 
  * @returns Promise resolving to Response if request was handled, undefined if not matched
  * 
@@ -154,6 +261,38 @@ export interface RouteOptions {
  *   }
  * });
  * 
+ * // CORS Examples:
+ * 
+ * // Permissive CORS - allow all origins
+ * await routeDORequest(request, env, {
+ *   cors: true
+ * });
+ * 
+ * // Whitelist specific origins
+ * await routeDORequest(request, env, {
+ *   cors: {
+ *     origin: ['https://app.example.com', 'https://admin.example.com']
+ *   }
+ * });
+ * 
+ * // Custom origin validation
+ * await routeDORequest(request, env, {
+ *   cors: {
+ *     origin: (origin, request) => {
+ *       // Check origin pattern
+ *       if (!origin.endsWith('.example.com')) return false;
+ *       
+ *       // Additional request-based validation
+ *       const apiKey = request.headers.get('X-API-Key');
+ *       return apiKey === 'trusted-key';
+ *     }
+ *   }
+ * });
+ * 
+ * // Preflight (OPTIONS) requests are handled automatically:
+ * // - Returns 204 with CORS headers if origin is allowed
+ * // - No CORS headers if origin is not allowed or no Origin header present
+ * 
  * // URL Examples:
  * // /my-do/instance123                           → routes to env.MY_DO.getByName('instance123')
  * // /chat-room/lobby                             → routes to env.CHAT_ROOM.getByName('lobby')  
@@ -190,6 +329,26 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     throw new MissingInstanceNameError(pathname);
   }
 
+  // Check CORS configuration
+  const corsOptions = options.cors ?? false;
+  const requestOrigin = request.headers.get('Origin');
+  let allowedOrigin: string | null = null;
+  
+  // Determine if origin is allowed (only if Origin header is present and CORS is enabled)
+  if (requestOrigin && corsOptions !== false) {
+    if (isOriginAllowed(requestOrigin, corsOptions, request)) {
+      allowedOrigin = requestOrigin;
+    }
+  }
+
+  // Handle preflight (OPTIONS) requests
+  if (request.method === 'OPTIONS' && allowedOrigin) {
+    return addCorsHeaders(
+      new Response(null, { status: 204 }),
+      allowedOrigin
+    );
+  }
+
   const hookContext = { doNamespace, doInstanceNameOrId };
 
   // Call hooks based on request type (matching Cloudflare's if/else behavior)
@@ -199,7 +358,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     if (options?.onBeforeConnect) {
       const result = await options.onBeforeConnect(request, hookContext);
       if (result instanceof Response) {
-        return result;
+        return allowedOrigin ? addCorsHeaders(result, allowedOrigin) : result;
       }
       if (result instanceof Request) {
         request = result;
@@ -209,7 +368,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     if (options?.onBeforeRequest) {
       const result = await options.onBeforeRequest(request, hookContext);
       if (result instanceof Response) {
-        return result;
+        return allowedOrigin ? addCorsHeaders(result, allowedOrigin) : result;
       }
       if (result instanceof Request) {
         request = result;
@@ -218,5 +377,8 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   }
 
   const stub = getDOStub(doNamespace, doInstanceNameOrId);
-  return await stub.fetch(request);
+  const response = await stub.fetch(request);
+  
+  // Add CORS headers to DO response if origin is allowed
+  return allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;
 }

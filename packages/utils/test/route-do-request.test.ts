@@ -513,4 +513,483 @@ describe('routeDORequest', () => {
       expect(response).toBeUndefined(); // Should not match any DO pattern
     });
   });
+
+  describe('CORS support', () => {
+    describe('disabled by default', () => {
+      it('should not add CORS headers when cors option is not provided', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env);
+        
+        expect(response).toBeInstanceOf(Response);
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+        expect(response?.headers.has('Vary')).toBe(false);
+      });
+
+      it('should not add CORS headers when cors is false', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, { cors: false });
+        
+        expect(response).toBeInstanceOf(Response);
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+
+      it('should not add CORS headers when no Origin header present', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance');
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response).toBeInstanceOf(Response);
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+    });
+
+    describe('permissive mode (cors: true)', () => {
+      it('should reflect any origin when cors is true', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response).toBeInstanceOf(Response);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+        expect(response?.headers.get('Vary')).toBe('Origin');
+      });
+
+      it('should reflect different origins', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://different.com' }
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://different.com');
+        expect(response?.headers.get('Vary')).toBe('Origin');
+      });
+
+      it('should not set Access-Control-Allow-Credentials', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response?.headers.has('Access-Control-Allow-Credentials')).toBe(false);
+      });
+    });
+
+    describe('whitelist mode (cors: { origin: [...] })', () => {
+      it('should allow whitelisted origins', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://app.example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://app.example.com', 'https://admin.example.com'] }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+        expect(response?.headers.get('Vary')).toBe('Origin');
+      });
+
+      it('should allow second whitelisted origin', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://admin.example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://app.example.com', 'https://admin.example.com'] }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://admin.example.com');
+      });
+
+      it('should not add CORS headers for non-whitelisted origins', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://evil.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://app.example.com', 'https://admin.example.com'] }
+        });
+        
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+        expect(response?.headers.has('Vary')).toBe(false);
+      });
+
+      it('should handle empty whitelist', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: [] }
+        });
+        
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+    });
+
+    describe('function validator mode (cors: { origin: fn })', () => {
+      it('should call validation function with origin and request', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const validator = vi.fn((origin: string, request: Request) => origin.endsWith('.example.com'));
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://app.example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: validator }
+        });
+        
+        expect(validator).toHaveBeenCalledWith('https://app.example.com', request);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+      });
+
+      it('should allow origin when validator returns true', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://app.example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: (origin) => origin.endsWith('.example.com') }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+      });
+
+      it('should reject origin when validator returns false', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://evil.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: (origin) => origin.endsWith('.example.com') }
+        });
+        
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+
+      it('should support complex validation logic with request inspection', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'GET',
+          headers: { 
+            'Origin': 'https://localhost:3000',
+            'X-API-Key': 'secret-key'
+          }
+        });
+        
+        const validator = (origin: string, req: Request) => {
+          // Check origin pattern
+          const validOrigin = origin.endsWith('.example.com') || 
+                             origin === 'https://localhost:3000' ||
+                             origin.includes('staging');
+          
+          // Also check API key in request
+          const apiKey = req.headers.get('X-API-Key');
+          const validKey = apiKey === 'secret-key';
+          
+          return validOrigin && validKey;
+        };
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: validator }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://localhost:3000');
+      });
+
+      it('should reject when request inspection fails validation', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'DELETE',
+          headers: { 'Origin': 'https://app.example.com' }
+        });
+        
+        const validator = (origin: string, req: Request) => {
+          // Reject DELETE requests even if origin is allowed
+          if (req.method === 'DELETE') return false;
+          return origin.endsWith('.example.com');
+        };
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: validator }
+        });
+        
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+
+      it('should allow validator to inspect user agent', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 
+            'Origin': 'https://app.example.com',
+            'User-Agent': 'Mozilla/5.0'
+          }
+        });
+        
+        const validator = (origin: string, req: Request) => {
+          const userAgent = req.headers.get('User-Agent');
+          // Block bots
+          if (userAgent?.toLowerCase().includes('bot')) return false;
+          return origin.endsWith('.example.com');
+        };
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: validator }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+      });
+    });
+
+    describe('preflight (OPTIONS) requests', () => {
+      it('should handle OPTIONS request with allowed origin', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'OPTIONS',
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response).toBeInstanceOf(Response);
+        expect(response?.status).toBe(204);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+        expect(response?.headers.get('Vary')).toBe('Origin');
+      });
+
+      it('should not forward OPTIONS request to DO when origin is allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'OPTIONS',
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        await routeDORequest(request, env, { cors: true });
+        
+        expect(env.MY_DO.getByName).not.toHaveBeenCalled();
+      });
+
+      it('should forward OPTIONS request to DO when no Origin header', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'OPTIONS'
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
+        expect(response?.status).toBe(200); // From mock DO response
+      });
+
+      it('should forward OPTIONS when origin is not allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'OPTIONS',
+          headers: { 'Origin': 'https://evil.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com'] }
+        });
+        
+        expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+
+      it('should handle OPTIONS with whitelisted origin', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          method: 'OPTIONS',
+          headers: { 'Origin': 'https://app.example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://app.example.com'] }
+        });
+        
+        expect(response?.status).toBe(204);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://app.example.com');
+      });
+    });
+
+    describe('CORS with hooks', () => {
+      it('should add CORS headers to hook-returned responses', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        const hookResponse = new Response('Blocked', { status: 403 });
+        const onBeforeRequest = vi.fn().mockReturnValue(hookResponse);
+        
+        const response = await routeDORequest(request, env, {
+          cors: true,
+          onBeforeRequest
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+        expect(response?.headers.get('Vary')).toBe('Origin');
+        expect(await response?.text()).toBe('Blocked');
+      });
+
+      it('should add CORS headers to WebSocket hook responses', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createWebSocketRequest('http://localhost/my-do/instance');
+        request.headers.set('Origin', 'https://example.com');
+        
+        const hookResponse = new Response('Unauthorized', { status: 401 });
+        const onBeforeConnect = vi.fn().mockReturnValue(hookResponse);
+        
+        const response = await routeDORequest(request, env, {
+          cors: true,
+          onBeforeConnect
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      });
+
+      it('should not add CORS headers to hook responses when origin not allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://evil.com' }
+        });
+        const hookResponse = new Response('Blocked', { status: 403 });
+        const onBeforeRequest = vi.fn().mockReturnValue(hookResponse);
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com'] },
+          onBeforeRequest
+        });
+        
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+    });
+
+    describe('CORS with prefix and WebSocket', () => {
+      it('should handle CORS with prefix', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/api/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          prefix: '/api',
+          cors: true
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      });
+
+      it('should handle WebSocket with CORS', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createWebSocketRequest('http://localhost/my-do/instance');
+        request.headers.set('Origin', 'https://example.com');
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      });
+    });
+
+    describe('edge cases', () => {
+      it('should preserve existing response headers', async () => {
+        // Create mock namespace with custom response headers
+        const mockNamespace = {
+          getByName: vi.fn((name: string) => ({
+            nameOrId: name,
+            fetch: vi.fn().mockResolvedValue(
+              new Response('OK', { 
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'X-Custom': 'value'
+                } 
+              })
+            )
+          })),
+          idFromName: vi.fn(),
+          idFromString: vi.fn((id: string) => id),
+          get: vi.fn((id: any) => ({
+            nameOrId: id,
+            fetch: vi.fn().mockResolvedValue(
+              new Response('OK', { 
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'X-Custom': 'value'
+                } 
+              })
+            )
+          })),
+        };
+        
+        const env = { MY_DO: mockNamespace };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        expect(response?.headers.get('Content-Type')).toBe('application/json');
+        expect(response?.headers.get('X-Custom')).toBe('value');
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      });
+
+      it('should handle case-sensitive Origin header', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = new Request('http://localhost/my-do/instance', {
+          headers: { 'origin': 'https://example.com' }  // lowercase
+        });
+        
+        const response = await routeDORequest(request, env, { cors: true });
+        
+        // Headers.get() is case-insensitive
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      });
+
+      it('should handle origins with ports', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com:8080' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com:8080'] }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com:8080');
+      });
+
+      it('should handle null origin (privacy-sensitive context)', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createRequest('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'null' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['null'] }
+        });
+        
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('null');
+      });
+    });
+  });
 });
