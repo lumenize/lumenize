@@ -20,9 +20,11 @@
  *   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
  *   - Assert on any state change in instance variables or storage
  *   - Manipulate storage prior to running a test
- *   - Test Origin validation for both HTTP and WebSocket requests
+ *   - Test Origin validation for both HTTP and WebSocket requests TODO: confirm this
  *   - Simulate browser behavior with automatic cookie management
  *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
+ *   - TODO: Need to write test that exercises WebSocket protocol selection already implemented in index.ts
+ *   - TODO: Either remove the following in index.ts or test it, super.fetch(), webSocketOpen(), webSocketMessage(), and webSocketClose()
  *   - No need to worry about internals of cloudflare:test
  */
 
@@ -244,7 +246,7 @@ describe('@lumenize/testing core capabilities', () => {
 
 });
 
-describe('Limitations and quirks', () => {
+describe('Quirks', () => {
 
   // createTestingClient has these quirks:
   //   - Even non-async function calls require `await`
