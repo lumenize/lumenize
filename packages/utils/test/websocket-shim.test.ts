@@ -1,41 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getWebSocketShim } from '../src/websocket-shim';
 
-// Mock DOM event classes for Node environment
-class MockErrorEvent extends Event {
-  error?: any;
-  message: string;
-  filename?: string;
-  lineno?: number;
-  colno?: number;
-
-  constructor(type: string, options?: { error?: any; message?: string; filename?: string; lineno?: number; colno?: number }) {
-    super(type);
-    this.error = options?.error;
-    this.message = options?.message || '';
-    this.filename = options?.filename;
-    this.lineno = options?.lineno;
-    this.colno = options?.colno;
-  }
-}
-
-class MockCloseEvent extends Event {
-  code: number;
-  reason: string;
-  wasClean: boolean;
-
-  constructor(type: string, options?: { code?: number; reason?: string; wasClean?: boolean }) {
-    super(type);
-    this.code = options?.code || 1000;
-    this.reason = options?.reason || '';
-    this.wasClean = options?.wasClean !== undefined ? options.wasClean : true;
-  }
-}
-
-// Make these available globally for the websocket-shim
-globalThis.ErrorEvent = MockErrorEvent as any;
-globalThis.CloseEvent = MockCloseEvent as any;
-
 describe('getWebSocketShim', () => {
   let mockFetch: ReturnType<typeof vi.fn>;
   let mockWebSocket: any;
@@ -423,7 +388,7 @@ describe('getWebSocketShim', () => {
       
       await vi.waitFor(() => expect(mockWebSocket.accept).toHaveBeenCalled());
       
-      const errorEvent = new MockErrorEvent('error', { message: 'test error' });
+      const errorEvent = new ErrorEvent('error', { message: 'test error' } as any);
       triggerEvent('error', errorEvent);
       
       expect(onerror).toHaveBeenCalled();
@@ -488,11 +453,11 @@ describe('getWebSocketShim', () => {
       
       ws.close(1000, 'Normal');
       
-      const closeEvent = new MockCloseEvent('close', {
+      const closeEvent = new CloseEvent('close', {
         code: 1000,
         reason: 'Normal',
         wasClean: true,
-      });
+      } as any);
       triggerEvent('close', closeEvent);
       
       expect(onclose).toHaveBeenCalled();
