@@ -5,9 +5,9 @@
  * for testing Durable Objects with minimal boilerplate.
  * 
  * @lumenize/testing provides:
- *   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance name/Id!)
- *   - fetch: Simple fetch for making requests to your worker
- *   - WebSocket: Browser-compatible WebSocket for DO connections
+ *   - createTestingClient: RPC client: set storage, call methods, inspect state, etc.
+ *   - fetch: Simple fetch for making requests to your worker (no cookie jar)
+ *   - WebSocket: Browser-compatible WebSocket for DO connections (no cookie jar)
  *   - Browser: Simulates browser behavior for testing
  *     - Browser.getFetch() --> cookie-aware fetch (no Origin header)
  *     - Browser.getWebSocket() --> cookie-aware WebSocket (no Origin header)
@@ -18,8 +18,8 @@
  * 
  * Key features:
  *   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
+ *   - Manipulate storage and other state prior to running a test
  *   - Assert on any state change in instance variables or storage
- *   - Manipulate storage prior to running a test
  *   - Test Origin validation for both HTTP and WebSocket requests TODO: confirm this
  *   - Simulate browser behavior with automatic cookie management
  *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
