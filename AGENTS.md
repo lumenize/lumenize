@@ -143,6 +143,7 @@ All wrangler.jsonc files should:
   - Use proper Docusaurus frontmatter with `title` and `description`
   - Link between related documentation pages using relative links (e.g., `[CORS Support](/docs/utils/cors-support)`)
 - **Large feature documentation should be separate files** - Create focused documentation files that can be linked from main docs rather than making main docs too long
+- **Add new documentation to `/website/sidebars.ts`** - New `.mdx` files must be added to the appropriate section in sidebars.ts to appear in the site navigation
 - Package README.md files should be minimal - just link to the website docs (see README.md pattern above)
 
 ### Publish in synchronous batches

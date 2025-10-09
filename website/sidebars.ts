@@ -95,6 +95,7 @@ const sidebars: SidebarsConfig = {
       label: 'Utils',
       items: [
         'utils/route-do-request',
+        'utils/cors-support',
         'utils/cookie-jar',
         'utils/websocket-shim',
         ...(typedocUtilsSidebar && typedocUtilsSidebar.length > 0
