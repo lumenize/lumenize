@@ -1,41 +1,46 @@
 import { DurableObject } from "cloudflare:workers";
-import { routeDORequest, RouteOptions } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/utils';
 
-export const ALLOWED_ORIGINS = [
-  'https://example.com',
-];
+// Worker handlers follow the hono convention: return Response to handle, undefined to fall through
+const handleLogin = (request: Request): Response | undefined => {
+  const url = new URL(request.url);
+  if (!url.pathname.endsWith('/login')) return undefined;
+  
+  const user = url.searchParams.get('user');
+  if (user === 'test') {
+    return new Response('OK', {
+      headers: { 'Set-Cookie': 'token=abc123; Path=/' }
+    });
+  }
+  return new Response('Invalid', { status: 401 });
+};
+
+const handleProtectedCookieEcho = (request: Request): Response | undefined => {
+  const url = new URL(request.url);
+  if (!url.pathname.endsWith('/protected-cookie-echo')) return undefined;
+  
+  const cookies = request.headers.get('Cookie') || '';
+  return new Response(`Cookies: ${cookies}`, {
+    status: cookies.includes('token=') ? 200 : 401
+  });
+};
 
 // Worker
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    
-    // Check origin
-    // TODO: Uncomment to confirm origin checking
-    // const origin = request.headers.get('Origin');
-    // if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
-    //   return new Response('Origin missing or not allowed', { status: 403 });
-    // }
-    
-    // Cookie endpoints handled by Worker
-    if (url.pathname.endsWith('/login')) {
-      const user = url.searchParams.get('user');
-      if (user === 'test') {
-        return new Response('OK', {
-          headers: { 'Set-Cookie': 'token=abc123; Path=/' }
-        });
-      }
-      return new Response('Invalid', { status: 401 });
-    }
-
-    if (url.pathname.endsWith('/protected-cookie-echo')) {
-      const cookies = request.headers.get('Cookie') || '';
-      return new Response(`Cookies: ${cookies}`, {
-        status: cookies.includes('token=') ? 200 : 401
-      });
-    }
+    // CORS-protected route with prefix /cors-secure/
+    // Array form shown; also supports cors: true for permissive mode
+    // See https://lumenize.com/docs/utils/route-do-request for routing details
+    // See https://lumenize.com/docs/utils/cors-support for CORS configuration
+    const routeCORSRequest = (req: Request, e: Env) => routeDORequest(req, e, {
+      prefix: '/cors-secure/',
+      cors: { origin: ['https://example.com', 'https://app.example.com'] },
+    });
     
     return (
+      handleLogin(request) ||
+      handleProtectedCookieEcho(request) ||
+      await routeCORSRequest(request, env) ||
       await routeDORequest(request, env) ||
       new Response("Not Found", { status: 404 })
     );

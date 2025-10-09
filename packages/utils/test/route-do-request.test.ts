@@ -802,7 +802,7 @@ describe('routeDORequest', () => {
         expect(response?.status).toBe(200); // From mock DO response
       });
 
-      it('should forward OPTIONS when origin is not allowed', async () => {
+      it('should reject OPTIONS when origin is not allowed', async () => {
         const env = { MY_DO: createMockNamespace() };
         const request = createRequest('http://localhost/my-do/instance', {
           method: 'OPTIONS',
@@ -813,8 +813,13 @@ describe('routeDORequest', () => {
           cors: { origin: ['https://example.com'] }
         });
         
-        expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
-        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+        // Non-standard: reject OPTIONS (preflight) for disallowed origins
+        expect(response?.status).toBe(403);
+        expect(await response?.text()).toBe('Forbidden: Origin not allowed');
+        
+        // Verify DO was never called
+        const mockDO = env.MY_DO.getByName('instance');
+        expect(mockDO.fetch).not.toHaveBeenCalled();
       });
 
       it('should handle OPTIONS with whitelisted origin', async () => {
@@ -908,6 +913,109 @@ describe('routeDORequest', () => {
         const response = await routeDORequest(request, env, { cors: true });
         
         expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+      });
+
+      it('should reject WebSocket upgrade when origin not allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createWebSocketRequest('http://localhost/my-do/instance');
+        request.headers.set('Origin', 'https://evil.com');
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com'] }
+        });
+        
+        // Server must reject WebSocket upgrades for disallowed origins
+        // (browsers don't enforce Access-Control-Allow-Origin for WebSocket)
+        expect(response?.status).toBe(403);
+        expect(await response?.text()).toBe('Forbidden: Origin not allowed');
+        
+        // Verify DO was never called (rejection happens before forwarding)
+        const mockDO = env.MY_DO.getByName('instance');
+        expect(mockDO.fetch).not.toHaveBeenCalled();
+      });
+
+      it('should allow WebSocket upgrade when origin is allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createWebSocketRequest('http://localhost/my-do/instance');
+        request.headers.set('Origin', 'https://example.com');
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com'] }
+        });
+        
+        // Allowed origin should forward to DO (not rejected)
+        expect(response?.status).not.toBe(403);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+        
+        // Verify DO was called
+        expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
+      });
+
+      it('should allow WebSocket upgrade when CORS is disabled', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = createWebSocketRequest('http://localhost/my-do/instance');
+        request.headers.set('Origin', 'https://any-origin.com');
+        
+        const response = await routeDORequest(request, env, {
+          cors: false
+        });
+        
+        // CORS disabled means no origin validation (forwarded to DO)
+        expect(response?.status).not.toBe(403);
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
+      });
+
+      it('should reject HTTP request when origin not allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = new Request('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://evil.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com'] }
+        });
+        
+        // Non-standard: Server rejects HTTP for disallowed origins (like WebSocket)
+        // This provides better security than standard browser-only CORS enforcement
+        expect(response?.status).toBe(403);
+        expect(await response?.text()).toBe('Forbidden: Origin not allowed');
+        
+        // Verify DO was never called (rejection happens before forwarding)
+        const mockDO = env.MY_DO.getByName('instance');
+        expect(mockDO.fetch).not.toHaveBeenCalled();
+      });
+
+      it('should allow HTTP request when origin is allowed', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = new Request('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://example.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: { origin: ['https://example.com'] }
+        });
+        
+        // Allowed origin should forward to DO (not rejected)
+        expect(response?.status).not.toBe(403);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+        
+        // Verify DO was called
+        expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
+      });
+
+      it('should allow HTTP request when CORS is disabled', async () => {
+        const env = { MY_DO: createMockNamespace() };
+        const request = new Request('http://localhost/my-do/instance', {
+          headers: { 'Origin': 'https://any-origin.com' }
+        });
+        
+        const response = await routeDORequest(request, env, {
+          cors: false
+        });
+        
+        // CORS disabled means no origin validation (forwarded to DO)
+        expect(response?.status).not.toBe(403);
+        expect(response?.headers.has('Access-Control-Allow-Origin')).toBe(false);
       });
     });
 

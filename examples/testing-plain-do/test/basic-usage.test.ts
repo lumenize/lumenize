@@ -20,7 +20,7 @@
  *   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
  *   - Manipulate storage and other state prior to running a test
  *   - Assert on any state change in instance variables or storage
- *   - Test Origin validation for both HTTP and WebSocket requests TODO: confirm this
+ *   - Test Origin validation for both HTTP and WebSocket requests
  *   - Simulate browser behavior with automatic cookie management
  *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
  *   - TODO: Need to write test that exercises WebSocket protocol selection already implemented in index.ts
@@ -193,47 +193,38 @@ describe('@lumenize/testing core capabilities', () => {
   });
 
   // Browser.page() allows you to:
-  //   - Test Origin validation logic in your Workers/DOs
-  //   - Simulate requests from a page loaded from a specific origin
-  //   - Supply custom headers for WebSocket upgrades
-  //   - Configure maxQueueBytes for CONNECTING state queue limits
+  //   - Test CORS/Origin validation in your Workers/DOs
+  //   - Simulate requests from a specific origin
+  //   - Add custom headers and configure WebSocket options
   it('demonstrates testing Origin validation using browser.page()', async () => {
     const browser = new Browser();
     
-    // Create a page context with Origin header (no need to pass fetch!)
-    // Both fetch and WebSocket will include Origin: https://example.com
+    // Create a page with Origin header + custom headers
     const page = browser.page('https://example.com', {
-      headers: {
-        'X-Custom-Header': 'test-value'
-      },
-      maxQueueBytes: 1024 * 1024 // 1MB queue limit while CONNECTING
+      headers: { 'X-Custom-Header': 'test-value' },
+      maxQueueBytes: 1024 * 1024 // 1MB WebSocket queue limit while CONNECTING
     });
     
-    // Requests from this page include Origin automatically
-    // This is perfect for testing CORS and Origin validation logic
-    const ws = new page.WebSocket('wss://example.com/my-do/origin-test') as any;
+    // HTTP request includes Origin header - allowed
+    const response = await page.fetch('https://example.com/cors-secure/my-do/cors-test/increment');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
     
+    // WebSocket upgrade includes Origin header - allowed
+    const ws = new page.WebSocket('wss://example.com/cors-secure/my-do/ws-test') as any;
     let wsOpened = false;
     ws.onopen = () => { wsOpened = true; };
-    
     await vi.waitFor(() => expect(wsOpened).toBe(true));
-    
-    // Verify connection was established with Origin + custom headers
-    await using client = createTestingClient<MyDOType>('MY_DO', 'origin-test');
-    const wsList = await client.ctx.getWebSockets('origin-test');
-    expect(wsList.length).toBe(1);
-    
+    expect(ws.response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
     ws.close();
     
-    // You can also test cross-origin scenarios
-    const attacker = new Browser();
+    // Blocked origin - server rejects with 403 (server-side validation)
+    const blocked = await browser.page('https://evil.com').fetch('https://example.com/cors-secure/my-do/blocked/increment');
+    expect(blocked.status).toBe(403);
     
-    // Can chain directly without storing the page
-    const response = await attacker.page('https://evil.com').fetch('https://example.com/my-do/origin-test/increment');
-    
-    // In a real app with Origin validation enabled, you might check:
-    // expect(response.status).toBe(403);
-    expect(response.status).toBe(200); // Our example doesn't validate Origin yet
+    // Verify DO was never called (count still 1, not 2)
+    await using client = createTestingClient<MyDOType>('MY_DO', 'blocked');
+    expect(await client.increment()).toBe(1);
   });
 
 });

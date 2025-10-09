@@ -157,11 +157,18 @@ function addCorsHeaders(response: Response, origin: string): Response {
   headers.set('Access-Control-Allow-Origin', origin);
   headers.set('Vary', 'Origin');
   
-  return new Response(response.body, {
+  // For WebSocket upgrades (status 101), preserve the webSocket property
+  const init: ResponseInit = {
     status: response.status,
     statusText: response.statusText,
     headers
-  });
+  };
+  
+  if (response.webSocket) {
+    init.webSocket = response.webSocket;
+  }
+  
+  return new Response(response.body, init);
 }
 
 /**
@@ -339,9 +346,10 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     if (isOriginAllowed(requestOrigin, corsOptions, request)) {
       allowedOrigin = requestOrigin;
     }
+    // If origin not allowed, allowedOrigin stays null and request is forwarded to DO
   }
 
-  // Handle preflight (OPTIONS) requests
+  // Handle preflight (OPTIONS) requests - only when origin is allowed
   if (request.method === 'OPTIONS' && allowedOrigin) {
     return addCorsHeaders(
       new Response(null, { status: 204 }),
@@ -350,6 +358,14 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   }
 
   const hookContext = { doNamespace, doInstanceNameOrId };
+
+  // Server-side origin rejection (non-standard, but provides better security)
+  // Applies to both HTTP and WebSocket requests
+  if (requestOrigin && corsOptions !== false && !allowedOrigin) {
+    // Return 403 without CORS headers for disallowed origins
+    // Browser will see this as a CORS failure (network error)
+    return new Response('Forbidden: Origin not allowed', { status: 403 });
+  }
 
   // Call hooks based on request type (matching Cloudflare's if/else behavior)
   const isWebSocket = request.headers.get("Upgrade")?.toLowerCase() === "websocket";

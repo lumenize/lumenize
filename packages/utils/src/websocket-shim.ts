@@ -40,6 +40,10 @@ export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryIni
     extensions = "";   // CF workers test sockets typically don't expose extensions
     binaryType: 'blob' | 'arraybuffer' = 'blob';
 
+    // Non-standard property for testing: exposes the HTTP upgrade response
+    // This allows inspection of CORS headers and other response metadata in tests
+    response?: Response;
+
     // Handler properties for parity
     onopen: ((ev: Event) => any) | null = null;
     onmessage: ((ev: MessageEvent) => any) | null = null;
@@ -157,6 +161,9 @@ export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryIni
         const req = new Request(httpUrl, { method: "GET", headers });
         const resp = await fetchFn(req);
         console.log('%o', resp);
+
+        // Store the response for testing (non-standard property)
+        this.response = resp;
 
         const ws = (resp as any).webSocket as WebSocket | undefined;
         if (!ws) {
