@@ -10,7 +10,7 @@ const { SELF } = cloudflareTest;
  * Testing-specific Browser class with convenience methods
  * 
  * This extends the base Browser from @lumenize/utils and automatically
- * uses SELF.fetch from cloudflare:test, so you don't need to pass fetch around.
+ * uses SELF.fetch from cloudflare:test.
  * 
  * @example
  * ```typescript
@@ -25,9 +25,9 @@ const { SELF } = cloudflareTest;
  * const ws = new browser.WebSocket('wss://example.com/ws');
  * 
  * // Create a page with Origin header for CORS testing
- * const page = browser.page('https://example.com');
- * await page.fetch('https://api.example.com/data');
- * const ws2 = new page.WebSocket('wss://api.example.com/ws');
+ * const page = browser.page('https://my-origin.com');
+ * await page.fetch('https://api.my-origin.com/data');
+ * const ws2 = new page.WebSocket('wss://api.my-origin.com/ws');
  * ```
  */
 export class Browser extends UtilsBrowser {
