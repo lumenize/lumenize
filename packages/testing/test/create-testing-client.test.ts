@@ -36,16 +36,20 @@ describe('createTestingClient', () => {
   });
   
   it('works with Browser for cookie-aware requests', async () => {
-    // Browser is used separately with exported fetch/WebSocket, not passed to createTestingClient
+    // Browser now has convenient properties - no need to pass fetch!
     const browser = new Browser();
     
     await using client = createTestingClient<TestDOType>('TEST_DO', 'browser-test');
     
     await client.reset();
     
-    // Client works normally - cookies would be handled via browser.getFetch(fetch)
+    // Use browser.fetch directly
+    // In a real test, you'd use this to make cookie-aware requests
     const count = await client.increment();
     expect(count).toBe(1);
+    
+    // Can also use browser.WebSocket
+    // const ws = new browser.WebSocket('wss://...');
   });
   
   it('provides access to ctx and storage', async () => {

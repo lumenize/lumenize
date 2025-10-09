@@ -5,13 +5,13 @@
  * for testing Durable Objects with minimal boilerplate.
  * 
  * @lumenize/testing provides:
- *   - createTestingClient: RPC client: set storage, call methods, inspect state, etc.
- *   - fetch: Simple fetch for making requests to your worker (no cookie jar)
- *   - WebSocket: Browser-compatible WebSocket for DO connections (no cookie jar)
+ *   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance name/Id!)
+ *   - fetch: Simple fetch for making requests to your worker
+ *   - WebSocket: Browser-compatible WebSocket for DO connections
  *   - Browser: Simulates browser behavior for testing
- *     - Browser.getFetch() --> cookie-aware fetch (no Origin header)
- *     - Browser.getWebSocket() --> cookie-aware WebSocket (no Origin header)
- *     - Browser.createPage({ origin }) --> returns { fetch, WebSocket } with Origin header
+ *     - browser.fetch --> cookie-aware fetch (no Origin header)
+ *     - browser.WebSocket --> cookie-aware WebSocket constructor (no Origin header)
+ *     - browser.page(origin) --> returns { fetch, WebSocket } with Origin header
  *       - Both automatically include cookies from the Browser instance
  *       - Simulates requests from a page loaded from the given origin
  *       - Perfect for testing CORS and Origin validation logic
@@ -160,12 +160,8 @@ describe('@lumenize/testing core capabilities', () => {
     // Create ONE browser instance
     const browser = new Browser();
     
-    // Get BOTH cookie-aware fetch and WebSocket from the SAME browser
-    const cookieAwareFetch = browser.getFetch(fetch);
-    const CookieWebSocket = browser.getWebSocket(fetch);
-    
-    // 1. Login via fetch - sets session cookie
-    await cookieAwareFetch('https://example.com/login?user=test');
+    // 1. Login via fetch - sets session cookie (no need to pass fetch!)
+    await browser.fetch('https://example.com/login?user=test');
     
     // 2. Verify cookie was stored in the browser
     expect(browser.getCookie('token')).toBe('abc123');
@@ -174,14 +170,14 @@ describe('@lumenize/testing core capabilities', () => {
     browser.setCookie('extra', 'manual-value');
     
     // 4. Make another fetch request - gets BOTH cookies automatically
-    const res = await cookieAwareFetch('https://example.com/protected-cookie-echo');
+    const res = await browser.fetch('https://example.com/protected-cookie-echo');
     const text = await res.text();
     expect(text).toContain('token=abc123');      // From login
     expect(text).toContain('extra=manual-value'); // Manually added
     
     // 5. WebSocket connection also gets BOTH cookies automatically!
     // Note: Cast to `any` needed because Cloudflare's WebSocket type doesn't include event handlers
-    const ws = new CookieWebSocket('wss://example.com/my-do/shared-cookies') as any;
+    const ws = new browser.WebSocket('wss://example.com/my-do/shared-cookies') as any;
     
     let wsOpened = false;
     ws.onopen = () => { wsOpened = true; };
@@ -196,18 +192,17 @@ describe('@lumenize/testing core capabilities', () => {
     ws.close();
   });
 
-  // Browser.createPage() allows you to:
+  // Browser.page() allows you to:
   //   - Test Origin validation logic in your Workers/DOs
   //   - Simulate requests from a page loaded from a specific origin
   //   - Supply custom headers for WebSocket upgrades
   //   - Configure maxQueueBytes for CONNECTING state queue limits
-  it('demonstrates testing Origin validation using Browser.createPage()', async () => {
+  it('demonstrates testing Origin validation using browser.page()', async () => {
     const browser = new Browser();
     
-    // Create a page context with Origin header
+    // Create a page context with Origin header (no need to pass fetch!)
     // Both fetch and WebSocket will include Origin: https://example.com
-    const { fetch: pageFetch, WebSocket: PageWebSocket } = browser.createPage(fetch, {
-      origin: 'https://example.com',
+    const page = browser.page('https://example.com', {
       headers: {
         'X-Custom-Header': 'test-value'
       },
@@ -216,7 +211,7 @@ describe('@lumenize/testing core capabilities', () => {
     
     // Requests from this page include Origin automatically
     // This is perfect for testing CORS and Origin validation logic
-    const ws = new PageWebSocket('wss://example.com/my-do/origin-test') as any;
+    const ws = new page.WebSocket('wss://example.com/my-do/origin-test') as any;
     
     let wsOpened = false;
     ws.onopen = () => { wsOpened = true; };
@@ -232,13 +227,10 @@ describe('@lumenize/testing core capabilities', () => {
     
     // You can also test cross-origin scenarios
     const attacker = new Browser();
-    const { fetch: attackFetch } = attacker.createPage(fetch, {
-      origin: 'https://evil.com'
-    });
     
-    // This request includes Origin: https://evil.com
-    // Your Worker/DO can validate and reject it
-    const response = await attackFetch('https://example.com/my-do/origin-test/increment');
+    // Can chain directly without storing the page
+    const response = await attacker.page('https://evil.com').fetch('https://example.com/my-do/origin-test/increment');
+    
     // In a real app with Origin validation enabled, you might check:
     // expect(response.status).toBe(403);
     expect(response.status).toBe(200); // Our example doesn't validate Origin yet
