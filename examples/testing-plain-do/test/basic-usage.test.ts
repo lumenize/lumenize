@@ -200,31 +200,40 @@ describe('@lumenize/testing core capabilities', () => {
     const browser = new Browser();
     
     // Create a page with Origin header + custom headers
-    const page = browser.page('https://example.com', {
+    // Note: headers/maxQueueBytes configured at page level to maintain standard WebSocket API
+    const page = browser.page('https://my-origin.com', {
       headers: { 'X-Custom-Header': 'test-value' },
       maxQueueBytes: 1024 * 1024 // 1MB WebSocket queue limit while CONNECTING
     });
     
-    // HTTP request includes Origin header - allowed
-    const response = await page.fetch('https://example.com/cors-secure/my-do/cors-test/increment');
-    expect(response.status).toBe(200);
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
-    
-    // WebSocket upgrade includes Origin header - allowed
-    const ws = new page.WebSocket('wss://example.com/cors-secure/my-do/ws-test') as any;
+    // WebSocket upgrade includes Origin header
+    const ws = new page.WebSocket('wss://my-origin.com/cors-secure/my-do/ws-test') as any;
     let wsOpened = false;
     ws.onopen = () => { wsOpened = true; };
     await vi.waitFor(() => expect(wsOpened).toBe(true));
-    expect(ws.response.headers.get('Access-Control-Allow-Origin')).toBe('https://example.com');
+    // Note: browser standard WebSocket doesn't have a response property, but ours does for testing
+    expect(ws.response.headers.get('Access-Control-Allow-Origin')).toBe('https://my-origin.com');
     ws.close();
     
-    // Blocked origin - server rejects with 403 (server-side validation)
-    const blocked = await browser.page('https://evil.com').fetch('https://example.com/cors-secure/my-do/blocked/increment');
-    expect(blocked.status).toBe(403);
+    // HTTP request also includes Origin header - allowed
+    const response = await page.fetch('https://my-origin.com/cors-secure/my-do/cors-test/increment');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://my-origin.com');
     
-    // Verify DO was never called (count still 1, not 2)
+    // Set up: Pre-populate count to verify DO is never called
     await using client = createTestingClient<MyDOType>('MY_DO', 'blocked');
-    expect(await client.increment()).toBe(1);
+    await client.ctx.storage.put('count', 42);
+
+    // Blocked origin - server rejects with 403 without CORS headers
+    // In a real browser, this would throw a network error (CORS failure)
+    // But in testing, we can still inspect the response    
+    const blocked = await browser.page('https://evil.com').fetch('https://my-origin.com/cors-secure/my-do/blocked/increment');
+    expect(blocked.status).toBe(403);
+    expect(blocked.headers.get('Access-Control-Allow-Origin')).toBeNull(); // No CORS headers
+    
+    // Verify DO was never called - count is still 42 (not 43)
+    const count = await client.ctx.storage.get('count');
+    expect(count).toBe(42);
   });
 
 });

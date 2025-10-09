@@ -34,7 +34,7 @@ export default {
     // See https://lumenize.com/docs/utils/cors-support for CORS configuration
     const routeCORSRequest = (req: Request, e: Env) => routeDORequest(req, e, {
       prefix: '/cors-secure/',
-      cors: { origin: ['https://example.com', 'https://app.example.com'] },
+      cors: { origin: ['https://my-origin.com', 'https://app.example.com'] },
     });
     
     return (
