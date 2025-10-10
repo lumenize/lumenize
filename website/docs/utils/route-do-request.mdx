@@ -33,17 +33,28 @@ export default {
 ## URL Format
 
 Requests must follow this format:
-
 ```
 [/${prefix}]/${doBindingName}/${doInstanceNameOrId}[/path...]
 ```
 
-**Examples:**
-- `/my-do/instance123` → routes to `env.MY_DO.getByName('instance123')`
-- `/chat-room/lobby` → routes to `env.CHAT_ROOM.getByName('lobby')`
-- `/agents/user-do/john` → with `prefix: '/agents'`, routes to `env.USER_DO.getByName('john')`
+## Instance ID Handling
 
-## Supported Case Conversions
+The function automatically detects 64-character hex strings (from `newUniqueId().toString()`) and uses `idFromString()` instead of `getByName()`:
+
+- Named instance
+  - Path: `/my-do/lobby`
+  - Resolves to: `env.MY_DO.getByName('lobby')`
+
+- Unique ID (64‑char hex)
+  - Path: `/my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99`
+  - Resolves to: `env.MY_DO.get(env.MY_DO.idFromString('8aa7...'))`
+
+- Named instance with prefix
+  - Path: `/agents/user-do/john`
+  - With config: `{ prefix: '/agents' }`
+  - Resolves to: `env.USER_DO.getByName('john')`
+
+## Supported Case Conversions for `doBindingName`
 
 The function intelligently converts URL path segments to match various binding naming conventions:
 
@@ -55,6 +66,22 @@ The function intelligently converts URL path segments to match various binding n
 | `/api-handler/...` | `API_HANDLER`, `ApiHandler`, `apiHandler`, `api-handler` |
 
 ## Hooks
+
+### onBeforeRequest
+
+`onBeforeRequest` runs for HTTP requests before they reach your Durable Object. Use it to:
+
+- reject requests early by returning a `Response` (e.g., 401/403),
+- modify the `Request` (return a new `Request`), or
+- continue unchanged by returning `undefined`.
+
+This hook does not run for WebSocket upgrade requests.
+
+### onBeforeConnect
+
+`onBeforeConnect` runs only for WebSocket upgrade requests (`Upgrade: websocket`). Use it to validate or enrich the request before the upgrade. Return a `Response` to block, a modified `Request` to continue with changes, or `undefined` to proceed as-is.
+
+### Examples
 
 Use hooks to validate or modify requests before they reach your Durable Objects:
 
@@ -88,20 +115,6 @@ const response = await routeDORequest(request, env, {
 });
 ```
 
-### onBeforeRequest
-
-`onBeforeRequest` runs for HTTP requests before they reach your Durable Object. Use it to:
-
-- reject requests early by returning a `Response` (e.g., 401/403),
-- modify the `Request` (return a new `Request`), or
-- continue unchanged by returning `undefined`.
-
-This hook does not run for WebSocket upgrade requests. See the code sample above for a minimal pattern.
-
-### onBeforeConnect
-
-`onBeforeConnect` runs only for WebSocket upgrade requests (`Upgrade: websocket`). Use it to validate or enrich the request before the upgrade. Return a `Response` to block, a modified `Request` to continue with changes, or `undefined` to proceed as-is.
-
 ## Prefix Matching
 
 Use the `prefix` option to scope routing to a specific URL path:
@@ -115,33 +128,24 @@ const response = await routeDORequest(request, env, {
 // Now only /api/my-do/instance123 routes, not /my-do/instance123
 ```
 
+`routeDORequest` will short-circuit return undefined if the Request.url doesn't match the prefix.
+
 ## CORS Support
 
-Enable Cross-Origin Resource Sharing (CORS) to allow requests from different origins:
+The following examples behave as you would expect and match the behavior of `routeAgentRequest` using the same configuration.
 
 ```typescript
-// Allow all origins (permissive)
-await routeDORequest(request, env, {
-  cors: true
-});
+await routeDORequest(request, env, { cors: true }); // Allow all origins (permissive)
+await routeDORequest(request, env ); // Defaults to false, allowing on this origin
+```
 
+However, `routeDORequest` CORS support goes way beyond what is supported by `routeAgentRequest`. It fully documented in [CORS Support](/docs/utils/cors-support) but the most common configuration is a simple whitelist.
+
+```typescript
 // Whitelist specific origins
 await routeDORequest(request, env, {
   cors: {
     origin: ['https://app.example.com', 'https://admin.example.com']
-  }
-});
-
-// Custom validation with request inspection
-await routeDORequest(request, env, {
-  cors: {
-    origin: (origin, request) => {
-      // Check origin and inspect request for advanced validation
-      if (!origin.endsWith('.example.com')) return false;
-      
-      const apiKey = request.headers.get('X-API-Key');
-      return apiKey === 'trusted-key';
-    }
   }
 });
 ```
@@ -152,30 +156,16 @@ CORS automatically:
 - Handles OPTIONS (preflight) requests
 - Adds headers to both DO responses and hook responses
 
-For complete CORS documentation, advanced use cases, and examples, see [CORS Support](/docs/utils/cors-support).
-
-## Instance ID Handling
-
-The function automatically detects 64-character hex strings (from `newUniqueId().toString()`) and uses `idFromString()` instead of `getByName()`:
-
-```typescript
-// Named instance
-// /my-do/lobby → env.MY_DO.getByName('lobby')
-
-// Unique ID (64-char hex)
-// /my-do/8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99
-// → env.MY_DO.get(env.MY_DO.idFromString('8aa7...'))
-```
-
 ## Error Handling
 
 The function throws errors for invalid requests:
 
 - **`MissingInstanceNameError`** (400) - Binding name found but instance name/ID missing
 - **`MultipleBindingsFoundError`** (400) - Multiple DO bindings match the path segment (configuration error)
-- **`DOBindingNotFoundError`** (404) - No matching binding found
 
-Each error includes an `httpErrorCode` property for easy HTTP response handling:
+Note, if the url segment for doBindingName doesn't match any DO Namespaces found on `env`, it will return undefined not an error.
+
+Each error includes an `httpErrorCode` property in addition to the standard `message` property for easy HTTP response handling:
 
 ```typescript
 try {
@@ -227,12 +217,7 @@ export default {
 
 - **Case-insensitive binding name matching** - Flexible naming conventions
 - **Automatic ID detection** - Handles both named instances and unique IDs
-- **Authentication hooks** - Validate requests before they reach DOs
+- **Hooks** - Authenticate, validate, or enhance requests before they reach DOs
 - **Prefix support** - Scope routing to specific URL paths
 - **Hono-style behavior** - Returns `undefined` if request doesn't match
 - **Standard Cloudflare naming** - No confusing party/agent/room terminology
-
-## See Also
-
-- [CORS Support](/docs/utils/cors-support) - Detailed CORS configuration and examples
-- [API Reference](/docs/utils/api/functions/routeDORequest)
