@@ -54,9 +54,9 @@ The function intelligently converts URL path segments to match various binding n
 | `/my-d-o/...` | `MY_D_O`, `MyDO`, `MyDO`, `myDO`, `my-d-o` |
 | `/api-handler/...` | `API_HANDLER`, `ApiHandler`, `apiHandler`, `api-handler` |
 
-## Authentication Hooks
+## Hooks
 
-Use hooks to validate requests before they reach your Durable Objects:
+Use hooks to validate or modify requests before they reach your Durable Objects:
 
 ```typescript
 const response = await routeDORequest(request, env, {
@@ -88,16 +88,19 @@ const response = await routeDORequest(request, env, {
 });
 ```
 
-### Hook Behavior
+### onBeforeRequest
 
-- **WebSocket requests** (`Upgrade: websocket`) → calls `onBeforeConnect` only
-- **HTTP requests** → calls `onBeforeRequest` only
+`onBeforeRequest` runs for HTTP requests before they reach your Durable Object. Use it to:
 
-### Hook Return Values
+- reject requests early by returning a `Response` (e.g., 401/403),
+- modify the `Request` (return a new `Request`), or
+- continue unchanged by returning `undefined`.
 
-- **`Response`** - Block the request and return this response immediately
-- **`Request`** - Modify the request before forwarding to the DO
-- **`undefined` / `void`** - Continue with the original request
+This hook does not run for WebSocket upgrade requests. See the code sample above for a minimal pattern.
+
+### onBeforeConnect
+
+`onBeforeConnect` runs only for WebSocket upgrade requests (`Upgrade: websocket`). Use it to validate or enrich the request before the upgrade. Return a `Response` to block, a modified `Request` to continue with changes, or `undefined` to proceed as-is.
 
 ## Prefix Matching
 

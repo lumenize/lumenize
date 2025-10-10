@@ -2,7 +2,9 @@
 title: "From Flirtation to Vows: Healing the MCP Type Fracture"
 slug: from-flirtation-to-vows-healing-the-mcp-type-fracture
 authors: [larry]
-tags: [personal]
+tags: [mcp, architecture]
+description: A trip down the rabbit hole with MCP and the rationale for Lumenize's choice of TypeBox for types, schemas, and validation.
+image: ./broken-telephone-game.png
 ---
 
 ![Kids playing the broken telephone game](./broken-telephone-game.png)

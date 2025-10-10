@@ -2,3 +2,19 @@ personal:
   label: Personal
   permalink: /personal
   description: From the minds of our authors
+
+security:
+  label: Security
+  permalink: /security
+  description: Application and platform security, threats, and defenses
+
+architecture:
+  label: Architecture
+  permalink: /architecture
+  description: System design, protocols, trade-offs, and implementation patterns
+
+mcp:
+  label: MCP
+  permalink: /mcp
+  description: Model Context Protocol (MCP)
+  

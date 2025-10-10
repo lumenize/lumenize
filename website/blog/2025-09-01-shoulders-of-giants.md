@@ -3,6 +3,7 @@ slug: shoulders-of-giants
 title: Standing on the Shoulders of Giants
 authors: [larry]
 tags: [personal]
+description: A list of the giants that I look up to in the land of Durable Objects
 ---
 
 ## Kenton Varda

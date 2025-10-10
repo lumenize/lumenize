@@ -39,7 +39,6 @@ This implementation provides **server-side rejection** for both HTTP and WebSock
   - JavaScript sees the same error as standard CORS violation - no difference from the browser's perspective
 - Only forwards allowed requests to Durable Object
 - Adds CORS headers to allowed responses
-- **Result**: Browser compatibility maintained while providing defense-in-depth
 
 **WebSocket Upgrade Requests**
 - **Browsers DO NOT enforce** `Access-Control-Allow-Origin` for WebSocket upgrades ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API))
@@ -50,10 +49,11 @@ This implementation provides **server-side rejection** for both HTTP and WebSock
 #### Why Non-Standard is Better
 
 **Benefits:**
-1. **More secure**: Eliminates the possibility that a CORS invalid request can change the state of the server
+1. **Defence in depth**: Reduces the possibility that a CORS invalid request can change the state of the server in the face of misconfigured SameSite or CSP
 2. **Reduced latency**: No round-trip to Durable Object for blocked requests
 3. **Cost savings**: Fewer DO invocations and CPU time
-4. **Consistency**: "Standard" behavior is different between HTTP and WebSockets upgrade request (which are also, ironically, HTTP) while with this approach they are the same
+4. **Consistency**: Same behavior for regular HTTP and WebSockets upgrade requests
+5. **Clearer logs**: By rejecting on the server with a 403, we get a log of the CORS miss
 
 **Browser Compatibility:**
 The 403 response appears identical to standard CORS from the browser's perspective:
@@ -61,39 +61,36 @@ The 403 response appears identical to standard CORS from the browser's perspecti
 - JavaScript gets same error as standard CORS violation
 - Developer console shows similar CORS error message
 
-**Comparison:**
+#### Comparison:
 
-```typescript
-// Standard CORS (routeAgentRequest from cloudflare/agents)
-// 1. Request arrives with Origin: https://evil.com
-// 2. Server forwards to Durable Object
-// 3. DO processes request (wastes resources and potentially changes state)
-// 4. Server omits CORS headers
-// 5. Browser blocks response from reaching client-side JavaScript
-// PROBLEM: DO still did the work!
+**Standard CORS (routeAgentRequest from cloudflare/agents)**
+1. Request arrives with Origin: https://evil.com
+2. Server forwards to Durable Object
+3. DO processes request (wastes resources and potentially changes state)
+4. Server omits CORS headers
+5. Browser blocks response from reaching client-side JavaScript
+6. **PROBLEM: DO still did the work!**
 
-// Non-standard (this implementation)
-// 1. Request arrives with Origin: https://evil.com
-// 2. Server validates origin, sees it's not allowed
-// 3. Returns 403 Forbidden immediately
-// 4. DO never invoked (resources saved and state uneffected)
-// 5. Browser sees network error (same as CORS failure)
-// BENEFIT: DO protected, resources saved, browser behavior preserved!
-```
+**Non‑standard (this implementation)**
+1. Request arrives with Origin: https://evil.com
+2. Server validates origin, sees it's not allowed
+3. Returns 403 Forbidden immediately
+4. DO never invoked (resources saved and state unaffected)
+5. Browser sees network error (same as CORS failure)
+6. **BENEFIT: DO protected, resources saved, browser behavior preserved!**
 
-**Note**: This non-standard server-side rejection provides better security than RFC-compliant CORS. The array and validator function modes prevent unwanted origins from ever reaching your Durable Object.
-
-**Alternative: Use `onBeforeRequest` for Custom CORS**: If you need traditional browser-only CORS enforcement (or any other custom CORS behavior), you can implement it in the [`onBeforeRequest` hook](/docs/utils/route-do-request#onbeforerequest). This gives you complete control - you can add CORS headers, forward to the DO, and return responses however you like. See [Custom CORS with Hooks](#custom-cors-with-hooks) below.
+**Use `onBeforeRequest` if you want the traditional behavior**: If you need traditional browser-only CORS enforcement (or any other custom CORS behavior), you can implement it in the [`onBeforeRequest` hook](/docs/utils/route-do-request#onbeforerequest). This gives you complete control - you can immediately forward to the DO and add CORS headers to the DO's response before returning it to the caller. See [Custom CORS with Hooks](#custom-cors-with-hooks) below.
 
 ### Configuration Modes
 
-The `cors` option supports three modes:
+The `cors` option supports four modes:
 
-- **`false`** (default): No CORS headers are added
+- **`false`** (default): No CORS headers are added--responses to cross-origin requests will be hidden by browser from the client-side code
 - **`true`** (permissive): Reflects any request's Origin header
-- **`{ origin: string[] | (origin: string, request: Request) => boolean }`**: Custom validation
+- **`{ origin: string[] }`**: Whitelist of allowed origins
+- **`{ origin: (origin: string, request: Request) => boolean }`**: Custom validation function
 
-## Basic Usage
+## Usage
 
 ### Permissive Mode (Allow All Origins)
 
@@ -120,7 +117,7 @@ await routeDORequest(request, env, {
   cors: {
     origin: (origin, request) => {
       // Check origin domain
-      if (!origin.endsWith('.example.com')) {
+      if (!origin.endsWith('.bad-guys.com')) {
         return false;
       }
       
@@ -154,23 +151,34 @@ The validator function receives both the `origin` string and the full `Request` 
 CORS automatically handles OPTIONS (preflight) requests:
 
 - **When origin is allowed**: Returns `204 No Content` with CORS headers (short-circuits before hooks)
-- **When no Origin header present OR origin not allowed**: Passes through to Durable Object
+- **When origin not allowed** (array/validator modes): Returns `403 Forbidden` without CORS headers
+- **When no Origin header present**: Falls through to origin rejection check, then to Durable Object if no rejection
 
-```typescript
-// Example preflight flow:
-// 1. Browser sends: OPTIONS /my-do/instance with Origin: https://app.example.com
-// 2. If origin allowed: Returns 204 with CORS headers immediately
-// 3. If origin not allowed: Forwards to DO (which may return 404 or handle it)
-```
+### Example preflight flows
+
+**Allowed origin**
+1. Browser sends: OPTIONS /my-do/instance with Origin: https://app.example.com
+2. Server validates origin, sees it's allowed
+3. Returns 204 No Content with CORS headers immediately
+
+**Disallowed origin (array/validator modes)**
+1. Browser sends: OPTIONS /my-do/instance with Origin: https://evil.com
+2. Server validates origin, sees it's not allowed
+3. Returns 403 Forbidden without CORS headers (browser sees CORS failure)
+
+**No Origin header (same-origin request)**
+1. Browser sends: OPTIONS /my-do/instance (no Origin header)
+2. No CORS validation occurs
+3. Forwards to DO (DO handles the OPTIONS request)
 
 ## Integration with Hooks
 
-CORS headers are automatically added to responses from:
+When CORS is enabled (not `false`), CORS headers are automatically added to responses from:
 - The Durable Object itself
-- `onBeforeConnect` hook responses
-- `onBeforeRequest` hook responses
+- Response object returned by `onBeforeConnect` hook
+- Response object returned by `onBeforeRequest` hook
 
-Only adds headers when the origin is allowed:
+Headers are only added when the origin is allowed:
 
 ```typescript
 await routeDORequest(request, env, {
@@ -179,7 +187,7 @@ await routeDORequest(request, env, {
     const token = request.headers.get('Authorization');
     if (!token) {
       return new Response('Unauthorized', { status: 401 });
-      // CORS headers will be added to this response if origin is allowed
+      // CORS headers will be added to this 401 response if origin is allowed
     }
   }
 });
@@ -227,60 +235,6 @@ await routeDORequest(request, env, {
       }
       
       return true;
-    }
-  }
-});
-```
-
-### Environment-Specific CORS
-
-```typescript
-// Different CORS policies per environment
-const getCorsConfig = (env: Env): CorsOptions => {
-  if (env.ENVIRONMENT === 'production') {
-    return {
-      origin: (origin, request) => {
-        // Strict validation in production
-        const allowedOrigins = ['https://app.example.com'];
-        if (!allowedOrigins.includes(origin)) return false;
-        
-        // Require API key in production
-        const apiKey = request.headers.get('X-API-Key');
-        return apiKey === env.PRODUCTION_API_KEY;
-      }
-    };
-  }
-  
-  if (env.ENVIRONMENT === 'staging') {
-    return {
-      // Whitelist for staging
-      origin: ['https://staging.example.com', 'https://preview.example.com']
-    };
-  }
-  
-  // Development - allow all
-  return true;
-};
-
-await routeDORequest(request, env, {
-  cors: getCorsConfig(env)
-});
-```
-
-### Method-Specific CORS
-
-```typescript
-await routeDORequest(request, env, {
-  cors: {
-    origin: (origin, request) => {
-      // Allow GET/HEAD from any subdomain
-      if (request.method === 'GET' || request.method === 'HEAD') {
-        return origin.endsWith('.example.com');
-      }
-      
-      // Only allow POST/PUT/DELETE from specific origins
-      const writeOrigins = ['https://app.example.com', 'https://admin.example.com'];
-      return writeOrigins.includes(origin);
     }
   }
 });
@@ -342,35 +296,25 @@ await routeDORequest(request, env, {
 });
 ```
 
+For more information about the functions used above, see:
+- [Request Routing](/docs/utils/route-do-request) - Main `routeDORequest` documentation
+- [API Reference - routeDORequest](/docs/utils/api/functions/routeDORequest)
+- [API Reference - getDOStub](/docs/utils/api/functions/getDOStub)
+
 This approach gives you complete flexibility:
 - **Traditional CORS**: Forward all requests to DO, add/omit headers based on origin (DO always processes the request)
 - **Custom validation**: Check any request properties before forwarding
 - **Direct DO access**: Use `context.doNamespace` and `context.doInstanceNameOrId` to call the DO yourself
-- **Custom responses**: Return any response from the hook
-
-## Type Definition
-
-```typescript
-export type CorsOptions = 
-  | false  // No CORS headers
-  | true   // Permissive: echo any Origin
-  | {
-      origin: string[] | ((origin: string, request: Request) => boolean);
-    };
-```
+- **Custom responses**: Return any response from the hook, which short-circuits the normal call to the DO—useful because you already performed the action inside the hook
 
 ## Security Considerations
 
-1. **Browser-only protection**: CORS (including this non-standard server-side implementation) **only protects against browser-based attacks**. Malicious non-browser clients can set any `Origin` header they want, bypassing origin validation entirely. CORS is not a substitute for proper authentication and authorization - always validate API keys, tokens, or other credentials for sensitive operations.
+**CORS was never a security mechanism.** Think of CORS like a "No Trespassing" sign — it only works if the visitor respects it. This non-standard implementation adds a short fence to go with the sign. An attacker can easily step over this fence, but accidental trespassing becomes less likely, and when unwanted requests do occur, you'll waste fewer resources. **CORS is not a substitute for proper authentication and authorization** - always validate API keys, tokens, or other credentials for sensitive operations.
+
+1. **Browser-only**: While this implementation provides server-side rejection (better than standard CORS), it only helps with browser initiated requests. Malicious non-browser clients can set any `Origin` header they want, bypassing origin validation entirely.
 
 2. **No credentials support**: This implementation does not set `Access-Control-Allow-Credentials`, meaning cookies and authorization headers won't be sent cross-origin even if the origin is allowed.
 
 3. **Origin validation**: Always validates the Origin header when CORS is enabled - never allows requests without proper origin validation in whitelist/function modes.
 
 4. **Vary header**: Always sets `Vary: Origin` to ensure proper caching behavior with CDNs and browsers.
-
-## See Also
-
-- [Request Routing](/docs/utils/route-do-request) - Main `routeDORequest` documentation
-- [API Reference - routeDORequest](/docs/utils/api/functions/routeDORequest)
-- [API Reference - getDOStub](/docs/utils/api/functions/getDOStub)
