@@ -215,3 +215,231 @@ describe('WebSocket RPC Integration', () => {
   });
 
 });
+
+/**
+ * WebSocket Shim Integration Tests
+ * 
+ * These tests validate the WebSocket shim's behavior using real WebSocket connections
+ * to Durable Objects, replacing mock-based unit tests that could give false positives.
+ */
+describe('WebSocket Shim Integration', () => {
+  
+  it('should negotiate protocol from response header', async () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    
+    // Create WebSocket with multiple protocols - server selects 'correct.subprotocol'
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/protocol-test/ws', 
+      ['wrong.protocol', 'correct.subprotocol', 'another.protocol']) as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // Verify protocol is set from response header
+    expect(ws.protocol).toBe('correct.subprotocol');
+    // Note, ws.response is non-standard. It might be useful in a testing environment though
+    expect(ws.response.headers.get('Sec-WebSocket-Protocol')).toBe('correct.subprotocol');
+    
+    ws.close();
+  });
+  
+  it('should queue messages during CONNECTING and flush on open', async () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/queue-test/ws') as any;
+    
+    // Send messages immediately (while CONNECTING)
+    expect(ws.readyState).toBe(0); // CONNECTING
+    ws.send('message1');
+    ws.send('message2');
+    ws.send('message3');
+    
+    // bufferedAmount should reflect queued bytes
+    expect(ws.bufferedAmount).toBeGreaterThan(0);
+    
+    // Test both onmessage property AND addEventListener work simultaneously
+    let receivedMessages: string[] = [];
+    ws.onmessage = (event: MessageEvent) => {
+      receivedMessages.push(event.data);
+    };
+    
+    let receivedViaListener: string[] = [];
+    ws.addEventListener('message', (event: MessageEvent) => {
+      receivedViaListener.push(event.data);
+    });
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    let openedViaListener = false;
+    ws.addEventListener('open', () => { openedViaListener = true; });
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    expect(openedViaListener).toBe(true);
+    
+    // Wait for echo responses (server echoes messages back)
+    await vi.waitFor(() => expect(receivedMessages.length).toBe(3));
+    
+    // Verify messages were flushed in order via onmessage
+    expect(receivedMessages).toEqual(['message1', 'message2', 'message3']);
+    
+    // Verify addEventListener also received the same messages
+    expect(receivedViaListener).toEqual(['message1', 'message2', 'message3']);
+    
+    // bufferedAmount should be 0 after flushing
+    expect(ws.bufferedAmount).toBe(0);
+    
+    ws.close();
+  });
+  
+  it('should enforce maxQueueBytes limit during CONNECTING', () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF), {
+      maxQueueBytes: 20 // Very small limit
+    });
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/max-queue-test/ws');
+    
+    // Should be in CONNECTING state
+    expect(ws.readyState).toBe(0);
+    
+    // Send a message that fits
+    ws.send('small'); // ~5 bytes
+    
+    // Try to send a message that exceeds limit
+    const largeMessage = 'x'.repeat(100); // 100 bytes
+    expect(() => ws.send(largeMessage)).toThrow('CONNECTING queue exceeded maxQueueBytes');
+    
+    // Clean up
+    ws.close();
+  });
+  
+  it('should handle binary messages (ArrayBuffer)', async () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/binary-test/ws') as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // Send binary data
+    const binaryData = new Uint8Array([1, 2, 3, 4, 5]);
+    ws.send(binaryData);
+    
+    let receivedBinary: any = null;
+    ws.onmessage = (event: MessageEvent) => {
+      receivedBinary = event.data;
+    };
+    
+    // Wait for echo response
+    await vi.waitFor(() => expect(receivedBinary).not.toBeNull());
+    
+    // Verify binary data round-tripped correctly
+    // WebSocket binary data comes back as ArrayBuffer, not Uint8Array
+    expect(receivedBinary).toBeInstanceOf(ArrayBuffer);
+    const receivedArray = new Uint8Array(receivedBinary);
+    expect(Array.from(receivedArray)).toEqual([1, 2, 3, 4, 5]);
+    
+    ws.close();
+  });
+  
+  it('should throw when sending after close', async () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/send-after-close/ws') as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // Close the connection
+    ws.close();
+    expect(ws.readyState).toBe(2); // CLOSING
+    
+    // Should throw when trying to send after close
+    expect(() => ws.send('too late')).toThrow('cannot send() after close() has begun');
+  });
+  
+  it('should handle close before connection completes', () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/close-early/ws') as any;
+    
+    let closeCalled = false;
+    ws.onclose = (event: CloseEvent) => {
+      closeCalled = true;
+      expect(event.wasClean).toBe(true);
+      expect(event.code).toBe(1000);
+    };
+    
+    let closeViaListener = false;
+    ws.addEventListener('close', (event: CloseEvent) => {
+      closeViaListener = true;
+      expect(event.wasClean).toBe(true);
+      expect(event.code).toBe(1000);
+      expect(event.reason).toBe('Normal Closure');
+    });
+    
+    // Close immediately while still CONNECTING
+    expect(ws.readyState).toBe(0); // CONNECTING
+    ws.close();
+    
+    // Should transition to CLOSED
+    expect(ws.readyState).toBe(3); // CLOSED
+    expect(closeCalled).toBe(true);
+    expect(closeViaListener).toBe(true);
+  });
+  
+  it('should accept URL object (browser compatibility)', async () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    const url = new URL('wss://fake-host.com/manual-routing-do/url-object-test/ws?token=abc123');
+    const ws = new WebSocketClass(url) as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // Verify URL was preserved with query params
+    expect(ws.url).toBe('wss://fake-host.com/manual-routing-do/url-object-test/ws?token=abc123');
+    
+    ws.close();
+  });
+
+  it('should handle Cloudflare auto-response pairs', async () => {
+    const WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    const ws = new WebSocketClass('wss://fake-host.com/manual-routing-do/auto-response-test/ws') as any;
+    
+    let wsOpened = false;
+    ws.onopen = () => { wsOpened = true; };
+    
+    await vi.waitFor(() => expect(wsOpened).toBe(true));
+    
+    // Send the exact message that triggers auto-response
+    // ManualRoutingDO sets: new WebSocketRequestResponsePair("auto-response ping", "auto-response pong")
+    ws.send('auto-response ping');
+    
+    let receivedAutoResponse: string | null = null;
+    ws.onmessage = (event: MessageEvent) => {
+      receivedAutoResponse = event.data;
+    };
+    
+    // Wait for auto-response
+    await vi.waitFor(() => expect(receivedAutoResponse).not.toBeNull());
+    
+    // Verify we got the auto-response (not echoed through webSocketMessage handler)
+    expect(receivedAutoResponse).toBe('auto-response pong');
+    
+    // Send a different message to verify normal echo still works
+    ws.send('regular message');
+    
+    let receivedEcho: string | null = null;
+    ws.onmessage = (event: MessageEvent) => {
+      receivedEcho = event.data;
+    };
+    
+    await vi.waitFor(() => expect(receivedEcho).not.toBeNull());
+    expect(receivedEcho).toBe('regular message');
+    
+    ws.close();
+  });
+
+});

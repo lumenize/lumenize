@@ -183,8 +183,9 @@ export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryIni
         // From here on, we proxy raw readyState unless temporarily overridden.
         this.#stateOverride = null;
 
-        // Pull protocol if present (CF sometimes exposes it)
-        this.protocol = (ws as any).protocol ?? this.protocol;
+        // Pull protocol from response header first (standard), then fallback to ws.protocol
+        const responseProtocol = resp.headers.get('Sec-WebSocket-Protocol');
+        this.protocol = responseProtocol || (ws as any).protocol || this.protocol;
 
         // Event forwarding - create new events to avoid re-dispatch issues
         ws.addEventListener("open", (e) => {

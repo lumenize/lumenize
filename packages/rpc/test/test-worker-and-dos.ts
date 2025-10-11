@@ -236,6 +236,10 @@ export class ManualRoutingDO extends DurableObject<Env> {
     super(ctx, env);
     // Create complex data structure (same as ExampleDO)
     this.complexData = createComplexData(this, 'ManualRoutingDO');
+
+    this.ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair("auto-response ping", "auto-response pong"),
+    );
   }
 
   // Same methods as ExampleDO
@@ -368,9 +372,19 @@ export class ManualRoutingDO extends DurableObject<Env> {
     // Check for WebSocket upgrade request
     if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       // Handle custom WebSocket endpoint (completely separate from RPC)
-      if (url.pathname.endsWith('/custom-ws')) {
+      if (url.pathname.endsWith('/custom-ws') || url.pathname.includes('/ws')) {
         const webSocketPair = new WebSocketPair();
         const [client, server] = Object.values(webSocketPair);
+        
+        // Handle sub-protocol selection
+        const requestedProtocols = request.headers.get('Sec-WebSocket-Protocol');
+        const responseHeaders = new Headers();
+        if (requestedProtocols) {
+          const protocols = requestedProtocols.split(',').map(p => p.trim());
+          if (protocols.includes('correct.subprotocol')) {
+            responseHeaders.set('Sec-WebSocket-Protocol', 'correct.subprotocol');
+          }
+        }
         
         // Accept the WebSocket connection
         this.ctx.acceptWebSocket(server);
@@ -378,6 +392,7 @@ export class ManualRoutingDO extends DurableObject<Env> {
         return new Response(null, {
           status: 101,
           webSocket: client,
+          headers: responseHeaders,
         });
       }
       
@@ -431,14 +446,21 @@ export class ManualRoutingDO extends DurableObject<Env> {
       return; // RPC message handled
     }
     
-    // Not an RPC message, handle custom WebSocket messages for /custom-ws endpoint
-    if (typeof message === 'string' && message === 'PING') {
-      ws.send('PONG');
+    // Not an RPC message, echo it back for testing
+    // Handle custom WebSocket messages for /custom-ws and /ws endpoints
+    if (typeof message === 'string') {
+      if (message === 'PING') {
+        ws.send('PONG');
+      } else {
+        // Echo string messages back
+        ws.send(message);
+      }
       return;
     }
     
-    // Unrecognized message - ignore it
-    // (In a real app, you might want to log or handle other custom messages here)
+    // Echo binary messages back (ArrayBuffer from Cloudflare Workers)
+    // Cloudflare Workers always provides binary as ArrayBuffer, not Uint8Array
+    ws.send(message);
   }
 }
 

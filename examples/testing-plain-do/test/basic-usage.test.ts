@@ -5,7 +5,7 @@
  * for testing Durable Objects with minimal boilerplate.
  * 
  * @lumenize/testing provides:
- *   - createTestingClient: Minimal RPC client for DO testing (just binding name + instance name/Id!)
+ *   - createTestingClient: Alter and inspect DO state (ctx..., custom methods/properties, etc.)
  *   - fetch: Simple fetch for making requests to your worker
  *   - WebSocket: Browser-compatible WebSocket for DO connections
  *   - Browser: Simulates browser behavior for testing
@@ -23,7 +23,6 @@
  *   - Test Origin validation for both HTTP and WebSocket requests
  *   - Simulate browser behavior with automatic cookie management
  *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
- *   - TODO: Need to write test that exercises WebSocket protocol selection already implemented in index.ts
  *   - TODO: Either remove the following in index.ts or test it, super.fetch(), webSocketOpen(), webSocketMessage(), and webSocketClose()
  *   - No need to worry about internals of cloudflare:test
  */
@@ -105,11 +104,14 @@ describe('@lumenize/testing core capabilities', () => {
   // createTestingClient with WebSocket allows you to:
   //   - Use familiar WebSocket API
   //   - Browser-compatible WebSocket that routes through DO testing infrastructure
+  //   - Test WebSocket sub-protocol selection
   it('demonstrates testing DO WebSocket implementation using browser WebSocket API', async () => {
     // Use WebSocket directly - no need to call getWebSocketShim!
     // Note: Cast to `any` needed because Cloudflare's WebSocket type doesn't include event handlers
     // but our shim implements the full browser WebSocket API
-    const ws = new WebSocket('wss://example.com/my-do/test-ws') as any;
+    
+    // Test with sub-protocol selection
+    const ws = new WebSocket('wss://example.com/my-do/test-ws', ['wrong.protocol', 'correct.subprotocol']) as any;
 
     let onMessageCalled = false;
 
@@ -121,9 +123,10 @@ describe('@lumenize/testing core capabilities', () => {
       onMessageCalled = true;
     };
 
-    // TODO: Are there any other WebSocket methods/properties we should show
-
     await vi.waitFor(() => expect(onMessageCalled).toBe(true));
+
+    // Verify the selected protocol matches what server chose
+    expect(ws.protocol).toBe('correct.subprotocol');
 
     // Create RPC client to inspect server-side WebSocket state
     await using client = createTestingClient<MyDOType>('MY_DO', 'test-ws');

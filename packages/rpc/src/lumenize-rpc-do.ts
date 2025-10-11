@@ -522,6 +522,13 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
         return super.webSocketMessage(ws, message);
       }
     }
+
+    webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void | Promise<void> {
+      // Call parent's webSocketClose if it exists
+      if (super.webSocketClose) {
+        return super.webSocketClose(ws, code, reason, wasClean);
+      }
+    }
   }
 
   // Copy static properties from original class

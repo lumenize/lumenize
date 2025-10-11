@@ -28,6 +28,7 @@ describe('getWebSocketShim', () => {
     mockFetch = vi.fn(async () => {
       return {
         status: 101,
+        headers: new Headers(), // Add headers object
         webSocket: mockWebSocket,
       };
     });
@@ -134,13 +135,22 @@ describe('getWebSocketShim', () => {
       expect(request.headers.get('Sec-WebSocket-Protocol')).toBe('chat.v2, chat.v1');
     });
 
-    it('should set protocol from accepted WebSocket', async () => {
-      mockWebSocket.protocol = 'chat.v1';
-      const WebSocketClass = getWebSocketShim(mockFetch);
+    it('should set protocol from response header', async () => {
+      // Mock fetch to return response with protocol header
+      const protocolFetch = vi.fn(async () => ({
+        status: 101,
+        headers: new Headers({
+          'Sec-WebSocket-Protocol': 'chat.v1'
+        }),
+        webSocket: mockWebSocket,
+      }));
+      
+      const WebSocketClass = getWebSocketShim(protocolFetch as any);
       const ws = new WebSocketClass('wss://example.com/socket', ['chat.v2', 'chat.v1']);
       
       await vi.waitFor(() => expect(mockWebSocket.accept).toHaveBeenCalled());
       
+      // Protocol should be set from response header
       expect(ws.protocol).toBe('chat.v1');
     });
   });
