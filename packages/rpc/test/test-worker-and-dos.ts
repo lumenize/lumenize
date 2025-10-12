@@ -10,6 +10,7 @@ import { sharedDOMethods, createComplexData, DataModel } from './shared/do-metho
  * Example Durable Object for testing RPC functionality
  * Implements shared methods directly to avoid 'this' typing issues
  */
+// Base class that will have sharedDOMethods mixed in
 class _ExampleDO extends DurableObject<Env> {
   public readonly complexData: any;
 
@@ -19,152 +20,30 @@ class _ExampleDO extends DurableObject<Env> {
     this.complexData = createComplexData(this, 'ExampleDO');
   }
 
-  // Simple method
-  async increment(): Promise<number> {
-    const count = (await this.ctx.storage.get('count') as number | undefined) || 0;
-    const newCount = count + 1;
-    this.ctx.storage.kv.put('count', newCount);
-    return newCount;
-  }
-
-  // Method with arguments  
-  add(a: number, b: number): number {
-    return a + b;
-  }
-
-  // Method that throws an error
-  throwError(message: string): void {
-    const error = new Error(message) as any;
-    error.code = 'TEST_ERROR';
-    error.statusCode = 400;
-    error.metadata = { timestamp: Date.now(), source: 'ExampleDO' };
-    throw error;
-  }
-
-  // Method that throws a string
-  throwString(message: string): void {
-    throw message;
-  }
-
-  // Method that returns object with remote functions
-  getObject() {
-    const nested = {
-      value: 42,
-      getValue(): number {
-        return this.value;
-      }
-    };
-    return {
-      value: 42,
-      nested
-    };
-  }
-
-  // Method that returns array
-  getArray(): number[] {
-    return [1, 2, 3, 4, 5];
-  }
-
-  // Method that returns array with functions
-  getArrayWithFunctions(): any[] {
-    return [
-      1,
-      2,
-      () => 'hello',
-      { value: 42, getValue: function() { return this.value; } },
-      5
-    ];
-  }
-
-  // Method that returns an object with throwing getter
-  getProblematicObject(): any {
-    const obj: any = { value: 42 };
-    Object.defineProperty(obj, 'badGetter', {
-      get() {
-        throw new Error('Getter throws error');
-      },
-      enumerable: true
-    });
-    return obj;
-  }
-
-  // Method that returns a class instance
-  getClassInstance(): DataModel {
-    return new DataModel(42, 'TestModel');
-  }
-
-  // Method that returns deeply nested object
-  getDeeplyNested() {
-    return {
-      level1: {
-        level2: {
-          level3: {
-            value: 'deep',
-            getValue: () => 'deeply nested value'
-          }
-        }
-      }
-    };
-  }
-
-  // Method with non-function property
-  getObjectWithNonFunction() {
-    return {
-      notAFunction: 42,
-      data: { value: 'test' }
-    };
-  }
-
-  // Method with delay
-  async slowIncrement(delayMs: number = 100): Promise<number> {
-    await new Promise(resolve => setTimeout(resolve, delayMs));
-    return this.increment();
-  }
-
-  // Built-in types
-  getDate(): Date {
-    return new Date('2025-01-01T00:00:00Z');
-  }
-
-  getRegExp(): RegExp {
-    return /[0-9]+/g;
-  }
-
-  getMap(): Map<string, string> {
-    return new Map([['key', 'value']]);
-  }
-
-  getSet(): Set<number> {
-    return new Set([1, 2, 3]);
-  }
-
-  getArrayBuffer(): ArrayBuffer {
-    return new ArrayBuffer(8);
-  }
-
-  getTypedArray(): Uint8Array {
-    return new Uint8Array([1, 2, 3, 4]);
-  }
-
-  getError(): Error {
-    return new Error('Test error');
-  }
-
-  async getCounter(): Promise<number> {
-    return (await this.ctx.storage.get('count') as number | undefined) || 0;
-  }
-
   // Original fetch method
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     
     if (url.pathname.endsWith('/increment')) {
-      const count = await this.increment();
+      const count = await (this as any).increment();
       return new Response(count.toString());
     }
     
     return new Response('original');
   }
+}
+
+// Mix in shared DO methods
+Object.assign(_ExampleDO.prototype, sharedDOMethods);
+
+// Type assertion to tell TypeScript that _ExampleDO has the mixed-in methods
+interface _ExampleDO extends Omit<typeof sharedDOMethods, 'increment' | 'add' | 'throwError' | 'throwString' | 'slowIncrement' | 'getCounter'> {
+  increment(): Promise<number>;
+  add(a: number, b: number): number;
+  throwError(message: string): void;
+  throwString(message: string): void;
+  slowIncrement(delayMs?: number): Promise<number>;
+  getCounter(): Promise<number>;
 }
 
 // Export the lumenized version
@@ -189,20 +68,23 @@ class _SubclassDO extends _ExampleDO {
     return this.increment();
   }
 
-  // Override existing method
-  override async increment(): Promise<number> {
-    // Call super, then add bonus
-    const count = await super.increment();
+  // Override existing method - can't use 'override' keyword with mixed-in methods
+  async increment(): Promise<number> {
+    // Get the base implementation from prototype
+    const baseIncrement = _ExampleDO.prototype.increment;
+    const count = await baseIncrement.call(this);
     // Add 1000 bonus for subclass increments
     const bonusCount = count + 1000;
-    await this.ctx.storage.put('count', bonusCount);
+    await this.ctx.storage.kv.put('count', bonusCount);
     return bonusCount;
   }
 
   // Override method that returns different value
-  override add(a: number, b: number): number {
+  add(a: number, b: number): number {
+    // Get the base implementation from prototype
+    const baseAdd = _ExampleDO.prototype.add;
     // Add 100 bonus to subclass additions
-    return super.add(a, b) + 100;
+    return baseAdd.call(this, a, b) + 100;
   }
 
   // Getter to test getter support in subclass
@@ -240,129 +122,6 @@ export class ManualRoutingDO extends DurableObject<Env> {
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("auto-response ping", "auto-response pong"),
     );
-  }
-
-  // Same methods as ExampleDO
-  async increment(): Promise<number> {
-    const count = (await this.ctx.storage.get('count') as number | undefined) || 0;
-    const newCount = count + 1;
-    await this.ctx.storage.put('count', newCount);
-    return newCount;
-  }
-
-  add(a: number, b: number): number {
-    return a + b;
-  }
-
-  throwError(message: string): void {
-    const error = new Error(message) as any;
-    error.code = 'TEST_ERROR';
-    error.statusCode = 400;
-    error.metadata = { timestamp: Date.now(), source: 'ManualRoutingDO' };
-    throw error;
-  }
-
-  throwString(message: string): void {
-    throw message;
-  }
-
-  getObject() {
-    const nested = {
-      value: 42,
-      getValue(): number {
-        return this.value;
-      }
-    };
-    return {
-      value: 42,
-      nested
-    };
-  }
-
-  getArray(): number[] {
-    return [1, 2, 3, 4, 5];
-  }
-
-  getArrayWithFunctions(): any[] {
-    return [
-      1,
-      2,
-      () => 'hello',
-      { value: 42, getValue: function() { return this.value; } },
-      5
-    ];
-  }
-
-  getProblematicObject(): any {
-    const obj: any = { value: 42 };
-    Object.defineProperty(obj, 'badGetter', {
-      get() {
-        throw new Error('Getter throws error');
-      },
-      enumerable: true
-    });
-    return obj;
-  }
-
-  getClassInstance(): DataModel {
-    return new DataModel(42, 'TestModel');
-  }
-
-  getDeeplyNested() {
-    return {
-      level1: {
-        level2: {
-          level3: {
-            value: 'deep',
-            getValue: () => 'deeply nested value'
-          }
-        }
-      }
-    };
-  }
-
-  getObjectWithNonFunction() {
-    return {
-      notAFunction: 42,
-      data: { value: 'test' }
-    };
-  }
-
-  async slowIncrement(delayMs: number = 100): Promise<number> {
-    await new Promise(resolve => setTimeout(resolve, delayMs));
-    return this.increment();
-  }
-
-  getDate(): Date {
-    return new Date('2025-01-01T00:00:00Z');
-  }
-
-  getRegExp(): RegExp {
-    return /[0-9]+/g;
-  }
-
-  getMap(): Map<string, string> {
-    return new Map([['key', 'value']]);
-  }
-
-  getSet(): Set<number> {
-    return new Set([1, 2, 3]);
-  }
-
-  getArrayBuffer(): ArrayBuffer {
-    return new ArrayBuffer(8);
-  }
-
-  getTypedArray(): Uint8Array {
-    return new Uint8Array([1, 2, 3, 4]);
-  }
-
-  getError(): Error {
-    return new Error('Test error');
-  }
-
-  async getCounter(): Promise<number> {
-    return (await this.ctx.storage.get('count') as number | undefined) || 0;
   }
 
   // Custom routing implementation
@@ -462,6 +221,19 @@ export class ManualRoutingDO extends DurableObject<Env> {
     // Cloudflare Workers always provides binary as ArrayBuffer, not Uint8Array
     ws.send(message);
   }
+}
+
+// Mix in shared DO methods
+Object.assign(ManualRoutingDO.prototype, sharedDOMethods);
+
+// Type assertion to tell TypeScript that ManualRoutingDO has the mixed-in methods
+export interface ManualRoutingDO extends Omit<typeof sharedDOMethods, 'increment' | 'add' | 'throwError' | 'throwString' | 'slowIncrement' | 'getCounter'> {
+  increment(): Promise<number>;
+  add(a: number, b: number): number;
+  throwError(message: string): void;
+  throwString(message: string): void;
+  slowIncrement(delayMs?: number): Promise<number>;
+  getCounter(): Promise<number>;
 }
 
 /**

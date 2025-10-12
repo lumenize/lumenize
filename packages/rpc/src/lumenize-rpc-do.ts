@@ -192,17 +192,16 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
   return parent;
 }
 
-function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakSet()): any {
+function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): any {
   // Handle primitives - return as-is, structured-clone will handle them
   if (result === null || result === undefined || typeof result !== 'object') {
     return result;
   }
   
-  // Handle circular references - prevent infinite recursion in our preprocessing
+  // Handle circular references - return the already-processed object
   if (seen.has(result)) {
-    return result;
+    return seen.get(result);
   }
-  seen.add(result);
   
   // Handle built-in types that structured-clone handles natively - return as-is
   if (result instanceof Date || result instanceof RegExp || result instanceof Map || 
@@ -213,7 +212,13 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
   
   // Handle arrays - recursively process items for function replacement
   if (Array.isArray(result)) {
-    return result.map((item, index) => {
+    // Create the processed array FIRST and add to seen map BEFORE processing children
+    // This is crucial for handling circular references correctly
+    const processedArray: any[] = [];
+    seen.set(result, processedArray);
+    
+    for (let index = 0; index < result.length; index++) {
+      const item = result[index];
       const currentChain: OperationChain = [...operationChain, { type: 'get', key: index }];
       
       // Check if the array item itself is a function and convert to marker
@@ -223,15 +228,19 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
           __operationChain: currentChain,
           __functionName: `[${index}]`, // Use array index as function name
         };
-        return marker;
+        processedArray[index] = marker;
+      } else {
+        processedArray[index] = preprocessResult(item, currentChain, seen);
       }
-      
-      return preprocessResult(item, currentChain, seen);
-    });
+    }
+    
+    return processedArray;
   }
   
   // Handle plain objects - replace functions with markers, recursively process other values
+  // Create the processed object FIRST and add to seen map BEFORE processing children
   const processedObject: any = {};
+  seen.set(result, processedObject);
   
   // Process enumerable properties
   for (const [key, value] of Object.entries(result)) {

@@ -181,6 +181,11 @@ export const sharedDOMethods = {
   // Method for testing counter access (used by ManualRoutingDO)
   async getCounter(this: WithContext): Promise<number> {
     return (await this.ctx.storage.get('count') as number | undefined) || 0;
+  },
+
+  // Method that echoes back whatever is passed to it (for testing structured-clone and circular refs)
+  echo(value: any): any {
+    return value;
   }
 };
 

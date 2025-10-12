@@ -163,7 +163,7 @@ export class RpcClient<T> {
     return this.processRemoteFunctions(result, []);
   }
 
-  processRemoteFunctions(obj: any, baseOperations: any[]): any {
+  processRemoteFunctions(obj: any, baseOperations: any[], seen = new WeakMap()): any {
     // Base case: if it's a remote function marker, create a proxy for it
     if (obj && typeof obj === 'object' && isRemoteFunctionMarker(obj)) {
       const remoteFn = obj as RemoteFunctionMarker;
@@ -179,9 +179,23 @@ export class RpcClient<T> {
       return obj; // Primitive values pass through unchanged
     }
 
+    // Handle circular references - return the already-processed object
+    if (seen.has(obj)) {
+      return seen.get(obj);
+    }
+
     // Arrays need recursive processing to check for remote function markers
     if (Array.isArray(obj)) {
-      return obj.map(item => this.processRemoteFunctions(item, baseOperations));
+      // Create the processed array FIRST and add to seen map BEFORE processing children
+      // This is crucial for handling circular references correctly
+      const processedArray: any[] = [];
+      seen.set(obj, processedArray);
+      
+      for (let i = 0; i < obj.length; i++) {
+        processedArray[i] = this.processRemoteFunctions(obj[i], baseOperations, seen);
+      }
+      
+      return processedArray;
     }
 
     // Check if this is a plain object (not a built-in type like Date, Map, etc.)
@@ -196,9 +210,12 @@ export class RpcClient<T> {
     }
 
     // Process plain object properties recursively
+    // Create the processed object FIRST and add to seen map BEFORE processing children
     const processed: any = {};
+    seen.set(obj, processed);
+    
     for (const [key, value] of Object.entries(obj)) {
-      processed[key] = this.processRemoteFunctions(value, baseOperations);
+      processed[key] = this.processRemoteFunctions(value, baseOperations, seen);
     }
     return processed;
   }

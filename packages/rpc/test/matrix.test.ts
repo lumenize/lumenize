@@ -168,6 +168,20 @@ MATRIX.forEach((matrixConfig) => {
       });
     });
 
+    describe('Circular References', () => {
+      testCategories.circularRefs.forEach((testName) => {
+        it(testName, async () => {
+          const instanceId = `matrix-${matrixConfig.doBindingName}-${testName}-${Date.now()}`;
+          const testable = createMatrixClient(matrixConfig, instanceId);
+          try {
+            await behaviorTests[testName as keyof typeof behaviorTests](testable);
+          } finally {
+            if (testable.cleanup) await testable.cleanup();
+          }
+        });
+      });
+    });
+
     describe('Object Inspection', () => {
       testCategories.inspection.forEach((testName) => {
         it(testName, async () => {

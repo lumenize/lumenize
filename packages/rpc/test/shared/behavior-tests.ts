@@ -219,6 +219,25 @@ export async function testGetError(testable: TestableClient): Promise<void> {
 }
 
 /**
+ * Circular reference handling - echo method preserves circular references
+ */
+export async function testEchoCircularReference(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create an object with a circular reference
+  const circular: any = { name: 'circular' };
+  circular.self = circular;
+  
+  // Echo it through RPC
+  const echoed = await (client as any).echo(circular);
+  
+  // Verify the circular reference is preserved
+  expect(echoed.name).toBe('circular');
+  expect(echoed.self).toBe(echoed);
+  expect(echoed).toEqual(circular);
+}
+
+/**
  * Object inspection via __asObject()
  */
 export async function testAsObject(testable: TestableClient): Promise<void> {
@@ -278,6 +297,7 @@ export const behaviorTests = {
   getArrayBuffer: testGetArrayBuffer,
   getTypedArray: testGetTypedArray,
   getError: testGetError,
+  echoCircularReference: testEchoCircularReference,
   asObject: testAsObject,
   slowIncrement: testSlowIncrement,
 };
@@ -292,6 +312,7 @@ export const testCategories = {
   arrays: ['getArray', 'getArrayWithFunctions'],
   classes: ['getClassInstance'],
   builtins: ['getDate', 'getRegExp', 'getMap', 'getSet', 'getArrayBuffer', 'getTypedArray', 'getError'],
+  circularRefs: ['echoCircularReference'],
   inspection: ['asObject'],
   async: ['slowIncrement'],
 };
