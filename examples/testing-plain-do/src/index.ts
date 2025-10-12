@@ -63,6 +63,8 @@ export class MyDO extends DurableObject{
     return count;
   }
 
+  echo(value: any): any { return value; }
+
   #trackOperation(operationType: string, operationDetails: string) {
     const operations = this.ctx.storage.kv.get<string[]>("operationsFromQueue") ?? [];
     operations.push(`${operationType}-${operationDetails}`);

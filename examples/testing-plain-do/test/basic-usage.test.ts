@@ -112,6 +112,35 @@ it('shows testing WebSocket functionality', async () => {
 //   - Support all structured clone types except functions (like Cloudflare native RPC)
 it.todo('shows RPC working with StructuredClone types');
 
+it('shows RPC working with StructuredClone types', async () => {
+  await using client = createTestingClient<MyDOType>('MY_DO', 'structured-clone');
+
+  // Map (and every other structured clone types) works with storage
+  const testMap = new Map<string, any>([['key1', 'value1'], ['key2', 42]]);
+  client.ctx.storage.kv.put('testMap', testMap);
+  const retrievedMap = await client.ctx.storage.kv.get<Map<string, any>>('testMap');
+  expect(retrievedMap).toEqual(testMap);
+  
+  // Map (and every other structured clone types) also works with custom method echo()
+  const echoedMap = await client.echo(testMap);
+  expect(echoedMap).toEqual(testMap);
+
+  // We're just going to use echo() to show other types work
+
+  // Set
+  const testSet = new Set<any>([1, 2, 3, 'four']);
+  expect(await client.echo(testSet)).toEqual(testSet);
+
+  // Date
+  const testDate = new Date('2025-10-12T12:00:00Z');
+  expect(await client.echo(testDate)).toEqual(testDate);
+
+  // Circular reference
+  const circular: any = { name: 'circular' };
+  circular.self = circular;
+  expect(await client.echo(circular)).toEqual(circular); // Circular ref preserved at correct level
+});
+
 // createTestingClient allows you to:
 //   - Test using multiple WebSocket connections to the same DO instance
 //   - Use connection tagging with Do instance name from URL, then call ctx.getWebSockets('my-tag')
