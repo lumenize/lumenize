@@ -65,19 +65,11 @@ export class MyDO extends DurableObject<Env>{
 
   echo(value: any): any { return value; }
 
-  #trackOperation(operationType: string, operationDetails: string) {
-    const operations = this.ctx.storage.kv.get<string[]>("operationsFromQueue") ?? [];
-    operations.push(`${operationType}-${operationDetails}`);
-    this.ctx.storage.kv.put("operationsFromQueue", operations);
-  }
-
   async fetch(request: Request) {
     const url = new URL(request.url);    
     
     const operation = url.searchParams.get('op') || 'unknown';
     
-    await this.#trackOperation('fetch', operation);
-
     if (url.pathname.endsWith('/increment')) {
       const count = await this.increment();
       return new Response(count.toString(), { 
@@ -128,8 +120,6 @@ export class MyDO extends DurableObject<Env>{
   }
 
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    this.#trackOperation('message', message.toString());
-
     if (message === 'increment') {
       return ws.send(this.increment().toString());
     }

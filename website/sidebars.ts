@@ -6,6 +6,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 // Note: TypeDoc plugin exports the items array directly, not an object with items property
 let typedocRpcSidebar: any[] = [];
 let typedocUtilsSidebar: any[] = [];
+let typedocTestingSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -19,6 +20,13 @@ try {
   console.log('✅ Loaded utils sidebar, items:', typedocUtilsSidebar?.length);
 } catch (e) {
   console.warn('⚠️  TypeDoc utils sidebar not yet generated, using empty sidebar');
+}
+
+try {
+  typedocTestingSidebar = require('./docs/testing/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded testing sidebar, items:', typedocTestingSidebar?.length);
+} catch (e) {
+  console.warn('⚠️  TypeDoc testing sidebar not yet generated, using empty sidebar');
 }
 
 /**
@@ -100,6 +108,18 @@ const sidebars: SidebarsConfig = {
         'utils/websocket-shim',
         ...(typedocUtilsSidebar && typedocUtilsSidebar.length > 0
           ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
+          : []),
+      ],
+    },
+
+    // Testing
+    {
+      type: 'category',
+      label: 'Testing',
+      items: [
+        'testing/usage',
+        ...(typedocTestingSidebar && typedocTestingSidebar.length > 0
+          ? [wrapInApiReference(typedocTestingSidebar, 'API Reference')]
           : []),
       ],
     },

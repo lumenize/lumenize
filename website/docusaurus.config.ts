@@ -72,6 +72,24 @@ const config: Config = {
           hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
       ],
+      [
+        'docusaurus-plugin-typedoc',
+        {
+          id: 'testing',
+          entryPoints: ['../packages/testing/src/index.ts'],
+          tsconfig: '../packages/testing/tsconfig.json',
+          out: 'docs/testing/api',
+          sidebar: {
+            autoConfiguration: true,
+          },
+          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+          excludeInternal: true,
+          excludeExternals: true,
+          excludePrivate: true,
+          readme: 'none',
+          hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
+        },
+      ],
   ],
 
   presets: [
