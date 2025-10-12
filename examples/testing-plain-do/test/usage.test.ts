@@ -1,8 +1,16 @@
 /**
- * Basic Usage Examples for @lumenize/testing
+ * Usage Examples for @lumenize/testing
  * 
  * This file shows the essential usage patterns of the @lumenize/testing library
  * for testing Durable Objects with minimal boilerplate.
+ * 
+ * @lumenize/testing is a superset of functionality of cloudflare:test with a 
+ * more *de*light*ful* DX. While cloudflare:test's runInDurableObject only allows 
+ * you to work with ctx/state, @lumenize/testing also allows you to do that plus:
+ *   - Inspect or manipulate instance variables (custom, this.env, etc.)
+ *   - Call instance methods directly from your test
+ *   - Greatly enhances your ability to test DOs via WebSockets
+ *   - Simulate browser behavior with cookie management and realistic CORS simulation
  * 
  * @lumenize/testing provides:
  *   - createTestingClient: Alter and inspect DO state (ctx..., custom methods/properties, etc.)
@@ -15,14 +23,6 @@
  *       - Both automatically include cookies from the Browser instance
  *       - Simulates requests from a page loaded from the given origin
  *       - Perfect for testing CORS and Origin validation logic
- * 
- * Key features:
- *   - Discover any public member of your DO class (ctx, env, custom methods, etc.)
- *   - Manipulate storage and other state prior to running a test
- *   - Assert on any state change in instance variables or storage
- *   - Test Origin validation for both HTTP and WebSocket requests
- *   - Simulate browser behavior with automatic cookie management
- *   - No need to worry about internals of cloudflare:test
  */
 
 import { it, expect, vi } from 'vitest';
