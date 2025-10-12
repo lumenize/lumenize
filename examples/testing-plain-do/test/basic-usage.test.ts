@@ -219,7 +219,9 @@ it('shows testing Origin validation using browser.page()', async () => {
   let wsOpened = false;
   ws.onopen = () => { wsOpened = true; };
   await vi.waitFor(() => expect(wsOpened).toBe(true));
-  // Note: browser standard WebSocket doesn't have a response property, but it's useful for debugging
+  // Note: browser standard WebSocket doesn't have request/response properties, but they're useful for debugging
+  expect(ws.request.headers.get('Origin')).toBe('https://my-origin.com');
+  expect(ws.request.headers.get('X-Custom-Header')).toBe('test-value');
   expect(ws.response.headers.get('Access-Control-Allow-Origin')).toBe('https://my-origin.com');
   ws.close();
   
