@@ -112,8 +112,6 @@ All vitest.config.js files should:
 - Coverage configuration:
   - `provider: "istanbul"`
   - `reporter: ['text', 'json', 'html']`
-  - `include: ['**/src/**', '**/test/test-worker-and-dos.ts']` - Source and test worker
-  - `exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.config.*', '**/scratch/**', '**/test/**/*.test.ts']`
   - `skipFull: false` and `all: false`
 
 #### Wrangler configuration standards

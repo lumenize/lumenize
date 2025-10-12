@@ -75,11 +75,6 @@ export class MyDO extends DurableObject{
     const url = new URL(request.url);    
     
     const operation = url.searchParams.get('op') || 'unknown';
-    const delayMs = parseInt(url.searchParams.get('delay') || '0', 10);
-    
-    if (delayMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-    }
     
     await this.#trackOperation('fetch', operation);
 

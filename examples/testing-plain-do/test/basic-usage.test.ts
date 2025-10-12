@@ -74,7 +74,24 @@ it('shows testing WebSocket functionality', async () => {
   // Verify the selected protocol matches what server chose
   expect(ws.protocol).toBe('correct.subprotocol');
 
-  // TODO: Simulate normal WebSocket operations by inspecting storage for tracked operations See: #trackOperation() in index.ts
+  // Send 'increment' message and verify response
+  let incrementResponse: string | null = null;
+  ws.onmessage = (event: any) => {
+    incrementResponse = event.data;
+  };
+  ws.send('increment');
+  await vi.waitFor(() => expect(incrementResponse).toBe('1'));
+  
+  // Trigger server-initiated close and verify close event
+  let closeEventFired = false;
+  let closeCode: number | null = null;
+  ws.onclose = (event: any) => {
+    closeEventFired = true;
+    closeCode = event.code;
+  };
+  ws.send('test-server-close');
+  await vi.waitFor(() => expect(closeEventFired).toBe(true));
+  expect(closeCode).toBe(4001);
 
   // Access getWebSockets using tag that matches DO instance name
   const webSocketsOnServer = await client.ctx.getWebSockets('test-ws');

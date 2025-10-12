@@ -532,6 +532,13 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
       }
     }
 
+    webSocketOpen(ws: WebSocket): void | Promise<void> {
+      // Call parent's webSocketOpen if it exists
+      if (super.webSocketOpen) {
+        return super.webSocketOpen(ws);
+      }
+    }
+
     webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void | Promise<void> {
       // Call parent's webSocketClose if it exists
       if (super.webSocketClose) {
