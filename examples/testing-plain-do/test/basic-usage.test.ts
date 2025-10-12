@@ -62,10 +62,6 @@ it('shows pre-populating DO state, interacting with it, then checking state afte
 //   - Interact with server-side WebSockets (getWebSockets("tag"), etc.)
 //   - Assert on WebSocket attachments
 it('shows testing WebSocket functionality', async () => {
-  // Use WebSocket directly - no need to call getWebSocketShim!
-  // Note: Cast to `any` needed because Cloudflare's WebSocket type doesn't include event handlers
-  // but our shim implements the full browser WebSocket API
-
   // Create RPC client to inspect server-side WebSocket state
   await using client = createTestingClient<MyDOType>('MY_DO', 'test-ws');
   
@@ -287,7 +283,6 @@ it('shows DO inspection and function discovery using __asObject()', async () => 
     }
   });
 });
-
 
 // createTestingClient has these quirks:
 //   - Even non-async function calls require `await`
