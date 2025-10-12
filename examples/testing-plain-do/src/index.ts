@@ -127,10 +127,6 @@ export class MyDO extends DurableObject{
     return new Response('Not found', { status: 404 });
   }
 
-  webSocketOpen(ws: WebSocket) {
-    this.ctx.storage.kv.put("lastWebSocketOpen", Date.now());
-  }
-
   webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     this.#trackOperation('message', message.toString());
 
