@@ -11,6 +11,8 @@
  *   - Call instance methods directly from your test
  *   - Greatly enhances your ability to test DOs via WebSockets
  *   - Simulate browser behavior with cookie management and realistic CORS simulation
+ *   - Honors input/output gates (runInDurableObject does not) to test for race conditions
+ *   - Does all of the above with a fraction of the boilerplate
  * 
  * @lumenize/testing provides:
  *   - createTestingClient: Alter and inspect DO state (ctx..., custom methods/properties, etc.)
@@ -31,13 +33,8 @@ import { MyDO } from '../src';
 
 type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
 
-// createTestingClient allows you to:
-//   - Pre-populate storage via direct instance access before operations
-//   - Use fetch operations to manipulate storage
-//   - Call public methods directly via RPC
-//   - Verify results via instance storage assertions
 it('shows pre-populating DO state, interacting with it, then checking state after', async () => {
-  // Create RPC client with binding name and instance name
+  // Create RPC testing client with binding name and instance name or id
   await using client = createTestingClient<MyDOType>('MY_DO', 'put-do-get');
 
   // Pre-populate storage via RPC asycn KV API
