@@ -48,8 +48,8 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 // Durable Object
-export class MyDO extends DurableObject{
-  constructor(readonly ctx: DurableObjectState, env: Env) {
+export class MyDO extends DurableObject<Env>{
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
     this.ctx.setWebSocketAutoResponse(

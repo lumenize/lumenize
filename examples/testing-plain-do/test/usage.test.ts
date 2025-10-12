@@ -22,8 +22,6 @@
  *   - Assert on any state change in instance variables or storage
  *   - Test Origin validation for both HTTP and WebSocket requests
  *   - Simulate browser behavior with automatic cookie management
- *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
- *   - TODO: Tests to cover webSocketOpen(), webSocketMessage(), and webSocketClose()
  *   - No need to worry about internals of cloudflare:test
  */
 
