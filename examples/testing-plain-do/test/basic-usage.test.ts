@@ -110,8 +110,6 @@ it('shows testing WebSocket functionality', async () => {
 
 // createTestingClient allows you to:
 //   - Support all structured clone types except functions (like Cloudflare native RPC)
-it.todo('shows RPC working with StructuredClone types');
-
 it('shows RPC working with StructuredClone types', async () => {
   await using client = createTestingClient<MyDOType>('MY_DO', 'structured-clone');
 
