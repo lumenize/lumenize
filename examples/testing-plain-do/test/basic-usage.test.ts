@@ -23,7 +23,7 @@
  *   - Test Origin validation for both HTTP and WebSocket requests
  *   - Simulate browser behavior with automatic cookie management
  *   - TODO: Inspect the messages that were sent in and out (TODO: implement when we have AgentClient example)
- *   - TODO: Either remove the following in index.ts or test it, super.fetch(), webSocketOpen(), webSocketMessage(), and webSocketClose()
+ *   - TODO: Tests to cover webSocketOpen(), webSocketMessage(), and webSocketClose()
  *   - No need to worry about internals of cloudflare:test
  */
 
@@ -219,7 +219,7 @@ it('shows testing Origin validation using browser.page()', async () => {
   let wsOpened = false;
   ws.onopen = () => { wsOpened = true; };
   await vi.waitFor(() => expect(wsOpened).toBe(true));
-  // Note: browser standard WebSocket doesn't have a response property, but ours does for testing
+  // Note: browser standard WebSocket doesn't have a response property, but it's useful for debugging
   expect(ws.response.headers.get('Access-Control-Allow-Origin')).toBe('https://my-origin.com');
   ws.close();
   
