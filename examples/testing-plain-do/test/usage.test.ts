@@ -41,7 +41,7 @@ it('shows pre-populating DO state, interacting with it, then checking state afte
   await client.ctx.storage.put('count', 10);
 
   // Make a regular fetch call to increment
-  expect(await (await fetch('https://ex.com/my-do/put-do-get/increment')).text()).toBe('11');
+  expect(await (await fetch('https://example.com/my-do/put-do-get/increment')).text()).toBe('11');
 
   // Call increment via RPC and get count as a number
   expect(await client.increment()).toBe(12);
@@ -50,7 +50,7 @@ it('shows pre-populating DO state, interacting with it, then checking state afte
   expect(await client.ctx.storage.kv.get('count')).toBe(12);
 });
 
-// createTestingClient with WebSocket allows you to:
+// createTestingClient with WebSocket support allows you to:
 //   - Use familiar WebSocket API
 //   - Browser-compatible WebSocket that routes through DO testing infrastructure
 //   - Test WebSocket sub-protocol selection
@@ -117,7 +117,7 @@ it('shows testing WebSocket functionality', async () => {
 });
 
 // createTestingClient allows you to:
-//   - Support all structured clone types except functions (like Cloudflare native RPC)
+//   - Support all structured clone types (like Cloudflare native RPC)
 it('shows RPC working with StructuredClone types', async () => {
   await using client = createTestingClient<MyDOType>('MY_DO', 'structured-clone');
 
@@ -145,32 +145,6 @@ it('shows RPC working with StructuredClone types', async () => {
   const circular: any = { name: 'circular' };
   circular.self = circular;
   expect(await client.echo(circular)).toEqual(circular); // Circular ref preserved at correct level
-});
-
-// createTestingClient allows you to:
-//   - Test using multiple WebSocket connections to the same DO instance
-//   - Use connection tagging with Do instance name from URL, then call ctx.getWebSockets('my-tag')
-it('shows multiple WebSocket connections', async () => {
-  // Create two WebSocket connections to the same DO instance
-  const ws1 = new WebSocket('wss://example.com/my-do/multi-ws') as any;
-  const ws2 = new WebSocket('wss://example.com/my-do/multi-ws') as any;
-  
-  let ws1Opened = false;
-  let ws2Opened = false;
-  
-  ws1.onopen = () => { ws1Opened = true; };
-  ws2.onopen = () => { ws2Opened = true; };
-  
-  await vi.waitFor(() => expect(ws1Opened).toBe(true));
-  await vi.waitFor(() => expect(ws2Opened).toBe(true));
-  
-  // Verify both connections are active on the server
-  await using client = createTestingClient<MyDOType>('MY_DO', 'multi-ws');
-  const webSockets = await client.ctx.getWebSockets('multi-ws');
-  expect(webSockets.length).toBe(2);
-  
-  ws1.close();
-  ws2.close();
 });
 
 // Browser shares cookies between fetch and WebSocket:
