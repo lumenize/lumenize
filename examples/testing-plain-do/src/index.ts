@@ -1,7 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { routeDORequest } from '@lumenize/utils';
 
-// Worker handlers follow the hono convention: return Response to handle, undefined to fall through
 const handleLogin = (request: Request): Response | undefined => {
   const url = new URL(request.url);
   if (!url.pathname.endsWith('/login')) return undefined;
@@ -37,6 +36,7 @@ export default {
       cors: { origin: ['https://my-origin.com', 'https://app.example.com'] },
     });
     
+    // Worker handlers follow the hono convention: return Response to handle, undefined to fall through
     return (
       handleLogin(request) ||
       handleProtectedCookieEcho(request) ||
@@ -53,20 +53,20 @@ export class MyDO extends DurableObject{
     super(ctx, env);
 
     this.ctx.setWebSocketAutoResponse(
-      new WebSocketRequestResponsePair("ping", "pong"),
+      new WebSocketRequestResponsePair("auto-response-ping", "auto-response-pong"),
     );
   }
 
-  async increment(): Promise<number> {
-    let count = (await this.ctx.storage.get<number>("count")) ?? 0;
+  increment(): number {
+    let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
     void this.ctx.storage.put("count", ++count);
     return count;
   }
 
-  async #trackOperation(operationType: string, operationDetails: string) {
-    const operations = (await this.ctx.storage.get<string[]>("operationsFromQueue")) ?? [];
+  #trackOperation(operationType: string, operationDetails: string) {
+    const operations = this.ctx.storage.kv.get<string[]>("operationsFromQueue") ?? [];
     operations.push(`${operationType}-${operationDetails}`);
-    await this.ctx.storage.put("operationsFromQueue", operations);
+    this.ctx.storage.kv.put("operationsFromQueue", operations);
   }
 
   async fetch(request: Request) {
@@ -127,24 +127,18 @@ export class MyDO extends DurableObject{
       });
     }
 
-    // Delegate to super.fetch() for unknown paths (e.g., testing endpoints)
-    if (super.fetch) {
-      return super.fetch(request);
-    }
     return new Response('Not found', { status: 404 });
   }
 
   webSocketOpen(ws: WebSocket) {
-    this.ctx.storage.kv.put("lastWebSocketOpen", Date.now());  // trying new sync KV API
+    this.ctx.storage.kv.put("lastWebSocketOpen", Date.now());
   }
 
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    if (typeof message === 'string' && message.startsWith('track-')) {
-      await this.#trackOperation('message', message);
-    }
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    this.#trackOperation('message', message.toString());
 
     if (message === 'increment') {
-      return ws.send((await this.increment()).toString());
+      return ws.send(this.increment().toString());
     }
 
     if (message === 'test-server-close') {   
@@ -152,8 +146,8 @@ export class MyDO extends DurableObject{
     }
   }
 
-  async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
-    await this.ctx.storage.put("lastWebSocketClose", { code, reason, wasClean });
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+    this.ctx.storage.kv.put("lastWebSocketClose", { code, reason, wasClean });
     ws.close(code, reason);
   }
 };

@@ -160,7 +160,6 @@ export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryIni
 
         const req = new Request(httpUrl, { method: "GET", headers });
         const resp = await fetchFn(req);
-        console.log('%o', resp);
 
         // Store the response for testing (non-standard property)
         this.response = resp;

@@ -123,7 +123,6 @@ export function instrumentDOProject(
     if (detectedClasses.length === 1) {
       // Single class found - use it automatically
       doClassNames = detectedClasses;
-      console.log(`@lumenize/testing: Auto-detected DO class: ${detectedClasses[0]}`);
     } else {
       // Multiple classes found - need explicit configuration
       throw new Error(
