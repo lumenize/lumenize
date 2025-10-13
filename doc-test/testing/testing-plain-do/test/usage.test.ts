@@ -1,5 +1,5 @@
 /*
-# Usage Examples for @lumenize/testing
+# Usage
 
 `@lumenize/testing` is a superset of functionality of cloudflare:test with a 
 more *de*light*ful* DX. While cloudflare:test's runInDurableObject only allows 
@@ -83,7 +83,7 @@ npm install --save-dev @lumenize/testing
 ## src/index.ts
 
 Let's say you have this Worker and Durable Object:
-@import "../src/index.ts
+@import "../src/index.ts"
 
 ## test/test-harness.ts
 
