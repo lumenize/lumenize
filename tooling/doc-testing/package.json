@@ -2,19 +2,17 @@
   "name": "@lumenize/doc-testing",
   "version": "0.0.1",
   "private": true,
-  "description": "Internal tooling for extracting and testing code from documentation",
+  "description": "Docusaurus plugin for generating docs from test files",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "bin": {
-    "doc-testing": "./dist/index.js"
-  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "require": "./dist/index.js",
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./remark-plugin": "./dist/remark-plugin.js"
+    "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsc",

@@ -1,50 +1,69 @@
 /**
- * Types for documentation testing extractor
+ * Types for doc-test plugin that extracts Markdown from test files
  */
 
+/**
+ * Configuration for the Docusaurus plugin
+ */
+export interface DocTestPluginOptions {
+  /**
+   * Enable verbose logging
+   * @default false
+   */
+  verbose?: boolean;
+
+  /**
+   * Inject testable documentation notice
+   * @default true
+   */
+  injectNotice?: boolean;
+}
+
+/**
+ * Represents a block comment containing Markdown
+ */
+export interface MarkdownBlock {
+  content: string;
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * Represents a TypeScript code block between Markdown comments
+ */
 export interface CodeBlock {
+  content: string;
+  startLine: number;
+  endLine: number;
+}
+
+/**
+ * Parsed @import directive
+ */
+export interface ImportDirective {
   language: string;
-  metadata: string;
-  code: string;
+  filePath: string;
+  displayName?: string;
   line: number;
 }
 
-export interface FileContent {
+/**
+ * Parsed test file structure
+ */
+export interface ParsedTestFile {
+  markdownBlocks: MarkdownBlock[];
+  codeBlocks: CodeBlock[];
+  imports: ImportDirective[];
+  title?: string;
+}
+
+/**
+ * Generated virtual MDX content
+ */
+export interface VirtualDoc {
   content: string;
-  append: boolean;
-}
-
-export interface ExtractionContext {
-  // Source document
-  sourceFile: string;
-  sourcePath: string;
-  
-  // Output workspace
-  workspaceDir: string;
-  
-  // Accumulated files
-  files: Map<string, FileContent>;
-  
-  // Dependencies detected from imports
-  dependencies: Set<string>;
-  
-  // Errors encountered
-  errors: string[];
-}
-
-export interface CodeBlockHandler {
-  name: string;
-  matches: (language: string, metadata: string) => boolean;
-  extract: (code: string, metadata: string, line: number, context: ExtractionContext) => void;
-}
-
-export interface ExtractionResult {
-  workspaceDir: string;
-  sourceFile: string;
-  filesWritten: string[];
-  dependencies: string[];
-  errors: string[];
-  success: boolean;
+  title: string;
+  testFile: string;
 }
 
 export interface ExtractorOptions {

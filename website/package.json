@@ -17,9 +17,7 @@
     "generate-ico": "tsx scripts/svg-to-png.ts",
     "svg-to-png": "tsx scripts/svg-to-png.ts",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:dev": "npm run build && npm run test --",
-    "extract:all": "node ../tooling/doc-testing/dist/index.js --docs-dir docs --output-dir test/extracted"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@docusaurus/core": "^3.9.1",

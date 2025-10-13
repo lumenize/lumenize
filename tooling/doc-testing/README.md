@@ -1,32 +1,104 @@
 # @lumenize/doc-testing
 
-Internal tooling for extracting code blocks from documentation and running them as tests.
+Docusaurus plugin for generating documentation from test files. This flips the traditional doc-testing approach: instead of extracting code from documentation, it extracts Markdown from working test files.
 
-## Overview
+## Philosophy
 
-This tool extracts code blocks from `.mdx` documentation files and creates executable test workspaces. It ensures that documentation examples are always accurate and working.
+- **Tests as source of truth**: Your actual working tests are the documentation source
+- **Always in sync**: When tests break, documentation becomes invalid
+- **Fast iteration**: Edit tests directly with full IDE support and type checking
+- **No extraction brittleness**: Documentation is generated during build, not extracted into test workspaces
 
-## Architecture
+## How It Works
 
-See `../../docs/research/doc-testing-tooling-architecture.md` for detailed architecture.
+1. Write test files with Markdown in `/* */` block comments
+2. Use `@import` directives to include external files (config, source files, etc.)
+3. Reference test files in `sidebars.ts` with special comments
+4. Plugin generates virtual `.mdx` files during Docusaurus build
+5. Generated docs include the "📘 Doc-testing" notice automatically
 
 ## Usage
 
-### Extract code from documentation
+### 1. Write Tests with Embedded Markdown
 
-```bash
-npm run build
-node dist/index.js extract --docs-dir ../../website/docs --output-dir ../../website/test/generated
+```typescript
+/*
+# Usage Guide
+
+This is the intro to your documentation.
+*/
+
+import { it, expect } from 'vitest';
+
+it('shows basic usage', () => {
+  expect(1 + 1).toBe(2);
+});
+
+/*
+## Advanced Usage
+
+More documentation here...
+*/
+
+it('shows advanced usage', () => {
+  // More test code
+});
 ```
 
-### Code Block Metadata Conventions
+### 2. Use @import Directives
 
-- **Test code**: ` ```typescript test` → `test/extracted.test.ts`
-- **Named test**: ` ```typescript test:counter.test.ts` → `test/counter.test.ts`
-- **Source files**: ` ```typescript src/index.ts` → `src/index.ts`
-- **Wrangler config**: ` ```jsonc wrangler` → `wrangler.jsonc`
-- **Package.json**: ` ```json package` → `package.json` (optional, auto-generated otherwise)
-- **Skip testing**: ` ```typescript test:skip` → shown in docs but not tested
+```typescript
+/*
+## Configuration
+
+Here's the configuration file:
+
+@import {typescript} "../src/config.ts" [src/config.ts]
+
+The syntax is:
+- `{language}` - Code fence language
+- `"path"` - File path relative to the test file
+- `[displayName]` - Optional display name shown in code fence
+*/
+```
+
+### 3. Reference in Sidebars
+
+In your `sidebars.ts`, use `customProps.docTest` to specify the test file. 
+Use `.generated` suffix in the doc ID:
+
+```typescript
+{
+  type: 'category',
+  label: 'Testing',
+  items: [
+    {
+      type: 'doc',
+      id: 'testing/usage.generated',  // Note: .generated suffix
+      label: 'Usage',                  // Optional: custom label
+      customProps: {
+        docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
+      }
+    },
+  ],
+}
+```
+
+The `.generated` suffix causes the plugin to create `usage.generated.mdx` which is gitignored via `**/*.generated.mdx` pattern.
+```
+
+### 4. Configure Plugin
+
+In `docusaurus.config.ts`:
+
+```typescript
+import { docTestPlugin } from '@lumenize/doc-testing';
+
+const config = {
+  plugins: [
+    [docTestPlugin, { verbose: true, injectNotice: true }],
+  ],
+};
 
 ## Development
 

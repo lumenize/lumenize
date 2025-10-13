@@ -1,9 +1,12 @@
 /*
 # Usage
+*/
 
+/*
 `@lumenize/testing` is a superset of functionality of cloudflare:test with a 
-more *de*light*ful* DX. While cloudflare:test's runInDurableObject only allows 
-you to work with ctx/state, @lumenize/testing also allows you to do that plus:
+more *de*light*ful* DX. While `cloudflare:test`'s `runInDurableObject` only 
+allows you to work with ctx/state, @lumenize/testing also allows you to do that 
+plus:
   - Inspect or manipulate instance variables (custom, this.env, etc.)
   - Call instance methods directly from your test
   - Greatly enhances your ability to test DOs via WebSockets
@@ -16,8 +19,6 @@ you to work with ctx/state, @lumenize/testing also allows you to do that plus:
 `@lumenize/testing` provides:
   - createTestingClient: Alter and inspect DO state (ctx..., custom 
     methods/properties, etc.)
-  - fetch: Simple fetch for making requests to your worker
-  - WebSocket: Browser-compatible WebSocket for DO connections
   - Browser: Simulates browser behavior for testing
     - browser.fetch --> cookie-aware fetch (no Origin header)
     - browser.WebSocket --> cookie-aware WebSocket constructor (no Origin
@@ -83,24 +84,28 @@ npm install --save-dev @lumenize/testing
 ## src/index.ts
 
 Let's say you have this Worker and Durable Object:
-@import "../src/index.ts"
+
+@import {typescript} "../src/index.ts" [src/index.ts]
 
 ## test/test-harness.ts
 
 Create a test folder and drop this simple test harness into it:
-@import "./test-harness.ts"
+
+@import {typescript} "./test-harness.ts" [test/test-harness.ts]
 
 ## test/wrangler.jsonc
 
 Take your existing wrangler.jsonc and make a copy of it in the test folder.
 Then change the `main` setting to the `./test-harness.ts`. So:
-@import "./wrangler.jsonc"
+
+@import {json} "./wrangler.jsonc" [test/wrangler.jsonc]
 
 ## vitest.config.js
 
 Then add to your vite config, if applicable, or create a vitest config that 
 looks something like this:
-@import "../vitest.config.js"
+
+@import {javascript} "../vitest.config.js" [vitest.config.js]
 
 ## Your tests
 

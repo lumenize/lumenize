@@ -85,7 +85,14 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Testing',
       items: [
-        'testing/usage',
+        {
+          type: 'doc',
+          id: 'testing/usage.generated',
+          label: 'Usage',
+          customProps: {
+            docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
+          }
+        },
         ...(typedocTestingSidebar && typedocTestingSidebar.length > 0
           ? [wrapInApiReference(typedocTestingSidebar, 'API Reference')]
           : []),

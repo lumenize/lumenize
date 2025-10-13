@@ -13,6 +13,9 @@
 /docs/utils/api
 /docs/**/api
 
+# Doc-test generated documentation
+**/*.generated.mdx
+
 # Extracted testable code from documentation
 /test/extracted
 

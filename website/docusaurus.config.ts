@@ -1,7 +1,7 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
-import remarkTestableDocs from '@lumenize/doc-testing/remark-plugin';
+import { docTestPlugin } from '@lumenize/doc-testing';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -90,6 +90,14 @@ const config: Config = {
           hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
       ],
+      // Doc-test plugin - generates docs from test files
+      [
+        docTestPlugin,
+        {
+          verbose: true,
+          injectNotice: true,
+        },
+      ],
   ],
 
   presets: [
@@ -101,10 +109,6 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl: 'https://github.com/lumenize/lumenize/tree/main/website/',
-          // Add remark plugin for extracting testable code
-          remarkPlugins: [
-            [remarkTestableDocs, {outputDir: 'test/extracted', verbose: true, skip: false, injectNotice: true}],
-          ],
         },
         blog: {
           showReadingTime: true,
