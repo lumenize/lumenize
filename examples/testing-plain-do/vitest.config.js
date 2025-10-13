@@ -5,12 +5,16 @@ export default defineWorkersProject({
     testTimeout: 2000, // 2 second global timeout
     poolOptions: {
       workers: {
-        isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
-        wrangler: { configPath: "./test/wrangler.jsonc" },  // Important! use the wrangler.jsonc in ./test
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./test/wrangler.jsonc" },  
       },
     },
+    // Use `vitest --run --coverage` to get test coverage report(s)
     coverage: {
-      provider: "istanbul",
+      provider: "istanbul",  // Cannot use V8
       reporter: ['text', 'json', 'html'],
       include: ['**/src/**'],
       exclude: [

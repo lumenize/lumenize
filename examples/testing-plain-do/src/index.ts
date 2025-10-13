@@ -27,16 +27,18 @@ const handleProtectedCookieEcho = (request: Request): Response | undefined => {
 // Worker
 export default {
   async fetch(request, env, ctx) {
-    // CORS-protected route with prefix /cors-secure/
+    // CORS-protected route with prefix /cors/
     // Array form shown; also supports cors: true for permissive mode
     // See https://lumenize.com/docs/utils/route-do-request for routing details
     // See https://lumenize.com/docs/utils/cors-support for CORS configuration
     const routeCORSRequest = (req: Request, e: Env) => routeDORequest(req, e, {
-      prefix: '/cors-secure/',
-      cors: { origin: ['https://my-origin.com', 'https://app.example.com'] },
+      prefix: '/cors/',
+      cors: { origin: ['https://safe.com', 'https://app.example.com'] },
     });
     
-    // Worker handlers follow the hono convention: return Response to handle, undefined to fall through
+    // Worker handlers follow the hono convention:
+    //   - return Response if the handler wants to handle the route
+    //   - return undefined to fall through
     return (
       handleLogin(request) ||
       handleProtectedCookieEcho(request) ||
@@ -53,7 +55,7 @@ export class MyDO extends DurableObject<Env>{
     super(ctx, env);
 
     this.ctx.setWebSocketAutoResponse(
-      new WebSocketRequestResponsePair("auto-response-ping", "auto-response-pong"),
+      new WebSocketRequestResponsePair('ar-ping', 'ar-pong'),
     );
   }
 
@@ -87,8 +89,8 @@ export class MyDO extends DurableObject<Env>{
       let selectedProtocol: string | undefined;
       if (requestedProtocols) {
         const protocols = requestedProtocols.split(',').map(p => p.trim());
-        if (protocols.includes('correct.subprotocol')) {
-          selectedProtocol = 'correct.subprotocol';
+        if (protocols.includes('b')) {
+          selectedProtocol = 'b';
           responseHeaders.set('Sec-WebSocket-Protocol', selectedProtocol);
         }
       }

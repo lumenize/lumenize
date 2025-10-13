@@ -166,14 +166,27 @@ export class MyDO extends DurableObject<Env>{
 };
 ```
 
+### Test Harness
+
+```ts test/test-harness.ts
+import * as sourceModule from '../src';
+import { instrumentDOProject } from '@lumenize/testing';
+
+// Simple case: Auto-detects MyDO since it's the only class export from '../src'
+const instrumented = instrumentDOProject(sourceModule);
+
+export const { MyDO } = instrumented.dos;
+export default instrumented;
+```
+
 ### Wrangler Configuration
 
 Configure your Durable Object bindings in `wrangler.jsonc`:
 
-```jsonc wrangler.jsonc
+```jsonc test/wrangler.jsonc
 {
-	"name": "testing-agent-with-agent-client",
-	"main": "src/index.ts",
+	"name": "testing-plain-do",
+	"main": "./test-harness.ts",
 	"compatibility_date": "2025-09-12",
 	"compatibility_flags": [
 	  "nodejs_compat"

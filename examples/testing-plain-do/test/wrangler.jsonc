@@ -1,5 +1,5 @@
 {
-	"name": "testing-agent-with-agent-client",
+	"name": "testing-plain-do",
 	"main": "./test-harness.ts",  // This is the only change from your real wrangler.jsonc
 	"compatibility_date": "2025-09-12",
 	"compatibility_flags": [
