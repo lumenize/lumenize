@@ -340,8 +340,8 @@ types like application/json, or non-simple methods like PUT/DELETE/PATCH).
 the same conditions that real browsers do! This section demonstrates that 
 behavior using requests with a custom header.
 
-The context object includes a non-standard `lastPreflight` property that lets 
-you inspect the preflight that was sent for testing or debugging.
+The context object includes a non-standard `lastPreflight` property which is 
+useful for testing or debugging. It lets you inspect the most recent preflight.
 */
 it('shows testing CORS preflight OPTIONS requests', async () => {
   const browser = new Browser();
