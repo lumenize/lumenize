@@ -61,7 +61,7 @@ export class MyDO extends DurableObject<Env>{
 
   increment(): number {
     let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
-    void this.ctx.storage.put("count", ++count);
+    this.ctx.storage.kv.put("count", ++count);
     return count;
   }
 
@@ -70,10 +70,8 @@ export class MyDO extends DurableObject<Env>{
   async fetch(request: Request) {
     const url = new URL(request.url);    
     
-    const operation = url.searchParams.get('op') || 'unknown';
-    
     if (url.pathname.endsWith('/increment')) {
-      const count = await this.increment();
+      const count = this.increment();
       return new Response(count.toString(), { 
         headers: { 'Content-Type': 'text/plain' } 
       });

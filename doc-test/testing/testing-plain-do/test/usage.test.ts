@@ -5,25 +5,26 @@
 /*
 `@lumenize/testing` is a superset of functionality of cloudflare:test with a 
 more *de*light*ful* DX. While `cloudflare:test`'s `runInDurableObject` only 
-allows you to work with ctx/state, @lumenize/testing also allows you to do that 
-plus:
-  - Inspect or manipulate instance variables (custom, this.env, etc.)
+allows you to work with `ctx`/`state`, `@lumenize/testing` also allows you to 
+do that plus:
+  - Inspect or manipulate instance variables (custom, this.env, etc.), not just 
+    ctx
   - Call instance methods directly from your test
   - Greatly enhances your ability to test DOs via WebSockets
   - Simulate browser behavior with cookie management and realistic CORS
     simulation
-  - Honors input/output gates (runInDurableObject does not) to test for race
+  - Honors input/output gates (`runInDurableObject` does not) to test for race
     conditions
   - Does all of the above with a fraction of the boilerplate
 
 `@lumenize/testing` provides:
-  - createTestingClient: Alter and inspect DO state (ctx..., custom 
-    methods/properties, etc.)
-  - Browser: Simulates browser behavior for testing
-    - browser.fetch --> cookie-aware fetch (no Origin header)
-    - browser.WebSocket --> cookie-aware WebSocket constructor (no Origin
+  - `createTestingClient`: An RPC client that allows you to alter and inspect 
+    DO state (`ctx`..., custom methods/properties, etc.)
+  - `Browser`: Simulates browser behavior for testing
+    - `browser.fetch` --> cookie-aware fetch (no Origin header)
+    - `browser.WebSocket` --> cookie-aware WebSocket constructor (no Origin
       header)
-    - browser.page(origin) --> returns { fetch, WebSocket } with Origin header
+    - `browser.page(origin)` --> returns `{ fetch, WebSocket }`
       - Both automatically include cookies from the Browser instance
       - Simulates requests from a page loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
@@ -35,8 +36,8 @@ plus:
 Now, let's show basic usage following the basic pattern for all tests:
 1. **Setup test**. initialize testing client, test variables, etc.
 2. **Setup state**. storage, instance variables, etc.
-3. **Interact as a user/caller would**. call fetch, custom methods, etc.
-4. **Assert on output to user/caller**. check responses
+3. **Interact as a user/caller would**. call `fetch`, custom methods, etc.
+4. **Assert on output**. check responses
 5. **Assert state**. check that storage and instance variables are as expected
 */
 import { it, expect, vi } from 'vitest';
@@ -54,7 +55,7 @@ it('shows basic 5-step test', async () => {
   // 2. Pre-populate storage via RPC to call asycn KV API
   await client.ctx.storage.put('count', 10);
 
-  // 3. Make a regular fetch call to increment
+  // 3. Make a fetch and RPC call to increment
   const resp = await browser.fetch('https://test.com/my-do/5-step/increment');
   const rpcResult = await client.increment();
 
@@ -102,7 +103,7 @@ Then change the `main` setting to the `./test-harness.ts`. So:
 
 ## vitest.config.js
 
-Then add to your vite config, if applicable, or create a vitest config that 
+Then add to your `vite` config, if applicable, or create a `vitest` config that 
 looks something like this:
 
 @import {javascript} "../vitest.config.js" [vitest.config.js]
@@ -126,6 +127,8 @@ WebSocket implementation. With `@lumenize/testing`:
   - Test WebSocket sub-protocol selection
   - Interact with server-side WebSockets (getWebSockets("tag"), etc.)
   - Assert on WebSocket attachments
+  - Test your `WebSocketRequestResponsePair` (impossible with 
+    `runInDurableObject`)
 */
 it('shows testing WebSocket functionality', async () => {
   // Create RPC client to inspect server-side WebSocket state
@@ -225,7 +228,9 @@ it('shows RPC working with StructuredClone types', async () => {
 /*
 ## Cookies
 
-`Browser` allows cookies to be shared between fetch and WebSocket
+`Browser` allows cookies to be shared between `fetch` and `WebSocket` just
+like in a real browser. Use `setCookie()` and `getCookie()` for testing
+and debugging.
 */
 it('shows cookie sharing between fetch and WebSocket', async () => {
   // Create client and browser instances
@@ -268,7 +273,9 @@ it('shows cookie sharing between fetch and WebSocket', async () => {
 ## Simulate browser context Origin behavior
 
 `Browser.page()` allows you to test the CORS/Origin validation logic in your 
-Worker or Durable Object
+Worker or Durable Object. This test also shows off the non-standard upgrade
+to WebSocket API that allows you to inspect the underling HTTP Request and
+Response objects which is useful for debugging and asserting.
 */
 it('shows testing Origin validation using browser.page()', async () => {
   const browser = new Browser();
@@ -282,7 +289,7 @@ it('shows testing Origin validation using browser.page()', async () => {
   ws.onopen = () => { wsOpened = true; };
   await vi.waitFor(() => expect(wsOpened).toBe(true));
   // Note: browser standard WebSocket doesn't have request/response properties, 
-  // but they're useful for debugging
+  // but they're useful for debugging and asserting.
   expect(ws.request.headers.get('Origin')).toBe('https://safe.com');
   const acaoHeader = ws.response.headers.get('Access-Control-Allow-Origin');
   expect(acaoHeader).toBe('https://safe.com');
@@ -361,8 +368,8 @@ it('shows DO inspection and function discovery using __asObject()', async () => 
 
 `createTestingClient` has these quirks:
   - Even non-async function calls require `await`
-  - Property access is synchronous on __asObject(), but...
-  - Even static property access requires `await` outside of __asObject()
+  - Property access is synchronous on `__asObject()`, but...
+  - Even static property access requires `await` outside of `__asObject()`
 */
 it('requires await for even non-async function calls', async () => {
   await using client = createTestingClient<MyDOType>('MY_DO', 'quirks');
