@@ -25,7 +25,7 @@ do that plus:
     - `browser.WebSocket` --> cookie-aware WebSocket constructor (no Origin
       header)
     - `browser.context(origin)` --> returns `{ fetch, WebSocket }`
-      - Both automatically include cookies from the Browser instance
+      - `fetch` and `WebSocket` automatically include cookies
       - Simulates requests from a context loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
 */
