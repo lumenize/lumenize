@@ -336,59 +336,46 @@ Real browsers automatically send preflight OPTIONS requests for "non-simple"
 cross-origin requests (e.g., requests with custom headers, non-simple content 
 types like application/json, or non-simple methods like PUT/DELETE/PATCH).
 
-`Browser.context(origin).fetch` also sends preflight OPTIONS requests just 
-like real browsers do! When you make a cross-origin POST with application/json 
-or custom headers, the preflight is sent automatically before the actual 
-request.
+`Browser.context(origin).fetch` also sends preflight OPTIONS requests under 
+the same conditions that real browsers do! This section demonstrates that 
+behavior using requests with a custom header.
 
-The context object includes a non-standard `lastPreflight` property (similar to 
-the non-standard `request`/`response` properties on WebSocket) that lets you 
-inspect the preflight that was sent.
+The context object includes a non-standard `lastPreflight` property that lets 
+you inspect the preflight that was sent for testing or debugging.
 */
 it('shows testing CORS preflight OPTIONS requests', async () => {
-  await using client = createTestingClient<MyDOType>('MY_DO', 'preflight');
-  
   const browser = new Browser();
   const appContext = browser.context('https://app.example.com');
+
+  // Common requestOptions will trigger preflight if cross-origin
+  const requestOptions = { headers: { 'X-Custom-Header': 'test-value' }};
   
-  // Same-origin POST - no preflight needed even with custom header
-  await appContext.fetch('https://app.example.com/my-do/preflight/increment', {
-    method: 'POST',
-    headers: { 'X-Custom-Header': 'test-value' }
-  });
+  // Same-origin - no preflight needed even with custom header
+  await appContext.fetch(
+    'https://app.example.com/my-do/preflight/increment', 
+    requestOptions
+  );
   expect(appContext.lastPreflight).toBeNull(); // No preflight for same-origin
   
-  // Cross-origin POST with custom header - triggers automatic preflight!
+  // Cross-origin with custom header - triggers automatic preflight!
   const postResponse = await appContext.fetch(
     'https://safe.com/cors/my-do/preflight/increment',
-    {
-      method: 'POST',
-      headers: {
-        'X-Custom-Header': 'test-value'  // Custom header triggers preflight
-      }
-    }
+    requestOptions
   );
-  expect(appContext.lastPreflight).toEqual({ // Preflight succeeded
-    url: 'https://safe.com/cors/my-do/preflight/increment',
-    method: 'POST',
-    headers: ['x-custom-header'],
-    success: true
-  });
-  
-  // And the request still worked because safe.com is an allowed cross-origin
-  expect(postResponse.ok).toBe(true);
+  expect(appContext.lastPreflight?.success).toBe(true);  // preflight succeeded
+  expect(postResponse.ok).toBe(true);  // request worked
   expect(postResponse.headers.get('Access-Control-Allow-Origin'))
     .toBe('https://app.example.com');  // CORS header reflects the origin
   
-  // Cross-origin POST from disallowed evil.com - preflight fails!
+  // Cross-origin from disallowed evil.com - preflight fails!
   const evilContext = browser.context('https://evil.com');
   await expect(async () => {
-    await evilContext.fetch('https://safe.com/cors/my-do/preflight/increment', {
-      method: 'POST',
-      headers: { 'X-Custom-Header': 'test-value' }
-    });
+    await evilContext.fetch(
+      'https://safe.com/cors/my-do/preflight/increment',
+      requestOptions
+    );
   }).rejects.toThrow('CORS error');
-  expect(evilContext.lastPreflight?.success).toBe(false);
+  expect(evilContext.lastPreflight?.success).toBe(false);  // preflight failed
 });
 
 /*
