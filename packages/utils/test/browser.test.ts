@@ -726,5 +726,213 @@ describe('Browser', () => {
       const text = await response.text();
       expect(text).toContain('session=abc123');
     });
+
+    it('should track failed preflight with success: false', async () => {
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const req = new Request(input);
+        
+        if (req.method === 'OPTIONS') {
+          // Preflight response without CORS headers (will fail validation)
+          return new Response(null, { status: 204 });
+        }
+        
+        return new Response('ok');
+      };
+
+      const browser = new Browser(mockFetch);
+      const context = browser.context('https://app.com');
+
+      // Cross-origin POST with custom header triggers preflight
+      await expect(
+        context.fetch('https://api.example.com/data', {
+          method: 'POST',
+          headers: { 'X-Custom-Header': 'value' }
+        })
+      ).rejects.toThrow(TypeError);
+
+      // Should track the failed preflight
+      expect(context.lastPreflight).toEqual({
+        url: 'https://api.example.com/data',
+        method: 'POST',
+        headers: ['x-custom-header'],
+        success: false
+      });
+    });
+
+    it('should handle cookies without explicit domain', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        // Set-Cookie without Domain attribute
+        return new Response(null, {
+          headers: {
+            'Set-Cookie': 'sessionid=xyz789; Path=/'
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      await browser.fetch('https://example.com/login');
+
+      // Cookie should default to request hostname
+      expect(browser.getCookie('sessionid', 'example.com')).toBe('xyz789');
+    });
+
+    it('should require preflight for non-simple HTTP methods', async () => {
+      let preflightSent = false;
+
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        
+        if (req.method === 'OPTIONS') {
+          preflightSent = true;
+          return new Response(null, {
+            status: 204,
+            headers: {
+              'Access-Control-Allow-Origin': 'https://app.com',
+              'Access-Control-Allow-Methods': 'PUT, DELETE, PATCH'
+            }
+          });
+        }
+        
+        return new Response('ok', {
+          headers: { 'Access-Control-Allow-Origin': 'https://app.com' }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const context = browser.context('https://app.com');
+
+      // PUT should trigger preflight (non-simple method)
+      await context.fetch('https://api.example.com/resource', { method: 'PUT' });
+      expect(preflightSent).toBe(true);
+
+      preflightSent = false;
+      
+      // DELETE should trigger preflight
+      await context.fetch('https://api.example.com/resource', { method: 'DELETE' });
+      expect(preflightSent).toBe(true);
+
+      preflightSent = false;
+      
+      // PATCH should trigger preflight
+      await context.fetch('https://api.example.com/resource', { method: 'PATCH' });
+      expect(preflightSent).toBe(true);
+    });
+
+    it('should NOT require preflight for POST with simple content-type', async () => {
+      let preflightSent = false;
+
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        
+        if (req.method === 'OPTIONS') {
+          preflightSent = true;
+        }
+        
+        return new Response('ok', {
+          headers: { 'Access-Control-Allow-Origin': 'https://app.com' }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const context = browser.context('https://app.com');
+
+      // POST with application/x-www-form-urlencoded (simple) - no preflight
+      await context.fetch('https://api.example.com/form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'key=value'
+      });
+      expect(preflightSent).toBe(false);
+
+      // POST with text/plain (simple) - no preflight
+      await context.fetch('https://api.example.com/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'plain text'
+      });
+      expect(preflightSent).toBe(false);
+
+      // POST with multipart/form-data (simple) - no preflight
+      await context.fetch('https://api.example.com/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'multipart/form-data; boundary=----WebKitFormBoundary' },
+        body: 'form data'
+      });
+      expect(preflightSent).toBe(false);
+    });
+
+    it('should require preflight for POST with non-simple content-type', async () => {
+      let preflightSent = false;
+
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        
+        if (req.method === 'OPTIONS') {
+          preflightSent = true;
+          return new Response(null, {
+            status: 204,
+            headers: {
+              'Access-Control-Allow-Origin': 'https://app.com',
+              'Access-Control-Allow-Headers': 'Content-Type'
+            }
+          });
+        }
+        
+        return new Response('ok', {
+          headers: { 'Access-Control-Allow-Origin': 'https://app.com' }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const context = browser.context('https://app.com');
+
+      // POST with application/json (non-simple) - requires preflight
+      await context.fetch('https://api.example.com/api', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'value' })
+      });
+      expect(preflightSent).toBe(true);
+    });
+
+    it('should populate lastPreflight on successful preflight', async () => {
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        
+        if (req.method === 'OPTIONS') {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              'Access-Control-Allow-Origin': 'https://app.com',
+              'Access-Control-Allow-Headers': 'X-Custom, X-Another'
+            }
+          });
+        }
+        
+        return new Response('ok', {
+          headers: { 'Access-Control-Allow-Origin': 'https://app.com' }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const context = browser.context('https://app.com');
+
+      // POST with multiple custom headers
+      await context.fetch('https://api.example.com/data', {
+        method: 'POST',
+        headers: {
+          'X-Custom': 'value1',
+          'X-Another': 'value2'
+        }
+      });
+
+      expect(context.lastPreflight).toEqual({
+        url: 'https://api.example.com/data',
+        method: 'POST',
+        headers: expect.arrayContaining(['x-custom', 'x-another']),
+        success: true
+      });
+      expect(context.lastPreflight?.headers).toHaveLength(2);
+    });
   });
 });
