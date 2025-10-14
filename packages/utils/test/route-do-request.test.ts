@@ -813,9 +813,9 @@ describe('routeDORequest', () => {
           cors: { origin: ['https://example.com'] }
         });
         
-        // Non-standard: reject OPTIONS (preflight) for disallowed origins
-        expect(response?.status).toBe(403);
-        expect(await response?.text()).toBe('Forbidden: Origin not allowed');
+        // Per CORS spec: return 204 without CORS headers (browser will reject)
+        expect(response?.status).toBe(204);
+        expect(response?.headers.get('Access-Control-Allow-Origin')).toBeNull();
         
         // Verify DO was never called
         const mockDO = env.MY_DO.getByName('instance');

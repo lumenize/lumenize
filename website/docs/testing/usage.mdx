@@ -10,33 +10,34 @@ This documentation uses **testable code examples** to ensure accuracy and reliab
 - **Copy-paste confidence**: What you see is what works - no outdated or broken examples
 - **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
 
-Ignore the test format (`it()`, `describe()`, etc.) - focus on the code inside.
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
 
 </details>
 
 `@lumenize/testing` is a superset of functionality of cloudflare:test with a 
 more *de*light*ful* DX. While `cloudflare:test`'s `runInDurableObject` only 
-allows you to work with ctx/state, @lumenize/testing also allows you to do that 
-plus:
-  - Inspect or manipulate instance variables (custom, this.env, etc.)
+allows you to work with `ctx`/`state`, `@lumenize/testing` also allows you to 
+do that plus:
+  - Inspect or manipulate instance variables (custom, this.env, etc.), not just 
+    ctx
   - Call instance methods directly from your test
   - Greatly enhances your ability to test DOs via WebSockets
   - Simulate browser behavior with cookie management and realistic CORS
     simulation
-  - Honors input/output gates (runInDurableObject does not) to test for race
+  - Honors input/output gates (`runInDurableObject` does not) to test for race
     conditions
   - Does all of the above with a fraction of the boilerplate
 
 `@lumenize/testing` provides:
-  - createTestingClient: Alter and inspect DO state (ctx..., custom 
-    methods/properties, etc.)
-  - Browser: Simulates browser behavior for testing
-    - browser.fetch --> cookie-aware fetch (no Origin header)
-    - browser.WebSocket --> cookie-aware WebSocket constructor (no Origin
+  - `createTestingClient`: An RPC client that allows you to alter and inspect 
+    DO state (`ctx`..., custom methods/properties, etc.)
+  - `Browser`: Simulates browser behavior for testing
+    - `browser.fetch` --> cookie-aware fetch (no Origin header)
+    - `browser.WebSocket` --> cookie-aware WebSocket constructor (no Origin
       header)
-    - browser.page(origin) --> returns { fetch, WebSocket } with Origin header
-      - Both automatically include cookies from the Browser instance
-      - Simulates requests from a page loaded from the given origin
+    - `browser.context(origin)` --> returns `{ fetch, WebSocket }`
+      - `fetch` and `WebSocket` automatically include cookies
+      - Simulates requests from a context loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
 
 ## Basic Usage
@@ -44,8 +45,8 @@ plus:
 Now, let's show basic usage following the basic pattern for all tests:
 1. **Setup test**. initialize testing client, test variables, etc.
 2. **Setup state**. storage, instance variables, etc.
-3. **Interact as a user/caller would**. call fetch, custom methods, etc.
-4. **Assert on output to user/caller**. check responses
+3. **Interact as a user/caller would**. call `fetch`, custom methods, etc.
+4. **Assert on output**. check responses
 5. **Assert state**. check that storage and instance variables are as expected
 
 
@@ -67,7 +68,7 @@ it('shows basic 5-step test', async () => {
   // 2. Pre-populate storage via RPC to call asycn KV API
   await client.ctx.storage.put('count', 10);
 
-  // 3. Make a regular fetch call to increment
+  // 3. Make a fetch and RPC call to increment
   const resp = await browser.fetch('https://test.com/my-do/5-step/increment');
   const rpcResult = await client.increment();
 
@@ -165,7 +166,7 @@ export class MyDO extends DurableObject<Env>{
 
   increment(): number {
     let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
-    void this.ctx.storage.put("count", ++count);
+    this.ctx.storage.kv.put("count", ++count);
     return count;
   }
 
@@ -174,10 +175,8 @@ export class MyDO extends DurableObject<Env>{
   async fetch(request: Request) {
     const url = new URL(request.url);    
     
-    const operation = url.searchParams.get('op') || 'unknown';
-    
     if (url.pathname.endsWith('/increment')) {
-      const count = await this.increment();
+      const count = this.increment();
       return new Response(count.toString(), { 
         headers: { 'Content-Type': 'text/plain' } 
       });
@@ -307,7 +306,7 @@ Then change the `main` setting to the `./test-harness.ts`. So:
 
 ## vitest.config.js
 
-Then add to your vite config, if applicable, or create a vitest config that 
+Then add to your `vite` config, if applicable, or create a `vitest` config that 
 looks something like this:
 
 ```javascript vitest.config.js
@@ -360,6 +359,8 @@ WebSocket implementation. With `@lumenize/testing`:
   - Test WebSocket sub-protocol selection
   - Interact with server-side WebSockets (getWebSockets("tag"), etc.)
   - Assert on WebSocket attachments
+  - Test your `WebSocketRequestResponsePair` (impossible with 
+    `runInDurableObject`)
 
 
 
@@ -473,7 +474,9 @@ it('shows RPC working with StructuredClone types', async () => {
 
 ## Cookies
 
-`Browser` allows cookies to be shared between fetch and WebSocket
+`Browser` allows cookies to be shared between `fetch` and `WebSocket` just
+like in a real browser. Use `setCookie()` and `getCookie()` for testing
+and debugging.
 
 
 
@@ -522,33 +525,40 @@ it('shows cookie sharing between fetch and WebSocket', async () => {
 
 ## Simulate browser context Origin behavior
 
-`Browser.page()` allows you to test the CORS/Origin validation logic in your 
-Worker or Durable Object
+`Browser.context()` allows you to test CORS/Origin validation logic in your 
+Worker or Durable Object. The `context().fetch` method automatically validates 
+CORS headers for cross-origin requests and throws a `TypeError` (just like a 
+real browser) when the server doesn't return proper CORS headers or when the 
+origin doesn't match.
+
+This test also shows off the non-standard extension to the WebSocket API that 
+allows you to inspect the underlying HTTP Request and Response objects, which 
+is useful for debugging and asserting.
 
 
 
 
 ```typescript test
-it('shows testing Origin validation using browser.page()', async () => {
+it('shows testing Origin validation using browser.context()', async () => {
   const browser = new Browser();
   
-  // Create a page with Origin header
-  const page = browser.page('https://safe.com');
+  // Create a context with Origin header
+  const context = browser.context('https://safe.com');
   
   // WebSocket upgrade includes Origin header
-  const ws = new page.WebSocket('wss://safe.com/cors/my-do/ws-test') as any;
+  const ws = new context.WebSocket('wss://safe.com/cors/my-do/ws-test') as any;
   let wsOpened = false;
   ws.onopen = () => { wsOpened = true; };
   await vi.waitFor(() => expect(wsOpened).toBe(true));
   // Note: browser standard WebSocket doesn't have request/response properties, 
-  // but they're useful for debugging
+  // but they're useful for debugging and asserting.
   expect(ws.request.headers.get('Origin')).toBe('https://safe.com');
   const acaoHeader = ws.response.headers.get('Access-Control-Allow-Origin');
   expect(acaoHeader).toBe('https://safe.com');
   ws.close();
   
   // HTTP request also includes Origin header - allowed
-  let res = await page.fetch('https://safe.com/cors/my-do/test/increment');
+  let res = await context.fetch('https://safe.com/cors/my-do/test/increment');
   const acaoHeaderFromFetch = res.headers.get('Access-Control-Allow-Origin');
   expect(acaoHeaderFromFetch).toBe('https://safe.com');
   
@@ -559,16 +569,114 @@ it('shows testing Origin validation using browser.page()', async () => {
   await client.ctx.storage.put('count', 42);
 
   // Blocked origin - server rejects with 403 without CORS headers
-  // In a real browser, this would throw a network error (CORS failure)
-  // But in testing, we can still inspect the response    
-  const pg = browser.page('https://evil.com');
-  res = await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
-  expect(res.status).toBe(403);
-  expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  // Browser.context().fetch validates CORS headers and throws TypeError
+  // when CORS validation fails, just like a real browser would
+  const pg = browser.context('https://evil.com');
+  
+  // Expect TypeError due to CORS error
+  await expect(async () => {
+    await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
+  }).rejects.toThrow(TypeError);
+  await expect(async () => {
+    await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
+  }).rejects.toThrow('CORS error');
   
   // Verify DO was never called - count is still 42 (not 43)
   const count = await client.ctx.storage.get('count');
   expect(count).toBe(42);
+});
+```
+
+
+
+
+## Test CORS preflight OPTIONS requests
+
+Real browsers automatically send preflight OPTIONS requests for "non-simple" 
+cross-origin requests (e.g., requests with custom headers, non-simple content 
+types like application/json, or non-simple methods like PUT/DELETE/PATCH).
+
+`Browser.context().fetch` also sends preflight OPTIONS requests just 
+like real browsers do! When you make a cross-origin POST with application/json 
+or custom headers, the preflight is sent automatically before the actual 
+request.
+
+This test demonstrates both:
+1. Explicit OPTIONS testing (for server-side validation)
+2. Automatic preflight behavior (POST with custom headers triggers automatic 
+   OPTIONS)
+
+
+
+
+```typescript test
+it('shows testing CORS preflight OPTIONS requests', async () => {
+  const browser = new Browser();
+  const context = browser.context('https://safe.com');
+  
+  // Test 1: Explicit OPTIONS request (simulating preflight)
+  // This is what browsers send before non-simple requests
+  const preflightResponse = await context.fetch(
+    'https://safe.com/cors/my-do/preflight/increment', 
+    {
+      method: 'OPTIONS',
+      headers: {
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type,x-custom-header'
+      }
+    }
+  );
+  
+  expect(preflightResponse.status).toBe(204); // No Content
+  expect(preflightResponse.headers.get('Access-Control-Allow-Origin'))
+    .toBe('https://safe.com');
+  
+  // Test 2: POST with custom headers - automatic preflight is sent!
+  // Because this POST has Content-Type: application/json and a custom header,
+  // context().fetch will AUTOMATICALLY send a preflight OPTIONS request first,
+  // then send the actual POST. This matches real browser behavior.
+  await using client = createTestingClient<MyDOType>('MY_DO', 'preflight');
+  await client.ctx.storage.put('count', 0);
+  
+  const postResponse = await context.fetch(
+    'https://safe.com/cors/my-do/preflight/increment',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Custom-Header': 'test-value'
+      },
+      body: JSON.stringify({ increment: true })
+    }
+  );
+  
+  expect(postResponse.ok).toBe(true);
+  expect(postResponse.headers.get('Access-Control-Allow-Origin'))
+    .toBe('https://safe.com');
+  
+  // Test 3: OPTIONS from disallowed origin should fail with CORS error
+  // Per CORS spec, server responds to OPTIONS (204) but without CORS headers
+  // Browser's CORS validator sees missing headers and throws
+  const evilContext = browser.context('https://evil.com');
+  
+  // Preflight OPTIONS gets 204 but without CORS headers - triggers CORS error
+  await expect(async () => {
+    await evilContext.fetch('https://safe.com/cors/my-do/preflight/increment', {
+      method: 'OPTIONS',
+      headers: {
+        'Access-Control-Request-Method': 'POST'
+      }
+    });
+  }).rejects.toThrow('CORS error');
+  
+  // Test 4: The actual POST should also fail with CORS validation error
+  await expect(async () => {
+    await evilContext.fetch('https://safe.com/cors/my-do/preflight/increment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test: true })
+    });
+  }).rejects.toThrow('CORS error');
 });
 ```
 
@@ -630,8 +738,8 @@ it('shows DO inspection and function discovery using __asObject()', async () => 
 
 `createTestingClient` has these quirks:
   - Even non-async function calls require `await`
-  - Property access is synchronous on __asObject(), but...
-  - Even static property access requires `await` outside of __asObject()
+  - Property access is synchronous on `__asObject()`, but...
+  - Even static property access requires `await` outside of `__asObject()`
 
 
 

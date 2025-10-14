@@ -205,18 +205,22 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     // If origin not allowed, allowedOrigin stays null and request is forwarded to DO
   }
 
-  // Handle preflight (OPTIONS) requests - only when origin is allowed
-  if (request.method === 'OPTIONS' && allowedOrigin) {
-    return addCorsHeaders(
-      new Response(null, { status: 204 }),
-      allowedOrigin
-    );
+  // Handle preflight (OPTIONS) requests
+  // Per CORS spec, always respond to OPTIONS (even for disallowed origins)
+  // but only include CORS headers if origin is allowed
+  if (request.method === 'OPTIONS' && requestOrigin && corsOptions !== false) {
+    const response = new Response(null, { status: 204 });
+    if (allowedOrigin) {
+      return addCorsHeaders(response, allowedOrigin);
+    }
+    // Return 204 without CORS headers - browser will see missing headers and block
+    return response;
   }
 
   const hookContext = { doNamespace, doInstanceNameOrId };
 
   // Server-side origin rejection (non-standard, but provides better security)
-  // Applies to both HTTP and WebSocket requests
+  // Applies to non-OPTIONS HTTP and WebSocket requests
   if (requestOrigin && corsOptions !== false && !allowedOrigin) {
     // Return 403 without CORS headers for disallowed origins
     // Browser will see this as a CORS failure (network error)

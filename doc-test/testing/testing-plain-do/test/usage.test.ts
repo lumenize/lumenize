@@ -272,10 +272,15 @@ it('shows cookie sharing between fetch and WebSocket', async () => {
 /*
 ## Simulate browser context Origin behavior
 
-`Browser.context()` allows you to test the CORS/Origin validation logic in your 
-Worker or Durable Object. This test also shows off the non-standard upgrade
-to WebSocket API that allows you to inspect the underling HTTP Request and
-Response objects which is useful for debugging and asserting.
+`Browser.context()` allows you to test CORS/Origin validation logic in your 
+Worker or Durable Object. The `context().fetch` method automatically validates 
+CORS headers for cross-origin requests and throws a `TypeError` (just like a 
+real browser) when the server doesn't return proper CORS headers or when the 
+origin doesn't match.
+
+This test also shows off the non-standard extension to the WebSocket API that 
+allows you to inspect the underlying HTTP Request and Response objects, which 
+is useful for debugging and asserting.
 */
 it('shows testing Origin validation using browser.context()', async () => {
   const browser = new Browser();
@@ -307,16 +312,83 @@ it('shows testing Origin validation using browser.context()', async () => {
   await client.ctx.storage.put('count', 42);
 
   // Blocked origin - server rejects with 403 without CORS headers
-  // In a real browser, this would throw a network error (CORS failure)
-  // But in testing, we can still inspect the response    
+  // Browser.context().fetch validates CORS headers and throws TypeError
+  // when CORS validation fails, just like a real browser would
   const pg = browser.context('https://evil.com');
-  res = await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
-  expect(res.status).toBe(403);
-  expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+  
+  // Expect TypeError due to CORS error
+  await expect(async () => {
+    await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
+  }).rejects.toThrow(TypeError);
+  await expect(async () => {
+    await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
+  }).rejects.toThrow('CORS error');
   
   // Verify DO was never called - count is still 42 (not 43)
   const count = await client.ctx.storage.get('count');
   expect(count).toBe(42);
+});
+
+/*
+## Test CORS preflight OPTIONS requests
+
+Real browsers automatically send preflight OPTIONS requests for "non-simple" 
+cross-origin requests (e.g., requests with custom headers, non-simple content 
+types like application/json, or non-simple methods like PUT/DELETE/PATCH).
+
+`Browser.context(origin).fetch` also sends preflight OPTIONS requests just 
+like real browsers do! When you make a cross-origin POST with application/json 
+or custom headers, the preflight is sent automatically before the actual 
+request.
+
+The context object includes a non-standard `lastPreflight` property (similar to 
+the non-standard `request`/`response` properties on WebSocket) that lets you 
+inspect the preflight that was sent.
+*/
+it('shows testing CORS preflight OPTIONS requests', async () => {
+  await using client = createTestingClient<MyDOType>('MY_DO', 'preflight');
+  
+  const browser = new Browser();
+  const appContext = browser.context('https://app.example.com');
+  
+  // Same-origin POST - no preflight needed even with custom header
+  await appContext.fetch('https://app.example.com/my-do/preflight/increment', {
+    method: 'POST',
+    headers: { 'X-Custom-Header': 'test-value' }
+  });
+  expect(appContext.lastPreflight).toBeNull(); // No preflight for same-origin
+  
+  // Cross-origin POST with custom header - triggers automatic preflight!
+  const postResponse = await appContext.fetch(
+    'https://safe.com/cors/my-do/preflight/increment',
+    {
+      method: 'POST',
+      headers: {
+        'X-Custom-Header': 'test-value'  // Custom header triggers preflight
+      }
+    }
+  );
+  expect(appContext.lastPreflight).toEqual({ // Preflight succeeded
+    url: 'https://safe.com/cors/my-do/preflight/increment',
+    method: 'POST',
+    headers: ['x-custom-header'],
+    success: true
+  });
+  
+  // And the request still worked because safe.com is an allowed cross-origin
+  expect(postResponse.ok).toBe(true);
+  expect(postResponse.headers.get('Access-Control-Allow-Origin'))
+    .toBe('https://app.example.com');  // CORS header reflects the origin
+  
+  // Cross-origin POST from disallowed evil.com - preflight fails!
+  const evilContext = browser.context('https://evil.com');
+  await expect(async () => {
+    await evilContext.fetch('https://safe.com/cors/my-do/preflight/increment', {
+      method: 'POST',
+      headers: { 'X-Custom-Header': 'test-value' }
+    });
+  }).rejects.toThrow('CORS error');
+  expect(evilContext.lastPreflight?.success).toBe(false);
 });
 
 /*

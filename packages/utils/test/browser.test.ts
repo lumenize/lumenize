@@ -417,7 +417,11 @@ describe('Browser', () => {
         
         if (url.pathname === '/api') {
           fetchOrigin = req.headers.get('Origin');
-          return new Response('ok');
+          return new Response('ok', {
+            headers: {
+              'Access-Control-Allow-Origin': 'https://example.com'
+            }
+          });
         } else {
           // WebSocket upgrade
           wsOrigin = req.headers.get('Origin');
@@ -517,7 +521,12 @@ describe('Browser', () => {
       const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const req = new Request(input, init);
         receivedOrigin = req.headers.get('Origin');
-        return new Response('ok');
+        return new Response('ok', {
+          headers: {
+            // Need to return CORS header matching the explicit override
+            'Access-Control-Allow-Origin': 'https://override.com'
+          }
+        });
       };
 
       const browser = new Browser(mockFetch);
@@ -529,6 +538,193 @@ describe('Browser', () => {
       });
       
       expect(receivedOrigin).toBe('https://override.com');
+    });
+  });
+
+  describe('CORS validation', () => {
+    it('should not validate CORS for same-origin requests', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        // No CORS headers - should still work for same-origin
+        return new Response('ok');
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://example.com');
+
+      // Same origin - no CORS validation
+      const response = await fetch('https://example.com/api');
+      expect(response.ok).toBe(true);
+    });
+
+    it('should validate CORS for cross-origin requests with wildcard', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('ok', {
+          headers: {
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Cross-origin with wildcard - should work
+      const response = await fetch('https://api.example.com/data');
+      expect(response.ok).toBe(true);
+    });
+
+    it('should validate CORS for cross-origin requests with specific origin', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('ok', {
+          headers: {
+            'Access-Control-Allow-Origin': 'https://app.com'
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Cross-origin with matching origin - should work
+      const response = await fetch('https://api.example.com/data');
+      expect(response.ok).toBe(true);
+    });
+
+    it('should throw TypeError when Access-Control-Allow-Origin is missing', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        // Missing CORS header
+        return new Response('ok');
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Cross-origin without CORS header - should throw
+      await expect(fetch('https://api.example.com/data')).rejects.toThrow(TypeError);
+      await expect(fetch('https://api.example.com/data')).rejects.toThrow(
+        /No 'Access-Control-Allow-Origin' header present/
+      );
+    });
+
+    it('should throw TypeError when Access-Control-Allow-Origin does not match', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('ok', {
+          headers: {
+            'Access-Control-Allow-Origin': 'https://other-app.com'
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Cross-origin with non-matching origin - should throw
+      await expect(fetch('https://api.example.com/data')).rejects.toThrow(TypeError);
+      await expect(fetch('https://api.example.com/data')).rejects.toThrow(
+        /header is 'https:\/\/other-app\.com' but the request origin is 'https:\/\/app\.com'/
+      );
+    });
+
+    it('should throw TypeError when using wildcard with credentials', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('ok', {
+          headers: {
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Cross-origin with wildcard and credentials - should throw
+      await expect(
+        fetch('https://api.example.com/data', { credentials: 'include' })
+      ).rejects.toThrow(TypeError);
+      await expect(
+        fetch('https://api.example.com/data', { credentials: 'include' })
+      ).rejects.toThrow(/Cannot use wildcard '\*' .* when credentials are included/);
+    });
+
+    it('should require Access-Control-Allow-Credentials when credentials are included', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('ok', {
+          headers: {
+            'Access-Control-Allow-Origin': 'https://app.com'
+            // Missing Access-Control-Allow-Credentials: true
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Credentials without Allow-Credentials header - should throw
+      await expect(
+        fetch('https://api.example.com/data', { credentials: 'include' })
+      ).rejects.toThrow(TypeError);
+      await expect(
+        fetch('https://api.example.com/data', { credentials: 'include' })
+      ).rejects.toThrow(/'Access-Control-Allow-Credentials' header is not 'true'/);
+    });
+
+    it('should allow credentials when both origin and credentials headers are correct', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('ok', {
+          headers: {
+            'Access-Control-Allow-Origin': 'https://app.com',
+            'Access-Control-Allow-Credentials': 'true'
+          }
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Proper CORS with credentials - should work
+      const response = await fetch('https://api.example.com/data', { 
+        credentials: 'include' 
+      });
+      expect(response.ok).toBe(true);
+    });
+
+    it('should work with cookies in cross-origin CORS requests', async () => {
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        const url = new URL(req.url);
+        
+        if (url.pathname === '/login') {
+          return new Response('logged in', {
+            headers: {
+              'Set-Cookie': 'session=abc123; Domain=example.com',
+              'Access-Control-Allow-Origin': 'https://app.com',
+              'Access-Control-Allow-Credentials': 'true'
+            }
+          });
+        } else {
+          // Verify cookie was sent
+          const cookie = req.headers.get('Cookie');
+          return new Response(cookie || 'no cookie', {
+            headers: {
+              'Access-Control-Allow-Origin': 'https://app.com',
+              'Access-Control-Allow-Credentials': 'true'
+            }
+          });
+        }
+      };
+
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://app.com');
+
+      // Login cross-origin with credentials
+      await fetch('https://api.example.com/login', { credentials: 'include' });
+      
+      // Subsequent request should include cookie
+      const response = await fetch('https://api.example.com/data', { 
+        credentials: 'include' 
+      });
+      const text = await response.text();
+      expect(text).toContain('session=abc123');
     });
   });
 });

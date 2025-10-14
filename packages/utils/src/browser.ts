@@ -5,6 +5,18 @@ import { getWebSocketShim } from './websocket-shim';
 declare const require: (module: string) => any;
 
 /**
+ * Information about a CORS preflight request
+ * 
+ * @private
+ */
+type PreflightInfo = {
+  url: string;
+  method: string;
+  headers: string[];
+  success: boolean;
+};
+
+/**
  * Cookie-aware HTTP client for browser-based APIs
  * 
  * Automatically manages cookies across requests, making it easy to interact with APIs
@@ -146,12 +158,15 @@ export class Browser {
   }
 
   /**
-   * Create a context with Origin header for CORS testing
+   * Create a context with Origin header for browser-like CORS behavior
    * 
    * Returns an object with fetch and WebSocket that both:
    * - Include cookies from this browser
    * - Include the specified Origin header
    * - Include any custom headers
+   * 
+   * The fetch function returned by context() validates CORS headers and will throw
+   * a TypeError (like a real browser) if the server doesn't properly allow the origin.
    * 
    * @param origin - The origin to use (e.g., 'https://example.com')
    * @param options - Optional headers and WebSocket configuration
@@ -161,9 +176,12 @@ export class Browser {
    * ```typescript
    * const browser = new Browser();
    * 
-   * // Simple usage
+   * // Simple usage - validates CORS on cross-origin requests
    * const page = browser.context('https://example.com');
-   * await page.fetch('https://api.example.com/data');
+   * await page.fetch('https://api.example.com/data'); // Validates CORS
+   * 
+   * // Same-origin request - no CORS validation needed
+   * await page.fetch('https://example.com/data'); // No validation
    * 
    * // With custom headers
    * const page2 = browser.context('https://example.com', {
@@ -172,24 +190,61 @@ export class Browser {
    * });
    * const ws = new page2.WebSocket('wss://api.example.com/ws');
    * 
-   * // Can chain directly
-   * await browser.context('https://evil.com').fetch('https://example.com/api');
+   * // CORS error example - will throw TypeError
+   * try {
+   *   await browser.context('https://app.com').fetch('https://api.com/data');
+   *   // Throws if api.com doesn't send proper CORS headers
+   * } catch (err) {
+   *   console.error('CORS error:', err); // TypeError: Failed to fetch
+   * }
    * ```
    */
   context(origin: string, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): {
     fetch: typeof fetch;
     WebSocket: new (url: string | URL, protocols?: string | string[]) => WebSocket;
+    lastPreflight: PreflightInfo | null;
   } {
-    // Wrap fetch to add Origin header
+    // Track the last preflight request (non-standard extension for testing/debugging)
+    const preflightTracker = { lastPreflight: null as PreflightInfo | null };
+    
+    // Wrap fetch to add Origin header, send preflight if needed, and validate CORS
     const contextFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init);
+      const requestUrl = new URL(request.url);
       
       // Add Origin header if not already present
       if (!request.headers.has('Origin')) {
         request.headers.set('Origin', origin);
       }
       
-      return this.fetch(request);
+      // Get the actual origin that will be sent (might be explicitly overridden)
+      const actualOrigin = request.headers.get('Origin') || origin;
+      
+      // Check if this is a cross-origin request
+      const isCrossOrigin = requestUrl.origin !== actualOrigin;
+      
+      // Send preflight OPTIONS if this is a cross-origin non-simple request
+      if (isCrossOrigin && this.#requiresPreflight(request)) {
+        try {
+          preflightTracker.lastPreflight = await this.#sendPreflight(requestUrl, request, actualOrigin);
+        } catch (error) {
+          // Capture failed preflight info
+          preflightTracker.lastPreflight = this.#getPreflightInfo(requestUrl, request, false);
+          throw error;
+        }
+      } else {
+        preflightTracker.lastPreflight = null;
+      }
+      
+      // Make the actual request
+      const response = await this.fetch(request);
+      
+      // Validate CORS for cross-origin requests
+      if (isCrossOrigin) {
+        this.#validateCorsResponse(response, actualOrigin, request.credentials === 'include');
+      }
+      
+      return response;
     };
     
     // Create WebSocket with Origin header
@@ -205,7 +260,8 @@ export class Browser {
     
     return {
       fetch: contextFetch as typeof fetch,
-      WebSocket: ContextWebSocket
+      WebSocket: ContextWebSocket,
+      get lastPreflight() { return preflightTracker.lastPreflight; }
     };
   }
 
@@ -405,6 +461,193 @@ export class Browser {
 
   #getCookieKey(name: string, domain: string, path: string): string {
     return `${name}|${domain}|${path}`;
+  }
+
+  /**
+   * Check if a request requires a CORS preflight OPTIONS request.
+   * 
+   * Per the CORS spec, preflight is required for:
+   * - Non-simple methods (anything other than GET, HEAD, POST)
+   * - POST with non-simple Content-Type (anything other than application/x-www-form-urlencoded, 
+   *   multipart/form-data, or text/plain)
+   * - Any request with custom headers (beyond simple headers like Accept, Accept-Language, Content-Language)
+   * 
+   * See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#simple_requests
+   */
+  #requiresPreflight(request: Request): boolean {
+    const method = request.method.toUpperCase();
+    
+    // Non-simple methods always require preflight
+    if (method !== 'GET' && method !== 'HEAD' && method !== 'POST') {
+      return true;
+    }
+    
+    // Check for non-simple headers
+    const simpleHeaders = new Set([
+      'accept',
+      'accept-language',
+      'content-language',
+      'content-type'
+    ]);
+    
+    let hasCustomHeader = false;
+    request.headers.forEach((_, headerName) => {
+      const lowerName = headerName.toLowerCase();
+      // Origin is added by us, not a custom header
+      if (lowerName === 'origin') return;
+      
+      if (!simpleHeaders.has(lowerName)) {
+        hasCustomHeader = true; // Custom header requires preflight
+      }
+    });
+    
+    if (hasCustomHeader) {
+      return true;
+    }
+    
+    // For POST, check Content-Type
+    if (method === 'POST') {
+      const contentType = request.headers.get('Content-Type');
+      if (contentType) {
+        const mimeType = contentType.split(';')[0].trim().toLowerCase();
+        const simpleContentTypes = [
+          'application/x-www-form-urlencoded',
+          'multipart/form-data',
+          'text/plain'
+        ];
+        if (!simpleContentTypes.includes(mimeType)) {
+          return true; // Non-simple content type requires preflight
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Extract preflight information from a request (helper for tracking)
+   */
+  #getPreflightInfo(requestUrl: URL, request: Request, success: boolean): PreflightInfo {
+    const simpleHeaders = new Set(['accept', 'accept-language', 'content-language', 'content-type']);
+    const customHeaders: string[] = [];
+    
+    request.headers.forEach((_, headerName) => {
+      const lowerName = headerName.toLowerCase();
+      if (lowerName !== 'origin' && !simpleHeaders.has(lowerName)) {
+        customHeaders.push(lowerName);
+      }
+    });
+    
+    return {
+      url: requestUrl.toString(),
+      method: request.method,
+      headers: customHeaders,
+      success
+    };
+  }
+
+  /**
+   * Send a CORS preflight OPTIONS request and validate the response.
+   * 
+   * This is called automatically by context().fetch when a non-simple cross-origin
+   * request is detected. It mimics real browser behavior.
+   * 
+   * @returns Information about the preflight request that was sent
+   */
+  async #sendPreflight(requestUrl: URL, request: Request, origin: string): Promise<PreflightInfo> {
+    // Build the preflight OPTIONS request
+    const preflightHeaders = new Headers({
+      'Origin': origin,
+      'Access-Control-Request-Method': request.method
+    });
+    
+    // Collect non-simple headers for Access-Control-Request-Headers
+    const simpleHeaders = new Set(['accept', 'accept-language', 'content-language', 'content-type']);
+    const customHeaders: string[] = [];
+    
+    request.headers.forEach((_, headerName) => {
+      const lowerName = headerName.toLowerCase();
+      if (lowerName !== 'origin' && !simpleHeaders.has(lowerName)) {
+        customHeaders.push(lowerName);
+      }
+    });
+    
+    if (customHeaders.length > 0) {
+      preflightHeaders.set('Access-Control-Request-Headers', customHeaders.join(', '));
+    }
+    
+    // Send the OPTIONS request
+    const preflightRequest = new Request(requestUrl.toString(), {
+      method: 'OPTIONS',
+      headers: preflightHeaders
+    });
+    
+    const preflightResponse = await this.fetch(preflightRequest);
+    
+    // Validate preflight response
+    this.#validateCorsResponse(preflightResponse, origin, request.credentials === 'include');
+    
+    // Note: We could also validate Access-Control-Allow-Methods and 
+    // Access-Control-Allow-Headers here, but for simplicity we're just
+    // checking that we got a successful CORS response. Real browsers
+    // do more extensive validation.
+    
+    // Return preflight info for debugging/testing (success=true if we got here)
+    return {
+      url: requestUrl.toString(),
+      method: request.method,
+      headers: customHeaders,
+      success: true
+    };
+  }
+
+  /**
+   * Validate CORS response headers
+   * 
+   * Throws a TypeError (like a real browser) if CORS headers are missing or incorrect.
+   * This is called automatically by context().fetch for cross-origin requests.
+   */
+  #validateCorsResponse(response: Response, requestOrigin: string, includesCredentials: boolean): void {
+    const allowOrigin = response.headers.get('Access-Control-Allow-Origin');
+    
+    // Check if origin is allowed
+    if (!allowOrigin) {
+      throw new TypeError(
+        `Failed to fetch: CORS error - No 'Access-Control-Allow-Origin' header present. ` +
+        `The server must include this header to allow cross-origin requests from '${requestOrigin}'.`
+      );
+    }
+    
+    // Wildcard (*) not allowed when credentials are included
+    if (allowOrigin === '*') {
+      if (includesCredentials) {
+        throw new TypeError(
+          `Failed to fetch: CORS error - Cannot use wildcard '*' in 'Access-Control-Allow-Origin' ` +
+          `when credentials are included. The server must explicitly allow origin '${requestOrigin}'.`
+        );
+      }
+      // Wildcard is OK without credentials
+      return;
+    }
+    
+    // Check if the specific origin is allowed
+    if (allowOrigin !== requestOrigin) {
+      throw new TypeError(
+        `Failed to fetch: CORS error - 'Access-Control-Allow-Origin' header is '${allowOrigin}' ` +
+        `but the request origin is '${requestOrigin}'. These must match.`
+      );
+    }
+    
+    // Check credentials header when credentials are included
+    if (includesCredentials) {
+      const allowCredentials = response.headers.get('Access-Control-Allow-Credentials');
+      if (allowCredentials !== 'true') {
+        throw new TypeError(
+          `Failed to fetch: CORS error - Credentials are included but ` +
+          `'Access-Control-Allow-Credentials' header is not 'true'.`
+        );
+      }
+    }
   }
 
   #getSetCookieHeaders(response: Response): string[] {

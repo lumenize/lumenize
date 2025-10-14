@@ -132,14 +132,7 @@ const response = await routeDORequest(request, env, {
 
 ## CORS Support
 
-The following examples behave as you would expect and match the behavior of `routeAgentRequest` using the same configuration.
-
-```typescript
-await routeDORequest(request, env, { cors: true }); // Allow all origins (permissive)
-await routeDORequest(request, env ); // Defaults to false, allowing on this origin
-```
-
-However, `routeDORequest` CORS support goes way beyond what is supported by `routeAgentRequest`. It fully documented in [CORS Support](/docs/utils/cors-support) but the most common configuration is a simple whitelist.
+The most common cross-origin resource sharing (CORS) configuration and our recommendation 90% of the time is a simple whitelist.
 
 ```typescript
 // Whitelist specific origins
@@ -150,11 +143,21 @@ await routeDORequest(request, env, {
 });
 ```
 
-CORS automatically:
+The following examples match the behavior of `routeAgentRequest` using the same configuration but we recommend against their use particularly if your DOs use WebSockets with a browser because the browser does not natively provide CORS protection for WebSocket use.
+
+```typescript
+await routeDORequest(request, env, { cors: true }); // Allow all origins (permissive)
+await routeDORequest(request, env ); // Default, only allow `fetch` on this origin
+// Note, the default ('false') allows WebSocket access for ALL origins
+```
+
+`routeDORequest` CORS support goes way beyond what is supported by `routeAgentRequest` and a simple whitelist. For a detailed discussion and all available options in case you have an advanced use case see [CORS Support](/docs/utils/cors-support).
+
+When enabled, CORS support automatically:
 - Reflects the allowed origin in `Access-Control-Allow-Origin` header
 - Sets `Vary: Origin` for proper caching
 - Handles OPTIONS (preflight) requests
-- Adds headers to both DO responses and hook responses
+- Adds headers to both DO responses and `onBefore...` hook responses
 
 ## Error Handling
 

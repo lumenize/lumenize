@@ -20,66 +20,39 @@ When CORS is enabled and an origin is allowed:
 
 #### Standard CORS Behavior (Other Implementations)
 Most CORS implementations (including `routeAgentRequest` from the Cloudflare `agents` package) follow the standard browser-enforced pattern:
-- **Server forwards ALL requests** to the backend, regardless of origin
+- **Server forwards ALL requests** to the backend (the DO in this case), regardless of origin
 - Server adds (or omits) CORS headers in the response
 - **Browser enforces blocking** - prevents JavaScript from accessing the response if headers don't match
-- Backend processes every request, even from disallowed origins
+- Backend (DO) processes every request, even from disallowed origins
 
-**Problem**: The backend (Durable Object) still processes requests from unwanted origins, wasting resources and potentially exposing it to attacks.
+**Problem**: The backend (Durable Object) still processes requests from unwanted origins, wasting resources, possibly altering the DO's state, and potentially exposing it to attacks.
 
 #### Non-Standard (Enhanced) Behavior - This Implementation
 
-This implementation provides **server-side rejection** for both HTTP and WebSocket requests:
+This implementation provides **server-side rejection** to prevent unwanted requests from reaching your Durable Objects:
 
-**HTTP Requests (GET, POST, etc.)**
-- Server validates origin BEFORE forwarding to Durable Object
-- **Returns 403 Forbidden** for disallowed origins (request never reaches DO)
-  - Note: The browser performs CORS checks on 403 responses (per WHATWG Fetch spec)
-  - Since the 403 lacks CORS headers, the browser treats it as a CORS failure (network error)
-  - JavaScript sees the same error as standard CORS violation - no difference from the browser's perspective
-- Only forwards allowed requests to Durable Object
-- Adds CORS headers to allowed responses
+**HTTP Requests**
+- Server validates origin BEFORE forwarding to DO
+- **OPTIONS (preflight) from disallowed origins**: Returns `204` without CORS headers (per CORS spec), browser rejects client-side
+- **Non-OPTIONS from disallowed origins**: Returns `403` (browser treats as CORS failure, DO never invoked)
+- Only allowed requests reach the DO
 
 **WebSocket Upgrade Requests**
-- **Browsers DO NOT enforce** `Access-Control-Allow-Origin` for WebSocket upgrades ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API))
-- **Server MUST enforce** origin validation (WebSocket spec delegates security to server)
-- **Returns 403 Forbidden** for disallowed origins BEFORE upgrading connection
-- Only upgrades to WebSocket if origin is allowed (or CORS is disabled)
+- Browsers don't enforce CORS for WebSockets ([MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)), so server must
+- Returns `403` for disallowed origins BEFORE upgrading
+- Only upgrades when origin allowed (or CORS disabled)
 
-#### Why Non-Standard is Better
+#### Why Server-Side Rejection?
 
-**Benefits:**
-1. **Defence in depth**: Reduces the possibility that a CORS invalid request can change the state of the server in the face of misconfigured SameSite or CSP
-2. **Reduced latency**: No round-trip to Durable Object for blocked requests
-3. **Cost savings**: Fewer DO invocations and CPU time
-4. **Consistency**: Same behavior for regular HTTP and WebSockets upgrade requests
-5. **Clearer logs**: By rejecting on the server with a 403, we get a log of the CORS miss
+**Benefits vs Standard CORS:**
+1. **DO protection**: Disallowed requests never reach your DO (no state changes, no wasted resources)
+2. **Cost savings**: Fewer DO invocations and CPU time
+3. **Clearer logs**: Server-side rejection creates audit trail
+4. **Consistency**: Same behavior for HTTP and WebSocket requests
 
-**Browser Compatibility:**
-The 403 response appears identical to standard CORS from the browser's perspective:
-- Browser sees network-level failure (can't access response)
-- JavaScript gets same error as standard CORS violation
-- Developer console shows similar CORS error message
+The browser experience is identical—JavaScript sees network errors for CORS violations just like with standard CORS.
 
-#### Comparison:
-
-**Standard CORS (routeAgentRequest from cloudflare/agents)**
-1. Request arrives with Origin: https://evil.com
-2. Server forwards to Durable Object
-3. DO processes request (wastes resources and potentially changes state)
-4. Server omits CORS headers
-5. Browser blocks response from reaching client-side JavaScript
-6. **PROBLEM: DO still did the work!**
-
-**Non‑standard (this implementation)**
-1. Request arrives with Origin: https://evil.com
-2. Server validates origin, sees it's not allowed
-3. Returns 403 Forbidden immediately
-4. DO never invoked (resources saved and state unaffected)
-5. Browser sees network error (same as CORS failure)
-6. **BENEFIT: DO protected, resources saved, browser behavior preserved!**
-
-**Use `onBeforeRequest` if you want the traditional behavior**: If you need traditional browser-only CORS enforcement (or any other custom CORS behavior), you can implement it in the [`onBeforeRequest` hook](/docs/utils/route-do-request#onbeforerequest). This gives you complete control - you can immediately forward to the DO and add CORS headers to the DO's response before returning it to the caller. See [Custom CORS with Hooks](#custom-cors-with-hooks) below.
+**Want traditional behavior?** Use the [`onBeforeRequest` hook](#custom-cors-with-hooks) to forward all requests to the DO and add CORS headers afterward.
 
 ### Configuration Modes
 
@@ -116,27 +89,28 @@ await routeDORequest(request, env, {
 await routeDORequest(request, env, {
   cors: {
     origin: (origin, request) => {
-      // Check origin domain
-      if (!origin.endsWith('.bad-guys.com')) {
-        return false;
-      }
+      // Check origin whitelist/patterns
+      const trustedOrigins = ['https://app.example.com', 'https://admin.example.com'];
+      const trustedDomains = ['.example.com', '.example.dev'];
+      const isOriginTrusted = 
+        trustedOrigins.includes(origin) ||
+        trustedDomains.some(domain => origin.endsWith(domain));
       
-      // Also inspect the request for additional validation
+      if (!isOriginTrusted) return false;
+      
+      // Additional request-based validation
       const apiKey = request.headers.get('X-API-Key');
-      if (!apiKey || apiKey !== 'trusted-key') {
-        return false;
-      }
+      if (!apiKey || apiKey !== 'trusted-key') return false;
       
-      // Block certain HTTP methods
+      // Block sensitive methods without auth
       if (request.method === 'DELETE') {
-        return false;
+        const authToken = request.headers.get('Authorization');
+        if (!authToken?.startsWith('Bearer ')) return false;
       }
       
-      // Check user agent to block bots
-      const userAgent = request.headers.get('User-Agent');
-      if (userAgent?.toLowerCase().includes('bot')) {
-        return false;
-      }
+      // Block known bad user agents
+      const userAgent = request.headers.get('User-Agent') || '';
+      if (userAgent.toLowerCase().includes('bot')) return false;
       
       return true;
     }
@@ -144,32 +118,45 @@ await routeDORequest(request, env, {
 });
 ```
 
-The validator function receives both the `origin` string and the full `Request` object, allowing you to implement sophisticated CORS policies based on multiple request attributes.
+The validator receives both `origin` and the full `Request`, enabling sophisticated policies based on headers, methods, and more.
 
-## Preflight Request Handling
+## Client-Side: Automatic Preflight
 
-CORS automatically handles OPTIONS (preflight) requests:
+The `Browser` class from `@lumenize/utils` provides **automatic CORS preflight** when using `browser.context(origin).fetch()`:
 
-- **When origin is allowed**: Returns `204 No Content` with CORS headers (short-circuits before hooks)
-- **When origin not allowed** (array/validator modes): Returns `403 Forbidden` without CORS headers
-- **When no Origin header present**: Falls through to origin rejection check, then to Durable Object if no rejection
+1. **Detects non-simple requests** (non-GET/HEAD/POST, custom headers, `Content-Type: application/json`)
+2. **Automatically sends OPTIONS** with `Access-Control-Request-Method` and headers
+3. **Validates CORS headers** on preflight and actual responses
+4. **Throws `TypeError`** on CORS violations (browser-standard behavior)
 
-### Example preflight flows
+```typescript
+import { Browser } from '@lumenize/utils';
 
-**Allowed origin**
-1. Browser sends: OPTIONS /my-do/instance with Origin: https://app.example.com
-2. Server validates origin, sees it's allowed
-3. Returns 204 No Content with CORS headers immediately
+const browser = new Browser();
+const context = browser.context('https://app.example.com');
 
-**Disallowed origin (array/validator modes)**
-1. Browser sends: OPTIONS /my-do/instance with Origin: https://evil.com
-2. Server validates origin, sees it's not allowed
-3. Returns 403 Forbidden without CORS headers (browser sees CORS failure)
+// Automatically sends preflight before POST (due to application/json)
+const response = await context.fetch('https://api.example.com/data', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ key: 'value' })
+});
+// Behind the scenes: OPTIONS → validate → POST → validate → return
+```
 
-**No Origin header (same-origin request)**
-1. Browser sends: OPTIONS /my-do/instance (no Origin header)
-2. No CORS validation occurs
-3. Forwards to DO (DO handles the OPTIONS request)
+CORS failures throw `TypeError` like browsers do:
+
+```typescript
+try {
+  await context.fetch('https://api.example.com/data', { 
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: 'value' })
+  });
+} catch (error) {
+  // TypeError: Failed to fetch (CORS validation failed)
+}
+```
 
 ## Integration with Hooks
 
@@ -195,89 +182,37 @@ await routeDORequest(request, env, {
 
 ## Advanced Use Cases
 
-### Multi-Factor CORS Validation
-
-The function validator's access to the full `Request` object enables sophisticated CORS policies:
-
-```typescript
-await routeDORequest(request, env, {
-  cors: {
-    origin: (origin, request) => {
-      // 1. Check origin whitelist
-      const trustedOrigins = ['https://app.example.com', 'https://admin.example.com'];
-      const trustedDomains = ['.example.com', '.example.dev'];
-      
-      const isOriginTrusted = 
-        trustedOrigins.includes(origin) ||
-        trustedDomains.some(domain => origin.endsWith(domain));
-      
-      if (!isOriginTrusted) return false;
-      
-      // 2. Additional request-based checks
-      
-      // Check authentication token for sensitive operations
-      if (request.method !== 'GET') {
-        const authToken = request.headers.get('Authorization');
-        if (!authToken?.startsWith('Bearer ')) return false;
-      }
-      
-      // Block known bad user agents
-      const userAgent = request.headers.get('User-Agent') || '';
-      const blockedAgents = ['badbot', 'scraper'];
-      if (blockedAgents.some(agent => userAgent.toLowerCase().includes(agent))) {
-        return false;
-      }
-      
-      // Rate limiting hint - check for rate limit headers
-      const rateLimitRemaining = request.headers.get('X-RateLimit-Remaining');
-      if (rateLimitRemaining && parseInt(rateLimitRemaining) === 0) {
-        return false;
-      }
-      
-      return true;
-    }
-  }
-});
-```
-
 ### Custom CORS with Hooks
 
-For complete control over CORS behavior (including traditional browser-only enforcement), use the `onBeforeRequest` hook to manually call the DO and add CORS headers:
+For traditional browser-only CORS (forward all requests to DO, add headers afterward), use `onBeforeRequest`:
 
 ```typescript
 import { getDOStub } from '@lumenize/utils';
-//...
 
 await routeDORequest(request, env, {
-  // Disable built-in CORS
-  cors: false,
+  cors: false, // Disable built-in CORS
   
   onBeforeRequest: async (request, context) => {
     const origin = request.headers.get('Origin');
-    const allowedOrigins = ['https://app.example.com', 'https://admin.example.com'];
+    const allowedOrigins = ['https://app.example.com'];
     
     // Handle preflight
-    if (request.method === 'OPTIONS') {
-      if (origin && allowedOrigins.includes(origin)) {
-        return new Response(null, {
-          status: 204,
-          headers: {
-            'Access-Control-Allow-Origin': origin,
-            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-            'Vary': 'Origin'
-          }
-        });
-      }
-      // Let DO handle unallowed preflight
-      return undefined;
+    if (request.method === 'OPTIONS' && origin && allowedOrigins.includes(origin)) {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Vary': 'Origin'
+        }
+      });
     }
     
-    // For traditional CORS: call DO manually and add headers based on origin
+    // Call DO and add CORS headers afterward
     const doStub = getDOStub(context.doNamespace, context.doInstanceNameOrId);
     const response = await doStub.fetch(request);
     
-    // Add CORS headers if origin is allowed
     if (origin && allowedOrigins.includes(origin)) {
       const headers = new Headers(response.headers);
       headers.set('Access-Control-Allow-Origin', origin);
@@ -290,31 +225,17 @@ await routeDORequest(request, env, {
       });
     }
     
-    // Return response without CORS headers for unallowed origins
-    return response;
+    return response; // No CORS headers for disallowed origins
   }
 });
 ```
 
-For more information about the functions used above, see:
-- [Request Routing](/docs/utils/route-do-request) - Main `routeDORequest` documentation
-- [API Reference - routeDORequest](/docs/utils/api/functions/routeDORequest)
-- [API Reference - getDOStub](/docs/utils/api/functions/getDOStub)
-
-This approach gives you complete flexibility:
-- **Traditional CORS**: Forward all requests to DO, add/omit headers based on origin (DO always processes the request)
-- **Custom validation**: Check any request properties before forwarding
-- **Direct DO access**: Use `context.doNamespace` and `context.doInstanceNameOrId` to call the DO yourself
-- **Custom responses**: Return any response from the hook, which short-circuits the normal call to the DO—useful because you already performed the action inside the hook
+See: [routeDORequest](/docs/utils/route-do-request) | [getDOStub API](/docs/utils/api/functions/getDOStub)
 
 ## Security Considerations
 
-**CORS was never a security mechanism.** Think of CORS like a "No Trespassing" sign — it only works if the visitor respects it. This non-standard implementation adds a short fence to go with the sign. An attacker can easily step over this fence, but accidental trespassing becomes less likely, and when unwanted requests do occur, you'll waste fewer resources. **CORS is not a substitute for proper authentication and authorization** - always validate API keys, tokens, or other credentials for sensitive operations.
+**CORS is not a security mechanism.** It's a "No Trespassing" sign—effective only if visitors respect it. This implementation adds server-side rejection as a "short fence," reducing accidental access and wasted resources. **Always use proper authentication and authorization** for sensitive operations.
 
-1. **Browser-only**: While this implementation provides server-side rejection (better than standard CORS), it only helps with browser initiated requests. Malicious non-browser clients can set any `Origin` header they want, bypassing origin validation entirely.
-
-2. **No credentials support**: This implementation does not set `Access-Control-Allow-Credentials`, meaning cookies and authorization headers won't be sent cross-origin even if the origin is allowed.
-
-3. **Origin validation**: Always validates the Origin header when CORS is enabled - never allows requests without proper origin validation in whitelist/function modes.
-
-4. **Vary header**: Always sets `Vary: Origin` to ensure proper caching behavior with CDNs and browsers.
+**Important notes:**
+- **Browser-only protection**: Non-browser clients can set any `Origin` header, bypassing origin validation (true of all CORS implementations)
+- **No credentials support**: This implementation doesn't set `Access-Control-Allow-Credentials` (cookies/auth headers won't be sent cross-origin)
