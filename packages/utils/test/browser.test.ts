@@ -1,100 +1,126 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { Browser } from '../src/browser';
 
 describe('Browser', () => {
-  let browser: Browser;
-
-  beforeEach(() => {
-    browser = new Browser();
-  });
-
-  describe('getFetch', () => {
-    it('should create a fetch wrapper that adds cookies to requests', async () => {
-      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const req = new Request(input, init);
-        const cookieHeader = req.headers.get('Cookie');
-        
-        // Return response with Set-Cookie header
-        return new Response(null, {
-          headers: {
-            'Set-Cookie': 'sessionid=abc123; Domain=example.com; Path=/'
-          }
-        });
+  describe('constructor', () => {
+    it('should accept a fetch function', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response('test');
       };
 
-      const cookieAwareFetch = browser.getFetch(mockFetch);
+      const browser = new Browser(mockFetch);
+      const response = await browser.fetch('https://example.com');
+      const text = await response.text();
+      expect(text).toBe('test');
+    });
+
+    it('should auto-detect globalThis.fetch if available', async () => {
+      // globalThis.fetch should be available in test environment
+      const browser = new Browser();
+      expect(browser.fetch).toBeDefined();
+    });
+  });
+
+  describe('fetch', () => {
+    it('should add cookies to requests', async () => {
+      let sentCookie: string | null = null;
+      
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        sentCookie = req.headers.get('Cookie');
+        
+        // Return response with Set-Cookie header on first request
+        if (sentCookie === null) {
+          return new Response(null, {
+            headers: {
+              'Set-Cookie': 'sessionid=abc123; Domain=example.com; Path=/'
+            }
+          });
+        }
+        
+        return new Response(null);
+      };
+
+      const browser = new Browser(mockFetch);
 
       // First request - no cookies sent
-      await cookieAwareFetch('https://example.com/login');
+      await browser.fetch('https://example.com/login');
 
       // Cookie should be stored
       expect(browser.getCookie('sessionid')).toBe('abc123');
 
       // Second request - cookie should be sent
-      let sentCookie: string | null = null;
-      const mockFetch2 = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const req = new Request(input, init);
-        sentCookie = req.headers.get('Cookie');
-        return new Response(null);
-      };
-
-      const cookieAwareFetch2 = browser.getFetch(mockFetch2);
-      await cookieAwareFetch2('https://example.com/protected');
+      await browser.fetch('https://example.com/protected');
 
       expect(sentCookie).toBe('sessionid=abc123');
     });
 
-    it('should not modify fetch when cookie jar is disabled', async () => {
-      browser.setEnabled(false);
-
-      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        const req = new Request(input, init);
-        const cookieHeader = req.headers.get('Cookie');
-        expect(cookieHeader).toBeNull();
-        
-        return new Response(null, {
-          headers: {
-            'Set-Cookie': 'sessionid=abc123'
-          }
-        });
+    it('should automatically clean up expired cookies', async () => {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response(null);
       };
 
-      const cookieAwareFetch = browser.getFetch(mockFetch);
-      await cookieAwareFetch('https://example.com/test');
+      const browser = new Browser(mockFetch);
+      
+      const pastDate = new Date(Date.now() - 86400000);
+      const futureDate = new Date(Date.now() + 86400000);
 
-      // Cookie should not be stored when disabled
-      expect(browser.getCookie('sessionid')).toBeUndefined();
+      browser.setCookie('expired', 'value1', {
+        domain: 'example.com',
+        expires: pastDate
+      });
+      browser.setCookie('active', 'value2', {
+        domain: 'example.com',
+        expires: futureDate
+      });
+
+      // Trigger cookie cleanup by making a request
+      await browser.fetch('https://example.com/test');
+
+      // Expired cookie should not be available
+      expect(browser.getCookie('expired')).toBeUndefined();
+      expect(browser.getCookie('active')).toBe('value2');
     });
   });
 
   describe('setCookie / getCookie', () => {
     it('should set and get cookie with inferred hostname', async () => {
-      // Set hostname via fetch - need to use proper Response with getSetCookie
-      const mockResponse = new Response(null);
-      // Manually store cookies to set hostname
-      browser.storeCookiesFromResponse(
-        new Response(null, {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response(null, {
           headers: { 'Set-Cookie': 'init=value; Domain=example.com' }
-        }),
-        'https://example.com/test'
-      );
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      
+      // Set hostname via fetch
+      await browser.fetch('https://example.com/test');
 
       browser.setCookie('test', 'value');
       expect(browser.getCookie('test')).toBe('value');
     });
 
     it('should set and get cookie with explicit domain', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('test', 'value', { domain: 'example.com' });
       expect(browser.getCookie('test')).toBe('value');
     });
 
     it('should throw error when setting cookie without domain or hostname', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       expect(() => {
         browser.setCookie('test', 'value');
       }).toThrow('Cannot set cookie');
     });
 
     it('should get cookie by name and domain', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('test', 'value1', { domain: 'example.com' });
       browser.setCookie('test', 'value2', { domain: 'other.com' });
 
@@ -103,6 +129,9 @@ describe('Browser', () => {
     });
 
     it('should not return expired cookie', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       const pastDate = new Date(Date.now() - 86400000); // Yesterday
       browser.setCookie('test', 'value', {
         domain: 'example.com',
@@ -115,6 +144,9 @@ describe('Browser', () => {
 
   describe('getAllCookies', () => {
     it('should return all non-expired cookies', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('cookie1', 'value1', { domain: 'example.com' });
       browser.setCookie('cookie2', 'value2', { domain: 'example.com' });
 
@@ -125,6 +157,9 @@ describe('Browser', () => {
     });
 
     it('should not return expired cookies', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       const pastDate = new Date(Date.now() - 86400000);
       const futureDate = new Date(Date.now() + 86400000);
 
@@ -143,12 +178,18 @@ describe('Browser', () => {
     });
 
     it('should return empty array when no cookies', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       expect(browser.getAllCookies()).toEqual([]);
     });
   });
 
   describe('getAllCookiesAsObject', () => {
     it('should return cookies as name-value object', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('cookie1', 'value1', { domain: 'example.com' });
       browser.setCookie('cookie2', 'value2', { domain: 'example.com' });
 
@@ -160,6 +201,9 @@ describe('Browser', () => {
     });
 
     it('should not include expired cookies', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       const pastDate = new Date(Date.now() - 86400000);
 
       browser.setCookie('expired', 'value1', {
@@ -177,6 +221,9 @@ describe('Browser', () => {
 
   describe('removeCookie', () => {
     it('should remove cookie by name', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('test', 'value', { domain: 'example.com' });
       expect(browser.getCookie('test')).toBe('value');
 
@@ -185,6 +232,9 @@ describe('Browser', () => {
     });
 
     it('should remove cookie by name and domain', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('test', 'value1', { domain: 'example.com' });
       browser.setCookie('test', 'value2', { domain: 'other.com' });
 
@@ -194,6 +244,9 @@ describe('Browser', () => {
     });
 
     it('should remove cookie by name, domain, and path', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('test', 'value1', {
         domain: 'example.com',
         path: '/api'
@@ -209,52 +262,18 @@ describe('Browser', () => {
     });
   });
 
-  describe('clear', () => {
-    it('should remove all cookies', () => {
-      browser.setCookie('cookie1', 'value1', { domain: 'example.com' });
-      browser.setCookie('cookie2', 'value2', { domain: 'example.com' });
-
-      expect(browser.getAllCookies()).toHaveLength(2);
-
-      browser.clear();
-      expect(browser.getAllCookies()).toHaveLength(0);
-    });
-  });
-
-  describe('cleanupExpiredCookies', () => {
-    it('should remove only expired cookies', () => {
-      const pastDate = new Date(Date.now() - 86400000);
-      const futureDate = new Date(Date.now() + 86400000);
-
-      browser.setCookie('expired', 'value1', {
-        domain: 'example.com',
-        expires: pastDate
-      });
-      browser.setCookie('active', 'value2', {
-        domain: 'example.com',
-        expires: futureDate
-      });
-
-      expect(browser.getAllCookies()).toHaveLength(1); // getAllCookies already filters expired
-
-      browser.cleanupExpiredCookies();
-      
-      // After cleanup, only active cookie should remain in storage
-      const allCookies = browser.getAllCookies();
-      expect(allCookies).toHaveLength(1);
-      expect(allCookies[0]?.name).toBe('active');
-    });
-  });
-
   describe('hostname inference for cookie domain', () => {
     it('should use first fetch hostname for cookies without explicit domain', async () => {
-      // Manually store a cookie to set hostname
-      browser.storeCookiesFromResponse(
-        new Response(null, {
+      const mockFetch = async (): Promise<Response> => {
+        return new Response(null, {
           headers: { 'Set-Cookie': 'init=value; Domain=example.com' }
-        }),
-        'https://example.com/test'
-      );
+        });
+      };
+
+      const browser = new Browser(mockFetch);
+      
+      // Make a fetch to set hostname
+      await browser.fetch('https://example.com/test');
 
       // Now we can set cookies without domain - inferred from first fetch
       browser.setCookie('test', 'value');
@@ -262,26 +281,20 @@ describe('Browser', () => {
     });
 
     it('should require domain if no fetch has been made yet', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       expect(() => {
         browser.setCookie('test', 'value');
       }).toThrow(/Cannot set cookie 'test' without domain/);
     });
 
     it('should allow explicit domain even without prior fetch', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+      
       browser.setCookie('test', 'value', { domain: 'manual.com' });
       expect(browser.getCookie('test', 'manual.com')).toBe('value');
-    });
-  });
-
-  describe('setEnabled / isEnabled', () => {
-    it('should enable/disable cookie jar', () => {
-      expect(browser.isEnabled()).toBe(true);
-
-      browser.setEnabled(false);
-      expect(browser.isEnabled()).toBe(false);
-
-      browser.setEnabled(true);
-      expect(browser.isEnabled()).toBe(true);
     });
   });
 
@@ -314,15 +327,15 @@ describe('Browser', () => {
         return new Response('Not Found', { status: 404 });
       };
 
-      const cookieAwareFetch = browser.getFetch(mockFetch);
+      const browser = new Browser(mockFetch);
 
       // Step 1: Login (sets cookie)
-      const loginResponse = await cookieAwareFetch('https://example.com/login');
+      const loginResponse = await browser.fetch('https://example.com/login');
       expect(loginResponse.ok).toBe(true);
       expect(browser.getCookie('sessionid')).toBe('abc123');
 
       // Step 2: Access protected resource (cookie automatically sent)
-      const protectedResponse = await cookieAwareFetch('https://example.com/protected');
+      const protectedResponse = await browser.fetch('https://example.com/protected');
       expect(protectedResponse.ok).toBe(true);
       const data = await protectedResponse.json();
       expect(data).toEqual({ data: 'secret' });
@@ -342,10 +355,10 @@ describe('Browser', () => {
         });
       };
 
-      const cookieAwareFetch = browser.getFetch(mockFetch);
+      const browser = new Browser(mockFetch);
 
-      await cookieAwareFetch('https://site1.com/test');
-      await cookieAwareFetch('https://site2.com/test');
+      await browser.fetch('https://site1.com/test');
+      await browser.fetch('https://site2.com/test');
 
       expect(browser.getCookie('token', 'site1.com')).toBe('token-site1.com');
       expect(browser.getCookie('token', 'site2.com')).toBe('token-site2.com');
@@ -353,7 +366,7 @@ describe('Browser', () => {
     });
   });
 
-  describe('getWebSocket', () => {
+  describe('WebSocket', () => {
     it('should not add Origin header automatically', () => {
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
         const req = new Request(input);
@@ -368,38 +381,12 @@ describe('Browser', () => {
         return { webSocket: ws } as any;
       };
 
-      const WebSocketClass = browser.getWebSocket(mockFetch);
-      expect(WebSocketClass).toBeDefined();
-    });
-
-    it('should pass through custom headers including Origin', () => {
-      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
-        const req = new Request(input);
-        const origin = req.headers.get('Origin');
-        const custom = req.headers.get('X-Custom');
-        
-        // Verify explicit headers are passed through
-        expect(origin).toBe('https://custom.com');
-        expect(custom).toBe('value');
-        
-        // Return mock WebSocket upgrade response
-        const ws = {} as any;
-        ws.accept = () => {};
-        return { webSocket: ws } as any;
-      };
-
-      const WebSocketClass = browser.getWebSocket(mockFetch, {
-        headers: { 
-          'Origin': 'https://custom.com',
-          'X-Custom': 'value'
-        }
-      });
+      const browser = new Browser(mockFetch);
+      const WebSocketClass = browser.WebSocket;
       expect(WebSocketClass).toBeDefined();
     });
 
     it('should include cookies in WebSocket upgrade request', async () => {
-      // No hostname set - Origin should not be added automatically
-      
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
         const req = new Request(input);
         const origin = req.headers.get('Origin');
@@ -413,13 +400,14 @@ describe('Browser', () => {
         return { webSocket: ws } as any;
       };
 
-      const WebSocketClass = browser.getWebSocket(mockFetch);
+      const browser = new Browser(mockFetch);
+      const WebSocketClass = browser.WebSocket;
       expect(WebSocketClass).toBeDefined();
     });
   });
 
-  describe('createPage', () => {
-    it('should create page context with Origin header for both fetch and WebSocket', async () => {
+  describe('context', () => {
+    it('should create context with Origin header for both fetch and WebSocket', async () => {
       let fetchOrigin: string | null = null;
       let wsOrigin: string | null = null;
       
@@ -439,9 +427,8 @@ describe('Browser', () => {
         }
       };
 
-      const { fetch, WebSocket } = browser.createPage(mockFetch, {
-        origin: 'https://example.com'
-      });
+      const browser = new Browser(mockFetch);
+      const { fetch, WebSocket } = browser.context('https://example.com');
 
       // Test fetch includes Origin
       await fetch('https://api.example.com/api');
@@ -452,7 +439,7 @@ describe('Browser', () => {
       expect(wsOrigin).toBe('https://example.com');
     });
 
-    it('should allow custom headers in WebSocket via createPage', async () => {
+    it('should allow custom headers in WebSocket via context', async () => {
       let wsHeaders: Record<string, string> = {};
       
       const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
@@ -466,8 +453,8 @@ describe('Browser', () => {
         return { webSocket: ws } as any;
       };
 
-      const { WebSocket } = browser.createPage(mockFetch, {
-        origin: 'https://example.com',
+      const browser = new Browser(mockFetch);
+      const { WebSocket } = browser.context('https://example.com', {
         headers: {
           'X-Custom-Header': 'test-value'
         }
@@ -479,7 +466,7 @@ describe('Browser', () => {
       expect(wsHeaders['x-custom-header']).toBe('test-value');
     });
 
-    it('should share cookies between page fetch and WebSocket', async () => {
+    it('should share cookies between context fetch and WebSocket', async () => {
       let wsCookies: string | null = null;
       
       const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -505,9 +492,8 @@ describe('Browser', () => {
         }
       };
 
-      const { fetch, WebSocket } = browser.createPage(mockFetch, {
-        origin: 'https://example.com'
-      });
+      const browser = new Browser(mockFetch);
+      const { fetch, WebSocket } = browser.context('https://example.com');
 
       // Login to set cookie
       await fetch('https://example.com/login');
@@ -534,9 +520,8 @@ describe('Browser', () => {
         return new Response('ok');
       };
 
-      const { fetch } = browser.createPage(mockFetch, {
-        origin: 'https://example.com'
-      });
+      const browser = new Browser(mockFetch);
+      const { fetch } = browser.context('https://example.com');
 
       // Explicit Origin should be preserved
       await fetch('https://api.example.com/api', {

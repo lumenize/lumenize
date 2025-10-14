@@ -24,9 +24,9 @@ do that plus:
     - `browser.fetch` --> cookie-aware fetch (no Origin header)
     - `browser.WebSocket` --> cookie-aware WebSocket constructor (no Origin
       header)
-    - `browser.page(origin)` --> returns `{ fetch, WebSocket }`
+    - `browser.context(origin)` --> returns `{ fetch, WebSocket }`
       - Both automatically include cookies from the Browser instance
-      - Simulates requests from a page loaded from the given origin
+      - Simulates requests from a context loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
 */
 
@@ -272,19 +272,19 @@ it('shows cookie sharing between fetch and WebSocket', async () => {
 /*
 ## Simulate browser context Origin behavior
 
-`Browser.page()` allows you to test the CORS/Origin validation logic in your 
+`Browser.context()` allows you to test the CORS/Origin validation logic in your 
 Worker or Durable Object. This test also shows off the non-standard upgrade
 to WebSocket API that allows you to inspect the underling HTTP Request and
 Response objects which is useful for debugging and asserting.
 */
-it('shows testing Origin validation using browser.page()', async () => {
+it('shows testing Origin validation using browser.context()', async () => {
   const browser = new Browser();
   
-  // Create a page with Origin header
-  const page = browser.page('https://safe.com');
+  // Create a context with Origin header
+  const context = browser.context('https://safe.com');
   
   // WebSocket upgrade includes Origin header
-  const ws = new page.WebSocket('wss://safe.com/cors/my-do/ws-test') as any;
+  const ws = new context.WebSocket('wss://safe.com/cors/my-do/ws-test') as any;
   let wsOpened = false;
   ws.onopen = () => { wsOpened = true; };
   await vi.waitFor(() => expect(wsOpened).toBe(true));
@@ -296,7 +296,7 @@ it('shows testing Origin validation using browser.page()', async () => {
   ws.close();
   
   // HTTP request also includes Origin header - allowed
-  let res = await page.fetch('https://safe.com/cors/my-do/test/increment');
+  let res = await context.fetch('https://safe.com/cors/my-do/test/increment');
   const acaoHeaderFromFetch = res.headers.get('Access-Control-Allow-Origin');
   expect(acaoHeaderFromFetch).toBe('https://safe.com');
   
@@ -309,7 +309,7 @@ it('shows testing Origin validation using browser.page()', async () => {
   // Blocked origin - server rejects with 403 without CORS headers
   // In a real browser, this would throw a network error (CORS failure)
   // But in testing, we can still inspect the response    
-  const pg = browser.page('https://evil.com');
+  const pg = browser.context('https://evil.com');
   res = await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
   expect(res.status).toBe(403);
   expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
