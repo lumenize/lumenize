@@ -129,6 +129,11 @@ WebSocket implementation. With `@lumenize/testing`:
   - Assert on WebSocket attachments
   - Test your `WebSocketRequestResponsePair` (impossible with 
     `runInDurableObject`)
+
+Note, `@lumenize/testing` is all about in-process integration testing,
+but `Browser` from `@lumenize/utils` (which is simply convenience re-exported 
+from `@lumenize/testing`) is also useful when you are testing cross-process 
+(e.g. miniflare, or a separate process running `wrangler dev`)
 */
 it('shows testing WebSocket functionality', async () => {
   // Create RPC client to inspect server-side WebSocket state
@@ -330,7 +335,7 @@ it('shows testing Origin validation using browser.context()', async () => {
 });
 
 /*
-## Test CORS preflight OPTIONS requests
+## CORS preflight OPTIONS
 
 Real browsers automatically send preflight OPTIONS requests for "non-simple" 
 cross-origin requests (e.g., requests with custom headers, non-simple content 
