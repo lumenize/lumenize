@@ -116,7 +116,7 @@ This documentation uses **testable code examples** to ensure accuracy and reliab
 - **Copy-paste confidence**: What you see is what works - no outdated or broken examples
 - **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
 
-Ignore the test format (\`it()\`, \`describe()\`, etc.) - focus on the code inside.
+Ignore the test boilerplate (\`it()\`, \`describe()\`, etc.) - focus on the code inside.
 
 </details>`;
 }

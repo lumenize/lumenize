@@ -87,8 +87,7 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'doc',
-          id: 'testing/usage.generated',
-          label: 'Usage',
+          id: 'testing/usage',
           customProps: {
             docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
           }

@@ -64,8 +64,7 @@ The syntax is:
 
 ### 3. Reference in Sidebars
 
-In your `sidebars.ts`, use `customProps.docTest` to specify the test file. 
-Use `.generated` suffix in the doc ID:
+In your `sidebars.ts`, use `customProps.docTest` to specify the test file:
 
 ```typescript
 {
@@ -74,8 +73,7 @@ Use `.generated` suffix in the doc ID:
   items: [
     {
       type: 'doc',
-      id: 'testing/usage.generated',  // Note: .generated suffix
-      label: 'Usage',                  // Optional: custom label
+      id: 'testing/usage',
       customProps: {
         docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
       }
@@ -84,7 +82,7 @@ Use `.generated` suffix in the doc ID:
 }
 ```
 
-The `.generated` suffix causes the plugin to create `usage.generated.mdx` which is gitignored via `**/*.generated.mdx` pattern.
+The plugin generates `testing/usage.mdx` which should be committed to git (like TypeDoc API docs).
 ```
 
 ### 4. Configure Plugin
