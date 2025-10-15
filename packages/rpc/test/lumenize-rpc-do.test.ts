@@ -21,7 +21,7 @@ const { stringify, parse } = require('@ungap/structured-clone/json');
 describe('lumenizeRpcDo server-side functionality', () => {
 
   // KEPT: Tests internal #preprocessResult implementation for arrays with functions
-  it.only('should handle arrays with functions in results', async () => {
+  it('should handle arrays with functions in results', async () => {
     // Tests that #preprocessResult handles arrays and converts functions to remote markers
     const id = env.EXAMPLE_DO.newUniqueId();
     const stub = env.EXAMPLE_DO.get(id);

@@ -29,7 +29,7 @@ directly, which bypasses the Worker routing, input/output gates, your DO's own
 fetch, etc., which can allow subtle bugs to escape to production [like the
 Agent team has had](https://github.com/cloudflare/agents/issues/321).
 
-On the other hand, `cloudflare:test` has `SELF.fetch()`.
+On the other hand, you could use `cloudflare:test` has `SELF.fetch()`.
 It runs through your Worker, DO fetch, input/output 
 gates, etc. It's HTTP-only, but there is a little trick you can use to do some 
 web socket testing. You can send in an HTTP Request with the correct WebSocket 
@@ -41,6 +41,8 @@ expect to instantiate the WebSocket themselves. Without `AgentClient`, you are
 stuck recreating, simulating, or mocking built-in functionality like state
 synchronization.
 
+## How `@lumenize/testing` Makes This Better
+
 `@lumenize/testing` uses the same raw ws trick as the newer Agents tests, 
 except it wraps it in a browser-compatible WebSocket API class. `AgentClient` 
 allows you to dependency inject your own WebSocket class, as we show below. Now 
@@ -50,17 +52,26 @@ Combine that with `@lumenize/testing`'s `createTestingClient`'s RPC, and you
 have a powerful ability to test your Agent implementation with the actual code 
 you will use in your browser, combined with the same ability as
 `runInDurableObject` to prepopulate or inspect your Agent's state at any point 
-during the test.
+during the test... all through one clean API
 
-## So What?
+## Why This Is Better
 
-This gives you a few advantages:
+This gives you a number of advantages:
+- Test Agents with AgentClient or any other client-side library
+- Use the browser WebSocket API
 - No need to stand up a separate "server" to run tests against
   - CI friendly
-  - Super fast, local dev cycles
-- Unified test coverage
-- Unified stack trace when you encounter an error
+  - Super fast, local dev/AI coding cycles
+  - Unified test coverage
+  - Unified stack trace when you encounter an error
 - As all things Lumenize, *de*light*ful* DX
+  - A fraction of the boilerplate
+  - Well tested
+  - Well documented
+  - Examples guaranteed in sync with code via doc-testing
+  - Assert on under-the-covers behavior like the request/response from/to
+    `AgentClient` during the WebSocket upgrade handshake, HttpOnly cookies,
+    etc.
 */
 
 /* 
