@@ -4,7 +4,7 @@
 
 /*
 This document demonstrates testing your use of Cloudflare's Agent class and 
-using AgentClient (both from the `agents` package) using `@lumenize/testing`. 
+AgentClient (both from the `agents` package) using `@lumenize/testing`. 
 We show two scenarios:
 
 1. **Multi-user chat** - Testing state synchronization across multiple 
@@ -16,35 +16,35 @@ We show two scenarios:
 For basic usage of `@lumenize/testing`, see the 
 [usage documentation](../testing-plain-do/test/usage.test.ts).
 
-## Why Testing Agents With AgentClient Is Hard?
+## Why Testing Agents With AgentClient Is Hard
 
 You could stand up two separate processes: one to host your Worker and Agent DO,
 and another to run `AgentClient` and have them talk over localhost to each 
-other, but that's a pain to do especially in CI and doesn't give you unified
-test coverage metrics.
+other, but that's a pain to do, especially in CI; it doesn't give you unified
+test coverage metrics, and is less conducive to fast iteration.
 
-You can avoid the multi-process part, by using `cloudflare:test`'s 
-`runInDurableObject` to exercise your Agent DO but you are calling handlers 
-directly which bypasses the Worker routing, input/output gates, your DO's own 
-fetch, etc. which can lead to subtle bugs in production [like the Agent's team
-has had](https://github.com/cloudflare/agents/issues/321).
+You can avoid the multi-process approach by using `cloudflare:test`'s 
+`runInDurableObject` to exercise your Agent DO, but you are calling handlers 
+directly, which bypasses the Worker routing, input/output gates, your DO's own 
+fetch, etc., which can allow subtle bugs to escape to production [like the
+Agent team has had](https://github.com/cloudflare/agents/issues/321).
 
 On the other hand, you can go through your Worker, fetch, input/output gates, 
-etc. using `cloudflare:test`'s `SELF.fetch()`, by sending in an HTTP Request 
+etc. using `cloudflare:test`'s `SELF.fetch()` by sending in an HTTP Request 
 with the correct WebSocket upgrade headers, extracting the returned raw ws 
-object and interacting with that. Some of the `agents` package tests do exactly 
-this. However, this raw ws object is not a full on WebSocket instance and even 
-if it were, tools like `AgentClient` expect to instantiate the WebSocket 
-themselves.
+object, and interacting with that. Some of the `agents` package tests now do 
+exactly this. However, this raw ws object is not a full WebSocket instance, 
+and even if it were, tools like `AgentClient` expect to instantiate the 
+WebSocket themselves.
 
-`@lumenize/testing` uses the same raw ws trick as the Agents tests except it 
-wraps it in a browser WebSocket API-compatible class. `AgentClient` allows you 
-to dependency inject your own WebSocket class as we show below. Now we are
-getting somewhere.
+`@lumenize/testing` uses the same raw ws trick as the newer Agents tests, 
+except it wraps it in a browser-compatible WebSocket API class. `AgentClient` 
+allows you to dependency inject your own WebSocket class, as we show below. Now 
+we are getting somewhere.
 
-Combine that with `@lumenize/testing`'s `createTestingClient` and you have a
-powerful ability to test your Agent implemention with the actual code you
-will use in your browser combined with the capability of `runInDurableObject`
+Combine that with `@lumenize/testing`'s `createTestingClient`, and you have a
+powerful ability to test your Agent implementation with the actual tools you
+will use in your browser, combined with the capability of `runInDurableObject`
 to prepopulate or inspect your Agent's state at any point during the test.
 
 ## So What?
@@ -62,8 +62,8 @@ This gives you a few advantages:
 ## Multi-User Chat Example
 
 This test demonstrates:
-- Creating multiple users with separate `Browser` instances--provides cookie 
-  isolation which is not crucial in this case, but good practice, and is 
+- Creating multiple users with separate `Browser` instances—provides cookie 
+  isolation, which is not crucial in this case but is good practice and is 
   crucial for the test that follows
 - Using `AgentClient` with injected `WebSocket` to connect to the same DO 
   instance
@@ -168,10 +168,10 @@ authentication. It generates a session ID and token, stores the mapping in
 Cloudflare KV, sets an HttpOnly cookie, and returns the token to the client.
 
 Two Agent classes are defined:
-- `ChatAgent`: Used by the test above--handles chat messages with join/chat 
+- `ChatAgent`: Used by the test above—handles chat messages with join/chat 
   events, tracks `lastMessage` instance variable, and persists 
   `totalMessageCount` in storage
-- `AuthAgent`: Used by the test below--validates authentication tokens from 
+- `AuthAgent`: Used by the test below—validates authentication tokens from 
   WebSocket protocol headers against KV session storage, closing connections 
   with code 1008 if invalid
 
