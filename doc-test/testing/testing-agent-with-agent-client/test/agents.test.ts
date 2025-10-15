@@ -11,7 +11,7 @@ import { MyAgent } from '../src';
 
 type MyAgentType = RpcAccessible<InstanceType<typeof MyAgent>>;
 
-it('shows hello world', async () => {
+it('shows testing two users in a chat', async () => {
   // Create RPC client with binding name and instance name
   await using client = createTestingClient<MyAgentType>('my-agent', 'hello');
   const WebSocket = new Browser().WebSocket;
