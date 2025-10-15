@@ -13,10 +13,9 @@ This documentation uses **testable code examples** to ensure accuracy and reliab
 Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
 
 </details>
-*Testing `Agent`s with `AgentClient`*
 
-This document demonstrates testing your use of Cloudflare's Agent class and 
-AgentClient (both from the `agents` package) using `@lumenize/testing`. 
+This document demonstrates testing your use of Cloudflare's `Agent` class and 
+`AgentClient` (both from the `agents` package) using `@lumenize/testing`. 
 We show two scenarios:
 
 1. **Multi-user chat** - Testing state synchronization across multiple 
@@ -28,10 +27,12 @@ We show two scenarios:
 For basic usage of `@lumenize/testing`, see the 
 [usage documentation](../testing-plain-do/test/usage.test.ts).
 
-## Why Testing Agents With AgentClient Is Hard
+## Why testing an `Agent` is hard
 
-You could stand up two separate processes: one to host your Worker and Agent DO,
-and another to run `AgentClient` and have them talk over localhost to each 
+To test your `Agent` implementation, you have a few options.
+
+You could stand up two separate processes: one to host your Worker and `Agent` 
+DO, and another to run `AgentClient` and have them talk over localhost to each 
 other, but that's a pain to do, especially in CI; it doesn't give you unified
 test coverage metrics, and is less conducive to fast iteration.
 
@@ -53,7 +54,7 @@ expect to instantiate the WebSocket themselves. Without `AgentClient`, you are
 stuck recreating, simulating, or mocking built-in functionality like state
 synchronization.
 
-## How `@lumenize/testing` Makes This Better
+## How `@lumenize/testing` makes this better
 
 `@lumenize/testing` uses the same raw ws trick as the newer Agents tests, 
 except it wraps it in a browser-compatible WebSocket API class. `AgentClient` 
@@ -63,10 +64,10 @@ we are getting somewhere.
 Combine that with `@lumenize/testing`'s `createTestingClient`'s RPC, and you 
 have a powerful ability to test your Agent implementation with the actual code 
 you will use in your browser, combined with the same ability as
-`runInDurableObject` to prepopulate or inspect your Agent's state at any point 
+`runInDurableObject` to prepopulate and inspect your Agent's state at any point 
 during the test... all through one clean API
 
-## Why This Is Better
+## Benefits
 
 This gives you a number of advantages:
 - Test Agents with AgentClient or any other client-side library
@@ -87,9 +88,9 @@ This gives you a number of advantages:
     `AgentClient` during the WebSocket upgrade handshake, HttpOnly cookies,
     etc.
 
-## Multi-User Chat Example
+## Multi-user chat example
 
-This test demonstrates:
+This example demonstrates:
 - Creating multiple users with separate `Browser` instances—provides cookie 
   isolation, which is not crucial in this case but is good practice and is 
   crucial for the test that follows
@@ -192,7 +193,7 @@ it('shows testing two users in a chat', async () => {
 
 
 
-## Setup Files
+## Setup files
 
 ### src/index.ts
 
@@ -358,44 +359,44 @@ Test configuration includes:
 
 ```json test/wrangler.jsonc
 {
-	"name": "testing-agent-with-agent-client",
-	"main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
-	"compatibility_date": "2025-09-12",
-	"compatibility_flags": [
-	  "nodejs_compat"
-	],
-	"migrations": [
-		{
-			"new_sqlite_classes": [
-				"ChatAgent"
-			],
-			"tag": "v1"
-		},
-		{
-			"new_sqlite_classes": [
-				"AuthAgent"
-			],
-			"tag": "v2"
-		}
-	],
-	"durable_objects": {
-		"bindings": [
-			{
-				"class_name": "ChatAgent",
-				"name": "CHAT_AGENT"
-			},
-			{
-				"class_name": "AuthAgent",
-				"name": "AUTH_AGENT"
-			}
-		]
-	},
-	"kv_namespaces": [
-		{
-			"binding": "SESSION_STORE",
-			"id": "preview_id"
-		}
-	]
+  "name": "testing-agent-with-agent-client",
+  "main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "ChatAgent"
+      ],
+      "tag": "v1"
+    },
+    {
+      "new_sqlite_classes": [
+        "AuthAgent"
+      ],
+      "tag": "v2"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "ChatAgent",
+        "name": "CHAT_AGENT"
+      },
+      {
+        "class_name": "AuthAgent",
+        "name": "AUTH_AGENT"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_STORE",
+      "id": "preview_id"
+    }
+  ]
 }
 ```
 
@@ -448,9 +449,9 @@ export default defineWorkersProject({
 
 ```
 
-## Advanced Authentication Test
+## Advanced authentication example
 
-This test demonstrates a complete authentication flow using:
+This example demonstrates a complete authentication flow using:
 
 1. **Session management**: Worker `/login` endpoint generates sessionId + 
    token, stores in KV

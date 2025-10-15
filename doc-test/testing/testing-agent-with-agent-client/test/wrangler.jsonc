@@ -1,40 +1,40 @@
 {
-	"name": "testing-agent-with-agent-client",
-	"main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
-	"compatibility_date": "2025-09-12",
-	"compatibility_flags": [
-	  "nodejs_compat"
-	],
-	"migrations": [
-		{
-			"new_sqlite_classes": [
-				"ChatAgent"
-			],
-			"tag": "v1"
-		},
-		{
-			"new_sqlite_classes": [
-				"AuthAgent"
-			],
-			"tag": "v2"
-		}
-	],
-	"durable_objects": {
-		"bindings": [
-			{
-				"class_name": "ChatAgent",
-				"name": "CHAT_AGENT"
-			},
-			{
-				"class_name": "AuthAgent",
-				"name": "AUTH_AGENT"
-			}
-		]
-	},
-	"kv_namespaces": [
-		{
-			"binding": "SESSION_STORE",
-			"id": "preview_id"
-		}
-	]
+  "name": "testing-agent-with-agent-client",
+  "main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "ChatAgent"
+      ],
+      "tag": "v1"
+    },
+    {
+      "new_sqlite_classes": [
+        "AuthAgent"
+      ],
+      "tag": "v2"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "ChatAgent",
+        "name": "CHAT_AGENT"
+      },
+      {
+        "class_name": "AuthAgent",
+        "name": "AUTH_AGENT"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "SESSION_STORE",
+      "id": "preview_id"
+    }
+  ]
 }

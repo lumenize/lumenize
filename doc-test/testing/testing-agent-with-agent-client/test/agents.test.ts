@@ -18,8 +18,10 @@ For basic usage of `@lumenize/testing`, see the
 
 ## Why testing an `Agent` is hard
 
-You could stand up two separate processes: one to host your Worker and Agent DO,
-and another to run `AgentClient` and have them talk over localhost to each 
+To test your `Agent` implementation, you have a few options.
+
+You could stand up two separate processes: one to host your Worker and `Agent` 
+DO, and another to run `AgentClient` and have them talk over localhost to each 
 other, but that's a pain to do, especially in CI; it doesn't give you unified
 test coverage metrics, and is less conducive to fast iteration.
 
@@ -51,7 +53,7 @@ we are getting somewhere.
 Combine that with `@lumenize/testing`'s `createTestingClient`'s RPC, and you 
 have a powerful ability to test your Agent implementation with the actual code 
 you will use in your browser, combined with the same ability as
-`runInDurableObject` to prepopulate or inspect your Agent's state at any point 
+`runInDurableObject` to prepopulate and inspect your Agent's state at any point 
 during the test... all through one clean API
 
 ## Benefits
@@ -79,7 +81,7 @@ This gives you a number of advantages:
 /* 
 ## Multi-user chat example
 
-This test demonstrates:
+This example demonstrates:
 - Creating multiple users with separate `Browser` instances—provides cookie 
   isolation, which is not crucial in this case but is good practice and is 
   crucial for the test that follows
@@ -228,7 +230,7 @@ Standard vitest configuration for Cloudflare Workers testing with:
 /*
 ## Advanced authentication example
 
-This test demonstrates a complete authentication flow using:
+This example demonstrates a complete authentication flow using:
 
 1. **Session management**: Worker `/login` endpoint generates sessionId + 
    token, stores in KV
