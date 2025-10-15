@@ -129,8 +129,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'utils/route-do-request',
         'utils/cors-support',
-        'utils/cookie-jar',
-        'utils/websocket-shim',
         ...(typedocUtilsSidebar && typedocUtilsSidebar.length > 0
           ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
           : []),

@@ -3,6 +3,8 @@
  * 
  * Simplified implementation for testing framework cookie jar functionality.
  * Handles the essential cookie operations needed for automated testing.
+ * 
+ * @internal
  */
 
 export interface Cookie {
@@ -20,6 +22,7 @@ export interface Cookie {
 /**
  * Parse a Set-Cookie header value into a Cookie object
  * 
+ * @internal
  * @param setCookieHeader - The Set-Cookie header value
  * @returns Parsed cookie object or null if invalid
  */
@@ -80,6 +83,7 @@ export function parseSetCookie(setCookieHeader: string): Cookie | null {
 /**
  * Parse multiple Set-Cookie headers
  * 
+ * @internal
  * @param setCookieHeaders - Array of Set-Cookie header values
  * @returns Array of parsed cookies
  */
@@ -92,6 +96,7 @@ export function parseSetCookies(setCookieHeaders: string[]): Cookie[] {
 /**
  * Serialize cookies into a Cookie header value
  * 
+ * @internal
  * @param cookies - Array of cookies to serialize
  * @returns Cookie header value (e.g., "name=value; name2=value2")
  */
@@ -104,6 +109,7 @@ export function serializeCookies(cookies: Cookie[]): string {
 /**
  * Check if a cookie matches the given domain and path
  * 
+ * @internal
  * @param cookie - The cookie to check
  * @param domain - The request domain
  * @param path - The request path

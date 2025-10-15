@@ -38,7 +38,7 @@ export const Counter = lumenizeRpcDo(_Counter);
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
     // Route RPC requests to the Durable Object. Works for https:// or wss://
-    // See: https://lumenize.com/docs/utilities/route-do-request
+    // See: https://lumenize.com/docs/utils/route-do-request
     const rpcResponse = await routeDORequest(request, env, { prefix: '__rpc' });
     if (rpcResponse) return rpcResponse;
     
