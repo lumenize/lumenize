@@ -11,6 +11,8 @@ export default {
       if (!password) {
         return new Response('Password required', { status: 400 });
       }
+
+      // Confirm password - not shown
       
       // Generate session ID and token
       const sessionId = crypto.randomUUID();
@@ -79,31 +81,29 @@ export class ChatAgent extends Agent<Env, ChatState>{
 
 // AuthAgent - demonstrates authentication with token validation
 export class AuthAgent extends Agent<Env, {}> {
-  initialState = {};
-
   async onConnect(connection: Connection, ctx: ConnectionContext) {
     // Extract token from WebSocket protocol (second protocol in the array)
     const protocols = ctx.request.headers.get('Sec-WebSocket-Protocol');
-    const token = protocols?.split(',').map(p => p.trim()).find(p => p.startsWith('auth.'))?.slice(5);
+    const token = protocols?.split(',')
+      .map(p => p.trim()).find(p => p.startsWith('auth.'))?.slice(5);
     
     // Extract sessionId from cookie
     const cookieHeader = ctx.request.headers.get('Cookie');
-    const sessionId = cookieHeader?.split(';').map(c => c.trim()).find(c => c.startsWith('sessionId='))?.slice(10);
+    const sessionId = cookieHeader?.split(';')
+      .map(c => c.trim()).find(c => c.startsWith('sessionId='))?.slice(10);
     
     if (!token || !sessionId) {
-      connection.close(1008, 'Missing authentication credentials');
-      return;
+      return connection.close(1008, 'Missing authentication credentials');
     }
     
     // Validate token matches sessionId in KV
     const storedToken = await this.env.SESSION_STORE.get(sessionId);
     if (storedToken !== token) {
-      connection.close(1008, 'Invalid authentication token');
-      return;
+      return connection.close(1008, 'Invalid authentication token');
     }
     
     // Authentication successful - echo back the sessionId
-    // In a real app, you might store session info in the DO or perform other setup
+    // In a real app, you might store session info in the DO or do other setup
     connection.send(JSON.stringify({ 
       type: 'auth_success', 
       sessionId,
