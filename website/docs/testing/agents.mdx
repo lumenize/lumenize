@@ -1,10 +1,22 @@
-/*
 # Agents
-*/
 
-/*
-This document demonstrates testing your use of Cloudflare's `Agent` class and 
-`AgentClient` (both from the `agents` package) using `@lumenize/testing`. 
+<details>
+<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
+
+This documentation uses **testable code examples** to ensure accuracy and reliability:
+
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual library
+- **Always up-to-date**: When the library changes, the tests fail and the docs must be updated
+- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
+
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
+
+</details>
+*Testing `Agent`s with `AgentClient`*
+
+This document demonstrates testing your use of Cloudflare's Agent class and 
+AgentClient (both from the `agents` package) using `@lumenize/testing`. 
 We show two scenarios:
 
 1. **Multi-user chat** - Testing state synchronization across multiple 
@@ -16,7 +28,7 @@ We show two scenarios:
 For basic usage of `@lumenize/testing`, see the 
 [usage documentation](../testing-plain-do/test/usage.test.ts).
 
-## Why testing an `Agent` is hard
+## Why Testing Agents With AgentClient Is Hard
 
 You could stand up two separate processes: one to host your Worker and Agent DO,
 and another to run `AgentClient` and have them talk over localhost to each 
@@ -41,7 +53,7 @@ expect to instantiate the WebSocket themselves. Without `AgentClient`, you are
 stuck recreating, simulating, or mocking built-in functionality like state
 synchronization.
 
-## How `@lumenize/testing` makes this better
+## How `@lumenize/testing` Makes This Better
 
 `@lumenize/testing` uses the same raw ws trick as the newer Agents tests, 
 except it wraps it in a browser-compatible WebSocket API class. `AgentClient` 
@@ -54,7 +66,7 @@ you will use in your browser, combined with the same ability as
 `runInDurableObject` to prepopulate or inspect your Agent's state at any point 
 during the test... all through one clean API
 
-## Benefits
+## Why This Is Better
 
 This gives you a number of advantages:
 - Test Agents with AgentClient or any other client-side library
@@ -74,10 +86,8 @@ This gives you a number of advantages:
   - Assert on under-the-covers behavior like the request/response from/to
     `AgentClient` during the WebSocket upgrade handshake, HttpOnly cookies,
     etc.
-*/
 
-/* 
-## Multi-user chat example
+## Multi-User Chat Example
 
 This test demonstrates:
 - Creating multiple users with separate `Browser` instances—provides cookie 
@@ -88,7 +98,11 @@ This test demonstrates:
 - Testing state synchronization across WebSocket connections
 - Accessing DO instance variables via RPC (`lastMessage`)
 - Verifying DO storage persistence (`totalMessageCount`)
-*/
+
+
+
+
+```typescript test
 import { it, expect, vi } from 'vitest';
 import type { RpcAccessible } from '@lumenize/testing';
 import { createTestingClient, Browser } from '@lumenize/testing';
@@ -173,9 +187,12 @@ it('shows testing two users in a chat', async () => {
   const totalCount = await client.ctx.storage.kv.get('totalMessageCount');
   expect(totalCount).toBe(1);
 });
+```
 
-/* 
-## Setup files
+
+
+
+## Setup Files
 
 ### src/index.ts
 
@@ -193,10 +210,123 @@ Two Agent classes are defined:
   WebSocket protocol headers against KV session storage, closing connections 
   with code 1008 if invalid
 
-@import {typescript} "../src/index.ts" [src/index.ts]
-*/
+```typescript src/index.ts
+import { Agent, routeAgentRequest, Connection, ConnectionContext, WSMessage } from "agents";
 
-/*
+// Worker
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    
+    // Handle login endpoint
+    if (url.pathname === '/login') {
+      const password = url.searchParams.get('password');
+      if (!password) {
+        return new Response('Password required', { status: 400 });
+      }
+
+      // Confirm password - not shown
+      
+      // Generate session ID and token
+      const sessionId = crypto.randomUUID();
+      const token = crypto.randomUUID();
+      
+      // Store session -> token mapping in KV
+      await env.SESSION_STORE.put(sessionId, token);
+      
+      // Set cookie and return token in body
+      return new Response(JSON.stringify({ token }), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Set-Cookie': `sessionId=${sessionId}; Path=/; HttpOnly; SameSite=Strict`
+        }
+      });
+    }
+    
+    return (
+      await routeAgentRequest(request, env) ||
+      new Response("Not Found", { status: 404 })
+    );
+  }
+} satisfies ExportedHandler<Env>;
+
+interface ChatState {
+  messages: Array<{ sender: string; text: string; }>;
+  participants: string[];
+}
+
+// Agent
+export class ChatAgent extends Agent<Env, ChatState>{
+  initialState = {
+    messages: [],
+    participants: [],
+  };
+
+  lastMessage: Date | null = null;
+
+  onMessage(connection: Connection, message: WSMessage) {
+    const msg = JSON.parse(message as string);
+
+    this.lastMessage = new Date();
+
+    if (msg.type === 'join') {
+      // Add participant to state
+      this.setState({
+        ...this.state,
+        participants: [...this.state.participants, msg.username],
+      });
+    } else if (msg.type === 'chat') {
+      // Increment total message count in storage
+      const count = this.ctx.storage.kv.get<number>('totalMessageCount') ?? 0;
+      this.ctx.storage.kv.put('totalMessageCount', count + 1);
+      
+      // Add chat message to state
+      this.setState({
+        ...this.state,
+        messages: [...this.state.messages, { 
+          sender: msg.username, 
+          text: msg.text,
+        }],
+      });
+    }
+  }
+};
+
+// AuthAgent - demonstrates authentication with token validation
+export class AuthAgent extends Agent<Env, {}> {
+  async onConnect(connection: Connection, ctx: ConnectionContext) {
+    // Extract token from WebSocket protocol (second protocol in the array)
+    const protocols = ctx.request.headers.get('Sec-WebSocket-Protocol');
+    const token = protocols?.split(',')
+      .map(p => p.trim()).find(p => p.startsWith('auth.'))?.slice(5);
+    
+    // Extract sessionId from cookie
+    const cookieHeader = ctx.request.headers.get('Cookie');
+    const sessionId = cookieHeader?.split(';')
+      .map(c => c.trim()).find(c => c.startsWith('sessionId='))?.slice(10);
+    
+    if (!token || !sessionId) {
+      return connection.close(1008, 'Missing authentication credentials');
+    }
+    
+    // Validate token matches sessionId in KV
+    const storedToken = await this.env.SESSION_STORE.get(sessionId);
+    if (storedToken !== token) {
+      return connection.close(1008, 'Invalid authentication token');
+    }
+    
+    // Authentication successful - echo back the sessionId
+    // In a real app, you might store session info in the DO or do other setup
+    connection.send(JSON.stringify({ 
+      type: 'auth_success', 
+      sessionId,
+      message: 'Authentication successful'
+    }));
+  }
+}
+
+```
+
 Here are the remainder of the setup files for this example.
 
 ### test/test-harness.ts
@@ -204,7 +334,20 @@ Here are the remainder of the setup files for this example.
 The test harness uses `instrumentDOProject` with explicit `doClassNames`
 configuration to export both Agent classes for testing.
 
-@import {typescript} "./test-harness.ts" [test/test-harness.ts]
+```typescript test/test-harness.ts
+import * as sourceModule from '../src';
+import { instrumentDOProject } from '@lumenize/testing';
+
+// Specify which exports are Durable Objects
+const instrumented = instrumentDOProject({
+  sourceModule,
+  doClassNames: ['ChatAgent', 'AuthAgent']
+});
+
+export const { ChatAgent, AuthAgent } = instrumented.dos;
+export default instrumented;
+
+```
 
 ### test/wrangler.jsonc
 
@@ -213,7 +356,48 @@ Test configuration includes:
 - `CHAT_AGENT` and `AUTH_AGENT` Durable Object bindings
 - Migrations to enable both Agent classes in the test environment
 
-@import {json} "./wrangler.jsonc" [test/wrangler.jsonc]
+```json test/wrangler.jsonc
+{
+	"name": "testing-agent-with-agent-client",
+	"main": "./test-harness.ts",  // The only difference from real wrangler.jsonc
+	"compatibility_date": "2025-09-12",
+	"compatibility_flags": [
+	  "nodejs_compat"
+	],
+	"migrations": [
+		{
+			"new_sqlite_classes": [
+				"ChatAgent"
+			],
+			"tag": "v1"
+		},
+		{
+			"new_sqlite_classes": [
+				"AuthAgent"
+			],
+			"tag": "v2"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "ChatAgent",
+				"name": "CHAT_AGENT"
+			},
+			{
+				"class_name": "AuthAgent",
+				"name": "AUTH_AGENT"
+			}
+		]
+	},
+	"kv_namespaces": [
+		{
+			"binding": "SESSION_STORE",
+			"id": "preview_id"
+		}
+	]
+}
+```
 
 ### vitest.config.js
 
@@ -222,11 +406,49 @@ Standard vitest configuration for Cloudflare Workers testing with:
 - `globals: true` for global test functions
 - Coverage configured with Istanbul provider
 
-@import {javascript} "../vitest.config.js" [vitest.config.js]
-*/
+```javascript vitest.config.js
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 
-/*
-## Advanced authentication example
+export default defineWorkersProject({
+  test: {
+    deps: {
+      optimizer: {
+        ssr: {
+          include: [
+            // vitest can't seem to properly import
+            // `require('./path/to/anything.json')` files,
+            // which ajv uses (by way of @modelcontextprotocol/sdk)
+            // the workaround is to add the package to the include list
+            "ajv"
+          ]
+        }
+      }
+    },
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
+        wrangler: { configPath: "./test/wrangler.jsonc" },  // Important! use the wrangler.jsonc in ./test
+      },
+    },
+    coverage: {
+      provider: "istanbul",
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
+    },
+  },
+});
+
+```
+
+## Advanced Authentication Test
 
 This test demonstrates a complete authentication flow using:
 
@@ -247,7 +469,11 @@ Key testing patterns:
 - Access `client.env.SESSION_STORE` via RPC to verify server-side state
 - Test both failure (wrong token) and success (correct token) paths
 - Use `vi.waitFor()` for async WebSocket events
-*/
+
+
+
+
+```typescript test
 it('demonstrates advanced authentication with KV session storage', async () => {
   // Create RPC client for AuthAgent to access its internals
   await using client = createTestingClient<AuthAgentType>('auth-agent', 'auth');
@@ -321,3 +547,6 @@ it('demonstrates advanced authentication with KV session storage', async () => {
     expect(authMessage?.message).toBe('Authentication successful');
   });
 });
+```
+
+

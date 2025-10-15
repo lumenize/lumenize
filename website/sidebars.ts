@@ -92,6 +92,13 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
           }
         },
+        {
+          type: 'doc',
+          id: 'testing/agents',
+          customProps: {
+            docTest: 'doc-test/testing/testing-agent-with-agent-client/test/agents.test.ts'
+          }
+        },
         ...(typedocTestingSidebar && typedocTestingSidebar.length > 0
           ? [wrapInApiReference(typedocTestingSidebar, 'API Reference')]
           : []),

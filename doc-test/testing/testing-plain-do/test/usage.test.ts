@@ -194,7 +194,7 @@ it('shows testing WebSocket functionality', async () => {
 });
 
 /*
-## StructuredClone Types
+## StructuredClone types
 
 All structured clone types are supported (like Cloudflare native RPC).
 */

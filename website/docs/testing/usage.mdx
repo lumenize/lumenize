@@ -590,21 +590,18 @@ it('shows testing Origin validation using browser.context()', async () => {
 
 
 
-## Test CORS preflight OPTIONS requests
+## CORS preflight OPTIONS
 
 Real browsers automatically send preflight OPTIONS requests for "non-simple" 
 cross-origin requests (e.g., requests with custom headers, non-simple content 
 types like application/json, or non-simple methods like PUT/DELETE/PATCH).
 
-`Browser.context().fetch` also sends preflight OPTIONS requests just 
-like real browsers do! When you make a cross-origin POST with application/json 
-or custom headers, the preflight is sent automatically before the actual 
-request.
+`Browser.context(origin).fetch` also sends preflight OPTIONS requests under 
+the same conditions that real browsers do! This section demonstrates that 
+behavior using requests with a custom header.
 
-This test demonstrates both:
-1. Explicit OPTIONS testing (for server-side validation)
-2. Automatic preflight behavior (POST with custom headers triggers automatic 
-   OPTIONS)
+The context object includes a non-standard `lastPreflight` property which is 
+useful for testing or debugging. It lets you inspect the most recent preflight.
 
 
 
@@ -612,71 +609,37 @@ This test demonstrates both:
 ```typescript test
 it('shows testing CORS preflight OPTIONS requests', async () => {
   const browser = new Browser();
-  const context = browser.context('https://safe.com');
+  const appContext = browser.context('https://app.example.com');
+
+  // Common requestOptions will trigger preflight if cross-origin
+  const requestOptions = { headers: { 'X-Custom-Header': 'test-value' }};
   
-  // Test 1: Explicit OPTIONS request (simulating preflight)
-  // This is what browsers send before non-simple requests
-  const preflightResponse = await context.fetch(
-    'https://safe.com/cors/my-do/preflight/increment', 
-    {
-      method: 'OPTIONS',
-      headers: {
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'content-type,x-custom-header'
-      }
-    }
+  // Same-origin - no preflight needed even with custom header
+  await appContext.fetch(
+    'https://app.example.com/my-do/preflight/increment', 
+    requestOptions
   );
+  expect(appContext.lastPreflight).toBeNull(); // No preflight for same-origin
   
-  expect(preflightResponse.status).toBe(204); // No Content
-  expect(preflightResponse.headers.get('Access-Control-Allow-Origin'))
-    .toBe('https://safe.com');
-  
-  // Test 2: POST with custom headers - automatic preflight is sent!
-  // Because this POST has Content-Type: application/json and a custom header,
-  // context().fetch will AUTOMATICALLY send a preflight OPTIONS request first,
-  // then send the actual POST. This matches real browser behavior.
-  await using client = createTestingClient<MyDOType>('MY_DO', 'preflight');
-  await client.ctx.storage.put('count', 0);
-  
-  const postResponse = await context.fetch(
+  // Cross-origin with custom header - triggers automatic preflight!
+  const postResponse = await appContext.fetch(
     'https://safe.com/cors/my-do/preflight/increment',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Custom-Header': 'test-value'
-      },
-      body: JSON.stringify({ increment: true })
-    }
+    requestOptions
   );
-  
-  expect(postResponse.ok).toBe(true);
+  expect(appContext.lastPreflight?.success).toBe(true);  // preflight succeeded
+  expect(postResponse.ok).toBe(true);  // request worked
   expect(postResponse.headers.get('Access-Control-Allow-Origin'))
-    .toBe('https://safe.com');
+    .toBe('https://app.example.com');  // CORS header reflects the origin
   
-  // Test 3: OPTIONS from disallowed origin should fail with CORS error
-  // Per CORS spec, server responds to OPTIONS (204) but without CORS headers
-  // Browser's CORS validator sees missing headers and throws
+  // Cross-origin from disallowed evil.com - preflight fails!
   const evilContext = browser.context('https://evil.com');
-  
-  // Preflight OPTIONS gets 204 but without CORS headers - triggers CORS error
   await expect(async () => {
-    await evilContext.fetch('https://safe.com/cors/my-do/preflight/increment', {
-      method: 'OPTIONS',
-      headers: {
-        'Access-Control-Request-Method': 'POST'
-      }
-    });
+    await evilContext.fetch(
+      'https://safe.com/cors/my-do/preflight/increment',
+      requestOptions
+    );
   }).rejects.toThrow('CORS error');
-  
-  // Test 4: The actual POST should also fail with CORS validation error
-  await expect(async () => {
-    await evilContext.fetch('https://safe.com/cors/my-do/preflight/increment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ test: true })
-    });
-  }).rejects.toThrow('CORS error');
+  expect(evilContext.lastPreflight?.success).toBe(false);  // preflight failed
 });
 ```
 
