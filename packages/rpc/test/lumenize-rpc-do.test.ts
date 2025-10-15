@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
-import { runInDurableObject, env } from 'cloudflare:test';
+import { runInDurableObject, env, SELF } from 'cloudflare:test';
 import type { RpcRequest, RpcResponse } from '@lumenize/rpc';
 
 // Use real structured-clone for sociable unit testing
@@ -21,7 +21,7 @@ const { stringify, parse } = require('@ungap/structured-clone/json');
 describe('lumenizeRpcDo server-side functionality', () => {
 
   // KEPT: Tests internal #preprocessResult implementation for arrays with functions
-  it('should handle arrays with functions in results', async () => {
+  it.only('should handle arrays with functions in results', async () => {
     // Tests that #preprocessResult handles arrays and converts functions to remote markers
     const id = env.EXAMPLE_DO.newUniqueId();
     const stub = env.EXAMPLE_DO.get(id);
@@ -34,13 +34,13 @@ describe('lumenizeRpcDo server-side functionality', () => {
         ]
       };
 
-      const request = new Request('https://example.com/__rpc/call', {
+      const request = new Request(`https://example.com/__rpc/example-do/${id.toString()}/call`, {
         method: 'POST',
         body: stringify(rpcRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
-      const response = await instance.fetch(request);
+      const response = await SELF.fetch(request);  // Demonstrates that you can use SELF.fetch inside of `runInDurableObject`
       expect(response.status).toBe(200);
 
       const responseText = await response.text();

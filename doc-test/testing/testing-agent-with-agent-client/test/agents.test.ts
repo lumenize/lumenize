@@ -29,23 +29,28 @@ directly, which bypasses the Worker routing, input/output gates, your DO's own
 fetch, etc., which can allow subtle bugs to escape to production [like the
 Agent team has had](https://github.com/cloudflare/agents/issues/321).
 
-On the other hand, you can go through your Worker, fetch, input/output gates, 
-etc. using `cloudflare:test`'s `SELF.fetch()` by sending in an HTTP Request 
-with the correct WebSocket upgrade headers, extracting the returned raw ws 
-object, and interacting with that. Some of the `agents` package tests now do 
-exactly this. However, this raw ws object is not a full WebSocket instance, 
-and even if it were, tools like `AgentClient` expect to instantiate the 
-WebSocket themselves.
+On the other hand, `cloudflare:test` has `SELF.fetch()`.
+It runs through your Worker, DO fetch, input/output 
+gates, etc. It's HTTP-only, but there is a little trick you can use to do some 
+web socket testing. You can send in an HTTP Request with the correct WebSocket 
+upgrade headers, and extract the raw ws object out of the Response. `ws.send()`
+allows you to send messages to your Agent's onMessage handler. Some of the 
+`agents` package tests now do exactly this. However, this raw ws object is not 
+a full WebSocket instance, and even if it were, classes like `AgentClient` 
+expect to instantiate the WebSocket themselves. Without `AgentClient`, you are
+stuck recreating, simulating, or mocking built-in functionality like state
+synchronization.
 
 `@lumenize/testing` uses the same raw ws trick as the newer Agents tests, 
 except it wraps it in a browser-compatible WebSocket API class. `AgentClient` 
 allows you to dependency inject your own WebSocket class, as we show below. Now 
 we are getting somewhere.
 
-Combine that with `@lumenize/testing`'s `createTestingClient`, and you have a
-powerful ability to test your Agent implementation with the actual tools you
-will use in your browser, combined with the capability of `runInDurableObject`
-to prepopulate or inspect your Agent's state at any point during the test.
+Combine that with `@lumenize/testing`'s `createTestingClient`'s RPC, and you 
+have a powerful ability to test your Agent implementation with the actual code 
+you will use in your browser, combined with the same ability as
+`runInDurableObject` to prepopulate or inspect your Agent's state at any point 
+during the test.
 
 ## So What?
 
