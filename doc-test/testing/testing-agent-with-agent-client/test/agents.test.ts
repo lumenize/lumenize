@@ -69,6 +69,8 @@ This gives you a number of advantages:
   - Well tested
   - Well documented
   - Examples guaranteed in sync with code via doc-testing
+  - Conveniences like cookie sharing between HTTP and WebSocket handshake like
+    a real browser, realistic CORS behavior, etc.
   - Assert on under-the-covers behavior like the request/response from/to
     `AgentClient` during the WebSocket upgrade handshake, HttpOnly cookies,
     etc.
