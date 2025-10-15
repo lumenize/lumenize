@@ -9,20 +9,29 @@ import { createRpcClient } from '@lumenize/rpc';
  * - Uses HTTP transport (simple and fast for testing)
  * - Provides RPC access to DO instance internals
  * 
- * For cookie-aware testing, use CookieJar with the exported `fetch` and `WebSocket`:
- * ```typescript
- * const jar = new CookieJar();
- * const cookieFetch = jar.getFetch(fetch);
- * const CookieWS = jar.getWebSocket(fetch);
- * ```
+ * @remarks
+ * Internally calls {@link createRpcClient} with testing-specific defaults.
+ * For production use or when you need full configuration control (custom transports,
+ * WebSocket connections, custom headers, etc.), use {@link createRpcClient} directly.
+ * 
+ * Both functions return the same underlying RpcClient instance and support 'await using'
+ * for automatic cleanup. The only difference is the level of configuration abstraction.
  * 
  * For test timeouts, use your test framework's timeout features (e.g., Vitest's `test.timeout`).
  * 
  * @example
  * ```typescript
- * // Simple usage - just binding name and instance ID!
+ * // Testing - simple, opinionated (this function)
  * await using client = createTestingClient<MyDOType>('MY_DO', 'instance-name');
  * await client.ctx.storage.put('key', 'value');
+ * 
+ * // Production - full control (use createRpcClient)
+ * await using client = createRpcClient<MyDOType>({
+ *   doBindingName: 'MY_DO',
+ *   doInstanceNameOrId: 'instance-name',
+ *   transport: 'websocket',
+ *   baseUrl: 'https://api.example.com'
+ * });
  * ```
  * 
  * @typeParam T - The type of the Durable Object. Use {@link RpcAccessible} to expose protected properties like `ctx` and `env`.

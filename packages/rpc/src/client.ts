@@ -11,6 +11,12 @@ import { convertRemoteFunctionsToStrings } from './object-inspection';
  * 
  * Use 'await using' for automatic cleanup, or manually manage lifecycle.
  * 
+ * @remarks
+ * This is a factory function that returns an instance of the internal {@link RpcClient} class.
+ * The factory pattern provides a cleaner API (no `new` keyword) and allows for easier
+ * API evolution without breaking changes. For testing, use {@link createTestingClient}
+ * which provides sensible defaults for the Cloudflare Workers test environment.
+ * 
  * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client) - Complete tested examples
  * 
  * @typeParam T - The type of the Durable Object being called. Use {@link RpcAccessible} to expose protected properties like `ctx` and `env`.
@@ -25,8 +31,35 @@ export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy 
 /**
  * RPC Client that maintains a persistent connection to a Durable Object.
  * The constructor returns a Proxy that forwards unknown methods to the DO.
+ * 
+ * @internal
+ * 
+ * DESIGN NOTE: Why is this a class if createRpcClient() is the public API?
+ * 
+ * 1. Factory Pattern (createRpcClient): PUBLIC API
+ *    - Cleaner syntax (no 'new' keyword required)
+ *    - Easier API evolution (can change internals without breaking users)
+ *    - Makes testing wrapper (createTestingClient) more natural
+ * 
+ * 2. Class Implementation (RpcClient): INTERNAL
+ *    - Manages stateful connection lifecycle (transport, reconnection)
+ *    - Implements Symbol.asyncDispose for 'await using' support
+ *      (Note: Both factory and class patterns support 'await using' equally - 
+ *       it's the Symbol.asyncDispose implementation that matters, not how the object is created)
+ *    - Uses Proxy pattern which works naturally with class instances
+ *    - Provides named type (RpcClient<T>) for advanced users who need type references
+ * 
+ * 3. Why Both Work Together:
+ *    - Factory = stable public API (simple, clean)
+ *    - Class = flexible internal implementation (powerful, maintainable)
+ *    - Users call createRpcClient(), get RpcClient instance
+ *    - Advanced users can reference RpcClient<T> type if needed
+ * 
+ * This pattern provides both simplicity for common use cases and power for advanced
+ * scenarios, without compromise.
  */
 export class RpcClient<T> {
+  // Type: All config properties are required (defaults applied) except WebSocketClass (only needed for websocket transport)
   #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceNameOrId' | 'WebSocketClass'>> & { 
     doBindingName: string;
     doInstanceNameOrId: string;

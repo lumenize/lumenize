@@ -4,7 +4,7 @@ import { instrumentDOProject } from '@lumenize/testing';
 // Simple case: Auto-detects MyDO since it's the only class export from '../src'
 const instrumented = instrumentDOProject(sourceModule);
 
-export const { MyDO } = instrumented.dos;
+export const { MyAgent } = instrumented.dos;
 export default instrumented;
 
 // If you had multiple DO classes in '../src', you'd get a helpful error like:

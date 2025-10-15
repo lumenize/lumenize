@@ -8,7 +8,7 @@
 	"migrations": [
 		{
 			"new_sqlite_classes": [
-				"MyDO"
+				"MyAgent"
 			],
 			"tag": "v1"
 		}
@@ -16,8 +16,8 @@
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "MyDO",
-				"name": "MY_DO"
+				"class_name": "MyAgent",
+				"name": "MY_AGENT"
 			}
 		]
 	}
