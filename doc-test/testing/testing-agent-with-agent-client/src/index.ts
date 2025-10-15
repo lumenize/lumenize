@@ -11,12 +11,8 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 interface ChatState {
-  messages: Array<{ sender: string; text: string; timestamp: number }>;
+  messages: Array<{ sender: string; text: string; }>;
   participants: string[];
-  settings: {
-    allowAnonymous: boolean;
-    maxHistoryLength: number;
-  };
 }
 
 // Agent
@@ -24,18 +20,28 @@ export class MyAgent extends Agent<Env, ChatState>{
   initialState = {
     messages: [],
     participants: [],
-    settings: {
-      allowAnonymous: true,
-      maxHistoryLength: 100,
-    },
   };
 
-  echo(value: any): any { return value; }
+  lastMessage: Date | null = null;
 
   onMessage(connection: Connection, message: WSMessage) {
-    console.log('got here');
-    connection.send("Received your message");
-  }
-  
+    const msg = JSON.parse(message as string);
 
+    if (msg.type === 'join') {
+      // Add participant to state
+      this.setState({
+        ...this.state,
+        participants: [...this.state.participants, msg.username],
+      });
+    } else if (msg.type === 'chat') {
+      // Add chat message to state
+      this.setState({
+        ...this.state,
+        messages: [...this.state.messages, { 
+          sender: msg.username, 
+          text: msg.text,
+        }],
+      });
+    }
+  }
 };
