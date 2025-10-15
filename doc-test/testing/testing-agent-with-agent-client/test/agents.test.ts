@@ -7,9 +7,10 @@ import { it, expect, vi } from 'vitest';
 import type { RpcAccessible } from '@lumenize/testing';
 import { createTestingClient, Browser } from '@lumenize/testing';
 import { AgentClient } from 'agents/client';
-import { ChatAgent } from '../src';
+import { ChatAgent, AuthAgent } from '../src';
 
 type ChatAgentType = RpcAccessible<InstanceType<typeof ChatAgent>>;
+type AuthAgentType = RpcAccessible<InstanceType<typeof AuthAgent>>;
 
 it('shows testing two users in a chat', async () => {
   // Create RPC client with binding name and instance name
@@ -85,4 +86,78 @@ it('shows testing two users in a chat', async () => {
   // Verify that storage persists total message count
   const totalCount = await client.ctx.storage.kv.get('totalMessageCount');
   expect(totalCount).toBe(1);
+});
+
+it('demonstrates advanced authentication with KV session storage', async () => {
+  // Create RPC client for AuthAgent to access its internals
+  await using client = createTestingClient<AuthAgentType>('auth-agent', 'auth');
+
+  // Create a browser for making the login request
+  const browser = new Browser();
+
+  // Step 1: Login to get token and sessionId cookie
+  const loginResponse = await browser.fetch('http://example.com/login?password=secret');
+  expect(loginResponse.status).toBe(200);
+  
+  const loginData = await loginResponse.json() as { token: string };
+  const { token } = loginData;
+  expect(token).toBeDefined();
+  
+  // Verify cookie was set
+  const sessionId = browser.getCookie('sessionId', 'example.com');
+  expect(sessionId).toBeDefined();
+
+  // Step 2: Attempt connection with WRONG token (should fail)
+  const wrongToken = 'wrong-token-' + crypto.randomUUID();
+  let closeCalled = false;
+  let closeCode = 0;
+  let closeReason = '';
+
+  const wrongTokenClient = new AgentClient({
+    host: 'example.com',
+    agent: 'auth-agent',
+    name: 'auth',
+    WebSocket: browser.WebSocket,
+    protocols: ['chosen.protocol', `auth.${wrongToken}`],
+  });
+
+  wrongTokenClient.addEventListener('close', (event) => {
+    closeCalled = true;
+    closeCode = event.code;
+    closeReason = event.reason;
+  });
+
+  // Wait for connection to be rejected
+  await vi.waitFor(() => {
+    expect(closeCalled).toBe(true);
+    expect(closeCode).toBe(1008);
+    expect(closeReason).toBe('Invalid authentication token');
+  });
+
+  // Step 3: Connect with CORRECT token (should succeed)
+  let authMessage: any = null;
+  const correctClient = new AgentClient({
+    host: 'example.com',
+    agent: 'auth-agent',
+    name: 'auth',
+    WebSocket: browser.WebSocket,
+    protocols: ['chosen.protocol', `auth.${token}`],
+  });
+
+  correctClient.addEventListener('message', (event) => {
+    authMessage = JSON.parse(event.data as string);
+  });
+
+  // Wait for successful auth message
+  await vi.waitFor(() => {
+    expect(authMessage).not.toBeNull();
+  });
+
+  // Verify the auth success message
+  expect(authMessage.type).toBe('auth_success');
+  expect(authMessage.sessionId).toBe(sessionId);
+  expect(authMessage.message).toBe('Authentication successful');
+
+  // Cleanup
+  correctClient.close();
 });

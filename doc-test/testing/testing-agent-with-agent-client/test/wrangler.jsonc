@@ -11,6 +11,12 @@
 				"ChatAgent"
 			],
 			"tag": "v1"
+		},
+		{
+			"new_sqlite_classes": [
+				"AuthAgent"
+			],
+			"tag": "v2"
 		}
 	],
 	"durable_objects": {
@@ -18,7 +24,17 @@
 			{
 				"class_name": "ChatAgent",
 				"name": "CHAT_AGENT"
+			},
+			{
+				"class_name": "AuthAgent",
+				"name": "AUTH_AGENT"
 			}
 		]
-	}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "SESSION_STORE",
+			"id": "preview_id"
+		}
+	]
 }
