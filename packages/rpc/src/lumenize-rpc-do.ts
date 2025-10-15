@@ -157,9 +157,6 @@ async function executeOperationChain(operations: OperationChain, doInstance: any
     if (operation.type === 'get') {
       // Property/element access
       current = current[operation.key];
-      if (current === undefined || current === null) {
-        throw new Error(`Property '${String(operation.key)}' is undefined or null`);
-      }
     } else if (operation.type === 'apply') {
       // Function call
       if (typeof current !== 'function') {

@@ -7,13 +7,16 @@ import { it, expect, vi } from 'vitest';
 import type { RpcAccessible } from '@lumenize/testing';
 import { createTestingClient, Browser } from '@lumenize/testing';
 import { AgentClient } from 'agents/client';
-import { MyAgent } from '../src';
+import { ChatAgent } from '../src';
 
-type MyAgentType = RpcAccessible<InstanceType<typeof MyAgent>>;
+type ChatAgentType = RpcAccessible<InstanceType<typeof ChatAgent>>;
 
 it('shows testing two users in a chat', async () => {
   // Create RPC client with binding name and instance name
-  await using client = createTestingClient<MyAgentType>('my-agent', 'chat');
+  await using client = createTestingClient<ChatAgentType>('chat-agent', 'chat');
+
+  // Check initial value of instance variable lastMessage
+  expect(await client.lastMessage).toBeNull();
 
   // Track latest state for both clients
   let aliceState: any = null;
@@ -23,7 +26,7 @@ it('shows testing two users in a chat', async () => {
   const aliceWebSocket = new Browser().WebSocket;
   const aliceClient = new AgentClient({
     host: 'example.com',
-    agent: 'my-agent',
+    agent: 'chat-agent',
     name: 'chat',
     WebSocket: aliceWebSocket,  // AgentClient let's us inject aliceWebSocket!
     onStateUpdate: (state) => {
@@ -39,7 +42,7 @@ it('shows testing two users in a chat', async () => {
   const bobBrowser = new Browser();
   const bobClient = new AgentClient({
     host: 'example.com',
-    agent: 'my-agent',
+    agent: 'chat-agent',
     name: 'chat',
     WebSocket: bobBrowser.WebSocket,
     onStateUpdate: (state) => {
@@ -75,4 +78,11 @@ it('shows testing two users in a chat', async () => {
   
   // Verify Bob also received the message
   expect(bobState.messages[0].text).toBe('Hello Bob!');
+
+  // Verify that lastMessage instance variable is as expected
+  expect(await client.lastMessage).toBeInstanceOf(Date);
+  
+  // Verify that storage persists total message count
+  const totalCount = await client.ctx.storage.kv.get('totalMessageCount');
+  expect(totalCount).toBe(1);
 });

@@ -8,7 +8,7 @@
 	"migrations": [
 		{
 			"new_sqlite_classes": [
-				"MyAgent"
+				"ChatAgent"
 			],
 			"tag": "v1"
 		}
@@ -16,8 +16,8 @@
 	"durable_objects": {
 		"bindings": [
 			{
-				"class_name": "MyAgent",
-				"name": "MY_AGENT"
+				"class_name": "ChatAgent",
+				"name": "CHAT_AGENT"
 			}
 		]
 	}

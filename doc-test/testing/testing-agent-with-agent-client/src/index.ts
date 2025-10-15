@@ -16,7 +16,7 @@ interface ChatState {
 }
 
 // Agent
-export class MyAgent extends Agent<Env, ChatState>{
+export class ChatAgent extends Agent<Env, ChatState>{
   initialState = {
     messages: [],
     participants: [],
@@ -27,6 +27,8 @@ export class MyAgent extends Agent<Env, ChatState>{
   onMessage(connection: Connection, message: WSMessage) {
     const msg = JSON.parse(message as string);
 
+    this.lastMessage = new Date();
+
     if (msg.type === 'join') {
       // Add participant to state
       this.setState({
@@ -34,6 +36,10 @@ export class MyAgent extends Agent<Env, ChatState>{
         participants: [...this.state.participants, msg.username],
       });
     } else if (msg.type === 'chat') {
+      // Increment total message count in storage
+      const count = this.ctx.storage.kv.get<number>('totalMessageCount') ?? 0;
+      this.ctx.storage.kv.put('totalMessageCount', count + 1);
+      
       // Add chat message to state
       this.setState({
         ...this.state,
