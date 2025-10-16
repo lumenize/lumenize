@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/doc-testing",
-  "version": "0.0.1",
+  "version": "0.8.1",
   "private": true,
   "description": "Docusaurus plugin for generating docs from test files",
   "type": "module",
@@ -19,16 +19,16 @@
     "test": "vitest"
   },
   "dependencies": {
-    "unified": "^11.0.5",
-    "remark-parse": "^11.0.0",
+    "fs-extra": "^11.2.0",
     "remark-frontmatter": "^5.0.0",
     "remark-mdx": "^3.1.0",
-    "unist-util-visit": "^5.0.0",
-    "fs-extra": "^11.2.0"
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.1",
     "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.10.1",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
   }

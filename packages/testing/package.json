@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/testing",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "De✨light✨ful testing utilities for Cloudflare Durable Objects",
   "type": "module",
   "main": "dist/index.js",
@@ -38,8 +38,8 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/rpc": "*",
-    "@lumenize/utils": "*"
+    "@lumenize/rpc": "^0.8.1",
+    "@lumenize/utils": "^0.8.1"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

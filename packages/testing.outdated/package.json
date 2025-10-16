@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/testing-outdated",
-  "version": "1.0.0",
+  "version": "0.8.1",
   "private": true,
   "description": "Testing utilities for Lumenize applications (DEPRECATED - use @lumenize/testing)",
   "type": "module",
