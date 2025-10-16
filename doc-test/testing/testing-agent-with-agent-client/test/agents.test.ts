@@ -14,7 +14,7 @@ We show two scenarios:
    state
 
 For basic usage of `@lumenize/testing`, see the 
-[usage documentation](../testing-plain-do/test/usage.test.ts).
+[usage documentation](/docs/testing/usage).
 
 ## Why testing an `Agent` is hard
 

@@ -25,7 +25,7 @@ We show two scenarios:
    state
 
 For basic usage of `@lumenize/testing`, see the 
-[usage documentation](../testing-plain-do/test/usage.test.ts).
+[usage documentation](/docs/testing/usage).
 
 ## Why testing an `Agent` is hard
 
@@ -33,18 +33,19 @@ To test your `Agent` implementation, you have a few options.
 
 You could stand up two separate processes: one to host your Worker and `Agent` 
 DO, and another to run `AgentClient` and have them talk over localhost to each 
-other, but that's a pain to do, especially in CI; it doesn't give you unified
-test coverage metrics, and is less conducive to fast iteration.
+other, but that's unecessary friction, especially in CI; it doesn't give you 
+unified test coverage metrics, and is less conducive to fast iteration by both 
+people and AI coding agents
 
 You can avoid the multi-process approach by using `cloudflare:test`'s 
 `runInDurableObject` to exercise your Agent DO, but you are calling handlers 
 directly, which bypasses the Worker routing, input/output gates, your DO's own 
-fetch, etc., which can allow subtle bugs to escape to production [like the
-Agent team has had](https://github.com/cloudflare/agents/issues/321).
+fetch, etc. This lower fidelity can allow subtle bugs to escape to production 
+[like happened with `agents`](https://github.com/cloudflare/agents/issues/321).
 
-On the other hand, you could use `cloudflare:test` has `SELF.fetch()`.
-It runs through your Worker, DO fetch, input/output 
-gates, etc. It's HTTP-only, but there is a little trick you can use to do some 
+On the other hand, `cloudflare:test` also provides `SELF.fetch()`. It runs 
+through your Worker, DO fetch, input/output gates, etc. Yes, it's 
+HTTP-only, but there is a little trick you can use to do some 
 web socket testing. You can send in an HTTP Request with the correct WebSocket 
 upgrade headers, and extract the raw ws object out of the Response. `ws.send()`
 allows you to send messages to your Agent's onMessage handler. Some of the 
@@ -56,7 +57,7 @@ synchronization.
 
 ## How `@lumenize/testing` makes this better
 
-`@lumenize/testing` uses the same raw ws trick as the newer Agents tests, 
+`@lumenize/testing` uses the same raw ws trick as the newer `agents` tests, 
 except it wraps it in a browser-compatible WebSocket API class. `AgentClient` 
 allows you to dependency inject your own WebSocket class, as we show below. Now 
 we are getting somewhere.
@@ -65,7 +66,7 @@ Combine that with `@lumenize/testing`'s `createTestingClient`'s RPC, and you
 have a powerful ability to test your Agent implementation with the actual code 
 you will use in your browser, combined with the same ability as
 `runInDurableObject` to prepopulate and inspect your Agent's state at any point 
-during the test... all through one clean API
+during the test... all through one clean API.
 
 ## Benefits
 
@@ -92,8 +93,8 @@ This gives you a number of advantages:
 
 This example demonstrates:
 - Creating multiple users with separate `Browser` instances—provides cookie 
-  isolation, which is not crucial in this case but is good practice and is 
-  crucial for the test that follows
+  isolation, which is not crucial in this case but is good practice and *is* 
+  critical for the test that follows
 - Using `AgentClient` with injected `WebSocket` to connect to the same DO 
   instance
 - Testing state synchronization across WebSocket connections
@@ -193,6 +194,8 @@ it('shows testing two users in a chat', async () => {
 
 
 
+Follow the instructions below to setup testing for your own agents.
+
 ## Installation
 
 First let's install some tools.
@@ -212,8 +215,9 @@ npm install --save-dev @lumenize/utils
 The Worker below is used by the test above as well as the one down below.
 
 It exports a fetch handler that provides a `/login` endpoint for 
-authentication. It generates a session ID and token, stores the mapping in 
-Cloudflare KV, sets an HttpOnly cookie, and returns the token to the client.
+authentication. This endpoint generates a session ID and token, stores the 
+mapping in Cloudflare KV, sets an HttpOnly cookie, and returns the token to the 
+client in the response body.
 
 Two Agent classes are defined:
 - `ChatAgent`: Used by the test above—handles chat messages with join/chat 
@@ -572,7 +576,7 @@ To run it as a vitest:
 vitest --run
 ```
 
-You can even see how much of the code is covered by these tests:
+You can even see how much of the code is covered by these tests. With the correct vitest config, this will even include your client code:
 ```bash
 vitest --run --coverage
 ```

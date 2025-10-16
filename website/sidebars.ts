@@ -118,10 +118,6 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
           }
         },
-        // 'rpc/quick-start',
-        // 'rpc/manual-instrumentation',
-        // 'rpc/error-handling',
-        // 'rpc/limitations',
         ...(typedocRpcSidebar && typedocRpcSidebar.length > 0
           ? [wrapInApiReference(typedocRpcSidebar, 'API Reference')]
           : []),
