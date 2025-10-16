@@ -5,52 +5,224 @@
 2. **API Documentation**: Extract JSDoc from source code to generate API reference docs (call signatures, types, etc.). ✅ **COMPLETE**
 3. **Automated Release Process**: Top-level build orchestration that runs all tests, ensures clean git state, builds all packages, uses Lerna to version/tag/publish packages to npm, and publishes docs to Cloudflare.
 
+## Key Decisions - CONFIRMED ✅
+
+1. **Versioning Strategy**: 
+   - ✅ **Synchronized versioning** (all packages version together)
+   - Initial version: **0.8.0** (to avoid conflict with legacy `Lumenize` package at 0.7.x)
+
+2. **Build Strategy**:
+   - ✅ **Build-on-publish** via centralized script (NOT in individual package.json)
+   - Build scripts live in monorepo root or `scripts/` directory
+   - Individual packages keep `"main": "src/index.ts"` for development (in git)
+   - Build process temporarily updates package.json to point to `dist/` for publish
+   - After publish, package.json reverts to `src/` for development (only `version` stays updated)
+
+3. **Doc-Test Integration**:
+   - ✅ Doc-tests live in `/doc-test/*/` folders
+   - ✅ Docusaurus plugin converts doc-tests to `.mdx` files in `/website/`
+   - ✅ Website build automatically runs doc-test extraction (already configured)
+
+4. **Website Deployment**:
+   - ✅ Uses Cloudflare Assets (via `wrangler deploy`)
+   - ✅ `npm run deploy` in `/website/` handles build + deployment
+   - ✅ Separate from npm package releases (can update docs independently)
+
+5. **npm Registry**:
+   - ✅ Publish to public npm registry (registry.npmjs.org)
+   - ✅ Scoped under `@lumenize/*` organization
+
+6. **Testing Requirements**:
+   - ✅ All doc-tests must pass before publishing (blocking)
+   - ✅ All package tests must pass before publishing (blocking)
+   - 🎯 Personal goal: >80% branch coverage (not enforced)
+
+## Critical Implementation Notes
+
+### Build Strategy: Keeping AI Agents Happy
+
+**Problem**: AI coding agents see build scripts in package.json and think they need to run builds after every change.
+
+**Solution**: Centralized build scripts in `/scripts/` directory
+- ✅ Individual package.json files have NO build scripts
+- ✅ Build happens via centralized `scripts/build-packages.sh`
+- ✅ Package.json manipulation happens in `scripts/prepare-for-publish.sh`
+- ✅ Development mode restored via `scripts/restore-dev-mode.sh`
+
+**Development Mode** (committed to git, what AI agents see):
+```json
+{
+  "version": "0.8.0",         // Updated by Lerna, committed
+  "main": "src/index.ts",     // Points to source for development
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
+```
+
+**Publish Mode** (temporary, during npm publish only):
+```json
+{
+  "version": "0.8.0",         // Same version
+  "main": "dist/index.js",    // Temporarily points to built files
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"]
+}
+```
+
+**After Publish** (reverted, back in git):
+```json
+{
+  "version": "0.8.0",         // Version stays updated ✅
+  "main": "src/index.ts",     // Back to source ✅
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
+```
+
+**Key Point**: Only the `version` field persists in git. Entry points (`main`, `types`, `exports`) temporarily change during publish, then revert back to `src/` for development.
+
+### Doc-Test Integration
+
+**How it works**:
+1. Doc-tests live in `/doc-test/*/` as standalone vitest projects
+2. **Release script** runs vitest in each doc-test folder to ensure they pass
+3. **Docusaurus plugin** extracts code and creates `.mdx` files in `/website/` (during website build only)
+4. Website build includes extracted doc-test content
+
+**Key distinction**: 
+- Release script = Runs the tests (vitest)
+- Docusaurus = Extracts and formats for docs (no test execution)
+
 ## Implementation Phases
 
 ### Phase 1: Monorepo Build & Release Automation
 
-#### 1.1: Research Lerna alternatives and best practices (2025)
-- [ ] Research build tools:
-  - [ ] Lerna vs. Changesets vs. nx vs. Turborepo
-  - [ ] npm workspaces + custom scripts
-  - [ ] pnpm workspace features
-- [ ] Design build orchestration requirements:
-  - [ ] Run all package tests (including extracted doc tests)
-  - [ ] Build all packages
-  - [ ] Ensure git is clean (no uncommitted changes)
-  - [ ] Version packages together (synchronized versions)
-  - [ ] Create git tag
-  - [ ] Publish to npm
-  - [ ] Build and publish website to Cloudflare
-  - [ ] Atomic: fail entire process if any step fails
-- [ ] **Checkpoint**: Review findings and design build process
+#### 1.1: Design Build Orchestration ✅ **DECISIONS CONFIRMED**
 
-#### 1.2: Install & Configure Lerna (or alternative)
-- [ ] Install Lerna in monorepo root (or selected alternative)
-- [ ] Configure lerna.json or equivalent:
-  - [ ] Synchronized versioning across packages
-  - [ ] Package locations (packages/*, examples/*)
-  - [ ] npm registry configuration
-- [ ] Set up version bump commands
-- [ ] Test dry-run of version bump
-- [ ] **Checkpoint**: Verify Lerna configuration
+**Architecture**:
+- ✅ Tool: Lerna (already installed) with npm workspaces
+- ✅ Versioning: Synchronized at **0.8.0** (avoiding legacy package conflict)
+- ✅ Build: Centralized in `scripts/` (NOT in individual package.json files)
+- ✅ Doc-tests: Docusaurus plugin converts doc-tests to .mdx automatically
+- ✅ Website: Separate deployment via `wrangler deploy`
 
-#### 1.3: Create Build Orchestration Script
-- [ ] Create top-level build script (e.g., scripts/release.sh or npm script):
-  - [ ] Step 1: Check git status (fail if uncommitted changes)
-  - [ ] Step 2: Run all package tests (pnpm -r test)
-  - [ ] Step 3: Run documentation tests (extracted from .mdx)
-  - [ ] Step 4: Build all packages (pnpm -r build)
-  - [ ] Step 5: Build website (docusaurus build)
-  - [ ] Step 6: Version bump with Lerna (interactive or automatic)
-  - [ ] Step 7: Create git tag
-  - [ ] Step 8: Git push with tags
-  - [ ] Step 9: Publish packages to npm (lerna publish or pnpm publish -r)
-  - [ ] Step 10: Publish website to Cloudflare
-- [ ] Add dry-run mode for testing
-- [ ] **Checkpoint**: Test build orchestration end-to-end (dry-run)
+**Build Orchestration Flow**:
+1. Pre-flight checks:
+   - Ensure git is clean (no uncommitted changes, no untracked files)
+   - Ensure on `main` branch
+   - Verify npm authentication (`npm whoami`)
+2. Testing phase:
+   - Run all package tests (`npm test --workspaces --if-present`)
+   - Run all doc-tests (from `doc-test/**/`)
+   - Fail if any test fails
+3. Build phase:
+   - Run centralized TypeScript build script for all packages
+   - Generate dist/ directories (not committed to git)
+   - Temporarily update package.json entry points to point to dist/
+4. Version & Publish phase:
+   - Version bump with Lerna (synchronized, interactive prompt)
+   - Create git commit with version changes (only `version` field)
+   - Create git tag (e.g., `v0.8.0`)
+   - Publish packages to npm (lerna publish from-package)
+   - Git push with tags
+5. Cleanup phase:
+   - Restore package.json entry points to src/ for development
+   - Remove dist/ directories (or leave for next build, as they're .gitignore'd)
+6. Atomic failure: Rollback uncommitted changes if any step fails
 
-#### 1.4: CI/CD Integration (Optional)
+#### 1.2: Configure Lerna for Synchronized Versioning
+- [ ] Update `lerna.json`:
+  - [ ] Set version to `"0.8.0"` (starting point, avoiding legacy package conflict)
+  - [ ] Configure for synchronized/fixed versioning mode
+  - [ ] Set package locations (`packages/*`)
+  - [ ] Configure npm registry and access
+- [ ] Update all package.json versions:
+  - [ ] Set `@lumenize/rpc` to `0.8.0`
+  - [ ] Set `@lumenize/testing` to `0.8.0`
+  - [ ] Set `@lumenize/utils` to `0.8.0`
+- [ ] Verify Lerna can detect packages:
+  - [ ] Run `npx lerna list` to confirm all packages found
+- [ ] Test version bump (dry-run):
+  - [ ] Run `npx lerna version --no-git-tag-version --no-push` to simulate
+- [ ] **Checkpoint**: Verify Lerna configuration and package detection
+
+#### 1.3: Create Centralized Build Script
+- [ ] Create `scripts/build-packages.sh`:
+  - [ ] For each package in `packages/*`:
+    - [ ] Run TypeScript compiler (`tsc`) with package-specific tsconfig
+    - [ ] Generate `dist/` directory with .js and .d.ts files
+    - [ ] Validate build output (check for compilation errors)
+  - [ ] Script should be idempotent (can run multiple times safely)
+  - [ ] Add error handling (exit on first failure)
+- [ ] Create `scripts/prepare-for-publish.sh`:
+  - [ ] Run `scripts/build-packages.sh`
+  - [ ] For each package, temporarily update package.json:
+    - [ ] Change `"main"` from `"src/index.ts"` to `"dist/index.js"`
+    - [ ] Change `"types"` from `"src/index.ts"` to `"dist/index.d.ts"`
+    - [ ] Update `"exports"` to point to dist/
+  - [ ] Add `"files": ["dist", "src"]` if not already present
+  - [ ] Store original package.json for restoration
+- [ ] Create `scripts/restore-dev-mode.sh`:
+  - [ ] Restore package.json entry points to src/ for development
+  - [ ] Remove dist/ directories (optional, as they're .gitignore'd)
+- [ ] Test build script on all packages
+- [ ] **Checkpoint**: Verify build script works and packages build successfully
+
+#### 1.4: Create Release Orchestration Script
+- [ ] Create `scripts/release.sh` with comprehensive error handling:
+  - [ ] Step 1: Pre-flight checks
+    - [ ] Verify on `main` branch
+    - [ ] Check git status (fail if uncommitted/untracked files)
+    - [ ] Verify npm credentials (`npm whoami`)
+  - [ ] Step 2: Run all tests
+    - [ ] Run package tests (`npm test --workspaces --if-present`)
+    - [ ] Auto-discover and run doc-tests (`doc-test/**/vitest.config.js`)
+    - [ ] Fail if any test fails
+  - [ ] Step 3: Build packages
+    - [ ] Run `scripts/prepare-for-publish.sh`
+    - [ ] Verify all packages built successfully
+  - [ ] Step 4: Version & Tag
+    - [ ] Interactive: Run `lerna version` (prompts for version bump type)
+    - [ ] Lerna creates commit and git tag automatically
+    - [ ] Lerna pushes tags (if configured)
+  - [ ] Step 5: Publish to npm
+    - [ ] Run `lerna publish from-package` (publishes current versions)
+    - [ ] Automatically pushes to npm registry
+  - [ ] Step 6: Cleanup
+    - [ ] Run `scripts/restore-dev-mode.sh`
+    - [ ] Success: Report published versions and git tag
+    - [ ] Failure: Rollback uncommitted changes, restore package.json
+- [ ] Create `scripts/release-dry-run.sh`:
+  - [ ] Runs all tests and builds
+  - [ ] Simulates version bump (shows what would change)
+  - [ ] Does NOT publish or create git tags
+  - [ ] Restores dev mode at end
+- [ ] Add npm scripts to root package.json:
+  - [ ] `"release:dry-run": "./scripts/release-dry-run.sh"`
+  - [ ] `"release": "./scripts/release.sh"`
+- [ ] **Checkpoint**: Test dry-run end-to-end multiple times
+
+#### 1.5: Website Publishing (Separate from npm releases)
+- [ ] Document website deployment process:
+  - [ ] Website already has `npm run deploy` which:
+    - [ ] Runs Docusaurus build (includes doc-test extraction plugin)
+    - [ ] Runs `wrangler deploy` to Cloudflare Assets
+  - [ ] Website can be updated independently of package releases
+  - [ ] Add note in release docs about optional website update after npm publish
+- [ ] Verify `npm run deploy` works from `/website/` directory
+- [ ] **Checkpoint**: Confirm website deployment works
+
+#### 1.6: CI/CD Integration (Future - Not Priority)
 - [ ] Consider GitHub Actions workflow for automated releases
 - [ ] Set up secrets for npm and Cloudflare tokens
 - [ ] Configure workflow to run on git tags or manual trigger
@@ -82,14 +254,39 @@
 
 ### Phase 3: Testing & Refinement
 
-- [ ] Run full build process from clean state
-- [ ] Test failure scenarios (failing test in docs, dirty git, build errors)
-- [ ] Verify all documentation examples execute correctly
-- [ ] Verify API docs are accurate and complete
-- [ ] Test publishing to npm (maybe using npm dry-run)
-- [ ] Test publishing website to Cloudflare
-- [ ] Document the release process for future reference
-- [ ] **Checkpoint**: Ready for first real release
+- [ ] Run full dry-run from clean state multiple times
+- [ ] Test failure scenarios:
+  - [ ] Failing unit test blocks release
+  - [ ] Failing doc-test blocks release
+  - [ ] Dirty git state blocks release
+  - [ ] Not on main branch blocks release
+- [ ] Verify package.json manipulation:
+  - [ ] Dev mode → Publish mode → Dev mode works correctly
+  - [ ] No unintended changes to package.json
+- [ ] Test actual npm publish (maybe using `npm pack` first):
+  - [ ] Verify published package contains dist/ folder
+  - [ ] Verify published package has correct entry points
+  - [ ] Verify types work for consumers
+- [ ] Create release documentation:
+  - [ ] Document the release process for future reference
+  - [ ] Add troubleshooting guide
+  - [ ] Document rollback procedures
+- [ ] **Checkpoint**: Ready for first real release to npm
+
+## Quick Reference: Release Commands
+
+Once Phase 1 is complete, releases will work like this:
+
+```bash
+# Test everything without publishing
+npm run release:dry-run
+
+# Actual release (interactive - will prompt for version bump)
+npm run release
+
+# Deploy website separately (can be done anytime)
+cd website && npm run deploy
+```
 
 ## Checkpoints
 - After each step completion, ask for review. During review:
