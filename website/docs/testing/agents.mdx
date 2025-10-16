@@ -159,7 +159,7 @@ it('shows testing two users in a chat', async () => {
   // Wait for both to see that they've both joined
   await vi.waitFor(() => {
     expect(bobState.participants).toContain('Bob');
-    expect(aliceState.participants).toContain('Alice');
+    expect(bobState.participants).toContain('Alice');
     expect(aliceState.participants).toContain('Bob');
     expect(aliceState.participants).toContain('Alice');
   });
@@ -192,6 +192,18 @@ it('shows testing two users in a chat', async () => {
 
 
 
+
+## Installation
+
+First let's install some tools.
+
+```bash npm2yarn
+npm install --save-dev vitest@3.2
+npm install --save-dev @vitest/coverage-istanbul@3.2
+npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @lumenize/testing
+npm install --save-dev @lumenize/utils
+```
 
 ## Setup files
 
@@ -551,3 +563,16 @@ it('demonstrates advanced authentication with KV session storage', async () => {
 ```
 
 
+
+
+## Try it out
+
+To run it as a vitest:
+```bash
+vitest --run
+```
+
+You can even see how much of the code is covered by these tests:
+```bash
+vitest --run --coverage
+```

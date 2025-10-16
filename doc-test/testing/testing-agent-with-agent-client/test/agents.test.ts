@@ -146,7 +146,7 @@ it('shows testing two users in a chat', async () => {
   // Wait for both to see that they've both joined
   await vi.waitFor(() => {
     expect(bobState.participants).toContain('Bob');
-    expect(aliceState.participants).toContain('Alice');
+    expect(bobState.participants).toContain('Alice');
     expect(aliceState.participants).toContain('Bob');
     expect(aliceState.participants).toContain('Alice');
   });
@@ -335,3 +335,17 @@ it('demonstrates advanced authentication with KV session storage', async () => {
     expect(authMessage?.message).toBe('Authentication successful');
   });
 });
+
+/*
+## Try it out
+
+To run it as a vitest:
+```bash
+vitest --run
+```
+
+You can even see how much of the code is covered by these tests:
+```bash
+vitest --run --coverage
+```
+*/

@@ -111,7 +111,14 @@ const sidebars: SidebarsConfig = {
       label: 'RPC',
       items: [
         'rpc/introduction',
-        'rpc/quick-start',
+        {
+          type: 'doc',
+          id: 'rpc/quick-start',
+          customProps: {
+            docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
+          }
+        },
+        // 'rpc/quick-start',
         // 'rpc/manual-instrumentation',
         // 'rpc/error-handling',
         // 'rpc/limitations',

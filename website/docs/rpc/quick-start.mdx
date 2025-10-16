@@ -1,22 +1,81 @@
----
-title: Quick Start
-description: Get started with Lumenize RPC in minutes
-testable: true
----
+# Quick Start
 
-# RPC Quick Start
+<details>
+<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
 
-This guide shows you how to create a simple Durable Object with RPC support using Lumenize.
+This documentation uses **testable code examples** to ensure accuracy and reliability:
+
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual library
+- **Always up-to-date**: When the library changes, the tests fail and the docs must be updated
+- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
+
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
+
+</details>
+
+Here's what minimal use of Lumenize RPC looks like.
+
+## test/quick-start.test.ts
+
+
+
+
+```typescript test
+import { it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+import {
+  createRpcClient,
+  RpcAccessible,
+  getWebSocketShim
+} from '@lumenize/rpc';
+
+import { Counter } from '../src/index';
+type Counter = RpcAccessible<InstanceType<typeof Counter>>;
+
+it('shows basic usage of Lumenize RPC', async () => {
+  await using client = createRpcClient<Counter>({
+    doBindingName: 'COUNTER',  // or 'counter' if you want pretty URLs
+    WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+    doInstanceNameOrId: 'test-counter',
+  });
+
+  // Test increment
+  const result1 = await client.increment();
+  expect(result1).toBe(1);
+
+  // Test again
+  const result2 = await client.increment();
+  expect(result2).toBe(2);
+
+  // Verify value in storage
+  const value = await client.ctx.storage.kv.get('count');  // await always required
+  expect(value).toBe(2);
+});
+```
+
+
+
+
+To run the example above, put it in `test/quick-start.test.ts` and perform the 
+following setup.
 
 ## Installation
 
+First let's install some tools
+
 ```bash npm2yarn
-npm install @lumenize/rpc
+npm install --save-dev vitest@3.2
+npm install --save-dev @vitest/coverage-istanbul@3.2
+npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @lumenize/rpc
+npm install --save-dev @lumenize/utils
 ```
 
-## Create a Durable Object
+## src/index.ts
 
-First, create a simple Counter Durable Object `_Counter` and Worker. Then wrap the DO so it gets RPC support using `lumenizeRpcDO` and export that as `Counter`:
+Next add this Worker and Durable Object:
 
 ```typescript src/index.ts
 import { lumenizeRpcDO } from '@lumenize/rpc';
@@ -25,7 +84,8 @@ import { DurableObject } from 'cloudflare:workers';
 
 class _Counter extends DurableObject {
   increment() {
-    const count = this.ctx.storage.kv.get('count') + 1 || 1;
+    let count: number = this.ctx.storage.kv.get('count') ?? 0;
+    count++;
     this.ctx.storage.kv.put('count', count);
     return count;
   }
@@ -46,15 +106,16 @@ export default {
     return new Response('Not Found', { status: 404 });
   },
 };
+
 ```
 
-## Configure Wrangler
+## wrangler.jsonc
 
-Add the Durable Object binding to your `wrangler.jsonc`:
+You `wrangler` config should look something like this:
 
-```jsonc wrangler
+```json wrangler.jsonc
 {
-  "name": "my-app",
+  "name": "rpc-counter",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
@@ -72,99 +133,55 @@ Add the Durable Object binding to your `wrangler.jsonc`:
     }
   ]
 }
+
 ```
 
-## See it in action over HTTP
+## vitest.config.js
 
-Here's how you might use it.
+Then add to your `vite` config, if applicable, or create a `vitest` config that 
+looks something like this:
 
-```typescript test
-import { describe, it, expect } from 'vitest';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
-import { SELF } from 'cloudflare:test';
-import { createRpcClient, RpcAccessible, getWebSocketShim } from '@lumenize/rpc';
+```javascript vitest.config.js
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 
-import { Counter } from '../src/index';
-type Counter = RpcAccessible<InstanceType<typeof Counter>>;
-
-describe('Counter RPC over HTTP', () => {
-  it('should increment the counter', async () => {
-    // Create RPC client pointing to our test environment
-    const client = createRpcClient<Counter>({
-      transport: 'http',  // default: 'websocket'
-      baseUrl: 'http://test',
-      doBindingName: 'COUNTER',  // or 'counter' for nice urls
-      doInstanceNameOrId: 'test-counter-over-http',
-      prefix: '__rpc',  // default: '__rpc'
-      fetch: SELF.fetch.bind(SELF),  // default: globalThis.fetch()
-    });
-    
-    // Test increment
-    const result1 = await client.increment();
-    expect(result1).toBe(1);
-    
-    // Test again
-    const result2 = await client.increment();
-    expect(result2).toBe(2);
-    
-    // Verify value in storage
-    const value = await client.ctx.storage.kv.get('count');  // await always required
-    expect(value).toBe(2);
-  });
-});
-```
-
-## Websocket transport
-
-The WebSocket transport is slightly more efficient and it will be the basis for
-planned bidirectional capability. It is the default.
-
-Note, everything shown here for WebSocket transport can be done with
-HTTP transport and vice-versa.
-
-```typescript test
-describe('WebSocket RPC Transport', () => {
-  it('should show all members of Counter class', async () => {
-    await using client = createRpcClient<Counter>({
-      doBindingName: 'counter',  // auto case-converts
-      WebSocketClass: getWebSocketShim(SELF),
-      doInstanceNameOrId: 'test-counter-over-websocket',
-    });
-
-    // Get object representation for inspection
-    const clientAsObject = await (client as any).__asObject();
-
-    expect(clientAsObject).toMatchObject({
-      // DO methods are discoverable
-      increment: "increment [Function]",
-      
-      // DurableObjectState context with complete API
-      ctx: {
-        storage: {
-          get: "get [Function]",
-          put: "put [Function]",
-          // ... other storage methods available
-          sql: {
-            databaseSize: expect.any(Number), // Assert on non-function properties
-            // ... other ctx.sql methods
-          },
-        },
-        getWebSockets: "getWebSockets [Function]",
-        setWebSocketAutoResponse: "setWebSocketAutoResponse [Function]",
-        // ... other ctx methods available
+export default defineWorkersProject({
+  test: {
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./wrangler.jsonc" },  
       },
-      
-      // Environment object with DO bindings
-      env: {
-        COUNTER: {
-          getByName: "getByName [Function]",
-          newUniqueId: "newUniqueId [Function]",
-          // ... other binding methods available
-        },
-        // ... other environment bindings available
-      }
-    });
-  });
+    },
+    // Use `vitest --run --coverage` to get test coverage report(s)
+    coverage: {
+      provider: "istanbul",  // Cannot use V8
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
+    },
+  },
 });
 
+```
+
+## Try it out
+
+To run it as a vitest:
+```bash
+vitest --run
+```
+
+You can even see how much of the code is covered by this "test":
+```bash
+vitest --run --coverage
 ```

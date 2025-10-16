@@ -459,3 +459,27 @@ it('requires await for even non-async function calls', async () => {
   expect(typeof fullObject.ctx.storage.sql.databaseSize).toBe('number');
   expect(fullObject.ctx.storage.sql.databaseSize).toBe(await sql.databaseSize);
 });
+
+/*
+## Try it out
+
+To run it as a vitest:
+```bash
+vitest --run
+```
+
+You can even see how much of the code is covered by these tests:
+```bash
+vitest --run --coverage
+```
+
+It should look something like this:
+<img
+  src="/img/coverage-report.png"
+  alt="Test coverage report" 
+  style={{maxWidth: '500px', height: 'auto'}}>
+</img>
+
+With the right vitest configuration, it'll even show you the coverage of your
+client-side code in the same report.
+*/

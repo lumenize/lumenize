@@ -1,10 +1,11 @@
 /*
-# Quick-start
+# Quick Start
 */
 
 /*
-## Basic Usage
+Here's what minimal use of Lumenize RPC looks like.
 
+## test/quick-start.test.ts
 */
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
@@ -39,8 +40,8 @@ it('shows basic usage of Lumenize RPC', async () => {
 });
 
 /*
-To run the example above, put it in a folder `/test` and perform the following 
-setup.
+To run the example above, put it in `test/quick-start.test.ts` and perform the 
+following setup.
 
 ## Installation
 
@@ -56,11 +57,11 @@ npm install --save-dev @lumenize/utils
 
 ## src/index.ts
 
-Let's say you have this Worker and Durable Object:
+Next add this Worker and Durable Object:
 
 @import {typescript} "../src/index.ts" [src/index.ts]
 
-## test/wrangler.jsonc
+## wrangler.jsonc
 
 You `wrangler` config should look something like this:
 
@@ -73,9 +74,15 @@ looks something like this:
 
 @import {javascript} "../vitest.config.js" [vitest.config.js]
 
-## Your tests
+## Try it out
 
-Then write your tests using vitest as you would normally. The rest of this 
-document are examples of tests you might write for the Worker and DO above.
+To run it as a vitest:
+```bash
+vitest --run
+```
 
+You can even see how much of the code is covered by this "test":
+```bash
+vitest --run --coverage
+```
 */

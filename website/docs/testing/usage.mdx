@@ -96,6 +96,7 @@ npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/testing
+npm install --save-dev @lumenize/utils
 ```
 
 ## src/index.ts
@@ -739,3 +740,23 @@ it('requires await for even non-async function calls', async () => {
 ```
 
 
+
+
+## Try it out
+
+To run it as a vitest:
+```bash
+vitest --run
+```
+
+You can even see how much of the code is covered by these tests:
+```bash
+vitest --run --coverage
+```
+
+It should look something like this:
+<img
+  src="/img/coverage-report.png"
+  alt="Test coverage report" 
+  style={{maxWidth: '500px', height: 'auto'}}>
+</img>

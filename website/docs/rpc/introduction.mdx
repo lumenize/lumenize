@@ -11,6 +11,29 @@ Lumenize RPC has two different use cases:
 1. In-process integration testing which is documented in 
    [`@lumenize/testing` Usage](/docs/testing/usage)
 2. In-production RPC which is documented in this section
+
+:::note
+<details>
+  <summary>
+    <strong>Lumenize RPC</strong> vs <strong>Cloudflare Cap'n Web</strong>
+  </summary>
+  If the docs for Lumenize RPC seems a comparatively light (we wrote over 500 
+  lines of docs for `routeDORequest`, after all), that's because it is. 
+  Somewhere between the time we decided to open-source big chuncks of Lumenize
+  and the when we pushed to `npm`, Cloudflare, and the amazing Kenton Varga,
+  came out with their own from-the-browser RPC, Cap'n Web.
+
+  As of this writing, we don't have complete insight into when to use which.
+  We also don't performance metrics. When we have performance metrics and have
+  used Cap'n Web ourselves, we will come back with more guidance. But for 
+  now... 
+  
+  There is one feature of Lumenize RPC that Kenton has said he will never add
+  to Cap'n Web, support for circular objects. He went so far as to say that
+  he wishes he had never supported it in Cloudflare-native RPC (aka Cap'n 
+  Protocol) and may work to remove it behind a compatibility date.
+</details>
+:::
    
 ## In-production RPC
 
@@ -50,4 +73,4 @@ At the moment, both transports have identical functionality, but different chara
 Choose based on your use case:
 - **When in doubt**: WebSocket is usually as reliable and almost always more efficient
 - **In-production use with unknown network intermediaries**: HTTP is potentially more reliable
-- **Future proof**: To-be-released Lumenize uses WebSocket for server to client communications like for state synchronization
+- **Future proof**: The as-yet-to-be-released LumenizeBase uses WebSockets for real-time updates, like state synchronization. You won't need to change your client-side code if you start with WebSockets today and later upgrade server-side to use LumenizeBase.
