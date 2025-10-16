@@ -10,7 +10,7 @@ interface InternalInit {
 /**
  * Configuration options for creating a WebSocket shim factory.
  */
-export interface FactoryInit {
+export interface WebSocketShimOptions {
   /** Optional headers to include in the WebSocket upgrade request (e.g., for authentication). */
   headers?: Record<string, string>;
   /** Optional maximum number of bytes that can be queued while in CONNECTING state. Defaults to unlimited. */
@@ -27,7 +27,7 @@ export interface FactoryInit {
  * @param factoryInit - Optional configuration for headers and queue limits.
  * @returns A WebSocket-compatible constructor class.
  */
-export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: FactoryInit): new (url: string | URL, protocols?: string | string[]) => WebSocket {
+export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: WebSocketShimOptions): new (url: string | URL, protocols?: string | string[]) => WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)
     static readonly CONNECTING = 0;

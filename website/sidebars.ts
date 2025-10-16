@@ -113,7 +113,6 @@ const sidebars: SidebarsConfig = {
         'rpc/introduction',
         'rpc/quick-start',
         'rpc/manual-instrumentation',
-        'rpc/websocket-testing',
         'rpc/error-handling',
         'rpc/limitations',
         ...(typedocRpcSidebar && typedocRpcSidebar.length > 0

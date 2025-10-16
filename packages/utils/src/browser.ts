@@ -17,7 +17,11 @@ type PreflightInfo = {
 };
 
 /**
- * Cookie-aware HTTP client for browser-based APIs
+ * Cookie and Origin-aware client for HTTP and WebSockets
+ * 
+ * For detailed examples of `Browser` in testing examples, see 
+ * [`@lumenize/testing` Usage](/docs/testing/usage) and 
+ * [`@lumenize/testing` Agents](/docs/testing/agents).
  * 
  * Automatically manages cookies across requests, making it easy to interact with APIs
  * that rely on cookies for authentication, session management, and other flows. This is
@@ -670,8 +674,3 @@ export class Browser {
     return setCookieHeaders;
   }
 }
-
-/**
- * @deprecated Use `Browser` instead. CookieJar has been renamed to Browser to better reflect its purpose.
- */
-export const CookieJar = Browser;
