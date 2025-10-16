@@ -23,5 +23,9 @@
     "cloudflare-workers"
   ],
   "author": "Larry Maccherone",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "gitHead": "70c018345cbf17300dd684a28e46d13c2d317d70"
 }

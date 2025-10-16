@@ -30,6 +30,9 @@
   ],
   "author": "Lumenize",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "@vitest/coverage-istanbul": "3.2.4",
@@ -44,5 +47,6 @@
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "vitest": "3.2.4"
-  }
+  },
+  "gitHead": "70c018345cbf17300dd684a28e46d13c2d317d70"
 }
