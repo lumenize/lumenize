@@ -16,10 +16,10 @@ npm install @lumenize/rpc
 
 ## Create a Durable Object
 
-First, create a simple Counter Durable Object `_Counter` and Worker. Then wrap the DO so it gets RPC support using `lumenizeRpcDo` and export that as `Counter`:
+First, create a simple Counter Durable Object `_Counter` and Worker. Then wrap the DO so it gets RPC support using `lumenizeRpcDO` and export that as `Counter`:
 
 ```typescript src/index.ts
-import { lumenizeRpcDo } from '@lumenize/rpc';
+import { lumenizeRpcDO } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
 
@@ -32,7 +32,7 @@ class _Counter extends DurableObject {
 }
 
 // Wrap with RPC support
-export const Counter = lumenizeRpcDo(_Counter);
+export const Counter = lumenizeRpcDO(_Counter);
 
 // Export a default worker to route RPC requests
 export default {

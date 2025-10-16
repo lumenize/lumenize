@@ -18,7 +18,7 @@ const { stringify, parse } = require('@ungap/structured-clone/json');
  * - HTTP method validation (405 errors)
  * - Security limits (maxDepth, maxArgs)
  */
-describe('lumenizeRpcDo server-side functionality', () => {
+describe('lumenizeRpcDO server-side functionality', () => {
 
   // KEPT: Tests internal #preprocessResult implementation for arrays with functions
   it('should handle arrays with functions in results', async () => {

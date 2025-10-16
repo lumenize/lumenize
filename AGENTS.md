@@ -66,7 +66,7 @@ Every package should have:
 - `wrangler.jsonc` - DO bindings and migrations for test DOs
 - `worker-configuration.d.ts` - **NEVER hand-generate this file**. Always generate it by running `npm run types` (which calls `wrangler types`). This file should be regenerated whenever wrangler.jsonc changes.
 - `src/index.ts` - Single export file that re-exports all public API
-- `test/test-worker-and-dos.ts` - Test worker and test DOs wrapped with `lumenizeRpcDo`
+- `test/test-worker-and-dos.ts` - Test worker and test DOs wrapped with `lumenizeRpcDO`
 - `README.md` - Brief package description with link to docs (see README.md pattern below)
 - `LICENSE` - MIT license file (copy from another package)
 

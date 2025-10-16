@@ -104,7 +104,7 @@
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube account over to the lumenize repo
-- [ ] Refactor testing to be a matrix WebSocket vs HTTP, Self-instrumented w/ handlers vs lumenizeRpcDo, sub-classed vs not
+- [ ] Refactor testing to be a matrix WebSocket vs HTTP, Self-instrumented w/ handlers vs lumenizeRpcDO, sub-classed vs not
 - [ ] Also need test(s) that confirm we haven't messed up their own request and message handlers. Don't worry about crossing the streams of using HTTP for RPC but using WebSockets for message handling and vice-versa. Those are good tests.
 - [ ] Add use cases to either quick-start or some other document for @lumenize/rpc. Testing is one, but...
 - [ ] We need much more security info on the website. Maybe an entire .mdx. Here is the completely inadequate warning we had in the README before we thinned it down. 

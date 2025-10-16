@@ -14,7 +14,7 @@ Thrown errors maintain their properties through RPC:
 
 ```typescript src/index.ts
 import { DurableObject } from 'cloudflare:workers';
-import { lumenizeRpcDo } from '@lumenize/rpc';
+import { lumenizeRpcDO } from '@lumenize/rpc';
 
 class _PaymentProcessor extends DurableObject {
   processPayment(amount: number): { success: boolean; transactionId: string } {
@@ -44,7 +44,7 @@ class _PaymentProcessor extends DurableObject {
   }
 }
 
-export const PaymentProcessor = lumenizeRpcDo(_PaymentProcessor);
+export const PaymentProcessor = lumenizeRpcDO(_PaymentProcessor);
 ```
 
 Configure Wrangler:
@@ -125,7 +125,7 @@ RPC guarantees Promise.all preserves request order:
 
 ```typescript src/index.ts
 import { DurableObject } from 'cloudflare:workers';
-import { lumenizeRpcDo } from '@lumenize/rpc';
+import { lumenizeRpcDO } from '@lumenize/rpc';
 
 class _SequenceGenerator extends DurableObject {
   #counter = 0;
@@ -139,7 +139,7 @@ class _SequenceGenerator extends DurableObject {
   }
 }
 
-export const SequenceGenerator = lumenizeRpcDo(_SequenceGenerator);
+export const SequenceGenerator = lumenizeRpcDO(_SequenceGenerator);
 ```
 
 Test concurrent request ordering:

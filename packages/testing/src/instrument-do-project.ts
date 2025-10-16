@@ -1,4 +1,4 @@
-import { lumenizeRpcDo } from '@lumenize/rpc';
+import { lumenizeRpcDO } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/utils';
 
 /**
@@ -66,7 +66,7 @@ export interface InstrumentedDOProject extends ExportedHandler {
 }
 
 /**
- * Instruments a DO project for testing by wrapping DO classes with lumenizeRpcDo
+ * Instruments a DO project for testing by wrapping DO classes with lumenizeRpcDO
  * and creating a worker that routes RPC requests.
  * 
  * This eliminates the need for boilerplate test-harness.ts files - the function
@@ -138,14 +138,14 @@ export function instrumentDOProject(
     }
   }
   
-  // Wrap each DO class with lumenizeRpcDo
+  // Wrap each DO class with lumenizeRpcDO
   const dos: Record<string, any> = {};
   for (const className of doClassNames) {
     const OriginalClass = sourceModule[className];
     if (!OriginalClass) {
       throw new Error(`DO class '${className}' not found in source module. Available exports: ${Object.keys(sourceModule).join(', ')}`);
     }
-    dos[className] = lumenizeRpcDo(OriginalClass);
+    dos[className] = lumenizeRpcDO(OriginalClass);
   }
   
   // Get the original worker (if it exists)

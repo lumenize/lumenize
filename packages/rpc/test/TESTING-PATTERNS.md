@@ -283,7 +283,7 @@ class _SubclassDO extends _BaseDO {
   }
 }
 
-export const SubclassDO = lumenizeRpcDo(_SubclassDO);
+export const SubclassDO = lumenizeRpcDO(_SubclassDO);
 ```
 
 **Test Scenarios:**
@@ -382,7 +382,7 @@ TRANSPORTS.forEach((transport) => {
 - No shared state between tests
 
 ### 3. Naming Conventions
-- Matrix configs: Descriptive names like `'WebSocket + lumenizeRpcDo'`
+- Matrix configs: Descriptive names like `'WebSocket + lumenizeRpcDO'`
 - Test functions: Action-based like `testIncrement`, `testErrorHandling`
 - Instance IDs: Include scenario and transport for debugging
 

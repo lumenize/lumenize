@@ -237,7 +237,7 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: DO internal routing preservation - edge case not covered by matrix
   it('should not interfere with DO internal routing', async () => {
-    // Test that lumenizeRpcDo doesn't break the DO's original fetch routing
+    // Test that lumenizeRpcDO doesn't break the DO's original fetch routing
     // Make a direct (non-RPC) request to the DO's /increment endpoint using routeDORequest path format
     const doId = 'direct-routing-test';
     const url = `https://fake-host.com/example-do/${doId}/increment`;

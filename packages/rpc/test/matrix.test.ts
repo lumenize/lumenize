@@ -3,7 +3,7 @@
  * 
  * Runs all behavior tests through all combinations of:
  * - Transport: WebSocket vs HTTP
- * - Instrumentation: lumenizeRpcDo vs handleRpcRequest
+ * - Instrumentation: lumenizeRpcDO vs handleRpcRequest
  * 
  * This ensures consistent behavior across all configurations.
  */
@@ -23,10 +23,10 @@ type ExampleDOType = RpcAccessible<InstanceType<typeof ExampleDO>>;
  */
 const MATRIX = [
   {
-    name: 'WebSocket + lumenizeRpcDo',
+    name: 'WebSocket + lumenizeRpcDO',
     transport: 'websocket' as const,
     doBindingName: 'example-do',
-    description: 'WebSocket transport with lumenizeRpcDo factory wrapper',
+    description: 'WebSocket transport with lumenizeRpcDO factory wrapper',
   },
   {
     name: 'WebSocket + handleRpcRequest',
@@ -35,10 +35,10 @@ const MATRIX = [
     description: 'WebSocket transport with manual handleRpcRequest routing',
   },
   {
-    name: 'HTTP + lumenizeRpcDo',
+    name: 'HTTP + lumenizeRpcDO',
     transport: 'http' as const,
     doBindingName: 'example-do',
-    description: 'HTTP transport with lumenizeRpcDo factory wrapper',
+    description: 'HTTP transport with lumenizeRpcDO factory wrapper',
   },
   {
     name: 'HTTP + handleRpcRequest',

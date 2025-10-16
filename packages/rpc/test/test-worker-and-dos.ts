@@ -1,4 +1,4 @@
-import { lumenizeRpcDo, handleRpcRequest, handleRpcMessage } from '../src/lumenize-rpc-do';
+import { lumenizeRpcDO, handleRpcRequest, handleRpcMessage } from '../src/lumenize-rpc-do';
 import type { RpcConfig } from '../src/types';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
@@ -47,7 +47,7 @@ interface _ExampleDO extends Omit<typeof sharedDOMethods, 'increment' | 'add' | 
 }
 
 // Export the lumenized version
-const ExampleDO = lumenizeRpcDo(_ExampleDO);
+const ExampleDO = lumenizeRpcDO(_ExampleDO);
 export { ExampleDO };
 
 /**
@@ -99,7 +99,7 @@ class _SubclassDO extends _ExampleDO {
 }
 
 // Export the lumenized version
-const SubclassDO = lumenizeRpcDo(_SubclassDO);
+const SubclassDO = lumenizeRpcDO(_SubclassDO);
 export { SubclassDO };
 
 /**

@@ -1,7 +1,7 @@
 /**
  * Shared Durable Object method implementations
  * 
- * These methods can be mixed into both lumenizeRpcDo-wrapped DOs and 
+ * These methods can be mixed into both lumenizeRpcDO-wrapped DOs and 
  * manual routing DOs to ensure consistent be  // Method for testing counter access (used by ManualRoutingDO)
   async getCounter(this: { ctx: DOContext }): Promise<number> {
     return (await this.ctx.storage.get('count') as number | undefined) || 0;

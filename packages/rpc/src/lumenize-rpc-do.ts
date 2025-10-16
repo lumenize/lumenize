@@ -466,7 +466,7 @@ export async function handleRpcMessage(
  * 
  * @example
  * ```typescript
- * export class MyDO extends lumenizeRpcDo(DurableObject, {
+ * export class MyDO extends lumenizeRpcDO(DurableObject, {
  *   prefix: '/__rpc',
  *   maxDepth: 100
  * }) {
@@ -476,9 +476,9 @@ export async function handleRpcMessage(
  * }
  * ```
  */
-export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T, config: RpcConfig = {}): T {
+export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T, config: RpcConfig = {}): T {
   if (typeof DOClass !== 'function') {
-    throw new Error(`lumenizeRpcDo() expects a Durable Object class (constructor function), got ${typeof DOClass}`);
+    throw new Error(`lumenizeRpcDO() expects a Durable Object class (constructor function), got ${typeof DOClass}`);
   }
 
   const rpcConfig = { ...DEFAULT_CONFIG, ...config };
@@ -489,7 +489,7 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
     async fetch(request: Request): Promise<Response> {
       console.debug('%o', {
         type: 'debug',
-        where: 'LumenizeDO in factory lumenizeRpcDo',
+        where: 'LumenizeDO in factory lumenizeRpcDO',
         url: request.url,
       });
       
