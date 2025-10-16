@@ -1,5 +1,5 @@
 // DO-side (server) exports
-export { lumenizeRpcDo, handleRPCRequest, handleWebSocketRPCMessage } from './lumenize-rpc-do';
+export { lumenizeRpcDo, handleRpcRequest, handleRpcMessage } from './lumenize-rpc-do';
 
 // Client-side exports  
 export { createRpcClient } from './client';

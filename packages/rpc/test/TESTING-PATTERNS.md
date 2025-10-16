@@ -202,7 +202,7 @@ class ManualRoutingDO extends DurableObject {
     }
     
     // RPC handling
-    const rpcResponse = await handleRPCRequest(request, this);
+    const rpcResponse = await handleRpcRequest(request, this);
     if (rpcResponse) return rpcResponse;
     
     // Fallback
@@ -235,7 +235,7 @@ class ManualRoutingDO extends DurableObject {
     }
     
     // RPC handling
-    await handleWebSocketRPCMessage(ws, message, this, this.#rpcConfig);
+    await handleRpcMessage(ws, message, this, this.#rpcConfig);
   }
 }
 ```

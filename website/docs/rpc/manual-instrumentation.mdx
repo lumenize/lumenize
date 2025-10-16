@@ -1,12 +1,12 @@
 ---
 title: Manual Instrumentation
-description: Using handleRPCRequest and handleWebSocketRPCMessage for custom routing
+description: Using handleRpcRequest and handleRpcMessage for custom routing
 testable: true
 ---
 
 # Manual Instrumentation
 
-When you need custom routing alongside RPC (health checks, webhooks, custom WebSocket messages), use manual instrumentation with `handleRPCRequest()` and `handleWebSocketRPCMessage()`.
+When you need custom routing alongside RPC (health checks, webhooks, custom WebSocket messages), use manual instrumentation with `handleRpcRequest()` and `handleRpcMessage()`.
 
 ## When to Use Manual Instrumentation
 
@@ -21,7 +21,7 @@ Combine RPC with custom HTTP routes and WebSocket messages:
 
 ```typescript src/index.ts
 import { DurableObject } from 'cloudflare:workers';
-import { handleRPCRequest, handleWebSocketRPCMessage } from '@lumenize/rpc';
+import { handleRpcRequest, handleRpcMessage } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/utils';
 
 export class MyDO extends DurableObject {
@@ -58,7 +58,7 @@ export class MyDO extends DurableObject {
     }
 
     // Handle RPC requests (both HTTP and WebSocket)
-    return await handleRPCRequest(request, this);
+    return await handleRpcRequest(request, this);
   }
 
   // Handle all WebSocket messages
@@ -74,7 +74,7 @@ export class MyDO extends DurableObject {
     }
 
     // Handle RPC WebSocket messages
-    await handleWebSocketRPCMessage(ws, message, this);
+    await handleRpcMessage(ws, message, this);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
@@ -222,7 +222,7 @@ describe('Manual Instrumentation', () => {
 
 ## Best Practices
 
-1. **Check tags first**: In `webSocketMessage()`, handle custom protocols before calling `handleWebSocketRPCMessage()`
+1. **Check tags first**: In `webSocketMessage()`, handle custom protocols before calling `handleRpcMessage()`
 2. **Use path-based routing**: Separate custom WebSocket endpoints (`/custom-ws`) from RPC endpoints (`/__rpc`)
 3. **Consistent patterns**: Keep custom routes simple, let RPC handle complex method calls
 4. **Error handling**: Custom routes should match RPC's error response format when appropriate

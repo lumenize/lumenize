@@ -2,7 +2,7 @@
  * Reusable behavior test functions
  * 
  * These test functions can be run against any RPC client configuration
- * (WebSocket/HTTP × lumenizeRpcDo/handleRPCRequest × Base/Subclass)
+ * (WebSocket/HTTP × lumenizeRpcDo/handleRpcRequest × Base/Subclass)
  */
 
 import { expect } from 'vitest';

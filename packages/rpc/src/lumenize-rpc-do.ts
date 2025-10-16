@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: Required<RpcConfig> = {
  * export class MyDO extends DurableObject {
  *   async fetch(request: Request): Promise<Response> {
  *     // Handle RPC requests
- *     const rpcResponse = await handleRPCRequest(request, this);
+ *     const rpcResponse = await handleRpcRequest(request, this);
  *     if (rpcResponse) return rpcResponse;
  *     
  *     // Handle other custom routes
@@ -49,7 +49,7 @@ const DEFAULT_CONFIG: Required<RpcConfig> = {
  * }
  * ```
  */
-export async function handleRPCRequest(
+export async function handleRpcRequest(
   request: Request,
   doInstance: any,
   config: RpcConfig = {}
@@ -75,7 +75,7 @@ export async function handleRPCRequest(
 
 /**
  * Handle RPC call requests
- * @internal - implementation detail of handleRPCRequest
+ * @internal - implementation detail of handleRpcRequest
  */
 async function handleCallRequest(
   request: Request,
@@ -353,7 +353,7 @@ interface RpcWebSocketResponse {
  * export class MyDO extends DurableObject {
  *   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
  *     // Handle RPC messages
- *     if (await handleWebSocketRPCMessage(ws, message, this)) {
+ *     if (await handleRpcMessage(ws, message, this)) {
  *       return; // Message was handled as RPC
  *     }
  *     
@@ -365,7 +365,7 @@ interface RpcWebSocketResponse {
  * }
  * ```
  */
-export async function handleWebSocketRPCMessage(
+export async function handleRpcMessage(
   ws: WebSocket,
   message: string | ArrayBuffer,
   doInstance: any,
@@ -394,7 +394,7 @@ export async function handleWebSocketRPCMessage(
     if (!request.id || !request.operations) {
       console.warn('%o', {
         type: 'warn',
-        where: 'handleWebSocketRPCMessage',
+        where: 'handleRpcMessage',
         message: 'Invalid RPC WebSocket request: missing id or operations'
       });
       return false;
@@ -425,7 +425,7 @@ export async function handleWebSocketRPCMessage(
     } catch (error: any) {
       console.error('%o', {
         type: 'error',
-        where: 'handleWebSocketRPCMessage',
+        where: 'handleRpcMessage',
         message: 'RPC operation execution failed',
         error: error?.message || error
       });
@@ -512,16 +512,16 @@ export function lumenizeRpcDo<T extends new (...args: any[]) => any>(DOClass: T,
         }
       }
       
-      // Use the exported handleRPCRequest function for HTTP requests
+      // Use the exported handleRpcRequest function for HTTP requests
       return (
-        await handleRPCRequest(request, this, rpcConfig) ||
+        await handleRpcRequest(request, this, rpcConfig) ||
         super.fetch(request)
       );
     }
 
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
       // Try to handle as RPC message
-      const wasHandled = await handleWebSocketRPCMessage(ws, message, this, rpcConfig);
+      const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
       
       // If not handled as RPC, call parent's webSocketMessage (if it exists)
       if (!wasHandled && super.webSocketMessage) {

@@ -1,4 +1,4 @@
-import { lumenizeRpcDo, handleRPCRequest, handleWebSocketRPCMessage } from '../src/lumenize-rpc-do';
+import { lumenizeRpcDo, handleRpcRequest, handleRpcMessage } from '../src/lumenize-rpc-do';
 import type { RpcConfig } from '../src/types';
 import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
@@ -104,7 +104,7 @@ export { SubclassDO };
 
 /**
  * Example Durable Object that uses manual routing instead of the factory
- * This demonstrates how to use handleRPCRequest directly for custom routing
+ * This demonstrates how to use handleRpcRequest directly for custom routing
  * Has same methods as ExampleDO for consistent testing
  */
 export class ManualRoutingDO extends DurableObject<Env> {
@@ -187,8 +187,8 @@ export class ManualRoutingDO extends DurableObject<Env> {
       return Response.json({ message: 'Counter reset' });
     }
     
-    // RPC handling - user manually calls handleRPCRequest
-    const rpcResponse = await handleRPCRequest(request, this, this.#rpcConfig);
+    // RPC handling - user manually calls handleRpcRequest
+    const rpcResponse = await handleRpcRequest(request, this, this.#rpcConfig);
     if (rpcResponse) {
       return rpcResponse;
     }
@@ -200,7 +200,7 @@ export class ManualRoutingDO extends DurableObject<Env> {
   // WebSocket message handler
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     // Try to handle as RPC message first
-    const wasRpcMessage = await handleWebSocketRPCMessage(ws, message, this, this.#rpcConfig);
+    const wasRpcMessage = await handleRpcMessage(ws, message, this, this.#rpcConfig);
     if (wasRpcMessage) {
       return; // RPC message handled
     }

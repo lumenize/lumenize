@@ -43,7 +43,7 @@ export interface RpcResponse {
 
 /**
  * Configuration for RPC system on the Durable Object (server) side.
- * Used by both lumenizeRpcDo() factory and handleRPCRequest() for manual routing.
+ * Used by both lumenizeRpcDo() factory and handleRpcRequest() for manual routing.
  */
 export interface RpcConfig {
   /**

@@ -3,7 +3,7 @@
  * 
  * Runs all behavior tests through all combinations of:
  * - Transport: WebSocket vs HTTP
- * - Instrumentation: lumenizeRpcDo vs handleRPCRequest
+ * - Instrumentation: lumenizeRpcDo vs handleRpcRequest
  * 
  * This ensures consistent behavior across all configurations.
  */
@@ -29,10 +29,10 @@ const MATRIX = [
     description: 'WebSocket transport with lumenizeRpcDo factory wrapper',
   },
   {
-    name: 'WebSocket + handleRPCRequest',
+    name: 'WebSocket + handleRpcRequest',
     transport: 'websocket' as const,
     doBindingName: 'manual-routing-do',
-    description: 'WebSocket transport with manual handleRPCRequest routing',
+    description: 'WebSocket transport with manual handleRpcRequest routing',
   },
   {
     name: 'HTTP + lumenizeRpcDo',
@@ -41,10 +41,10 @@ const MATRIX = [
     description: 'HTTP transport with lumenizeRpcDo factory wrapper',
   },
   {
-    name: 'HTTP + handleRPCRequest',
+    name: 'HTTP + handleRpcRequest',
     transport: 'http' as const,
     doBindingName: 'manual-routing-do',
-    description: 'HTTP transport with manual handleRPCRequest routing',
+    description: 'HTTP transport with manual handleRpcRequest routing',
   },
 ] as const;
 
