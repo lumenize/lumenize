@@ -5,42 +5,16 @@ description: Understanding Lumenize RPC for Durable Objects
 
 # Introduction to Lumenize RPC
 
-Lumenize RPC provides type-safe remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
+Lumenize RPC provides remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
 
 Lumenize RPC has two different use cases:
-
-## Use Case: In-process Integration Testing
-
-1. **Purpose**: High-fidelity in-process integration testing.
-   - No need for a server running in a different process.
-   - Enables a structured 4-step test process:
-     - **Step 1**: Set up storage and state at the beginning of the test.
-     - **Step 2**: Interact with Durable Objects (DOs) as the application would.
-     - **Step 3**: Inspect responses from the interaction.
-     - **Step 4**: Inspect storage and state after the interaction.
-
-2. **Features**:
-   - CI-friendly because there is no need to run a server in a separate process.
-   - Robust documentation and examples provided for any test scenario.
-   - Access to `ctx`, `env`, your own methods... all of it, from outside the DO.
-   - Ideal for testing your DO's WebSocket features:
-     - `getWebSockets()` for WebSocket testing.
-     - Testing WebSocket auto-response pairs.
-     - Inspecting connection tags.
-
-3. **Client library support**:
-   - Compatible with libraries like `AgentClient` and `PartySocket` or your own WebSocket-based client
-   - Get test coverage of both your client and the server
-
-4. **Comparison with `cloudflare:test`**:
-   - Unlike `runInDurableObject`:
-     - It does not bypass input/output gates.
-     - It is friendly to test coverage instrumentation.
-   - Allows you to identify race conditions during testing.
+1. In-process integration testing which is documented in 
+   [`@lumenize/testing` Usage](/docs/testing/usage)
+2. In-production RPC which is documented in this section
    
-## Use Case: In-production RPC
+## In-production RPC
 
-1. **Purpose**: Interact with your DOs from a browser client as if you were running inside.
+1. **Purpose**: Interact with your DOs from a browser client as if you were running inside the DO.
 
 2. **Supports**:
    - Any StructuredCloneable type, including:
@@ -53,7 +27,7 @@ Lumenize RPC has two different use cases:
 
 4. **Example Usage**:
    ```typescript
-   await client.ctx.storage.kv.put('count', '10');
+   await client.ctx.storage.put('count', '10');
    const currentCount = await client.increment();  // 11
    ```
 
@@ -66,14 +40,14 @@ At the moment, both transports have identical functionality, but different chara
 - Initial connection overhead
 - Lower latency for subsequent calls
 - Utilizes automatic connection management
-- Will lazy reconnect on next call after drop
+- Will lazy reconnect on next call after connection drops
 
-### HTTP
+### HTTP (default for `@lumenize/testing`)
 - One request per RPC call
-- No persistent connection overhead
+- Simpler
 - Slightly higher latency per call
 
 Choose based on your use case:
 - **When in doubt**: WebSocket is usually as reliable and almost always more efficient
 - **In-production use with unknown network intermediaries**: HTTP is potentially more reliable
-- **Future proof**: To-be-released Lumenize uses WebSocket for server-client communications like for state synchronization
+- **Future proof**: To-be-released Lumenize uses WebSocket for server to client communications like for state synchronization

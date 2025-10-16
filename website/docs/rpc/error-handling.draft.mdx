@@ -6,7 +6,7 @@ testable: true
 
 # Error Handling and Edge Cases
 
-RPC preserves error information across the wire, making error testing straightforward and predictable.
+RPC preserves error information across the wire
 
 ## Error Preservation
 
@@ -286,16 +286,3 @@ describe('Storage Errors', () => {
   });
 });
 ```
-
-## Best Practices
-
-1. **Test error paths**: Don't just test happy paths, validate error handling
-2. **Preserve error context**: Use custom error properties (code, statusCode, metadata)
-3. **Test edge cases**: Concurrent requests, disconnects, missing data
-4. **Clean up properly**: Always dispose clients and close connections in finally blocks
-5. **Use expect.fail()**: For code paths that should throw, fail explicitly if they don't
-
-## Next Steps
-
-- Review [Limitations and Quirks](./limitations.mdx)
-- Return to [Quick Start](./quick-start.mdx) to build more features

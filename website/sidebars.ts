@@ -112,9 +112,9 @@ const sidebars: SidebarsConfig = {
       items: [
         'rpc/introduction',
         'rpc/quick-start',
-        'rpc/manual-instrumentation',
-        'rpc/error-handling',
-        'rpc/limitations',
+        // 'rpc/manual-instrumentation',
+        // 'rpc/error-handling',
+        // 'rpc/limitations',
         ...(typedocRpcSidebar && typedocRpcSidebar.length > 0
           ? [wrapInApiReference(typedocRpcSidebar, 'API Reference')]
           : []),
