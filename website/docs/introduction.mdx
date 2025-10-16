@@ -1,50 +1,56 @@
 ---
+title: "Introduction"
+description: "Overview of Lumenize features and roadmap"
 ---
 
 # Introduction
 
 ## What is Lumenize?
 
-### Today (October, 2025)
-Today, this repo contains a collection of utilities for building and testing scalable/maintainable applications on Cloudflare Durable Objects (DOs). The primary use-cases you can use today center around Lumenize RPC:
+### Today (October 2025)
+Lumenize is a toolkit for building and testing scalable and maintainable applications on Cloudflare Durable Objects (DOs). The main features available today focus on RPC:
 
-1. **In-process integration testing**. More capability and more *de*light*ful* DX than `cloudflare:test`'s runInDurableObjects particularly for testing DOs that implement WebSockets. Supports: `new WebSockets()`, client libraries, test auto response pair, test coverage, etc.
+1. **In-process integration testing**. Provides more capability and a more *de*light*ful* DX than `cloudflare:test`'s `runInDurableObjects` particularly for testing DOs that implement WebSockets. Supports `new WebSockets()`, client libraries, auto-response pair testing, test coverage, and more.
 
-2. **In-production RPC all the way from a browser**. Provides all the capability you need to securly run in production, also, with a *de*light*ful* DX:
+2. **In-production RPC from the browser**: Enables secure, production-grade RPC with a *de*light*ful* developer experience:
   ```typescript
-  await client.ctx.storage.kv.put('count', '10');
-  const currentCount = await client.increment();  // 11
+  // Store a value in Durable Object storage
+  await client.ctx.storage.put('count', '10');
+  // Invoke a method on the Durable Object
+  const currentCount = await client.increment(); // returns 11
   ```
 
-### Going Forward
+Lumenize also provides utilities like `routeDORequest`, a near drop-in replacement for `routeAgentRequest` and `routePartyRequest`, offering robust CORS support and a cleaner API.
 
-Although not yet released as open source, this is also going to be the home of two other projects: LumenizeBase and Lumenize.
+### Looking Ahead
 
-**LumenizeBase** is a modular base class and set of plugins for your DOs with features that differentiate it from Actor, Agent, and McpAgent.
+This repository will soon include two additional projects:
 
-**Lumenize** is the ultimate platform for vibe coding internal enterprise or B2B SaaS applications. It's MCP-first meaning that the only API it exposes is MCP. In other words, your Lumenize applications are ready for agentic AI workflows! It's also the first MCP platform where it is difficult to make it unsecure, as opposed to the other way around.
+**LumenizeBase**: A modular base class and plugin system for Durable Objects, offering opinionated best practices along with flexible extensions.
+
+**Lumenize**: The next-generation backend platform for vibe coding internal enterprise or B2B SaaS applications, built around Model Context Protocol (MCP). This MCP-first architecture enables seamless integration with agentic AI workflows and is designed to be secure by default.
 
 ## *De*light*ful* Developer Experience
 
 ### Opinionated Yet Flexible
 
-Lumenize is designed to be opinionated where it matters, providing clear guidance and best practices for building robust scalable applications on DOs. At the same time, it remains flexible wherever that's possible, allowing you to install only the plugins you need, and exposing the same plugin system so you can extend it in the same modular way.
+Lumenize is opinionated where it counts—providing clear guidance and best practices for robust, scalable DO applications—while remaining flexible. Install only the plugins you need, and extend functionality with the same modular plugin system.
 
-### Shoulders of Giants
+### Standing on the Shoulders of Giants
 
-Lumenize is the result of taking the best ideas and code from `Agent`, `PartyKit`, `Actor`, and `durable-utils`, adding robustness, and our own unique capabilities. Here is a [blog post that says more about the Lumenize journey](/blog/shoulders-of-giants).
+Lumenize builds on the best of `Agent`, `PartyKit`, `Actor`, and `durable-utils`, adding robustness and unique features. See our [blog post on the Lumenize journey](/blog/shoulders-of-giants) for more.
 
 ### Engineering Excellence
 
-- 90%+ test coverage with meaningful assertions, not just happy path
-- Comprehensive documentation with examples
-- Documentation assured in-sync with code via doc-testing
-- Toggle logging by namespace, DO instance, etc.
-- Guaranteed rapid bug fixes
+- Over 90% test coverage with meaningful assertions beyond happy-path scenarios
+- Comprehensive documentation with runnable examples
+- Documentation kept in sync with code via doc-testing
+- Toggle logging by namespace, Durable Object instance, or other context
+- Committed to rapid bug fixes
 
 ## Release Status
 
-Most of what we built is not yet published under an open source license and/or lacked good documentation. However, we are now in a position to start releasing pieces under open source licenses as we clean up the documentation for external consumption. See below for the status of what is out and what's coming out next.
+We are now in a position to start releasing pieces under open source licenses as we clean up the documentation for external consumption. See below for the status of what is out and what's coming out next.
 
 <table style={{width: '100%'}}>
   <thead>
@@ -65,6 +71,12 @@ Most of what we built is not yet published under an open source license and/or l
     <tr>
       <td style={{textAlign: 'left'}}>@lumenize/rpc</td>
       <td style={{textAlign: 'left'}}>In-production RPC w/ browser client</td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>@lumenize/utils</td>
+      <td style={{textAlign: 'left'}}>Useful utilities for DO projects</td>
       <td style={{textAlign: 'center'}}>MIT</td>
       <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
     </tr>

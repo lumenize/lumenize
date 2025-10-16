@@ -7,70 +7,60 @@ description: Understanding Lumenize RPC for Durable Objects
 
 Lumenize RPC provides remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
 
-Lumenize RPC has two different use cases:
-1. In-process integration testing which is documented in 
-   [`@lumenize/testing` Usage](/docs/testing/usage)
-2. In-production RPC which is documented in this section
+Lumenize RPC supports two main use cases:
+1. In-process integration testing (documented in [`@lumenize/testing` Usage](/docs/testing/usage))
+2. In-production RPC (documented below)
 
 :::note
 <details>
   <summary>
     <strong>Lumenize RPC</strong> vs <strong>Cloudflare Cap'n Web</strong>
   </summary>
-  If the docs for Lumenize RPC seems a comparatively light (we wrote over 500 
-  lines of docs for `routeDORequest`, after all), that's because it is. 
-  Somewhere between the time we decided to open-source big chuncks of Lumenize
-  and the when we pushed to `npm`, Cloudflare, and the amazing Kenton Varga,
-  came out with their own from-the-browser RPC, Cap'n Web.
+  If the Lumenize RPC documentation feels comparatively light (we wrote over 500 lines for [`routeDORequest`](/docs/utils/route-do-request) and its [CORS Support](/docs/utils/cors-support)), it's intentional. Somewhere between open-sourcing Lumenize and publishing to npm, Cloudflare released its own browser-based RPC, Cap'n Web, under the leadership of the amazing Kenton Varga.
 
-  As of this writing, we don't have complete insight into when to use which.
-  We also don't performance metrics. When we have performance metrics and have
-  used Cap'n Web ourselves, we will come back with more guidance. But for 
-  now... 
-  
-  There is one feature of Lumenize RPC that Kenton has said he will never add
-  to Cap'n Web, support for circular objects. He went so far as to say that
-  he wishes he had never supported it in Cloudflare-native RPC (aka Cap'n 
-  Protocol) and may work to remove it behind a compatibility date.
+  As of this writing, we lack definitive guidance on when to choose each solution. We'll update this document once we have more experience with and a performance comparison with Cap'n Web.
+
+  However, Lumenize RPC supports circular data structures, a feature Kenton Varga has indicated will not be added to Cap'n Web. He even suggested deprecating circular support in Cloudflare-native RPC (Cap'n Proto). Because LumenizeBase and our backend depend on circular structure handling, this functionality will remain.
 </details>
 :::
    
 ## In-production RPC
 
-1. **Purpose**: Interact with your DOs from a browser client as if you were running inside the DO.
+1. **Purpose**: Interact with your Durable Objects from a browser client as if running inside the DO.
 
 2. **Supports**:
-   - Any StructuredCloneable type, including:
-     - `Set`, `Map`, `Date`, circular objects, etc.
-   - Errors thrown by your DO propagate back to the client and are re-thrown.
-   - Communicate over HTTP or WebSockets.
+   - Any StructuredCloneable type (e.g., `Set`, `Map`, `Date`, circular objects)
+   - Automatic propagation of errors thrown by your DO back to the client
+   - Both HTTP and WebSocket transports
 
 3. **Secure**:
-   - Hooks and examples provided to assure security.
+   - Security hooks and best-practice examples included
 
 4. **Example Usage**:
    ```typescript
+   // Store a value in the DO's storage
    await client.ctx.storage.put('count', '10');
-   const currentCount = await client.increment();  // 11
+   // Call an RPC method defined in your DO
+   const currentCount = await client.increment(); // returns 11
    ```
 
 ## WebSocket vs HTTP
 
-At the moment, both transports have identical functionality, but different characteristics.
+Both transports offer identical RPC functionality but have different performance characteristics.
 
 ### WebSocket (default)
-- Persistent connection for multiple calls
-- Initial connection overhead
+- Persistent connection for multiple RPC calls
+- Higher initial connection overhead
 - Lower latency for subsequent calls
-- Utilizes automatic connection management
-- Will lazy reconnect on next call after connection drops
+- Automatic connection management
+- Automatically re-establishes connection on demand
 
 ### HTTP (default for `@lumenize/testing`)
-- One request per RPC call
+- One HTTP request per RPC call
 - Simpler
-- Slightly higher latency per call
+- Slightly higher per-call latency
 
-Choose based on your use case:
-- **When in doubt**: WebSocket is usually as reliable and almost always more efficient
-- **In-production use with unknown network intermediaries**: HTTP is potentially more reliable
-- **Future proof**: The as-yet-to-be-released LumenizeBase uses WebSockets for real-time updates, like state synchronization. You won't need to change your client-side code if you start with WebSockets today and later upgrade server-side to use LumenizeBase.
+Choose based on your requirements:
+- **When in doubt**: WebSocket is generally more efficient and low-latency
+- **Production scenarios with restrictive intermediaries**: HTTP may be more robust
+- **Future-proofing**: LumenizeBase will build on WebSockets for real-time state sync — your client code will remain the same
