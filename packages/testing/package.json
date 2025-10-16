@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/testing",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "description": "De✨light✨ful testing utilities for Cloudflare Durable Objects",
   "type": "module",
   "main": "src/index.ts",

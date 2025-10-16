@@ -17,9 +17,12 @@
     "clean": "npm run clean:dist && npm run clean:deps",
     "clean:dist": "rm -rf packages/*/dist examples/*/dist website/dist lumenize-monolith/dist",
     "clean:deps": "npx lerna clean --yes && rm -rf node_modules",
-    "clean:all": "npm run clean && npm install"
+    "clean:all": "npm run clean && npm install",
+    "release:dry-run": "./scripts/release-dry-run.sh",
+    "release": "./scripts/release.sh"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251011.0",
     "@types/node": "^24.0.3",
     "typescript": "^5.9.2"
   },
