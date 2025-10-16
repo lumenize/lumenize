@@ -76,9 +76,9 @@
 - [x] Generate API docs for all @lumenize packages
 - [x] Configure TypeDoc integration with Docusaurus
 - [x] Add cross-references between guides and API docs
-- [ ] **Manual Review**: Review all generated API reference pages (~dozen+ pages)
-- [ ] **Manual Review**: Review all guide pages for accuracy
-- [ ] **Checkpoint**: Final documentation review complete
+- [x] **Manual Review**: Review all generated API reference pages (~dozen+ pages)
+- [x] **Manual Review**: Review all guide pages for accuracy
+- [x] **Checkpoint**: Final documentation review complete
 
 ### Phase 3: Testing & Refinement
 
