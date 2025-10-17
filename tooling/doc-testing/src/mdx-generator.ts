@@ -15,6 +15,12 @@ export function generateMdxContent(
 ): VirtualDoc {
   const parts: string[] = [];
   
+  // Add frontmatter to indicate this is a generated file
+  parts.push('---');
+  parts.push('generated_by: doc-testing');
+  parts.push('---');
+  parts.push('');
+  
   // Process markdown and code blocks in order
   let markdownIndex = 0;
   let codeIndex = 0;

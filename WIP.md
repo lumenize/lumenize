@@ -36,13 +36,13 @@ A new Docusaurus plugin to verify code examples in hand-written .mdx files match
   - [x] Fail build if examples don't match
   - [x] Success/failure summary
 
-### Phase 2: Doc-testing Integration
-- [ ] Update doc-testing plugin to add frontmatter to generated files
-  - [ ] Add `generated_by: doc-testing` to frontmatter
-  - [ ] Document this in doc-testing README
-- [ ] Skip check-examples for doc-testing generated files
-  - [ ] Check frontmatter before processing
-  - [ ] Those files are already verified via actual test execution
+### Phase 2: Doc-testing Integration ✅ COMPLETE
+- [x] Update doc-testing plugin to add frontmatter to generated files
+  - [x] Add `generated_by: doc-testing` to frontmatter
+  - [x] Document this in doc-testing README
+- [x] Skip check-examples for doc-testing generated files
+  - [x] Check frontmatter before processing
+  - [x] Those files are already verified via actual test execution
 
 ### Phase 3: Configuration & Developer Experience
 - [ ] Support configuration options
@@ -113,6 +113,21 @@ A new Docusaurus plugin to verify code examples in hand-written .mdx files match
 - **Files updated**:
   - `website/docusaurus.config.ts` (added plugin)
   - `website/docs/utils/route-do-request.mdx` (annotated examples)
+
+### Phase 2 Results
+- **Frontmatter generation**: Successfully adds `---\ngenerated_by: doc-testing\n---` to all generated .mdx files
+- **Skip logic**: check-examples now skips files with `generated_by: doc-testing` frontmatter
+- **Error reduction**: Dropped from 46 errors to 14 errors (32 errors were in generated files)
+- **Standalone script**: Added `npm run check-examples` for rapid iteration (6ms vs minutes)
+- **Key discovery**: doc-testing uses compiled `dist/` folder - must rebuild after source changes
+- **Files modified**:
+  - `tooling/doc-testing/src/mdx-generator.ts` (frontmatter generation)
+  - `tooling/check-examples/src/index.ts` (skip logic)
+  - `website/package.json` (check-examples script)
+  - `website/scripts/check-examples.mjs` (standalone runner)
+- **Current errors**: All remaining 14 errors are in hand-written files needing fixes:
+  - `cors-support.mdx`: 7 errors (test file not found)
+  - `route-do-request.mdx`: 7 errors (code not found in test)
 
 ## Later and possibly unrelated
 
