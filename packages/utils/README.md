@@ -1,6 +1,6 @@
 # @lumenize/utils
 
-*De*light*ful* utility functions for Cloudflare Workers and Durable Objects.
+De✨light✨ful utility functions for Cloudflare Workers and Durable Objects.
 
 For complete documentation, visit **[https://lumenize.com](https://lumenize.com)**
 

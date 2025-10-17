@@ -1,6 +1,6 @@
 # @lumenize/testing
 
-A *de*light*ful* testing library for Cloudflare Durable Objects with minimal boilerplate.
+A de✨light✨ful testing library for Cloudflare Durable Objects with minimal boilerplate.
 
 For complete documentation, visit **[https://lumenize.com/docs/testing](https://lumenize.com/docs/testing)**
 

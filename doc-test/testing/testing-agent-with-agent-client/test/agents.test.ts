@@ -24,7 +24,9 @@ You could stand up two separate processes: one to host your Worker and `Agent`
 DO, and another to run `AgentClient` and have them talk over localhost to each 
 other, but that's unecessary friction, especially in CI; it doesn't give you 
 unified test coverage metrics, and is less conducive to fast iteration by both 
-people and AI coding agents
+people and AI coding agents. It also doesn't allow you to manipulate or inspect 
+your Agent's state from your test except through your Agent's public API. In 
+other words, no `runInDurableObject` capabilities, which brings us to...
 
 You can avoid the multi-process approach by using `cloudflare:test`'s 
 `runInDurableObject` to exercise your Agent DO, but you are calling handlers 
@@ -33,11 +35,11 @@ fetch, etc. This lower fidelity can allow subtle bugs to escape to production
 [like happened with `agents`](https://github.com/cloudflare/agents/issues/321).
 
 On the other hand, `cloudflare:test` also provides `SELF.fetch()`. It runs 
-through your Worker, DO fetch, input/output gates, etc. Yes, it's 
+through your Worker, DO fetch, respects input/output gates, etc. Yes, it's 
 HTTP-only, but there is a little trick you can use to do some 
-web socket testing. You can send in an HTTP Request with the correct WebSocket 
-upgrade headers, and extract the raw ws object out of the Response. `ws.send()`
-allows you to send messages to your Agent's onMessage handler. Some of the 
+web socket testing. You can send in an HTTP Request with the correct 
+upgrade headers, and extract the raw ws object out of the Response. Then use
+`ws.send()` to send messages to your Agent's onMessage handler. Some of the 
 `agents` package tests now do exactly this. However, this raw ws object is not 
 a full WebSocket instance, and even if it were, classes like `AgentClient` 
 expect to instantiate the WebSocket themselves. Without `AgentClient`, you are
@@ -51,11 +53,9 @@ except it wraps it in a browser-compatible WebSocket API class. `AgentClient`
 allows you to dependency inject your own WebSocket class, as we show below. Now 
 we are getting somewhere.
 
-Combine that with `@lumenize/testing`'s `createTestingClient`'s RPC, and you 
-have a powerful ability to test your Agent implementation with the actual code 
-you will use in your browser, combined with the same ability as
-`runInDurableObject` to prepopulate and inspect your Agent's state at any point 
-during the test... all through one clean API.
+Add `@lumenize/testing`'s `createTestingClient`'s RPC capability, and you 
+now have the same ability as `runInDurableObject` to prepopulate and inspect 
+your Agent's state at any point during the test... all through one clean API.
 
 ## Benefits
 
@@ -67,7 +67,7 @@ This gives you a number of advantages:
   - Super fast, local dev/AI coding cycles
   - Unified test coverage
   - Unified stack trace when you encounter an error
-- As all things Lumenize, *de*light*ful* DX
+- As all things Lumenize, de✨light✨ful DX
   - A fraction of the boilerplate
   - Well tested
   - Well documented
@@ -144,7 +144,7 @@ it('shows testing two users in a chat', async () => {
     bobClient.send(JSON.stringify({ type: 'join', username: 'Bob' }));
   };
 
-  // Wait for both to see that they've both joined
+  // Wait to see that they've both joined
   await vi.waitFor(() => {
     expect(bobState.participants).toContain('Bob');
     expect(bobState.participants).toContain('Alice');

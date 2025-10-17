@@ -2,7 +2,7 @@
 
 ## Overview
 Lumenize is a collection of liberally licensed (MIT) and more restrictively licensed (BSI-1.1) open-source packages targeting Cloudflare's Durable Objects, which are part of Cloudflare's Workers edge computing platform. There are two complementary but distinct goals:
-1. Provide a *de*light*ful*suite of packages that any developer can use to build scalable, high-quality, and maintainable products (MIT licensed).
+1. Provide a de✨light✨fulsuite of packages that any developer can use to build scalable, high-quality, and maintainable products (MIT licensed).
 2. Build the ultimate framework for vibe coding enterprise or B2B SaaS software products in a rapid and secure manner. It will be BSI-1.1 licensed, available to enterprises via commercial licenses, and offered as a platform as a service (PaaS) with generous free tier.
 
 ## Guiding Principles
@@ -75,7 +75,7 @@ README.md files should follow this standard structure:
 ```markdown
 # @lumenize/package-name
 
-A *de*light*ful* [one-line description].
+A de✨light✨ful [one-line description].
 
 For complete documentation, visit **[https://lumenize.com/docs/package-name](https://lumenize.com/docs/package-name)**
 
@@ -98,7 +98,7 @@ npm install --save-dev @lumenize/package-name
 - Keep it minimal - just package name, tagline, link to docs, key features, and installation
 - No detailed documentation - the website at https://lumenize.com is the single source of truth
 - No API documentation, examples, or usage guides in README.md
-- Use the *de*light*ful* branding in the description
+- Use the de✨light✨ful branding in the description
 - Link directly to the specific docs page for that package
 
 #### Vitest configuration standards

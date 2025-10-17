@@ -1,6 +1,6 @@
 # @lumenize/rpc
 
-A *de*light*ful* RPC system for Cloudflare Durable Objects that makes your DOs accessible via intuitive proxy calls.
+A de✨light✨ful RPC system for Cloudflare Durable Objects that makes your DOs accessible via intuitive proxy calls.
 
 For complete documentation, visit **[https://lumenize.com/docs/rpc/introduction](https://lumenize.com/docs/rpc/introduction)**
 

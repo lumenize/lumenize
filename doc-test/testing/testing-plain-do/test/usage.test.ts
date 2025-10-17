@@ -4,7 +4,7 @@
 
 /*
 `@lumenize/testing` is a superset of functionality of cloudflare:test with a 
-more *de*light*ful* DX. While `cloudflare:test`'s `runInDurableObject` only 
+more de✨light✨ful DX. While `cloudflare:test`'s `runInDurableObject` only 
 allows you to work with `ctx`/`state`, `@lumenize/testing` also allows you to 
 do that plus:
   - Inspect or manipulate instance variables (custom, this.env, etc.), not just 
