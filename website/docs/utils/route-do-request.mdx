@@ -60,14 +60,24 @@ The function automatically detects 64-character hex strings (from `newUniqueId()
 
 ## Supported Case Conversions for `doBindingName`
 
-The function intelligently converts URL path segments to match various binding naming conventions:
+The function intelligently converts URL path segments to match various binding naming conventions, but **only for kebab-case URLs** (kebab-case-with-only-lowercase-and-digits-3-42). Any path segment containing uppercase letters, underscores, or other characters will match exactly as-is.
+
+**Smart matching (kebab-case only):**
 
 | URL Path Segment | Matches Binding Names |
 |------------------|----------------------|
 | `/my-do/...` | `MY_DO`, `MyDO`, `MyDo`, `myDo`, `my-do` |
 | `/user-session/...` | `USER_SESSION`, `UserSession`, `userSession`, `user-session` |
-| `/my-d-o/...` | `MY_D_O`, `MyDO`, `MyDO`, `myDO`, `my-d-o` |
-| `/api-handler/...` | `API_HANDLER`, `ApiHandler`, `apiHandler`, `api-handler` |
+| `/my-d-o/...` | `MY_D_O`, `MyDO`, `myDO`, `my-d-o` |
+| `/api-v2/...` | `API_V2`, `ApiV2`, `apiV2`, `api-v2` |
+
+**Exact matching only (non-kebab-case):**
+
+| URL Path Segment | Matches Binding Names |
+|------------------|----------------------|
+| `/MY_DO/...` | `MY_DO` only |
+| `/MyDO/...` | `MyDO` only |
+| `/my_do/...` | `my_do` only |
 
 ## Hooks
 

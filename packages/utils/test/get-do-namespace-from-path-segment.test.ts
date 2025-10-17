@@ -124,4 +124,61 @@ describe('getDONamespaceFromPathSegment', () => {
       expect(error.httpErrorCode).toBe(400);
     }
   });
+
+  // New tests for exact matching (non-kebab-case)
+  describe('exact matching for non-kebab-case', () => {
+    it('should only match exact for uppercase path segment', () => {
+      const env = { 
+        MY_DO: mockDONamespace,
+        MYDO: { ...mockDONamespace, other: true },
+        mydo: { ...mockDONamespace, other: true }
+      };
+      const result = getDONamespaceFromPathSegment('MY_DO', env);
+      expect(result).toBe(mockDONamespace);
+    });
+
+    it('should only match exact for PascalCase path segment', () => {
+      const env = { 
+        MyDO: mockDONamespace,
+        MYDO: { ...mockDONamespace, other: true },
+        mydo: { ...mockDONamespace, other: true }
+      };
+      const result = getDONamespaceFromPathSegment('MyDO', env);
+      expect(result).toBe(mockDONamespace);
+    });
+
+    it('should only match exact for snake_case path segment', () => {
+      const env = { 
+        my_do: mockDONamespace,
+        MY_DO: { ...mockDONamespace, other: true },
+        myDo: { ...mockDONamespace, other: true }
+      };
+      const result = getDONamespaceFromPathSegment('my_do', env);
+      expect(result).toBe(mockDONamespace);
+    });
+
+    it('should use smart matching for kebab-case with digits', () => {
+      const env = { 
+        API_V2: mockDONamespace
+      };
+      const result = getDONamespaceFromPathSegment('api-v2', env);
+      expect(result).toBe(mockDONamespace);
+    });
+
+    it('should use smart matching for kebab-case with all digits', () => {
+      const env = { 
+        ROOM_123: mockDONamespace
+      };
+      const result = getDONamespaceFromPathSegment('room-123', env);
+      expect(result).toBe(mockDONamespace);
+    });
+
+    it('should not match wrong casing for non-kebab-case', () => {
+      const env = { 
+        MYDO: mockDONamespace
+      };
+      const result = getDONamespaceFromPathSegment('MyDO', env);
+      expect(result).toBeUndefined();
+    });
+  });
 });
