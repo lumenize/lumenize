@@ -35,19 +35,7 @@ const DEFAULT_CONFIG: Required<RpcConfig> = {
  * @param config - Optional RPC configuration
  * @returns Response for RPC requests, null for non-RPC requests
  * 
- * @example
- * ```typescript
- * export class MyDO extends DurableObject {
- *   async fetch(request: Request): Promise<Response> {
- *     // Handle RPC requests
- *     const rpcResponse = await handleRpcRequest(request, this);
- *     if (rpcResponse) return rpcResponse;
- *     
- *     // Handle other custom routes
- *     return new Response('Not found', { status: 404 });
- *   }
- * }
- * ```
+ * @see For working examples, see packages/rpc/test/test-worker-and-dos.ts
  */
 export async function handleRpcRequest(
   request: Request,
@@ -348,22 +336,7 @@ interface RpcWebSocketResponse {
  * @param config - Optional RPC configuration
  * @returns true if message was handled as RPC, false if not an RPC message
  * 
- * @example
- * ```typescript
- * export class MyDO extends DurableObject {
- *   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
- *     // Handle RPC messages
- *     if (await handleRpcMessage(ws, message, this)) {
- *       return; // Message was handled as RPC
- *     }
- *     
- *     // Handle other custom WebSocket messages
- *     if (message === 'ping') {
- *       ws.send('pong');
- *     }
- *   }
- * }
- * ```
+ * @see For working examples, see packages/rpc/test/test-worker-and-dos.ts
  */
 export async function handleRpcMessage(
   ws: WebSocket,
@@ -456,7 +429,7 @@ export async function handleRpcMessage(
 
 /**
  * Adds RPC capabilities to a Durable Object class using a factory pattern.
- * 
+ *
  * This is the recommended approach for most use cases as it provides
  * a clean separation between your business logic and RPC handling.
  * 
@@ -464,17 +437,7 @@ export async function handleRpcMessage(
  * @param config - Optional RPC configuration
  * @returns Enhanced DO class with RPC endpoints
  * 
- * @example
- * ```typescript
- * export class MyDO extends lumenizeRpcDO(DurableObject, {
- *   prefix: '/__rpc',
- *   maxDepth: 100
- * }) {
- *   async myMethod() {
- *     return 'Hello from DO!';
- *   }
- * }
- * ```
+ * @see For working examples, see the test files in packages/rpc/test/ and doc-test/
  */
 export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T, config: RpcConfig = {}): T {
   if (typeof DOClass !== 'function') {
