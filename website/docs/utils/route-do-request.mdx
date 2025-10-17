@@ -172,9 +172,10 @@ Each error includes an `httpErrorCode` property in addition to the standard `mes
 
 ```typescript
 try {
-  const stub = getDOStubFromPathname(url.pathname, env);
-  return stub.fetch(request);
+  const response = await routeDORequest(request, env);
+  if (response) return response;
 } catch (error: any) {
+  // Handle MissingInstanceNameError, MultipleBindingsFoundError, etc.
   const status = error.httpErrorCode || 500;
   return new Response(error.message, { status });
 }
