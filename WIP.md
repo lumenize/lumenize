@@ -129,6 +129,30 @@ A new Docusaurus plugin to verify code examples in hand-written .mdx files match
   - `cors-support.mdx`: 7 errors (test file not found)
   - `route-do-request.mdx`: 7 errors (code not found in test)
 
+### Post-Phase 2: JavaScript Conversion ✅ COMPLETE
+**Problem**: Build steps for tooling plugins caused recurring debugging loops (build cache issues, symlink confusion, dist/ vs src/ confusion). Wasted development time and AI tokens.
+
+**Solution**: Converted both tooling plugins from TypeScript to JavaScript with JSDoc type annotations.
+
+**Results**:
+- **No build step ever**: Plugins run directly from source
+- **Zero doom loops**: No more "forgot to rebuild" debugging sessions
+- **Type safety preserved**: JSDoc provides IDE autocomplete and hints
+- **Both plugins verified working**:
+  - ✅ doc-testing generates docs with frontmatter
+  - ✅ check-examples verifies examples (14 expected errors)
+  - ✅ Website builds successfully
+  - ✅ Standalone check-examples script works
+
+**Files converted**:
+- `tooling/check-examples/src/index.ts` → `index.js` (with JSDoc)
+- `tooling/doc-testing/src/*.ts` → `*.js` (5 files with JSDoc)
+- Removed: All `tsconfig.json`, `dist/` folders, build scripts
+- Updated: package.json `main` fields point to `src/index.js`
+- Updated: READMEs document "no build required"
+
+**Philosophy alignment**: This matches Lumenize's "no build for development" principle - same approach used for packages running in Cloudflare Workers, now extended to Node.js tooling.
+
 ## Later and possibly unrelated
 
 - [ ] Switch all use of 'private' typescript keyword to JavaScript '#'

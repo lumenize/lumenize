@@ -20,8 +20,8 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 - Provide clear summaries of what was implemented after each step.
 - Explain design decisions and trade-offs.
 - After each step/phase, ask for code review before proceeding. Ask "Ready to proceed with [next step/phase]?" after completing each step or phase.
-- We are often refactoring the API of a package before the package has ever been published. When this is the case, do not worry about backward compatibility.
-- When we change the API of a package, mark one test as .only and get the new calling pattern working rather than edit all tests every time we make a change to the API like this. Once that one test passes, we can refactor the other tests.
+- Pre-publication packages: Don't worry about backward compatibility when refactoring unpublished APIs.
+- API changes: Mark one test as `.only` to verify the new pattern works, then update remaining tests.
 
 ## How we do things around here
 
@@ -37,8 +37,23 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 - Use TypeScript types for transient in-memory constructs.
 - Use TypeBox schemas for any structure that can cross a process, network, or persistence boundary.
 
-### No build except on publish
-All code is written in TypeScript, but no build step is used during development. Intra-package dependencies are managed using npm workspaces. This means that we can run and debug code directly from the source without needing to build first. The only time a build is done is when publishing using Lerna. This happens only after all builds, code tests, and doc tests pass.
+### No build during development
+**Principle**: Source code runs directly without a build step during development. This eliminates build cache issues, simplifies debugging, and provides immediate feedback.
+
+**Implementation varies by runtime**:
+- **Cloudflare Workers/DOs**: TypeScript runs directly via vitest's built-in transpilation
+- **Node.js tooling**: JavaScript with JSDoc for type hints (no TypeScript compilation needed)
+- **Published packages**: Build step happens only during publish via Lerna, after all tests pass
+
+**Benefits**:
+- No "forgot to rebuild" debugging loops
+- No dist/ vs src/ confusion
+- Direct source execution matches development mental model
+- Faster iteration cycles
+
+**Why this matters**: Build steps create recurring "doom loops" where changes don't appear to work, leading to investigations of build caches, symlinks, dist/ vs src/ confusion, and wasted time. JavaScript with JSDoc for tooling eliminates this entirely while preserving IDE type hints.
+
+Intra-package dependencies are managed using npm workspaces with source file references.
 
 ### Imports
 - If the item you are importing is exported from the source package's index.ts, use `import { something } from '@lumenize/some-other-package'`
@@ -47,28 +62,40 @@ All code is written in TypeScript, but no build step is used during development.
 ### Package Structure Standards
 
 #### Package.json patterns
-Every package should follow these patterns:
+**Core principles**:
 - `"type": "module"` - Always use ES modules
-- `"main": "src/index.ts"` and `"types": "src/index.ts"` - Point to source files, not dist
-- `exports` field should point to `"./src/index.ts"` for both import and types
-- No build scripts in package.json (build only happens on publish via Lerna)
-- **Always include** `"types": "wrangler types"` script in package.json for generating worker-configuration.d.ts
-- Intra-monorepo dependencies use `"*"` as the version (e.g., `"@lumenize/utils": "*"`)
-- peerDependencies for test tooling: `@cloudflare/vitest-pool-workers` and `vitest`
-- `"license": "MIT"` for all open-source packages
-- `files` array should include `["src/**/*"]` to publish source files
+- Point to source files, not built artifacts (`"main": "src/index.{ts,js}"`)
+- No build scripts (build only on publish)
+- Intra-monorepo dependencies use `"*"` as version
+- `"license": "MIT"` or `"license": "BSI-1.1"` for packages. When in doubt ask.
+- `files` array includes source: `["src/**/*"]`
+
+**For Cloudflare Worker packages**:
+- `"main": "src/index.ts"` and `"types": "src/index.ts"`
+- Include `"types": "wrangler types"` script for generating worker-configuration.d.ts
+- peerDependencies: `@cloudflare/vitest-pool-workers` and `vitest`
+
+**For Node.js tooling packages**:
+- `"main": "src/index.js"` (JavaScript with JSDoc)
+- No TypeScript types or build scripts
 
 #### Standard package files
-Every package should have:
+**All packages**:
 - `package.json` - No build script, MIT license, follows patterns above
+- `src/index.{ts,js}` - Single export file that re-exports all public API
+- `README.md` - Brief package description with link to docs (see README.md pattern below)
+- `LICENSE` - MIT license file (copy from another package)
+
+**Cloudflare Worker packages**:
 - `tsconfig.json` - Extends root (`../../tsconfig.json`), includes `"types": ["vitest/globals"]`
 - `vitest.config.js` - Workers project config (see below)
 - `wrangler.jsonc` - DO bindings and migrations for test DOs
-- `worker-configuration.d.ts` - **NEVER hand-generate this file**. Always generate it by running `npm run types` (which calls `wrangler types`). This file should be regenerated whenever wrangler.jsonc changes.
-- `src/index.ts` - Single export file that re-exports all public API
-- `test/test-worker-and-dos.ts` - Test worker and test DOs wrapped with `lumenizeRpcDO`
-- `README.md` - Brief package description with link to docs (see README.md pattern below)
-- `LICENSE` - MIT license file (copy from another package)
+- `worker-configuration.d.ts` - **Auto-generated only**. Run `npm run types` (calls `wrangler types`) whenever wrangler.jsonc changes
+- `test/test-worker-and-dos.ts` - Test worker and test DOs
+
+**Node.js tooling packages**:
+- JavaScript source files with JSDoc type annotations
+- No tsconfig.json or build configuration
 
 #### README.md pattern
 README.md files should follow this standard structure:
@@ -101,35 +128,40 @@ npm install --save-dev @lumenize/package-name
 - Use the de✨light✨ful branding in the description
 - Link directly to the specific docs page for that package
 
-#### Vitest configuration standards
-All vitest.config.js files should:
+#### Vitest configuration standards (Cloudflare Workers)
+All vitest.config.js files for Worker packages should:
 - Use `defineWorkersProject` from `@cloudflare/vitest-pool-workers/config`
 - Set `testTimeout: 2000` (2 second global timeout)
 - Set `globals: true` for global test functions
 - Configure `poolOptions.workers`:
-  - `isolatedStorage: false` - Required for WebSocket support (add comment: "Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.")
+  - `isolatedStorage: false` - Required for WebSocket support (add comment explaining this requirement)
   - `wrangler: { configPath: './wrangler.jsonc' }`
 - Coverage configuration:
   - `provider: "istanbul"`
   - `reporter: ['text', 'json', 'html']`
   - `skipFull: false` and `all: false`
 
-#### Wrangler configuration standards
-All wrangler.jsonc files should:
-- Use a descriptive `name` (e.g., `"lumenize-rpc"`, `"lumenize-testing"`)
-- Set `main` to test worker: `"test/test-worker-and-dos.ts"`
+#### Wrangler configuration standards (Cloudflare Workers)
+All wrangler.jsonc files for Worker packages should:
+- Use a descriptive `name` matching the package purpose
+- Set `main` to test worker location
 - Use recent `compatibility_date` (YYYY-MM-DD format)
 - Define test DOs in `durable_objects.bindings` with uppercase binding names
 - Include `migrations` array with `new_sqlite_classes` for all test DOs
-- Use incremental tags: `"v1"`, `"v2"`, etc.
+- Use incremental migration tags: `"v1"`, `"v2"`, etc.
 
 ### Testing
-- Unit testing is only used for algorithmically tricky code and ui components that can be unit tested without extensive mocking.
-- Integration testing is our primary way to get coverage of code that runs in a Worker or DO. Since @lumenize/testing is an integration test runner for DOs, we should dogfood that unless there is a good reason not to.
-- We are shooting for close to 100% branch coverage and will never accept less than 80% branch coverage. Only branches that are unlikely exception conditions can be left uncovered.
-- I'm just as likely to remove functionality after a refactor than I am to upgrade a test to cover less useful code with tests.
-- You should not attempt to make the tests pass at all costs especially after a refactor. We do not want tests to be ossification of behavior we should deprecate.
-- Never create an alias just so we don't have to modify a bunch of tests. Fixing the tests now is much better than living with that technical debt.
+**Philosophy**:
+- Unit testing is only for algorithmically tricky code and UI components that can be unit tested without extensive mocking
+- Integration testing is primary for Worker/DO code (dogfood our own testing packages)
+- Target: close to 100% branch coverage, minimum 80%
+- Only exception conditions can be left uncovered
+
+**Principles**:
+- **Tests enable refactoring, not prevent it**: Remove functionality rather than maintain tests for deprecated code
+- **No test ossification**: Don't make tests pass at all costs after a refactor if the behavior should be deprecated
+- **No technical debt to avoid test updates**: Never create aliases just to avoid modifying tests - fix them properly
+- **Single test iteration during API changes**: When refactoring a package API, mark one test as `.only` to get the new pattern working, then update others
 
 ### Documentation
 - **All user-facing documentation goes directly into `/website/docs/`** - This is our Docusaurus-based documentation site at https://lumenize.com
@@ -198,8 +230,8 @@ Further, if a capability is inspired by code we found elsewhere or implements a 
 - The system gurantees that only one instance by that name/id is running at a time anywhere in the world.
 - The term "Durable Object" or "DO" is defined to mean "Durable Object instance" but it is often mis-used to mean the Durable Object class or namespace. We should try be explicit but in the absense of perfect clarity it's best to assume that "DO" or "Durable Object" means "Durable Object instance" or ask.
 - The "Durable" aspect of DOs come into play because each DO instance has a dedicated SQLite database that can store up to 10GB of data that is only accessible through the code of the DO.
-- Access to the SQLite database can through one of three APIs:
-  - The legacy async key-value (KV) API which we should never use. It is there only to support migration from the DO system's now deprecated storage backend. These are found in `this.ctx.storage.put()`, `this.ctx.storage.get()`, etc. We should never write code to this API.
+- Access to the SQLite database can be through one of three APIs:
+  - The legacy async key-value (KV) API which we should never use. It is there only to support migration from the DO system's now-deprecated original storage backend. These are found in `this.ctx.storage.put()`, `this.ctx.storage.get()`, etc. We should never write code to this API.
   - Synchronous KV API with the same method names as the legacy async KV API but these return values instead of a Promise. These are found in `this.ctx.storage.kv.put()`, etc.
   - Synchronous SQLite-flavored SQL API accessed by `this.storage.sql.exec()`.
 - It's a bit of a mindset shift to use storage sychronously but it's perfectly fine because SQLite is an embedded database that is run in the same process and memory space as the DO code. It has fundamentally different performance characteristics because there is no network hop nor even a CPU context switch. In most cases, N+1 queries are just as efficient as, and sometimes more efficient than, a single query with a join.
@@ -207,8 +239,8 @@ Further, if a capability is inspired by code we found elsewhere or implements a 
 - So long as you avoid fetching, setTimeout, setInterval, DOs have a mechanism of input and output gates that assure messages and requests are processed in order and the next one in queue doesn't start until the last one's storage operations are persisted.
 - The DO system can evict a DO instance from memory for any number of reasons at any time including idleness. The next time the DO instance is accessed via name or id, it will be reinstantiated and the constructor will be called again.
 - However, the DO keeps around a cache of most frequently accessed storage even after the DO has left memory and the DO can maintain WebSocket connections through "hibernation".
-- Cloudflare DOs can be thought of as implementing a form of the Actor programming model popularlized by Erlang/BEAM although it lacks supervisory control that other Actor implementations implement.
+- Cloudflare DOs can be thought of as implementing a form of the Actor programming model popularlized by Erlang/BEAM although it lacks supervisory control that other Actor implementations support.
 - So, what this means is that:
-  - Only use instance variables to capture DO constructor parameters `this.ctx`/`this.env`, or when the in-memory form of data is an expensive transformation from the on-disk form. However, we should avoid situations where the in-memory form of the data is an expensive transformation from the on-disk form unless absolutely necessary.
+  - Use instance variables only to capture DO constructor parameters `this.ctx`/`this.env`, or when the in-memory form of data is an expensive transformation from the on-disk form. However, we should avoid situations where the in-memory form of the data is an expensive transformation from the on-disk form unless absolutely necessary.
   - Rather, each request/message handler should fetch what it needs from storage to process that message/request.
   - Also, since it can be evicted from memory at any time, state changes must be persisted to storage before returning from the message/request handler.

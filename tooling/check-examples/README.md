@@ -28,6 +28,10 @@ The plugin will:
 4. Verify the doc code exists as a substring in the test file
 5. Fail the build with helpful errors if not found
 
+## Implementation
+
+Written in JavaScript with JSDoc type annotations - **no build step required**. The plugin runs directly from source, eliminating build cache issues and simplifying development.
+
 ## Usage
 
 ### 1. Install

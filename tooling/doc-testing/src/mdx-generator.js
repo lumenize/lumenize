@@ -2,18 +2,17 @@
  * Generator for virtual MDX content from parsed test files
  */
 
-import type { ParsedTestFile, VirtualDoc, ImportDirective } from './types.js';
 import { readImportedFile } from './test-file-parser.js';
 
 /**
  * Generate virtual MDX content from a parsed test file
+ * @param {import('./types.js').ParsedTestFile} parsed - Parsed test file
+ * @param {string} testFilePath - Path to test file
+ * @param {{ injectNotice?: boolean }} options - Generation options
+ * @returns {import('./types.js').VirtualDoc}
  */
-export function generateMdxContent(
-  parsed: ParsedTestFile,
-  testFilePath: string,
-  options: { injectNotice?: boolean } = {}
-): VirtualDoc {
-  const parts: string[] = [];
+export function generateMdxContent(parsed, testFilePath, options = {}) {
+  const parts = [];
   
   // Add frontmatter to indicate this is a generated file
   parts.push('---');
@@ -101,8 +100,12 @@ export function generateMdxContent(
 
 /**
  * Generate a code fence block
+ * @param {string} language - Language identifier
+ * @param {string} content - Code content
+ * @param {string} displayName - Display name for the block
+ * @returns {string}
  */
-function generateCodeBlock(language: string, content: string, displayName: string = ''): string {
+function generateCodeBlock(language, content, displayName = '') {
   const fence = '```';
   const lang = displayName ? `${language} ${displayName}` : language;
   return `${fence}${lang}\n${content}\n${fence}`;
@@ -110,8 +113,9 @@ function generateCodeBlock(language: string, content: string, displayName: strin
 
 /**
  * Generate the testable documentation notice
+ * @returns {string}
  */
-function generateTestableNotice(): string {
+function generateTestableNotice() {
   return `<details>
 <summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
 

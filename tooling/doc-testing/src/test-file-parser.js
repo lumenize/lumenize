@@ -4,24 +4,25 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { ParsedTestFile, MarkdownBlock, CodeBlock, ImportDirective } from './types.js';
 
 /**
  * Parse a TypeScript test file to extract Markdown blocks, code blocks, and imports
+ * @param {string} testFilePath - Path to test file
+ * @returns {import('./types.js').ParsedTestFile}
  */
-export function parseTestFile(testFilePath: string): ParsedTestFile {
+export function parseTestFile(testFilePath) {
   const content = fs.readFileSync(testFilePath, 'utf-8');
   const lines = content.split('\n');
   
-  const markdownBlocks: MarkdownBlock[] = [];
-  const codeBlocks: CodeBlock[] = [];
-  const imports: ImportDirective[] = [];
+  const markdownBlocks = [];
+  const codeBlocks = [];
+  const imports = [];
   
   let inBlockComment = false;
   let currentBlockStart = -1;
-  let currentBlockLines: string[] = [];
+  let currentBlockLines = [];
   let lastBlockEnd = -1;
-  let title: string | undefined;
+  let title;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -147,9 +148,12 @@ export function parseTestFile(testFilePath: string): ParsedTestFile {
  * Parse @import directives from Markdown content
  * Format: @import {language} "path" [displayName]
  * Or: @import {language} "path"
+ * @param {string} markdown - Markdown content
+ * @param {number} blockStartLine - Starting line number of block
+ * @returns {import('./types.js').ImportDirective[]}
  */
-function parseImports(markdown: string, blockStartLine: number): ImportDirective[] {
-  const imports: ImportDirective[] = [];
+function parseImports(markdown, blockStartLine) {
+  const imports = [];
   const lines = markdown.split('\n');
   
   // Regex to match: @import {language} "path" [optional display name]
@@ -174,16 +178,22 @@ function parseImports(markdown: string, blockStartLine: number): ImportDirective
 
 /**
  * Resolve imported file path relative to the test file
+ * @param {string} testFilePath - Path to test file
+ * @param {string} importPath - Import path to resolve
+ * @returns {string}
  */
-export function resolveImportPath(testFilePath: string, importPath: string): string {
+export function resolveImportPath(testFilePath, importPath) {
   const testDir = path.dirname(testFilePath);
   return path.resolve(testDir, importPath);
 }
 
 /**
  * Read imported file content
+ * @param {string} testFilePath - Path to test file
+ * @param {string} importPath - Import path
+ * @returns {string}
  */
-export function readImportedFile(testFilePath: string, importPath: string): string {
+export function readImportedFile(testFilePath, importPath) {
   const resolvedPath = resolveImportPath(testFilePath, importPath);
   
   if (!fs.existsSync(resolvedPath)) {

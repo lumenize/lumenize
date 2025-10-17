@@ -5,11 +5,5 @@
 export { default as docTestPlugin } from './docusaurus-plugin.js';
 export { parseTestFile, resolveImportPath, readImportedFile } from './test-file-parser.js';
 export { generateMdxContent } from './mdx-generator.js';
-export type {
-  DocTestPluginOptions,
-  ParsedTestFile,
-  MarkdownBlock,
-  CodeBlock,
-  ImportDirective,
-  VirtualDoc,
-} from './types.js';
+
+// Type definitions are exported from types.js (via JSDoc)

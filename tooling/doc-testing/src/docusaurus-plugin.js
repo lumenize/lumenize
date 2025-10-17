@@ -5,25 +5,27 @@
  * from the referenced test files during the Docusaurus build process.
  */
 
-import type { LoadContext, Plugin } from '@docusaurus/types';
-import type { DocTestPluginOptions } from './types.js';
 import { parseTestFile } from './test-file-parser.js';
 import { generateMdxContent } from './mdx-generator.js';
 import path from 'path';
 import fs from 'fs';
 
-interface DocTestEntry {
-  type: string;
-  id: string;
-  testFile: string;
-}
+/**
+ * @typedef {Object} DocTestEntry
+ * @property {string} type - Entry type
+ * @property {string} id - Document ID
+ * @property {string} testFile - Path to test file
+ */
 
 /**
  * Extract doc-test entries from sidebars configuration
  * Looks for sidebar items with customProps.docTest
+ * @param {string} sidebarsPath - Path to sidebars.ts
+ * @param {string} siteDir - Site directory
+ * @returns {DocTestEntry[]}
  */
-function extractDocTestEntries(sidebarsPath: string, siteDir: string): DocTestEntry[] {
-  const entries: DocTestEntry[] = [];
+function extractDocTestEntries(sidebarsPath, siteDir) {
+  const entries = [];
   
   // Read and parse the sidebars file
   const sidebarsContent = fs.readFileSync(sidebarsPath, 'utf-8');
@@ -52,11 +54,11 @@ function extractDocTestEntries(sidebarsPath: string, siteDir: string): DocTestEn
 
 /**
  * Docusaurus plugin that generates virtual docs from test files
+ * @param {import('@docusaurus/types').LoadContext} context - Docusaurus context
+ * @param {import('./types.js').DocTestPluginOptions} options - Plugin options
+ * @returns {import('@docusaurus/types').Plugin}
  */
-export default function docTestPlugin(
-  context: LoadContext,
-  options: DocTestPluginOptions = {}
-): Plugin<void> {
+export default function docTestPlugin(context, options = {}) {
   const { verbose = false, injectNotice = true } = options;
   
   return {

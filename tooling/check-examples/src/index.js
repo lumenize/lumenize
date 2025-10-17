@@ -1,36 +1,40 @@
-import type { LoadContext, Plugin } from '@docusaurus/types';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-interface CheckExamplesOptions {
-  strict?: boolean;
-  include?: string[];
-  exclude?: string[];
-}
+/**
+ * @typedef {Object} CheckExamplesOptions
+ * @property {boolean} [strict] - Use strict (exact) matching for all code blocks
+ * @property {string[]} [include] - File patterns to include
+ * @property {string[]} [exclude] - File patterns to exclude
+ */
 
-interface CodeBlock {
-  code: string;
-  lang: string;
-  filePath: string;
-  lineNumber: number;
-  annotation: string;
-  testPath?: string;
-  strict?: boolean;
-}
+/**
+ * @typedef {Object} CodeBlock
+ * @property {string} code - The code content
+ * @property {string} lang - Language identifier (typescript, javascript, etc)
+ * @property {string} filePath - Path to the .mdx file
+ * @property {number} lineNumber - Line number where code block starts
+ * @property {string} annotation - Annotation string from fence or comment
+ * @property {string} [testPath] - Path to test file to check against
+ * @property {boolean} [strict] - Whether to use strict matching for this block
+ */
 
-interface VerificationError {
-  mdxFile: string;
-  lineNumber: number;
-  code: string;
-  testPath: string;
-  message: string;
-}
+/**
+ * @typedef {Object} VerificationError
+ * @property {string} mdxFile - Path to .mdx file with error
+ * @property {number} lineNumber - Line number of code block
+ * @property {string} code - Code that failed verification
+ * @property {string} testPath - Path to test file
+ * @property {string} message - Error message
+ */
 
 /**
  * Normalize TypeScript/JavaScript code for comparison:
  * Remove single-line comments, multi-line comments, and collapse whitespace
+ * @param {string} code - Code to normalize
+ * @returns {string} Normalized code
  */
-function normalizeCode(code: string): string {
+function normalizeCode(code) {
   return code
     // Remove single-line comments
     .replace(/\/\/.*$/gm, '')
@@ -43,8 +47,11 @@ function normalizeCode(code: string): string {
 
 /**
  * Check if code should use normalization or strict matching
+ * @param {string} lang - Language identifier
+ * @param {boolean} strict - Strict mode flag
+ * @returns {boolean}
  */
-function shouldNormalize(lang: string, strict: boolean): boolean {
+function shouldNormalize(lang, strict) {
   if (strict) return false;
   return lang === 'typescript' || lang === 'ts' || lang === 'javascript' || lang === 'js';
 }
@@ -54,8 +61,10 @@ function shouldNormalize(lang: string, strict: boolean): boolean {
  * Examples:
  *   @check-example('path/to/test.ts')
  *   @check-example('path/to/test.ts', { strict: true })
+ * @param {string} annotation - Annotation string to parse
+ * @returns {{ testPath: string; strict: boolean } | null}
  */
-function parseAnnotation(annotation: string): { testPath: string; strict: boolean } | null {
+function parseAnnotation(annotation) {
   const match = annotation.match(/@check-example\(['"]([^'"]+)['"]\s*(,\s*{[^}]*strict:\s*true[^}]*})?\s*\)/);
   if (!match) return null;
   
@@ -70,8 +79,10 @@ function parseAnnotation(annotation: string): { testPath: string; strict: boolea
  * Examples:
  *   website/docs/utils/route-do-request.mdx → packages/utils/test/route-do-request.test.ts
  *   website/docs/rpc/quick-start.mdx → packages/rpc/test/quick-start.test.ts
+ * @param {string} mdxFilePath - Path to .mdx file
+ * @returns {string | undefined}
  */
-function inferTestPath(mdxFilePath: string): string | undefined {
+function inferTestPath(mdxFilePath) {
   // Match: docs/<package>/<filename>.mdx
   const match = mdxFilePath.match(/docs\/([^/]+)\/([^/]+)\.mdx$/);
   if (!match) return undefined;
@@ -89,13 +100,16 @@ function inferTestPath(mdxFilePath: string): string | undefined {
 
 /**
  * Extract annotated code blocks from .mdx content
+ * @param {string} content - .mdx file content
+ * @param {string} filePath - Path to .mdx file
+ * @returns {CodeBlock[]}
  */
-function extractCodeBlocks(content: string, filePath: string): CodeBlock[] {
-  const blocks: CodeBlock[] = [];
+function extractCodeBlocks(content, filePath) {
+  const blocks = [];
   const lines = content.split('\n');
   
   let inCodeBlock = false;
-  let currentBlock: { lang: string; code: string[]; startLine: number; fenceLine: string } | null = null;
+  let currentBlock = null;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -130,7 +144,7 @@ function extractCodeBlocks(content: string, filePath: string): CodeBlock[] {
       }
       
       // Determine test path - either explicit or derived from file location
-      let testPath: string | undefined;
+      let testPath;
       let strict = false;
       let annotation = '';
       
@@ -188,21 +202,21 @@ function extractCodeBlocks(content: string, filePath: string): CodeBlock[] {
 
 /**
  * Verify a code block against its test file
+ * @param {CodeBlock} block - Code block to verify
+ * @param {Map<string, string>} testFileCache - Cache of test file contents
+ * @param {string} repoRoot - Repository root path
+ * @returns {VerificationError | null}
  */
-function verifyCodeBlock(
-  block: CodeBlock,
-  testFileCache: Map<string, string>,
-  repoRoot: string
-): VerificationError | null {
+function verifyCodeBlock(block, testFileCache, repoRoot) {
   if (!block.testPath) return null;
   
   // Resolve test file path relative to repo root
   const fullTestPath = path.join(repoRoot, block.testPath);
   
-  // Read test file (with caching if easy)
-  let testContent: string;
+  // Read test file (with caching)
+  let testContent;
   if (testFileCache.has(fullTestPath)) {
-    testContent = testFileCache.get(fullTestPath)!;
+    testContent = testFileCache.get(fullTestPath);
   } else {
     try {
       testContent = fs.readFileSync(fullTestPath, 'utf-8');
@@ -240,11 +254,14 @@ function verifyCodeBlock(
 
 /**
  * Find all .mdx files in a directory
+ * @param {string} dir - Directory to search
+ * @param {string[]} exclude - Patterns to exclude
+ * @returns {string[]}
  */
-function findMdxFiles(dir: string, exclude: string[] = []): string[] {
-  const files: string[] = [];
+function findMdxFiles(dir, exclude = []) {
+  const files = [];
   
-  function walk(currentDir: string) {
+  function walk(currentDir) {
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
     
     for (const entry of entries) {
@@ -269,8 +286,10 @@ function findMdxFiles(dir: string, exclude: string[] = []): string[] {
 
 /**
  * Check if file has doc-testing frontmatter (skip if generated)
+ * @param {string} content - File content
+ * @returns {boolean}
  */
-function isGeneratedByDocTesting(content: string): boolean {
+function isGeneratedByDocTesting(content) {
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) return false;
   
@@ -279,11 +298,11 @@ function isGeneratedByDocTesting(content: string): boolean {
 
 /**
  * Main plugin function
+ * @param {import('@docusaurus/types').LoadContext} context - Docusaurus context
+ * @param {CheckExamplesOptions} options - Plugin options
+ * @returns {import('@docusaurus/types').Plugin}
  */
-export default function pluginCheckExamples(
-  context: LoadContext,
-  options: CheckExamplesOptions = {}
-): Plugin {
+export default function pluginCheckExamples(context, options = {}) {
   return {
     name: 'docusaurus-plugin-check-examples',
     
@@ -297,8 +316,8 @@ export default function pluginCheckExamples(
       // Find all .mdx files
       const mdxFiles = findMdxFiles(docsDir, options.exclude);
       
-      const testFileCache = new Map<string, string>();
-      const errors: VerificationError[] = [];
+      const testFileCache = new Map();
+      const errors = [];
       let checkedBlocks = 0;
       let skippedFiles = 0;
       

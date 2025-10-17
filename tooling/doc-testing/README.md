@@ -98,6 +98,22 @@ const config = {
   ],
 };
 
+## Generated File Marker
+
+All generated `.mdx` files include frontmatter to mark them as generated:
+
+```markdown
+---
+generated_by: doc-testing
+---
+```
+
+This marker allows other tooling (like `check-examples`) to skip these files during validation since they're already verified through test execution.
+
+## Implementation
+
+Written in JavaScript with JSDoc type annotations - **no build step required**. The plugin runs directly from source, eliminating build cache issues and simplifying development.
+
 ## Development
 
 ```bash
