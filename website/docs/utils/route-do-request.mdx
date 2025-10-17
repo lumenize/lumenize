@@ -9,20 +9,24 @@ The `routeDORequest` function provides intelligent routing of HTTP and WebSocket
 
 ## Installation
 
-```bash npm2yarn
+```bash npm2yarn @skip-check
 npm install @lumenize/utils
 ```
 
 ## Basic Usage
 
-```typescript
-import { routeDORequest } from '@lumenize/utils';
+```typescript @check-example('packages/utils/test/route-do-request.test.ts')
+const response = await routeDORequest(request, env);
+```
 
+This is typically used in a Worker's fetch handler:
+
+```typescript @check-example('doc-test/rpc/quick-start/src/index.ts')
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Try to route to DOs first
-    const doResponse = await routeDORequest(request, env);
-    if (doResponse) return doResponse;
+    const response = await routeDORequest(request, env);
+    if (response) return response;
     
     // Fallback for non-DO requests
     return new Response("Not Found", { status: 404 });

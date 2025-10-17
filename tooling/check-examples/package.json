@@ -1,0 +1,33 @@
+{
+  "name": "@lumenize/docusaurus-plugin-check-examples",
+  "version": "0.1.0",
+  "description": "Docusaurus plugin to verify code examples in .mdx files match actual test code",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  },
+  "keywords": [
+    "docusaurus",
+    "plugin",
+    "documentation",
+    "code-examples",
+    "testing"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@docusaurus/types": "^3.0.0"
+  },
+  "devDependencies": {
+    "@docusaurus/types": "^3.5.2",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "files": [
+    "src/**/*"
+  ]
+}

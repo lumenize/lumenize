@@ -99,8 +99,8 @@ export default {
   async fetch(request: Request, env: any): Promise<Response> {
     // Route RPC requests to the Durable Object. Works for https:// or wss://
     // See: https://lumenize.com/docs/utils/route-do-request
-    const rpcResponse = await routeDORequest(request, env, { prefix: '__rpc' });
-    if (rpcResponse) return rpcResponse;
+    const response = await routeDORequest(request, env, { prefix: '__rpc' });
+    if (response) return response;
     
     // Fallback for non-RPC requests
     return new Response('Not Found', { status: 404 });

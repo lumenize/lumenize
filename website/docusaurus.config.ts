@@ -2,6 +2,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import { docTestPlugin } from '@lumenize/doc-testing';
+import checkExamplesPlugin from '@lumenize/docusaurus-plugin-check-examples';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -96,6 +97,13 @@ const config: Config = {
         {
           verbose: true,
           injectNotice: true,
+        },
+      ],
+      // Check-examples plugin - verifies hand-written doc examples
+      [
+        checkExamplesPlugin,
+        {
+          // Options can be added later if needed
         },
       ],
   ],

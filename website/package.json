@@ -17,7 +17,8 @@
     "generate-ico": "tsx scripts/svg-to-png.ts",
     "svg-to-png": "tsx scripts/svg-to-png.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check-examples": "tsx scripts/check-examples.mjs"
   },
   "dependencies": {
     "@docusaurus/core": "^3.9.1",
