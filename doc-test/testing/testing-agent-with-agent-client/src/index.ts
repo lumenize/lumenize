@@ -1,4 +1,12 @@
-import { Agent, routeAgentRequest, Connection, ConnectionContext, WSMessage } from "agents";
+import {
+  Agent,
+  routeAgentRequest,
+  Connection, 
+  ConnectionContext, 
+  WSMessage
+} from "agents";
+
+import { routeDORequest } from "@lumenize/utils";
 
 // Worker
 export default {
@@ -31,7 +39,8 @@ export default {
     }
     
     return (
-      await routeAgentRequest(request, env) ||
+      // await routeAgentRequest(request, env) ||
+      await routeDORequest(request, env) ||
       new Response("Not Found", { status: 404 })
     );
   }

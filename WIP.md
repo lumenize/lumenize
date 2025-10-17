@@ -156,6 +156,7 @@ A new Docusaurus plugin to verify code examples in hand-written .mdx files match
 ## Later and possibly unrelated
 
 - [ ] Switch all use of 'private' typescript keyword to JavaScript '#'
+- [ ] Figure out why routeDORequest doesn't work in my agent example and consider fixing it
 - [ ] Add a new signature for createRpcClient that's like createTestingClient's
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button

@@ -15,9 +15,6 @@
     "write-heading-ids": "docusaurus write-heading-ids",
     "typecheck": "tsc",
     "generate-ico": "tsx scripts/svg-to-png.ts",
-    "svg-to-png": "tsx scripts/svg-to-png.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
     "check-examples": "tsx scripts/check-examples.mjs"
   },
   "dependencies": {
@@ -31,22 +28,17 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.9.9",
     "@cloudflare/workers-types": "^4.20251001.0",
     "@docusaurus/module-type-aliases": "^3.9.1",
     "@docusaurus/tsconfig": "^3.9.1",
     "@docusaurus/types": "^3.9.1",
     "@lumenize/doc-testing": "file:../tooling/doc-testing",
-    "@lumenize/rpc": "file:../packages/rpc",
-    "@lumenize/utils": "file:../packages/utils",
     "@resvg/resvg-js": "^2.6.2",
     "docusaurus-plugin-typedoc": "^1.4.2",
     "tsx": "^4.20.5",
     "typedoc": "^0.28.13",
     "typedoc-plugin-markdown": "^4.9.0",
-    "typescript": "~5.6.2",
-    "vitest": "3.2.4",
-    "wrangler": "^4.33.1"
+    "typescript": "~5.6.2"
   },
   "browserslist": {
     "production": [
