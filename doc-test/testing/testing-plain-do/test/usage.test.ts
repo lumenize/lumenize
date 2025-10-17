@@ -238,7 +238,7 @@ it('shows cookie sharing between fetch and WebSocket', async () => {
   await using client = createTestingClient<MyDOType>('MY_DO', 'cookies');
   const browser = new Browser();
   
-  // Login via fetch - sets session cookie (no need to pass fetch!)
+  // Login via fetch - sets session cookie
   await browser.fetch('https://test.com/login?user=test');
   
   // Verify cookie was stored in the browser

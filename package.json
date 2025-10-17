@@ -11,13 +11,14 @@
     "website"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "test": "npm run test --workspaces",
-    "type-check": "npm run type-check --workspaces",
-    "clean": "npm run clean:dist && npm run clean:deps",
-    "clean:dist": "rm -rf packages/*/dist examples/*/dist website/dist lumenize-monolith/dist",
-    "clean:deps": "npx lerna clean --yes && rm -rf node_modules",
-    "clean:all": "npm run clean && npm install",
+    "prepare": "chmod +x scripts/*.sh",
+    "test:code": "npm run test -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils",
+    "test:doc": "./scripts/test-doc.sh",
+    "test": "npm run test:code && npm run test:doc",
+    "type-check": "npm run type-check -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils",
+    "clean": "rm -rf packages/*/dist lumenize-monolith/dist doc-test/*/*/coverage",
+    "clean:deps": "rm -rf node_modules packages/*/node_modules lumenize-monolith/node_modules website/node_modules doc-test/*/*/node_modules",
+    "clean:all": "npm run clean && npm run clean:deps && npm install",
     "release:dry-run": "./scripts/release-dry-run.sh",
     "release": "./scripts/release.sh"
   },
