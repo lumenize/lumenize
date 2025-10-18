@@ -30,17 +30,24 @@ import * as path from 'node:path';
 
 /**
  * Normalize TypeScript/JavaScript code for comparison:
- * Remove single-line comments, multi-line comments, and collapse whitespace
+ * Remove imports, comments, and collapse whitespace
+ * Supports // ... as a wildcard to skip intervening code
  * @param {string} code - Code to normalize
  * @returns {string} Normalized code
  */
 function normalizeCode(code) {
   return code
+    // Remove import statements (allows docs to show @lumenize/package imports while tests use relative paths)
+    .replace(/^import\s+.*?from\s+['"].*?['"];?\s*$/gm, '')
+    // Remove export statements from the beginning (export default, export const, etc.)
+    .replace(/^export\s+(default\s+)?(class|function|const|let|var|type|interface|enum)\s+/gm, '$2 ')
+    // Replace // ... with a unique placeholder before removing other comments
+    .replace(/\/\/\s*\.\.\.\s*$/gm, '___ELLIPSIS___')
     // Remove single-line comments
     .replace(/\/\/.*$/gm, '')
     // Remove multi-line comments
     .replace(/\/\*[\s\S]*?\*\//g, '')
-    // Collapse whitespace
+    // Collapse whitespace (including newlines)
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -238,15 +245,36 @@ function verifyCodeBlock(block, testFileCache, repoRoot) {
   const docCode = useNormalization ? normalizeCode(block.code) : block.code;
   const testCode = useNormalization ? normalizeCode(testContent) : testContent;
   
-  // Check if doc code exists in test code
-  if (!testCode.includes(docCode)) {
-    return {
-      mdxFile: block.filePath,
-      lineNumber: block.lineNumber,
-      code: block.code,
-      testPath: block.testPath,
-      message: 'Code not found in test file',
-    };
+  // Check if doc code contains ellipsis wildcards
+  if (docCode.includes('___ELLIPSIS___')) {
+    // Convert to regex pattern, escaping special chars except our placeholder
+    const pattern = docCode
+      .split('___ELLIPSIS___')
+      .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('.*?'); // Non-greedy wildcard
+    
+    const regex = new RegExp(pattern, 's'); // s flag for dotAll (. matches newlines)
+    
+    if (!regex.test(testCode)) {
+      return {
+        mdxFile: block.filePath,
+        lineNumber: block.lineNumber,
+        code: block.code,
+        testPath: block.testPath,
+        message: 'Code pattern not found in test file',
+      };
+    }
+  } else {
+    // Simple substring match
+    if (!testCode.includes(docCode)) {
+      return {
+        mdxFile: block.filePath,
+        lineNumber: block.lineNumber,
+        code: block.code,
+        testPath: block.testPath,
+        message: 'Code not found in test file',
+      };
+    }
   }
   
   return null;

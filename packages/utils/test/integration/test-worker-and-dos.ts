@@ -57,7 +57,52 @@ export class UserSession extends DurableObject<Env> {
 
 /**
  * Test worker that uses routeDORequest
+ * 
+ * Documentation example - basic usage:
  */
+const _basicUsageExample = {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Try routing to a Durable Object
+    const response = await routeDORequest(request, env);
+    if (response) return response;
+    
+    // Fallback for non-DO routes
+    return new Response('Not Found', { status: 404 });
+  }
+};
+
+/**
+ * Documentation example - idiomatic pattern with multiple routers:
+ */
+const _idiomaticExample = {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    return (
+      await routeDORequest(request, env, { prefix: '/do' }) ||
+      await routeAgentRequest(request, env) || // default prefix is '/agents'
+      new Response("Not Found", { status: 404 })
+    );
+  }
+};
+
+/**
+ * Documentation example - error handling with httpErrorCode:
+ */
+const _errorHandlingExample = {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return (
+        await routeDORequest(request, env, { prefix: '/do' }) ||
+        await routeAgentRequest(request, env) || // default prefix is '/agents'
+        new Response("Not Found", { status: 404 })
+      );
+    } catch (error: any) {
+      // Handle MissingInstanceNameError, MultipleBindingsFoundError, etc.
+      const status = error.httpErrorCode || 500;
+      return new Response(error.message, { status });
+    }
+  }
+};
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {

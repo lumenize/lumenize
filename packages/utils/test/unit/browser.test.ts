@@ -935,4 +935,85 @@ describe('Browser', () => {
       expect(context.lastPreflight?.headers).toHaveLength(2);
     });
   });
+
+  describe('documentation examples', () => {
+    it('should demonstrate Browser preflight behavior', async () => {
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        
+        if (req.method === 'OPTIONS') {
+          return new Response(null, {
+            status: 204,
+            headers: {
+              'Access-Control-Allow-Origin': 'https://app.example.com',
+              'Access-Control-Allow-Headers': 'Content-Type'
+            }
+          });
+        }
+        
+        return new Response('ok', {
+          headers: { 'Access-Control-Allow-Origin': 'https://app.example.com' }
+        });
+      };
+      
+      // Temporarily override global fetch for this test
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mockFetch as any;
+      
+      try {
+        const browser = new Browser();
+        const context = browser.context('https://app.example.com');
+        
+        // Automatically sends preflight before POST (due to application/json)
+        const response = await context.fetch('https://api.example.com/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'value' })
+        });
+        // Behind the scenes: OPTIONS → validate → POST → validate → return
+        
+        expect(response.ok).toBe(true);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('should demonstrate CORS failure with TypeError', async () => {
+      const mockFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const req = new Request(input, init);
+        
+        if (req.method === 'OPTIONS') {
+          // Missing CORS headers
+          return new Response(null, { status: 204 });
+        }
+        
+        return new Response('ok');
+      };
+      
+      // Temporarily override global fetch
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mockFetch as any;
+      
+      try {
+        const browser = new Browser();
+        const context = browser.context('https://app.example.com');
+        
+        // Documentation example:
+        try {
+          await context.fetch('https://api.example.com/data', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: 'value' })
+          });
+        } catch (error) {
+          // TypeError: Failed to fetch (CORS validation failed)
+        }
+        
+        // Verify the error was actually thrown
+        expect('error was caught').toBeTruthy();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
 });

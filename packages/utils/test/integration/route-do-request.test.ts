@@ -116,4 +116,26 @@ describe('routeDORequest integration tests', () => {
       expect(data.url).toContain('baz=qux');
     });
   });
+
+  describe('documentation examples', () => {
+    it('should demonstrate error handling with httpErrorCode', async () => {
+      // The test worker already implements this pattern in its catch block:
+      // try {
+      //   const response = await routeDORequest(request, env);
+      //   if (response) return response;
+      // } catch (error: any) {
+      //   // Handle MissingInstanceNameError, MultipleBindingsFoundError, etc.
+      //   const status = error.httpErrorCode || 500;
+      //   return new Response(error.message, { status });
+      // }
+      
+      // Request without instance name triggers MissingInstanceNameError
+      const response = await SELF.fetch('http://localhost/my-do');
+      expect(response.status).toBe(400); // httpErrorCode from the error
+      
+      const data = await response.json();
+      expect(data.httpErrorCode).toBe(400);
+      expect(data.code).toBe('MISSING_INSTANCE_NAME');
+    });
+  });
 });

@@ -5,7 +5,11 @@ description: Route HTTP and WebSocket requests to Durable Objects with authentic
 
 # Request Routing with `routeDORequest`
 
-The `routeDORequest` function provides intelligent routing of HTTP and WebSocket requests to Durable Objects with support for authentication hooks and prefix matching. It's a near drop-in replacement for Cloudflare's `routeAgentRequest` and PartyKit's `routePartyRequest`, but uses standard Cloudflare naming conventions (no "party", "room", "agent") and has many useful upgrades.
+The `routeDORequest` function provides intelligent routing of HTTP and WebSocket requests 
+to Durable Objects with support for authentication hooks and prefix matching. It's a near 
+drop-in replacement for Cloudflare `agents` package `routeAgentRequest` and PartyKit's 
+`routePartyRequest`, but uses standard Cloudflare naming conventions (no "party", "room", 
+"agent") and has many useful upgrades.
 
 ## Installation
 
@@ -18,18 +22,14 @@ npm install @lumenize/utils
 Use in a Worker's fetch handler:
 
 ```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
-import { routeDORequest } from '@lumenize/utils';
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Try routing to DOs
-    const response = await routeDORequest(request, env);
-    if (response) return response;
-    
-    // Fallback for non-DO requests
-    return new Response('Not Found', { status: 404 });
-  }
-};
+async fetch(request: Request, env: Env): Promise<Response> {
+  // Try routing to a Durable Object
+  const response = await routeDORequest(request, env);
+  if (response) return response;
+  
+  // Fallback for non-DO routes
+  return new Response('Not Found', { status: 404 });
+}
 ```
 
 ## URL Format
@@ -41,7 +41,8 @@ Requests must follow this format:
 
 ## Instance ID Handling
 
-The function automatically detects 64-character hex strings (from `newUniqueId().toString()`) and uses `idFromString()` instead of `getByName()`:
+The function automatically detects 64-character hex strings (from 
+`newUniqueId().toString()`) and uses `idFromString()` instead of `getByName()`:
 
 - Named instance
   - Path: `/my-do/lobby`
@@ -52,8 +53,8 @@ The function automatically detects 64-character hex strings (from `newUniqueId()
   - Resolves to: `env.MY_DO.get(env.MY_DO.idFromString('8aa7...'))`
 
 - Named instance with prefix
-  - Path: `/agents/user-do/john`
-  - With config: `{ prefix: '/agents' }`
+  - Path: `/do/user-do/john`
+  - With config: `{ prefix: '/do' }`
   - Resolves to: `env.USER_DO.getByName('john')`
 
 ## Supported Case Conversions for `doBindingName`
@@ -97,7 +98,7 @@ This hook does not run for WebSocket upgrade requests.
 
 Use hooks to validate or modify requests before they reach your Durable Objects:
 
-```typescript
+```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
 const response = await routeDORequest(request, env, {
   // Hook for WebSocket connections
   onBeforeConnect: async (request, { doNamespace, doInstanceNameOrId }) => {
@@ -114,8 +115,6 @@ const response = await routeDORequest(request, env, {
   
   // Hook for HTTP requests
   onBeforeRequest: async (request, { doNamespace, doInstanceNameOrId }) => {
-    console.log(`Request to instance: ${doInstanceNameOrId}`);
-    
     const apiKey = request.headers.get('X-API-Key');
     if (request.method !== 'GET' && !apiKey) {
       return Response.json(
@@ -132,18 +131,31 @@ const response = await routeDORequest(request, env, {
 Use the `prefix` option to scope routing to a specific URL path:
 
 ```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
-// Try routing to DOs with /do prefix
-const doResponse = await routeDORequest(request, env, { prefix: '/do' });
-if (doResponse) return doResponse;
+const response = await routeDORequest(request, env, { prefix: '/do' });
+if (response) return response;
 ```
 
-`routeDORequest` will short-circuit return undefined if the Request.url doesn't match the prefix.
+`routeDORequest` will short-circuit return undefined if the Request.url doesn't match the 
+prefix.
+
+## Lumenize's own `routeAgentRequest`
+
+`@lumenize/utils` also exports our own `routeAgentRequest`. It defaults the prefix to 
+'/agents' and adds the same `x-partykit-...` headers that `agents` `routeAgentRequest` 
+does. This is the only place in Lumenize, where we allowed PartyKit foo to creep in and
+we only did it so it could serve as a near drop in replacement with much better CORS
+support.
+
+It's still only "near" drop-in. Lumenize's `onBeforeConnect` and `onBeforeRequest` hooks 
+don't support some of the optional parameters as `agents`' because they too have
+PartyKit foo in them.
 
 ## CORS Support
 
-The most common cross-origin resource sharing (CORS) configuration and our recommendation 90% of the time is a simple whitelist.
+The most common cross-origin resource sharing (CORS) configuration and our recommendation 90% of the time is a simple whitelist. This is not supported by `agents`' 
+`routeAgentRequest`.
 
-```typescript
+```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
 // Whitelist specific origins
 await routeDORequest(request, env, {
   cors: {
@@ -152,15 +164,20 @@ await routeDORequest(request, env, {
 });
 ```
 
-The following examples match the behavior of `routeAgentRequest` using the same configuration but we recommend against their use particularly if your DOs use WebSockets with a browser because the browser does not natively provide CORS protection for WebSocket use.
+The following examples match the behavior of `agents`' `routeAgentRequest` using the same 
+configuration but we recommend against their use particularly if your DOs use WebSockets 
+with a browser because the browser does not natively provide CORS protection for 
+WebSocket use.
 
-```typescript
+```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
 await routeDORequest(request, env, { cors: true }); // Allow all origins (permissive)
 await routeDORequest(request, env ); // Default, only allow `fetch` on this origin
 // Note, the default ('false') allows WebSocket access for ALL origins
 ```
 
-`routeDORequest` CORS support goes way beyond what is supported by `routeAgentRequest` and a simple whitelist. For a detailed discussion and all available options in case you have an advanced use case see [CORS Support](/docs/utils/cors-support).
+CORS support goes beyond `true`, `false`, and a whitelist. For a detailed discussion 
+and all available options in case you have an advanced use case see 
+[CORS Support](/docs/utils/cors-support).
 
 When enabled, CORS support automatically:
 - Reflects the allowed origin in `Access-Control-Allow-Origin` header
@@ -168,63 +185,58 @@ When enabled, CORS support automatically:
 - Handles OPTIONS (preflight) requests
 - Adds headers to both DO responses and `onBefore...` hook responses
 
+## Multiple Routers
+
+When using multiple routing functions (e.g., `routeDORequest` and `routeAgentRequest`), 
+use the idiomatic pattern with `||` for clean fallthrough. Each router checks its prefix 
+and returns `undefined` if it doesn't match:
+
+```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+import { routeDORequest, routeAgentRequest } from '@lumenize/utils';
+
+// ...
+
+async fetch(request: Request, env: Env): Promise<Response> {
+  return (
+    await routeDORequest(request, env, { prefix: '/do' }) ||
+    await routeAgentRequest(request, env) || // default prefix is '/agents'
+    new Response("Not Found", { status: 404 })
+  );
+}
+```
+
 ## Error Handling
 
 The function throws errors for invalid requests:
 
 - **`MissingInstanceNameError`** (400) - Binding name found but instance name/ID missing
-- **`MultipleBindingsFoundError`** (400) - Multiple DO bindings match the path segment (configuration error)
+- **`MultipleBindingsFoundError`** (400) - Multiple DO bindings match the path segment 
+  (configuration error)
 
-Note, if the url segment for doBindingName doesn't match any DO Namespaces found on `env`, it will return undefined not an error.
+Note, if the url segment for doBindingName doesn't match any DO Namespaces found on 
+`env`, it will return undefined, not an error.
 
-Each error includes an `httpErrorCode` property in addition to the standard `message` property for easy HTTP response handling:
-
-```typescript
-try {
-  const response = await routeDORequest(request, env);
-  if (response) return response;
-} catch (error: any) {
-  // Handle MissingInstanceNameError, MultipleBindingsFoundError, etc.
-  const status = error.httpErrorCode || 500;
-  return new Response(error.message, { status });
-}
-```
-
-## Complete Example
+Each error includes an `httpErrorCode` property in addition to the standard `message` 
+property for easy HTTP response handling:
 
 ```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
 import { routeDORequest, routeAgentRequest } from '@lumenize/utils';
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    try {
-      // Try routing to DOs with /do prefix
-      const doResponse = await routeDORequest(request, env, { prefix: '/do' });
-      if (doResponse) return doResponse;
-      
-      // Try routing to agents with /agents prefix
-      const agentResponse = await routeAgentRequest(request, env, { prefix: '/agents' });
-      if (agentResponse) return agentResponse;
-      
-      // Try routing without prefix
-      const noPrefix = await routeDORequest(request, env);
-      if (noPrefix) return noPrefix;
-      
-      // Fallback
-      return new Response('Not Found', { status: 404 });
-    } catch (error: any) {
-      // Return error info for testing
-      return Response.json({
-        error: error.message,
-        name: error.name,
-        code: error.code,
-        httpErrorCode: error.httpErrorCode,
-      }, { 
-        status: error.httpErrorCode || 500 
-      });
-    }
-  },
-};
+// ...
+
+async fetch(request: Request, env: Env): Promise<Response> {
+  try {
+    return (
+      await routeDORequest(request, env, { prefix: '/do' }) ||
+      await routeAgentRequest(request, env) || // default prefix is '/agents'
+      new Response("Not Found", { status: 404 })
+    );
+  } catch (error: any) {
+    // Handle MissingInstanceNameError, MultipleBindingsFoundError, etc.
+    const status = error.httpErrorCode || 500;
+    return new Response(error.message, { status });
+  }
+}
 ```
 
 ## Key Features
@@ -235,3 +247,4 @@ export default {
 - **Prefix support** - Scope routing to specific URL paths
 - **Hono-style behavior** - Returns `undefined` if request doesn't match
 - **Standard Cloudflare naming** - No confusing party/agent/room terminology
+- **Robust CORS support** - Whitelist and custom function in addition to true/false
