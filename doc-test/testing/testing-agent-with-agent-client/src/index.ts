@@ -38,7 +38,6 @@ export default {
     }
     
     return (
-      // await routeAgentRequestFromAgents(request, env) ||
       await routeAgentRequest(request, env) ||
       new Response("Not Found", { status: 404 })
     );
