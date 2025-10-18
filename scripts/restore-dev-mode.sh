@@ -39,6 +39,13 @@ for package in "${PACKAGES[@]}"; do
       }
     }
     
+    // Restore files array to src instead of dist
+    if (pkg.files) {
+      pkg.files = pkg.files.map(file => 
+        file.replace(/^dist\//, 'src/')
+      );
+    }
+    
     fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
   "
   

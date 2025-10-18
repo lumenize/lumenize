@@ -47,6 +47,13 @@ for package in "${PACKAGES[@]}"; do
       }
     }
     
+    // Update files array to include dist instead of src
+    if (pkg.files) {
+      pkg.files = pkg.files.map(file => 
+        file.replace(/^src\//, 'dist/')
+      );
+    }
+    
     fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
   "
   

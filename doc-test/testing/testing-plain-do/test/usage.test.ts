@@ -3,12 +3,11 @@
 */
 
 /*
-`@lumenize/testing` is a superset of functionality of cloudflare:test with a 
-more de✨light✨ful DX. While `cloudflare:test`'s `runInDurableObject` only 
+`@lumenize/testing` is a superset of functionality of `cloudflare:test` with a 
+more de✨light✨ful DX. While `cloudflare:test`'s `runInDurableObject` 
 allows you to work with `ctx`/`state`, `@lumenize/testing` also allows you to 
 do that plus:
-  - Inspect or manipulate instance variables (custom, this.env, etc.), not just 
-    ctx
+  - Inspect or manipulate instance variables
   - Call instance methods directly from your test
   - Greatly enhances your ability to test DOs via WebSockets
   - Simulate browser behavior with cookie management and realistic CORS
@@ -25,8 +24,8 @@ do that plus:
     - `browser.WebSocket` --> cookie-aware WebSocket constructor (no Origin
       header)
     - `browser.context(origin)` --> returns `{ fetch, WebSocket }`
-      - `fetch` and `WebSocket` automatically include cookies
-      - Simulates requests from a context loaded from the given origin
+      - `fetch` and `WebSocket` from same context share cookies
+      - Simulates requests from a context/page loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
 */
 
@@ -156,15 +155,12 @@ it('shows testing WebSocket functionality', async () => {
   await vi.waitFor(() => expect(incrementResponse).toBe('1'));
   
   // Trigger server-initiated close and verify close event
-  let closeEventFired = false;
   let closeCode: number | null = null;
   ws.onclose = (event: any) => {
-    closeEventFired = true;
     closeCode = event.code;
   };
   ws.send('test-server-close');
-  await vi.waitFor(() => expect(closeEventFired).toBe(true));
-  expect(closeCode).toBe(4001);
+  await vi.waitFor(() => expect(expect(closeCode).toBe(4001)));
 
   // Access getWebSockets using tag that matches DO instance name
   const webSocketsOnServer = await client.ctx.getWebSockets('test-ws');
@@ -448,7 +444,7 @@ it('requires await for even non-async function calls', async () => {
   const storage = client.ctx.storage;
   const { sql } = storage;
   
-  // Static properties can be accessed directly and require await
+  // Static properties can be accessed directly but still require await
   expect(typeof (await sql.databaseSize)).toBe('number');
   
   // __asObject() is only callable from the root client, not nested proxies
