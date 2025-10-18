@@ -1,29 +1,17 @@
 {
   "name": "@lumenize/docusaurus-plugin-check-examples",
   "version": "0.8.3",
+  "private": true,
   "description": "Docusaurus plugin to verify code examples in .mdx files match actual test code",
   "type": "module",
   "main": "./src/index.js",
   "exports": {
-    ".": "./src/index.js"
-  },
-  "keywords": [
-    "docusaurus",
-    "plugin",
-    "documentation",
-    "code-examples",
-    "testing"
-  ],
-  "license": "MIT",
-  "peerDependencies": {
-    "@docusaurus/types": "^3.0.0"
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
   },
   "devDependencies": {
     "@docusaurus/types": "^3.5.2",
     "@types/node": "^22.10.2",
     "typescript": "^5.7.2"
-  },
-  "files": [
-    "src/**/*"
-  ]
+  }
 }
