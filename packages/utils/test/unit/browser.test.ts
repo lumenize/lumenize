@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Browser } from '../src/browser';
+import { Browser } from '../../src/browser';
 
 describe('Browser', () => {
   describe('constructor', () => {

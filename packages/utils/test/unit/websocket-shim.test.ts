@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getWebSocketShim } from '../src/websocket-shim';
+import { getWebSocketShim } from '../../src/websocket-shim';
 
 describe('getWebSocketShim', () => {
   let mockFetch: ReturnType<typeof vi.fn>;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parsePathname } from '../src/parse-pathname';
+import { parsePathname } from '../../src/parse-pathname';
 
 describe('parsePathname', () => {
   it('should parse basic pathname without prefix', () => {

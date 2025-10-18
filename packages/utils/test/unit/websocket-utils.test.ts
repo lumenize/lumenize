@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWebSocketUpgrade } from '../src/websocket-utils';
+import { isWebSocketUpgrade } from '../../src/websocket-utils';
 
 describe('isWebSocketUpgrade', () => {
   it('should return true for valid WebSocket upgrade request', () => {

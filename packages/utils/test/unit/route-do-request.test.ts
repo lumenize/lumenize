@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { routeDORequest, type RouteOptions } from '../src/route-do-request';
+import { routeDORequest, type RouteOptions } from '../../src/route-do-request';
 
 describe('routeDORequest', () => {
   // Mock Durable Object Stub

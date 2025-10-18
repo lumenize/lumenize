@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSetCookie, parseSetCookies, serializeCookies, cookieMatches, type Cookie } from '../src/cookie-utils';
+import { parseSetCookie, parseSetCookies, serializeCookies, cookieMatches, type Cookie } from '../../src/cookie-utils';
 
 describe('parseSetCookie', () => {
   it('should parse simple cookie', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDONamespaceFromPathSegment, MultipleBindingsFoundError } from '../src/get-do-namespace-from-path-segment';
+import { getDONamespaceFromPathSegment, MultipleBindingsFoundError } from '../../src/get-do-namespace-from-path-segment';
 
 describe('getDONamespaceFromPathSegment', () => {
   // Mock Durable Object Namespace

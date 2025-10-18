@@ -15,21 +15,19 @@ npm install @lumenize/utils
 
 ## Basic Usage
 
-```typescript @check-example('packages/utils/test/route-do-request.test.ts')
-const response = await routeDORequest(request, env);
-```
+Use in a Worker's fetch handler:
 
-This is typically used in a Worker's fetch handler:
+```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+import { routeDORequest } from '@lumenize/utils';
 
-```typescript @check-example('doc-test/rpc/quick-start/src/index.ts')
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Try to route to DOs first
+    // Try routing to DOs
     const response = await routeDORequest(request, env);
     if (response) return response;
     
     // Fallback for non-DO requests
-    return new Response("Not Found", { status: 404 });
+    return new Response('Not Found', { status: 404 });
   }
 };
 ```
@@ -133,13 +131,10 @@ const response = await routeDORequest(request, env, {
 
 Use the `prefix` option to scope routing to a specific URL path:
 
-```typescript
-// Only route URLs starting with /api/
-const response = await routeDORequest(request, env, {
-  prefix: '/api'
-});
-
-// Now only /api/my-do/instance123 routes, not /my-do/instance123
+```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+// Try routing to DOs with /do prefix
+const doResponse = await routeDORequest(request, env, { prefix: '/do' });
+if (doResponse) return doResponse;
 ```
 
 `routeDORequest` will short-circuit return undefined if the Request.url doesn't match the prefix.
@@ -197,37 +192,38 @@ try {
 
 ## Complete Example
 
-```typescript
-import { routeDORequest } from '@lumenize/utils';
+```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+import { routeDORequest, routeAgentRequest } from '@lumenize/utils';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Route all /do/* requests to Durable Objects
-    const doResponse = await routeDORequest(request, env, {
-      prefix: '/do',
+    try {
+      // Try routing to DOs with /do prefix
+      const doResponse = await routeDORequest(request, env, { prefix: '/do' });
+      if (doResponse) return doResponse;
       
-      onBeforeConnect: async (request, context) => {
-        // Validate WebSocket connections
-        if (!request.headers.get('Authorization')) {
-          return new Response('Unauthorized', { status: 401 });
-        }
-      },
+      // Try routing to agents with /agents prefix
+      const agentResponse = await routeAgentRequest(request, env, { prefix: '/agents' });
+      if (agentResponse) return agentResponse;
       
-      onBeforeRequest: async (request, context) => {
-        // Log all HTTP requests
-        console.log(`HTTP ${request.method} to ${context.doInstanceNameOrId}`);
-      }
-    });
-    
-    if (doResponse) return doResponse;
-    
-    // Handle non-DO routes
-    if (request.url.endsWith('/health')) {
-      return new Response('OK');
+      // Try routing without prefix
+      const noPrefix = await routeDORequest(request, env);
+      if (noPrefix) return noPrefix;
+      
+      // Fallback
+      return new Response('Not Found', { status: 404 });
+    } catch (error: any) {
+      // Return error info for testing
+      return Response.json({
+        error: error.message,
+        name: error.name,
+        code: error.code,
+        httpErrorCode: error.httpErrorCode,
+      }, { 
+        status: error.httpErrorCode || 500 
+      });
     }
-    
-    return new Response('Not Found', { status: 404 });
-  }
+  },
 };
 ```
 

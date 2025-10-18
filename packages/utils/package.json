@@ -10,11 +10,21 @@
     "clean": "rm -rf dist",
     "test": "vitest --run",
     "coverage": "vitest --run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:unit": "vitest --run --project unit",
+    "test:integration": "vitest --run --project integration",
+    "types": "wrangler types --config test/integration/wrangler.jsonc test/integration/worker-configuration.d.ts"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@cloudflare/workers-types": "^4.20250110.0",
     "@vitest/coverage-istanbul": "^3.2.4",
     "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.38.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.3",
     "vitest": "^3.2.4"
   },
   "keywords": [

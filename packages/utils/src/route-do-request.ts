@@ -284,7 +284,7 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   
   // Add routing context headers
   // These headers provide the DO with information about how it was accessed
-  let headers = new Headers(request.headers);
+  const headers = new Headers(request.headers);
   if (options.agentCompatibility) {
     // Agent/PartyKit compatibility mode uses their header names
     headers.set("x-partykit-room", doInstanceNameOrId);
@@ -294,9 +294,12 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     headers.set("x-lumenize-do-instance-name-or-id", doInstanceNameOrId);
     headers.set("x-lumenize-do-binding-name", bindingName);
   }
-  request = new Request(request, { headers });
   
-  const response = await stub.fetch(request);
+  // Create new request with added headers
+  // Clone the request first to avoid body stream issues
+  const forwardRequest = new Request(request, { headers });
+  
+  const response = await stub.fetch(forwardRequest);
   
   // Add CORS headers to DO response if origin is allowed
   return allowedOrigin ? addCorsHeaders(response, allowedOrigin) : response;
