@@ -78,6 +78,23 @@ export interface RouteOptions {
    * For detailed examples and security considerations, see https://lumenize.com/docs/utils/cors-support
    */
   cors?: CorsOptions;
+
+  /**
+   * Add Agent/PartyKit compatibility headers to requests forwarded to the DO.
+   * 
+   * When `true`, automatically adds these headers before forwarding:
+   * - `x-partykit-namespace`: The DO binding name segment from the URL
+   * - `x-partykit-room`: The DO instance name or ID from the URL
+   * 
+   * These headers are required by Cloudflare's `Agent` class (from the `agents` package)
+   * and PartyKit's `Server` class (from the `partyserver` package).
+   * 
+   * When enabled, `prefix` defaults to `'agents'` (matching the agents package convention)
+   * unless explicitly overridden.
+   * 
+   * @default false
+   */
+  agentCompatibility?: boolean;
 }
 
 /**
@@ -158,7 +175,8 @@ function addCorsHeaders(response: Response, origin: string): Response {
  * @param request - The incoming HTTP request to route
  * @param env - Environment object containing DO bindings
  * @param options - Configuration options for routing and hooks
- * @param options.prefix - URL prefix to match before DO routing (default: none)
+ * @param options.prefix - URL prefix to match before DO routing (default: none, or 'agents' when agentCompatibility is true)
+ * @param options.agentCompatibility - Add Agent/PartyKit compatibility headers (default: false)
  * @param options.onBeforeConnect - Hook called before WebSocket requests reach the DO
  * @param options.onBeforeRequest - Hook called before non-WebSocket requests reach the DO
  * @param options.cors - CORS configuration for cross-origin requests (default: false)
@@ -172,7 +190,13 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   const url = new URL(request.url);
   const pathname = url.pathname;
 
-  const parseResult = parsePathname(pathname, options);
+  // Default prefix to 'agents' when agentCompatibility is enabled
+  const effectiveOptions = {
+    ...options,
+    prefix: options.prefix ?? (options.agentCompatibility ? 'agents' : undefined)
+  };
+
+  const parseResult = parsePathname(pathname, effectiveOptions);
   
   // Return early if no match (prefix doesn't match or no segments)
   if (!parseResult) {
@@ -181,13 +205,15 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
 
   const { doBindingNameSegment, doInstanceNameOrId } = parseResult;
 
-  // Get the namespace using existing function
-  const doNamespace = getDONamespaceFromPathSegment(doBindingNameSegment, env);
+  // Get the namespace and normalized binding name using existing function
+  const result = getDONamespaceFromPathSegment(doBindingNameSegment, env);
   
   // Return early if no matching binding found
-  if (!doNamespace) {
+  if (!result) {
     return undefined;
   }
+
+  const { bindingName, namespace: doNamespace } = result;
 
   // Throw error if we have a matching binding but missing instance name
   if (doInstanceNameOrId === undefined) {
@@ -255,6 +281,21 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   }
 
   const stub = getDOStub(doNamespace, doInstanceNameOrId);
+  
+  // Add routing context headers
+  // These headers provide the DO with information about how it was accessed
+  let headers = new Headers(request.headers);
+  if (options.agentCompatibility) {
+    // Agent/PartyKit compatibility mode uses their header names
+    headers.set("x-partykit-room", doInstanceNameOrId);
+    headers.set("x-partykit-namespace", doBindingNameSegment);
+  } else {
+    // Standard Lumenize mode uses normalized binding name
+    headers.set("x-lumenize-do-instance-name-or-id", doInstanceNameOrId);
+    headers.set("x-lumenize-do-binding-name", bindingName);
+  }
+  request = new Request(request, { headers });
+  
   const response = await stub.fetch(request);
   
   // Add CORS headers to DO response if origin is allowed

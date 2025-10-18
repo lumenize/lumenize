@@ -11,43 +11,43 @@ describe('getDONamespaceFromPathSegment', () => {
   it('should find exact match', () => {
     const env = { MY_DO: mockDONamespace };
     const result = getDONamespaceFromPathSegment('MY_DO', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
   });
 
   it('should convert kebab-case to SNAKE_CASE', () => {
     const env = { MY_DO: mockDONamespace };
     const result = getDONamespaceFromPathSegment('my-do', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
   });
 
   it('should handle PascalCase binding', () => {
     const env = { MyDO: mockDONamespace };
     const result = getDONamespaceFromPathSegment('my-do', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
   });
 
   it('should handle camelCase binding', () => {
     const env = { myDo: mockDONamespace };
     const result = getDONamespaceFromPathSegment('my-do', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'myDo', namespace: mockDONamespace });
   });
 
   it('should handle complex case like my-d-o → MyDO', () => {
     const env = { MyDO: mockDONamespace };
     const result = getDONamespaceFromPathSegment('my-d-o', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
   });
 
   it('should handle complex case like my-do → MyDO', () => {
     const env = { MyDO: mockDONamespace };
     const result = getDONamespaceFromPathSegment('my-do', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
   });
 
   it('should handle userSession → USER_SESSION', () => {
     const env = { USER_SESSION: mockDONamespace };
     const result = getDONamespaceFromPathSegment('user-session', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'USER_SESSION', namespace: mockDONamespace });
   });
 
   it('should return undefined for empty segment', () => {
@@ -77,7 +77,7 @@ describe('getDONamespaceFromPathSegment', () => {
       ANOTHER_STRING: 42
     };
     const result = getDONamespaceFromPathSegment('my-do', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
   });
 
   it('should match if it is exact', () => {
@@ -86,14 +86,14 @@ describe('getDONamespaceFromPathSegment', () => {
       MyDo: "just a string",
     };
     let result = getDONamespaceFromPathSegment('MY_DO', env);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
 
     const multiEnv = { 
       MyDo: mockDONamespace,
       MY_DO: "just a string",
     };
     result = getDONamespaceFromPathSegment('MyDo', multiEnv);
-    expect(result).toBe(mockDONamespace);
+    expect(result).toEqual({ bindingName: 'MyDo', namespace: mockDONamespace });
   });
 
   it('should provide helpful error messages for multiple bindings', () => {
@@ -134,7 +134,7 @@ describe('getDONamespaceFromPathSegment', () => {
         mydo: { ...mockDONamespace, other: true }
       };
       const result = getDONamespaceFromPathSegment('MY_DO', env);
-      expect(result).toBe(mockDONamespace);
+      expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
     });
 
     it('should only match exact for PascalCase path segment', () => {
@@ -144,7 +144,7 @@ describe('getDONamespaceFromPathSegment', () => {
         mydo: { ...mockDONamespace, other: true }
       };
       const result = getDONamespaceFromPathSegment('MyDO', env);
-      expect(result).toBe(mockDONamespace);
+      expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
     });
 
     it('should only match exact for snake_case path segment', () => {
@@ -154,7 +154,7 @@ describe('getDONamespaceFromPathSegment', () => {
         myDo: { ...mockDONamespace, other: true }
       };
       const result = getDONamespaceFromPathSegment('my_do', env);
-      expect(result).toBe(mockDONamespace);
+      expect(result).toEqual({ bindingName: 'my_do', namespace: mockDONamespace });
     });
 
     it('should use smart matching for kebab-case with digits', () => {
@@ -162,7 +162,7 @@ describe('getDONamespaceFromPathSegment', () => {
         API_V2: mockDONamespace
       };
       const result = getDONamespaceFromPathSegment('api-v2', env);
-      expect(result).toBe(mockDONamespace);
+      expect(result).toEqual({ bindingName: 'API_V2', namespace: mockDONamespace });
     });
 
     it('should use smart matching for kebab-case with all digits', () => {
@@ -170,7 +170,7 @@ describe('getDONamespaceFromPathSegment', () => {
         ROOM_123: mockDONamespace
       };
       const result = getDONamespaceFromPathSegment('room-123', env);
-      expect(result).toBe(mockDONamespace);
+      expect(result).toEqual({ bindingName: 'ROOM_123', namespace: mockDONamespace });
     });
 
     it('should not match wrong casing for non-kebab-case', () => {

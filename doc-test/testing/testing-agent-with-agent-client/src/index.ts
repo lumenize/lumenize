@@ -1,12 +1,11 @@
-import {
-  Agent,
-  routeAgentRequest,
-  Connection, 
-  ConnectionContext, 
-  WSMessage
-} from "agents";
+import { Agent, Connection, ConnectionContext, WSMessage } from "agents";
 
-import { routeDORequest } from "@lumenize/utils";
+// The `routeAgentRequest` from @lumenize/utils is near a drop in replacement
+// but with upgrades. We say "near" because the signature for the hooks
+// `onBeforeRequest` and `onBeforeConnect` are different. Better, but different.
+// The advantages include much better documentation, better testing, and CORS 
+// whitelist support (critical for WebSocket usage, although not shown below).
+import { routeAgentRequest } from "@lumenize/utils";
 
 // Worker
 export default {
@@ -39,8 +38,8 @@ export default {
     }
     
     return (
-      // await routeAgentRequest(request, env) ||
-      await routeDORequest(request, env) ||
+      // await routeAgentRequestFromAgents(request, env) ||
+      await routeAgentRequest(request, env) ||
       new Response("Not Found", { status: 404 })
     );
   }

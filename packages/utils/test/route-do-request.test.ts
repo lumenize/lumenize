@@ -250,9 +250,18 @@ describe('routeDORequest', () => {
         doNamespace: expect.any(Object)
       }));
       
-      // Verify the modified request was passed to the stub
+      // Verify the modified request was used AND Lumenize headers were added
       const stub = env.MY_DO.getByName.mock.results[0].value;
-      expect(stub.fetch).toHaveBeenCalledWith(modifiedRequest);
+      const forwardedRequest = stub.fetch.mock.calls[0][0];
+      
+      // Check that modifications from hook are preserved
+      expect(forwardedRequest.headers.get('X-Modified')).toBe('true');
+      expect(forwardedRequest.method).toBe('POST');
+      expect(forwardedRequest.url).toBe('http://localhost/my-do/instance/modified-path');
+      
+      // Check that Lumenize headers were added
+      expect(forwardedRequest.headers.get('x-lumenize-do-instance-name-or-id')).toBe('instance');
+      expect(forwardedRequest.headers.get('x-lumenize-do-binding-name')).toBe('MY_DO');
     });
 
     it('should transform request when onBeforeConnect returns modified Request for WebSocket', async () => {
@@ -276,9 +285,18 @@ describe('routeDORequest', () => {
         doNamespace: expect.any(Object)
       }));
       
-      // Verify the modified request was passed to the stub
+      // Verify the modified request was used AND Lumenize headers were added
       const stub = env.MY_DO.getByName.mock.results[0].value;
-      expect(stub.fetch).toHaveBeenCalledWith(modifiedRequest);
+      const forwardedRequest = stub.fetch.mock.calls[0][0];
+      
+      // Check that modifications from hook are preserved
+      expect(forwardedRequest.headers.get('X-Modified')).toBe('true');
+      expect(forwardedRequest.headers.get('Upgrade')).toBe('websocket');
+      expect(forwardedRequest.url).toBe('http://localhost/my-do/instance/modified-ws');
+      
+      // Check that Lumenize headers were added
+      expect(forwardedRequest.headers.get('x-lumenize-do-instance-name-or-id')).toBe('instance');
+      expect(forwardedRequest.headers.get('x-lumenize-do-binding-name')).toBe('MY_DO');
     });
   });
 
@@ -456,7 +474,7 @@ describe('routeDORequest', () => {
       expect(env.MY_DO.getByName).toHaveBeenCalledWith('instance');
     });
 
-    it('should preserve original request when forwarding to DO', async () => {
+    it('should add Lumenize routing headers when forwarding to DO', async () => {
       const env = { MY_DO: createMockNamespace() };
       const request = createRequest('http://localhost/my-do/instance/path', {
         method: 'POST',
@@ -467,7 +485,16 @@ describe('routeDORequest', () => {
       await routeDORequest(request, env);
       
       const stub = env.MY_DO.getByName.mock.results[0].value;
-      expect(stub.fetch).toHaveBeenCalledWith(request);
+      const forwardedRequest = stub.fetch.mock.calls[0][0];
+      
+      // Check that Lumenize headers were added
+      expect(forwardedRequest.headers.get('x-lumenize-do-instance-name-or-id')).toBe('instance');
+      expect(forwardedRequest.headers.get('x-lumenize-do-binding-name')).toBe('MY_DO');
+      
+      // Check that original headers are preserved
+      expect(forwardedRequest.headers.get('Content-Type')).toBe('text/plain');
+      expect(forwardedRequest.method).toBe('POST');
+      expect(forwardedRequest.url).toBe(request.url);
     });
   });
 

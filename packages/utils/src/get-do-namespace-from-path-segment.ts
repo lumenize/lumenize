@@ -142,39 +142,39 @@ function getDurableObjectBindings(env: Record<string, any>): string[] {
  * - `my_do` → `my_do` only
  * 
  * **Return Behavior:**
- * - Returns the DurableObjectNamespace if exactly one match is found
+ * - Returns `{ bindingName, namespace }` if exactly one match is found
  * - Returns `undefined` if no matching binding is found (no-match scenario)
  * - Throws `MultipleBindingsFoundError` if multiple bindings match (configuration error)
  * 
  * @param pathSegment - The path segment that should match a DO binding
  * @param env - The Cloudflare Workers environment object containing DO bindings
- * @returns The DurableObjectNamespace for the uniquely matched binding, or undefined if no match
+ * @returns Object with bindingName and namespace, or undefined if no match
  * @throws {MultipleBindingsFoundError} If multiple bindings match the path segment (genuine error)
  * 
  * @example
  * ```typescript
  * // Kebab-case to SCREAMING_SNAKE_CASE
  * // URL: /my-do/instance → Binding: MY_DO
- * const namespace = getDONamespaceFromPathSegment('my-do', { MY_DO: myDoNamespace });
- * // → Returns myDoNamespace
+ * const result = getDONamespaceFromPathSegment('my-do', { MY_DO: myDoNamespace });
+ * // → { bindingName: 'MY_DO', namespace: myDoNamespace }
  * 
  * // camelCase to PascalCase
  * // URL: /userSession/abc → Binding: UserSession  
- * const namespace = getDONamespaceFromPathSegment('userSession', { UserSession: userNamespace });
- * // → Returns userNamespace
+ * const result = getDONamespaceFromPathSegment('userSession', { UserSession: userNamespace });
+ * // → { bindingName: 'UserSession', namespace: userNamespace }
  * 
  * // Handles acronyms intelligently
  * // URL: /chat-d-o/room → Binding: ChatDO
- * const namespace = getDONamespaceFromPathSegment('chat-d-o', { ChatDO: chatNamespace });
- * // → Returns chatNamespace
+ * const result = getDONamespaceFromPathSegment('chat-d-o', { ChatDO: chatNamespace });
+ * // → { bindingName: 'ChatDO', namespace: chatNamespace }
  * 
  * // No match cases return undefined
- * const namespace = getDONamespaceFromPathSegment('unknown', env);
+ * const result = getDONamespaceFromPathSegment('unknown', env);
  * // → undefined
  * 
  * // Multiple matches throw error
  * try {
- *   const namespace = getDONamespaceFromPathSegment('ambiguous', { 
+ *   const result = getDONamespaceFromPathSegment('ambiguous', { 
  *     AMBIGUOUS: ns1, 
  *     Ambiguous: ns2 
  *   });
@@ -185,7 +185,10 @@ function getDurableObjectBindings(env: Record<string, any>): string[] {
  * }
  * ```
  */
-export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<string, any>): any | undefined {
+export function getDONamespaceFromPathSegment(
+  pathSegment: string, 
+  env: Record<string, any>
+): { bindingName: string; namespace: any } | undefined {
   // Get all available DO bindings
   const availableBindings = getDurableObjectBindings(env);
   
@@ -205,7 +208,10 @@ export function getDONamespaceFromPathSegment(pathSegment: string, env: Record<s
     throw new MultipleBindingsFoundError(pathSegment, matches);
   }
   
-  // Success: exactly one match found, return the namespace
+  // Success: exactly one match found, return both binding name and namespace
   const bindingName = matches[0];
-  return env[bindingName];
+  return {
+    bindingName,
+    namespace: env[bindingName]
+  };
 }
