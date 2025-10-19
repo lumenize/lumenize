@@ -10,9 +10,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "allowSyntheticDefaultImports": true,
-    "typeRoots": ["./types", "./node_modules/@types"]
+    "allowSyntheticDefaultImports": true
   },
+  "include": [
+    "types/**/*"
+  ],
   "exclude": [
     "node_modules",
     "dist"
