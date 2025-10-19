@@ -1,157 +1,199 @@
 # Work In Progress (WIP)
 
-## Current Focus: Create `docusaurus-plugin-check-examples`
+## Current Focus: Performance Benchmarking - @lumenize/rpc vs Cap'n Web
 
-A new Docusaurus plugin to verify code examples in hand-written .mdx files match actual test code.
+Cloudflare recently released Cap'n Web for browser-to-DO RPC. We need to benchmark @lumenize/rpc against it to understand our competitive position.
 
-### Problem
-- Hand-written docs examples drift from actual code
-- Recent example: `getDOStubFromPathname` was renamed to `getDOStub` but docs weren't updated
-- Doc-testing works great for comprehensive API docs but is heavyweight for utility snippets
+### Goal
+Prove @lumenize/rpc is competitive with Cap'n Web. If we're in the same ballpark, we win on simplicity and DX. Only optimize if there's a significant performance gap.
 
-### Solution
-- Annotate code blocks with `@check-example(path)` to verify they exist in passing tests
-- Lightweight: just checks if code exists, doesn't extract/generate full pages
-- Works alongside doc-testing (for comprehensive docs) and check-examples (for snippets)
+### Use Case
+Both target the same use case: Browser ↔ Durable Object RPC over HTTP POST and WebSocket.
 
-### Phase 1: Core Plugin (MVP) ✅ COMPLETE
-- [x] Create plugin package in `tooling/check-examples/`
-  - [x] Package.json with TypeScript, Docusaurus dependencies
-  - [x] Basic plugin structure following Docusaurus plugin conventions
-  - [x] README explaining usage and design decisions
-- [x] Parse .mdx files for annotated code blocks
-  - [x] Find code blocks with `@check-example(path)` in first line
-  - [x] Extract path and code content
-  - [x] Support `@skip-check` annotation to skip verification
-- [x] Normalize and match code
-  - [x] For TypeScript: strip comments, normalize whitespace
-  - [x] For other languages with `strict: true`: exact match
-  - [x] Check if normalized doc code exists as substring in test file
-- [x] Error reporting
-  - [x] Show which .mdx file and line number failed
-  - [x] Show expected code and where it should be found
-  - [x] Helpful suggestions (renamed function? changed API?)
-- [x] Integration with Docusaurus build
-  - [x] Automatically runs during `npm run build`
-  - [x] Fail build if examples don't match
-  - [x] Success/failure summary
+### Key Insight
+**Both use JSON on the wire!**
+- Cap'n Web: Preprocessing for Map/Set → `JSON.stringify/parse`
+- @lumenize/rpc: `@ungap/structured-clone/json` mode
 
-### Phase 2: Doc-testing Integration ✅ COMPLETE
-- [x] Update doc-testing plugin to add frontmatter to generated files
-  - [x] Add `generated_by: doc-testing` to frontmatter
-  - [x] Document this in doc-testing README
-- [x] Skip check-examples for doc-testing generated files
-  - [x] Check frontmatter before processing
-  - [x] Those files are already verified via actual test execution
+This makes comparison fair - we're testing similar approaches, not binary vs JSON.
 
-### Phase 3: Configuration & Developer Experience
-- [ ] Support configuration options
-  - [ ] `strict: true` for exact matching (default: false)
-  - [ ] Configurable file patterns to check
-  - [ ] Exclude patterns
-- [ ] Documentation
-  - [ ] Create docs page explaining how to use check-examples
-  - [ ] Examples of annotation patterns
-  - [ ] Migration guide for existing docs
+### Metrics
 
-### Phase 4: Coverage (After plugin works)
-- [ ] Annotate existing docs files
-  - [ ] All code blocks in `website/docs/utils/`
-  - [ ] All code blocks in `website/docs/rpc/`
-  - [ ] All code blocks in `website/docs/testing/`
-- [ ] Create missing test examples where needed
-  - [ ] Some docs examples might not have corresponding tests yet
-  - [ ] Add lightweight tests to verify example patterns
+**Bundle Size (Client-side JavaScript)**
+- @lumenize/rpc client bundle (KB minified + gzipped)
+- Cap'n Web client bundle (KB minified + gzipped)
+- *Why it matters*: Affects initial page load, especially on mobile
 
-### Design Decisions (Finalized)
-- **Location:** `tooling/check-examples/` (parallel to `tooling/doc-testing/`)
-- **Verification Strategy:** **Opt-out (all code blocks checked by default)**
-  - High bar: Every code example must match actual working test code
-  - Use `@skip-check` only for non-code examples (bash commands, etc.)
-  - Path inference: `docs/<package>/<file>.mdx` → `packages/<package>/test/<file>.test.ts`
-  - Explicit paths: `@check-example('packages/utils/test/route-do-request.test.ts')`
-- **Matching Strategy:** 
-  - TypeScript: Normalized (strip comments/whitespace)
-  - Other languages: `strict: true` for exact match
-  - Default: `strict: false`
-- **Annotation Syntax:** 
-  - Explicit check: `` ```typescript @check-example('path/to/test.ts') ``
-  - Skip check: `` ```bash @skip-check ``
-  - Backward compatible: Also supports first-line comment annotations
-- **Partial Matches:** Supported - doc example must be substring of test file
-- **No Line Numbers:** Tests change frequently, substring search is more resilient
-- **Plugin Architecture:** Separate plugin, not part of doc-testing
+**Wire Size (Network Payload)**
+- Bytes per operation (various test cases)
+- Measure for both HTTP and WebSocket
+- *Why it matters*: Network bandwidth, mobile data usage
 
-### Implementation Details (Finalized)
-1. **Language Support in Phase 1:** TypeScript/JavaScript only with normalization. Other languages require `strict: true` for exact matching.
-2. **Test File Validation:** Trust the developer - don't verify tests are passing. CI will catch failing tests.
-3. **Multiple Examples:** Many doc examples can point to the same test file (expected pattern).
-4. **Performance:** Cache test file contents during build if easy to implement (avoid premature optimization).
-5. **Syntax Variations:** Phase 1 normalizes only whitespace/comments. Smart matching (const vs let vs var) deferred to future phases.
+**Latency (Round-trip Time)**
+- Cold start: First call (includes connection setup)
+- Warm call: Subsequent calls (connection reused)
+- Report: median, p90, p99
+- *Why it matters*: User-perceived responsiveness
+
+**Throughput (Operations per Second)**
+- Sequential: One after another
+- Concurrent: N parallel calls
+- Report: median, p90, p99
+- *Why it matters*: System capacity under load
+
+### Test Operations
+
+**Simple Operations:**
+- `increment()`: Minimal payload
+- `getString()`: Return a string
+- `getNumber()`: Return a number
+
+**Complex Operations:**
+- `getComplexObject()`: Nested objects with arrays
+- `processArray()`: Large array manipulation
+- `handleMap()`: Operations with Map/Set
+
+**Edge Cases:**
+- Error throwing and propagation
+- Circular references (if applicable)
+- Large payloads (stress test)
+
+### Measurement Approach
+
+**Wire Size Measurement:**
+- Add consistent 5ms delay per operation
+- During delay, measure packet size
+- Keeps latency measurements clean
+
+**Statistics:**
+- Run each test N times (100? 1000?)
+- Calculate median, p90, p99
+- Report with confidence intervals
+
+**Environment:**
+- Phase 1: Local with split architecture (see below)
+- Phase 2: Deployed (if needed for realistic load testing)
+
+**Critical Constraint: Cloudflare Timing Restrictions**
+- Cloudflare stops/fuzzes clocks inside Workers/DOs to prevent timing attacks
+- Only millisecond granularity (may need microsecond precision)
+- **Solution**: Split architecture
+  - Server: `wrangler dev` exposes Worker + DO on localhost
+  - Client: Regular Node.js measures timing from outside Cloudflare environment
+  - Communication: Over localhost HTTP/WebSocket
+  - This is different from our usual vitest approach (single-process, in-Workers testing)
+
+### Implementation Plan
+
+**Phase 1: Research & Setup**
+- [ ] Study Cap'n Web documentation and examples
+- [ ] Create comparison project structure
+  - [ ] Worker + DO implementations (runs in `wrangler dev`)
+  - [ ] Node.js benchmark client (measures timing externally)
+  - [ ] Setup both @lumenize/rpc and Cap'n Web in same project
+- [ ] Implement same test DO with both frameworks
+- [ ] Verify both implementations work correctly
+- [ ] Test split architecture: `wrangler dev` + Node.js client over localhost
+
+**Phase 2: Basic Benchmarks**
+- [ ] Bundle size comparison (esbuild with size plugin)
+- [ ] Wire size measurement (log bytes in transports)
+- [ ] Simple latency tests (increment, getString)
+- [ ] Initial results and analysis
+
+**Phase 3: Comprehensive Benchmarks**
+- [ ] Complex data structure tests
+- [ ] Concurrent operations tests
+- [ ] Error handling tests
+- [ ] Statistical analysis (p90, p99)
+
+**Phase 4: Documentation**
+- [ ] Create BENCHMARKS.md with methodology
+- [ ] Document results with charts/tables
+- [ ] Identify where each solution excels
+- [ ] Recommendations for different use cases
+
+**Phase 5: Optimization (Only if Needed)**
+- [ ] Only proceed if Cap'n Web significantly faster
+- [ ] Profile and identify actual bottlenecks
+- [ ] Consider optimization options (see below)
+- [ ] Re-run benchmarks after optimizations
+
+### Potential Optimizations (If Performance Gap Exists)
+
+**Pre/Post Processing Optimizations:**
+
+1. **Unify Object Traversal**
+   - Currently: Multiple passes over object graph (circular ref check, function replacement, etc.)
+   - Potential: Single-pass traversal doing all processing at once
+   - Impact: Reduce redundant object walking
+
+2. **Scope Processing to Payload Only**
+   - Currently: Process entire RPC envelope including OperationChain
+   - Potential: Only process operation args and results, not metadata
+   - Impact: Skip processing fixed structure overhead
+
+3. **Optimize Circular Reference Detection**
+   - Currently: Full WeakMap-based cycle detection on every operation
+   - Potential: Fast-path for acyclic data (most common case)
+   - Impact: Skip expensive checks when not needed
+
+4. **Error Serialization Efficiency**
+   - Currently: Full error object serialization with stack traces
+   - Potential: Lazy serialization or optional stack trace capture
+   - Note: Cap'n Web doesn't support error re-throwing (we do!)
+
+**Capability Trade-offs:**
+- @lumenize/rpc currently supports:
+  - ✅ Circular reference handling (Cap'n Web: ❌)
+  - ✅ Error re-throwing with stack traces (Cap'n Web: ❌)
+- These add cycles but provide better DX
+- May need to make some features optional for performance-critical use cases
+
+**Serialization Alternatives:**
+
+5. **cbor-x (Binary Format)**
+   - Pros: Much faster, more compact wire format
+   - Cons: Less debuggable, may have incomplete structured clone support
+   - Consider: Only if JSON serialization is proven bottleneck
+
+6. **Native JSON with Minimal Preprocessing**
+   - Pros: Fastest, zero bundle size
+   - Cons: Requires custom Map/Set handling (like Cap'n Web)
+   - Consider: Only if @ungap/structured-clone proves slow
+
+**Optimization Strategy:**
+1. Benchmark first - identify actual bottleneck
+2. Profile specific operations (circular ref check, error serialization, etc.)
+3. Implement targeted optimizations
+4. Make expensive features optional if needed
+5. Document trade-offs clearly
 
 ### Success Criteria
-- [x] Plugin successfully detects the `getDOStubFromPathname` → `getDOStub` rename issue ✅ Tested and working
-- [x] Plugin runs in <5 seconds for all website docs ✅ Completes in ~2ms
-- [x] Clear error messages guide developers to fix issues ✅ Shows file, line, code, suggestions
-- [x] Zero false positives on current route-do-request.mdx examples ✅ Verified
-- [x] Works in CI (build fails if examples drift) ✅ Build fails with clear error on drift
+- @lumenize/rpc is within 2x of Cap'n Web on key metrics
+- Clear documentation of trade-offs (performance vs DX vs capabilities)
+- Confidence to recommend @lumenize/rpc for most use cases
 
-### Phase 1 Results
-- **Plugin location**: `tooling/check-examples/`
-- **Integration**: Auto-runs in Docusaurus build via `website/docusaurus.config.ts`
-- **Performance**: ~2-7ms to check 9 files (0 generated, 9 hand-written)
-- **Test coverage**: Successfully catches intentional drift (tested with getDOStubFromPathname)
-- **Annotation style**: Fence line annotations (invisible to readers)
-  - Basic: `` ```typescript @check-example('packages/utils/test/route-do-request.test.ts') ``
-  - Skip: `` ```bash npm2yarn @skip-check ``
-  - Backward compatible: Also supports first-line comment annotations
-- **Files created**:
-  - `tooling/check-examples/package.json`
-  - `tooling/check-examples/tsconfig.json`
-  - `tooling/check-examples/README.md`
-  - `tooling/check-examples/src/index.ts`
-- **Files updated**:
-  - `website/docusaurus.config.ts` (added plugin)
-  - `website/docs/utils/route-do-request.mdx` (annotated examples)
+### Questions to Answer
+- Where does @lumenize/rpc win? (Likely: better structured clone support, DX)
+- Where does Cap'n Web win? (Likely: raw performance, official Cloudflare support)
+- What's the DX difference? (Setup time, boilerplate, type safety)
+- Are there scenarios where one is clearly better?
 
-### Phase 2 Results
-- **Frontmatter generation**: Successfully adds `---\ngenerated_by: doc-testing\n---` to all generated .mdx files
-- **Skip logic**: check-examples now skips files with `generated_by: doc-testing` frontmatter
-- **Error reduction**: Dropped from 46 errors to 14 errors (32 errors were in generated files)
-- **Standalone script**: Added `npm run check-examples` for rapid iteration (6ms vs minutes)
-- **Key discovery**: doc-testing uses compiled `dist/` folder - must rebuild after source changes
-- **Files modified**:
-  - `tooling/doc-testing/src/mdx-generator.ts` (frontmatter generation)
-  - `tooling/check-examples/src/index.ts` (skip logic)
-  - `website/package.json` (check-examples script)
-  - `website/scripts/check-examples.mjs` (standalone runner)
-- **Current errors**: All remaining 14 errors are in hand-written files needing fixes:
-  - `cors-support.mdx`: 7 errors (test file not found)
-  - `route-do-request.mdx`: 7 errors (code not found in test)
+### Tools & Dependencies
+- **wrangler dev**: Expose Worker + DO on localhost
+- **Node.js `perf_hooks`**: High-resolution timing (microsecond precision)
+- **tinybench** or **Benchmark.js**: For accurate timing in Node.js client
+- **esbuild-plugin-size**: Bundle size analysis
+- **node-fetch** or **undici**: HTTP client for Node.js
+- **ws**: WebSocket client for Node.js
+- **k6** or **Artillery**: Load testing (Phase 2, if needed)
 
-### Post-Phase 2: JavaScript Conversion ✅ COMPLETE
-**Problem**: Build steps for tooling plugins caused recurring debugging loops (build cache issues, symlink confusion, dist/ vs src/ confusion). Wasted development time and AI tokens.
-
-**Solution**: Converted both tooling plugins from TypeScript to JavaScript with JSDoc type annotations.
-
-**Results**:
-- **No build step ever**: Plugins run directly from source
-- **Zero doom loops**: No more "forgot to rebuild" debugging sessions
-- **Type safety preserved**: JSDoc provides IDE autocomplete and hints
-- **Both plugins verified working**:
-  - ✅ doc-testing generates docs with frontmatter
-  - ✅ check-examples verifies examples (14 expected errors)
-  - ✅ Website builds successfully
-  - ✅ Standalone check-examples script works
-
-**Files converted**:
-- `tooling/check-examples/src/index.ts` → `index.js` (with JSDoc)
-- `tooling/doc-testing/src/*.ts` → `*.js` (5 files with JSDoc)
-- Removed: All `tsconfig.json`, `dist/` folders, build scripts
-- Updated: package.json `main` fields point to `src/index.js`
-- Updated: READMEs document "no build required"
-
-**Philosophy alignment**: This matches Lumenize's "no build for development" principle - same approach used for packages running in Cloudflare Workers, now extended to Node.js tooling.
+### Future Considerations
+- Expanding @lumenize/rpc to DO-to-DO and DO-to-Worker
+- Alternative serializers (cbor-x) if performance gap exists
+- Client-side caching strategies
+- Request batching/pipelining
 
 ## Later and possibly unrelated
 
@@ -168,3 +210,40 @@ A new Docusaurus plugin to verify code examples in hand-written .mdx files match
   - [ ] Add timeout testing to matrix
   - [ ] Add memory leak testing (WebSocket connections)
   - [ ] Test in production on Cloudflare (not just local with vitest)
+
+### GitHub Actions for Publishing & Releases
+
+**Goal**: Automate publishing to npm and creating GitHub releases with changelogs
+
+**Research Completed**: Investigated secure token approaches and GitHub Actions workflow
+
+**Key Findings**:
+- **Static tokens being phased out**: npm deprecating TOTP 2FA in favor of rotating keys
+- **Modern approach**: GitHub Actions with OIDC (OpenID Connect) - no static tokens needed
+- **npm provenance**: Cryptographic proof of package origin, built into modern npm publishing
+- **Draft releases**: Can auto-generate release notes, then hand-edit before publishing
+
+**Recommended Workflow**:
+1. GitHub Actions triggers on version tags (`v*`)
+2. Runs tests, publishes to npm with `--provenance` flag
+3. Creates **draft** GitHub release with auto-generated notes from commits/PRs
+4. Manual review and editing of release notes
+5. Publish release when satisfied
+
+**Only ONE secret needed**: `NPM_TOKEN` (automation token that rotates automatically)
+- GitHub authentication handled via built-in `GITHUB_TOKEN` (auto-provided, no setup)
+- No static tokens to manage or rotate manually
+
+**Dependencies for Later**:
+- Will be implemented when SonarQube Cloud integration is added
+- SonarQube scan + unified test coverage reports will use same GitHub Actions infrastructure
+- For now, continuing with local `npm run publish` workflow
+
+**Reference Files to Create**:
+- `.github/workflows/publish.yml` - Main publish workflow
+- `.github/workflows/release.yml` - Release creation workflow (draft mode)
+
+**Benefits of Waiting**:
+- Single GitHub Actions setup for both publishing and code quality scanning
+- Learn more about team workflow preferences before automating
+- Can hand-edit releases via GitHub UI in the meantime (always possible, even after automation)
