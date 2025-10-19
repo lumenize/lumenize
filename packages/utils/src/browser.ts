@@ -1,9 +1,6 @@
 import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils';
 import { getWebSocketShim } from './websocket-shim';
 
-// Declaration for require (used to conditionally load cloudflare:test)
-declare const require: (module: string) => any;
-
 /**
  * Information about a CORS preflight request
  * 
@@ -63,47 +60,33 @@ export class Browser {
   /**
    * Create a new Browser instance
    * 
-   * @param fetchFn - Optional fetch function to use. If not provided, will auto-detect:
-   *   1. SELF.fetch from cloudflare:test (if in Cloudflare Workers vitest environment)
-   *   2. globalThis.fetch (if available)
-   *   3. Throws error if none available
+   * @param fetchFn - Optional fetch function to use. If not provided, will use globalThis.fetch.
+   *   In Cloudflare Workers vitest environment, use the Browser from @lumenize/testing which
+   *   automatically provides SELF.fetch.
    * 
    * @example
    * ```typescript
-   * // Auto-detect fetch
-   * const browser = new Browser();
+   * // In Cloudflare Workers test environment - use Browser from @lumenize/testing
+   * import { Browser } from '@lumenize/testing';
+   * const browser = new Browser(); // Auto-detects SELF.fetch
    * 
-   * // Use custom fetch
-   * const browser2 = new Browser(myCustomFetch);
+   * // Outside Workers environments - pass fetch explicitly or use globalThis.fetch
+   * import { Browser } from '@lumenize/utils';
+   * const browser = new Browser(fetch);
    * ```
    */
   constructor(fetchFn?: typeof fetch) {
     if (fetchFn) {
       this.#baseFetch = fetchFn;
+    } else if (typeof globalThis?.fetch === 'function') {
+      this.#baseFetch = globalThis.fetch;
     } else {
-      // Try to get SELF.fetch from cloudflare:test
-      let selfFetch: typeof fetch | undefined;
-      try {
-        const cloudflareTest = require('cloudflare:test') as {
-          SELF: { fetch: typeof fetch };
-        };
-        selfFetch = cloudflareTest.SELF.fetch.bind(cloudflareTest.SELF);
-      } catch {
-        // Not in Cloudflare Workers vitest environment
-      }
-
-      if (selfFetch) {
-        this.#baseFetch = selfFetch;
-      } else if (typeof globalThis?.fetch === 'function') {
-        this.#baseFetch = globalThis.fetch;
-      } else {
-        throw new Error(
-          'No fetch function available. Either:\n' +
-          '1. Pass fetch to Browser constructor: new Browser(fetch)\n' +
-          '2. Run in Cloudflare Workers vitest environment (provides SELF.fetch)\n' +
-          '3. Ensure globalThis.fetch is available'
-        );
-      }
+      throw new Error(
+        'No fetch function available. Either:\n' +
+        '1. Pass fetch to Browser constructor: new Browser(fetch)\n' +
+        '2. Use Browser from @lumenize/testing in Cloudflare Workers vitest environment\n' +
+        '3. Ensure globalThis.fetch is available'
+      );
     }
   }
 

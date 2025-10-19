@@ -1,10 +1,6 @@
 import type { RpcClientConfig, RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 import { createRpcClient } from '@lumenize/rpc';
 
-// Note: This import will fail outside of vitest-pool-workers environment
-// @ts-expect-error - cloudflare:test module types are not consistently exported
-import { SELF } from 'cloudflare:test';
-
 /**
  * Creates a testing-optimized RPC client for Cloudflare Durable Objects.
  * 
@@ -53,6 +49,10 @@ export function createTestingClient<T>(
   doBindingName: string,
   doInstanceNameOrId: string,
 ): T & RpcClientProxy {
+  // Lazy import SELF to avoid top-level cloudflare:test dependency that breaks module loading
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { SELF } = require('cloudflare:test');
+  
   // Use HTTP transport - simpler and faster for testing
   const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
   
