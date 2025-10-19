@@ -12,9 +12,6 @@
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": [
-    "types/**/*"
-  ],
   "exclude": [
     "node_modules",
     "dist"
