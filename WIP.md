@@ -197,7 +197,6 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 
 ## Later and possibly unrelated
 
-- [ ] WORK on multi-worker testing from Discord user
 - [ ] Switch all use of 'private' typescript keyword to JavaScript '#'
 - [ ] Integration tests for @lumenize/utils. Maybe split test folder into integration and unit
 - [ ] Add a new signature for createRpcClient that's like createTestingClient's

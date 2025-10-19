@@ -64,6 +64,7 @@ The following packages are published to npm:
 **Not published** (private or excluded):
 - `@lumenize/testing-outdated` - Deprecated package
 - `@lumenize/doc-testing` - Internal tooling
+- `@lumenize/check-examples` - Internal tooling
 - `@lumenize/website` - Documentation website
 
 ## Package Contents
