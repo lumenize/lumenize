@@ -56,13 +56,9 @@ export function createTestingClient<T>(
   // Use HTTP transport - simpler and faster for testing
   const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
   
-  // Build config
-  const config: RpcClientConfig = {
-    doBindingName,
-    doInstanceNameOrId,
+  // Call createRpcClient with new signature
+  return createRpcClient<T>(doBindingName, doInstanceNameOrId, {
     fetch: baseFetch,
     transport: 'http',
-  };
-  
-  return createRpcClient<T>(config);
+  });
 }

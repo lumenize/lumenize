@@ -11,7 +11,7 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, type RpcClientConfig, type RpcAccessible } from '../src/index';
+import { createRpcClient, getWebSocketShim, type RpcAccessible } from '../src/index';
 import { ExampleDO } from './test-worker-and-dos';
 import { behaviorTests, testCategories, type TestableClient } from './shared/behavior-tests';
 
@@ -52,12 +52,11 @@ const MATRIX = [
  * Create an RPC client for a given matrix configuration
  */
 function createMatrixClient(config: typeof MATRIX[number], instanceId: string): TestableClient<ExampleDOType> {
-  const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
+  const baseConfig = {
     transport: config.transport,
-    doBindingName: config.doBindingName,
     baseUrl: 'https://fake-host.com',
     prefix: '__rpc',
-  };
+  } as const;
 
   // Add transport-specific config
   if (config.transport === 'websocket') {
@@ -66,10 +65,7 @@ function createMatrixClient(config: typeof MATRIX[number], instanceId: string): 
     (baseConfig as any).fetch = SELF.fetch.bind(SELF);
   }
 
-  const client = createRpcClient<ExampleDOType>({
-    ...baseConfig,
-    doInstanceNameOrId: instanceId,
-  });
+  const client = createRpcClient<ExampleDOType>(config.doBindingName, instanceId, baseConfig);
 
   return {
     client,
@@ -315,10 +311,8 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
     expect(healthText).toBe('OK');
 
     // Test RPC still works
-    const client = createRpcClient<ExampleDOType>({
+    const client = createRpcClient<ExampleDOType>('manual-routing-do', instanceId, {
       transport: 'http',
-      doBindingName: 'manual-routing-do',
-      doInstanceNameOrId: instanceId,
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',
       fetch: SELF.fetch.bind(SELF),
@@ -385,9 +379,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
       });
 
       // Now create RPC client and verify RPC still works after custom message
-      const client = createRpcClient<ExampleDOType>({
-        doBindingName: 'manual-routing-do',
-        doInstanceNameOrId: instanceId,
+      const client = createRpcClient<ExampleDOType>('manual-routing-do', instanceId, {
         transport: 'websocket',
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',

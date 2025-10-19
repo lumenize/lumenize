@@ -197,8 +197,6 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 
 ## Later and possibly unrelated
 
-- [ ] Switch all use of 'private' typescript keyword to JavaScript '#'
-- [ ] Integration tests for @lumenize/utils. Maybe split test folder into integration and unit
 - [ ] Add a new signature for createRpcClient that's like createTestingClient's
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button

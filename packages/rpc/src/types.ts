@@ -112,7 +112,7 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
  *   async myMethod() { ... }
  * }
  * 
- * const client = createRpcClient<RpcAccessible<MyDO>>({ ... });
+ * const client = createRpcClient<RpcAccessible<MyDO>>('MY_DO', 'instance-name');
  * const storage = await client.ctx.storage.get('key'); // No TypeScript error
  * await client.myMethod(); // Original methods still work
  * ```
@@ -123,23 +123,19 @@ export type RpcAccessible<T> = Omit<T, 'ctx' | 'env'> & {
 };
 
 /**
- * Configuration for creating an RPC client.
- * Used by createRpcClient() to establish connection to a Durable Object.
+ * Configuration options for creating an RPC client.
+ * These are the optional parameters passed to createRpcClient().
+ * 
+ * @example
+ * ```typescript
+ * const client = createRpcClient<MyDO>('MY_DO', 'instance-name', {
+ *   transport: 'websocket',
+ *   baseUrl: 'https://api.example.com',
+ *   headers: { 'Authorization': 'Bearer token' }
+ * });
+ * ```
  */
 export interface RpcClientConfig {
-  /**
-   * Name of the DO binding in your wrangler config
-   */
-  doBindingName: string;
-  
-  /**
-   * Instance ID or name for the specific DO instance.
-   * Can be either:
-   * - A named instance (any string)
-   * - A unique ID (64-character hex string)
-   */
-  doInstanceNameOrId: string;
-  
   /**
    * Transport type to use for RPC communication
    * @default 'websocket'
@@ -184,35 +180,30 @@ export interface RpcClientConfig {
 }
 
 /**
- * Type representing the Proxy object returned by createRpcClient().
+ * Internal full configuration with required binding name and instance ID.
+ * This is what's used internally by RpcClient after createRpcClient merges the parameters.
+ * @internal
+ */
+export interface RpcClientInternalConfig extends RpcClientConfig {
+  /**
+   * Name of the DO binding in your wrangler config
+   */
+  doBindingName: string;
+  
+  /**
+   * Instance ID or name for the specific DO instance.
+   * Can be either:
+   * - A named instance (any string)
+   * - A unique ID (64-character hex string)
+   */
+  doInstanceNameOrId: string;
+}
+
+/**
+ * Lifecycle methods added to the RPC client proxy by createRpcClient().
  * 
- * Provides transparent RPC access to Durable Object methods with automatic connection management.
- * 
- * Connection is established automatically on first method call (lazy connection)
- * and auto-reconnects on first call after disconnect.
- * 
- * Implements Symbol.asyncDispose for automatic cleanup with 'await using' keyword.
- * 
- * @example
- * ```typescript
- * // Recommended: Automatic cleanup with 'await using':
- * {
- *   await using client = createRpcClient<MyDO>({ ... });
- *   const result = await client.myMethod(); // Auto-connects on first call
- * } // Connection automatically closed when leaving scope
- * 
- * // Manual: No explicit cleanup needed for short-lived clients:
- * const client = createRpcClient<MyDO>({ ... });
- * const result = await client.myMethod(); // Auto-connects on first call
- * // WebSocket cleaned up on worker/page unload
- * 
- * // React example with useEffect:
- * useEffect(() => {
- *   const client = createRpcClient<MyDO>({ ... });
- *   // Cleanup using Symbol.asyncDispose
- *   return () => client[Symbol.asyncDispose]();
- * }, []);
- * ```
+ * These methods are mixed into the returned proxy object alongside the
+ * Durable Object's own methods to provide connection management and debugging.
  */
 export interface RpcClientProxy {
   /**
@@ -221,7 +212,7 @@ export interface RpcClientProxy {
    * 
    * @example
    * ```typescript
-   * await using client = createRpcClient<MyDO>({ ... });
+   * await using client = createRpcClient<MyDO>('MY_DO', 'instance-name');
    * // Use client here - auto-connects on first method call
    * // disconnect() called automatically at end of scope
    * ```
@@ -235,7 +226,7 @@ export interface RpcClientProxy {
    * 
    * @example
    * ```typescript
-   * const client = createRpcClient<MyDO>({ ... });
+   * const client = createRpcClient<MyDO>('MY_DO', 'instance-name');
    * const structure = await client.__asObject();
    * // {
    * //   increment: "increment [Function]",

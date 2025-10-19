@@ -31,8 +31,6 @@ TRANSPORTS.forEach(({ name, transport }) => {
       const instanceId = `subclass-inherited-${transport}-${Date.now()}`;
       
       const config: any = {
-        doBindingName: 'subclass-do',
-        doInstanceNameOrId: instanceId,
         transport,
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -44,7 +42,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         config.fetch = SELF.fetch.bind(SELF);
       }
 
-      const client = createRpcClient<SubclassDOType>(config);
+      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
 
       try {
         // Test inherited method: getArray
@@ -70,8 +68,6 @@ TRANSPORTS.forEach(({ name, transport }) => {
       const instanceId = `subclass-override-${transport}-${Date.now()}`;
       
       const config: any = {
-        doBindingName: 'subclass-do',
-        doInstanceNameOrId: instanceId,
         transport,
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -83,7 +79,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         config.fetch = SELF.fetch.bind(SELF);
       }
 
-      const client = createRpcClient<SubclassDOType>(config);
+      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
 
       try {
         // Test overridden increment: should add 1000 bonus
@@ -105,8 +101,6 @@ TRANSPORTS.forEach(({ name, transport }) => {
       const instanceId = `subclass-new-methods-${transport}-${Date.now()}`;
       
       const config: any = {
-        doBindingName: 'subclass-do',
-        doInstanceNameOrId: instanceId,
         transport,
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -118,7 +112,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         config.fetch = SELF.fetch.bind(SELF);
       }
 
-      const client = createRpcClient<SubclassDOType>(config);
+      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
 
       try {
         // Test new method: multiply
@@ -147,8 +141,6 @@ TRANSPORTS.forEach(({ name, transport }) => {
       const instanceId = `subclass-asObject-${transport}-${Date.now()}`;
       
       const config: any = {
-        doBindingName: 'subclass-do',
-        doInstanceNameOrId: instanceId,
         transport,
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -160,7 +152,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         config.fetch = SELF.fetch.bind(SELF);
       }
 
-      const client = createRpcClient<SubclassDOType>(config);
+      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
 
       try {
         const obj = await (client as any).__asObject();
@@ -189,8 +181,6 @@ TRANSPORTS.forEach(({ name, transport }) => {
       const instanceId = `subclass-complex-${transport}-${Date.now()}`;
       
       const config: any = {
-        doBindingName: 'subclass-do',
-        doInstanceNameOrId: instanceId,
         transport,
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -202,7 +192,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         config.fetch = SELF.fetch.bind(SELF);
       }
 
-      const client = createRpcClient<SubclassDOType>(config);
+      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
 
       try {
         // Mix inherited and new methods

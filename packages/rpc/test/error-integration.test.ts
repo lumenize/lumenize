@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, type RpcClientConfig } from '../src/index';
+import { createRpcClient, getWebSocketShim } from '../src/index';
 
 /**
  * Error Serialization Integration Tests
@@ -19,12 +19,11 @@ import { createRpcClient, getWebSocketShim, type RpcClientConfig } from '../src/
  * Helper to create an RPC client for testing
  */
 function createTestClient(transport: 'http' | 'websocket', doBindingName: string) {
-  const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
+  const baseConfig = {
     transport,
-    doBindingName,
     baseUrl: 'https://fake-host.com',
     prefix: '__rpc',
-  };
+  } as const;
 
   if (transport === 'websocket') {
     (baseConfig as any).WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
@@ -34,10 +33,7 @@ function createTestClient(transport: 'http' | 'websocket', doBindingName: string
 
   const instanceId = `error-test-${Date.now()}-${Math.random()}`;
   
-  return createRpcClient({
-    ...baseConfig,
-    doInstanceNameOrId: instanceId,
-  });
+  return createRpcClient(doBindingName, instanceId, baseConfig);
 }
 
 describe('Error Integration - HTTP Transport', () => {

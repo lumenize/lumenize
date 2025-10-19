@@ -1,4 +1,11 @@
-import type { OperationChain, RemoteFunctionMarker, RpcClientConfig, RpcClientProxy, RpcTransport } from './types';
+import type {
+  OperationChain, 
+  RemoteFunctionMarker, 
+  RpcClientConfig, 
+  RpcClientInternalConfig, 
+  RpcClientProxy, 
+  RpcTransport 
+} from './types';
 import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
@@ -20,10 +27,21 @@ import { convertRemoteFunctionsToStrings } from './object-inspection';
  * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client) - Complete tested examples
  * 
  * @typeParam T - The type of the Durable Object being called. Use {@link RpcAccessible} to expose protected properties like `ctx` and `env`.
- * @param config - Configuration for the RPC client
+ * @param doBindingName - The DO binding name from wrangler.jsonc (e.g., 'MY_DO')
+ * @param doInstanceNameOrId - The DO instance name or ID
+ * @param options - Optional configuration (transport, baseUrl, headers, etc.)
  * @returns A proxy object with both lifecycle methods and DO method calls
  */
-export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy {
+export function createRpcClient<T>(
+  doBindingName: string,
+  doInstanceNameOrId: string,
+  options?: RpcClientConfig
+): T & RpcClientProxy {
+  const config: RpcClientInternalConfig = {
+    doBindingName,
+    doInstanceNameOrId,
+    ...options
+  };
   const client = new RpcClient<T>(config);
   return client as any; // Constructor returns Proxy, so type is correct
 }
@@ -60,15 +78,13 @@ export function createRpcClient<T>(config: RpcClientConfig): T & RpcClientProxy 
  */
 export class RpcClient<T> {
   // Type: All config properties are required (defaults applied) except WebSocketClass (only needed for websocket transport)
-  #config: Required<Omit<RpcClientConfig, 'doBindingName' | 'doInstanceNameOrId' | 'WebSocketClass'>> & { 
-    doBindingName: string;
-    doInstanceNameOrId: string;
-    WebSocketClass?: RpcClientConfig['WebSocketClass'];
+  #config: Required<Omit<RpcClientInternalConfig, 'WebSocketClass'>> & { 
+    WebSocketClass?: RpcClientInternalConfig['WebSocketClass'];
   };
   #transport: RpcTransport | null = null;
   #doProxy: T | null = null;
 
-  constructor(config: RpcClientConfig) {
+  constructor(config: RpcClientInternalConfig) {
     // Set defaults and merge with user config
     this.#config = {
       transport: 'websocket',
@@ -103,13 +119,13 @@ export class RpcClient<T> {
   }
 
   // Internal method to establish connection (called lazily on first execute)
-  private async connect(): Promise<void> {
+  async #connect(): Promise<void> {
     if (this.#transport?.isConnected?.()) {
       return; // Already connected
     }
 
     // Create transport based on configuration
-    this.#transport = this.createTransport();
+    this.#transport = this.#createTransport();
 
     // Call transport's connect() if it exists (for stateful transports like WebSocket)
     if (this.#transport.connect) {
@@ -117,7 +133,7 @@ export class RpcClient<T> {
     }
   }
 
-  private createTransport(): RpcTransport {
+  #createTransport(): RpcTransport {
     if (this.#config.transport === 'http') {
       // Create HTTP POST transport
       return new HttpPostRpcTransport({
@@ -143,7 +159,7 @@ export class RpcClient<T> {
   }
 
   // Internal method to disconnect (called by Symbol.asyncDispose)
-  private async disconnect(): Promise<void> {
+  async #disconnect(): Promise<void> {
     if (!this.#transport) {
       return; // No transport to disconnect
     }
@@ -160,7 +176,7 @@ export class RpcClient<T> {
   // Explicit resource management (Symbol.dispose)
   // Enables: using client = createRpcClient(...);
   async [Symbol.asyncDispose](): Promise<void> {
-    await this.disconnect();
+    await this.#disconnect();
   }
 
   // Synchronous dispose (calls async version)
@@ -168,7 +184,7 @@ export class RpcClient<T> {
   [Symbol.dispose](): void {
     // Schedule async disconnect but don't wait
     // Note: This is not ideal but required for sync dispose
-    void this.disconnect();
+    void this.#disconnect();
   }
 
   // Internal method to execute operations (called by ProxyHandler)
@@ -176,12 +192,12 @@ export class RpcClient<T> {
     // Lazy initialization: create transport on first use if not already created
     if (!this.#transport) {
       // Create transport synchronously to avoid race conditions
-      this.#transport = this.createTransport();
+      this.#transport = this.#createTransport();
     }
     
     // Ensure connection is established (for stateful transports like WebSocket)
     if (!this.#transport.isConnected?.()) {
-      await this.connect();
+      await this.#connect();
     }
 
     // Execute the operation chain via transport
@@ -298,7 +314,7 @@ class ProxyHandler {
     this.#operationChain.push({ type: 'get', key });
 
     // Return a new proxy that will handle the next operation
-    const proxy = this.createProxyWithCurrentChain();
+    const proxy = this.#createProxyWithCurrentChain();
     
     // Reset the operation chain after creating the proxy with the current chain
     this.#operationChain = [];
@@ -315,21 +331,21 @@ class ProxyHandler {
     this.#operationChain.push({ type: 'apply', args });
 
     // Execute the operation chain and wrap result in thenable proxy
-    const resultPromise = this.executeOperations([...this.#operationChain]);
-    return this.createThenableProxy(resultPromise);
+    const resultPromise = this.#executeOperations([...this.#operationChain]);
+    return this.#createThenableProxy(resultPromise);
   }
 
   // Helper to execute operations
-  private executeOperations(operations: OperationChain): Promise<any> {
+  #executeOperations(operations: OperationChain): Promise<any> {
     return this.#rpcClient.execute(operations);
   }
 
   // Helper to process remote functions
-  private processRemoteFunctions(obj: any, baseOperations: any[]): any {
+  #processRemoteFunctions(obj: any, baseOperations: any[]): any {
     return this.#rpcClient.processRemoteFunctions(obj, baseOperations);
   }
 
-  private createThenableProxy(promise: Promise<any>): any {
+  #createThenableProxy(promise: Promise<any>): any {
     const self = this;
     
     // Use a function as the proxy target so it can be called
@@ -349,7 +365,7 @@ class ProxyHandler {
         const nestedPromise = promise.then((resolved: any) => {
           const propertyValue = resolved?.[key];
           // Process the property value to convert any remote function markers
-          return self.processRemoteFunctions(propertyValue, []);
+          return self.#processRemoteFunctions(propertyValue, []);
         });
         
         // Important: Don't wrap the result in a thenable proxy if it's already a proxy (from processRemoteFunctions)
@@ -364,9 +380,9 @@ class ProxyHandler {
             // Further property access - chain another thenable proxy
             const furtherPromise = nestedPromise.then((r: any) => {
               const furtherValue = r?.[k];
-              return self.processRemoteFunctions(furtherValue, []);
+              return self.#processRemoteFunctions(furtherValue, []);
             });
-            return self.createThenableProxy(furtherPromise);
+            return self.#createThenableProxy(furtherPromise);
           },
           apply(t: any, thisArg: any, args: any[]) {
             // Call as function - the promise resolves to a callable (proxy or function)
@@ -396,7 +412,7 @@ class ProxyHandler {
     });
   }
 
-  private createProxyWithCurrentChain(): any {
+  #createProxyWithCurrentChain(): any {
     // This is the main entry point for handling property access and method calls.
     // The returned proxy handles both further property access (via get trap) and method calls (via apply trap).
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
@@ -406,38 +422,38 @@ class ProxyHandler {
       get: (target: any, key: string | symbol) => {
         // Special case: 'then' should execute the chain but not add 'then' to it
         if (key === 'then') {
-          const promise = this.executeOperations(currentChain);
+          const promise = this.#executeOperations(currentChain);
           return promise.then.bind(promise);
         }
         // Create NEW chain to avoid mutation of shared closure variable
         const newChain: OperationChain = [...currentChain, { type: 'get', key }];
-        return this.createProxyWithCurrentChainForChain(newChain);
+        return this.#createProxyWithCurrentChainForChain(newChain);
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         // Create NEW chain to avoid mutation of shared closure variable
         const finalChain: OperationChain = [...currentChain, { type: 'apply', args }];
-        const resultPromise = this.executeOperations(finalChain);
-        return this.createThenableProxy(resultPromise);
+        const resultPromise = this.#executeOperations(finalChain);
+        return this.#createThenableProxy(resultPromise);
       }
     });
   }
 
-  private createProxyWithCurrentChainForChain(chain: import('./types').OperationChain): any {
+  #createProxyWithCurrentChainForChain(chain: import('./types').OperationChain): any {
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
     return new Proxy(() => {}, {
       get: (target: any, key: string | symbol) => {
         // Special case: 'then' should execute the chain but not add 'then' to it
         if (key === 'then') {
-          const promise = this.executeOperations(chain);
+          const promise = this.#executeOperations(chain);
           return promise.then.bind(promise);
         }
         const newChain: import('./types').OperationChain = [...chain, { type: 'get', key }];
-        return this.createProxyWithCurrentChainForChain(newChain);
+        return this.#createProxyWithCurrentChainForChain(newChain);
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args }];
-        const resultPromise = this.executeOperations(finalChain);
-        return this.createThenableProxy(resultPromise);
+        const resultPromise = this.#executeOperations(finalChain);
+        return this.#createThenableProxy(resultPromise);
       }
     });
   }

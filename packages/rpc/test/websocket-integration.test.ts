@@ -1,15 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, type RpcClientConfig, type RpcAccessible } from '../src/index';
+import { createRpcClient, getWebSocketShim, type RpcAccessible } from '../src/index';
 
 import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = RpcAccessible<InstanceType<typeof ExampleDO>>;
 
 // Base configuration for WebSocket tests
-const baseConfig: Omit<RpcClientConfig, 'doInstanceNameOrId'> = {
-  transport: 'websocket',
-  doBindingName: 'example-do',
+const baseConfig = {
+  transport: 'websocket' as const,
   baseUrl: 'https://fake-host.com',
   prefix: '__rpc',
   WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
@@ -25,10 +24,7 @@ describe('WebSocket RPC Integration', () => {
 
   // KEPT: Explicit disconnect error handling - edge case not covered by matrix
   it('should reject pending operations when explicitly disconnected', async () => {
-    await using client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'websocket-explicit-disconnect-test',
-    });
+    await using client = createRpcClient<ExampleDO>('example-do', 'websocket-explicit-disconnect-test', baseConfig);
 
     // Start a slow operation that will still be in-flight when we disconnect
     const promise = client.slowIncrement(500); // 500ms delay
@@ -45,10 +41,7 @@ describe('WebSocket RPC Integration', () => {
 
   // Test already-connected path (line 85) - reconnection prevention
   it('should not reconnect when already connected', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'websocket-already-connected-test',
-    });
+    const client = createRpcClient<ExampleDO>('example-do', 'websocket-already-connected-test', baseConfig);
 
     try {
       // First call establishes connection
@@ -69,10 +62,7 @@ describe('WebSocket RPC Integration', () => {
 
   // Test concurrent connection attempts (line 90) - connection promise reuse
   it('should handle concurrent operations before first connection', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'websocket-concurrent-connect-test',
-    });
+    const client = createRpcClient<ExampleDO>('example-do', 'websocket-concurrent-connect-test', baseConfig);
 
     try {
       // Fire multiple operations simultaneously before any connection exists
@@ -98,10 +88,7 @@ describe('WebSocket RPC Integration', () => {
 
   // Test auto-reconnect after disconnect (line 271)
   it('should auto-reconnect after explicit disconnect', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'websocket-auto-reconnect-test',
-    });
+    const client = createRpcClient<ExampleDO>('example-do', 'websocket-auto-reconnect-test', baseConfig);
 
     try {
       // First call connects and increments
@@ -126,10 +113,7 @@ describe('WebSocket RPC Integration', () => {
 
   // Test close handler with pending operations (lines 176-189)
   it('should reject all pending operations when WebSocket closes', async () => {
-    const client = createRpcClient<ExampleDO>({
-      ...baseConfig,
-      doInstanceNameOrId: 'websocket-close-pending-test',
-    });
+    const client = createRpcClient<ExampleDO>('example-do', 'websocket-close-pending-test', baseConfig);
 
     try {
       // Start a slow operation that will be pending when we close
@@ -184,9 +168,7 @@ describe('WebSocket RPC Integration', () => {
       });
 
       // Meanwhile, user also creates RPC client (which creates its own WebSocket on RPC endpoint)
-      const client = createRpcClient<ExampleDO>({
-        doBindingName: 'manual-routing-do',
-        doInstanceNameOrId: instanceId,
+      const client = createRpcClient<ExampleDO>('manual-routing-do', instanceId, {
         transport: 'websocket',
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',

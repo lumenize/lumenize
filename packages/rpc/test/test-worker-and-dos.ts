@@ -55,7 +55,7 @@ export { ExampleDO };
  */
 class _SubclassDO extends _ExampleDO {
   // New property only in subclass
-  private readonly subclassProperty = 'I am a subclass';
+  readonly #subclassProperty = 'I am a subclass';
 
   // New method only in subclass
   multiply(a: number, b: number): number {
@@ -94,7 +94,7 @@ class _SubclassDO extends _ExampleDO {
 
   // Method that returns subclass property
   getSubclassProperty(): string {
-    return this.subclassProperty;
+    return this.#subclassProperty;
   }
 }
 

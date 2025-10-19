@@ -5,6 +5,9 @@ export { createTestingClient } from './create-testing-client';
 export { instrumentDOProject } from './instrument-do-project';
 export type { InstrumentDOProjectConfig, InstrumentedDOProject } from './instrument-do-project';
 
+// Re-export RPC types that are commonly needed in tests
+export type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
+
 // Testing-optimized Browser with automatic SELF.fetch injection
 import { Browser as BrowserBase } from '@lumenize/utils';
 
