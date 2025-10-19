@@ -344,20 +344,20 @@ describe('routeDORequest', () => {
       expect(forwardedRequest.headers.get('X-User-ID')).toBe('user123');
     });
 
-    it('should demonstrate CORS whitelist configuration', async () => {
+    it('should demonstrate CORS allowlist configuration', async () => {
       const env = { MY_DO: createMockNamespace() };
       const request = createRequest('http://localhost/my-do/instance', {
         headers: { 'Origin': 'https://app.example.com' }
       });
       
-      // Whitelist specific origins
+      // allowlist specific origins
       await routeDORequest(request, env, {
         cors: {
           origin: ['https://app.example.com', 'https://admin.example.com']
         }
       });
       
-      // Verified in existing whitelist tests
+      // Verified in existing allowlist tests
     });
 
     it('should demonstrate CORS permissive mode', async () => {
@@ -402,7 +402,7 @@ describe('routeDORequest', () => {
       await routeDORequest(request, env, {
         cors: {
           origin: (origin, request) => {
-            // Check origin whitelist/patterns
+            // Check origin allowlist/patterns
             const trustedOrigins = ['https://app.example.com', 'https://admin.example.com'];
             const trustedDomains = ['.example.com', '.example.dev'];
             const isOriginTrusted = 
@@ -829,8 +829,8 @@ describe('routeDORequest', () => {
       });
     });
 
-    describe('whitelist mode (cors: { origin: [...] })', () => {
-      it('should allow whitelisted origins', async () => {
+    describe('allowlist mode (cors: { origin: [...] })', () => {
+      it('should allow allowlisted origins', async () => {
         const env = { MY_DO: createMockNamespace() };
         const request = createRequest('http://localhost/my-do/instance', {
           headers: { 'Origin': 'https://app.example.com' }
@@ -844,7 +844,7 @@ describe('routeDORequest', () => {
         expect(response?.headers.get('Vary')).toBe('Origin');
       });
 
-      it('should allow second whitelisted origin', async () => {
+      it('should allow second allowlisted origin', async () => {
         const env = { MY_DO: createMockNamespace() };
         const request = createRequest('http://localhost/my-do/instance', {
           headers: { 'Origin': 'https://admin.example.com' }
@@ -857,7 +857,7 @@ describe('routeDORequest', () => {
         expect(response?.headers.get('Access-Control-Allow-Origin')).toBe('https://admin.example.com');
       });
 
-      it('should not add CORS headers for non-whitelisted origins', async () => {
+      it('should not add CORS headers for non-allowlisted origins', async () => {
         const env = { MY_DO: createMockNamespace() };
         const request = createRequest('http://localhost/my-do/instance', {
           headers: { 'Origin': 'https://evil.com' }
@@ -871,7 +871,7 @@ describe('routeDORequest', () => {
         expect(response?.headers.has('Vary')).toBe(false);
       });
 
-      it('should handle empty whitelist', async () => {
+      it('should handle empty allowlist', async () => {
         const env = { MY_DO: createMockNamespace() };
         const request = createRequest('http://localhost/my-do/instance', {
           headers: { 'Origin': 'https://example.com' }
@@ -1061,7 +1061,7 @@ describe('routeDORequest', () => {
         expect(mockDO.fetch).not.toHaveBeenCalled();
       });
 
-      it('should handle OPTIONS with whitelisted origin', async () => {
+      it('should handle OPTIONS with allowlisted origin', async () => {
         const env = { MY_DO: createMockNamespace() };
         const request = createRequest('http://localhost/my-do/instance', {
           method: 'OPTIONS',

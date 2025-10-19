@@ -37,7 +37,7 @@ wasting resources, possibly altering the DO's state, and increasing the risk of 
 
 #### Non-Standard (Enhanced) Behavior - This Implementation
 
-This implementation provides **server-side rejection** to prevent unwanted requests from reaching your Durable Objects when using a whitelist or custom validation function:
+This implementation provides **server-side rejection** to prevent unwanted requests from reaching your Durable Objects when using a allowlist or custom validation function:
 
 **HTTP Requests**
 - Server validates origin BEFORE forwarding to DO
@@ -50,9 +50,9 @@ This implementation provides **server-side rejection** to prevent unwanted reque
 **WebSocket Upgrade Requests**
 - Browsers don't enforce CORS for WebSockets (
   [MDN](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API)), so server must
-- Returns `403` for disallowed origins BEFORE upgrading when using a whitelist or custom 
+- Returns `403` for disallowed origins BEFORE upgrading when using a allowlist or custom 
   validation function
-- Only upgrades when origin allowed when using a whitelist or custom validation function
+- Only upgrades when origin allowed when using a allowlist or custom validation function
 
 #### Why Server-Side Rejection?
 
@@ -74,18 +74,18 @@ The `cors` option supports four modes:
   requests from reaching the client-side JavaScript but only after the DO is called and 
   the browser has no CORS protection for WebSockets.
 - **`true`** (permissive): Reflects any request's Origin header. No protection.
-- **`{ origin: string[] }`**: Whitelist of allowed origins
+- **`{ origin: string[] }`**: allowlist of allowed origins
 - **`{ origin: (origin, request) => boolean }`**: Custom validation function
 
 | Mode | CORS Headers | DO Called | Safety |
 |------|--------------|-----------|--------|
 | **`false`** | ❌ None | ⚠️ Always | ⚠️ Limited |
 | **`true`** | ✅ Permissive | ⚠️ Always | ⚠️ Unprotected |
-| **whitelist** | ✅ If allowed | ✅ Only allowed | ✅ Protected |
+| **allowlist** | ✅ If allowed | ✅ Only allowed | ✅ Protected |
 | **validation fn** | ✅ If allowed | ✅ Only allowed | ✅ Protected |
 
 :::warning
-With `false` or `true` modes, **all requests reach your Durable Object**, including from disallowed origins. Use whitelist or validation function for protection.
+With `false` or `true` modes, **all requests reach your Durable Object**, including from disallowed origins. Use allowlist or validation function for protection.
 :::
 
 ## Usage
@@ -101,7 +101,7 @@ await routeDORequest(request, env, {
 });
 ```
 
-### Whitelist Specific Origins
+### allowlist Specific Origins
 
 This is what you should do 90% of the time, especially if you are expecting WebSocket
 connections from a browser. This is not supported by Cloudflare's `routeAgentRequest`.
@@ -124,7 +124,7 @@ sophisticated policies based on headers, methods, and more.
 await routeDORequest(request, env, {
   cors: {
     origin: (origin, request) => {
-      // Check origin whitelist/patterns
+      // Check origin allowlist/patterns
       const trustedOrigins = ['https://app.example.com', 'https://admin.example.com'];
       const trustedDomains = ['.example.com', '.example.dev'];
       const isOriginTrusted = 

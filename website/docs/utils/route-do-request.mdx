@@ -152,11 +152,11 @@ PartyKit foo in them.
 
 ## CORS Support
 
-The most common cross-origin resource sharing (CORS) configuration and our recommendation 90% of the time is a simple whitelist. This is not supported by `agents`' 
+The most common cross-origin resource sharing (CORS) configuration and our recommendation 90% of the time is a simple allowlist. This is not supported by `agents`' 
 `routeAgentRequest`.
 
 ```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
-// Whitelist specific origins
+// Allowlist specific origins
 await routeDORequest(request, env, {
   cors: {
     origin: ['https://app.example.com', 'https://admin.example.com']
@@ -175,7 +175,7 @@ await routeDORequest(request, env ); // Default, only allow `fetch` on this orig
 // Note, the default ('false') allows WebSocket access for ALL origins
 ```
 
-CORS support goes beyond `true`, `false`, and a whitelist. For a detailed discussion 
+CORS support goes beyond `true`, `false`, and a allowlist. For a detailed discussion 
 and all available options in case you have an advanced use case see 
 [CORS Support](/docs/utils/cors-support).
 
@@ -247,4 +247,4 @@ async fetch(request: Request, env: Env): Promise<Response> {
 - **Prefix support** - Scope routing to specific URL paths
 - **Hono-style behavior** - Returns `undefined` if request doesn't match
 - **Standard Cloudflare naming** - No confusing party/agent/room terminology
-- **Robust CORS support** - Whitelist and custom function in addition to true/false
+- **Robust CORS support** - allowlist and custom function in addition to true/false

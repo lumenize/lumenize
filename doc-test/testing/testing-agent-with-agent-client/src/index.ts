@@ -4,7 +4,7 @@ import { Agent, Connection, ConnectionContext, WSMessage } from "agents";
 // but with upgrades. We say "near" because the signature for the hooks
 // `onBeforeRequest` and `onBeforeConnect` are different. Better, but different.
 // The advantages include much better documentation, better testing, and CORS 
-// whitelist support (critical for WebSocket usage, although not shown below).
+// allowlist support (critical for WebSocket usage, although not shown below).
 import { routeAgentRequest } from "@lumenize/utils";
 
 // Worker

@@ -209,6 +209,11 @@ const config: Config = {
       ],
       copyright: `Copyright © ${new Date().getFullYear()} Lumenize`,
     },
+    colorMode: {
+      defaultMode: 'light',
+      disableSwitch: false,
+      respectPrefersColorScheme: true,
+    },
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,

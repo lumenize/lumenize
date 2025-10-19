@@ -24,6 +24,8 @@
     "cloudflare",
     "workers",
     "durable-objects",
+    "DurableObjects",
+    "Durable Objects",
     "testing",
     "vitest",
     "dx"
