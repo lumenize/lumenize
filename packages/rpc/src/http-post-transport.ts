@@ -1,7 +1,6 @@
 import type { OperationChain, RpcRequest, RpcResponse, RpcTransport } from './types';
 import { deserializeError } from './error-serialization';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { stringify, parse } = require('@ungap/structured-clone/json');
+import { stringify, parse } from '@ungap/structured-clone/json';
 
 /**
  * Utility function to remove leading and trailing slashes from a URL segment

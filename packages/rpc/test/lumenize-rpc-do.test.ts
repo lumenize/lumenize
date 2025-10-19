@@ -4,8 +4,7 @@ import { runInDurableObject, env, SELF } from 'cloudflare:test';
 import type { RpcRequest, RpcResponse } from '@lumenize/rpc';
 
 // Use real structured-clone for sociable unit testing
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { stringify, parse } = require('@ungap/structured-clone/json');
+import { stringify, parse } from '@ungap/structured-clone/json';
 
 /**
  * Server-side RPC Factory Tests

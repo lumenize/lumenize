@@ -1,8 +1,16 @@
 import type { RpcClientConfig, RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 import { createRpcClient } from '@lumenize/rpc';
 
+// Note: This import will fail outside of vitest-pool-workers environment
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+
 /**
  * Creates a testing-optimized RPC client for Cloudflare Durable Objects.
+ * 
+ * **Environment Requirement**: This function can only be used within Cloudflare Workers
+ * test environment (vitest with @cloudflare/vitest-pool-workers). It imports from
+ * `cloudflare:test` which is only available in that environment.
  * 
  * This is a convenience wrapper around `createRpcClient` that automatically:
  * - Imports SELF from cloudflare:test
@@ -38,15 +46,13 @@ import { createRpcClient } from '@lumenize/rpc';
  * @param doBindingName - The DO binding name from wrangler.jsonc (e.g., 'MY_DO')
  * @param doInstanceNameOrId - The DO instance name or ID
  * @returns A proxy client that supports both RPC calls and lifecycle management
+ * 
+ * @throws {Error} Will fail to import if used outside vitest-pool-workers environment
  */
 export function createTestingClient<T>(
   doBindingName: string,
   doInstanceNameOrId: string,
 ): T & RpcClientProxy {
-  // Dynamic import to access cloudflare:test in test environment
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { SELF } = require('cloudflare:test') as { SELF: { fetch: typeof fetch } };
-  
   // Use HTTP transport - simpler and faster for testing
   const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
   
