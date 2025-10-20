@@ -29,23 +29,22 @@ export default defineConfig({
         },
       }),
     ],
-  },
-  coverage: {
-    provider: "istanbul",
-    reporter: ['text', 'json', 'html'],
-    include: [
-      '**/src/**',
-      '**/test/integration/test-worker-and-dos.ts'
-    ],
-    exclude: [
-      '**/node_modules/**', 
-      '**/dist/**', 
-      '**/build/**', 
-      '**/*.config.*',
-      '**/scratch/**',
-      '**/test/**/*.test.ts'
-    ],
-    skipFull: false,
-    all: false,
+    coverage: {
+      provider: 'istanbul',
+      reporter: ['text', 'json', 'html'],
+      include: [
+        '**/src/**',
+      ],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.*',
+        '**/scratch/**',
+        '**/test/**/*.test.ts'
+      ],
+      skipFull: false,
+      all: false,
+    },
   },
 });

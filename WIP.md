@@ -145,8 +145,8 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 
 **Capability Trade-offs:**
 - @lumenize/rpc currently supports:
-  - ✅ Circular reference handling (Cap'n Web: ❌)
-  - ✅ Error re-throwing with stack traces (Cap'n Web: ❌)
+  - ✅ Circular reference handling (Cap'n Web: ❌, Cap'n Proto: ✅)
+  - ✅ Error re-throwing with stack traces (Cap'n Web: ❌, Cap'n Proto: ❌)
 - These add cycles but provide better DX
 - May need to make some features optional for performance-critical use cases
 
@@ -197,7 +197,6 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 
 ## Later and possibly unrelated
 
-- [ ] Add a new signature for createRpcClient that's like createTestingClient's
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud (or whatever it's called now. It was previously SonarCloud, I think) account over to the lumenize repo
@@ -205,7 +204,7 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
   ⚠️ **IMPORTANT**: This package exposes your DO internals via RPC endpoints. Only use in development or secure the endpoints appropriately for production use.
 - [ ] Possible additional testing for rpc
   - [ ] Add timeout testing to matrix
-  - [ ] Add memory leak testing (WebSocket connections)
+  - [x] Add memory leak testing (WebSocket connections)
   - [ ] Test in production on Cloudflare (not just local with vitest)
 
 ### GitHub Actions for Publishing & Releases

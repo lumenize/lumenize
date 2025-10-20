@@ -81,6 +81,11 @@ describe('WebSocket RPC Integration', () => {
       expect(result3).toBe(8);
       // Verify we got different counter values
       expect(new Set([result1, result2]).size).toBe(2);
+      
+      // Now fire another operation after connection is established
+      // This should hit the "already connected" early return (line 124)
+      const result4 = await client.increment();
+      expect(result4).toBeGreaterThan(0);
     } finally {
       await client[Symbol.asyncDispose]();
     }
@@ -423,5 +428,35 @@ describe('WebSocket Shim Integration', () => {
     
     ws.close();
   });
+
+  // KEPT: Stress test to verify no resource accumulation over many lifecycles
+  it('should handle many sequential client lifecycles without leaking resources', async () => {
+    // Create and dispose 100 clients sequentially
+    // If cleanup is broken (event handlers not removed, connections not closed, etc.),
+    // this will eventually fail or cause observable issues
+    const MAX = 100
+    let i;
+    for (i = 0; i < MAX; i++) {
+      const client = createRpcClient<ExampleDO>('example-do', `stress-test-${i}`, baseConfig);
+      
+      // Make a call to establish connection and wait for result
+      const result = await client.increment();
+      
+      // Verify the operation completed successfully
+      // Each client starts with fresh state (count = 0), so first increment returns 1
+      expect(result).toBe(1);
+      
+      // Explicitly cleanup
+      await client[Symbol.asyncDispose]();
+    }
+    expect(i).toBe(MAX)
+    
+    // Success if we complete all cycles without errors
+    // This gives us some evidence that:
+    // - WebSocket connections are properly closed
+    // - Event listeners are removed
+    // - Pending operations Map is cleared
+    // - No resource accumulation
+  }, { timeout: 50000 });
 
 });

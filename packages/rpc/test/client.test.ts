@@ -221,4 +221,18 @@ describe('RPC client-side functionality', () => {
     const count = parseInt(text);
     expect(count).toBeGreaterThan(0); // Should return incremented count from DO's fetch method
   });
+
+  // KEPT: Test chained property access to cover operation chain reset logic (lines 307-320)
+  it('should handle accessing properties on returned objects', async () => {
+    const client = createRpcClient<ExampleDO>('example-do', 'property-access-test', baseConfig);
+
+    // Get object and access its nested properties
+    const obj = await client.getObject();
+    
+    expect(obj.value).toBe(42);
+    
+    // Access nested object and call its function
+    const nestedValue = await obj.nested.getValue();
+    expect(nestedValue).toBe(42);
+  });
 });
