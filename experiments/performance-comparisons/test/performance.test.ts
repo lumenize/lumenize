@@ -91,90 +91,94 @@ describe('Performance Comparison: Lumenize vs Cap\'n Web', () => {
 
   describe('Cap\'n Web Performance', () => {
     const capnTestId = `capn-test-${Date.now()}`;
-    let capnSession: any;
-
-    beforeAll(() => {
-      // Create WebSocket session to the Cap'n Web DO
-      const wsUrl = `ws://localhost:8787/__rpc/COUNTER_CAPNWEB/${capnTestId}/call`;
-      capnSession = newWebSocketRpcSession(wsUrl);
-    });
-
-    afterAll(() => {
-      // Close the WebSocket session
-      if (capnSession && typeof capnSession.close === 'function') {
-        capnSession.close();
-      }
-    });
 
     it('should measure increment operations', async () => {
-      const counter = capnSession as Counter;
+      // Create fresh WebSocket session for this test
+      const wsUrl = `ws://localhost:8787/__rpc/COUNTER_CAPNWEB/${capnTestId}/call`;
+      const capnSession = newWebSocketRpcSession<Counter>(wsUrl);
       
-      // Ensure clean state
-      await counter.reset();
+      try {
+        // Ensure clean state
+        await capnSession.reset();
 
-      const iterations = 100;
-      const start = performance.now();
+        const iterations = 100;
+        const start = performance.now();
 
-      for (let i = 0; i < iterations; i++) {
-        await counter.increment(1);
+        for (let i = 0; i < iterations; i++) {
+          await capnSession.increment(1);
+        }
+
+        const end = performance.now();
+        const totalMs = end - start;
+        const avgMs = totalMs / iterations;
+
+        console.log(`\nCap'n Web - ${iterations} increments:`);
+        console.log(`  Total: ${totalMs.toFixed(2)}ms`);
+        console.log(`  Average: ${avgMs.toFixed(3)}ms per operation`);
+        console.log(`  Throughput: ${(1000 / avgMs).toFixed(1)} ops/sec`);
+
+        const finalValue = await capnSession.getValue();
+        expect(finalValue).toBe(iterations);
+      } finally {
+        capnSession[Symbol.dispose]();
       }
-
-      const end = performance.now();
-      const totalMs = end - start;
-      const avgMs = totalMs / iterations;
-
-      console.log(`\nCap'n Web - ${iterations} increments:`);
-      console.log(`  Total: ${totalMs.toFixed(2)}ms`);
-      console.log(`  Average: ${avgMs.toFixed(3)}ms per operation`);
-      console.log(`  Throughput: ${(1000 / avgMs).toFixed(1)} ops/sec`);
-
-      const finalValue = await counter.getValue();
-      expect(finalValue).toBe(iterations);
     });
 
     it('should measure getValue operations', async () => {
-      const counter = capnSession as Counter;
+      // Create fresh WebSocket session for this test
+      const wsUrl = `ws://localhost:8787/__rpc/COUNTER_CAPNWEB/${capnTestId}/call`;
+      const capnSession = newWebSocketRpcSession<Counter>(wsUrl);
+      
+      try {
+        // Set initial value
+        await capnSession.increment(42);
 
-      // Set initial value
-      await counter.increment(42);
+        const iterations = 100;
+        const start = performance.now();
 
-      const iterations = 100;
-      const start = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          await capnSession.getValue();
+        }
 
-      for (let i = 0; i < iterations; i++) {
-        await counter.getValue();
+        const end = performance.now();
+        const totalMs = end - start;
+        const avgMs = totalMs / iterations;
+
+        console.log(`\nCap'n Web - ${iterations} getValue calls:`);
+        console.log(`  Total: ${totalMs.toFixed(2)}ms`);
+        console.log(`  Average: ${avgMs.toFixed(3)}ms per operation`);
+        console.log(`  Throughput: ${(1000 / avgMs).toFixed(1)} ops/sec`);
+      } finally {
+        capnSession[Symbol.dispose]();
       }
-
-      const end = performance.now();
-      const totalMs = end - start;
-      const avgMs = totalMs / iterations;
-
-      console.log(`\nCap'n Web - ${iterations} getValue calls:`);
-      console.log(`  Total: ${totalMs.toFixed(2)}ms`);
-      console.log(`  Average: ${avgMs.toFixed(3)}ms per operation`);
-      console.log(`  Throughput: ${(1000 / avgMs).toFixed(1)} ops/sec`);
     });
 
     it('should measure mixed operations', async () => {
-      const counter = capnSession as Counter;
+      // Create fresh WebSocket session for this test
+      const wsUrl = `ws://localhost:8787/__rpc/COUNTER_CAPNWEB/${capnTestId}/call`;
+      const capnSession = newWebSocketRpcSession<Counter>(wsUrl);
+      
+      try {
+        const iterations = 50;
+        const start = performance.now();
 
-      const iterations = 50;
-      const start = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          await capnSession.increment(1);
+          await capnSession.getValue();
+        }
 
-      for (let i = 0; i < iterations; i++) {
-        await counter.increment(1);
-        await counter.getValue();
+        const end = performance.now();
+        const totalMs = end - start;
+        const totalOps = iterations * 2;
+        const avgMs = totalMs / totalOps;
+
+        console.log(`\nCap'n Web - ${iterations} mixed operations (increment + getValue):`);
+        console.log(`  Total: ${totalMs.toFixed(2)}ms (${totalOps} operations)`);
+        console.log(`  Average: ${avgMs.toFixed(3)}ms per operation`);
+        console.log(`  Throughput: ${(1000 / avgMs).toFixed(1)} ops/sec`);
+      } finally {
+        capnSession[Symbol.dispose]();
       }
-
-      const end = performance.now();
-      const totalMs = end - start;
-      const totalOps = iterations * 2;
-      const avgMs = totalMs / totalOps;
-
-      console.log(`\nCap'n Web - ${iterations} mixed operations (increment + getValue):`);
-      console.log(`  Total: ${totalMs.toFixed(2)}ms (${totalOps} operations)`);
-      console.log(`  Average: ${avgMs.toFixed(3)}ms per operation`);
-      console.log(`  Throughput: ${(1000 / avgMs).toFixed(1)} ops/sec`);
     });
   });
 });
