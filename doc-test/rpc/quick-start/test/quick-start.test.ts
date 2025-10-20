@@ -20,11 +20,13 @@ import { Counter } from '../src/index';
 type Counter = RpcAccessible<InstanceType<typeof Counter>>;
 
 it('shows basic usage of Lumenize RPC', async () => {
-  await using client = createRpcClient<Counter>({
-    doBindingName: 'COUNTER',  // or 'counter' if you want pretty URLs
-    WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-    doInstanceNameOrId: 'test-counter',
-  });
+  await using client = createRpcClient<Counter>(
+    'COUNTER', // or 'counter' if you want pretty URLs
+    'test-counter',
+    // Since we're doc-testing in a vitest-pool-worker env, we need to provide
+    // this WebSocketClass, but you woudldn't in production
+    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+  );
 
   // Test increment
   const result1 = await client.increment();

@@ -15,13 +15,13 @@ DOC_TEST_DIRS=(
 )
 
 for doc_test in "${DOC_TEST_DIRS[@]}"; do
-  if [ -d "$doc_test" ]; then
+  if [ -d "$ROOT_DIR/$doc_test" ]; then
     echo "📝 Testing $doc_test..."
     cd "$ROOT_DIR/$doc_test"
     npm run test
+    cd "$ROOT_DIR"
     echo ""
   fi
 done
 
-cd "$ROOT_DIR"
 echo "✅ All doc-tests passed"

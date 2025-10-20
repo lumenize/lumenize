@@ -6,6 +6,8 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
+    "test": "cd .. && npm run test:doc",
+    "prebuild": "npm test",
     "build": "docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "npm run build && wrangler deploy",
