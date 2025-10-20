@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { lumenizeRpcDO, handleRpcRequest } from '@lumenize/rpc';
+import { RpcTarget, newWorkersRpcResponse } from 'capnweb';
 import { CounterImpl, type Counter } from '../src/index.js';
 import '@transformation-dev/debug'; // Auto-disables console.debug on import
 
@@ -27,40 +28,12 @@ class _CounterLumenize extends DurableObject implements Counter {
 
 export const CounterLumenize = lumenizeRpcDO(_CounterLumenize);
 
-// TODO: Cap'n Web implementation - requires installing @cloudflare/jsrpc package
-// export class CounterCapnWeb extends RpcTarget implements Counter {
-//   #impl: CounterImpl;
-//   #ctx: DurableObjectState;
-//
-//   constructor(ctx: DurableObjectState, env: Env) {
-//     super();
-//     this.#ctx = ctx;
-//     this.#impl = new CounterImpl(ctx.storage);
-//   }
-//
-//   async increment(amount: number): Promise<number> {
-//     return this.#impl.increment(amount);
-//   }
-//
-//   async getValue(): Promise<number> {
-//     return this.#impl.getValue();
-//   }
-//
-//   async reset(): Promise<void> {
-//     return this.#impl.reset();
-//   }
-//
-//   fetch(request: Request): Response | Promise<Response> {
-//     return newWorkersRpcResponse(request, this);
-//   }
-// }
-
-// Stub for now until we install capnweb
-export class CounterCapnWeb extends DurableObject implements Counter {
+// Cap'n Web implementation - extends RpcTarget
+export class CounterCapnWeb extends RpcTarget implements Counter {
   #impl: CounterImpl;
 
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
+  constructor(private ctx: DurableObjectState, private env: Env) {
+    super();
     this.#impl = new CounterImpl(ctx.storage);
   }
 
@@ -76,8 +49,8 @@ export class CounterCapnWeb extends DurableObject implements Counter {
     this.#impl.reset();
   }
 
-  fetch(request: Request): Response {
-    return new Response('Cap\'n Web not yet implemented');
+  fetch(request: Request): Response | Promise<Response> {
+    return newWorkersRpcResponse(request, this);
   }
 }
 
