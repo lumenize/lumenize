@@ -202,10 +202,7 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 - [ ] Move SonarQube Cloud (or whatever it's called now. It was previously SonarCloud, I think) account over to the lumenize repo
 - [ ] We need much more security info on the website. Maybe an entire .mdx. Here is the completely inadequate warning we had in the README before we thinned it down. 
   ⚠️ **IMPORTANT**: This package exposes your DO internals via RPC endpoints. Only use in development or secure the endpoints appropriately for production use.
-- [ ] Possible additional testing for rpc
-  - [ ] Add timeout testing to matrix
-  - [x] Add memory leak testing (WebSocket connections)
-  - [ ] Test in production on Cloudflare (not just local with vitest)
+- [ ] Test in production on Cloudflare (not just local with vitest)
 
 ### GitHub Actions for Publishing & Releases
 
