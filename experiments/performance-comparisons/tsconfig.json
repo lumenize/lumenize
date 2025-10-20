@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*", "test/**/*"]
+}

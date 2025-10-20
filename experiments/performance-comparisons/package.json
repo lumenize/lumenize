@@ -1,0 +1,26 @@
+{
+  "name": "@lumenize-experiments/performance-comparisons",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev --show-interactive-dev-session=false",
+    "test": "vitest --run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@lumenize/rpc": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251011.0",
+    "@types/ws": "^8.18.1",
+    "vitest": "3.2.4",
+    "wrangler": "^4.38.0",
+    "ws": "^8.18.3"
+  }
+}

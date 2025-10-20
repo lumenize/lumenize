@@ -32,6 +32,8 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 
 ### Coding style
 - Never use Typescript keyword `private`. Rather use JavaScript equivalent of starting the identifier with "#".
+- **Always use synchronous storage operations** (`ctx.storage.kv.*` and `ctx.storage.sql.*`) instead of the legacy async API (`ctx.storage.get/put/delete`). This is Cloudflare's recommended pattern going forward and requires `compatibility_date: "2025-09-12"` or later.
+- Storage operations are synchronous because SQLite is embedded - no async needed, no performance penalty.
 
 ### Rule of Wire Separation for Types:
 - Use TypeScript types for transient in-memory constructs.
@@ -74,6 +76,7 @@ Intra-package dependencies are managed using npm workspaces with source file ref
 - `"main": "src/index.ts"` and `"types": "src/index.ts"`
 - Include `"types": "wrangler types"` script for generating worker-configuration.d.ts
 - peerDependencies: `@cloudflare/vitest-pool-workers` and `vitest`
+- **Always use `"wrangler": "^4.38.0"` or later** - Required for synchronous storage API support (compatibility_date: "2025-09-12")
 
 **For Node.js tooling packages**:
 - `"main": "src/index.js"` (JavaScript with JSDoc)
@@ -145,7 +148,7 @@ All vitest.config.js files for Worker packages should:
 All wrangler.jsonc files for Worker packages should:
 - Use a descriptive `name` matching the package purpose
 - Set `main` to test worker location
-- Use recent `compatibility_date` (YYYY-MM-DD format)
+- **Always use `"compatibility_date": "2025-09-12"` or later** - This is when Cloudflare added synchronous Durable Object storage methods (`ctx.storage.sql.*` and `ctx.storage.kv.*`), which are fundamental to Lumenize's architecture
 - Define test DOs in `durable_objects.bindings` with uppercase binding names
 - Include `migrations` array with `new_sqlite_classes` for all test DOs
 - Use incremental migration tags: `"v1"`, `"v2"`, etc.
@@ -236,7 +239,8 @@ Further, if a capability is inspired by code we found elsewhere or implements a 
   - Synchronous SQLite-flavored SQL API accessed by `this.storage.sql.exec()`.
 - It's a bit of a mindset shift to use storage sychronously but it's perfectly fine because SQLite is an embedded database that is run in the same process and memory space as the DO code. It has fundamentally different performance characteristics because there is no network hop nor even a CPU context switch. In most cases, N+1 queries are just as efficient as, and sometimes more efficient than, a single query with a join.
 - Because of this, all reads and writes in a single request or message handler are considered in the same virtual "transaction" so long as our code doesn't access the outside world (fetch()) or use setTimeout, setInterval.
-- So long as you avoid fetching, setTimeout, setInterval, DOs have a mechanism of input and output gates that assure messages and requests are processed in order and the next one in queue doesn't start until the last one's storage operations are persisted.
+- **CRITICAL: Keep DO methods synchronous to maintain consistency guarantees**. Other than `fetch()`, WebSocket message handlers (`webSocketMessage()`, `webSocketClose()`, etc.), `alarm()` handlers, or code wrapped in `ctx.waitUntil()`, all DO methods and business logic should be synchronous (no `async`/`await`). Using `async` breaks Cloudflare's automatic input/output gate mechanism and can lead to race conditions and out-of-order processing. **Also, never use `setTimeout` or `setInterval` outside of a ctx.waitUntil** - these also break the input/output gate guarantees. Synchronous storage operations (`ctx.storage.kv.*` and `ctx.storage.sql.*`) make this natural and performant.
+- So long as you avoid fetching, setTimeout, setInterval, and unnecessary async, DOs have a mechanism of input and output gates that assure messages and requests are processed in order and the next one in queue doesn't start until the last one's storage operations are persisted.
 - The DO system can evict a DO instance from memory for any number of reasons at any time including idleness. The next time the DO instance is accessed via name or id, it will be reinstantiated and the constructor will be called again.
 - However, the DO keeps around a cache of most frequently accessed storage even after the DO has left memory and the DO can maintain WebSocket connections through "hibernation".
 - Cloudflare DOs can be thought of as implementing a form of the Actor programming model popularlized by Erlang/BEAM although it lacks supervisory control that other Actor implementations support.

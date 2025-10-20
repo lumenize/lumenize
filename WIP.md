@@ -85,27 +85,37 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 
 ### Implementation Plan
 
-**Phase 1: Research & Setup**
-- [ ] Study Cap'n Web documentation and examples
-- [ ] Create comparison project structure
-  - [ ] Worker + DO implementations (runs in `wrangler dev`)
-  - [ ] Node.js benchmark client (measures timing externally)
-  - [ ] Setup both @lumenize/rpc and Cap'n Web in same project
-- [ ] Implement same test DO with both frameworks
-- [ ] Verify both implementations work correctly
-- [ ] Test split architecture: `wrangler dev` + Node.js client over localhost
+## Current Focus: Performance Benchmarking
 
-**Phase 2: Basic Benchmarks**
-- [ ] Bundle size comparison (esbuild with size plugin)
-- [ ] Wire size measurement (log bytes in transports)
-- [ ] Simple latency tests (increment, getString)
-- [ ] Initial results and analysis
+**Phase 1: Research and Setup** ✅ COMPLETE
+- ✅ Research Cap'n Web RPC system
+- ✅ Understand how it integrates with Durable Objects
+  - Key finding: RpcTarget is alias to built-in on Workers
+  - DOs already implement RpcTarget protocol
+  - Full ctx.storage access preserved
+- ✅ Decision: Use side-by-side DOs approach
+  - CounterCapnWeb extends RpcTarget (follow examples exactly)
+  - CounterLumenize extends DurableObject (our existing pattern)
+  - Shared implementation logic for fair comparison
+- ✅ Created experiment workspace structure
+  - `experiments/performance-comparisons/` with own package.json
+  - Shared implementation: `CounterImpl`
+  - MEASUREMENTS.md for tracking results over time
+  - README.md with instructions
+- ⚠️  Lumenize RPC implementation created, needs WebSocket config fix
+- ⏸️ Cap'n Web implementation pending @cloudflare/jsrpc installation
 
-**Phase 3: Comprehensive Benchmarks**
-- [ ] Complex data structure tests
-- [ ] Concurrent operations tests
-- [ ] Error handling tests
-- [ ] Statistical analysis (p90, p99)
+**Phase 2: Implementation** (IN PROGRESS)
+- ⏸️ Fix WebSocket upgrade issue in Lumenize DO
+- ⏸️ Install Cap'n Web and implement CounterCapnWeb
+- ⏸️ Run initial baseline measurements
+- ⏸️ Record results in MEASUREMENTS.md with git hash
+
+**Phase 3: Analysis** (PENDING)
+- Analyze results
+- Identify optimization opportunities
+- Document findings
+- Update documentation if needed
 
 **Phase 4: Documentation**
 - [ ] Create BENCHMARKS.md with methodology
@@ -197,6 +207,7 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 
 ## Later and possibly unrelated
 
+- [ ] MUST HAVE SOON: Need a way to supress debug messages
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud (or whatever it's called now. It was previously SonarCloud, I think) account over to the lumenize repo

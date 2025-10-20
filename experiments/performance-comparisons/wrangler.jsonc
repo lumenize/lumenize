@@ -1,0 +1,23 @@
+{
+  "name": "performance-comparisons-test",
+  "main": "test/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COUNTER_LUMENIZE",
+        "class_name": "CounterLumenize"
+      },
+      {
+        "name": "COUNTER_CAPNWEB",
+        "class_name": "CounterCapnWeb"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CounterLumenize", "CounterCapnWeb"]
+    }
+  ]
+}
