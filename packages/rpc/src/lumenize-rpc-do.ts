@@ -75,35 +75,17 @@ async function handleCallRequest(
 
   try {
     // Parse the entire request using @ungap/structured-clone/json
-    // PERF_INSTRUMENTATION: START - Remove this block when profiling complete
-    const t0 = performance.now();
-    // PERF_INSTRUMENTATION: END
     const requestBody = await request.text();
-    // PERF_INSTRUMENTATION: START
-    const t1 = performance.now();
-    // PERF_INSTRUMENTATION: END
     const rpcRequest: RpcRequest = parse(requestBody);
-    // PERF_INSTRUMENTATION: START
-    const t2 = performance.now();
-    // PERF_INSTRUMENTATION: END
 
     // Validate the operations chain
     const operations = validateOperationChain(rpcRequest.operations, config);
     
     // Execute operation chain
-    // PERF_INSTRUMENTATION: START
-    const t3 = performance.now();
-    // PERF_INSTRUMENTATION: END
     const result = await executeOperationChain(operations, doInstance);
-    // PERF_INSTRUMENTATION: START
-    const t4 = performance.now();
-    // PERF_INSTRUMENTATION: END
     
     // Replace functions with markers before structured-clone serialization
     const processedResult = preprocessResult(result, operations);
-    // PERF_INSTRUMENTATION: START
-    const t5 = performance.now();
-    // PERF_INSTRUMENTATION: END
     
     const response: RpcResponse = {
       success: true,
@@ -112,24 +94,6 @@ async function handleCallRequest(
     
     // Use stringify on the entire response object
     const responseBody = stringify(response);
-    // PERF_INSTRUMENTATION: START
-    const t6 = performance.now();
-
-    console.log(JSON.stringify({
-      type: 'perf',
-      where: 'LumenizeRpcDO.handleCallRequest',
-      requestSize: requestBody.length,
-      responseSize: responseBody.length,
-      timings: {
-        readBody: (t1 - t0).toFixed(3) + 'ms',
-        parse: (t2 - t1).toFixed(3) + 'ms',
-        execute: (t4 - t3).toFixed(3) + 'ms',
-        preprocess: (t5 - t4).toFixed(3) + 'ms',
-        stringify: (t6 - t5).toFixed(3) + 'ms',
-        total: (t6 - t0).toFixed(3) + 'ms'
-      }
-    }));
-    // PERF_INSTRUMENTATION: END
     
     return new Response(responseBody, {
       headers: { 'Content-Type': 'application/json' }
@@ -415,19 +379,10 @@ export async function handleRpcMessage(
       const operations = validateOperationChain(request.operations, rpcConfig);
       
       // Execute operation chain
-      // PERF_INSTRUMENTATION: START - Remove this block when profiling complete
-      const t0 = performance.now();
-      // PERF_INSTRUMENTATION: END
       const result = await executeOperationChain(operations, doInstance);
-      // PERF_INSTRUMENTATION: START
-      const t1 = performance.now();
-      // PERF_INSTRUMENTATION: END
       
       // Replace functions with markers before serialization
       const processedResult = preprocessResult(result, operations);
-      // PERF_INSTRUMENTATION: START
-      const t2 = performance.now();
-      // PERF_INSTRUMENTATION: END
       
       // Send success response
       const response: RpcWebSocketResponse = {
@@ -439,22 +394,6 @@ export async function handleRpcMessage(
       
       // Use stringify on the entire response
       const responseBody = stringify(response);
-      // PERF_INSTRUMENTATION: START
-      const t3 = performance.now();
-      
-      console.log(JSON.stringify({
-        type: 'perf',
-        where: 'handleRpcMessage',
-        requestSize: message.length,
-        responseSize: responseBody.length,
-        timings: {
-          execute: (t1 - t0).toFixed(3) + 'ms',
-          preprocess: (t2 - t1).toFixed(3) + 'ms',
-          stringify: (t3 - t2).toFixed(3) + 'ms',
-          total: (t3 - t0).toFixed(3) + 'ms'
-        }
-      }));
-      // PERF_INSTRUMENTATION: END
       
       ws.send(responseBody);
       

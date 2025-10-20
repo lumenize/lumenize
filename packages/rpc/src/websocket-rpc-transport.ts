@@ -193,28 +193,9 @@ export class WebSocketRpcTransport implements RpcTransport {
    * Handle incoming WebSocket message
    */
   #handleMessage(data: string): void {
-    // PERF_INSTRUMENTATION: START - Remove this block when profiling complete
-    const t0 = performance.now();
-    // PERF_INSTRUMENTATION: END
     try {
       // Parse the entire response using @ungap/structured-clone/json
-      // PERF_INSTRUMENTATION: START
-      const t1 = performance.now();
-      // PERF_INSTRUMENTATION: END
       const response: RpcWebSocketResponse = parse(data);
-      // PERF_INSTRUMENTATION: START
-      const t2 = performance.now();
-
-      console.log(JSON.stringify({
-        type: 'perf',
-        where: 'WebSocketRpcTransport.handleMessage',
-        payloadSize: data.length,
-        timings: {
-          parse: (t2 - t1).toFixed(3) + 'ms',
-          total: (t2 - t0).toFixed(3) + 'ms'
-        }
-      }));
-      // PERF_INSTRUMENTATION: END
 
       // Verify this is an RPC response
       if (response.type !== this.#messageType) {
@@ -300,28 +281,8 @@ export class WebSocketRpcTransport implements RpcTransport {
 
     // Send request - use stringify on the entire request
     try {
-      // PERF_INSTRUMENTATION: START - Remove this block when profiling complete
-      const t0 = performance.now();
-      // PERF_INSTRUMENTATION: END
       const requestBody = stringify(request);
-      // PERF_INSTRUMENTATION: START
-      const t1 = performance.now();
-      // PERF_INSTRUMENTATION: END
       this.#ws!.send(requestBody);
-      // PERF_INSTRUMENTATION: START
-      const t2 = performance.now();
-      
-      console.log(JSON.stringify({
-        type: 'perf',
-        where: 'WebSocketRpcTransport.call (send)',
-        payloadSize: requestBody.length,
-        timings: {
-          stringify: (t1 - t0).toFixed(3) + 'ms',
-          send: (t2 - t1).toFixed(3) + 'ms',
-          total: (t2 - t0).toFixed(3) + 'ms'
-        }
-      }));
-      // PERF_INSTRUMENTATION: END
     } catch (error) {
       // Remove pending operation and reject
       const pending = this.#pendingOperations.get(id);
