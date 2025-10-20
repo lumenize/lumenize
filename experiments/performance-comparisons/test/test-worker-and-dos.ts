@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { lumenizeRpcDO, handleRpcRequest } from '@lumenize/rpc';
+import { routeDORequest } from '@lumenize/utils';
 import { RpcTarget, newWorkersRpcResponse } from 'capnweb';
 import { CounterImpl, type Counter } from '../src/index.js';
 // import '@transformation-dev/debug'; // TEMPORARILY DISABLED to see performance timings
@@ -59,27 +60,50 @@ interface Env {
   COUNTER_CAPNWEB: DurableObjectNamespace;
 }
 
+// ============================================================================
+// MANUAL ROUTING CONFIGURATION
+// Match the configuration in performance.test.ts
+// ============================================================================
+
+const ROUTING_CONFIG = {
+  // 🔴 ENABLE ONE AT A TIME (match TEST_CONFIG in performance.test.ts):
+  LUMENIZE_WITH_ROUTE_DO_REQUEST: false,   // Config 1: Use routeDORequest helper
+  LUMENIZE_WITH_MANUAL_ROUTING: false,     // Config 2: Use manual regex routing
+  CAPNWEB_WITH_MANUAL_ROUTING: true,       // Config 3: Use Cap'n Web manual routing
+};
+
 export default {
-  fetch(request: Request, env: Env): Response | Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     
-    // Route RPC requests to the appropriate DO
-    // Expected pattern: /__rpc/{BINDING_NAME}/{INSTANCE_ID}/call
-    const rpcMatch = url.pathname.match(/^\/__rpc\/([^\/]+)\/([^\/]+)\/call$/);
-    if (rpcMatch) {
-      const [, bindingName, instanceId] = rpcMatch;
-      
-      if (bindingName === 'COUNTER_LUMENIZE') {
+    // Configuration 1: Lumenize with routeDORequest helper
+    if (ROUTING_CONFIG.LUMENIZE_WITH_ROUTE_DO_REQUEST) {
+      const lumenizeResponse = await routeDORequest(request, env, { prefix: '/__rpc' });
+      if (lumenizeResponse) return lumenizeResponse;
+    }
+    
+    // Configuration 2: Lumenize with manual routing (same URL pattern as Config 1)
+    if (ROUTING_CONFIG.LUMENIZE_WITH_MANUAL_ROUTING) {
+      // Manual regex: /__rpc/COUNTER_LUMENIZE/{id}/call
+      const lumenizeManualMatch = url.pathname.match(/^\/__rpc\/COUNTER_LUMENIZE\/([^\/]+)\/call$/);
+      if (lumenizeManualMatch) {
+        const [, instanceId] = lumenizeManualMatch;
         const stub = env.COUNTER_LUMENIZE.getByName(instanceId);
         return stub.fetch(request);
       }
-      
-      if (bindingName === 'COUNTER_CAPNWEB') {
+    }
+    
+    // Configuration 3: Cap'n Web with simple manual routing
+    if (ROUTING_CONFIG.CAPNWEB_WITH_MANUAL_ROUTING) {
+      // Pattern: /COUNTER_CAPNWEB/{id}
+      const capnMatch = url.pathname.match(/^\/COUNTER_CAPNWEB\/([^\/]+)$/);
+      if (capnMatch) {
+        const [, instanceId] = capnMatch;
         const stub = env.COUNTER_CAPNWEB.getByName(instanceId);
         return stub.fetch(request);
       }
     }
     
-    return new Response('Performance comparison test worker');
+    return new Response('Performance comparison test worker\nNo routing configuration enabled!');
   },
 };
