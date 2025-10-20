@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createRpcClient } from '@lumenize/rpc';
 import { newWebSocketRpcSession } from 'capnweb';
 import type { Counter } from '../src/index.js';
-import '@transformation-dev/debug'; // Auto-disables console.debug on import
+// import '@transformation-dev/debug'; // TEMPORARILY DISABLED to see performance timings
 
 describe('Performance Comparison: Lumenize vs Cap\'n Web', () => {
   const testId = `perf-test-${Date.now()}`;

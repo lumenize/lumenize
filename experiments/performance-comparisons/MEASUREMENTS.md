@@ -289,6 +289,57 @@ Cap'n Web - 50 mixed operations (increment + getValue):
 
 ---
 
+### 2025-01-20 [Serialization Profiling]
+
+**Git Hash**: (in progress)
+
+**Description**: Added performance.now() timing instrumentation to identify RPC bottlenecks. Measured serialize/deserialize overhead vs total round-trip time.
+
+**Changes**:
+- Added timing to client: stringify, send, parse
+- Added timing to server: parse, execute, preprocess, stringify
+- Temporarily disabled @transformation-dev/debug to see console.log output
+- Added payloadSize logging to all RPC paths
+
+**Test Configuration**:
+- Measured 100 increment operations (single test)
+- Client-side timing visible in test output
+- Server-side timing not captured (wrangler logs not piped to vitest)
+
+**Client-side Timing Results**:
+```
+Average per operation:
+- stringify: ~0.010ms
+- send: ~0.017ms  
+- parse response: ~0.008ms
+Total client-side: ~0.035ms per operation
+```
+
+**Analysis**:
+- Total round-trip time: ~0.71ms per operation (from end-to-end test)
+- Client-side serialization: ~0.035ms (~5% of total)
+- **Remaining 95% (~0.675ms)**: Network + Server processing + Wrangler overhead
+
+**Key Finding**:
+- **Serialization is NOT the bottleneck** - accounts for only ~5% of total RPC time
+- **cbor-x optimization would provide minimal benefit** (~2-3% improvement at best)
+- Performance gap vs Cap'n Web is NOT due to JSON serialization overhead
+- Both implementations use JSON with pre/post processing (Cap'n Web doesn't use Cap'n Proto binary format)
+
+**Implications**:
+- Focus optimization efforts elsewhere (not serialization)
+- Need to measure payload sizes to understand network impact
+- Calculate realistic latency for different bandwidth scenarios
+- Separate processing time from network time
+
+**Next Steps**:
+- Measure payload sizes (bytes over wire)
+- Model single-operation latency for different network scenarios
+- Calculate Network Time = Payload Size / Bandwidth + Base Latency
+- Focus on real-world latency, not bulk throughput
+
+---
+
 ## Future Measurements
 
 [Add new measurements here as optimizations are made]
