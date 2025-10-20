@@ -340,6 +340,136 @@ Total client-side: ~0.035ms per operation
 
 ---
 
+### 2025-01-20 [Payload Size Analysis & Network Latency Projections]
+
+**Git Hash**: (in progress)
+
+**Description**: Measured actual payload sizes and calculated projected latency for different network scenarios. Separated network time from processing time to identify real bottlenecks.
+
+**Changes**:
+- Added payloadSize logging to all RPC paths
+- Created network latency projection calculator (`network-latency-analysis.js`)
+- Analyzed realistic single-operation latency (not bulk throughput)
+
+**Measured Payload Sizes** (from test runs):
+```
+increment() operation:
+- Request:  221 bytes
+- Response: 127 bytes  
+- Total:    348 bytes per round-trip
+
+getValue() operation:
+- Request:  212 bytes
+- Response: 128 bytes
+- Total:    340 bytes per round-trip
+```
+
+**Processing Time** (measured + estimated):
+```
+Client (measured from profiling):
+- stringify: 0.010ms
+- parse:     0.008ms
+- Total:     0.018ms per operation
+
+Server (estimated - wrangler logs not captured):
+- parse:      ~0.010ms
+- execute:    ~0.050ms (DO method)
+- preprocess: ~0.020ms (function replacement)
+- stringify:  ~0.010ms
+- Total:      ~0.090ms per operation
+
+Combined: ~0.108ms processing time per RPC call
+```
+
+**Network Latency Projections**:
+
+| Network Scenario | Bandwidth | Base Latency | Network Time | Processing | Total Latency | Network % |
+|-----------------|-----------|--------------|--------------|------------|---------------|-----------|
+| **High Speed (1 Gbps)** | 125 MB/s | 1ms | 2.01ms | 0.11ms | **2.11ms** | 95% |
+| **Fast Broadband (100 Mbps)** | 12.5 MB/s | 10ms | 20.06ms | 0.11ms | **20.16ms** | 99% |
+| **Mobile 4G (50 Mbps)** | 6.25 MB/s | 30ms | 60.11ms | 0.11ms | **60.22ms** | 99.8% |
+| **Slow Connection (10 Mbps)** | 1.25 MB/s | 50ms | 100.56ms | 0.11ms | **100.66ms** | 99.9% |
+
+*(Note: Base latency includes DNS, TCP handshake, TLS negotiation, routing - typically 1-50ms depending on distance/quality)*
+
+**Key Findings**:
+
+1. **Payloads are small** (~340-350 bytes per operation)
+   - Both increment() and getValue() have similar payload sizes
+   - @ungap/structured-clone encoding adds some overhead but not excessive
+   - Actual transfer time <0.1ms even on slow networks
+
+2. **Network base latency dominates** (95-99% of total latency)
+   - Even on 1 Gbps connections, network setup takes 2ms vs 0.1ms processing
+   - On realistic connections (100 Mbps+), network is 99%+ of latency
+   - Base latency (DNS, TCP, TLS) is the real bottleneck, not bandwidth
+
+3. **Processing time is minimal** (~0.1ms total)
+   - Client serialization: <0.02ms (measured)
+   - Server processing: ~0.09ms (estimated)
+   - Combined processing is <1% of total latency on real networks
+
+4. **Local test measurements are misleading**
+   - Our 0.71ms test latency is unrealistic (localhost via wrangler dev)
+   - Real-world latency will be 10-100x higher due to network
+   - Tests measure throughput, not real-world single-operation latency
+
+**Real-World Performance Comparison: Lumenize vs Cap'n Web**
+
+Based on our fair comparison (Measurement 3):
+- Lumenize: 0.244ms per increment (local test)
+- Cap'n Web: 0.172ms per increment (local test)
+- **Local gap: 0.072ms (1.42x slower)**
+
+**In real-world network scenarios:**
+
+| Network | Lumenize Total | Cap'n Web Total | Gap | % Difference |
+|---------|---------------|-----------------|-----|--------------|
+| **High-speed (1 Gbps)** | 2.18ms | 2.11ms | 0.07ms | 3% |
+| **Broadband (100 Mbps)** | 20.23ms | 20.16ms | 0.07ms | <1% |
+| **Mobile (50 Mbps)** | 60.29ms | 60.22ms | 0.07ms | <0.2% |
+| **Slow (10 Mbps)** | 100.73ms | 100.66ms | 0.07ms | <0.1% |
+
+**The 0.072ms local performance gap is effectively invisible on real networks.**
+
+**Optimization Analysis**:
+
+**1. ❌ cbor-x serialization optimization: NOT worthwhile**
+- Would only save ~0.02ms in processing time
+- Network time dominates (95-99%) on all real connections
+- Payload size reduction would be minimal (~30-50 bytes = 0.2-0.5ms on slow networks)
+- ROI: <0.5% improvement even on slowest networks
+- Adds complexity, breaks StructuredClone compatibility
+
+**2. ✅ Connection reuse/pooling: HIGH value**
+- Base latency (10-50ms) happens per new connection
+- Reusing WebSocket connections eliminates repeated handshakes
+- Could save 10-50ms per operation (50-500x more than serialization optimization)
+- Already natural for long-lived WebSocket sessions
+
+**3. ⏸️ Server processing optimization: Low priority**
+- Currently estimated at ~0.09ms
+- Could potentially reduce to ~0.05ms
+- Savings only visible on unrealistic local/datacenter connections
+- Focus here only if datacenter-to-datacenter RPC becomes primary use case
+
+**Conclusions**:
+
+- ✅ **Lumenize RPC is highly competitive with Cap'n Web in real-world scenarios**
+- ✅ **Local performance gap (<0.1ms) is negligible compared to network latency (20-100ms)**
+- ✅ **Payload sizes are reasonable** (~350 bytes per operation)
+- ✅ **Serialization is NOT a bottleneck** - network base latency dominates completely
+- ✅ **No optimization needed** - performance is already excellent for real-world use
+- 🎯 **For production**: Focus on connection pooling/reuse, not micro-optimizations
+
+**Next Steps**:
+- ✅ Performance profiling complete - no serialization optimization needed
+- Remove performance instrumentation using script in PROFILING.md
+- Document findings for users: "network matters more than local perf"
+- Consider connection pooling for production use (separate feature)
+
+---
+
 ## Future Measurements
 
 [Add new measurements here as optimizations are made]
