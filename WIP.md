@@ -208,6 +208,7 @@ This makes comparison fair - we're testing similar approaches, not binary vs JSO
 ## Later and possibly unrelated
 
 - [ ] MUST HAVE SOON: Need a way to supress debug messages
+- [ ] Make websocket-shim throw when passed in http[s] urls like the real browser. This requires changing a lot of tests especially the matrix tests that run the same test but just varying transport.
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud (or whatever it's called now. It was previously SonarCloud, I think) account over to the lumenize repo

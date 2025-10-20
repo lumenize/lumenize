@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createRpcClient } from '@lumenize/rpc';
 import type { Counter } from '../src/index.js';
+import '@transformation-dev/debug'; // Auto-disables console.debug on import
 
 describe('Performance Comparison: Lumenize vs Cap\'n Web', () => {
   const testId = `perf-test-${Date.now()}`;

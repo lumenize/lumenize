@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { lumenizeRpcDO, handleRpcRequest } from '@lumenize/rpc';
 import { CounterImpl, type Counter } from '../src/index.js';
+import '@transformation-dev/debug'; // Auto-disables console.debug on import
 
 // Lumenize RPC implementation - uses lumenizeRpcDO wrapper
 class _CounterLumenize extends DurableObject implements Counter {
