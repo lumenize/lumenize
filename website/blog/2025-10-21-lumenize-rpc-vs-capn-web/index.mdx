@@ -155,9 +155,15 @@ Use Cap'n Web when:
 		<tr>
 			<td>Circular reference support</td>
 			<td>Yes</td>
-			<td>No</td>
-			<td>Useful for rich graphs; not a focus for Cap'n Web</td>
+			<td>Never</td>
+			<td>Plans to remove from Workers RPC</td>
 		</tr>
+    <tr>
+    	<td>Remote access to ctx and env</td>
+    	<td>Yes</td>
+    	<td>No</td>
+    	<td>Cap'n Web requires a method for each access</td>
+    </tr>
 		<tr>
 			<td>Promise pipelining</td>
 			<td>Yes (validate chaining)</td>
@@ -240,11 +246,9 @@ Use Cap'n Web when:
   
 </table>
 
-## About `routeDORequest`
+## Differences
 
-- Zero performance overhead in measurements
-- Convention-based routing, automatic binding lookup, and type safety
-- Choose DX without paying a latency tax
+- For Cap'n Web, "[you must write a class that extends RpcTarget.](<https://github.com/cloudflare/capnweb/blob/main/README.md#rpctarget>)" Lumenize RPC works on plain Durable Objects which makes adding it easier. In fact adding it is the normal way [TODO: show example of wrapping with `lumenizeRpcDO`]
 
 ## What’s next (validation before publish)
 
