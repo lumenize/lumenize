@@ -1,0 +1,104 @@
+---
+title: "Lumenize RPC vs Cap'n Web: Performance, Trade-offs, and Real-World Impact"
+description: "On typical networks, Lumenize RPC's 0.14ms local overhead is <1% of total latency. Here's what we measured, why it happens, and when to choose each approach."
+slug: lumenize-rpc-vs-capn-web
+tags: [performance, rpc, cloudflare, durable-objects, websockets]
+draft: true
+image: ./images/cover.png
+---
+
+import TOCInline from '@theme/TOCInline';
+
+<TOCInline toc={toc} maxHeadingLevel={2} />
+
+> Draft note: This post is a living document while we validate a few open questions (promise pipelining behavior, capability-based security patterns, MessagePort mode, and connection break handling). It remains hidden from production builds via `draft: true`.
+
+## Summary
+
+Bottom line: Lumenize RPC is highly competitive with Cap'n Web (Cloudflare's official solution). On real-world networks (100+ Mbps), the ~0.142ms local overhead becomes <1% of total latency.
+
+The remaining gap stems from protocol features that buy you developer experience and debuggability: full StructuredClone support (Map, Set, Date, RegExp, typed arrays), Error.stack preservation, and circular references. Our `routeDORequest` helper adds no measurable overhead.
+
+## What we measured
+
+- Environment: Node.js v22.14.0, Wrangler 4.38.0, fresh WebSocket per op (fair baseline)
+- Workload: Mixed operations, 100 total ops
+
+| Implementation | Time | Throughput |
+|---------------|------|------------|
+| Lumenize RPC | 0.171ms/op | 5858 ops/sec |
+| Cap'n Web | 0.156ms/op | 6414 ops/sec |
+| Gap | 0.015ms | Lumenize 1.09x slower |
+
+Finding: Within 9% of Cloudflare's official solution under identical conditions.
+
+## Protocol trade-offs (why the tiny gap exists)
+
+- Full StructuredClone compatibility (complex types “just work”)
+- Complete Error.stack preservation across RPC boundaries
+- Circular reference support
+- Better error messages and DX
+
+These account for ~0.142ms of local overhead in our tests.
+
+## Real-world networks: why the gap rarely matters
+
+Payloads are small (~350 bytes per op), so transfer time is negligible. Network base latency (DNS/TCP/TLS) dominates 95–99% of total time.
+
+| Network | Bandwidth | Base Latency | Lumenize | Cap'n Web | Gap | Gap % |
+|--------|-----------|--------------|----------|-----------|-----|-------|
+| Datacenter | 1 Gbps | 1ms | 2.25ms | 2.11ms | 0.14ms | 6.6% |
+| Broadband | 100 Mbps | 10ms | 20.30ms | 20.16ms | 0.14ms | 0.7% |
+| Mobile | 50 Mbps | 30ms | 60.36ms | 60.22ms | 0.14ms | 0.2% |
+| Slow | 10 Mbps | 50ms | 100.80ms | 100.66ms | 0.14ms | 0.1% |
+
+Implications:
+- The 0.14ms local gap is ~<1% on typical networks
+- Serialization is not a bottleneck (≈5% of processing time)
+- Optimizing cbor-x or similar nets <0.5% improvement — not worth it
+- Focus on connection pooling (saves 10–50ms), not micro-optimizations
+
+## When to choose which
+
+Use Lumenize RPC when:
+- You want best-in-class DX: StructuredClone, Error.stack, circular refs, strong errors
+- You’re on typical networks (100+ Mbps): local overhead is negligible
+- You want WebSocket-first RPC with ergonomics and safety helpers
+
+Use Cap'n Web when:
+- You need absolute minimum local latency in datacenter scenarios
+- Your payloads are simple (primitives/POJOs) and debugging needs are modest
+- You prefer Cloudflare’s out-of-the-box RPC model and MessagePort integrations
+
+## About `routeDORequest`
+
+- Zero performance overhead in measurements
+- Convention-based routing, automatic binding lookup, and type safety
+- Choose DX without paying a latency tax
+
+## Optimization strategy
+
+- Macro-optimization: connection pooling and session reuse
+- Micro-optimization: skip (impact is sub-1%)
+
+## What’s next (validation before publish)
+
+We’re validating a few details before flipping this post to public:
+
+- Promise pipelining behavior in Lumenize RPC: does chained usage add round trips?
+- Capability-based security patterns and how they map to Lumenize
+- MessagePort mode differences and applicability
+- Connection break handling and stub lifecycle trade-offs
+- Authentication pattern parity (in-band auth returning authenticated API)
+- Runtime validation approach (TypeBox Value vs Zod)
+
+Planned artifacts for this post:
+- Network latency chart (./images/network-latency-chart.png)
+- Throughput chart (./images/throughput.png)
+- Protocol features diagram (./images/protocol-features.png)
+
+If there’s a specific scenario you want us to measure, open an issue — we’ll add it to the test suite and update the post.
+
+---
+
+Note: This post is based on the internal scratchpad used during the measurements and has been consolidated for clarity. The full test harness lives in the Lumenize repo and will be linked here on publish.

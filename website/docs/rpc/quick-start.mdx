@@ -33,17 +33,12 @@ Here's what minimal use of Lumenize RPC looks like.
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import {
-  createRpcClient,
-  RpcAccessible,
-  getWebSocketShim
-} from '@lumenize/rpc';
+import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
 
 import { Counter } from '../src/index';
-type Counter = RpcAccessible<InstanceType<typeof Counter>>;
 
 it('shows basic usage of Lumenize RPC', async () => {
-  await using client = createRpcClient<Counter>(
+  await using client = createRpcClient<typeof Counter>(
     'COUNTER', // or 'counter' if you want pretty URLs
     'test-counter',
     // Since we're doc-testing in a vitest-pool-worker env, we need to provide

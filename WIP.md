@@ -1,5 +1,46 @@
 # Work In Progress (WIP)
 
+## Blog: Lumenize RPC vs Cap'n Web — Plan
+
+We are turning the scratchpad in `experiments/performance-comparisons/BOTTOM_LINE.md` into a polished blog post under `website/blog/`.
+
+### Scope and Goals
+- Publish a data-driven comparison of Lumenize RPC vs Cap'n Web
+- Emphasize real-world impact (network latency dominates)
+- Provide clear guidance on when to choose each approach
+- Keep post focused; deeper docs live under `/website/docs/`
+
+### Phases
+1. Draft scaffold (this PR)
+  - [x] Create folder: `website/blog/2025-10-21-lumenize-rpc-vs-capn-web/`
+  - [x] Add `index.mdx` with `draft: true` to prevent accidental publish
+  - [x] Create `images/` with `.gitkeep` and `README.md` for assets
+  - [ ] Port structured content (summary, tables, recommendations)
+
+2. Validation & Research
+  - [ ] Confirm Lumenize promise pipelining (chained proxy calls round trips?)
+  - [ ] Summarize capability-based security patterns (Cap'n Web) and Lumenize mapping
+  - [ ] Understand/contrast MessagePort mode
+  - [ ] Investigate connection break handling and stub lifecycle trade-offs
+  - [ ] Authentication pattern parity (in-band auth → authenticated API)
+  - [ ] Runtime validation approach (TypeBox Value vs Zod), include rationale
+
+3. Assets & Visuals
+  - [ ] Produce network latency chart (`images/network-latency-chart.png`)
+  - [ ] Throughput chart (`images/throughput.png`)
+  - [ ] Protocol features diagram (`images/protocol-features.png`)
+  - [ ] Social cover image (`images/cover.png`)
+
+4. Review & Publish
+  - [ ] Technical review (numbers, claims, links)
+  - [ ] Editorial pass (tighten language; remove internal notes)
+  - [ ] Flip `draft: false`, set date/slug, verify build
+  - [ ] Announce and link to test harness in repo
+
+### Notes
+- Docusaurus blog supports `draft: true` in frontmatter: visible in `npm run start`, excluded from production builds.
+- Avoid internal progress reporting inside the post; keep internal notes here in WIP.md.
+
 ## Current Focus: @lumenize/proxy-queue - Cost-Effective External Fetch Offloading
 
 ### Problem Statement
@@ -505,6 +546,7 @@ export function createProxyFetch(queue: Queue, config: ProxyFetchConfig): typeof
 
 - [ ] Writeup my RPC performance findings and put it up as a doc on the website
 - [ ] Add `TypeBox Value` support for RPC runtime checking (both TypeBox and JSON Schema) but don't make TypeBox a dependency. That last could be tricky since it'll have to sense if it's a TypeBox spec, or a JSON Schema spec.
+- [ ] Move debugOff into @lumenize/utils
 - [ ] Need a way to control debug messages more granularly from a global config. Maybe markers like the old debug library I used to use that would check localhost or env variable but maybe not that. Maybe some global static. Maybe we encourage scoped "where" clauses in the debug output?
 - [ ] Make changes to docs to document promise pipelining. Right now it's in quirks, but pull it out to its own thing.
 - [ ] Make websocket-shim throw when passed in http[s] urls like the real browser. This requires changing a lot of tests especially the matrix tests that run the same test but just varying transport.
