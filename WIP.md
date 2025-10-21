@@ -107,6 +107,11 @@ sequenceDiagram
 
 ### Implementation Plan
 
+**Phase 0: RPC Type Support**
+- [ ] Add Request, Response, Headers support over RPC
+- [ ] Check bigint, Uint8Array, and ArrayBuffers
+- [ ] Confirm test for RegExp
+
 **Phase 1: Core Infrastructure** (First PR)
 - [ ] Create `packages/proxy-queue/` package
 - [ ] Define message format (`ProxyQueueMessage` with return address)

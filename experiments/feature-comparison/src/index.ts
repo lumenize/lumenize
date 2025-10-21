@@ -13,6 +13,10 @@ class _LumenizeDO extends DurableObject {
     this.ctx.storage.kv.put("count", ++count);
     return count;
   }
+
+  throwError(): never {
+    throw new Error('Intentional error from Lumenize DO');
+  }
 }
 
 export const LumenizeDO = lumenizeRpcDO(_LumenizeDO);
@@ -36,6 +40,10 @@ export class CapnWebRpcTarget extends RpcTarget {
     let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
     this.ctx.storage.kv.put("count", ++count);
     return count;
+  }
+
+  throwError(): never {
+    throw new Error('Intentional error from Cap\'n Web RpcTarget');
   }
   
   fetch(request: Request): Response | Promise<Response> {

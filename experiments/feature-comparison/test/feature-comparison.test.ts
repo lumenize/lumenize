@@ -25,6 +25,82 @@ import { newWebSocketRpcSession } from 'capnweb';
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 
 /*
+## Feature: Simple method call
+
+Both have about the same amount of boilerplate for a simple method call
+*/
+it('demonstrates a simple method call', async () => {
+  // ============================================================================
+  // Lumenize RPC
+  // ============================================================================
+  await using lumenizeClient = createRpcClient<typeof LumenizeDO>(
+    'LUMENIZE',
+    'method-call',
+    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+  );
+  expect(await lumenizeClient.increment()).toBe(1);
+
+  // ============================================================================
+  // Cap'n Web
+  // ============================================================================
+  const capnwebUrl = 'wss://test.com/capnweb/capnweb/method-call';
+  const capnwebWs = new (getWebSocketShim(SELF.fetch.bind(SELF)))(capnwebUrl);
+  await using capnwebClient = newWebSocketRpcSession<CapnWebRpcTarget>(capnwebWs);
+  expect(await capnwebClient.increment()).toBe(1);
+});
+
+/*
+## Feature: Error handling and stack traces
+
+**Lumenize RPC**:
+- ✅ Preserves error message, name, and stack trace
+- ✅ Re-throws on client side with full context
+- ✅ Stack trace shows original server-side location
+
+**Cap'n Web**:
+- ✅ Error message is preserved
+- ❌ Stack trace shows RPC machinery, not original throw location
+*/
+it('demonstrates error handling', async () => {
+  // ============================================================================
+  // Lumenize RPC
+  // ============================================================================
+  await using lumenizeClient = createRpcClient<typeof LumenizeDO>(
+    'LUMENIZE',
+    'error-test',
+    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+  );
+
+  try {
+    await lumenizeClient.throwError();
+    expect.fail('Should have thrown an error');
+  } catch (error: any) {
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('Intentional error from Lumenize DO');
+    expect(error.stack).toBeDefined();
+    expect(error.stack).toContain('throwError');
+  }
+
+  // ============================================================================
+  // Cap'n Web
+  // ============================================================================
+  const capnwebUrl = 'wss://test.com/capnweb/capnweb/error-test';
+  const capnwebWs = new (getWebSocketShim(SELF.fetch.bind(SELF)))(capnwebUrl);
+  await using capnwebClient = newWebSocketRpcSession<CapnWebRpcTarget>(capnwebWs);
+
+  try {
+    await capnwebClient.throwError();
+    expect.fail('Should have thrown an error');
+  } catch (error: any) {
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('Intentional error from Cap\'n Web RpcTarget');
+    expect(error.stack).toBeDefined();
+    // Stack shows RPC internals, not the original throwError() location
+    expect(error.stack).not.toContain('throwError');
+  }
+});
+
+/*
 ## Feature: RPC Client Access to `ctx` and `env`
 
 **Lumenize RPC**:
@@ -36,10 +112,7 @@ import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 - ❌ **No client access to `ctx`** - Must write custom methods
 - ❌ **No client access to `env`** - Must write custom methods
 - ⚠️ Every storage operation requires a custom DO method
-
-### Test
 */
-
 it('demonstrates RPC client access to ctx and env', async () => {
   // ============================================================================
   // Lumenize RPC
@@ -78,7 +151,7 @@ it('demonstrates RPC client access to ctx and env', async () => {
   }).rejects.toThrow();
 
   // ❌ Trying to use env will also fail
-  const capnEnv = capnwebClient.env as any;
+  const capnEnv = (capnwebClient as any).env;
   await expect(async () => {
     const anotherInstance = await capnEnv.CAPNWEB.getByName('another-instance');
     expect(anotherInstance.name).toBe('another-instance');

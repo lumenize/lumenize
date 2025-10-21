@@ -158,6 +158,10 @@ export const sharedDOMethods = {
     return /[0-9]+/g;
   },
 
+  getBigInt(): bigint {
+    return 1234567890123456789012345678901234567890n;
+  },
+
   getMap(): Map<string, string> {
     return new Map([['key', 'value']]);
   },
