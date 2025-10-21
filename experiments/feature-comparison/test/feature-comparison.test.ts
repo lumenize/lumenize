@@ -29,7 +29,7 @@ import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 
 **Lumenize RPC**:
 - ✅ **Full client access**: `client.ctx.storage.kv.put('key', 'value')`
-- ✅ **Full client access to env**: `client.env.SOME_BINDING.get()`
+- ✅ **Full client access to env**: `client.env.SOME_BINDING.getByName()`
 - ✅ No custom methods needed for storage/state access
 
 **Cap'n Web**:
@@ -78,7 +78,7 @@ it('demonstrates RPC client access to ctx and env', async () => {
   }).rejects.toThrow();
 
   // ❌ Trying to use env will also fail
-  const capnEnv: any = capnwebClient.env;
+  const capnEnv = capnwebClient.env as any;
   await expect(async () => {
     const anotherInstance = await capnEnv.CAPNWEB.getByName('another-instance');
     expect(anotherInstance.name).toBe('another-instance');
