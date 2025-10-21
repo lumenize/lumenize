@@ -17,6 +17,15 @@ class _LumenizeDO extends DurableObject {
   throwError(): never {
     throw new Error('Intentional error from Lumenize DO');
   }
+
+  getRequest(): Request {
+    return new Request('https://example.com/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'test' })
+    });
+  }
+
 }
 
 export const LumenizeDO = lumenizeRpcDO(_LumenizeDO);
@@ -45,7 +54,15 @@ export class CapnWebRpcTarget extends RpcTarget {
   throwError(): never {
     throw new Error('Intentional error from Cap\'n Web RpcTarget');
   }
-  
+
+  getRequest(): Request {
+    return new Request('https://example.com/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'test' })
+    });
+  }
+
   fetch(request: Request): Response | Promise<Response> {
     return newWorkersRpcResponse(request, this);
   }
