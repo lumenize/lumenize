@@ -1,6 +1,7 @@
 import type {
   OperationChain, 
   RemoteFunctionMarker, 
+  RpcAccessible,
   RpcClientConfig, 
   RpcClientInternalConfig, 
   RpcClientProxy, 
@@ -26,7 +27,7 @@ import { convertRemoteFunctionsToStrings } from './object-inspection';
  * 
  * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client) - Complete tested examples
  * 
- * @typeParam T - The type of the Durable Object being called. Use {@link RpcAccessible} to expose protected properties like `ctx` and `env`.
+ * @typeParam T - Either a DO instance type (e.g., `RpcAccessible<InstanceType<typeof MyDO>>`) or the DO class constructor (e.g., `typeof MyDO`). When passing a class constructor, instance type with RpcAccessible is inferred automatically.
  * @param doBindingName - The DO binding name from wrangler.jsonc (e.g., 'MY_DO')
  * @param doInstanceNameOrId - The DO instance name or ID
  * @param options - Optional configuration (transport, baseUrl, headers, etc.)
@@ -36,7 +37,7 @@ export function createRpcClient<T>(
   doBindingName: string,
   doInstanceNameOrId: string,
   options?: RpcClientConfig
-): T & RpcClientProxy {
+): (T extends abstract new (...args: any[]) => infer I ? RpcAccessible<I> : T) & RpcClientProxy {
   const config: RpcClientInternalConfig = {
     doBindingName,
     doInstanceNameOrId,

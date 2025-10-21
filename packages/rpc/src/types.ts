@@ -92,35 +92,42 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
 // =====================================================================================
 
 /**
- * Utility type that exposes Durable Object protected properties for RPC access.
+ * Exposes `ctx` and `env` as public properties for TypeScript.
  * 
- * When accessing Durable Object instances via RPC, TypeScript's protected modifier
- * is enforced at compile-time but does not restrict runtime access. This type utility
- * makes protected properties (like `ctx` and `env`) accessible in the type system
- * to match the runtime behavior.
- * 
- * This works by using Omit to remove the protected properties from the base type,
- * then intersecting with explicit public declarations that match the actual
- * Cloudflare Workers types.
+ * These properties are `protected` in DurableObject but accessible at runtime through
+ * the RPC proxy. This type makes TypeScript happy about that access.
  * 
  * @example
  * ```typescript
- * import type { RpcAccessible } from '@lumenize/rpc';
- * import { DurableObject } from 'cloudflare:workers';
- * 
- * class MyDO extends DurableObject {
- *   async myMethod() { ... }
- * }
- * 
- * const client = createRpcClient<RpcAccessible<MyDO>>('MY_DO', 'instance-name');
- * const storage = await client.ctx.storage.get('key'); // No TypeScript error
- * await client.myMethod(); // Original methods still work
+ * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
+ * await using client = createRpcClient<MyDOType>(...);
+ * await client.ctx.storage.put('key', 'value'); // TypeScript allows this
  * ```
  */
 export type RpcAccessible<T> = Omit<T, 'ctx' | 'env'> & {
   ctx: DurableObjectState;
   env: any;
 };
+
+/**
+ * Helper type that converts a DO class constructor to its RPC-accessible instance type.
+ * This eliminates boilerplate: instead of `RpcAccessible<InstanceType<typeof MyDO>>`,
+ * just use `InferDOType<typeof MyDO>`.
+ * 
+ * @example
+ * ```typescript
+ * // Before (verbose)
+ * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
+ * await using client = createRpcClient<MyDOType>(...);
+ * 
+ * // After (simpler) - pass class directly
+ * await using client = createRpcClient<typeof MyDO>(...);
+ * // Type is automatically inferred as RpcAccessible<InstanceType<typeof MyDO>>
+ * ```
+ */
+export type InferDOType<T> = T extends new (...args: any[]) => infer I 
+  ? RpcAccessible<I>
+  : never;
 
 /**
  * Configuration options for creating an RPC client.

@@ -1,214 +1,514 @@
 # Work In Progress (WIP)
 
-## Current Focus: Performance Benchmarking - @lumenize/rpc vs Cap'n Web
+## Current Focus: @lumenize/proxy-queue - Cost-Effective External Fetch Offloading
 
-Cloudflare recently released Cap'n Web for browser-to-DO RPC. We need to benchmark @lumenize/rpc against it to understand our competitive position.
+### Problem Statement
 
-### Goal
-Prove @lumenize/rpc is competitive with Cap'n Web. If we're in the same ballpark, we win on simplicity and DX. Only optimize if there's a significant performance gap.
+Durable Objects are billed on **wall clock time**, not CPU time. When a DO makes an external `fetch()` call:
+- The DO cannot hibernate during the fetch (awaiting external response)
+- Wall clock billing continues during network I/O
+- For slow external APIs (100ms-5s response times), costs add up quickly
+- This is a common pain point on the Cloudflare Discord
 
-### Use Case
-Both target the same use case: Browser ↔ Durable Object RPC over HTTP POST and WebSocket.
+**Example Cost Scenario:**
+```
+1000 fetches/day × 1 second avg = 1000 seconds/day
+30 days = 30,000 seconds = 8.3 hours/month wall clock time
+Could cost several dollars just waiting on external APIs
+```
 
-### Key Insight
-**Both use JSON on the wire!**
-- Cap'n Web: Preprocessing for Map/Set → `JSON.stringify/parse`
-- @lumenize/rpc: `@ungap/structured-clone/json` mode
+### Solution: Cloudflare Queue + Worker Pattern
 
-This makes comparison fair - we're testing similar approaches, not binary vs JSON.
+**Key Insight:** Cloudflare Workers are billed on **CPU time**, not wall clock time!
 
-### Metrics
+**Cost Analysis:**  TODO: Verify numbers below
+```
+Queue + Worker:
+- Queue: $0.40 per million operations
+- Worker CPU: ~$0.02 per million CPU-milliseconds
+- 1M fetches: ~$0.42/month
+- Scales from 0 to millions automatically
+```
 
-**Bundle Size (Client-side JavaScript)**
-- @lumenize/rpc client bundle (KB minified + gzipped)
-- Cap'n Web client bundle (KB minified + gzipped)
-- *Why it matters*: Affects initial page load, especially on mobile
+### Architecture Overview
 
-**Wire Size (Network Payload)**
-- Bytes per operation (various test cases)
-- Measure for both HTTP and WebSocket
-- *Why it matters*: Network bandwidth, mobile data usage
+**Message Flow:**
+```mermaid
+sequenceDiagram
+    participant UserDO as UserDO
+    participant Queue as Cloudflare Queue
+    participant Worker as Queue Consumer Worker
+    participant API as External API
+    
+    UserDO->>Queue: Send ProxyQueueMessage<br/>(with return address)
+    Note over UserDO: Non-blocking send<br/>Continues processing
+    Queue->>Worker: Deliver message
+    Worker->>API: Make external fetch<br/>(billed on CPU time)
+    API-->>Worker: Response
+    Worker->>UserDO: POST /__proxy_response<br/>(using return address)
+    Note over UserDO: Receives response<br/>Resolves promise
+```
 
-**Latency (Round-trip Time)**
-- Cold start: First call (includes connection setup)
-- Warm call: Subsequent calls (connection reused)
-- Report: median, p90, p99
-- *Why it matters*: User-perceived responsiveness
-
-**Throughput (Operations per Second)**
-- Sequential: One after another
-- Concurrent: N parallel calls
-- Report: median, p90, p99
-- *Why it matters*: System capacity under load
-
-### Test Operations
-
-**Simple Operations:**
-- `increment()`: Minimal payload
-- `getString()`: Return a string
-- `getNumber()`: Return a number
-
-**Complex Operations:**
-- `getComplexObject()`: Nested objects with arrays
-- `processArray()`: Large array manipulation
-- `handleMap()`: Operations with Map/Set
-
-**Edge Cases:**
-- Error throwing and propagation
-- Circular references (if applicable)
-- Large payloads (stress test)
-
-### Measurement Approach
-
-**Wire Size Measurement:**
-- Add consistent 5ms delay per operation
-- During delay, measure packet size
-- Keeps latency measurements clean
-
-**Statistics:**
-- Run each test N times (100? 1000?)
-- Calculate median, p90, p99
-- Report with confidence intervals
-
-**Environment:**
-- Phase 1: Local with split architecture (see below)
-- Phase 2: Deployed (if needed for realistic load testing)
-
-**Critical Constraint: Cloudflare Timing Restrictions**
-- Cloudflare stops/fuzzes clocks inside Workers/DOs to prevent timing attacks
-- Only millisecond granularity (may need microsecond precision)
-- **Solution**: Split architecture
-  - Server: `wrangler dev` exposes Worker + DO on localhost
-  - Client: Regular Node.js measures timing from outside Cloudflare environment
-  - Communication: Over localhost HTTP/WebSocket
-  - This is different from our usual vitest approach (single-process, in-Workers testing)
+**Return Address System (MVP):**
+- Each message includes a "return address" for routing response back
+- Worker uses return address to POST response directly to the DO
+- Foundation for future multi-hop routing system
 
 ### Implementation Plan
 
-## Current Focus: Performance Benchmarking
+**Phase 1: Core Infrastructure** (First PR)
+- [ ] Create `packages/proxy-queue/` package
+- [ ] Define message format (`ProxyQueueMessage` with return address)
+- [ ] Implement queue consumer worker
+- [ ] Basic DO-to-DO return addressing
+- [ ] Error handling and retries
+- [ ] Tests using @lumenize/testing
 
-**Phase 1: Research and Setup** ✅ COMPLETE
-- ✅ Research Cap'n Web RPC system
-- ✅ Understand how it integrates with Durable Objects
-  - Key finding: RpcTarget is alias to built-in on Workers
-  - DOs already implement RpcTarget protocol
-  - Full ctx.storage access preserved
-- ✅ Decision: Use side-by-side DOs approach
-  - CounterCapnWeb extends RpcTarget (follow examples exactly)
-  - CounterLumenize extends DurableObject (our existing pattern)
-  - Shared implementation logic for fair comparison
-- ✅ Created experiment workspace structure
-  - `experiments/performance-comparisons/` with own package.json
-  - Shared implementation: `CounterImpl`
-  - MEASUREMENTS.md for tracking results over time
-  - README.md with instructions
-- ⚠️  Lumenize RPC implementation created, needs WebSocket config fix
-- ⏸️ Cap'n Web implementation pending @cloudflare/jsrpc installation
+**Phase 2: Developer Experience** (Second PR)
+- [ ] Documentation showing Browser composition pattern
+- [ ] Examples: Stateless vs Stateful HTTP (with/without cookies)
+- [ ] Example: Web scraping with login/session management
+- [ ] Example: Multi-step authentication flows
+- [ ] Migration guide from direct fetch() to proxied fetch()
 
-**Phase 2: Implementation** (IN PROGRESS)
-- ⏸️ Fix WebSocket upgrade issue in Lumenize DO
-- ⏸️ Install Cap'n Web and implement CounterCapnWeb
-- ⏸️ Run initial baseline measurements
-- ⏸️ Record results in MEASUREMENTS.md with git hash
+**Phase 3: Advanced Features** (Future)
+- [ ] WebSocket return addressing (response via WebSocket)
+- [ ] HTTP callback return addressing (external system callbacks)
+- [ ] Request batching for same external domain
+- [ ] Circuit breaker for failing external APIs
+- [ ] Metrics and observability
 
-**Phase 3: Analysis** (PENDING)
-- Analyze results
-- Identify optimization opportunities
-- Document findings
-- Update documentation if needed
+### API Design
 
-**Phase 4: Documentation**
-- [ ] Create BENCHMARKS.md with methodology
-- [ ] Document results with charts/tables
-- [ ] Identify where each solution excels
-- [ ] Recommendations for different use cases
+**Public API - Low-level Factory + Browser Composition:**
+```typescript
+/**
+ * Creates a fetch-like function that routes requests through a queue worker.
+ * The returned function has the EXACT same signature as fetch().
+ * 
+ * For stateless requests, use directly. For stateful HTTP sessions with cookies,
+ * wrap with Browser from @lumenize/utils.
+ * 
+ * @param queue - Cloudflare Queue binding
+ * @param config - Return address and optional defaults
+ * @returns A function with fetch()'s exact signature
+ */
+export function createProxyFetch(
+  queue: Queue,
+  config: ProxyFetchConfig
+): typeof fetch;
 
-**Phase 5: Optimization (Only if Needed)**
-- [ ] Only proceed if Cap'n Web significantly faster
-- [ ] Profile and identify actual bottlenecks
-- [ ] Consider optimization options (see below)
-- [ ] Re-run benchmarks after optimizations
+interface ProxyFetchConfig {
+  returnAddress: ReturnAddress;
+  timeout?: number;  // Default timeout for all requests (default: 30000ms)
+}
 
-### Potential Optimizations (If Performance Gap Exists)
+interface ReturnAddress {
+  type: 'do';  // MVP: Only DO-to-DO, later: 'ws' | 'http'
+  binding: string;     // e.g., 'USER_DO'
+  instanceId: string;  // e.g., 'user-123'
+}
+```
 
-**Pre/Post Processing Optimizations:**
+**Composition with Browser for Cookie Management:**
 
-1. **Unify Object Traversal**
-   - Currently: Multiple passes over object graph (circular ref check, function replacement, etc.)
-   - Potential: Single-pass traversal doing all processing at once
-   - Impact: Reduce redundant object walking
+The `Browser` class from `@lumenize/utils` provides automatic cookie management across requests - perfect for external APIs that use cookies for authentication or session management. Simply pass the proxied fetch to Browser:
 
-2. **Scope Processing to Payload Only**
-   - Currently: Process entire RPC envelope including OperationChain
-   - Potential: Only process operation args and results, not metadata
-   - Impact: Skip processing fixed structure overhead
+```typescript
+import { createProxyFetch } from '@lumenize/proxy-queue';
+import { Browser } from '@lumenize/utils';
 
-3. **Optimize Circular Reference Detection**
-   - Currently: Full WeakMap-based cycle detection on every operation
-   - Potential: Fast-path for acyclic data (most common case)
-   - Impact: Skip expensive checks when not needed
+// In your DO constructor:
+const proxyFetch = createProxyFetch(env.PROXY_QUEUE, { 
+  returnAddress: { /* ... */ } 
+});
+const browser = new Browser(proxyFetch);
 
-4. **Error Serialization Efficiency**
-   - Currently: Full error object serialization with stack traces
-   - Potential: Lazy serialization or optional stack trace capture
-   - Note: Cap'n Web doesn't support error re-throwing (we do!)
+// Now browser.fetch automatically:
+// - Routes through queue (avoids DO wall-clock billing)
+// - Manages cookies across requests (like a real browser)
+await browser.fetch('https://api.example.com/login');
+await browser.fetch('https://api.example.com/data'); // Cookies from login included!
+```
 
-**Capability Trade-offs:**
-- @lumenize/rpc currently supports:
-  - ✅ Circular reference handling (Cap'n Web: ❌, Cap'n Proto: ✅)
-  - ✅ Error re-throwing with stack traces (Cap'n Web: ❌, Cap'n Proto: ❌)
-- These add cycles but provide better DX
-- May need to make some features optional for performance-critical use cases
+**Internal Message Format (Hidden from users):**
+```typescript
+// Users never see this - internal queue message format
+interface ProxyQueueMessage {
+  id: string;  // Auto-generated request ID
+  
+  // Serialized Request object
+  request: {
+    url: string;
+    method: string;
+    headers: [string, string][];  // From Headers.entries()
+    body?: string | ArrayBuffer;  // Binary support included
+  };
+  
+  // Return addressing
+  returnPath: ReturnAddress[];
+  timeout?: number;
+}
 
-**Serialization Alternatives:**
+// Worker response format (also internal)
+interface ProxyQueueResponse {
+  id: string;
+  
+  // Serialized Response object
+  response?: {
+    status: number;
+    statusText: string;
+    headers: [string, string][];
+    body: string | ArrayBuffer;
+  };
+  
+  // Error case
+  error?: {
+    message: string;
+    code?: string;  // 'TIMEOUT', 'FETCH_FAILED', 'NETWORK_ERROR'
+  };
+}
+```
 
-5. **cbor-x (Binary Format)**
-   - Pros: Much faster, more compact wire format
-   - Cons: Less debuggable, may have incomplete structured clone support
-   - Consider: Only if JSON serialization is proven bottleneck
+### Usage Examples
 
-6. **Native JSON with Minimal Preprocessing**
-   - Pros: Fastest, zero bundle size
-   - Cons: Requires custom Map/Set handling (like Cap'n Web)
-   - Consider: Only if @ungap/structured-clone proves slow
+**Simple Stateless Requests (No Cookies):**
+```typescript
+import { createProxyFetch } from '@lumenize/proxy-queue';
 
-**Optimization Strategy:**
-1. Benchmark first - identify actual bottleneck
-2. Profile specific operations (circular ref check, error serialization, etc.)
-3. Implement targeted optimizations
-4. Make expensive features optional if needed
-5. Document trade-offs clearly
+class UserDO {
+  #proxyFetch: typeof fetch;
+  
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+    
+    // Create a proxied fetch with DO-specific config
+    this.#proxyFetch = createProxyFetch(env.PROXY_QUEUE, {
+      returnAddress: {
+        type: 'do',
+        binding: 'USER_DO',
+        instanceId: ctx.id.toString()
+      },
+      timeout: 30000  // Optional: default timeout for all requests
+    });
+  }
+  
+  async fetchGitHubData(repoUrl: string) {
+    // Use EXACTLY like fetch()! Same signature, same behavior.
+    const response = await this.#proxyFetch(`https://api.github.com/repos/${repoUrl}`, {
+      headers: {
+        'Authorization': `Bearer ${this.env.GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+    
+    // Standard Response object - all the normal methods work!
+    if (!response.ok) {
+      throw new Error(`GitHub API failed: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  }
+  
+  async uploadImage(url: string, imageData: ArrayBuffer) {
+    // Works with all fetch() options - method, body, headers, etc.
+    const response = await this.#proxyFetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: imageData  // Binary body - just works!
+    });
+    
+    return await response.json();
+  }
+  
+  async fetchWithCustomTimeout(url: string) {
+    // Per-request abort signal (standard fetch() feature)
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 5000);  // 5s timeout
+    
+    const response = await this.#proxyFetch(url, {
+      signal: controller.signal
+    });
+    
+    return await response.text();
+  }
+}
+```
+
+**Stateful HTTP Sessions with Cookies (Using Browser Composition):**
+```typescript
+import { createProxyFetch } from '@lumenize/proxy-queue';
+import { Browser } from '@lumenize/utils';
+
+class DataScraperDO {
+  #proxyFetch: typeof fetch;  // For stateless APIs
+  #browser: Browser;          // For cookie-based sessions
+  
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+    
+    // Create base proxied fetch
+    this.#proxyFetch = createProxyFetch(env.PROXY_QUEUE, {
+      returnAddress: {
+        type: 'do',
+        binding: 'DATA_SCRAPER_DO',
+        instanceId: ctx.id.toString()
+      }
+    });
+    
+    // Wrap with Browser for cookie management
+    this.#browser = new Browser(this.#proxyFetch);
+  }
+  
+  async scrapeProtectedSite(loginUrl: string, dataUrl: string) {
+    // Login - receives session cookie
+    const loginRes = await this.#browser.fetch(loginUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        username: this.env.SCRAPER_USER, 
+        password: this.env.SCRAPER_PASS 
+      })
+    });
+    
+    if (!loginRes.ok) {
+      throw new Error('Login failed');
+    }
+    
+    // Cookie is automatically included in next request!
+    const dataRes = await this.#browser.fetch(dataUrl);
+    return await dataRes.text();
+  }
+  
+  async multiStepAuth() {
+    // Step 1: Login gets session cookie
+    await this.#browser.fetch('https://api.example.com/login?token=xyz');
+    
+    // Step 2: Fetch user profile (cookie included automatically)
+    const profileRes = await this.#browser.fetch('https://api.example.com/profile');
+    const profile = await profileRes.json();
+    
+    // Step 3: Fetch user data (cookie still included)
+    const dataRes = await this.#browser.fetch('https://api.example.com/data');
+    const data = await dataRes.json();
+    
+    return { profile, data };
+  }
+  
+  // Can also manually manage cookies if needed
+  async manualCookieManagement() {
+    this.#browser.setCookie('custom', 'value', { domain: 'example.com' });
+    const cookie = this.#browser.getCookie('custom');
+    console.log('Cookie value:', cookie);
+  }
+}
+```
+
+**Mixed Usage - Both Stateful and Stateless:**
+```typescript
+class MixedDO {
+  #proxyFetch: typeof fetch;  // Stateless
+  #browser: Browser;          // Stateful
+  
+  constructor(ctx, env) {
+    this.#proxyFetch = createProxyFetch(env.PROXY_QUEUE, { 
+      returnAddress: { type: 'do', binding: 'MIXED_DO', instanceId: ctx.id.toString() }
+    });
+    this.#browser = new Browser(this.#proxyFetch);
+  }
+  
+  async fetchPublicAPI() {
+    // No cookies needed - use proxyFetch directly
+    return await this.#proxyFetch('https://api.public.com/data');
+  }
+  
+  async fetchAuthenticatedAPI() {
+    // Cookies needed - use browser
+    return await this.#browser.fetch('https://api.private.com/data');
+  }
+}
+```
+
+**Key Benefits:**
+- ✅ **Perfect drop-in replacement** - Exact same signature as `fetch()`
+- ✅ **Configure once** - Set in constructor, use everywhere
+- ✅ **Cookie management when needed** - Compose with Browser from @lumenize/utils
+- ✅ **TypeScript perfect** - `typeof fetch` means all type hints work
+- ✅ **Platform-aligned** - Uses standard Request/Response, RequestInit, etc.
+- ✅ **Flexible** - Use low-level `createProxyFetch()` or high-level `Browser` wrapper
+
+**Queue Consumer Worker:**
+```typescript
+// src/queue-consumer.ts (provided by package)
+export default {
+  async queue(batch: MessageBatch<ProxyQueueMessage>, env: Env) {
+    await Promise.all(
+      batch.messages.map(msg => processProxyRequest(msg, env))
+    );
+  }
+};
+```
+
+### Testing Strategy
+
+**Using @lumenize/testing:**
+- Test DO sends message to queue
+- Mock queue consumer behavior
+- Test return address routing
+- Test timeout handling
+- Test error cases (fetch fails, timeout, etc.)
+
+**Integration tests:**
+- Real queue with test worker
+- External API mocking (using Mock Service Worker or similar)
+- Multi-DO communication tests
 
 ### Success Criteria
-- @lumenize/rpc is within 2x of Cap'n Web on key metrics
-- Clear documentation of trade-offs (performance vs DX vs capabilities)
-- Confidence to recommend @lumenize/rpc for most use cases
 
-### Questions to Answer
-- Where does @lumenize/rpc win? (Likely: better structured clone support, DX)
-- Where does Cap'n Web win? (Likely: raw performance, official Cloudflare support)
-- What's the DX difference? (Setup time, boilerplate, type safety)
-- Are there scenarios where one is clearly better?
+**Functional:**
+- ✅ DO can send fetch request to queue without blocking
+- ✅ Worker processes fetch and returns response to correct DO
+- ✅ Errors are properly propagated back to calling DO
+- ✅ Timeouts work correctly
 
-### Tools & Dependencies
-- **wrangler dev**: Expose Worker + DO on localhost
-- **Node.js `perf_hooks`**: High-resolution timing (microsecond precision)
-- **tinybench** or **Benchmark.js**: For accurate timing in Node.js client
-- **esbuild-plugin-size**: Bundle size analysis
-- **node-fetch** or **undici**: HTTP client for Node.js
-- **ws**: WebSocket client for Node.js
-- **k6** or **Artillery**: Load testing (Phase 2, if needed)
+**Performance:**
+- ✅ <10ms overhead to send to queue
+- ✅ <100ms queue delivery time (p90)
+- ✅ Proper retry logic for transient failures
 
-### Future Considerations
-- Expanding @lumenize/rpc to DO-to-DO and DO-to-Worker
-- Alternative serializers (cbor-x) if performance gap exists
-- Client-side caching strategies
-- Request batching/pipelining
+**Developer Experience:**
+- ✅ **Factory pattern** - `createProxyFetch()` returns a function with exact `fetch()` signature
+- ✅ **Configure once, use everywhere** - Return address set in constructor
+- ✅ **Cookie management via composition** - Wrap with Browser for stateful HTTP sessions
+- ✅ **Perfect TypeScript** - `typeof fetch` means all IDE hints and type checking work
+- ✅ **Platform-aligned** - Uses standard Web APIs (Request, Response, RequestInit)
+- ✅ **Binary support included** - All BodyInit types work (ArrayBuffer, Blob, FormData, etc.)
+- ✅ **Clear error messages**
+- ✅ **Comprehensive documentation with examples**
+
+### Future Enhancements (Later Phases)
+
+**Multi-hop Return Addressing:**
+- Browser → SharedWorker → UserDO → ProxyQueue → External API
+- Response flows back through accumulated return path
+- Each hop adds itself to path, pops itself on return
+
+**WebSocket Support:**
+- Return responses via WebSocket instead of HTTP POST
+- Useful for browser → DO → External API flows
+
+**Advanced Features:**
+- Request batching (multiple fetches to same domain)
+- Circuit breakers for failing external services
+- Caching layer for frequently requested external data
+- Scheduled/delayed fetches
+- Priority queues
+
+### Open Questions
+
+1. **Queue retry strategy:**
+   - How many retries for transient failures? (Suggest: 3)
+   - Exponential backoff? (Suggest: yes, with jitter)
+   
+2. **Response routing:**
+   - Should we validate return addresses are reachable before sending to queue?
+   - Or fail fast when Worker can't route response?
+
+3. **Security:**
+   - Should we validate/sanitize external URLs? (Suggest: allowlist by default)
+   - Sign return addresses to prevent spoofing? (Suggest: not in MVP)
+
+4. **Timeout handling:**
+   - Who owns the timeout - DO or Worker? (Suggest: Worker with AbortSignal)
+   - What happens if DO times out waiting but Worker succeeds later?
+
+5. **Browser integration:**
+   - Should we export a convenience `createProxyBrowser()` helper?
+   - Or keep it simple: users compose Browser themselves? (Current approach)
+
+### Package Structure
+
+```
+packages/proxy-queue/
+├── src/
+│   ├── index.ts              # Public API exports (createProxyFetch)
+│   ├── types.ts              # Public types (ProxyFetchConfig, ReturnAddress)
+│   ├── factory.ts            # createProxyFetch implementation
+│   ├── serialization.ts      # Request/Response serialization helpers
+│   ├── queue-consumer.ts     # Worker queue consumer
+│   ├── return-router.ts      # Return address routing logic
+│   └── error-handling.ts     # Error serialization/handling
+├── test/
+│   ├── test-worker-and-dos.ts    # Test harness
+│   ├── basic-usage.test.ts       # Basic fetch() drop-in flow
+│   ├── binary-body.test.ts       # Binary data handling
+│   ├── error-handling.test.ts    # Error cases
+│   ├── timeout.test.ts           # Timeout scenarios (AbortSignal)
+│   └── return-routing.test.ts    # Return address routing
+├── wrangler.jsonc            # Queue bindings for tests
+├── vitest.config.js
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+
+### Key Implementation Details
+
+**Request Serialization:**
+- Accept `Request` object or `RequestInfo` (URL string/Request)
+- Accept `RequestInit` options (exactly like fetch())
+- Clone request to avoid consuming body: `request.clone()`
+- Detect body type from `Content-Type` header
+- Text-based: Use `request.text()` → string
+- Binary: Use `request.arrayBuffer()` → ArrayBuffer
+- Handle edge cases: No body, empty body, streaming (consume fully for MVP)
+
+**Factory Implementation:**
+```typescript
+export function createProxyFetch(queue: Queue, config: ProxyFetchConfig): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    // Construct Request from input/init (same as fetch())
+    const request = new Request(input, init);
+    
+    // Serialize and send to queue with baked-in return address
+    // ... implementation details
+    
+    // Wait for response and deserialize
+    return response;
+  };
+}
+```
+
+**Response Deserialization:**
+- Reconstruct Response from serialized data
+- Preserve status, statusText, headers
+- Body can be string or ArrayBuffer
+- All Response methods work: `.json()`, `.text()`, `.arrayBuffer()`, `.blob()`
+
+**Queue Size Limits:**
+- Cloudflare Queue message limit: 128KB
+- Document limitation in README
+- Consider adding size check with helpful error message
+- Phase 2: Could support larger payloads via R2 or chunks
+
+**Error Handling:**
+- Network errors: Serialize with code 'FETCH_FAILED'
+- Timeouts: AbortSignal in Worker, code 'TIMEOUT'
+- Queue errors: Code 'QUEUE_ERROR'
+- Return proper HTTP-like Response for errors (status 500+)
+
+---
 
 ## Later and possibly unrelated
 
-- [ ] MUST HAVE SOON: Need a way to supress debug messages
+- [ ] Writeup my RPC performance findings and put it up as a doc on the website
+- [ ] Add `TypeBox Value` support for RPC runtime checking (both TypeBox and JSON Schema) but don't make TypeBox a dependency. That last could be tricky since it'll have to sense if it's a TypeBox spec, or a JSON Schema spec.
+- [ ] Need a way to control debug messages more granularly from a global config. Maybe markers like the old debug library I used to use that would check localhost or env variable but maybe not that. Maybe some global static. Maybe we encourage scoped "where" clauses in the debug output?
+- [ ] Make changes to docs to document promise pipelining. Right now it's in quirks, but pull it out to its own thing.
 - [ ] Make websocket-shim throw when passed in http[s] urls like the real browser. This requires changing a lot of tests especially the matrix tests that run the same test but just varying transport.
+- [ ] Consider forking @ungap/structured-clone to claim no dependencies
 - [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud (or whatever it's called now. It was previously SonarCloud, I think) account over to the lumenize repo

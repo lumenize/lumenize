@@ -40,15 +40,12 @@ Now, let's show basic usage following the basic pattern for all tests:
 5. **Assert state**. check that storage and instance variables are as expected
 */
 import { it, expect, vi } from 'vitest';
-import type { RpcAccessible } from '@lumenize/testing';
 import { createTestingClient, Browser } from '@lumenize/testing';
 import { MyDO } from '../src';
 
-type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
-
 it('shows basic 5-step test', async () => {
   // 1. Create RPC testing client and Browser instance
-  await using client = createTestingClient<MyDOType>('MY_DO', '5-step');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', '5-step');
   const browser = new Browser();
 
   // 2. Pre-populate storage via RPC to call asycn KV API
@@ -132,7 +129,7 @@ WebSocket implementation. With `@lumenize/testing`:
 */
 it('shows testing WebSocket functionality', async () => {
   // Create RPC client to inspect server-side WebSocket state
-  await using client = createTestingClient<MyDOType>('MY_DO', 'test-ws');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'test-ws');
 
   // Create WebSocket client
   const WebSocket = new Browser().WebSocket;
@@ -196,7 +193,7 @@ it('shows testing WebSocket functionality', async () => {
 All structured clone types are supported (like Cloudflare native RPC).
 */
 it('shows RPC working with StructuredClone types', async () => {
-  await using client = createTestingClient<MyDOType>('MY_DO', 'sc');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'sc');
 
   // Map (and all StructuredClone types) works with storage
   const testMap = new Map<string, any>([['key1', 'value1'], ['key2', 42]]);
@@ -231,7 +228,7 @@ and debugging.
 */
 it('shows cookie sharing between fetch and WebSocket', async () => {
   // Create client and browser instances
-  await using client = createTestingClient<MyDOType>('MY_DO', 'cookies');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'cookies');
   const browser = new Browser();
   
   // Login via fetch - sets session cookie
@@ -305,7 +302,7 @@ it('shows testing Origin validation using browser.context()', async () => {
   // Now let's test a blocked Origin evil.com
 
   // Set up: Pre-populate count to verify DO is never called
-  await using client = createTestingClient<MyDOType>('MY_DO', 'blocked');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'blocked');
   await client.ctx.storage.put('count', 42);
 
   // Blocked origin - server rejects with 403 without CORS headers
@@ -382,7 +379,7 @@ it('shows testing CORS preflight OPTIONS requests', async () => {
 the DO instance (env, ctx, custom methods)
 */
 it('shows DO inspection and function discovery using __asObject()', async () => {
-  await using client = createTestingClient<MyDOType>('MY_DO', 'asObject');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'asObject');
 
   const instanceAsObject = await client.__asObject?.();
   
@@ -426,9 +423,10 @@ it('shows DO inspection and function discovery using __asObject()', async () => 
   - Even non-async function calls require `await`
   - Property access is synchronous on `__asObject()`, but...
   - Even static property access requires `await` outside of `__asObject()`
+  - Promise pipelining - "batch" calls. Output of one, is used in the next.
 */
 it('requires await for even non-async function calls', async () => {
-  await using client = createTestingClient<MyDOType>('MY_DO', 'quirks');
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'quirks');
 
   // All calls require await even if the function is not async
 
@@ -441,6 +439,9 @@ it('requires await for even non-async function calls', async () => {
   expect(asyncResult).toBe('value');
   
   // Property access can be chained and destructured (returns a new Proxy)
+  // This is called "promise pipelining" and you can think of it as a way to
+  // "batch" calls where the result of one call is used by ones that follow
+  // all while still only makinging one round trip over the network.
   const storage = client.ctx.storage;
   const { sql } = storage;
   

@@ -708,6 +708,7 @@ it('shows DO inspection and function discovery using __asObject()', async () => 
   - Even non-async function calls require `await`
   - Property access is synchronous on `__asObject()`, but...
   - Even static property access requires `await` outside of `__asObject()`
+  - Promise pipelining - "batch" calls. Output of one, is used in the next.
 
 
 
@@ -727,6 +728,9 @@ it('requires await for even non-async function calls', async () => {
   expect(asyncResult).toBe('value');
   
   // Property access can be chained and destructured (returns a new Proxy)
+  // This is called "promise pipelining" and you can think of it as a way to
+  // "batch" calls where the result of one call is used by ones that follow
+  // all while still only makinging one round trip over the network.
   const storage = client.ctx.storage;
   const { sql } = storage;
   

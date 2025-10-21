@@ -1,4 +1,4 @@
-import type { RpcClientConfig, RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
+import type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 import { createRpcClient } from '@lumenize/rpc';
 
 /**
@@ -25,20 +25,21 @@ import { createRpcClient } from '@lumenize/rpc';
  * 
  * @example
  * ```typescript
- * // Testing - simple, opinionated (this function)
- * await using client = createTestingClient<MyDOType>('MY_DO', 'instance-name');
+ * await using client = createTestingClient<typeof MyDO>('MY_DO', 'instance-name');
  * await client.ctx.storage.put('key', 'value');
  * 
+ * // For TypeScript, it also supports interfaces or pre-wrapping using `RpcAccessible`
+ * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
+ * await using client = createTestingClient<MyDOType>('MY_DO', 'instance-name');
+ * 
  * // Production - full control (use createRpcClient)
- * await using client = createRpcClient<MyDOType>({
- *   doBindingName: 'MY_DO',
- *   doInstanceNameOrId: 'instance-name',
+ * await using client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name', {
  *   transport: 'websocket',
  *   baseUrl: 'https://api.example.com'
  * });
  * ```
  * 
- * @typeParam T - The type of the Durable Object. Use {@link RpcAccessible} to expose protected properties like `ctx` and `env`.
+ * @typeParam T - The DO class constructor (e.g., `typeof MyDO`) or pre-wrapped with `RpcAccessible`.
  * @param doBindingName - The DO binding name from wrangler.jsonc (e.g., 'MY_DO')
  * @param doInstanceNameOrId - The DO instance name or ID
  * @returns A proxy client that supports both RPC calls and lifecycle management
@@ -48,7 +49,7 @@ import { createRpcClient } from '@lumenize/rpc';
 export function createTestingClient<T>(
   doBindingName: string,
   doInstanceNameOrId: string,
-): T & RpcClientProxy {
+): (T extends abstract new (...args: any[]) => infer I ? RpcAccessible<I> : T) & RpcClientProxy {
   // Lazy import SELF to avoid top-level cloudflare:test dependency that breaks module loading
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { SELF } = require('cloudflare:test');
@@ -56,7 +57,7 @@ export function createTestingClient<T>(
   // Use HTTP transport - simpler and faster for testing
   const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
   
-  // Call createRpcClient with new signature
+  // Call createRpcClient with same type parameter
   return createRpcClient<T>(doBindingName, doInstanceNameOrId, {
     fetch: baseFetch,
     transport: 'http',
