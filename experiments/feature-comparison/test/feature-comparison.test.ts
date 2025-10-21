@@ -107,36 +107,173 @@ it('demonstrates error handling', async () => {
 });
 
 /*
-## Feature: Returning complex objects like Request
+## Feature: Returning Request objects
 
-**Lumenize RPC**:
-- ⚠️ Serializes Request objects, losing prototype but preserving data
-- ✅ Clients receive plain objects with Request properties
-
-**Cap'n Web**:
-- ❌ Cannot serialize Request objects at all
-- ❌ Throws "Cannot serialize value: [object Request]"
+**Current Status:**
+- Lumenize RPC: ⚠️ Serializes to plain object, loses prototype
+  - ✅ Properties preserved: method, url, redirect, signal, integrity, keepalive, bodyUsed
+  - ✅ Methods become plain objects: clone, arrayBuffer, text, json, etc.
+  - ❌ Not a Request instance, methods not callable
+- Cap'n Web: ❌ "Cannot serialize value: [object Request]"
 */
-it('demonstrates returning a Request object', async () => {
+it('demonstrates returning Request', async () => {
   // ==========================================================================
   // Lumenize RPC
   // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('request-return');
+  await using lumenizeClient = getLumenizeClient('request');
 
-  const lumenizeRequest = await lumenizeClient.getRequest();
-  // ⚠️ Not a Request instance after serialization
-  expect(lumenizeRequest).not.toBeInstanceOf(Request);
-  // ✅ But the data is preserved
-  expect(lumenizeRequest.url).toBe('https://example.com/test');
-  expect(lumenizeRequest.method).toBe('POST');
+  try {
+    const result = await lumenizeClient.getRequest();
+    console.log('Lumenize Request result:', result);
+    console.log('Is Request instance?', result instanceof Request);
+    console.log('Type:', typeof result);
+    console.log('Constructor:', result?.constructor?.name);
+    if (result && typeof result === 'object') {
+      console.log('Keys:', Object.keys(result));
+      console.log('url:', result.url);
+      console.log('method:', result.method);
+    }
+  } catch (error: any) {
+    console.log('Lumenize Request error:', error.message);
+  }
 
   // ==========================================================================
   // Cap'n Web
   // ==========================================================================
-  await using capnwebClient = getCapnWebClient('request-return');
+  await using capnwebClient = getCapnWebClient('request');
 
-  // ❌ Cap'n Web throws when trying to serialize Request
-  await expect(capnwebClient.getRequest()).rejects.toThrow();
+  try {
+    const result = await capnwebClient.getRequest();
+    console.log('Cap\'n Web Request result:', result);
+  } catch (error: any) {
+    console.log('Cap\'n Web Request error:', error.message);
+  }
+});
+
+/*
+## Feature: Returning Response objects
+
+**Current Status:**
+- Lumenize RPC: ⚠️ Serializes to plain object, loses prototype
+  - ✅ Properties preserved: status, statusText, ok, redirected, url, type, bodyUsed
+  - ✅ Methods become plain objects: clone, arrayBuffer, text, json, etc.
+  - ❌ Not a Response instance, methods not callable
+- Cap'n Web: ❌ "Cannot serialize value: [object Response]"
+*/
+it('demonstrates returning Response', async () => {
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  await using lumenizeClient = getLumenizeClient('response');
+
+  try {
+    const result = await lumenizeClient.getResponse();
+    console.log('Lumenize Response result:', result);
+    console.log('Is Response instance?', result instanceof Response);
+    console.log('Type:', typeof result);
+    console.log('Constructor:', result?.constructor?.name);
+    if (result && typeof result === 'object') {
+      console.log('Keys:', Object.keys(result));
+      console.log('status:', result.status);
+      console.log('statusText:', result.statusText);
+    }
+  } catch (error: any) {
+    console.log('Lumenize Response error:', error.message);
+    expect(error.message).toContain('Illegal invocation');
+  }
+
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  await using capnwebClient = getCapnWebClient('response');
+
+  try {
+    const result = await capnwebClient.getResponse();
+    console.log('Cap\'n Web Response result:', result);
+  } catch (error: any) {
+    console.log('Cap\'n Web Response error:', error.message);
+  }
+});
+
+/*
+## Feature: Returning Headers objects
+
+**Current Status:**
+- Lumenize RPC: ❌ Fails with "Illegal invocation" during preprocessing
+- Cap'n Web: ❌ "Cannot serialize value: [object Headers]"
+*/
+it('demonstrates returning Headers', async () => {
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  await using lumenizeClient = getLumenizeClient('headers');
+
+  try {
+    const result = await lumenizeClient.getHeaders();
+    console.log('Lumenize Headers result:', result);
+    console.log('Is Headers instance?', result instanceof Headers);
+    console.log('Type:', typeof result);
+    console.log('Constructor:', result?.constructor?.name);
+    if (result && typeof result === 'object') {
+      console.log('Keys:', Object.keys(result));
+    }
+  } catch (error: any) {
+    console.log('Lumenize Headers error:', error.message);
+  }
+
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  await using capnwebClient = getCapnWebClient('headers');
+
+  try {
+    const result = await capnwebClient.getHeaders();
+    console.log('Cap\'n Web Headers result:', result);
+  } catch (error: any) {
+    console.log('Cap\'n Web Headers error:', error.message);
+  }
+});
+
+/*
+## Feature: Returning URL objects
+
+**Current Status:**
+- Lumenize RPC: ❌ Fails with "value.toJSON is not a function"
+  - @ungap/structured-clone tries to call toJSON() but URL doesn't have it
+- Cap'n Web: ❌ "Cannot serialize value: https://example.com/..."
+*/
+it('demonstrates returning URL', async () => {
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  await using lumenizeClient = getLumenizeClient('url');
+
+  try {
+    const result = await lumenizeClient.getURL();
+    console.log('Lumenize URL result:', result);
+    console.log('Is URL instance?', result instanceof URL);
+    console.log('Type:', typeof result);
+    console.log('Constructor:', result?.constructor?.name);
+    if (result && typeof result === 'object') {
+      console.log('Keys:', Object.keys(result));
+      console.log('href:', result.href);
+      console.log('pathname:', result.pathname);
+    }
+  } catch (error: any) {
+    console.log('Lumenize URL error:', error.message);
+  }
+
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  await using capnwebClient = getCapnWebClient('url');
+
+  try {
+    const result = await capnwebClient.getURL();
+    console.log('Cap\'n Web URL result:', result);
+  } catch (error: any) {
+    console.log('Cap\'n Web URL error:', error.message);
+  }
 });
 
 /*

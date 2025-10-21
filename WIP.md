@@ -560,6 +560,7 @@ export function createProxyFetch(queue: Queue, config: ProxyFetchConfig): typeof
 ## Later and possibly unrelated
 
 - [ ] Writeup my RPC performance findings and put it up as a doc on the website
+- [ ] Add examples and docs for plucking the bindingName and instanceNameOrId out of headers into storage for the DO
 - [ ] Add `TypeBox Value` support for RPC runtime checking (both TypeBox and JSON Schema) but don't make TypeBox a dependency. That last could be tricky since it'll have to sense if it's a TypeBox spec, or a JSON Schema spec.
 - [ ] Move debugOff into @lumenize/utils
 - [ ] Need a way to control debug messages more granularly from a global config. Maybe markers like the old debug library I used to use that would check localhost or env variable but maybe not that. Maybe some global static. Maybe we encourage scoped "where" clauses in the debug output?
