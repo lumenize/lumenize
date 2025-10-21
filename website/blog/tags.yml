@@ -18,3 +18,8 @@ mcp:
   permalink: /mcp
   description: Model Context Protocol (MCP)
   
+rpc:
+  label: RPC
+  permalink: /rpc
+  description: Remote Procedure Call (RPC)
+  

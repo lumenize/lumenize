@@ -41,6 +41,16 @@ We are turning the scratchpad in `experiments/performance-comparisons/BOTTOM_LIN
 - Docusaurus blog supports `draft: true` in frontmatter: visible in `npm run start`, excluded from production builds.
 - Avoid internal progress reporting inside the post; keep internal notes here in WIP.md.
 
+### Short-term Lumenize RPC targets (close the gap)
+
+- Add MessagePort guidance and note where it’s preferable (iframes/workers)
+- Validate promise pipelining round-trip behavior; document chaining patterns
+- Provide in-band auth example returning an Authed API, with TypeBox Value validation
+- Document connection break handling and recommended guardrails
+- Author guidance for “map-like” server-side composition to reduce trips
+- Add runtime validation examples without introducing a hard TypeBox dependency
+- Cross-link any Workers RPC interop considerations (state clearly if N/A)
+
 ## Current Focus: @lumenize/proxy-queue - Cost-Effective External Fetch Offloading
 
 ### Problem Statement

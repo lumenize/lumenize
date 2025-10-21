@@ -1,8 +1,8 @@
 ---
-title: "Lumenize RPC vs Cap'n Web: Performance, Trade-offs, and Real-World Impact"
-description: "On typical networks, Lumenize RPC's 0.14ms local overhead is <1% of total latency. Here's what we measured, why it happens, and when to choose each approach."
+title: "Lumenize RPC vs Cap'n Web"
+description: "Performance difference is <1% on latency for typical networks, so the decision is more about what features and design philosophy are a better fit for your situation."
 slug: lumenize-rpc-vs-capn-web
-tags: [performance, rpc, cloudflare, durable-objects, websockets]
+tags: [rpc]
 draft: true
 image: ./images/cover.png
 ---
@@ -19,7 +19,49 @@ Bottom line: Lumenize RPC is highly competitive with Cap'n Web (Cloudflare's off
 
 The remaining gap stems from protocol features that buy you developer experience and debuggability: full StructuredClone support (Map, Set, Date, RegExp, typed arrays), Error.stack preservation, and circular references. Our `routeDORequest` helper adds no measurable overhead.
 
-## What we measured
+### References
+
+- Cap'n Web blog post by Kenton Varda: https://blog.cloudflare.com/capnweb-javascript-rpc-library/
+- Cap'n Web README (GitHub): https://github.com/cloudflare/capnweb/blob/main/README.md
+
+## Strongest design values: minimal round trips vs local feeling
+
+Both systems use “magic” (Proxies, promise pipelining, etc.) to make RPC feel local. Both systems attempt to minimize round trips. Where they differ is in the relative value they place on those things.
+
+Cap'n Web seems to most value doing more with a single round trip — its `map()` operator is a perfect example.
+
+On the other hand, Lumenize RPC most values making it feel like you are working locally. Rethrowing errors on the calling side complete with the original stack trace is a great example. Support for accessing `this.ctx` and `this.env` is another. [TODO: need to confirm that Cap'n Web doesn't allow this. If it does allow this, keep this note, but shift the conversation around extensive examples of doing this in the Lumenize docs and none in the Cap'n Web docs].
+
+The Cap'n Web concept of a session with state maintained on both sides is a more subtle distinction here. To avoid the risk of dangling resources or the complexity of manually needing to clean that up (See , Lumenize RPC would simply make another round trip.
+
+- Lumenize RPC emphasizes explicitness and convention-over-magic for routing and state. We avoid maintaining remote object graphs where possible to reduce dangling resource concerns.
+- Cap'n Web models object capabilities richly. That power comes with stub lifecycle rules: explicit disposal (`[Symbol.dispose]`, `using`), ownership transfer, `onRpcBroken()` listeners, duplication via `stub.dup()`, and batch/session scoping. See “Resource Management and Disposal” in the README.
+- Our aim: fewer ways to accidentally “forget” a remote reference. We prefer short-lived calls, explicit return-address patterns, and avoiding long-lived remote stubs when not necessary.
+
+We’ll validate whether any Lumenize RPC patterns can leak remote resources, and document guardrails if so.
+
+## Security and auth patterns (capability style)
+
+Cap'n Web recommends in-band authentication that returns an authenticated API (object capability). This aligns with our approach and Cloudflare’s realities (e.g., browser WebSocket auth constraints).
+
+- Pattern: authenticate() → returns Authed API; subsequent calls are naturally authorized on that object.
+- Lumenize RPC: we support the same in-band pattern. We’ll add examples mirroring this flow and pair it with runtime validation via TypeBox Value.
+- Rate limiting and CPU limits: consider per-operation guards to prevent pipelined abuse on expensive methods (Cap'n Web also recommends this).
+
+## Interoperability and transports
+
+- Cap'n Web interoperates with Cloudflare Workers built-in RPC and supports MessagePort. Lumenize RPC is WebSocket-first; MessagePort is on our research list for when it provides real benefits (iframes/workers).
+- We’ll include guidance on when to choose MessagePort vs WebSocket and call out the Window vs MessageChannel advice noted in Cap'n Web docs.
+
+## Promise pipelining and `.map()`
+
+- Both systems support promise pipelining to minimize round trips; we’ll confirm Lumenize’s chaining behavior under various transports.
+- Cap'n Web’s special `.map()` records a transformation and replays it server-side to avoid extra trips. If you control the server API, an equivalent “compose it server-side” method often achieves the same with less complexity; `.map()` shines more when you can’t extend the server API.
+
+<details>
+<summary><strong>Performance details (expand)</strong></summary>
+
+### What we measured
 
 - Environment: Node.js v22.14.0, Wrangler 4.38.0, fresh WebSocket per op (fair baseline)
 - Workload: Mixed operations, 100 total ops
@@ -32,7 +74,7 @@ The remaining gap stems from protocol features that buy you developer experience
 
 Finding: Within 9% of Cloudflare's official solution under identical conditions.
 
-## Protocol trade-offs (why the tiny gap exists)
+### Protocol trade-offs (why the tiny gap exists)
 
 - Full StructuredClone compatibility (complex types “just work”)
 - Complete Error.stack preservation across RPC boundaries
@@ -41,7 +83,7 @@ Finding: Within 9% of Cloudflare's official solution under identical conditions.
 
 These account for ~0.142ms of local overhead in our tests.
 
-## Real-world networks: why the gap rarely matters
+### Real-world networks: why the gap rarely matters
 
 Payloads are small (~350 bytes per op), so transfer time is negligible. Network base latency (DNS/TCP/TLS) dominates 95–99% of total time.
 
@@ -58,6 +100,13 @@ Implications:
 - Optimizing cbor-x or similar nets <0.5% improvement — not worth it
 - Focus on connection pooling (saves 10–50ms), not micro-optimizations
 
+### Optimization strategy
+
+- Macro-optimization: connection pooling and session reuse
+- Micro-optimization: skip (impact is sub-1%)
+
+</details>
+
 ## When to choose which
 
 Use Lumenize RPC when:
@@ -70,16 +119,132 @@ Use Cap'n Web when:
 - Your payloads are simple (primitives/POJOs) and debugging needs are modest
 - You prefer Cloudflare’s out-of-the-box RPC model and MessagePort integrations
 
+## Decision checklist
+
+- Are you on typical networks (100+ Mbps) where network latency dominates? → Lumenize RPC
+- Need structured clone types, Error.stack, and circular refs to “just work”? → Lumenize RPC
+- Want MessagePort interop or Cloudflare’s Workers RPC compatibility out of the box? → Cap'n Web
+- Chasing lowest possible local latency in a datacenter-only scenario? → Cap'n Web
+- Prefer convention-based routing with zero-measured overhead (`routeDORequest`)? → Lumenize RPC
+
+## Feature comparison
+
+<!-- HTML table keeps formatting stable while we iterate; edit freely -->
+<table>
+	<thead>
+		<tr>
+			<th>Capability</th>
+			<th>Lumenize RPC</th>
+			<th>Cap'n Web</th>
+			<th>Notes</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td>StructuredClone types (Map/Set/Date/RegExp/TypedArrays)</td>
+			<td>Yes</td>
+			<td>Partial (POJOs preferred)</td>
+			<td>Lumenize preserves complex types end-to-end</td>
+		</tr>
+		<tr>
+			<td>Error.stack preservation</td>
+			<td>Yes</td>
+			<td>Limited</td>
+			<td>Improves DX and debugging across boundaries</td>
+		</tr>
+		<tr>
+			<td>Circular reference support</td>
+			<td>Yes</td>
+			<td>No</td>
+			<td>Useful for rich graphs; not a focus for Cap'n Web</td>
+		</tr>
+		<tr>
+			<td>Promise pipelining</td>
+			<td>Yes (validate chaining)</td>
+			<td>Yes</td>
+			<td>Confirm round-trip behavior under WS</td>
+		</tr>
+		<tr>
+			<td>Client-side <code>.map()</code> record/replay</td>
+			<td>No (consider guidance)</td>
+			<td>Yes</td>
+			<td>Recommend server-side composition where possible</td>
+		</tr>
+		<tr>
+			<td>MessagePort transport</td>
+			<td>Planned guidance</td>
+			<td>Yes</td>
+			<td>Good for iframes/workers; Lumenize is WS-first</td>
+		</tr>
+		<tr>
+			<td>Workers RPC interop</td>
+			<td>N/A</td>
+			<td>Yes</td>
+			<td>Cap'n Web integrates with Workers RPC</td>
+		</tr>
+		<tr>
+			<td>Stub lifecycle & disposal (<code>[Symbol.dispose]</code>, <code>using</code>)</td>
+			<td>Minimal lifecycle</td>
+			<td>Yes</td>
+			<td>Lumenize avoids heavy remote object graphs</td>
+		</tr>
+		<tr>
+			<td><code>onRpcBroken</code> / connection break handling</td>
+			<td>Doc/guardrails pending</td>
+			<td>Yes</td>
+			<td>Add guidance for resilience patterns</td>
+		</tr>
+		<tr>
+			<td><code>dup()</code>, new stub/session semantics</td>
+			<td>N/A</td>
+			<td>Yes</td>
+			<td>Cap'n Web offers explicit ownership semantics</td>
+		</tr>
+		<tr>
+			<td>HTTP batch sessions</td>
+			<td>N/A</td>
+			<td>Yes</td>
+			<td>Cap'n Web supports batched HTTP sessions</td>
+		</tr>
+		<tr>
+			<td>WebSocket sessions</td>
+			<td>Yes</td>
+			<td>Yes</td>
+			<td>Primary transport for Lumenize</td>
+		</tr>
+		<tr>
+			<td><code>routeDORequest</code> helper</td>
+			<td>Yes (no measured overhead)</td>
+			<td>N/A</td>
+			<td>Convention-based routing, binding lookup, type safety</td>
+		</tr>
+		<tr>
+			<td>Runtime validation</td>
+			<td>Planned (TypeBox Value)</td>
+			<td>Recommended (varies)</td>
+			<td>Add examples without forcing TypeBox dep</td>
+		</tr>
+		<tr>
+			<td>Auth pattern (in-band → authed API)</td>
+			<td>Yes (example pending)</td>
+			<td>Yes</td>
+			<td>Align with capability-based guidance</td>
+		</tr>
+		<tr>
+			<td>Rate limiting guidance</td>
+			<td>Planned</td>
+			<td>Recommended</td>
+			<td>Protect expensive RPC methods</td>
+		</tr>
+	</tbody>
+  
+</table>
+
 ## About `routeDORequest`
 
 - Zero performance overhead in measurements
 - Convention-based routing, automatic binding lookup, and type safety
 - Choose DX without paying a latency tax
-
-## Optimization strategy
-
-- Macro-optimization: connection pooling and session reuse
-- Micro-optimization: skip (impact is sub-1%)
 
 ## What’s next (validation before publish)
 
