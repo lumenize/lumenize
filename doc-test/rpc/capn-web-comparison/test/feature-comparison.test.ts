@@ -11,15 +11,14 @@
 // - See: /tooling/doc-testing/README.md
 
 /*
-# vs Cap'n Web (features)
+# vs Cap'n Web (basics and types)
 
 This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's 
-official RPC solution) handle various features and patterns. Many sections
-demonstrates both approaches side-by-side with focus on developer experience (DX) 
-differences.
+official last mile RPC solution) basic usage and types.
 
-Further down, we show features that Cap'n Web has but Lumenize RPC does not, and
-after that, we show features that Lumenize RPC has that Cap'n Web does not.
+It was written using the latest versions of each as of 2025-10-22:
+- Cap'n Web v0.1.0
+- Lumenize RPC v0.10.0
 
 ## References
 
