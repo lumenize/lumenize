@@ -145,80 +145,6 @@ export async function testGetDeeplyNested(testable: TestableClient): Promise<voi
 }
 
 /**
- * Built-in types - Date
- */
-export async function testGetDate(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getDate();
-  expect(result).toBeInstanceOf(Date);
-  expect(result.toISOString()).toBe('2025-01-01T00:00:00.000Z');
-}
-
-/**
- * Built-in types - RegExp
- */
-export async function testGetRegExp(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getRegExp();
-  expect(result).toBeInstanceOf(RegExp);
-  expect(result.source).toBe('[0-9]+');
-}
-
-/**
- * Built-in types - Map
- */
-export async function testGetMap(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getMap();
-  expect(result).toBeInstanceOf(Map);
-  expect(result.get('key')).toBe('value');
-}
-
-/**
- * Built-in types - Set
- */
-export async function testGetSet(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getSet();
-  expect(result).toBeInstanceOf(Set);
-  expect(result.has(1)).toBe(true);
-  expect(result.has(2)).toBe(true);
-  expect(result.has(3)).toBe(true);
-}
-
-/**
- * Built-in types - ArrayBuffer
- */
-export async function testGetArrayBuffer(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getArrayBuffer();
-  expect(result).toBeInstanceOf(ArrayBuffer);
-  expect(result.byteLength).toBe(8);
-}
-
-/**
- * Built-in types - TypedArray (Uint8Array)
- */
-export async function testGetTypedArray(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getTypedArray();
-  expect(result).toBeInstanceOf(Uint8Array);
-  expect(result.length).toBe(4);
-  expect(result[0]).toBe(1);
-  expect(result[3]).toBe(4);
-}
-
-/**
- * Built-in types - Error
- */
-export async function testGetError(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getError();
-  expect(result).toBeInstanceOf(Error);
-  expect(result.message).toBe('Test error');
-}
-
-/**
  * Circular reference handling - echo method preserves circular references
  */
 export async function testEchoCircularReference(testable: TestableClient): Promise<void> {
@@ -473,6 +399,167 @@ export async function testEchoNestedWebApi(testable: TestableClient): Promise<vo
 }
 
 /**
+ * Built-in types - Echo Date (client → server → client)
+ */
+export async function testEchoDate(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a Date object
+  const originalDate = new Date('2025-01-01T00:00:00.000Z');
+  
+  // Send it to the server and get it back
+  const echoedDate = await (client as any).echo(originalDate);
+  
+  // Verify it's a proper Date instance
+  expect(echoedDate).toBeInstanceOf(Date);
+  
+  // Verify the value is preserved
+  expect(echoedDate.toISOString()).toBe('2025-01-01T00:00:00.000Z');
+  expect(echoedDate.getTime()).toBe(originalDate.getTime());
+}
+
+/**
+ * Built-in types - Echo RegExp (client → server → client)
+ */
+export async function testEchoRegExp(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a RegExp object
+  const originalRegExp = /[0-9]+/gi;
+  
+  // Send it to the server and get it back
+  const echoedRegExp = await (client as any).echo(originalRegExp);
+  
+  // Verify it's a proper RegExp instance
+  expect(echoedRegExp).toBeInstanceOf(RegExp);
+  
+  // Verify the pattern and flags are preserved
+  expect(echoedRegExp.source).toBe('[0-9]+');
+  expect(echoedRegExp.flags).toBe('gi');
+  expect(echoedRegExp.global).toBe(true);
+  expect(echoedRegExp.ignoreCase).toBe(true);
+}
+
+/**
+ * Built-in types - Echo Map (client → server → client)
+ */
+export async function testEchoMap(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a Map object
+  const originalMap = new Map<any, any>([
+    ['key1', 'value1'],
+    ['key2', 'value2'],
+    [123, 'numeric key'],
+  ]);
+  
+  // Send it to the server and get it back
+  const echoedMap = await (client as any).echo(originalMap);
+  
+  // Verify it's a proper Map instance
+  expect(echoedMap).toBeInstanceOf(Map);
+  
+  // Verify the contents are preserved
+  expect(echoedMap.size).toBe(3);
+  expect(echoedMap.get('key1')).toBe('value1');
+  expect(echoedMap.get('key2')).toBe('value2');
+  expect(echoedMap.get(123)).toBe('numeric key');
+}
+
+/**
+ * Built-in types - Echo Set (client → server → client)
+ */
+export async function testEchoSet(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a Set object
+  const originalSet = new Set([1, 2, 3, 'four', 'five']);
+  
+  // Send it to the server and get it back
+  const echoedSet = await (client as any).echo(originalSet);
+  
+  // Verify it's a proper Set instance
+  expect(echoedSet).toBeInstanceOf(Set);
+  
+  // Verify the contents are preserved
+  expect(echoedSet.size).toBe(5);
+  expect(echoedSet.has(1)).toBe(true);
+  expect(echoedSet.has(2)).toBe(true);
+  expect(echoedSet.has(3)).toBe(true);
+  expect(echoedSet.has('four')).toBe(true);
+  expect(echoedSet.has('five')).toBe(true);
+}
+
+/**
+ * Built-in types - Echo ArrayBuffer (client → server → client)
+ */
+export async function testEchoArrayBuffer(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create an ArrayBuffer
+  const originalBuffer = new ArrayBuffer(8);
+  const view = new DataView(originalBuffer);
+  view.setUint8(0, 255);
+  view.setUint8(7, 128);
+  
+  // Send it to the server and get it back
+  const echoedBuffer = await (client as any).echo(originalBuffer);
+  
+  // Verify it's a proper ArrayBuffer instance
+  expect(echoedBuffer).toBeInstanceOf(ArrayBuffer);
+  
+  // Verify the contents are preserved
+  expect(echoedBuffer.byteLength).toBe(8);
+  const echoedView = new DataView(echoedBuffer);
+  expect(echoedView.getUint8(0)).toBe(255);
+  expect(echoedView.getUint8(7)).toBe(128);
+}
+
+/**
+ * Built-in types - Echo TypedArray (client → server → client)
+ */
+export async function testEchoTypedArray(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a Uint8Array (TypedArray)
+  const originalArray = new Uint8Array([0, 1, 2, 3, 4, 5]);
+  
+  // Send it to the server and get it back
+  const echoedArray = await (client as any).echo(originalArray);
+  
+  // Verify it's a proper Uint8Array instance
+  expect(echoedArray).toBeInstanceOf(Uint8Array);
+  
+  // Verify the contents are preserved
+  expect(echoedArray.length).toBe(6);
+  expect(Array.from(echoedArray)).toEqual([0, 1, 2, 3, 4, 5]);
+}
+
+/**
+ * Built-in types - Echo Error (client → server → client)
+ */
+export async function testEchoError(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create an Error object
+  const originalError = new Error('Test error message');
+  originalError.name = 'CustomError';
+  
+  // Send it to the server and get it back
+  const echoedError = await (client as any).echo(originalError);
+  
+  // Verify it's a proper Error instance
+  expect(echoedError).toBeInstanceOf(Error);
+  
+  // Verify basic properties are preserved
+  expect(echoedError.message).toBe('Test error message');
+  expect(echoedError.name).toBe('CustomError');
+  
+  // Note: stack trace may not be preserved by structured-clone
+  // This is a known limitation that we're testing for
+}
+
+/**
  * All behavior tests in a registry for easy iteration
  */
 export const behaviorTests = {
@@ -486,13 +573,6 @@ export const behaviorTests = {
   getArrayWithFunctions: testGetArrayWithFunctions,
   getClassInstance: testGetClassInstance,
   getDeeplyNested: testGetDeeplyNested,
-  getDate: testGetDate,
-  getRegExp: testGetRegExp,
-  getMap: testGetMap,
-  getSet: testGetSet,
-  getArrayBuffer: testGetArrayBuffer,
-  getTypedArray: testGetTypedArray,
-  getError: testGetError,
   echoCircularReference: testEchoCircularReference,
   asObject: testAsObject,
   slowIncrement: testSlowIncrement,
@@ -501,6 +581,13 @@ export const behaviorTests = {
   echoHeaders: testEchoHeaders,
   echoURL: testEchoURL,
   echoNestedWebApi: testEchoNestedWebApi,
+  echoDate: testEchoDate,
+  echoRegExp: testEchoRegExp,
+  echoMap: testEchoMap,
+  echoSet: testEchoSet,
+  echoArrayBuffer: testEchoArrayBuffer,
+  echoTypedArray: testEchoTypedArray,
+  echoError: testEchoError,
 };
 
 /**
@@ -512,9 +599,8 @@ export const testCategories = {
   objects: ['getObject', 'getDeeplyNested'],
   arrays: ['getArray', 'getArrayWithFunctions'],
   classes: ['getClassInstance'],
-  builtins: ['getDate', 'getRegExp', 'getMap', 'getSet', 'getArrayBuffer', 'getTypedArray', 'getError'],
   circularRefs: ['echoCircularReference'],
   inspection: ['asObject'],
   async: ['slowIncrement'],
-  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi'],
+  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi', 'echoDate', 'echoRegExp', 'echoMap', 'echoSet', 'echoArrayBuffer', 'echoTypedArray', 'echoError'],
 };

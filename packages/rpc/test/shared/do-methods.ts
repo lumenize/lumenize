@@ -149,39 +149,6 @@ export const sharedDOMethods = {
     return this.increment();
   },
 
-  // Methods for testing built-in type handling
-  getDate(): Date {
-    return new Date('2025-01-01T00:00:00Z');
-  },
-
-  getRegExp(): RegExp {
-    return /[0-9]+/g;
-  },
-
-  getBigInt(): bigint {
-    return 1234567890123456789012345678901234567890n;
-  },
-
-  getMap(): Map<string, string> {
-    return new Map([['key', 'value']]);
-  },
-
-  getSet(): Set<number> {
-    return new Set([1, 2, 3]);
-  },
-
-  getArrayBuffer(): ArrayBuffer {
-    return new ArrayBuffer(8);
-  },
-
-  getTypedArray(): Uint8Array {
-    return new Uint8Array([1, 2, 3, 4]);
-  },
-
-  getError(): Error {
-    return new Error('Test error');
-  },
-
   // Method for testing counter access (used by ManualRoutingDO)
   async getCounter(this: WithContext): Promise<number> {
     return (await this.ctx.storage.get('count') as number | undefined) || 0;

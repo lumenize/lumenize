@@ -49,16 +49,15 @@ TRANSPORTS.forEach(({ name, transport }) => {
         const array = await (client as any).getArray();
         expect(array).toEqual([1, 2, 3, 4, 5]);
 
-        // Test inherited method: getDate
-        const date = await (client as any).getDate();
-        expect(date).toBeInstanceOf(Date);
-        expect(date.toISOString()).toBe('2025-01-01T00:00:00.000Z');
-
         // Test inherited method: getClassInstance
         const instance = await (client as any).getClassInstance();
         expect(instance).toBeDefined();
         const name = await instance.getName();
         expect(name).toBe('TestModel');
+
+        // Test inherited method: echo
+        const echoedValue = await (client as any).echo({ test: 'value' });
+        expect(echoedValue).toEqual({ test: 'value' });
       } finally {
         await client[Symbol.asyncDispose]();
       }
@@ -162,7 +161,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         expect(methods).toContain('increment');
         expect(methods).toContain('add');
         expect(methods).toContain('getArray');
-        expect(methods).toContain('getDate');
+        expect(methods).toContain('echo');
         expect(methods).toContain('getClassInstance');
 
         // Should include subclass methods
