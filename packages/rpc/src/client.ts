@@ -209,11 +209,11 @@ export class RpcClient<T> {
       return result;
     }
     
-    // Process the result to convert remote function markers to proxies
-    return this.processRemoteFunctions(result, []);
+    // Process the result to convert markers to live objects (remote function markers to proxies, etc.)
+    return this.postprocessResult(result, []);
   }
 
-  processRemoteFunctions(obj: any, baseOperations: any[], seen = new WeakMap()): any {
+  postprocessResult(obj: any, baseOperations: any[], seen = new WeakMap()): any {
     // Base case: if it's a remote function marker, create a proxy for it
     if (obj && typeof obj === 'object' && isRemoteFunctionMarker(obj)) {
       const remoteFn = obj as RemoteFunctionMarker;
@@ -242,7 +242,7 @@ export class RpcClient<T> {
       seen.set(obj, processedArray);
       
       for (let i = 0; i < obj.length; i++) {
-        processedArray[i] = this.processRemoteFunctions(obj[i], baseOperations, seen);
+        processedArray[i] = this.postprocessResult(obj[i], baseOperations, seen);
       }
       
       return processedArray;
@@ -265,7 +265,7 @@ export class RpcClient<T> {
     seen.set(obj, processed);
     
     for (const [key, value] of Object.entries(obj)) {
-      processed[key] = this.processRemoteFunctions(value, baseOperations, seen);
+      processed[key] = this.postprocessResult(value, baseOperations, seen);
     }
     return processed;
   }
@@ -341,9 +341,9 @@ class ProxyHandler {
     return this.#rpcClient.execute(operations);
   }
 
-  // Helper to process remote functions
-  #processRemoteFunctions(obj: any, baseOperations: any[]): any {
-    return this.#rpcClient.processRemoteFunctions(obj, baseOperations);
+  // Helper to postprocess results by converting markers to live objects
+  #postprocessResult(obj: any, baseOperations: any[]): any {
+    return this.#rpcClient.postprocessResult(obj, baseOperations);
   }
 
   #createThenableProxy(promise: Promise<any>): any {
@@ -362,14 +362,14 @@ class ProxyHandler {
         }
         
         // For other properties, create a new thenable proxy that accesses the property after resolution
-        // AND processes it through processRemoteFunctions
+        // AND postprocesses it to convert markers to live objects
         const nestedPromise = promise.then((resolved: any) => {
           const propertyValue = resolved?.[key];
-          // Process the property value to convert any remote function markers
-          return self.#processRemoteFunctions(propertyValue, []);
+          // Postprocess the property value to convert any markers (remote function markers, etc.)
+          return self.#postprocessResult(propertyValue, []);
         });
         
-        // Important: Don't wrap the result in a thenable proxy if it's already a proxy (from processRemoteFunctions)
+        // Important: Don't wrap the result in a thenable proxy if it's already a proxy (from postprocessResult)
         // Instead, return a proxy that will behave correctly whether the result is a function/proxy or a value
         const nestedCallableTarget = function() {};
         return new Proxy(nestedCallableTarget, {
@@ -381,7 +381,7 @@ class ProxyHandler {
             // Further property access - chain another thenable proxy
             const furtherPromise = nestedPromise.then((r: any) => {
               const furtherValue = r?.[k];
-              return self.#processRemoteFunctions(furtherValue, []);
+              return self.#postprocessResult(furtherValue, []);
             });
             return self.#createThenableProxy(furtherPromise);
           },
