@@ -159,6 +159,12 @@ export const sharedDOMethods = {
     return value;
   },
 
+  // Method that echoes through DO storage to test what types survive round-trip
+  echoThroughStorage(this: WithContext, value: any): any {
+    this.ctx.storage.kv.put('test-echo', value);
+    return this.ctx.storage.kv.get('test-echo');
+  },
+
   // Methods for testing Web API object serialization
   getRequest(): Request {
     return new Request('https://example.com/api/test', {

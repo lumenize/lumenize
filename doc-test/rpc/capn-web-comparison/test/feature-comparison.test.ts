@@ -76,36 +76,43 @@ it('demonstrates a simple method call', async () => {
 /*
 ## Supported Types
 
-Both frameworks support structured-cloneable types, but with differences:
+Both frameworks support structured-cloneable types, but with differences. This 
+table shows DO Storage support first (the foundation), then how each RPC 
+framework extends it.
 
-| Type | Lumenize RPC | Cap'n Web | Notes |
-|------|--------------|-----------|-------|
-| **Primitives** | | | |
-| undefined | ✅ | ✅ | |
-| null | ✅ | ✅ | |
-| **Special Numbers** | | | |
-| NaN | ✅ | ❌ | Cap'n Web returns null |
-| Infinity | ✅ | ❌ | Cap'n Web returns null |
-| -Infinity | ✅ | ❌ | Cap'n Web returns null |
-| **Built-in Types** | | | |
-| BigInt | ✅ | ✅ | |
-| Date | ✅ | ✅ | |
-| RegExp | ✅ | ❌ | Cannot serialize |
-| Map | ✅ | ❌ | Cannot serialize |
-| Set | ✅ | ❌ | Cannot serialize |
-| ArrayBuffer | ✅ | ❌ | Cannot serialize |
-| TypedArray | ✅ | ✅ | Uint8Array works |
-| **Errors** | | | |
-| Error (thrown) | ✅ | ⚠️ | Cap'n Web: loses type, remote stack |
-| Error (value) | ✅ | ⚠️ | Cap'n Web: loses type, remote stack |
-| **Circular References** | ✅ | ❌ | Cap'n Web throws error |
-| **Web API Types** | | | |
-| Request | ✅ | ❌ | Cannot serialize |
-| Response | ✅ | ❌ | Cannot serialize |
-| Headers | ✅ | ❌ | Cannot serialize |
-| URL | ✅ | ❌ | Cannot serialize |
-| ReadableStream | ❌ | ❌ | Not yet supported |
-| WritableStream | ❌ | ❌ | Not yet supported |
+| Type | DO Storage | Lumenize RPC | Cap'n Web | Notes |
+|------|------------|--------------|-----------|-------|
+| **Primitives** | | | | |
+| undefined | ✅ | ✅ | ✅ | |
+| null | ✅ | ✅ | ✅ | |
+| **Special Numbers** | | | | |
+| NaN | ✅ | ✅ | ❌ | Cap'n Web returns null |
+| Infinity | ✅ | ✅ | ❌ | Cap'n Web returns null |
+| -Infinity | ✅ | ✅ | ❌ | Cap'n Web returns null |
+| **Built-in Types** | | | | |
+| BigInt | ✅ | ✅ | ✅ | |
+| Date | ✅ | ✅ | ✅ | |
+| RegExp | ✅ | ✅ | ❌ | |
+| Map | ✅ | ✅ | ❌ | |
+| Set | ✅ | ✅ | ❌ | |
+| ArrayBuffer | ✅ | ✅ | ❌ | |
+| TypedArray | ✅ | ✅ | ✅ | |
+| **Errors** | | | | |
+| Error (thrown) | N/A | ✅ | ⚠️ | Cap'n Web lose name and remote stack |
+| Error (value) | ⚠️ | ✅ | ⚠️ | Cap'n Web lose name and remote stack |
+| **Circular References** | ✅ | ✅ | ❌ | Cap'n Web throws error |
+| **Web API Types** | | | | |
+| Request | ❌ | ✅ | ❌ | |
+| Response | ❌ | ✅ | ❌ | |
+| Headers | ✅ | ✅ | ❌ | |
+| URL | ❌ | ✅ | ❌ | |
+| ReadableStream | ❌ | ❌ | ❌ | |
+| WritableStream | ❌ | ❌ | ❌ | |
+
+**Key insight**: Lumenize RPC supports more types than both Cap'n Web AND 
+Cloudflare's own DO Storage. This is because Lumenize RPC uses a custom 
+serialization layer for Web API types that Cap'n Web and structured clone don't 
+support.
 
 For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize-systems/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 */
