@@ -178,7 +178,7 @@ a significant foot-gun. If that improves over time, we'll update this table.
 | Map | ✅ | ✅ | ❌ | |
 | Set | ✅ | ✅ | ❌ | |
 | ArrayBuffer | ✅ | ✅ | ❌ | |
-| TypedArray | ✅ | ✅ | ✅ | |
+| Uint8Array | ✅ | ✅ | ✅ | |
 | **Errors** | | | | |
 | Error (thrown) | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
 | Error (value) | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
@@ -188,14 +188,23 @@ a significant foot-gun. If that improves over time, we'll update this table.
 | Response | ❌ | ✅ | ❌ | |
 | Headers | ✅ | ✅ | ❌ | |
 | URL | ❌ | ✅ | ❌ | |
-| ReadableStream | ❌ | ❌ | ❌ | |
-| WritableStream | ❌ | ❌ | ❌ | |
+| ReadableStream | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
+| WritableStream | ❌ | ❌ | ❌ | Lumenize: Just use WebSockets |
 
 For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 */
 
 /*
 ## Error handling (thrown)
+
+A significant DX concern is getting useful information in thrown Errors.
+
+Lumenize RPC doesn't reconstitue custom Error types over the wire
+but it automatially sets the name property the identifier for the ErrorType
+and it sends the server-side and stack trace for use on the other side of the wire.
+
+Cap'n Web does preserve the server-side message, but the name is lost
+and the stack trace is that for the Cap'n Web internals on the client-side.
 
 **Lumenize RPC**: ✅ Preserves name, message, and remote stack trace  
 **Cap'n Web**: ⚠️ Preserves message only, loses name and remote stack
@@ -308,10 +317,16 @@ it('demonstrates circular references', async () => {
 The main use case for this capability is to facilitate offloading external HTTP
 fetches from a Durable Object (where you are billed on wall clock time) to a
 Worker where you are billed on CPU time. We have on our to-do list to release
-`@lumenize/ 
+`@lumenize/proxy-fetch` which is a package that implements this offloading.
+
+This use-case is one of the most common sources of repeated questions on the
+#durable-objects Discord channel.
 
 **Lumenize RPC**: ✅ Web API types work including body content  
 **Cap'n Web**: ❌ Cannot serialize any Web API types
+
+Note, neither implementation supports returning an event-stream (aka SSE)
+in a Response. If I read the docs correctly, 
 */
 it('demonstrates Web API Request support', async () => {
   const testRequest = new Request('https://example.com/test', {
