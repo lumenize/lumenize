@@ -13,10 +13,10 @@
 /*
 # vs Cap'n Web (basics and types)
 
-This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's 
-official last mile RPC solution) on basic usage and the types they each support.
+This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's
+official "last-mile" RPC solution) handle basic usage and the types each supports.
 
-It was produced using the latest versions of each as of 2025-10-22:
+It was produced using the latest versions as of 2025-10-22:
 - Cap'n Web v0.1.0
 - Lumenize RPC v0.10.0
 
@@ -263,6 +263,7 @@ it('demonstrates error as value', async () => {
   // Cap'n Web
   // ==========================================================================
   using capnwebClient = getCapnWebClient('error-value');
+  // @ts-check
   const capnwebResult = await capnwebClient.echo(testError);
   expect(capnwebResult.message).toBe('Test error'); // ✅
   expect(capnwebResult).toBeInstanceOf(Error); // ✅
