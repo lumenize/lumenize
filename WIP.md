@@ -567,7 +567,6 @@ export function createProxyFetch(queue: Queue, config: ProxyFetchConfig): typeof
 - [ ] Make changes to docs to document promise pipelining. Right now it's in quirks, but pull it out to its own thing.
 - [ ] Make websocket-shim throw when passed in http[s] urls like the real browser. This requires changing a lot of tests especially the matrix tests that run the same test but just varying transport.
 - [ ] Consider forking @ungap/structured-clone to claim no dependencies
-- [ ] Think about how we might recreate the inspect messages functionality we had in @lumenize/testing
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud (or whatever it's called now. It was previously SonarCloud, I think) account over to the lumenize repo
 - [ ] We need much more security info on the website. Maybe an entire .mdx. Here is the completely inadequate warning we had in the README before we thinned it down. 

@@ -10,7 +10,7 @@ image: ./images/cover.png
 {/* 
 TODO: Add type support comparison table showing:
 - Lumenize RPC: ✅ for Date, RegExp, Map, Set, ArrayBuffer, TypedArray, BigInt, Error (with name/stack), Request/Response/Headers/URL, Infinity/-Infinity/NaN
-- Cap'n Web: ❌ for most of these (limited to JSON-like types)
+- Cap'n Web: ❌ for most of these
 - Note: ReadableStream/WritableStream don't work in either system (not serializable via structured-clone)
   - This affects Request/Response objects with streaming bodies
   - Both systems must consume streams before serialization
@@ -39,7 +39,7 @@ Both systems use “magic” (Proxies, promise pipelining, etc.) to make RPC fee
 
 Cap'n Web seems to most value doing more with a single round trip — its `map()` operator is a perfect example.
 
-On the other hand, Lumenize RPC most values making it feel like you are working locally. Rethrowing errors on the calling side complete with the original stack trace is a great example. Support for accessing `this.ctx` and `this.env` is another. [TODO: need to confirm that Cap'n Web doesn't allow this. If it does allow this, keep this note, but shift the conversation around extensive examples of doing this in the Lumenize docs and none in the Cap'n Web docs].
+On the other hand, Lumenize RPC most values making it feel like you are working locally. Rethrowing errors on the calling side complete with the original stack trace is a great example. Support for accessing `this.ctx` and `this.env` is another.
 
 The Cap'n Web concept of a session with state maintained on both sides is a more subtle distinction here. To avoid the risk of dangling resources or the complexity of manually needing to clean that up (See , Lumenize RPC would simply make another round trip.
 
@@ -65,7 +65,7 @@ Cap'n Web recommends in-band authentication that returns an authenticated API (o
 ## Promise pipelining and `.map()`
 
 - Both systems support promise pipelining to minimize round trips; we’ll confirm Lumenize’s chaining behavior under various transports.
-- Cap'n Web’s special `.map()` records a transformation and replays it server-side to avoid extra trips. If you control the server API, an equivalent “compose it server-side” method often achieves the same with less complexity; `.map()` shines more when you can’t extend the server API.
+- Cap'n Web’s "magic `.map()` method" records a transformation and replays it server-side to avoid extra trips. If you control the server API, an equivalent “compose it server-side” method often achieves the same with less complexity; `.map()` shines more when you don't have the ability or desire to change the server side.
 
 <details>
 <summary><strong>Performance details (expand)</strong></summary>
@@ -263,12 +263,11 @@ Use Cap'n Web when:
 
 We’re validating a few details before flipping this post to public:
 
-- Promise pipelining behavior in Lumenize RPC: does chained usage add round trips?
 - Capability-based security patterns and how they map to Lumenize
 - MessagePort mode differences and applicability
 - Connection break handling and stub lifecycle trade-offs
 - Authentication pattern parity (in-band auth returning authenticated API)
-- Runtime validation approach (TypeBox Value vs Zod)
+- Runtime validation approach (TypeBox Value vs roll your own with Zod)
 
 Planned artifacts for this post:
 - Network latency chart (./images/network-latency-chart.png)
