@@ -118,6 +118,13 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
           }
         },
+        {
+          type: 'doc',
+          id: 'rpc/capn-web-comparison',
+          customProps: {
+            docTest: 'doc-test/rpc/capn-web-comparison/test/feature-comparison.test.ts'
+          }
+        },
         ...(typedocRpcSidebar && typedocRpcSidebar.length > 0
           ? [wrapInApiReference(typedocRpcSidebar, 'API Reference')]
           : []),

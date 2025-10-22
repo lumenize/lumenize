@@ -214,17 +214,17 @@ export interface RpcClientInternalConfig extends RpcClientConfig {
  */
 export interface RpcClientProxy {
   /**
-   * Automatic cleanup when using 'await using' syntax.
-   * Disconnects and cleans up transport resources automatically when the client goes out of scope.
+   * Automatic cleanup when using 'using' syntax.
+   * Disconnects WebSocket synchronously (ws.close() is synchronous).
    * 
    * @example
    * ```typescript
-   * await using client = createRpcClient<MyDO>('MY_DO', 'instance-name');
+   * using client = createRpcClient<MyDO>('MY_DO', 'instance-name');
    * // Use client here - auto-connects on first method call
    * // disconnect() called automatically at end of scope
    * ```
    */
-  [Symbol.asyncDispose](): Promise<void>;
+  [Symbol.dispose](): void;
 
   /**
    * Returns a plain object representation of the proxied object with functions
@@ -259,7 +259,7 @@ export interface RpcTransport {
   
   // Optional lifecycle methods for stateful transports (e.g., WebSocket)
   connect?(): Promise<void>;
-  disconnect?(): Promise<void>;
+  disconnect?(): void;
   isConnected?(): boolean;
 }
 

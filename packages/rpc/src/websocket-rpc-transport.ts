@@ -297,9 +297,9 @@ export class WebSocketRpcTransport implements RpcTransport {
   }
 
   /**
-   * Disconnect WebSocket and clean up
+   * Disconnect WebSocket and clean up (synchronous)
    */
-  async disconnect(): Promise<void> {
+  disconnect(): void {
     if (!this.#ws) {
       return;
     }
@@ -309,6 +309,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     this.#ws = null;
 
     // Close connection (if not already closing/closed)
+    // Note: ws.close() is synchronous - just sends close frame
     if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
       ws.close(1000, 'Normal closure');
     }

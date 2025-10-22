@@ -448,7 +448,7 @@ it('shows RPC working with StructuredClone types', async () => {
 
   // Map (and all StructuredClone types) works with storage
   const testMap = new Map<string, any>([['key1', 'value1'], ['key2', 42]]);
-  client.ctx.storage.kv.put('testMap', testMap);
+  await client.ctx.storage.kv.put('testMap', testMap);
   const retrievedMap = await client.ctx.storage.kv.get('testMap');
   expect(retrievedMap).toEqual(testMap);
   

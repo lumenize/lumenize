@@ -1,10 +1,10 @@
 ---
 title: "Lumenize RPC vs Cap'n Web"
-description: "Performance difference is <1% on latency for typical networks, so the decision is more about what features and design philosophy are a better fit for your situation."
+description: "Performance difference is &lt;1% on latency for typical networks, so the decision is more about what features and design philosophy are a better fit for your situation."
 slug: lumenize-rpc-vs-capn-web
 tags: [rpc]
 draft: true
-image: ./images/cover.png
+image: ./cover.png
 ---
 
 {/* 
@@ -24,7 +24,7 @@ import TOCInline from '@theme/TOCInline';
 
 ## Summary
 
-Bottom line: Lumenize RPC is highly competitive with Cap'n Web (Cloudflare's official solution). On real-world networks (100+ Mbps), the ~0.142ms local overhead becomes <1% of total latency.
+Bottom line: Lumenize RPC is highly competitive with Cap'n Web (Cloudflare's official solution). On real-world networks (100+ Mbps), the ~0.142ms local overhead becomes &lt;1% of total latency.
 
 The remaining gap stems from protocol features that buy you developer experience and debuggability: full StructuredClone support (Map, Set, Date, RegExp, typed arrays), Error.stack preservation, and circular references. Our `routeDORequest` helper adds no measurable overhead.
 
@@ -104,9 +104,9 @@ Payloads are small (~350 bytes per op), so transfer time is negligible. Network 
 | Slow | 10 Mbps | 50ms | 100.80ms | 100.66ms | 0.14ms | 0.1% |
 
 Implications:
-- The 0.14ms local gap is ~<1% on typical networks
+- The 0.14ms local gap is ~&lt;1% on typical networks
 - Serialization is not a bottleneck (≈5% of processing time)
-- Optimizing cbor-x or similar nets <0.5% improvement — not worth it
+- Optimizing cbor-x or similar nets &lt;0.5% improvement — not worth it
 - Focus on connection pooling (saves 10–50ms), not micro-optimizations
 
 ### Optimization strategy

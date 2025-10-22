@@ -11,7 +11,7 @@
 // - See: /tooling/doc-testing/README.md
 
 /*
-# Feature Comparison: Lumenize RPC vs Cap'n Web
+# vs Cap'n Web
 
 This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's 
 official RPC solution) handle various features and patterns. Many sections
@@ -37,9 +37,14 @@ import { newWebSocketRpcSession } from 'capnweb';
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 
 // =============================================================================
-// Create clients - similar amount of boilerplate
+// Create clients - Similar amount of boilerplate
 // =============================================================================
 
+// Most of this is for vitest-workers-pool. In production, this would be as 
+// simple as:
+// ```ts
+// const client = createRpcClient<typeof LumenizeDO>('LUMENIZE', 'name');
+// ```
 function getLumenizeClient(instanceName: string) {
   return createRpcClient<typeof LumenizeDO>(
     'LUMENIZE',
@@ -48,6 +53,12 @@ function getLumenizeClient(instanceName: string) {
   );
 }
 
+// Similarly, some of this is for vitest-workers-pool. In production, this 
+// would be as simple as:
+// ```ts
+// const url = `wss://test.com/capnweb/capnweb/name`;
+// const client = newWebSocketRpcSession<CapnWebRpcTarget>(url);
+// ```
 function getCapnWebClient(instanceName: string) {
   const url = `wss://test.com/capnweb/capnweb/${instanceName}`;
   const ws = new (getWebSocketShim(SELF.fetch.bind(SELF)))(url);
@@ -57,19 +68,76 @@ function getCapnWebClient(instanceName: string) {
 /*
 ## Feature: Simple method call
 
-Both have a similar amount of boilerplate for a simple method call
+They have near identical amount of boilerplate for a simple method call
 */
 it('demonstrates a simple method call', async () => {
   // ==========================================================================
   // Lumenize RPC
   // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('method-call');
+  using lumenizeClient = getLumenizeClient('method-call');
   expect(await lumenizeClient.increment()).toBe(1);
 
   // ==========================================================================
   // Cap'n Web
   // ==========================================================================
-  await using capnwebClient = getCapnWebClient('method-call');
+  using capnwebClient = getCapnWebClient('method-call');
+  expect(await capnwebClient.increment()).toBe(1);
+});
+
+/*
+## Feature: RPC Client Access to `ctx` and `env`
+
+**Lumenize RPC**:
+- ✅ **Full client access**: `client.ctx.storage.kv.put('key', 'value')`
+- ✅ **Full client access to env**: `client.env.SOME_BINDING.getByName()`
+- ✅ No custom methods needed for storage/state access
+
+**Cap'n Web**:
+- ❌ **No client access to `ctx`** - Must write custom methods
+- ❌ **No client access to `env`** - Must write custom methods
+- ⚠️ Every storage operation requires a custom DO method
+*/
+it('demonstrates RPC client access to ctx and env', async () => {
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('ctx-access');
+
+  // ✅ Lumenize RPC: Direct client access to ctx.storage!
+  await lumenizeClient.ctx.storage.put('direct-key', 'direct-value');
+  const directValue = await lumenizeClient.ctx.storage.get('direct-key');
+  expect(directValue).toBe('direct-value');
+  
+  // ✅ Access to env and hopping to another instance
+  const anotherInstance = await lumenizeClient.env.LUMENIZE.getByName(
+    'another-instance'
+  );
+  expect(anotherInstance.name).toBe('another-instance');
+  
+  // ✅ You can still call custom methods if you want
+  expect(await lumenizeClient.increment()).toBe(1);
+
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('ctx-access');
+
+  // ❌ Trying to use ctx.storage will fail
+  const capnCtx: any = capnwebClient.ctx;
+  await expect(async () => {
+    await capnCtx.storage.put('direct-key', 'direct-value');
+    const directValue = await capnCtx.storage.get('direct-key');
+    expect(directValue).toBe('direct-value');
+  }).rejects.toThrow();
+
+  // ❌ Trying to use env will also fail
+  const capnEnv = (capnwebClient as any).env;
+  await expect(async () => {
+    const anotherInstance = await capnEnv.CAPNWEB.getByName('another-instance');
+    expect(anotherInstance.name).toBe('another-instance');
+  }).rejects.toThrow();
+  
+  // You MUST write a custom method like increment() to access storage
   expect(await capnwebClient.increment()).toBe(1);
 });
 
@@ -113,7 +181,7 @@ framework extends it.
 (SQLite engine) supports and a few more. Cap'n Web's limited type support is
 a significant foot-gun. If that improves over time, we'll update this table.
 
-For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize-systems/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
+For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 */
 
 /*
@@ -123,8 +191,10 @@ For comprehensive type support testing, see the [behavior test suite](https://gi
 **Cap'n Web**: Preserves message only, loses name and remote stack
 */
 it('demonstrates error throwing', async () => {
-  // Lumenize RPC - full error context preserved
-  await using lumenizeClient = getLumenizeClient('error-throw');
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('error-throw');
   try {
     await lumenizeClient.throwError();
     expect.fail('should not reach');
@@ -133,8 +203,10 @@ it('demonstrates error throwing', async () => {
     expect(e.stack).toContain('throwError'); // Actual remote stack
   }
 
-  // Cap'n Web - only message preserved
-  await using capnwebClient = getCapnWebClient('error-throw');
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('error-throw');
   try {
     await capnwebClient.throwError();
     expect.fail('should not reach');
@@ -155,8 +227,10 @@ it('demonstrates error as value', async () => {
   class CustomError extends Error {}
   const testError = new CustomError('Test error');
 
-  // Lumenize RPC - full Error preservation
-  await using lumenizeClient = getLumenizeClient('error-value');
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('error-value');
   const lumenizeResult = await lumenizeClient.echo(testError);
   expect(lumenizeResult.message).toBe('Test error');
   expect(lumenizeResult).toBeInstanceOf(Error);
@@ -167,8 +241,10 @@ it('demonstrates error as value', async () => {
   // Original stack preserved
   expect(lumenizeResult.stack).toContain('feature-comparison.test.ts');
 
-  // Cap'n Web - Loses error type and original stack
-  await using capnwebClient = getCapnWebClient('error-value');
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('error-value');
   const capnwebResult = await capnwebClient.echo(testError);
   expect(capnwebResult.message).toBe('Test error');
   expect(capnwebResult).toBeInstanceOf(Error);
@@ -186,14 +262,18 @@ it('demonstrates circular references', async () => {
   const circular: any = { name: 'root' };
   circular.self = circular;
 
-  // Lumenize RPC - handles circular references
-  await using lumenizeClient = getLumenizeClient('circular');
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('circular');
   const lumenizeResult = await lumenizeClient.echo(circular);
   expect(lumenizeResult.name).toBe('root');
   expect(lumenizeResult.self).toBe(lumenizeResult);
 
-  // Cap'n Web - throws on circular references
-  await using capnwebClient = getCapnWebClient('circular');
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('circular');
   let capnwebThrew = false;
   try {
     await capnwebClient.echo(circular);
@@ -223,8 +303,10 @@ it('demonstrates Web API Request support', async () => {
     }
   });
 
-  // Lumenize RPC - Request fully preserved
-  await using lumenizeClient = getLumenizeClient('request');
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('request');
   const lumenizeResult = await lumenizeClient.echo(testRequest);
   expect(lumenizeResult).toBeInstanceOf(Request);
   expect(lumenizeResult.url).toBe('https://example.com/test');
@@ -235,8 +317,10 @@ it('demonstrates Web API Request support', async () => {
     await lumenizeClient.echo(stream);
   }).rejects.toThrow();
 
-  // Cap'n Web - cannot serialize Request
-  await using capnwebClient = getCapnWebClient('request');
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('request');
   let capnwebThrew = false;
   try {
     await capnwebClient.echo(testRequest);
@@ -258,11 +342,12 @@ it('demonstrates Web API Request support', async () => {
 **Cap'n Web**: Special numbers (NaN, Infinity, -Infinity) become null
 */
 it('demonstrates standard type support', async () => {
-  await using lumenizeClient = getLumenizeClient('types');
-  await using capnwebClient = getCapnWebClient('types');
   const bigInt = 12345678901234567890n;
 
-  // Lumenize RPC - all types work
+  // ==========================================================================
+  // Lumenize RPC
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('types');
   expect(await lumenizeClient.echo(undefined)).toBeUndefined();
   expect(await lumenizeClient.echo(null)).toBeNull();
   expect(Number.isNaN(await lumenizeClient.echo(NaN))).toBe(true);
@@ -270,70 +355,16 @@ it('demonstrates standard type support', async () => {
   expect(await lumenizeClient.echo(-Infinity)).toBe(-Infinity);
   expect(await lumenizeClient.echo(bigInt)).toBe(bigInt);
 
-  // Cap'n Web - special numbers become null
+  // ==========================================================================
+  // Cap'n Web
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('types');
   expect(await capnwebClient.echo(undefined)).toBeUndefined();
   expect(await capnwebClient.echo(null)).toBeNull();
   expect(Number.isNaN(await capnwebClient.echo(NaN))).toBe(false);
   expect(await capnwebClient.echo(Infinity)).not.toBe(Infinity);
   expect(await capnwebClient.echo(-Infinity)).not.toBe(-Infinity);
   expect(await capnwebClient.echo(bigInt)).toBe(bigInt);
-});
-
-/*
-## Feature: RPC Client Access to `ctx` and `env`
-
-**Lumenize RPC**:
-- ✅ **Full client access**: `client.ctx.storage.kv.put('key', 'value')`
-- ✅ **Full client access to env**: `client.env.SOME_BINDING.getByName()`
-- ✅ No custom methods needed for storage/state access
-
-**Cap'n Web**:
-- ❌ **No client access to `ctx`** - Must write custom methods
-- ❌ **No client access to `env`** - Must write custom methods
-- ⚠️ Every storage operation requires a custom DO method
-*/
-it('demonstrates RPC client access to ctx and env', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('ctx-access');
-
-  // ✅ Lumenize RPC: Direct client access to ctx.storage!
-  await lumenizeClient.ctx.storage.put('direct-key', 'direct-value');
-  const directValue = await lumenizeClient.ctx.storage.get('direct-key');
-  expect(directValue).toBe('direct-value');
-  
-  // ✅ Access to env and hopping to another instance
-  const anotherInstance = await lumenizeClient.env.LUMENIZE.getByName(
-    'another-instance'
-  );
-  expect(anotherInstance.name).toBe('another-instance');
-  
-  // ✅ You can still call custom methods if you want
-  expect(await lumenizeClient.increment()).toBe(1);
-
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
-  await using capnwebClient = getCapnWebClient('ctx-access');
-
-  // ❌ Trying to use ctx.storage will fail
-  const capnCtx: any = capnwebClient.ctx;
-  await expect(async () => {
-    await capnCtx.storage.put('direct-key', 'direct-value');
-    const directValue = await capnCtx.storage.get('direct-key');
-    expect(directValue).toBe('direct-value');
-  }).rejects.toThrow();
-
-  // ❌ Trying to use env will also fail
-  const capnEnv = (capnwebClient as any).env;
-  await expect(async () => {
-    const anotherInstance = await capnEnv.CAPNWEB.getByName('another-instance');
-    expect(anotherInstance.name).toBe('another-instance');
-  }).rejects.toThrow();
-  
-  // You MUST write a custom method like increment() to access storage
-  expect(await capnwebClient.increment()).toBe(1);
 });
 
 /*
@@ -363,10 +394,6 @@ Worker, DurableObjects and RpcTargets
 ### vitest.config.js
 
 @import {javascript} "../vitest.config.js" [vitest.config.js]
-
-### tsconfig.json
-
-@import {json} "../tsconfig.json" [tsconfig.json]
 
 ## Try it out
 

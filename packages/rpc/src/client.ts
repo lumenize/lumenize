@@ -212,15 +212,15 @@ export class RpcClient<T> {
     }
   }
 
-  // Internal method to disconnect (called by Symbol.asyncDispose)
-  async #disconnect(): Promise<void> {
+  // Internal method to disconnect (synchronous - ws.close() is sync)
+  #disconnect(): void {
     if (!this.#transport) {
       return; // No transport to disconnect
     }
 
     // Call transport's disconnect() if it exists (for stateful transports like WebSocket)
     if (this.#transport.disconnect) {
-      await this.#transport.disconnect();
+      this.#transport.disconnect();
     }
 
     // Clean up transport
@@ -229,16 +229,8 @@ export class RpcClient<T> {
 
   // Explicit resource management (Symbol.dispose)
   // Enables: using client = createRpcClient(...);
-  async [Symbol.asyncDispose](): Promise<void> {
-    await this.#disconnect();
-  }
-
-  // Synchronous dispose (calls async version)
-  // For environments that only support Symbol.dispose
   [Symbol.dispose](): void {
-    // Schedule async disconnect but don't wait
-    // Note: This is not ideal but required for sync dispose
-    void this.#disconnect();
+    this.#disconnect();
   }
 
   // Internal method to execute operations (called by ProxyHandler)
