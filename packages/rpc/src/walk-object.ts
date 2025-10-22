@@ -1,9 +1,36 @@
 /**
+ * Types that are handled natively by structured-clone and should not be recursed into.
+ * These types can be passed through structured-clone as-is without custom serialization.
+ * 
+ * Note: Web API types like Request, Response, Headers, and URL are NOT in this list
+ * because they require custom serialization before structured-clone.
+ */
+function isStructuredCloneNativeType(value: any): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  
+  return (
+    value instanceof Date ||
+    value instanceof RegExp ||
+    value instanceof Map ||
+    value instanceof Set ||
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value) || // TypedArrays (Uint8Array, etc.)
+    value instanceof Error
+  );
+}
+
+/**
  * Higher-order function for walking object graphs with circular reference handling
  * and prototype chain traversal.
  * 
  * This utility handles the mechanical work of traversing objects while letting
  * the transformer callback decide what transformations to apply.
+ * 
+ * IMPORTANT: This function will NOT recurse into built-in types that are handled
+ * natively by structured-clone (Date, Map, Set, etc.). The transformer is still
+ * called for these types, but if it returns them unchanged, they won't be walked.
  * 
  * @param obj - The object to walk
  * @param transformer - Callback that transforms each value. Receives (value, key, parent).
@@ -51,7 +78,8 @@ export async function walkObject(
       const transformedItem = await transformer(item, index, obj);
       
       // If transformer didn't change the item, recursively walk it
-      if (transformedItem === item && typeof item === 'object' && item !== null) {
+      // BUT: Don't recurse into built-in types that structured-clone handles natively
+      if (transformedItem === item && typeof item === 'object' && item !== null && !isStructuredCloneNativeType(item)) {
         processedArray[index] = await walkObject(item, transformer, seen);
       } else {
         processedArray[index] = transformedItem;
@@ -72,7 +100,8 @@ export async function walkObject(
     const transformedValue = await transformer(value, key, obj);
     
     // If transformer didn't change the value, recursively walk it
-    if (transformedValue === value && typeof value === 'object' && value !== null) {
+    // BUT: Don't recurse into built-in types that structured-clone handles natively
+    if (transformedValue === value && typeof value === 'object' && value !== null && !isStructuredCloneNativeType(value)) {
       processedObject[key] = await walkObject(value, transformer, seen);
     } else {
       processedObject[key] = transformedValue;

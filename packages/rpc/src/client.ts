@@ -71,6 +71,7 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
           return await serializeWebApiObject(value);
         }
         // Everything else passes through unchanged
+        // (built-in types like Date, Map, Set are handled by walkObject's isStructuredCloneNativeType check)
         return value;
       };
       

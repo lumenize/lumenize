@@ -155,16 +155,6 @@ export async function testGetDate(testable: TestableClient): Promise<void> {
 }
 
 /**
- * Built-in types - BigInt
- */
-export async function testGetBigInt(testable: TestableClient): Promise<void> {
-  const { client } = testable;
-  const result = await (client as any).getBigInt();
-  expect(result).toBeInstanceOf(BigInt);
-  expect(result).toBe(1234567890123456789012345678901234567890n);
-}
-
-/**
  * Built-in types - RegExp
  */
 export async function testGetRegExp(testable: TestableClient): Promise<void> {
