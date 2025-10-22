@@ -120,9 +120,9 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'rpc/capn-web-comparison',
+          id: 'rpc/capn-web-comparison-basics-and-types',
           customProps: {
-            docTest: 'doc-test/rpc/capn-web-comparison/test/feature-comparison.test.ts'
+            docTest: 'doc-test/rpc/capn-web-comparison-basics-and-types/test/basics-and-types.test.ts'
           }
         },
         ...(typedocRpcSidebar && typedocRpcSidebar.length > 0

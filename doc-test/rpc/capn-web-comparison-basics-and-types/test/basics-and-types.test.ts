@@ -259,7 +259,7 @@ it('demonstrates error as value', async () => {
   // ✅ But name is automatically set and preserved
   expect(lumenizeResult.name).toBe('CustomError');
   // ✅ Original stack preserved
-  expect(lumenizeResult.stack).toContain('feature-comparison.test.ts');
+  expect(lumenizeResult.stack).toContain('basics-and-types.test.ts');
 
   // ==========================================================================
   // Cap'n Web

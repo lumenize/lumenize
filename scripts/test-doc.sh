@@ -12,7 +12,7 @@ DOC_TEST_DIRS=(
   "doc-test/testing/testing-plain-do"
   "doc-test/testing/testing-agent-with-agent-client"
   "doc-test/rpc/quick-start"
-  "doc-test/rpc/capn-web-comparison"
+  "doc-test/rpc/capn-web-comparison-basics-and-types"
 )
 
 for doc_test in "${DOC_TEST_DIRS[@]}"; do
