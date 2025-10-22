@@ -7,7 +7,7 @@ import type {
   RemoteFunctionMarker
 } from './types';
 import { serializeError } from './error-serialization';
-import { serializeWebApiObject } from './web-api-serialization';
+import { serializeWebApiObject, deserializeWebApiObject } from './web-api-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 import { walkObject } from './walk-object';
 
@@ -161,11 +161,14 @@ async function dispatchCall(
     // Validate the operations chain
     const validatedOperations = validateOperationChain(operations, config);
     
+    // Process incoming operations to deserialize Web API objects in args
+    const processedOperations = await processIncomingOperations(validatedOperations);
+    
     // Execute operation chain
-    const result = await executeOperationChain(validatedOperations, doInstance);
+    const result = await executeOperationChain(processedOperations, doInstance);
     
     // Replace functions with markers before serialization
-    const processedResult = await preprocessResult(result, validatedOperations);
+    const processedResult = await preprocessResult(result, processedOperations);
     
     return {
       success: true,
@@ -217,6 +220,47 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
     }
   }
   return parent;
+}
+
+/**
+ * Process incoming operations to deserialize Web API objects in arguments before execution.
+ * Walks the operation chain, finds 'apply' operations, and uses walkObject to
+ * deserialize any serialized Web API objects in the args.
+ */
+async function processIncomingOperations(operations: OperationChain): Promise<OperationChain> {
+  const processedOperations: OperationChain = [];
+  
+  for (const operation of operations) {
+    if (operation.type === 'apply' && operation.args.length > 0) {
+      // Use walkObject to deserialize Web API objects in the args
+      const transformer = async (value: any) => {
+        // Check if this is a serialized Web API object
+        if (value && typeof value === 'object' && (
+          value.__isSerializedRequest ||
+          value.__isSerializedResponse ||
+          value.__isSerializedHeaders ||
+          value.__isSerializedURL
+        )) {
+          return await deserializeWebApiObject(value);
+        }
+        // Everything else passes through unchanged
+        return value;
+      };
+      
+      // Walk the args array to find and deserialize Web API objects
+      const processedArgs = await walkObject(operation.args, transformer);
+      
+      processedOperations.push({
+        type: 'apply',
+        args: processedArgs
+      });
+    } else {
+      // 'get' operations pass through unchanged
+      processedOperations.push(operation);
+    }
+  }
+  
+  return processedOperations;
 }
 
 async function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): Promise<any> {
