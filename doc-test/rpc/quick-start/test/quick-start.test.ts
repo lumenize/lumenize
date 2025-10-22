@@ -27,7 +27,7 @@ import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
 import { Counter } from '../src/index';
 
 it('shows basic usage of Lumenize RPC', async () => {
-  await using client = createRpcClient<typeof Counter>(
+  using client = createRpcClient<typeof Counter>(
     'COUNTER', // or 'counter' if you want pretty URLs
     'test-counter',
     // Since we're doc-testing in a vitest-pool-worker env, we need to provide

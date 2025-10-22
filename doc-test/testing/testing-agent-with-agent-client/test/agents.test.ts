@@ -115,7 +115,7 @@ type AuthAgentType = RpcAccessible<InstanceType<typeof AuthAgent>>;
 
 it('shows testing two users in a chat', async () => {
   // Create RPC client with binding name and instance name
-  await using client = createTestingClient<ChatAgentType>('chat-agent', 'chat');
+  using client = createTestingClient<ChatAgentType>('chat-agent', 'chat');
 
   // Check initial value of instance variable lastMessage
   expect(await client.lastMessage).toBeNull();
@@ -280,7 +280,7 @@ Key testing patterns:
 */
 it('demonstrates advanced authentication with KV session storage', async () => {
   // Create RPC client for AuthAgent to access its internals
-  await using client = createTestingClient<AuthAgentType>('auth-agent', 'auth');
+  using client = createTestingClient<AuthAgentType>('auth-agent', 'auth');
 
   // Create a browser for making the login request
   const browser = new Browser();
