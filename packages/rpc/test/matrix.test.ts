@@ -206,6 +206,20 @@ MATRIX.forEach((matrixConfig) => {
       });
     });
 
+    describe('Web API Objects', () => {
+      testCategories.webApi.forEach((testName) => {
+        it(testName, async () => {
+          const instanceId = `matrix-${matrixConfig.doBindingName}-${testName}-${Date.now()}`;
+          const testable = createMatrixClient(matrixConfig, instanceId);
+          try {
+            await behaviorTests[testName as keyof typeof behaviorTests](testable);
+          } finally {
+            if (testable.cleanup) await testable.cleanup();
+          }
+        });
+      });
+    });
+
     describe('Concurrency', () => {
       it('should handle concurrent increment requests correctly', async () => {
         const instanceId = `matrix-${matrixConfig.doBindingName}-concurrent-increment-${Date.now()}`;

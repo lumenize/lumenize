@@ -270,3 +270,47 @@ describe('Web API Integration - WebSocket Transport', () => {
     expect(result.nested.deepRequest).toBeInstanceOf(Request);
   });
 });
+
+describe('Web API Integration - Echo Pattern (Client → Server → Client)', () => {
+  let client: any;
+  
+  afterEach(async () => {
+    if (client) {
+      await client[Symbol.asyncDispose]();
+      client = null;
+    }
+  });
+  
+  it('should round-trip Request objects as arguments via HTTP', async () => {
+    client = createTestClient('http', 'example-do');
+    
+    // Create a Request on the client
+    const originalRequest = new Request('https://example.com/api/test', {
+      method: 'POST',
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Custom-Header': 'test-value',
+      }),
+      body: JSON.stringify({ test: 'data' }),
+    });
+    
+    // Send it to the server and get it back
+    const echoedRequest = await client.echo(originalRequest);
+    
+    // Verify it's a proper Request instance
+    expect(echoedRequest).toBeInstanceOf(Request);
+    
+    // Verify basic properties match
+    expect(echoedRequest.method).toBe('POST');
+    expect(echoedRequest.url).toBe('https://example.com/api/test');
+    
+    // Verify headers are preserved
+    expect(echoedRequest.headers).toBeInstanceOf(Headers);
+    expect(echoedRequest.headers.get('Content-Type')).toBe('application/json');
+    expect(echoedRequest.headers.get('X-Custom-Header')).toBe('test-value');
+    
+    // Verify body is preserved
+    const body = await echoedRequest.text();
+    expect(body).toBe(JSON.stringify({ test: 'data' }));
+  });
+});

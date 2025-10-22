@@ -287,6 +287,202 @@ export async function testSlowIncrement(testable: TestableClient): Promise<void>
 }
 
 /**
+ * Web API - Echo Request object (client → server → client)
+ */
+export async function testEchoRequest(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a Request on the client
+  const originalRequest = new Request('https://example.com/api/test', {
+    method: 'POST',
+    headers: new Headers({
+      'Content-Type': 'application/json',
+      'X-Custom-Header': 'test-value',
+    }),
+    body: JSON.stringify({ test: 'data' }),
+  });
+  
+  // Send it to the server and get it back
+  const echoedRequest = await (client as any).echo(originalRequest);
+  
+  // Verify it's a proper Request instance
+  expect(echoedRequest).toBeInstanceOf(Request);
+  
+  // Verify basic properties match
+  expect(echoedRequest.method).toBe('POST');
+  expect(echoedRequest.url).toBe('https://example.com/api/test');
+  
+  // Verify headers are preserved
+  expect(echoedRequest.headers).toBeInstanceOf(Headers);
+  expect(echoedRequest.headers.get('Content-Type')).toBe('application/json');
+  expect(echoedRequest.headers.get('X-Custom-Header')).toBe('test-value');
+  
+  // Verify body is preserved
+  const body = await echoedRequest.text();
+  expect(body).toBe(JSON.stringify({ test: 'data' }));
+}
+
+/**
+ * Web API - Echo Response object (client → server → client)
+ */
+export async function testEchoResponse(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a Response on the client
+  const originalResponse = new Response(JSON.stringify({ success: true, data: 'test' }), {
+    status: 200,
+    statusText: 'OK',
+    headers: new Headers({
+      'Content-Type': 'application/json',
+      'X-Response-Id': '12345',
+    }),
+  });
+  
+  // Send it to the server and get it back
+  const echoedResponse = await (client as any).echo(originalResponse);
+  
+  // Verify it's a proper Response instance
+  expect(echoedResponse).toBeInstanceOf(Response);
+  
+  // Verify basic properties match
+  expect(echoedResponse.status).toBe(200);
+  expect(echoedResponse.statusText).toBe('OK');
+  expect(echoedResponse.ok).toBe(true);
+  
+  // Verify headers are preserved
+  expect(echoedResponse.headers).toBeInstanceOf(Headers);
+  expect(echoedResponse.headers.get('Content-Type')).toBe('application/json');
+  expect(echoedResponse.headers.get('X-Response-Id')).toBe('12345');
+  
+  // Verify body is preserved
+  const body = await echoedResponse.text();
+  expect(body).toBe(JSON.stringify({ success: true, data: 'test' }));
+}
+
+/**
+ * Web API - Echo Headers object (client → server → client)
+ */
+export async function testEchoHeaders(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create Headers on the client
+  const originalHeaders = new Headers();
+  originalHeaders.set('Authorization', 'Bearer token123');
+  originalHeaders.set('Accept', 'application/json');
+  originalHeaders.set('X-API-Key', 'secret-key');
+  
+  // Send it to the server and get it back
+  const echoedHeaders = await (client as any).echo(originalHeaders);
+  
+  // Verify it's a proper Headers instance
+  expect(echoedHeaders).toBeInstanceOf(Headers);
+  
+  // Verify headers are preserved
+  expect(echoedHeaders.get('Authorization')).toBe('Bearer token123');
+  expect(echoedHeaders.get('Accept')).toBe('application/json');
+  expect(echoedHeaders.get('X-API-Key')).toBe('secret-key');
+  
+  // Verify has() method works
+  expect(echoedHeaders.has('Authorization')).toBe(true);
+  expect(echoedHeaders.has('NonExistent')).toBe(false);
+  
+  // Verify headers can be iterated
+  const headerEntries = Array.from(echoedHeaders.entries());
+  expect(headerEntries.length).toBe(3);
+  expect(headerEntries).toContainEqual(['authorization', 'Bearer token123']);
+  expect(headerEntries).toContainEqual(['accept', 'application/json']);
+  expect(headerEntries).toContainEqual(['x-api-key', 'secret-key']);
+}
+
+/**
+ * Web API - Echo URL object (client → server → client)
+ */
+export async function testEchoURL(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a URL on the client
+  const originalURL = new URL('https://example.com/path?param1=value1&param2=value2#hash');
+  
+  // Send it to the server and get it back
+  const echoedURL = await (client as any).echo(originalURL);
+  
+  // Verify it's a proper URL instance
+  expect(echoedURL).toBeInstanceOf(URL);
+  
+  // Verify basic properties match
+  expect(echoedURL.href).toBe('https://example.com/path?param1=value1&param2=value2#hash');
+  expect(echoedURL.protocol).toBe('https:');
+  expect(echoedURL.hostname).toBe('example.com');
+  expect(echoedURL.pathname).toBe('/path');
+  expect(echoedURL.search).toBe('?param1=value1&param2=value2');
+  expect(echoedURL.hash).toBe('#hash');
+  
+  // Verify searchParams works
+  expect(echoedURL.searchParams.get('param1')).toBe('value1');
+  expect(echoedURL.searchParams.get('param2')).toBe('value2');
+  
+  // Verify toString() method
+  expect(echoedURL.toString()).toBe('https://example.com/path?param1=value1&param2=value2#hash');
+}
+
+/**
+ * Web API - Echo nested Web API objects (client → server → client)
+ */
+export async function testEchoNestedWebApi(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a complex object with nested Web API objects
+  const complexObject = {
+    request: new Request('https://example.com/test', { method: 'POST' }),
+    response: new Response('test body', { status: 200 }),
+    headers: new Headers({ 'X-Test': 'value' }),
+    url: new URL('https://example.com'),
+    nested: {
+      deepRequest: new Request('https://example.com/deep', { method: 'GET' }),
+      deepHeaders: new Headers({ 'X-Deep': 'nested' }),
+    },
+    array: [
+      new URL('https://url1.com'),
+      new URL('https://url2.com'),
+    ],
+  };
+  
+  // Send it to the server and get it back
+  const echoed = await (client as any).echo(complexObject);
+  
+  // Verify all Web API objects are properly reconstructed
+  expect(echoed.request).toBeInstanceOf(Request);
+  expect(echoed.request.url).toBe('https://example.com/test');
+  expect(echoed.request.method).toBe('POST');
+  
+  expect(echoed.response).toBeInstanceOf(Response);
+  expect(echoed.response.status).toBe(200);
+  const body = await echoed.response.text();
+  expect(body).toBe('test body');
+  
+  expect(echoed.headers).toBeInstanceOf(Headers);
+  expect(echoed.headers.get('X-Test')).toBe('value');
+  
+  expect(echoed.url).toBeInstanceOf(URL);
+  expect(echoed.url.href).toBe('https://example.com/');
+  
+  // Verify nested Web API objects
+  expect(echoed.nested.deepRequest).toBeInstanceOf(Request);
+  expect(echoed.nested.deepRequest.url).toBe('https://example.com/deep');
+  expect(echoed.nested.deepRequest.method).toBe('GET');
+  
+  expect(echoed.nested.deepHeaders).toBeInstanceOf(Headers);
+  expect(echoed.nested.deepHeaders.get('X-Deep')).toBe('nested');
+  
+  // Verify array of Web API objects
+  expect(Array.isArray(echoed.array)).toBe(true);
+  expect(echoed.array[0]).toBeInstanceOf(URL);
+  expect(echoed.array[0].href).toBe('https://url1.com/');
+  expect(echoed.array[1]).toBeInstanceOf(URL);
+  expect(echoed.array[1].href).toBe('https://url2.com/');
+}
+
+/**
  * All behavior tests in a registry for easy iteration
  */
 export const behaviorTests = {
@@ -310,6 +506,11 @@ export const behaviorTests = {
   echoCircularReference: testEchoCircularReference,
   asObject: testAsObject,
   slowIncrement: testSlowIncrement,
+  echoRequest: testEchoRequest,
+  echoResponse: testEchoResponse,
+  echoHeaders: testEchoHeaders,
+  echoURL: testEchoURL,
+  echoNestedWebApi: testEchoNestedWebApi,
 };
 
 /**
@@ -325,4 +526,5 @@ export const testCategories = {
   circularRefs: ['echoCircularReference'],
   inspection: ['asObject'],
   async: ['slowIncrement'],
+  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi'],
 };
