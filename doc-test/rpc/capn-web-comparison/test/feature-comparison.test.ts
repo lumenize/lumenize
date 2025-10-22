@@ -11,7 +11,7 @@
 // - See: /tooling/doc-testing/README.md
 
 /*
-# vs Cap'n Web
+# vs Cap'n Web (features)
 
 This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's 
 official RPC solution) handle various features and patterns. Many sections
@@ -66,7 +66,7 @@ function getCapnWebClient(instanceName: string) {
 }
 
 /*
-## Feature: Simple method call
+## Simple method call
 
 They have near identical amount of boilerplate for a simple method call
 */
@@ -85,7 +85,7 @@ it('demonstrates a simple method call', async () => {
 });
 
 /*
-## Feature: RPC Client Access to `ctx` and `env`
+## RPC Client Access to `ctx` and `env`
 
 **Lumenize RPC**:
 - ✅ **Full client access**: `client.ctx.storage.kv.put('key', 'value')`
@@ -137,7 +137,7 @@ it('demonstrates RPC client access to ctx and env', async () => {
     expect(anotherInstance.name).toBe('another-instance');
   }).rejects.toThrow();
   
-  // You MUST write a custom method like increment() to access storage
+  // ⚠️ You MUST write a custom method like increment() to access storage
   expect(await capnwebClient.increment()).toBe(1);
 });
 
@@ -185,10 +185,10 @@ For comprehensive type support testing, see the [behavior test suite](https://gi
 */
 
 /*
-## Feature: Error handling (thrown)
+## Error handling (thrown)
 
-**Lumenize RPC**: Preserves name, message, and remote stack trace  
-**Cap'n Web**: Preserves message only, loses name and remote stack
+**Lumenize RPC**: ✅ Preserves name, message, and remote stack trace  
+**Cap'n Web**: ⚠️ Preserves message only, loses name and remote stack
 */
 it('demonstrates error throwing', async () => {
   // ==========================================================================
@@ -199,8 +199,8 @@ it('demonstrates error throwing', async () => {
     await lumenizeClient.throwError();
     expect.fail('should not reach');
   } catch (e: any) {
-    expect(e.message).toContain('Intentional error');
-    expect(e.stack).toContain('throwError'); // Actual remote stack
+    expect(e.message).toContain('Intentional error'); // ✅
+    expect(e.stack).toContain('throwError'); // ✅ Actual remote stack
   }
 
   // ==========================================================================
@@ -211,17 +211,17 @@ it('demonstrates error throwing', async () => {
     await capnwebClient.throwError();
     expect.fail('should not reach');
   } catch (e: any) {
-    expect(e.message).toContain('Intentional error');
-    expect(e.stack).not.toContain('throwError'); // Local RPC internals
+    expect(e.message).toContain('Intentional error'); // ✅
+    expect(e.stack).not.toContain('throwError'); // ❌ Local RPC internals
   }
 });
 
 /*
-## Feature: Error as value
+## Error as value
 
-**Lumenize RPC**: Error type (name), message, and stack all preserved  
-**Cap'n Web**: Loses error type (name), stack shows RPC internals not origin
-**Both**: Loses prototype, but name can be used as a substitue for Lumenize
+**Lumenize RPC**: ✅ Error type (name), message, and stack all preserved  
+**Cap'n Web**: ❌ Loses error type (name), stack shows RPC internals not origin  
+**Both**: ⚠️ Loses prototype, but name can be used as a substitute for Lumenize
 */
 it('demonstrates error as value', async () => {
   class CustomError extends Error {}
@@ -232,13 +232,12 @@ it('demonstrates error as value', async () => {
   // ==========================================================================
   using lumenizeClient = getLumenizeClient('error-value');
   const lumenizeResult = await lumenizeClient.echo(testError);
-  expect(lumenizeResult.message).toBe('Test error');
-  expect(lumenizeResult).toBeInstanceOf(Error);
-  // Prototype not preserved
-  expect(lumenizeResult).not.toBeInstanceOf(CustomError);
-  // But name is automatically set and preserved
+  expect(lumenizeResult.message).toBe('Test error'); // ✅
+  expect(lumenizeResult).toBeInstanceOf(Error); // ✅
+  expect(lumenizeResult).not.toBeInstanceOf(CustomError); // ❌
+  // ✅ But name is automatically set and preserved
   expect(lumenizeResult.name).toBe('CustomError');
-  // Original stack preserved
+  // ✅ Original stack preserved
   expect(lumenizeResult.stack).toContain('feature-comparison.test.ts');
 
   // ==========================================================================
@@ -246,17 +245,18 @@ it('demonstrates error as value', async () => {
   // ==========================================================================
   using capnwebClient = getCapnWebClient('error-value');
   const capnwebResult = await capnwebClient.echo(testError);
-  expect(capnwebResult.message).toBe('Test error');
-  expect(capnwebResult).toBeInstanceOf(Error);
-  expect(capnwebResult.name).toBe('Error'); // Lost CustomError type
-  expect(capnwebResult.stack).toContain('_Evaluator'); // RPC stack
+  expect(capnwebResult.message).toBe('Test error'); // ✅
+  expect(capnwebResult).toBeInstanceOf(Error); // ✅
+  expect(capnwebResult).not.toBeInstanceOf(CustomError); // ❌
+  expect(capnwebResult.name).not.toBe('CustomError'); // ❌ Lost CustomError name
+  expect(capnwebResult.stack).toContain('_Evaluator'); // ❌ RPC internals
 });
 
 /*
-## Feature: Circular references
+## Circular references
 
-**Lumenize RPC**: Handles circular references correctly  
-**Cap'n Web**: Throws "DataCloneError: The object could not be cloned"
+**Lumenize RPC**: ✅ Handles circular references correctly  
+**Cap'n Web**: ❌ Throws "DataCloneError: The object could not be cloned"
 */
 it('demonstrates circular references', async () => {
   const circular: any = { name: 'root' };
@@ -267,8 +267,7 @@ it('demonstrates circular references', async () => {
   // ==========================================================================
   using lumenizeClient = getLumenizeClient('circular');
   const lumenizeResult = await lumenizeClient.echo(circular);
-  expect(lumenizeResult.name).toBe('root');
-  expect(lumenizeResult.self).toBe(lumenizeResult);
+  expect(lumenizeResult).toEqual(circular); // ✅
 
   // ==========================================================================
   // Cap'n Web
@@ -280,27 +279,20 @@ it('demonstrates circular references', async () => {
   } catch (e) {
     capnwebThrew = true;
   }
-  expect(capnwebThrew).toBe(true);
+  expect(capnwebThrew).toBe(true); // ❌
 });
 
 /*
-## Feature: Web API types (Request, Response, Headers, URL)
+## Web API types (Request, Response, Headers, URL)
 
-**Lumenize RPC**: Web API types work (Request shown as example)  
-**Cap'n Web**: Cannot serialize any Web API types  
-**Both**: ReadableStream not yet supported
+**Lumenize RPC**: ✅ Web API types work including body content  
+**Cap'n Web**: ❌ Cannot serialize any Web API types
 */
 it('demonstrates Web API Request support', async () => {
   const testRequest = new Request('https://example.com/test', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-  });
-  
-  const stream = new ReadableStream({
-    start(controller) {
-      controller.enqueue('test');
-      controller.close();
-    }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ data: 'test payload' })
   });
 
   // ==========================================================================
@@ -308,14 +300,10 @@ it('demonstrates Web API Request support', async () => {
   // ==========================================================================
   using lumenizeClient = getLumenizeClient('request');
   const lumenizeResult = await lumenizeClient.echo(testRequest);
-  expect(lumenizeResult).toBeInstanceOf(Request);
-  expect(lumenizeResult.url).toBe('https://example.com/test');
-  expect(lumenizeResult.method).toBe('POST');
-  
-  // ReadableStream not yet supported
-  await expect(async () => {
-    await lumenizeClient.echo(stream);
-  }).rejects.toThrow();
+  expect(lumenizeResult).toBeInstanceOf(Request); // ✅
+  expect(lumenizeResult.url).toBe('https://example.com/test'); // ✅
+  expect(lumenizeResult.method).toBe('POST'); // ✅
+  expect(await lumenizeResult.json()).toEqual({ data: 'test payload' }); // ✅
 
   // ==========================================================================
   // Cap'n Web
@@ -327,19 +315,14 @@ it('demonstrates Web API Request support', async () => {
   } catch (e) {
     capnwebThrew = true;
   }
-  expect(capnwebThrew).toBe(true);
-  
-  // ReadableStream not yet supported
-  await expect(async () => {
-    await capnwebClient.echo(stream);
-  }).rejects.toThrow();
+  expect(capnwebThrew).toBe(true); // ❌
 });
 
 /*
-## Feature: Standard types (primitives and built-ins)
+## Standard types (primitives and built-ins)
 
-**Lumenize RPC**: All standard types preserved correctly  
-**Cap'n Web**: Special numbers (NaN, Infinity, -Infinity) become null
+**Lumenize RPC**: ✅ All standard types preserved correctly  
+**Cap'n Web**: ⚠️ Special numbers (NaN, Infinity, -Infinity) become null
 */
 it('demonstrates standard type support', async () => {
   const bigInt = 12345678901234567890n;
@@ -348,23 +331,23 @@ it('demonstrates standard type support', async () => {
   // Lumenize RPC
   // ==========================================================================
   using lumenizeClient = getLumenizeClient('types');
-  expect(await lumenizeClient.echo(undefined)).toBeUndefined();
-  expect(await lumenizeClient.echo(null)).toBeNull();
-  expect(Number.isNaN(await lumenizeClient.echo(NaN))).toBe(true);
-  expect(await lumenizeClient.echo(Infinity)).toBe(Infinity);
-  expect(await lumenizeClient.echo(-Infinity)).toBe(-Infinity);
-  expect(await lumenizeClient.echo(bigInt)).toBe(bigInt);
+  expect(await lumenizeClient.echo(undefined)).toBeUndefined(); // ✅
+  expect(await lumenizeClient.echo(null)).toBeNull(); // ✅
+  expect(Number.isNaN(await lumenizeClient.echo(NaN))).toBe(true); // ✅
+  expect(await lumenizeClient.echo(Infinity)).toBe(Infinity); // ✅
+  expect(await lumenizeClient.echo(-Infinity)).toBe(-Infinity); // ✅
+  expect(await lumenizeClient.echo(bigInt)).toBe(bigInt); // ✅
 
   // ==========================================================================
   // Cap'n Web
   // ==========================================================================
   using capnwebClient = getCapnWebClient('types');
-  expect(await capnwebClient.echo(undefined)).toBeUndefined();
-  expect(await capnwebClient.echo(null)).toBeNull();
-  expect(Number.isNaN(await capnwebClient.echo(NaN))).toBe(false);
-  expect(await capnwebClient.echo(Infinity)).not.toBe(Infinity);
-  expect(await capnwebClient.echo(-Infinity)).not.toBe(-Infinity);
-  expect(await capnwebClient.echo(bigInt)).toBe(bigInt);
+  expect(await capnwebClient.echo(undefined)).toBeUndefined(); // ✅
+  expect(await capnwebClient.echo(null)).toBeNull(); // ✅
+  expect(Number.isNaN(await capnwebClient.echo(NaN))).not.toBe(true); // ❌
+  expect(await capnwebClient.echo(Infinity)).not.toBe(Infinity); // ❌
+  expect(await capnwebClient.echo(-Infinity)).not.toBe(-Infinity); // ❌
+  expect(await capnwebClient.echo(bigInt)).toBe(bigInt); // ✅
 });
 
 /*

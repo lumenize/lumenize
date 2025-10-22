@@ -26,7 +26,8 @@ class _LumenizeDO extends DurableObject {
 export const LumenizeDO = lumenizeRpcDO(_LumenizeDO);
 
 // ============================================================================
-// Cap'n Web - A little more boilerplate (fetch and constructor)
+// Cap'n Web - A little more boilerplate (fetch and constructor, but the latter
+//             is only because we want to use storage and test env access)
 // ============================================================================
 
 // Per Cap'n Web docs: "Classes which are intended to be passed by reference 

@@ -81,7 +81,7 @@ function getCapnWebClient(instanceName: string) {
 
 
 
-## Feature: Simple method call
+## Simple method call
 
 They have near identical amount of boilerplate for a simple method call
 
@@ -107,7 +107,7 @@ it('demonstrates a simple method call', async () => {
 
 
 
-## Feature: RPC Client Access to `ctx` and `env`
+## RPC Client Access to `ctx` and `env`
 
 **Lumenize RPC**:
 - ✅ **Full client access**: `client.ctx.storage.kv.put('key', 'value')`
@@ -212,10 +212,10 @@ a significant foot-gun. If that improves over time, we'll update this table.
 
 For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 
-## Feature: Error handling (thrown)
+## Error handling (thrown)
 
-**Lumenize RPC**: Preserves name, message, and remote stack trace  
-**Cap'n Web**: Preserves message only, loses name and remote stack
+**Lumenize RPC**: ✅ Preserves name, message, and remote stack trace  
+**Cap'n Web**: ⚠️ Preserves message only, loses name and remote stack
 
 
 
@@ -251,11 +251,11 @@ it('demonstrates error throwing', async () => {
 
 
 
-## Feature: Error as value
+## Error as value
 
-**Lumenize RPC**: Error type (name), message, and stack all preserved  
-**Cap'n Web**: Loses error type (name), stack shows RPC internals not origin
-**Both**: Loses prototype, but name can be used as a substitue for Lumenize
+**Lumenize RPC**: ✅ Error type (name), message, and stack all preserved  
+**Cap'n Web**: ❌ Loses error type (name), stack shows RPC internals not origin  
+**Both**: ⚠️ Loses prototype, but name can be used as a substitute for Lumenize
 
 
 
@@ -294,10 +294,10 @@ it('demonstrates error as value', async () => {
 
 
 
-## Feature: Circular references
+## Circular references
 
-**Lumenize RPC**: Handles circular references correctly  
-**Cap'n Web**: Throws "DataCloneError: The object could not be cloned"
+**Lumenize RPC**: ✅ Handles circular references correctly  
+**Cap'n Web**: ❌ Throws "DataCloneError: The object could not be cloned"
 
 
 
@@ -332,11 +332,11 @@ it('demonstrates circular references', async () => {
 
 
 
-## Feature: Web API types (Request, Response, Headers, URL)
+## Web API types (Request, Response, Headers, URL)
 
-**Lumenize RPC**: Web API types work (Request shown as example)  
-**Cap'n Web**: Cannot serialize any Web API types  
-**Both**: ReadableStream not yet supported
+**Lumenize RPC**: ✅ Web API types work (Request shown as example)  
+**Cap'n Web**: ❌ Cannot serialize any Web API types  
+**Both**: ❌ ReadableStream not yet supported
 
 
 
@@ -391,10 +391,10 @@ it('demonstrates Web API Request support', async () => {
 
 
 
-## Feature: Standard types (primitives and built-ins)
+## Standard types (primitives and built-ins)
 
-**Lumenize RPC**: All standard types preserved correctly  
-**Cap'n Web**: Special numbers (NaN, Infinity, -Infinity) become null
+**Lumenize RPC**: ✅ All standard types preserved correctly  
+**Cap'n Web**: ⚠️ Special numbers (NaN, Infinity, -Infinity) become null
 
 
 
@@ -476,7 +476,8 @@ class _LumenizeDO extends DurableObject {
 export const LumenizeDO = lumenizeRpcDO(_LumenizeDO);
 
 // ============================================================================
-// Cap'n Web - A little more boilerplate (fetch and constructor)
+// Cap'n Web - A little more boilerplate (fetch and constructor, but the latter
+//             is only because we want to use storage and test env access)
 // ============================================================================
 
 // Per Cap'n Web docs: "Classes which are intended to be passed by reference 
