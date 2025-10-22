@@ -11,6 +11,7 @@ import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
+import { deserializeWebApiObject } from './web-api-serialization';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -223,6 +224,16 @@ export class RpcClient<T> {
           return this.execute(operations);
         }
       });
+    }
+
+    // Check for serialized Web API objects (Request, Response, Headers, URL)
+    if (obj && typeof obj === 'object' && (
+      obj.__isSerializedRequest || 
+      obj.__isSerializedResponse || 
+      obj.__isSerializedHeaders || 
+      obj.__isSerializedURL
+    )) {
+      return deserializeWebApiObject(obj);
     }
 
     if (obj === null || typeof obj !== 'object') {

@@ -190,6 +190,54 @@ export const sharedDOMethods = {
   // Method that echoes back whatever is passed to it (for testing structured-clone and circular refs)
   echo(value: any): any {
     return value;
+  },
+
+  // Methods for testing Web API object serialization
+  getRequest(): Request {
+    return new Request('https://example.com/api/test', {
+      method: 'POST',
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Custom-Header': 'test-value',
+      }),
+      body: JSON.stringify({ test: 'data' }),
+    });
+  },
+
+  getResponse(): Response {
+    return new Response(JSON.stringify({ success: true, data: 'test' }), {
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({
+        'Content-Type': 'application/json',
+        'X-Response-Id': '12345',
+      }),
+    });
+  },
+
+  getHeaders(): Headers {
+    const headers = new Headers();
+    headers.set('Authorization', 'Bearer token123');
+    headers.set('Accept', 'application/json');
+    headers.set('X-API-Key', 'secret-key');
+    return headers;
+  },
+
+  getURL(): URL {
+    return new URL('https://example.com/path?param1=value1&param2=value2#hash');
+  },
+
+  // Method that returns an object containing multiple Web API types
+  getWebApiMix(): any {
+    return {
+      request: new Request('https://example.com/test'),
+      response: new Response('test body'),
+      headers: new Headers({ 'X-Test': 'value' }),
+      url: new URL('https://example.com'),
+      nested: {
+        deepRequest: new Request('https://example.com/deep'),
+      },
+    };
   }
 };
 
