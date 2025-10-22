@@ -78,42 +78,45 @@ async function handleCallRequest(
     const requestBody = await request.text();
     const rpcRequest: RpcRequest = parse(requestBody);
 
-    // Validate the operations chain
-    const operations = validateOperationChain(rpcRequest.operations, config);
+    // Dispatch the call (handles validation, execution, preprocessing, and errors)
+    const response = await dispatchCall(rpcRequest.operations, doInstance, config);
     
-    // Execute operation chain
-    const result = await executeOperationChain(operations, doInstance);
-    
-    // Replace functions with markers before structured-clone serialization
-    const processedResult = preprocessResult(result, operations);
-    
-    const response: RpcResponse = {
-      success: true,
-      result: processedResult
-    };
-    
-    // Use stringify on the entire response object
+    // Serialize and return response
     const responseBody = stringify(response);
     
-    return new Response(responseBody, {
-      headers: { 'Content-Type': 'application/json' }
-    });
+    if (response.success) {
+      return new Response(responseBody, {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } else {
+      // Log error for debugging
+      console.error('%o', {
+        type: 'error',
+        where: 'handleCallRequest',
+        message: 'RPC call execution failed',
+        error: response.error
+      });
+      return new Response(responseBody, {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
     
   } catch (error: any) {
+    // This catch is for request parsing errors, not RPC execution errors
     console.error('%o', {
       type: 'error',
       where: 'handleCallRequest',
-      message: 'RPC call execution failed',
+      message: 'Request parsing failed',
       error: error?.message || error
     });
     const response: RpcResponse = {
       success: false,
       error: serializeError(error)
     };
-    // Use stringify on the entire error response
     const responseBody = stringify(response);
     return new Response(responseBody, {
-      status: 500,
+      status: 400,
       headers: { 'Content-Type': 'application/json' }
     });
   }
@@ -136,6 +139,43 @@ function validateOperationChain(operations: OperationChain, config: Required<Rpc
   }
   
   return operations;
+}
+
+/**
+ * Core RPC dispatch logic - validates, executes, and processes the result.
+ * Handles both success and error cases consistently.
+ * 
+ * @param operations - The operation chain to execute
+ * @param doInstance - The Durable Object instance to operate on
+ * @param config - RPC configuration
+ * @returns Object with success flag and either result or error
+ */
+async function dispatchCall(
+  operations: OperationChain,
+  doInstance: any,
+  config: Required<RpcConfig>
+): Promise<{ success: true; result: any } | { success: false; error: any }> {
+  try {
+    // Validate the operations chain
+    const validatedOperations = validateOperationChain(operations, config);
+    
+    // Execute operation chain
+    const result = await executeOperationChain(validatedOperations, doInstance);
+    
+    // Replace functions with markers before serialization
+    const processedResult = preprocessResult(result, validatedOperations);
+    
+    return {
+      success: true,
+      result: processedResult
+    };
+    
+  } catch (error: any) {
+    return {
+      success: false,
+      error: serializeError(error)
+    };
+  }
 }
 
 async function executeOperationChain(operations: OperationChain, doInstance: any): Promise<any> {
@@ -373,49 +413,29 @@ export async function handleRpcMessage(
       return false;
     }
 
-    // Process the RPC request
-    try {
-      // Validate the operation chain
-      const operations = validateOperationChain(request.operations, rpcConfig);
-      
-      // Execute operation chain
-      const result = await executeOperationChain(operations, doInstance);
-      
-      // Replace functions with markers before serialization
-      const processedResult = preprocessResult(result, operations);
-      
-      // Send success response
-      const response: RpcWebSocketResponse = {
-        id: request.id,
-        type: messageType,
-        success: true,
-        result: processedResult
-      };
-      
-      // Use stringify on the entire response
-      const responseBody = stringify(response);
-      
-      ws.send(responseBody);
-      
-    } catch (error: any) {
+    // Dispatch the call (handles validation, execution, preprocessing, and errors)
+    const callResult = await dispatchCall(request.operations, doInstance, rpcConfig);
+    
+    // Build WebSocket response with request id and type
+    const response: RpcWebSocketResponse = {
+      id: request.id,
+      type: messageType,
+      ...callResult  // Spread success/result or success/error
+    };
+    
+    // Log errors for debugging
+    if (!callResult.success) {
       console.error('%o', {
         type: 'error',
         where: 'handleRpcMessage',
         message: 'RPC operation execution failed',
-        error: error?.message || error
+        error: callResult.error
       });
-      
-      // Send error response
-      const response: RpcWebSocketResponse = {
-        id: request.id,
-        type: messageType,
-        success: false,
-        error: serializeError(error)
-      };
-      
-      // Use stringify on the entire error response
-      ws.send(stringify(response));
     }
+    
+    // Serialize and send response
+    const responseBody = stringify(response);
+    ws.send(responseBody);
 
     return true; // Message was handled as RPC
     
