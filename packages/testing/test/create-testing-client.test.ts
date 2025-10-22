@@ -80,9 +80,9 @@ describe('createTestingClient', () => {
     expect(count2).toBe(1);
   });
   
-  it('auto-disposes with await using', async () => {
+  it('auto-disposes with using/await using', async () => {
     // This test verifies that the client is properly disposed
-    // The await using syntax should automatically call Symbol.asyncDispose
+    // Both 'using' and 'await using' work with synchronous Symbol.dispose
     {
       await using client = createTestingClient<TestDOType>('TEST_DO', 'dispose-test');
       await client.reset();

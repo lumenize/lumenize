@@ -343,8 +343,8 @@ function createMatrixClient(
 
   return {
     client,
-    cleanup: async () => {
-      await client[Symbol.asyncDispose]();
+    cleanup: () => {
+      client[Symbol.dispose]();
     },
   };
 }
@@ -409,7 +409,7 @@ TRANSPORTS.forEach((transport) => {
 ✅ **Do:** Use unique instance IDs for each test
 
 ❌ **Don't:** Forget cleanup in WebSocket tests
-✅ **Do:** Always call `client[Symbol.asyncDispose]()` in `finally`
+✅ **Do:** Always call `client[Symbol.dispose]()` in `finally` (or use `using` syntax)
 
 ❌ **Don't:** Test redundant combinations (e.g., inheritance + manual routing)
 ✅ **Do:** Only test meaningful combinations that provide unique coverage
