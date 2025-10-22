@@ -109,10 +109,9 @@ framework extends it.
 | ReadableStream | ❌ | ❌ | ❌ | |
 | WritableStream | ❌ | ❌ | ❌ | |
 
-**Key insight**: Lumenize RPC supports more types than both Cap'n Web AND 
-Cloudflare's own DO Storage. This is because Lumenize RPC uses a custom 
-serialization layer for Web API types that Cap'n Web and structured clone don't 
-support.
+**Key insight**: Lumenize RPC supports everything that Durable Object storage 
+(SQLite engine) supports and a few more. Cap'n Web's limited type support is
+a significant foot-gun. If that improves over time, we'll update this table.
 
 For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize-systems/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 */
