@@ -9,6 +9,7 @@ import type {
 import { serializeError } from './error-serialization';
 import { serializeWebApiObject } from './web-api-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
+import { walkObject } from './walk-object';
 
 /**
  * Default RPC configuration
@@ -237,7 +238,6 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
   }
   
   // Handle Web API objects - serialize them before structured-clone
-  // These need special handling because their prototypes can't be walked without "Illegal invocation" errors
   if (result instanceof Request || result instanceof Response || 
       result instanceof Headers || result instanceof URL) {
     return await serializeWebApiObject(result);
@@ -245,8 +245,6 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
   
   // Handle arrays - recursively process items for function replacement
   if (Array.isArray(result)) {
-    // Create the processed array FIRST and add to seen map BEFORE processing children
-    // This is crucial for handling circular references correctly
     const processedArray: any[] = [];
     seen.set(result, processedArray);
     
@@ -254,12 +252,11 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
       const item = result[index];
       const currentChain: OperationChain = [...operationChain, { type: 'get', key: index }];
       
-      // Check if the array item itself is a function and convert to marker
       if (typeof item === 'function') {
         const marker: RemoteFunctionMarker = {
           __isRemoteFunction: true,
           __operationChain: currentChain,
-          __functionName: `[${index}]`, // Use array index as function name
+          __functionName: `[${index}]`,
         };
         processedArray[index] = marker;
       } else {
@@ -270,8 +267,7 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
     return processedArray;
   }
   
-  // Handle plain objects - replace functions with markers, recursively process other values
-  // Create the processed object FIRST and add to seen map BEFORE processing children
+  // Handle plain objects - use walkObject for enumerable properties and prototype chain
   const processedObject: any = {};
   seen.set(result, processedObject);
   
@@ -280,20 +276,18 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
     const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
     
     if (typeof value === 'function') {
-      // Replace function with remote function marker
-      const marker = {
+      const marker: RemoteFunctionMarker = {
         __isRemoteFunction: true,
         __operationChain: currentChain,
         __functionName: key,
-      } as RemoteFunctionMarker;
+      };
       processedObject[key] = marker;
     } else {
-      // Recursively process non-function values
       processedObject[key] = await preprocessResult(value, currentChain, seen);
     }
   }
   
-  // Also check prototype chain for methods and getters
+  // Walk prototype chain using walkObject for getters
   let proto = Object.getPrototypeOf(result);
   while (proto && proto !== Object.prototype && proto !== null) {
     const descriptors = Object.getOwnPropertyDescriptors(proto);
@@ -305,7 +299,6 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
       
       const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
       
-      // Check if it's a method (function value)
       if (descriptor.value && typeof descriptor.value === 'function') {
         const marker: RemoteFunctionMarker = {
           __isRemoteFunction: true,
@@ -313,13 +306,10 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
           __functionName: key,
         };
         processedObject[key] = marker;
-      }
-      // Check if it's a getter
-      else if (descriptor.get) {
+      } else if (descriptor.get) {
         try {
           const value = descriptor.get.call(result);
           if (typeof value === 'function') {
-            // Getter returns a function - create marker
             const marker: RemoteFunctionMarker = {
               __isRemoteFunction: true,
               __operationChain: currentChain,
@@ -327,12 +317,10 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
             };
             processedObject[key] = marker;
           } else if (value !== undefined && value !== null) {
-            // Getter returns a non-function value - recursively process it
             processedObject[key] = await preprocessResult(value, currentChain, seen);
           }
         } catch (error) {
           // If getter throws, just skip it
-          // We could optionally mark it: processedObject[key] = '[Getter throws]';
         }
       }
     }
