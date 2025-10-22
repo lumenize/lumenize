@@ -11,8 +11,9 @@ import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
-import { deserializeWebApiObject, serializeWebApiObject } from './web-api-serialization';
-import { serializeError, deserializeError } from './error-serialization';
+import { deserializeWebApiObject, serializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
+import { serializeError, deserializeError, isSerializedError } from './error-serialization';
+import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 
@@ -54,33 +55,33 @@ export function createRpcClient<T>(
 /**
  * Process outgoing operations before sending to server.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
- * serialize any Web API objects and Errors in the args.
+ * serialize any Web API objects, Errors, and special numbers in the args.
  */
 async function processOutgoingOperations(operations: OperationChain): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
-      // Use walkObject to serialize Web API objects and Errors in the args
+      // Use walkObject to serialize Web API objects, Errors, and special numbers in the args
       const transformer = async (value: any) => {
+        // Check if this is a special number that needs serialization
+        const specialNumber = serializeSpecialNumber(value);
+        if (specialNumber !== value) {
+          return specialNumber;
+        }
         // Check if this is an Error that needs serialization
         if (value instanceof Error) {
           return serializeError(value);
         }
         // Check if this is a Web API object that needs serialization
-        if (value && typeof value === 'object' && (
-          value instanceof Request ||
-          value instanceof Response ||
-          value instanceof Headers ||
-          value instanceof URL
-        )) {
+        if (isWebApiObject(value)) {
           return await serializeWebApiObject(value);
         }
         // Everything else passes through unchanged
         return value;
       };
       
-      // Walk the args array to find and serialize Web API objects and Errors
+      // Walk the args array to find and serialize Web API objects, Errors, and special numbers
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
         shouldSkipRecursion: isStructuredCloneNativeType
@@ -281,18 +282,18 @@ export class RpcClient<T> {
     }
 
     // Check for serialized Web API objects (Request, Response, Headers, URL)
-    if (obj && typeof obj === 'object' && (
-      obj.__isSerializedRequest || 
-      obj.__isSerializedResponse || 
-      obj.__isSerializedHeaders || 
-      obj.__isSerializedURL
-    )) {
+    if (isSerializedWebApiObject(obj)) {
       return deserializeWebApiObject(obj);
     }
 
     // Check for serialized Error objects
-    if (obj && typeof obj === 'object' && obj.__isSerializedError) {
+    if (isSerializedError(obj)) {
       return deserializeError(obj);
+    }
+
+    // Check for serialized special numbers
+    if (isSerializedSpecialNumber(obj)) {
+      return deserializeSpecialNumber(obj);
     }
 
     if (obj === null || typeof obj !== 'object') {

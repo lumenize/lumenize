@@ -8,6 +8,36 @@
  */
 
 /**
+ * Type guard to check if an object is a serialized Web API object
+ * 
+ * @param obj - The object to check
+ * @returns true if the object has a Web API serialization marker
+ */
+export function isSerializedWebApiObject(obj: any): boolean {
+  return obj && typeof obj === 'object' && (
+    obj.__isSerializedRequest ||
+    obj.__isSerializedResponse ||
+    obj.__isSerializedHeaders ||
+    obj.__isSerializedURL
+  );
+}
+
+/**
+ * Type guard to check if a value is a Web API object instance that needs serialization
+ * 
+ * @param value - The value to check
+ * @returns true if the value is a Request, Response, Headers, or URL instance
+ */
+export function isWebApiObject(value: any): boolean {
+  return (
+    value instanceof Request ||
+    value instanceof Response ||
+    value instanceof Headers ||
+    value instanceof URL
+  );
+}
+
+/**
  * Serializes Web API objects (Request, Response, Headers, URL) for transmission
  * 
  * @ungap/structured-clone partially handles Request/Response but loses prototypes

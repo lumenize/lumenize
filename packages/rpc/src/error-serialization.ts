@@ -6,6 +6,16 @@
  */
 
 /**
+ * Type guard to check if an object is a serialized Error
+ * 
+ * @param obj - The object to check
+ * @returns true if the object has the __isSerializedError marker
+ */
+export function isSerializedError(obj: any): boolean {
+  return obj && typeof obj === 'object' && obj.__isSerializedError === true;
+}
+
+/**
  * Serializes Error objects preserving all custom properties
  * 
  * @ungap/structured-clone only preserves `message` and `stack` from Error objects,

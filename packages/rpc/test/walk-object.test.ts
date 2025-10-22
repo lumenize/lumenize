@@ -359,7 +359,7 @@ describe('walkObject', () => {
       const seen = new WeakMap();
       const transformer = (value: any) => value;
       
-      const result = await walkObject(container, transformer, seen);
+      const result = await walkObject(container, transformer);
       
       // Both obj1.shared and obj2.shared should reference the same processed object
       expect(result.obj1.shared).toBe(result.obj2.shared);

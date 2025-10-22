@@ -6,8 +6,9 @@ import type {
   RpcConfig,
   RemoteFunctionMarker
 } from './types';
-import { serializeError, deserializeError } from './error-serialization';
-import { serializeWebApiObject, deserializeWebApiObject } from './web-api-serialization';
+import { serializeError, deserializeError, isSerializedError } from './error-serialization';
+import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
+import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
@@ -224,35 +225,34 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
 }
 
 /**
- * Process incoming operations to deserialize Web API objects and Errors in arguments before execution.
+ * Process incoming operations to deserialize Web API objects, Errors, and special numbers in arguments before execution.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
- * deserialize any serialized Web API objects and Errors in the args.
+ * deserialize any serialized Web API objects, Errors, and special numbers in the args.
  */
 async function processIncomingOperations(operations: OperationChain): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
-      // Use walkObject to deserialize Web API objects and Errors in the args
+      // Use walkObject to deserialize Web API objects, Errors, and special numbers in the args
       const transformer = async (value: any) => {
+        // Check if this is a serialized special number
+        if (isSerializedSpecialNumber(value)) {
+          return deserializeSpecialNumber(value);
+        }
         // Check if this is a serialized Error
-        if (value && typeof value === 'object' && value.__isSerializedError) {
+        if (isSerializedError(value)) {
           return deserializeError(value);
         }
         // Check if this is a serialized Web API object
-        if (value && typeof value === 'object' && (
-          value.__isSerializedRequest ||
-          value.__isSerializedResponse ||
-          value.__isSerializedHeaders ||
-          value.__isSerializedURL
-        )) {
+        if (isSerializedWebApiObject(value)) {
           return await deserializeWebApiObject(value);
         }
         // Everything else passes through unchanged
         return value;
       };
       
-      // Walk the args array to find and deserialize Web API objects and Errors
+      // Walk the args array to find and deserialize Web API objects, Errors, and special numbers
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
         shouldSkipRecursion: isStructuredCloneNativeType
@@ -272,8 +272,18 @@ async function processIncomingOperations(operations: OperationChain): Promise<Op
 }
 
 async function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): Promise<any> {
-  // Handle primitives - return as-is, structured-clone will handle them
-  if (result === null || result === undefined || typeof result !== 'object') {
+  // Handle primitives - but check for special numbers first
+  if (result === null || result === undefined) {
+    return result;
+  }
+  
+  // Handle special numbers (Infinity, -Infinity, NaN) before general primitives
+  if (typeof result === 'number') {
+    return serializeSpecialNumber(result);
+  }
+  
+  // Handle other primitives - structured-clone will handle them
+  if (typeof result !== 'object') {
     return result;
   }
   
@@ -282,11 +292,8 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
     return seen.get(result);
   }
   
-  // Handle built-in types that structured-clone handles natively - return as-is
-  // Exception: Error needs special serialization to preserve custom properties
-  if (result instanceof Date || result instanceof RegExp || result instanceof Map || 
-      result instanceof Set || result instanceof ArrayBuffer || 
-      ArrayBuffer.isView(result)) {
+  // Handle built-in types that structured-clone preserves perfectly - return as-is
+  if (isStructuredCloneNativeType(result)) {
     return result;
   }
   
@@ -296,8 +303,7 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
   }
   
   // Handle Web API objects - serialize them before structured-clone
-  if (result instanceof Request || result instanceof Response || 
-      result instanceof Headers || result instanceof URL) {
+  if (isWebApiObject(result)) {
     return await serializeWebApiObject(result);
   }
   

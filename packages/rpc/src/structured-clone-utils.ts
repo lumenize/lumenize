@@ -3,16 +3,17 @@
  */
 
 /**
- * Types that are handled natively by structured-clone and should not be recursed into
- * when walking object graphs.
+ * Types that structured-clone preserves perfectly without any custom serialization.
  * 
- * These types can be passed through structured-clone as-is without custom serialization.
+ * These types should not be recursed into when walking object graphs, and can be
+ * passed through to structured-clone as-is.
  * 
- * Note: Web API types like Request, Response, Headers, and URL are NOT in this list
- * because they require custom serialization before structured-clone.
+ * Note: Error is NOT in this list because it needs custom serialization to preserve
+ * all properties (name, stack, custom properties). Web API types like Request, Response,
+ * Headers, and URL also require custom serialization before structured-clone.
  * 
  * @param value - The value to check
- * @returns true if the value is a type that structured-clone handles natively
+ * @returns true if the value needs no preprocessing and should not be recursed into
  */
 export function isStructuredCloneNativeType(value: any): boolean {
   if (!value || typeof value !== 'object') {
@@ -25,7 +26,6 @@ export function isStructuredCloneNativeType(value: any): boolean {
     value instanceof Map ||
     value instanceof Set ||
     value instanceof ArrayBuffer ||
-    ArrayBuffer.isView(value) || // TypedArrays (Uint8Array, etc.)
-    value instanceof Error
+    ArrayBuffer.isView(value) // TypedArrays (Uint8Array, etc.)
   );
 }
