@@ -18,42 +18,9 @@ class _LumenizeDO extends DurableObject {
     throw new Error('Intentional error from Lumenize DO');
   }
 
-  async getRequest() {
-    return new Request('https://example.com/api/test', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'X-Custom-Header': 'custom-value'
-      },
-      body: JSON.stringify({ message: 'test request' })
-    });
+  echo(value: any): any {
+    return value;
   }
-
-  async getResponse() {
-    return new Response(
-      JSON.stringify({ message: 'test response' }),
-      {
-        status: 200,
-        statusText: 'OK',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Response-Header': 'response-value'
-        }
-      }
-    );
-  }
-
-  getHeaders() {
-    return new Headers({
-      'Content-Type': 'text/html',
-      'X-Test-Header': 'test-value'
-    });
-  }
-
-  getURL() {
-    return new URL('https://example.com/path?query=value#hash');
-  }
-
 }
 
 export const LumenizeDO = lumenizeRpcDO(_LumenizeDO);
@@ -83,40 +50,8 @@ export class CapnWebRpcTarget extends RpcTarget {
     throw new Error('Intentional error from Cap\'n Web RpcTarget');
   }
 
-  async getRequest() {
-    return new Request('https://example.com/api/test', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'X-Custom-Header': 'custom-value'
-      },
-      body: JSON.stringify({ message: 'test request' })
-    });
-  }
-
-  async getResponse() {
-    return new Response(
-      JSON.stringify({ message: 'test response' }),
-      {
-        status: 200,
-        statusText: 'OK',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Response-Header': 'response-value'
-        }
-      }
-    );
-  }
-
-  getHeaders() {
-    return new Headers({
-      'Content-Type': 'text/html',
-      'X-Test-Header': 'test-value'
-    });
-  }
-
-  getURL() {
-    return new URL('https://example.com/path?query=value#hash');
+  echo(value: any): any {
+    return value;
   }
 
   fetch(request: Request): Response | Promise<Response> {

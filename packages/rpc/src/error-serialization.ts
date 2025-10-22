@@ -27,8 +27,13 @@ export function serializeError(error: any): any {
     return error;
   }
   
+  // Use constructor name as fallback if error.name is 'Error' but constructor has a custom name
+  const errorName = error.name !== 'Error' || error.constructor.name === 'Error'
+    ? error.name
+    : error.constructor.name;
+  
   const serialized: any = {
-    name: error.name,
+    name: errorName,
     message: error.message,
     stack: error.stack,
     __isSerializedError: true, // Marker for client-side reconstruction

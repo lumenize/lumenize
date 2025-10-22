@@ -74,218 +74,203 @@ it('demonstrates a simple method call', async () => {
 });
 
 /*
-## Feature: Error handling and stack traces
+## Supported Types
 
-**Lumenize RPC**:
-- ✅ Re-throws on client side with full context (message, stack, etc.)
-- ✅ Stack trace shows original server-side location
+Both frameworks support structured-cloneable types, but with differences:
 
-**Cap'n Web**:
-- ✅ Throws on client side with only message preserved
-- ❌ Stack trace shows RPC machinery, not original throw location
+| Type | Lumenize RPC | Cap'n Web | Notes |
+|------|--------------|-----------|-------|
+| **Primitives** | | | |
+| undefined | ✅ | ✅ | |
+| null | ✅ | ✅ | |
+| **Special Numbers** | | | |
+| NaN | ✅ | ❌ | Cap'n Web returns null |
+| Infinity | ✅ | ❌ | Cap'n Web returns null |
+| -Infinity | ✅ | ❌ | Cap'n Web returns null |
+| **Built-in Types** | | | |
+| BigInt | ✅ | ✅ | |
+| Date | ✅ | ✅ | |
+| RegExp | ✅ | ❌ | Cannot serialize |
+| Map | ✅ | ❌ | Cannot serialize |
+| Set | ✅ | ❌ | Cannot serialize |
+| ArrayBuffer | ✅ | ❌ | Cannot serialize |
+| TypedArray | ✅ | ✅ | Uint8Array works |
+| **Errors** | | | |
+| Error (thrown) | ✅ | ⚠️ | Cap'n Web: loses type, remote stack |
+| Error (value) | ✅ | ⚠️ | Cap'n Web: loses type, remote stack |
+| **Circular References** | ✅ | ❌ | Cap'n Web throws error |
+| **Web API Types** | | | |
+| Request | ✅ | ❌ | Cannot serialize |
+| Response | ✅ | ❌ | Cannot serialize |
+| Headers | ✅ | ❌ | Cannot serialize |
+| URL | ✅ | ❌ | Cannot serialize |
+| ReadableStream | ❌ | ❌ | Not yet supported |
+| WritableStream | ❌ | ❌ | Not yet supported |
+
+For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize-systems/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 */
-it('demonstrates error handling', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('error');
 
-  await expect(lumenizeClient.throwError())
-    .rejects.toThrow('Intentional error from Lumenize DO');
+/*
+## Feature: Error handling (thrown)
 
-  // Stack trace includes the original throwError() location
+**Lumenize RPC**: Preserves name, message, and remote stack trace  
+**Cap'n Web**: Preserves message only, loses name and remote stack
+*/
+it('demonstrates error throwing', async () => {
+  // Lumenize RPC - full error context preserved
+  await using lumenizeClient = getLumenizeClient('error-throw');
   try {
     await lumenizeClient.throwError();
-    expect.fail('should not reach this point');
+    expect.fail('should not reach');
   } catch (e: any) {
-    expect(e.stack).toContain('throwError');
+    expect(e.message).toContain('Intentional error');
+    expect(e.stack).toContain('throwError'); // Actual remote stack
   }
 
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
-  await using capnwebClient = getCapnWebClient('error');
-
-  await expect(capnwebClient.throwError())
-    .rejects.toThrow('Intentional error from Cap\'n Web RpcTarget');
-
-  // Stack trace shows only RPC internals, not throwError()
+  // Cap'n Web - only message preserved
+  await using capnwebClient = getCapnWebClient('error-throw');
   try {
     await capnwebClient.throwError();
-    expect.fail('should not reach this point');
+    expect.fail('should not reach');
   } catch (e: any) {
-    expect(e.stack).not.toContain('throwError');
+    expect(e.message).toContain('Intentional error');
+    expect(e.stack).not.toContain('throwError'); // Local RPC internals
   }
 });
 
 /*
-## Feature: Returning Request objects
+## Feature: Error as value
 
-**Current Status:**
-- Lumenize RPC: ⚠️ Serializes to plain object, loses prototype
-  - ✅ Properties preserved: method, url, redirect, signal, integrity, keepalive, bodyUsed
-  - ✅ Methods become plain objects: clone, arrayBuffer, text, json, etc.
-  - ❌ Not a Request instance, methods not callable
-- Cap'n Web: ❌ "Cannot serialize value: [object Request]"
+**Lumenize RPC**: Error type (name), message, and stack all preserved  
+**Cap'n Web**: Loses error type (name), stack shows RPC internals not origin
+**Both**: Loses prototype, but name can be used as a substitue for Lumenize
 */
-it('demonstrates returning Request', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
+it('demonstrates error as value', async () => {
+  class CustomError extends Error {}
+  const testError = new CustomError('Test error');
+
+  // Lumenize RPC - full Error preservation
+  await using lumenizeClient = getLumenizeClient('error-value');
+  const lumenizeResult = await lumenizeClient.echo(testError);
+  expect(lumenizeResult.message).toBe('Test error');
+  expect(lumenizeResult).toBeInstanceOf(Error);
+  // Prototype not preserved
+  expect(lumenizeResult).not.toBeInstanceOf(CustomError);
+  // But name is automatically set and preserved
+  expect(lumenizeResult.name).toBe('CustomError');
+  // Original stack preserved
+  expect(lumenizeResult.stack).toContain('feature-comparison.test.ts');
+
+  // Cap'n Web - Loses error type and original stack
+  await using capnwebClient = getCapnWebClient('error-value');
+  const capnwebResult = await capnwebClient.echo(testError);
+  expect(capnwebResult.message).toBe('Test error');
+  expect(capnwebResult).toBeInstanceOf(Error);
+  expect(capnwebResult.name).toBe('Error'); // Lost CustomError type
+  expect(capnwebResult.stack).toContain('_Evaluator'); // RPC stack
+});
+
+/*
+## Feature: Circular references
+
+**Lumenize RPC**: Handles circular references correctly  
+**Cap'n Web**: Throws "DataCloneError: The object could not be cloned"
+*/
+it('demonstrates circular references', async () => {
+  const circular: any = { name: 'root' };
+  circular.self = circular;
+
+  // Lumenize RPC - handles circular references
+  await using lumenizeClient = getLumenizeClient('circular');
+  const lumenizeResult = await lumenizeClient.echo(circular);
+  expect(lumenizeResult.name).toBe('root');
+  expect(lumenizeResult.self).toBe(lumenizeResult);
+
+  // Cap'n Web - throws on circular references
+  await using capnwebClient = getCapnWebClient('circular');
+  let capnwebThrew = false;
+  try {
+    await capnwebClient.echo(circular);
+  } catch (e) {
+    capnwebThrew = true;
+  }
+  expect(capnwebThrew).toBe(true);
+});
+
+/*
+## Feature: Web API types (Request, Response, Headers, URL)
+
+**Lumenize RPC**: Web API types work (Request shown as example)  
+**Cap'n Web**: Cannot serialize any Web API types  
+**Both**: ReadableStream not yet supported
+*/
+it('demonstrates Web API Request support', async () => {
+  const testRequest = new Request('https://example.com/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue('test');
+      controller.close();
+    }
+  });
+
+  // Lumenize RPC - Request fully preserved
   await using lumenizeClient = getLumenizeClient('request');
+  const lumenizeResult = await lumenizeClient.echo(testRequest);
+  expect(lumenizeResult).toBeInstanceOf(Request);
+  expect(lumenizeResult.url).toBe('https://example.com/test');
+  expect(lumenizeResult.method).toBe('POST');
+  
+  // ReadableStream not yet supported
+  await expect(async () => {
+    await lumenizeClient.echo(stream);
+  }).rejects.toThrow();
 
-  try {
-    const result = await lumenizeClient.getRequest();
-    console.log('Lumenize Request result:', result);
-    console.log('Is Request instance?', result instanceof Request);
-    console.log('Type:', typeof result);
-    console.log('Constructor:', result?.constructor?.name);
-    if (result && typeof result === 'object') {
-      console.log('Keys:', Object.keys(result));
-      console.log('url:', result.url);
-      console.log('method:', result.method);
-    }
-  } catch (error: any) {
-    console.log('Lumenize Request error:', error.message);
-  }
-
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
+  // Cap'n Web - cannot serialize Request
   await using capnwebClient = getCapnWebClient('request');
-
+  let capnwebThrew = false;
   try {
-    const result = await capnwebClient.getRequest();
-    console.log('Cap\'n Web Request result:', result);
-  } catch (error: any) {
-    console.log('Cap\'n Web Request error:', error.message);
+    await capnwebClient.echo(testRequest);
+  } catch (e) {
+    capnwebThrew = true;
   }
+  expect(capnwebThrew).toBe(true);
+  
+  // ReadableStream not yet supported
+  await expect(async () => {
+    await capnwebClient.echo(stream);
+  }).rejects.toThrow();
 });
 
 /*
-## Feature: Returning Response objects
+## Feature: Standard types (primitives and built-ins)
 
-**Current Status:**
-- Lumenize RPC: ⚠️ Serializes to plain object, loses prototype
-  - ✅ Properties preserved: status, statusText, ok, redirected, url, type, bodyUsed
-  - ✅ Methods become plain objects: clone, arrayBuffer, text, json, etc.
-  - ❌ Not a Response instance, methods not callable
-- Cap'n Web: ❌ "Cannot serialize value: [object Response]"
+**Lumenize RPC**: All standard types preserved correctly  
+**Cap'n Web**: Special numbers (NaN, Infinity, -Infinity) become null
 */
-it('demonstrates returning Response', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('response');
+it('demonstrates standard type support', async () => {
+  await using lumenizeClient = getLumenizeClient('types');
+  await using capnwebClient = getCapnWebClient('types');
+  const bigInt = 12345678901234567890n;
 
-  try {
-    const result = await lumenizeClient.getResponse();
-    console.log('Lumenize Response result:', result);
-    console.log('Is Response instance?', result instanceof Response);
-    console.log('Type:', typeof result);
-    console.log('Constructor:', result?.constructor?.name);
-    if (result && typeof result === 'object') {
-      console.log('Keys:', Object.keys(result));
-      console.log('status:', result.status);
-      console.log('statusText:', result.statusText);
-    }
-  } catch (error: any) {
-    console.log('Lumenize Response error:', error.message);
-    expect(error.message).toContain('Illegal invocation');
-  }
+  // Lumenize RPC - all types work
+  expect(await lumenizeClient.echo(undefined)).toBeUndefined();
+  expect(await lumenizeClient.echo(null)).toBeNull();
+  expect(Number.isNaN(await lumenizeClient.echo(NaN))).toBe(true);
+  expect(await lumenizeClient.echo(Infinity)).toBe(Infinity);
+  expect(await lumenizeClient.echo(-Infinity)).toBe(-Infinity);
+  expect(await lumenizeClient.echo(bigInt)).toBe(bigInt);
 
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
-  await using capnwebClient = getCapnWebClient('response');
-
-  try {
-    const result = await capnwebClient.getResponse();
-    console.log('Cap\'n Web Response result:', result);
-  } catch (error: any) {
-    console.log('Cap\'n Web Response error:', error.message);
-  }
-});
-
-/*
-## Feature: Returning Headers objects
-
-**Current Status:**
-- Lumenize RPC: ❌ Fails with "Illegal invocation" during preprocessing
-- Cap'n Web: ❌ "Cannot serialize value: [object Headers]"
-*/
-it('demonstrates returning Headers', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('headers');
-
-  try {
-    const result = await lumenizeClient.getHeaders();
-    console.log('Lumenize Headers result:', result);
-    console.log('Is Headers instance?', result instanceof Headers);
-    console.log('Type:', typeof result);
-    console.log('Constructor:', result?.constructor?.name);
-    if (result && typeof result === 'object') {
-      console.log('Keys:', Object.keys(result));
-    }
-  } catch (error: any) {
-    console.log('Lumenize Headers error:', error.message);
-  }
-
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
-  await using capnwebClient = getCapnWebClient('headers');
-
-  try {
-    const result = await capnwebClient.getHeaders();
-    console.log('Cap\'n Web Headers result:', result);
-  } catch (error: any) {
-    console.log('Cap\'n Web Headers error:', error.message);
-  }
-});
-
-/*
-## Feature: Returning URL objects
-
-**Current Status:**
-- Lumenize RPC: ❌ Fails with "value.toJSON is not a function"
-  - @ungap/structured-clone tries to call toJSON() but URL doesn't have it
-- Cap'n Web: ❌ "Cannot serialize value: https://example.com/..."
-*/
-it('demonstrates returning URL', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
-  await using lumenizeClient = getLumenizeClient('url');
-
-  try {
-    const result = await lumenizeClient.getURL();
-    console.log('Lumenize URL result:', result);
-    console.log('Is URL instance?', result instanceof URL);
-    console.log('Type:', typeof result);
-    console.log('Constructor:', result?.constructor?.name);
-    if (result && typeof result === 'object') {
-      console.log('Keys:', Object.keys(result));
-      console.log('href:', result.href);
-      console.log('pathname:', result.pathname);
-    }
-  } catch (error: any) {
-    console.log('Lumenize URL error:', error.message);
-  }
-
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
-  await using capnwebClient = getCapnWebClient('url');
-
-  try {
-    const result = await capnwebClient.getURL();
-    console.log('Cap\'n Web URL result:', result);
-  } catch (error: any) {
-    console.log('Cap\'n Web URL error:', error.message);
-  }
+  // Cap'n Web - special numbers become null
+  expect(await capnwebClient.echo(undefined)).toBeUndefined();
+  expect(await capnwebClient.echo(null)).toBeNull();
+  expect(Number.isNaN(await capnwebClient.echo(NaN))).toBe(false);
+  expect(await capnwebClient.echo(Infinity)).not.toBe(Infinity);
+  expect(await capnwebClient.echo(-Infinity)).not.toBe(-Infinity);
+  expect(await capnwebClient.echo(bigInt)).toBe(bigInt);
 });
 
 /*

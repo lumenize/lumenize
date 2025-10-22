@@ -560,6 +560,42 @@ export async function testEchoError(testable: TestableClient): Promise<void> {
 }
 
 /**
+ * Built-in types - Echo custom Error subclass (client → server → client)
+ * 
+ * Tests that custom Error subclasses preserve their type (name) through RPC
+ * without requiring manual `this.name = 'CustomError'` in constructor.
+ */
+export async function testEchoCustomErrorClass(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a custom Error subclass WITHOUT manually setting name
+  class ValidationError extends Error {
+    constructor(message: string, public field?: string) {
+      super(message);
+      // Note: NOT setting this.name = 'ValidationError' here
+    }
+  }
+  
+  // Create an instance with custom properties
+  const originalError = new ValidationError('Invalid input', 'email');
+  
+  // Send it to the server and get it back
+  const echoedError = await (client as any).echo(originalError);
+  
+  // Verify it's a proper Error instance
+  expect(echoedError).toBeInstanceOf(Error);
+  
+  // Verify basic properties are preserved
+  expect(echoedError.message).toBe('Invalid input');
+  
+  // This is the key test: custom Error class name should be preserved
+  expect(echoedError.name).toBe('ValidationError');
+  
+  // Verify custom properties are preserved
+  expect(echoedError.field).toBe('email');
+}
+
+/**
  * Built-in types - Echo BigInt (client → server → client)
  */
 export async function testEchoBigInt(testable: TestableClient): Promise<void> {
@@ -646,6 +682,7 @@ export const behaviorTests = {
   echoArrayBuffer: testEchoArrayBuffer,
   echoTypedArray: testEchoTypedArray,
   echoError: testEchoError,
+  echoCustomErrorClass: testEchoCustomErrorClass,
   echoBigInt: testEchoBigInt,
   echoSpecialNumbers: testEchoSpecialNumbers,
 };
@@ -662,5 +699,5 @@ export const testCategories = {
   circularRefs: ['echoCircularReference'],
   inspection: ['asObject'],
   async: ['slowIncrement'],
-  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi', 'echoDate', 'echoRegExp', 'echoMap', 'echoSet', 'echoArrayBuffer', 'echoTypedArray', 'echoError', 'echoBigInt', 'echoSpecialNumbers'],
+  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi', 'echoDate', 'echoRegExp', 'echoMap', 'echoSet', 'echoArrayBuffer', 'echoTypedArray', 'echoError', 'echoCustomErrorClass', 'echoBigInt', 'echoSpecialNumbers'],
 };
