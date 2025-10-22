@@ -11,7 +11,8 @@ import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
-import { deserializeWebApiObject } from './web-api-serialization';
+import { deserializeWebApiObject, serializeWebApiObject } from './web-api-serialization';
+import { walkObject } from './walk-object';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -46,6 +47,47 @@ export function createRpcClient<T>(
   };
   const client = new RpcClient<T>(config);
   return client as any; // Constructor returns Proxy, so type is correct
+}
+
+/**
+ * Process outgoing operations to serialize Web API objects in arguments before transmission.
+ * Walks the operation chain, finds 'apply' operations, and uses walkObject to
+ * serialize any Web API objects in the args.
+ */
+async function processOutgoingOperations(operations: OperationChain): Promise<OperationChain> {
+  const processedOperations: OperationChain = [];
+  
+  for (const operation of operations) {
+    if (operation.type === 'apply' && operation.args.length > 0) {
+      // Use walkObject to serialize Web API objects in the args
+      const transformer = async (value: any) => {
+        // Check if this is a Web API object that needs serialization
+        if (value && typeof value === 'object' && (
+          value instanceof Request ||
+          value instanceof Response ||
+          value instanceof Headers ||
+          value instanceof URL
+        )) {
+          return await serializeWebApiObject(value);
+        }
+        // Everything else passes through unchanged
+        return value;
+      };
+      
+      // Walk the args array to find and serialize Web API objects
+      const processedArgs = await walkObject(operation.args, transformer);
+      
+      processedOperations.push({
+        type: 'apply',
+        args: processedArgs
+      });
+    } else {
+      // 'get' operations pass through unchanged
+      processedOperations.push(operation);
+    }
+  }
+  
+  return processedOperations;
 }
 
 /**
@@ -202,8 +244,11 @@ export class RpcClient<T> {
       await this.#connect();
     }
 
+    // Process outgoing operations to serialize Web API objects in args before sending
+    const processedOperations = await processOutgoingOperations(operations);
+
     // Execute the operation chain via transport
-    const result = await this.#transport.execute(operations);
+    const result = await this.#transport.execute(processedOperations);
     
     // Optionally skip processing (for __asObject which handles conversion itself)
     if (skipProcessing) {
