@@ -13,6 +13,7 @@ import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
 import { deserializeWebApiObject, serializeWebApiObject } from './web-api-serialization';
 import { walkObject } from './walk-object';
+import { isStructuredCloneNativeType } from './structured-clone-utils';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -71,12 +72,14 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
           return await serializeWebApiObject(value);
         }
         // Everything else passes through unchanged
-        // (built-in types like Date, Map, Set are handled by walkObject's isStructuredCloneNativeType check)
         return value;
       };
       
       // Walk the args array to find and serialize Web API objects
-      const processedArgs = await walkObject(operation.args, transformer);
+      // Skip recursing into built-in types that structured-clone handles natively
+      const processedArgs = await walkObject(operation.args, transformer, {
+        shouldSkipRecursion: isStructuredCloneNativeType
+      });
       
       processedOperations.push({
         type: 'apply',

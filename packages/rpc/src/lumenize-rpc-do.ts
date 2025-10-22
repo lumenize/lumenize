@@ -10,6 +10,7 @@ import { serializeError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject } from './web-api-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 import { walkObject } from './walk-object';
+import { isStructuredCloneNativeType } from './structured-clone-utils';
 
 /**
  * Default RPC configuration
@@ -244,12 +245,14 @@ async function processIncomingOperations(operations: OperationChain): Promise<Op
           return await deserializeWebApiObject(value);
         }
         // Everything else passes through unchanged
-        // (built-in types like Date, Map, Set are handled by walkObject's isStructuredCloneNativeType check)
         return value;
       };
       
       // Walk the args array to find and deserialize Web API objects
-      const processedArgs = await walkObject(operation.args, transformer);
+      // Skip recursing into built-in types that structured-clone handles natively
+      const processedArgs = await walkObject(operation.args, transformer, {
+        shouldSkipRecursion: isStructuredCloneNativeType
+      });
       
       processedOperations.push({
         type: 'apply',

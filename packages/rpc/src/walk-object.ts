@@ -1,59 +1,43 @@
 /**
- * Types that are handled natively by structured-clone and should not be recursed into.
- * These types can be passed through structured-clone as-is without custom serialization.
- * 
- * Note: Web API types like Request, Response, Headers, and URL are NOT in this list
- * because they require custom serialization before structured-clone.
- */
-function isStructuredCloneNativeType(value: any): boolean {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  
-  return (
-    value instanceof Date ||
-    value instanceof RegExp ||
-    value instanceof Map ||
-    value instanceof Set ||
-    value instanceof ArrayBuffer ||
-    ArrayBuffer.isView(value) || // TypedArrays (Uint8Array, etc.)
-    value instanceof Error
-  );
-}
-
-/**
  * Higher-order function for walking object graphs with circular reference handling
  * and prototype chain traversal.
  * 
  * This utility handles the mechanical work of traversing objects while letting
  * the transformer callback decide what transformations to apply.
  * 
- * IMPORTANT: This function will NOT recurse into built-in types that are handled
- * natively by structured-clone (Date, Map, Set, etc.). The transformer is still
- * called for these types, but if it returns them unchanged, they won't be walked.
- * 
  * @param obj - The object to walk
  * @param transformer - Callback that transforms each value. Receives (value, key, parent).
  *                      Return the transformed value, or the original to keep it unchanged.
- * @param seen - WeakMap for tracking circular references (auto-created on first call)
+ * @param options - Optional configuration
+ * @param options.seen - WeakMap for tracking circular references (auto-created on first call)
+ * @param options.shouldSkipRecursion - Optional predicate to determine if recursion should be skipped
+ *                                       for a value even if the transformer returns it unchanged.
+ *                                       Useful for types that shouldn't be walked (e.g., Date, Map, Set).
  * @returns The walked and transformed object
  * 
  * @example
  * ```typescript
- * // Serialize Web API objects
- * const result = await walkObject(myObj, async (value, key, parent) => {
- *   if (value instanceof Request) {
- *     return await serializeWebApiObject(value);
- *   }
- *   return value; // no transformation
+ * // Serialize Web API objects, skip recursing into built-in types
+ * const result = await walkObject(myObj, {
+ *   transformer: async (value, key, parent) => {
+ *     if (value instanceof Request) {
+ *       return await serializeWebApiObject(value);
+ *     }
+ *     return value; // no transformation
+ *   },
+ *   shouldSkipRecursion: (value) => value instanceof Date || value instanceof Map
  * });
  * ```
  */
 export async function walkObject(
   obj: any,
   transformer: (value: any, key: string | number, parent: any) => Promise<any> | any,
-  seen = new WeakMap<object, any>()
+  options: {
+    seen?: WeakMap<object, any>;
+    shouldSkipRecursion?: (value: any) => boolean;
+  } = {}
 ): Promise<any> {
+  const { seen = new WeakMap<object, any>(), shouldSkipRecursion } = options;
   // Handle primitives - return as-is
   if (obj === null || obj === undefined || typeof obj !== 'object') {
     return obj;
@@ -78,9 +62,10 @@ export async function walkObject(
       const transformedItem = await transformer(item, index, obj);
       
       // If transformer didn't change the item, recursively walk it
-      // BUT: Don't recurse into built-in types that structured-clone handles natively
-      if (transformedItem === item && typeof item === 'object' && item !== null && !isStructuredCloneNativeType(item)) {
-        processedArray[index] = await walkObject(item, transformer, seen);
+      // BUT: Skip recursion if shouldSkipRecursion predicate says so
+      const shouldSkip = shouldSkipRecursion ? shouldSkipRecursion(item) : false;
+      if (transformedItem === item && typeof item === 'object' && item !== null && !shouldSkip) {
+        processedArray[index] = await walkObject(item, transformer, { seen, shouldSkipRecursion });
       } else {
         processedArray[index] = transformedItem;
       }
@@ -100,9 +85,10 @@ export async function walkObject(
     const transformedValue = await transformer(value, key, obj);
     
     // If transformer didn't change the value, recursively walk it
-    // BUT: Don't recurse into built-in types that structured-clone handles natively
-    if (transformedValue === value && typeof value === 'object' && value !== null && !isStructuredCloneNativeType(value)) {
-      processedObject[key] = await walkObject(value, transformer, seen);
+    // BUT: Skip recursion if shouldSkipRecursion predicate says so
+    const shouldSkip = shouldSkipRecursion ? shouldSkipRecursion(value) : false;
+    if (transformedValue === value && typeof value === 'object' && value !== null && !shouldSkip) {
+      processedObject[key] = await walkObject(value, transformer, { seen, shouldSkipRecursion });
     } else {
       processedObject[key] = transformedValue;
     }
@@ -136,7 +122,7 @@ export async function walkObject(
       
       // If transformer didn't change the value, recursively walk it
       if (transformedValue === value && typeof value === 'object' && value !== null) {
-        processedObject[key] = await walkObject(value, transformer, seen);
+        processedObject[key] = await walkObject(value, transformer, { seen, shouldSkipRecursion });
       } else {
         processedObject[key] = transformedValue;
       }
