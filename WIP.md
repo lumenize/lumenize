@@ -51,7 +51,7 @@ We are turning the scratchpad in `experiments/performance-comparisons/BOTTOM_LIN
 - Add runtime validation examples without introducing a hard TypeBox dependency
 - Cross-link any Workers RPC interop considerations (state clearly if N/A)
 
-## Current Focus: @lumenize/proxy-queue - Cost-Effective External Fetch Offloading
+## Current Focus: @lumenize/proxy-fetch - Cost-Effective External Fetch Offloading
 
 ### Problem Statement
 
@@ -91,7 +91,7 @@ sequenceDiagram
     participant Worker as Queue Consumer Worker
     participant API as External API
     
-    UserDO->>Queue: Send ProxyQueueMessage<br/>(with return address)
+    UserDO->>Queue: Send ProxyFetchMessage<br/>(with return address)
     Note over UserDO: Non-blocking send<br/>Continues processing
     Queue->>Worker: Deliver message
     Worker->>API: Make external fetch<br/>(billed on CPU time)
@@ -113,8 +113,8 @@ sequenceDiagram
 - [ ] Confirm test for RegExp
 
 **Phase 1: Core Infrastructure** (First PR)
-- [ ] Create `packages/proxy-queue/` package
-- [ ] Define message format (`ProxyQueueMessage` with return address)
+- [ ] Create `packages/proxy-fetch/` package
+- [ ] Define message format (`ProxyFetchMessage` with return address)
 - [ ] Implement queue consumer worker
 - [ ] Basic DO-to-DO return addressing
 - [ ] Error handling and retries
@@ -171,11 +171,11 @@ interface ReturnAddress {
 The `Browser` class from `@lumenize/utils` provides automatic cookie management across requests - perfect for external APIs that use cookies for authentication or session management. Simply pass the proxied fetch to Browser:
 
 ```typescript
-import { createProxyFetch } from '@lumenize/proxy-queue';
+import { createProxyFetch } from '@lumenize/proxy-fetch';
 import { Browser } from '@lumenize/utils';
 
 // In your DO constructor:
-const proxyFetch = createProxyFetch(env.PROXY_QUEUE, { 
+const proxyFetch = createProxyFetch(env.PROXY_FETCH, { 
   returnAddress: { /* ... */ } 
 });
 const browser = new Browser(proxyFetch);
@@ -190,7 +190,7 @@ await browser.fetch('https://api.example.com/data'); // Cookies from login inclu
 **Internal Message Format (Hidden from users):**
 ```typescript
 // Users never see this - internal queue message format
-interface ProxyQueueMessage {
+interface ProxyFetchMessage {
   id: string;  // Auto-generated request ID
   
   // Serialized Request object
@@ -207,7 +207,7 @@ interface ProxyQueueMessage {
 }
 
 // Worker response format (also internal)
-interface ProxyQueueResponse {
+interface ProxyFetchResponse {
   id: string;
   
   // Serialized Response object
@@ -230,7 +230,7 @@ interface ProxyQueueResponse {
 
 **Simple Stateless Requests (No Cookies):**
 ```typescript
-import { createProxyFetch } from '@lumenize/proxy-queue';
+import { createProxyFetch } from '@lumenize/proxy-fetch';
 
 class UserDO {
   #proxyFetch: typeof fetch;
@@ -240,7 +240,7 @@ class UserDO {
     this.env = env;
     
     // Create a proxied fetch with DO-specific config
-    this.#proxyFetch = createProxyFetch(env.PROXY_QUEUE, {
+    this.#proxyFetch = createProxyFetch(env.PROXY_FETCH, {
       returnAddress: {
         type: 'do',
         binding: 'USER_DO',
@@ -294,7 +294,7 @@ class UserDO {
 
 **Stateful HTTP Sessions with Cookies (Using Browser Composition):**
 ```typescript
-import { createProxyFetch } from '@lumenize/proxy-queue';
+import { createProxyFetch } from '@lumenize/proxy-fetch';
 import { Browser } from '@lumenize/utils';
 
 class DataScraperDO {
@@ -306,7 +306,7 @@ class DataScraperDO {
     this.env = env;
     
     // Create base proxied fetch
-    this.#proxyFetch = createProxyFetch(env.PROXY_QUEUE, {
+    this.#proxyFetch = createProxyFetch(env.PROXY_FETCH, {
       returnAddress: {
         type: 'do',
         binding: 'DATA_SCRAPER_DO',
@@ -369,7 +369,7 @@ class MixedDO {
   #browser: Browser;          // Stateful
   
   constructor(ctx, env) {
-    this.#proxyFetch = createProxyFetch(env.PROXY_QUEUE, { 
+    this.#proxyFetch = createProxyFetch(env.PROXY_FETCH, { 
       returnAddress: { type: 'do', binding: 'MIXED_DO', instanceId: ctx.id.toString() }
     });
     this.#browser = new Browser(this.#proxyFetch);
@@ -399,7 +399,7 @@ class MixedDO {
 ```typescript
 // src/queue-consumer.ts (provided by package)
 export default {
-  async queue(batch: MessageBatch<ProxyQueueMessage>, env: Env) {
+  async queue(batch: MessageBatch<ProxyFetchMessage>, env: Env) {
     await Promise.all(
       batch.messages.map(msg => processProxyRequest(msg, env))
     );
@@ -447,7 +447,7 @@ export default {
 ### Future Enhancements (Later Phases)
 
 **Multi-hop Return Addressing:**
-- Browser → SharedWorker → UserDO → ProxyQueue → External API
+- Browser → SharedWorker → UserDO → ProxyFetch → External API
 - Response flows back through accumulated return path
 - Each hop adds itself to path, pops itself on return
 
@@ -487,7 +487,7 @@ export default {
 ### Package Structure
 
 ```
-packages/proxy-queue/
+packages/proxy-fetch/
 ├── src/
 │   ├── index.ts              # Public API exports (createProxyFetch)
 │   ├── types.ts              # Public types (ProxyFetchConfig, ReturnAddress)
