@@ -7,6 +7,7 @@ import type {
   RemoteFunctionMarker
 } from './types';
 import { serializeError } from './error-serialization';
+import { serializeWebApiObject } from './web-api-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 
 /**
@@ -163,7 +164,7 @@ async function dispatchCall(
     const result = await executeOperationChain(validatedOperations, doInstance);
     
     // Replace functions with markers before serialization
-    const processedResult = preprocessResult(result, validatedOperations);
+    const processedResult = await preprocessResult(result, validatedOperations);
     
     return {
       success: true,
@@ -217,7 +218,7 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
   return parent;
 }
 
-function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): any {
+async function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): Promise<any> {
   // Handle primitives - return as-is, structured-clone will handle them
   if (result === null || result === undefined || typeof result !== 'object') {
     return result;
@@ -233,6 +234,13 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
       result instanceof Set || result instanceof ArrayBuffer || 
       ArrayBuffer.isView(result) || result instanceof Error) {
     return result;
+  }
+  
+  // Handle Web API objects - serialize them before structured-clone
+  // These need special handling because their prototypes can't be walked without "Illegal invocation" errors
+  if (result instanceof Request || result instanceof Response || 
+      result instanceof Headers || result instanceof URL) {
+    return await serializeWebApiObject(result);
   }
   
   // Handle arrays - recursively process items for function replacement
@@ -255,7 +263,7 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
         };
         processedArray[index] = marker;
       } else {
-        processedArray[index] = preprocessResult(item, currentChain, seen);
+        processedArray[index] = await preprocessResult(item, currentChain, seen);
       }
     }
     
@@ -281,7 +289,7 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
       processedObject[key] = marker;
     } else {
       // Recursively process non-function values
-      processedObject[key] = preprocessResult(value, currentChain, seen);
+      processedObject[key] = await preprocessResult(value, currentChain, seen);
     }
   }
   
@@ -320,7 +328,7 @@ function preprocessResult(result: any, operationChain: OperationChain, seen = ne
             processedObject[key] = marker;
           } else if (value !== undefined && value !== null) {
             // Getter returns a non-function value - recursively process it
-            processedObject[key] = preprocessResult(value, currentChain, seen);
+            processedObject[key] = await preprocessResult(value, currentChain, seen);
           }
         } catch (error) {
           // If getter throws, just skip it
