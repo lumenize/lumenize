@@ -1,6 +1,6 @@
 {
 	"name": "testing-agent-with-agent-client",
-	"version": "0.0.0",
+	"version": "0.10.0",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
