@@ -100,7 +100,7 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
  * @example
  * ```typescript
  * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
- * await using client = createRpcClient<MyDOType>(...);
+ * using client = createRpcClient<MyDOType>(...);
  * await client.ctx.storage.put('key', 'value'); // TypeScript allows this
  * ```
  */
@@ -118,10 +118,10 @@ export type RpcAccessible<T> = Omit<T, 'ctx' | 'env'> & {
  * ```typescript
  * // Before (verbose)
  * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
- * await using client = createRpcClient<MyDOType>(...);
+ * using client = createRpcClient<MyDOType>(...);
  * 
  * // After (simpler) - pass class directly
- * await using client = createRpcClient<typeof MyDO>(...);
+ * using client = createRpcClient<typeof MyDO>(...);
  * // Type is automatically inferred as RpcAccessible<InstanceType<typeof MyDO>>
  * ```
  */

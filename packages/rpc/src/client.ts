@@ -22,7 +22,7 @@ import { isStructuredCloneNativeType } from './structured-clone-utils';
  * Connection is established automatically on first method call (lazy connection)
  * and auto-reconnected on first call after disconnect.
  * 
- * Use 'await using' for automatic cleanup, or manually manage lifecycle.
+ * Use 'using' for automatic cleanup, or manually manage lifecycle.
  * 
  * @remarks
  * This is a factory function that returns an instance of the internal {@link RpcClient} class.
@@ -115,9 +115,8 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
  * 
  * 2. Class Implementation (RpcClient): INTERNAL
  *    - Manages stateful connection lifecycle (transport, reconnection)
- *    - Implements Symbol.asyncDispose for 'await using' support
- *      (Note: Both factory and class patterns support 'await using' equally - 
- *       it's the Symbol.asyncDispose implementation that matters, not how the object is created)
+ *    - Implements Symbol.dispose for 'using' support (synchronous cleanup)
+ *      Note: WebSocket.close() is synchronous, so async disposal is unnecessary
  *    - Uses Proxy pattern which works naturally with class instances
  *    - Provides named type (RpcClient<T>) for advanced users who need type references
  * 
@@ -160,6 +159,8 @@ export class RpcClient<T> {
     return new Proxy(this, {
       get: (target, prop, receiver) => {
         // Handle disposal symbols for explicit resource management
+        // Note: We only implement Symbol.dispose (sync), but check for asyncDispose
+        // for forward compatibility if we ever need async cleanup in the future
         // Bind to the target (RpcClient instance) not the receiver (proxy)
         if (prop === Symbol.asyncDispose || prop === Symbol.dispose) {
           const method = Reflect.get(target, prop, target); // Use target as receiver

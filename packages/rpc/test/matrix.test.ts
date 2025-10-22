@@ -69,8 +69,8 @@ function createMatrixClient(config: typeof MATRIX[number], instanceId: string): 
 
   return {
     client,
-    cleanup: async () => {
-      await client[Symbol.asyncDispose]();
+    cleanup: () => {
+      client[Symbol.dispose]();
     },
   };
 }
@@ -361,7 +361,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
       const count3 = await (client as any).increment();
       expect(count3).toBe(1); // Should start from 1 after reset
     } finally {
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
     }
   });
 
@@ -407,7 +407,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
       const count2 = await (client as any).increment();
       expect(count2).toBe(count + 1);
 
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
     } finally {
       ws.close();
     }

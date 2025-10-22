@@ -18,22 +18,22 @@ import { createRpcClient } from '@lumenize/rpc';
  * For production use or when you need full configuration control (custom transports,
  * WebSocket connections, custom headers, etc.), use {@link createRpcClient} directly.
  * 
- * Both functions return the same underlying RpcClient instance and support 'await using'
+ * Both functions return the same underlying RpcClient instance and support 'using'
  * for automatic cleanup. The only difference is the level of configuration abstraction.
  * 
  * For test timeouts, use your test framework's timeout features (e.g., Vitest's `test.timeout`).
  * 
  * @example
  * ```typescript
- * await using client = createTestingClient<typeof MyDO>('MY_DO', 'instance-name');
+ * using client = createTestingClient<typeof MyDO>('MY_DO', 'instance-name');
  * await client.ctx.storage.put('key', 'value');
  * 
  * // For TypeScript, it also supports interfaces or pre-wrapping using `RpcAccessible`
  * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
- * await using client = createTestingClient<MyDOType>('MY_DO', 'instance-name');
+ * using client = createTestingClient<MyDOType>('MY_DO', 'instance-name');
  * 
  * // Production - full control (use createRpcClient)
- * await using client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name', {
+ * using client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name', {
  *   transport: 'websocket',
  *   baseUrl: 'https://api.example.com'
  * });

@@ -59,7 +59,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         const echoedValue = await (client as any).echo({ test: 'value' });
         expect(echoedValue).toEqual({ test: 'value' });
       } finally {
-        await client[Symbol.asyncDispose]();
+        client[Symbol.dispose]();
       }
     });
 
@@ -92,7 +92,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         const sum = await (client as any).add(10, 20);
         expect(sum).toBe(130); // 10 + 20 + 100 bonus
       } finally {
-        await client[Symbol.asyncDispose]();
+        client[Symbol.dispose]();
       }
     });
 
@@ -132,7 +132,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         const prop = await (client as any).getSubclassProperty();
         expect(prop).toBe('I am a subclass');
       } finally {
-        await client[Symbol.asyncDispose]();
+        client[Symbol.dispose]();
       }
     });
 
@@ -172,7 +172,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         // Should include subclass getter
         expect(methods).toContain('subclassName');
       } finally {
-        await client[Symbol.asyncDispose]();
+        client[Symbol.dispose]();
       }
     });
 
@@ -209,7 +209,7 @@ TRANSPORTS.forEach(({ name, transport }) => {
         const count = await (client as any).increment();
         expect(count).toBe(1001); // First increment with bonus
       } finally {
-        await client[Symbol.asyncDispose]();
+        client[Symbol.dispose]();
       }
     });
   });

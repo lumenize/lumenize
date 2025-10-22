@@ -33,7 +33,7 @@ describe('WebSocket RPC Integration', () => {
     await new Promise(resolve => setTimeout(resolve, 50));
     
     // Explicitly disconnect while operation is pending
-    await client[Symbol.asyncDispose]();
+    client[Symbol.dispose]();
     
     // Operation should be rejected with disconnect error
     await expect(promise).rejects.toThrow('WebSocket disconnected');
@@ -56,7 +56,7 @@ describe('WebSocket RPC Integration', () => {
       const result3 = await client.add(5, 3);
       expect(result3).toBe(8);
     } finally {
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
     }
   });
 
@@ -87,7 +87,7 @@ describe('WebSocket RPC Integration', () => {
       const result4 = await client.increment();
       expect(result4).toBeGreaterThan(0);
     } finally {
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
     }
   });
 
@@ -101,7 +101,7 @@ describe('WebSocket RPC Integration', () => {
       expect(count1).toBeGreaterThan(0);
       
       // Explicitly disconnect
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
       
       // Next call should auto-reconnect (tests line 271)
       const count2 = await client.increment();
@@ -109,7 +109,7 @@ describe('WebSocket RPC Integration', () => {
     } finally {
       // Clean up in case last call succeeded
       try {
-        await client[Symbol.asyncDispose]();
+        client[Symbol.dispose]();
       } catch {
         // May already be disposed
       }
@@ -129,7 +129,7 @@ describe('WebSocket RPC Integration', () => {
       await new Promise(resolve => setTimeout(resolve, 50));
       
       // Close the connection while operations are pending
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
       
       // Both operations should be rejected
       await expect(promise1).rejects.toThrow('WebSocket');
@@ -195,7 +195,7 @@ describe('WebSocket RPC Integration', () => {
       });
 
       // Both connections coexist independently - clean up
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
     } finally {
       customWs.close();
     }
@@ -447,7 +447,7 @@ describe('WebSocket Shim Integration', () => {
       expect(result).toBe(1);
       
       // Explicitly cleanup
-      await client[Symbol.asyncDispose]();
+      client[Symbol.dispose]();
     }
     expect(i).toBe(MAX)
     

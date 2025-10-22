@@ -13,7 +13,7 @@ import type { RpcAccessible } from '../../src/types';
  */
 export interface TestableClient<T = any> {
   client: RpcAccessible<T>;
-  cleanup?: () => Promise<void>;
+  cleanup?: () => void | Promise<void>;
 }
 
 /**

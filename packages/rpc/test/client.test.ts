@@ -156,12 +156,14 @@ describe('RPC client-side functionality', () => {
     expect(result3).toBe(8);
   });
 
-  // KEPT: Test async dispose and ensure proper cleanup
-  it('should properly cleanup with Symbol.asyncDispose', async () => {
+  // KEPT: Test disposal and ensure proper cleanup
+  // Note: 'await using' works with synchronous Symbol.dispose too
+  it('should properly cleanup with Symbol.dispose (using/await using)', async () => {
     let client: any;
     
     {
-      await using c = createRpcClient<ExampleDO>('example-do', 'async-dispose-test', {
+      // Test with 'await using' (works with sync dispose)
+      await using c = createRpcClient<ExampleDO>('example-do', 'dispose-test-1', {
         transport: 'websocket',
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -174,6 +176,25 @@ describe('RPC client-side functionality', () => {
       await client.increment();
     }
     // Client should be disposed here
+    
+    // Trying to use after dispose should fail
+    await expect(client.increment()).rejects.toThrow();
+    
+    // Also test plain 'using'
+    {
+      using c2 = createRpcClient<ExampleDO>('example-do', 'dispose-test-2', {
+        transport: 'websocket',
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      });
+      
+      client = c2;
+      
+      // Make a call to establish connection
+      await client.increment();
+    }
+    // Client should be disposed here too
     
     // Trying to use after dispose should fail
     await expect(client.increment()).rejects.toThrow();
