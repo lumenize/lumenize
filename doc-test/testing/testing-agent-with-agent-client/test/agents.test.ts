@@ -1,3 +1,15 @@
+// DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
+// - Block comments (/* */) become Markdown in the docs
+// - Code between block comments becomes code blocks in the docs
+// - Single-line comments (//) stay in source only (not in docs)
+// - Use @import directives to include external files
+// - Tests must pass - they validate the documentation
+// - Keep code blocks within 80 columns to prevent horizontal scrolling
+// - Keep it brief - this is documentation, not exhaustive testing
+//   - Use one expect() to illustrate behavior
+//   - Only add more expects if the boundaries/edge cases are the point
+// - See: /tooling/doc-testing/README.md
+
 /*
 # Agents
 */
