@@ -110,26 +110,6 @@ export type RpcAccessible<T> = Omit<T, 'ctx' | 'env'> & {
 };
 
 /**
- * Helper type that converts a DO class constructor to its RPC-accessible instance type.
- * This eliminates boilerplate: instead of `RpcAccessible<InstanceType<typeof MyDO>>`,
- * just use `InferDOType<typeof MyDO>`.
- * 
- * @example
- * ```typescript
- * // Before (verbose)
- * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
- * using client = createRpcClient<MyDOType>(...);
- * 
- * // After (simpler) - pass class directly
- * using client = createRpcClient<typeof MyDO>(...);
- * // Type is automatically inferred as RpcAccessible<InstanceType<typeof MyDO>>
- * ```
- */
-export type InferDOType<T> = T extends new (...args: any[]) => infer I 
-  ? RpcAccessible<I>
-  : never;
-
-/**
  * Configuration options for creating an RPC client.
  * These are the optional parameters passed to createRpcClient().
  * 

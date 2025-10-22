@@ -28,15 +28,19 @@ const DEFAULT_CONFIG: Required<RpcConfig> = {
 
 /**
  * Handle RPC requests manually without using the factory function.
- * Returns Response for RPC requests, null for non-RPC requests.
  * 
- * This is useful for users who want full control over their routing
- * and want to mix RPC with other custom endpoints.
+ * Only use this if you want more direct control over the routing inside your DO.
+ * Most of the time, you will use the auto-wrapper functionality of `lumenizeRpcDO`.
+ * 
+ * Returns Response for RPC requests, undefined for non-RPC requests.
+ * 
+ * This function is called from the fetch handler to check if
+ * an incoming message is an RPC request and handle it accordingly.
  * 
  * @param request - The incoming HTTP request
  * @param doInstance - The Durable Object instance to operate on
  * @param config - Optional RPC configuration
- * @returns Response for RPC requests, null for non-RPC requests
+ * @returns Response for RPC requests, undefined for non-RPC requests
  * 
  * @see For working examples, see packages/rpc/test/test-worker-and-dos.ts
  */
@@ -44,13 +48,13 @@ export async function handleRpcRequest(
   request: Request,
   doInstance: any,
   config: RpcConfig = {}
-): Promise<Response | null> {
+): Promise<Response | undefined> {
   const rpcConfig = { ...DEFAULT_CONFIG, ...config };
   const url = new URL(request.url);
   
   // Only handle RPC endpoints
   if (!url.pathname.startsWith(rpcConfig.prefix)) {
-    return null; // Not an RPC request, let other handlers deal with it
+    return undefined; // Not an RPC request, let other handlers deal with it
   }
 
   const pathnameSegments = url.pathname.split('/');
@@ -425,6 +429,10 @@ interface RpcWebSocketResponse {
 
 /**
  * Handle RPC messages received via WebSocket.
+ * 
+ * Only use this if you want more direct control over the routing inside your DO.
+ * Most of the time, you will use the auto-wrapper functionality of `lumenizeRpcDO`.
+ * 
  * Returns true if the message was handled as an RPC message, false otherwise.
  * 
  * This function is called from the webSocketMessage handler to check if
@@ -519,7 +527,7 @@ export async function handleRpcMessage(
  * @param config - Optional RPC configuration
  * @returns Enhanced DO class with RPC endpoints
  * 
- * @see For working examples, see the test files in packages/rpc/test/ and doc-test/
+ * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#srcindexts) - Complete tested examples
  */
 export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T, config: RpcConfig = {}): T {
   if (typeof DOClass !== 'function') {

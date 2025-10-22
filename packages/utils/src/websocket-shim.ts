@@ -23,11 +23,11 @@ export interface WebSocketShimOptions {
  * Returns a browser-compatible WebSocket constructor that uses a provided fetch function to initiate
  * WebSocket connections, enabling testing without a separate server.
  * 
- * @param fetchFn - The fetch function to use for WebSocket upgrade requests (e.g., `SELF.fetch.bind(SELF)`).
+ * @param fetchFn - The fetch function to use for WebSocket upgrade requests. Defaults to `globalThis.fetch`. In test environments, pass `SELF.fetch.bind(SELF)`.
  * @param factoryInit - Optional configuration for headers and queue limits.
  * @returns A WebSocket-compatible constructor class.
  */
-export function getWebSocketShim(fetchFn: typeof fetch, factoryInit?: WebSocketShimOptions): new (url: string | URL, protocols?: string | string[]) => WebSocket {
+export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, factoryInit?: WebSocketShimOptions): new (url: string | URL, protocols?: string | string[]) => WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)
     static readonly CONNECTING = 0;

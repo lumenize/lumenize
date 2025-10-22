@@ -19,10 +19,25 @@ import { isStructuredCloneNativeType } from './structured-clone-utils';
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
- * Connection is established automatically on first method call (lazy connection)
- * and auto-reconnected on first call after disconnect.
+ * For the WebSocket transport, connection is established automatically on first 
+ * method call (lazy connection) and auto-reconnected on first call after disconnect.
  * 
- * Use 'using' for automatic cleanup, or manually manage lifecycle.
+ * Use 'using' for automatic cleanup:
+ * ```typescript
+ * using client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name');
+ * await client.someMethod();
+ * // disconnect() called automatically at end of scope
+ * ```
+ * 
+ * Or manually manage lifecycle:
+ * ```typescript
+ * const client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name');
+ * try {
+ *   await client.someMethod();
+ * } finally {
+ *   client[Symbol.dispose]();
+ * }
+ * ```
  * 
  * @remarks
  * This is a factory function that returns an instance of the internal {@link RpcClient} class.
@@ -30,7 +45,7 @@ import { isStructuredCloneNativeType } from './structured-clone-utils';
  * API evolution without breaking changes. For testing, use {@link createTestingClient}
  * which provides sensible defaults for the Cloudflare Workers test environment.
  * 
- * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client) - Complete tested examples
+ * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client)
  * 
  * @typeParam T - Either a DO instance type (e.g., `RpcAccessible<InstanceType<typeof MyDO>>`) or the DO class constructor (e.g., `typeof MyDO`). When passing a class constructor, instance type with RpcAccessible is inferred automatically.
  * @param doBindingName - The DO binding name from wrangler.jsonc (e.g., 'MY_DO')
