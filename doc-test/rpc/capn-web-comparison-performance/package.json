@@ -1,0 +1,24 @@
+{
+	"name": "capn-web-comparison-performance",
+	"version": "0.10.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest --run",
+		"coverage": "vitest --run --coverage",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.9.3",
+		"@lumenize/rpc": "^0.10.0",
+		"@lumenize/testing": "^0.10.0",
+		"@lumenize/utils": "^0.10.0",
+		"@vitest/coverage-istanbul": "3.2.4",
+		"capnweb": "^0.1.0",
+		"typescript": "^5.9.2",
+		"vitest": "3.2.4",
+		"wrangler": "^4.38.0"
+	}
+}
