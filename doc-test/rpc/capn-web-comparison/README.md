@@ -1,10 +1,10 @@
-# Feature Comparison: Lumenize RPC vs Cap'n Web
+# Cap'n Web Comparison
 
 A de✨light✨ful living documentation comparing Lumenize RPC with Cap'n Web (Cloudflare's official RPC solution).
 
 ## Overview
 
-This experimental package provides side-by-side comparisons of how Lumenize RPC and Cap'n Web handle various features and patterns. Each comparison focuses on developer experience (DX) differences and practical implications.
+This doc-test provides side-by-side comparisons of how Lumenize RPC and Cap'n Web handle various features and patterns. Each comparison focuses on developer experience (DX) differences and practical implications.
 
 ## Features Compared
 
@@ -30,4 +30,4 @@ The test file doubles as living documentation with extensive markdown comments e
 - [Lumenize RPC Documentation](https://lumenize.com/docs/rpc/introduction)
 - [Cap'n Web Blog Post](https://blog.cloudflare.com/capnweb-javascript-rpc-library/)
 - [Cap'n Web GitHub](https://github.com/cloudflare/capnweb)
-- [Performance Comparison](../performance-comparisons/)
+- [Performance Comparison](../../../experiments/performance-comparisons/)

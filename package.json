@@ -9,7 +9,8 @@
     "examples/*",
     "tooling/*",
     "website",
-    "experiments/*"
+    "experiments/*",
+    "doc-test/*/*"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
