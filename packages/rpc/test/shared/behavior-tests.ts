@@ -560,6 +560,64 @@ export async function testEchoError(testable: TestableClient): Promise<void> {
 }
 
 /**
+ * Built-in types - Echo BigInt (client → server → client)
+ */
+export async function testEchoBigInt(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Create a BigInt value
+  const originalBigInt = 1234567890123456789012345678901234567890n;
+  
+  // Send it to the server and get it back
+  const echoedBigInt = await (client as any).echo(originalBigInt);
+  
+  // Verify it's preserved as BigInt
+  expect(typeof echoedBigInt).toBe('bigint');
+  expect(echoedBigInt).toBe(originalBigInt);
+  
+  // Test negative BigInt
+  const negativeBigInt = -9876543210987654321098765432109876543210n;
+  const echoedNegative = await (client as any).echo(negativeBigInt);
+  expect(typeof echoedNegative).toBe('bigint');
+  expect(echoedNegative).toBe(negativeBigInt);
+}
+
+/**
+ * Special Numbers - Echo Infinity, -Infinity, NaN (client → server → client)
+ */
+export async function testEchoSpecialNumbers(testable: TestableClient): Promise<void> {
+  const { client } = testable;
+  
+  // Test positive Infinity
+  const infinity = Infinity;
+  const echoedInfinity = await (client as any).echo(infinity);
+  expect(echoedInfinity).toBe(Infinity);
+  
+  // Test negative Infinity
+  const negInfinity = -Infinity;
+  const echoedNegInfinity = await (client as any).echo(negInfinity);
+  expect(echoedNegInfinity).toBe(-Infinity);
+  
+  // Test NaN - special handling needed since NaN !== NaN
+  const nan = NaN;
+  const echoedNaN = await (client as any).echo(nan);
+  expect(Number.isNaN(echoedNaN)).toBe(true);
+  
+  // Test in object context
+  const obj = {
+    infinity: Infinity,
+    negInfinity: -Infinity,
+    nan: NaN,
+    regularNumber: 42
+  };
+  const echoedObj = await (client as any).echo(obj);
+  expect(echoedObj.infinity).toBe(Infinity);
+  expect(echoedObj.negInfinity).toBe(-Infinity);
+  expect(Number.isNaN(echoedObj.nan)).toBe(true);
+  expect(echoedObj.regularNumber).toBe(42);
+}
+
+/**
  * All behavior tests in a registry for easy iteration
  */
 export const behaviorTests = {
@@ -588,6 +646,8 @@ export const behaviorTests = {
   echoArrayBuffer: testEchoArrayBuffer,
   echoTypedArray: testEchoTypedArray,
   echoError: testEchoError,
+  echoBigInt: testEchoBigInt,
+  echoSpecialNumbers: testEchoSpecialNumbers,
 };
 
 /**
@@ -602,5 +662,5 @@ export const testCategories = {
   circularRefs: ['echoCircularReference'],
   inspection: ['asObject'],
   async: ['slowIncrement'],
-  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi', 'echoDate', 'echoRegExp', 'echoMap', 'echoSet', 'echoArrayBuffer', 'echoTypedArray', 'echoError'],
+  webApi: ['echoRequest', 'echoResponse', 'echoHeaders', 'echoURL', 'echoNestedWebApi', 'echoDate', 'echoRegExp', 'echoMap', 'echoSet', 'echoArrayBuffer', 'echoTypedArray', 'echoError', 'echoBigInt', 'echoSpecialNumbers'],
 };

@@ -7,6 +7,15 @@ draft: true
 image: ./images/cover.png
 ---
 
+{/* 
+TODO: Add type support comparison table showing:
+- Lumenize RPC: ✅ for Date, RegExp, Map, Set, ArrayBuffer, TypedArray, BigInt, Error (with name/stack), Request/Response/Headers/URL, Infinity/-Infinity/NaN
+- Cap'n Web: ❌ for most of these (limited to JSON-like types)
+- Note: ReadableStream/WritableStream don't work in either system (not serializable via structured-clone)
+  - This affects Request/Response objects with streaming bodies
+  - Both systems must consume streams before serialization
+*/}
+
 import TOCInline from '@theme/TOCInline';
 
 <TOCInline toc={toc} maxHeadingLevel={2} />
