@@ -12,6 +12,7 @@ import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
 import { deserializeWebApiObject, serializeWebApiObject } from './web-api-serialization';
+import { serializeError, deserializeError } from './error-serialization';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 
@@ -51,17 +52,21 @@ export function createRpcClient<T>(
 }
 
 /**
- * Process outgoing operations to serialize Web API objects in arguments before transmission.
+ * Process outgoing operations before sending to server.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
- * serialize any Web API objects in the args.
+ * serialize any Web API objects and Errors in the args.
  */
 async function processOutgoingOperations(operations: OperationChain): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
-      // Use walkObject to serialize Web API objects in the args
+      // Use walkObject to serialize Web API objects and Errors in the args
       const transformer = async (value: any) => {
+        // Check if this is an Error that needs serialization
+        if (value instanceof Error) {
+          return serializeError(value);
+        }
         // Check if this is a Web API object that needs serialization
         if (value && typeof value === 'object' && (
           value instanceof Request ||
@@ -75,7 +80,7 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
         return value;
       };
       
-      // Walk the args array to find and serialize Web API objects
+      // Walk the args array to find and serialize Web API objects and Errors
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
         shouldSkipRecursion: isStructuredCloneNativeType
@@ -283,6 +288,11 @@ export class RpcClient<T> {
       obj.__isSerializedURL
     )) {
       return deserializeWebApiObject(obj);
+    }
+
+    // Check for serialized Error objects
+    if (obj && typeof obj === 'object' && obj.__isSerializedError) {
+      return deserializeError(obj);
     }
 
     if (obj === null || typeof obj !== 'object') {

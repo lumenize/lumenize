@@ -6,7 +6,7 @@ import type {
   RpcConfig,
   RemoteFunctionMarker
 } from './types';
-import { serializeError } from './error-serialization';
+import { serializeError, deserializeError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject } from './web-api-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 import { walkObject } from './walk-object';
@@ -224,17 +224,21 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
 }
 
 /**
- * Process incoming operations to deserialize Web API objects in arguments before execution.
+ * Process incoming operations to deserialize Web API objects and Errors in arguments before execution.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
- * deserialize any serialized Web API objects in the args.
+ * deserialize any serialized Web API objects and Errors in the args.
  */
 async function processIncomingOperations(operations: OperationChain): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
-      // Use walkObject to deserialize Web API objects in the args
+      // Use walkObject to deserialize Web API objects and Errors in the args
       const transformer = async (value: any) => {
+        // Check if this is a serialized Error
+        if (value && typeof value === 'object' && value.__isSerializedError) {
+          return deserializeError(value);
+        }
         // Check if this is a serialized Web API object
         if (value && typeof value === 'object' && (
           value.__isSerializedRequest ||
@@ -248,7 +252,7 @@ async function processIncomingOperations(operations: OperationChain): Promise<Op
         return value;
       };
       
-      // Walk the args array to find and deserialize Web API objects
+      // Walk the args array to find and deserialize Web API objects and Errors
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
         shouldSkipRecursion: isStructuredCloneNativeType
@@ -279,10 +283,16 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
   }
   
   // Handle built-in types that structured-clone handles natively - return as-is
+  // Exception: Error needs special serialization to preserve custom properties
   if (result instanceof Date || result instanceof RegExp || result instanceof Map || 
       result instanceof Set || result instanceof ArrayBuffer || 
-      ArrayBuffer.isView(result) || result instanceof Error) {
+      ArrayBuffer.isView(result)) {
     return result;
+  }
+  
+  // Handle Error - serialize it to preserve custom properties (name, stack, etc.)
+  if (result instanceof Error) {
+    return serializeError(result);
   }
   
   // Handle Web API objects - serialize them before structured-clone

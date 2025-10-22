@@ -54,6 +54,9 @@ export function deserializeError(serializedError: any): Error {
   const ErrorConstructor = (globalThis as any)[serializedError.name] || Error;
   const error = new ErrorConstructor(serializedError.message);
   
+  // Set the name explicitly (important for custom error names)
+  error.name = serializedError.name;
+  
   // Copy all custom properties back
   for (const [key, value] of Object.entries(serializedError)) {
     if (!['name', 'message', 'stack', '__isSerializedError'].includes(key)) {
