@@ -21,12 +21,6 @@ official "last-mile" RPC solution) handle basic usage and supported types.
 Using this doc-test approach, when either package adds capability, we'll
 know immediately because the tests will start failing as soon as we upgrade
 to the latest version.
-
-## References
-
-- Cap'n Web blog post: https://blog.cloudflare.com/capnweb-javascript-rpc-library/
-- Cap'n Web GitHub: https://github.com/cloudflare/capnweb
-- Lumenize RPC docs: https://lumenize.com/docs/rpc/introduction
 */
 
 /*
@@ -53,8 +47,6 @@ it('detects package versions', () => {
   expect(lumenizeRpcPackage.version).toBe('0.10.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
-
-
 
 /*
 ## Creating Clients

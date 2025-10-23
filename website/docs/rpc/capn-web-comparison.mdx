@@ -1,0 +1,72 @@
+---
+title: vs Cap'n Web (summary)
+description: Comparing Lumenize RPC to Cloudflare Cap'n Web
+---
+
+# Introduction to Lumenize RPC
+
+9% lower peak throughput
+
+Lumenize RPC provides remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
+
+## References
+
+- Cap'n Web blog post: https://blog.cloudflare.com/capnweb-javascript-rpc-library/
+- Cap'n Web GitHub: https://github.com/cloudflare/capnweb
+- [Lumenize RPC docs](/docs/rpc/intro)
+
+:::note
+<details>
+  <summary>
+    <strong>Lumenize RPC</strong> vs <strong>Cloudflare Cap'n Web</strong>
+  </summary>
+  If the Lumenize RPC documentation feels comparatively light (we wrote over 500 lines for [`routeDORequest`](/docs/utils/route-do-request) and its [CORS Support](/docs/utils/cors-support)), it's intentional. Somewhere between open-sourcing Lumenize and publishing to npm, Cloudflare released its own browser-based RPC, Cap'n Web, under the leadership of the father of Durable Objects, Kenton Varga.
+
+  As of this writing, we lack definitive guidance on when to choose which solution. We'll update this document once we have more experience with and a performance comparison with Cap'n Web.
+
+  However, Lumenize RPC supports circular data structures, a feature Kenton Varga has indicated will not be added to Cap'n Web. He even suggested deprecating circular support in Cloudflare-native RPC (Cap'n Proto). Because LumenizeBase and our backend depend on circular structure handling, this functionality will remain in `@lumenize/testing`
+
+  Another difference that we know of is that this RPC implementation transports Errors across the wire. They are automatically `catch`ed on the callee side, serialized in a particular way and re-`throw`n on the caller side with all properties like stack traces preserved. We don't currently have experimental or documentation insight into Cap'n Web's handling of Errors but it is unlikely that it will preserve stack traces and other properties since Cap'n Proto preserves only the message property.
+</details>
+:::
+   
+## In-production RPC
+
+1. **Purpose**: Interact with your Durable Objects from a browser client as if running inside the DO.
+
+2. **Supports**:
+   - Any StructuredCloneable type (e.g., `Set`, `Map`, `Date`, circular objects)
+   - Automatic propagation of errors thrown by your DO back to the client
+   - Both HTTP and WebSocket transports
+
+3. **Secure**:
+   - Security hooks and best-practice examples included
+
+4. **Example Usage**:
+   ```typescript
+   // Store a value in the DO's storage
+   await client.ctx.storage.put('count', '10');
+   // Call an RPC method defined in your DO
+   const currentCount = await client.increment(); // returns 11
+   ```
+
+## WebSocket vs HTTP
+
+Both transports offer identical RPC functionality but have different performance characteristics.
+
+### WebSocket (default)
+- Persistent connection for multiple RPC calls
+- Higher initial connection overhead
+- Lower latency for subsequent calls
+- Automatic connection management
+- Automatically re-establishes connection on demand
+
+### HTTP (default for `@lumenize/testing`)
+- One HTTP request per RPC call
+- Simpler
+- Slightly higher per-call latency
+
+Choose based on your requirements:
+- **When in doubt**: WebSocket is generally more efficient and low-latency
+- **Production scenarios with restrictive intermediaries**: HTTP may be more robust
+- **Future-proofing**: LumenizeBase will build on WebSockets for real-time state sync — your client code will remain the same

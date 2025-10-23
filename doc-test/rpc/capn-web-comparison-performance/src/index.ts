@@ -8,14 +8,11 @@ import { newWorkersRpcResponse } from 'capnweb';
 // ============================================================================
 
 class _LumenizeDO extends DurableObject {
-  increment(): number {
-    let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
-    this.ctx.storage.kv.put("count", ++count);
-    return count;
-  }
-
-  throwError(): never {
-    throw new Error('Intentional error from Lumenize DO');
+  increment(count: number = 1): number {
+    let currentCount = (this.ctx.storage.kv.get<number>("count")) ?? 0;
+    currentCount += count;
+    this.ctx.storage.kv.put("count", currentCount);
+    return currentCount;
   }
 
   echo(value: any): any {
@@ -41,14 +38,11 @@ export class CapnWebRpcTarget extends RpcTarget {
     super();
   }
   
-  increment(): number {
-    let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
-    this.ctx.storage.kv.put("count", ++count);
-    return count;
-  }
-
-  throwError(): never {
-    throw new Error('Intentional error from Cap\'n Web RpcTarget');
+  increment(count: number = 1): number {
+    let currentCount = (this.ctx.storage.kv.get<number>("count")) ?? 0;
+    currentCount += count;
+    this.ctx.storage.kv.put("count", currentCount);
+    return currentCount;
   }
 
   echo(value: any): any {

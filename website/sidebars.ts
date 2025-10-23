@@ -118,11 +118,19 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
           }
         },
+        'rpc/capn-web-comparison',
         {
           type: 'doc',
           id: 'rpc/capn-web-comparison-basics-and-types',
           customProps: {
             docTest: 'doc-test/rpc/capn-web-comparison-basics-and-types/test/basics-and-types.test.ts'
+          }
+        },
+        {
+          type: 'doc',
+          id: 'rpc/capn-web-comparison-performance',
+          customProps: {
+            docTest: 'doc-test/rpc/capn-web-comparison-performance/test/performance.test.ts'
           }
         },
         ...(typedocRpcSidebar && typedocRpcSidebar.length > 0

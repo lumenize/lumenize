@@ -345,7 +345,7 @@ MATRIX.forEach((matrixConfig) => {
       });
     });
 
-    describe('Promise Pipelining (Batching)', () => {
+    describe('Automatic Batching', () => {
       // These tests verify that operations in the same tick get batched into a single round trip
       Object.keys(batchingTests).forEach((testName) => {
         it(testName, async () => {

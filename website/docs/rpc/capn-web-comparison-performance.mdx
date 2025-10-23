@@ -1,30 +1,39 @@
-// DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
-// - Block comments (/* */) become Markdown in the docs
-// - Code between block comments becomes code blocks in the docs
-// - Single-line comments (//) before the first block comment (like this one)
-//   do not show up in the generated doc
-// - Single-line comments (//) after that are included in the generated doc
-// - Use @import directives to include external files
-// - Tests must pass - they validate the documentation
-// - Keep code blocks within 80 columns to prevent horizontal scrolling
-// - Keep it brief - this is documentation, not exhaustive testing
-//   - Use one expect() to illustrate behavior
-//   - Only add more expects if the boundaries/edge cases are the point
-// - See: /tooling/doc-testing/README.md
+---
 
-/*
+generated_by: doc-testing
+
+---
+
+
+
 # vs Cap'n Web (performance)
+
+<details>
+<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
+
+This documentation uses **testable code examples** to ensure accuracy and reliability:
+
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual library
+- **Always up-to-date**: When the library changes, the tests fail and the docs must be updated
+- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
+
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
+
+</details>
 
 This living documentation compares performance characteristics between Lumenize 
 RPC and Cap'n Web (Cloudflare's official "last-mile" RPC solution).
 
 **Bottom line**: The performance differences between Cap'n Web and Lumenize RPC 
 are essentially zero for the common use cases (reciepts below).
-*/
 
-/*
 ## Imports
-*/
+
+
+
+
+```typescript test
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
@@ -33,8 +42,11 @@ import { newWebSocketRpcSession } from 'capnweb';
 import type { Metrics } from '@lumenize/utils';
 
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
+```
 
-/*
+
+
+
 ## Version(s)
 
 This test asserts the installed version(s) and our release script warns if we 
@@ -43,18 +55,28 @@ should always be up to date.
 
 Using this doc-test approach, when either package changes its implementation, 
 we'll know immediately because the tests will start failing.
-*/
+
+
+
+
+```typescript test
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
   expect(lumenizeRpcPackage.version).toBe('0.10.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
+```
 
-/*
+
+
+
 ## Creating Clients
-*/
 
+
+
+
+```typescript test
 function getLumenizeClient(instanceName: string, metrics?: Metrics) {
   return createRpcClient<typeof LumenizeDO>(
     'LUMENIZE',
@@ -68,15 +90,24 @@ function getCapnWebClient(instanceName: string, metrics?: Metrics) {
   const ws = new (getWebSocketShim(SELF.fetch.bind(SELF), { metrics }))(url);
   return newWebSocketRpcSession<CapnWebRpcTarget>(ws);
 }
+```
 
-/*
+
+
+
 ## Metrics Setup
-*/
 
+
+
+
+```typescript test
 let lumenizeMetrics: Metrics = {};
 let capnwebMetrics: Metrics = {};
+```
 
-/*
+
+
+
 ## Automatic Batching
 
 Automatic batching allows multiple RPC calls to be sent together without waiting
@@ -95,7 +126,11 @@ matter are the received message counts and the count of WebSocket upgrade
 requests, which do represent another round trip.
 
 **Cap'n Web and Lumenize RPC have identical round trip counts (2 each).**
-*/
+
+
+
+
+```typescript test
 it('compares round trips when using automatic batching', async () => {
   // ==========================================================================
   // Lumenize RPC - automatic batching
@@ -133,8 +168,11 @@ it('compares round trips when using automatic batching', async () => {
   expect(capnwebMetrics.wsSentMessages).toBe(5);  // Handshake + calls
   expect(capnwebMetrics.wsReceivedMessages).toBe(1);  // Batched response
 });
+```
 
-/*
+
+
+
 ## Payload byte count (small payloads)
 
 Let's compare the byte counts for the payloads for the above calls.
@@ -149,7 +187,11 @@ above, this is also a distinction without much of a difference. The latency
 impact of this 577 byte difference at even a very slow connection of say 10Mb/s 
 is 0.46ms (0.00046 seconds) and more importantly, the payloads are so small
 that all we are measuring is framing.
-*/
+
+
+
+
+```typescript test
 it('compares byte count (small payloads)', async () => {
   // --- Payload bytes sent ----
   // Lumenize sends more bytes because it uses JSON-RPC
@@ -164,8 +206,11 @@ it('compares byte count (small payloads)', async () => {
   expect(lumenizeMetrics.wsReceivedPayloadBytes).toBeCloseTo(277, -1);
   expect(capnwebMetrics.wsReceivedPayloadBytes).toBeCloseTo(15, -1);
 });
+```
 
-/*
+
+
+
 ## Payload byte count (larger payloads)
 
 The previous test showed a 4.6x overhead for Lumenize RPC, but that's mostly
@@ -175,7 +220,11 @@ size - a 10KB string, which is not very large and would still travel over a very
 **Key insight:** With actual data payloads, the framing overhead becomes
 negligible. Lumenize RPC is only 1.6% larger which translates to an additional
 0.27ms (0.00027 seconds) of latency over a very slow 10Mb/s connection.
-*/
+
+
+
+
+```typescript test
 it('compares byte count with 10KB payload', async () => {
   // Create a 10KB string (10,240 characters)
   const largeString = 'x'.repeat(10240);
@@ -208,8 +257,11 @@ it('compares byte count with 10KB payload', async () => {
   const totalRatio = lumenizeTotal / capnwebTotal;
   expect(totalRatio).toBeCloseTo(1.016, 2);
 });
+```
 
-/*
+
+
+
 ## HTTP Batching
 
 Here we demonstrate that Lumenize RPC passively batches over HTTP so it needs
@@ -223,7 +275,11 @@ uses exactly one round trip, like Lumenize RPC.
 However, the DX advantage of Lumenize RPC is clear: client and server require 
 no code changes to switch between transports, just change the transport option 
 to 'http'.
-*/
+
+
+
+
+```typescript test
 it('demonstrates HTTP batching in Lumenize RPC', async () => {
   const metrics: Metrics = {};
   
@@ -253,8 +309,11 @@ it('demonstrates HTTP batching in Lumenize RPC', async () => {
   // All 3 operations sent in exactly 1 HTTP request
   expect(metrics.roundTrips).toBe(1);
 });
+```
 
-/*
+
+
+
 ## Promise Pipelining
 
 Cap'n Web supports true promise pipelining where you can use the result of an 
@@ -267,7 +326,11 @@ automatic batching of independent operations.
 
 **Key insight:** All three calls happen in one round trip because Cap'n Web
 substitutes the promise values on the server side.
-*/
+
+
+
+
+```typescript test
 it('demonstrates true promise pipelining (Cap\'n Web only)', async () => {
   const metrics: Metrics = {};
   
@@ -288,9 +351,11 @@ it('demonstrates true promise pipelining (Cap\'n Web only)', async () => {
   expect(metrics.wsUpgradeRequests).toBe(1);
   expect(metrics.wsReceivedMessages).toBe(1);
 });
+```
 
 
-/*
+
+
 ## Installation
 
 ```bash npm2yarn
@@ -308,15 +373,145 @@ npm install --save-dev capnweb
 
 Worker, DurableObjects and RpcTargets
 
-@import {typescript} "../src/index.ts" [src/index.ts]
+```typescript src/index.ts
+import { DurableObject, RpcTarget } from 'cloudflare:workers';
+import { lumenizeRpcDO } from '@lumenize/rpc';
+import { routeDORequest } from '@lumenize/utils';
+import { newWorkersRpcResponse } from 'capnweb';
+
+// ============================================================================
+// Lumenize RPC
+// ============================================================================
+
+class _LumenizeDO extends DurableObject {
+  increment(count: number = 1): number {
+    let currentCount = (this.ctx.storage.kv.get<number>("count")) ?? 0;
+    currentCount += count;
+    this.ctx.storage.kv.put("count", currentCount);
+    return currentCount;
+  }
+
+  echo(value: any): any {
+    return value;
+  }
+}
+
+export const LumenizeDO = lumenizeRpcDO(_LumenizeDO);
+
+// ============================================================================
+// Cap'n Web - A little more boilerplate (fetch and constructor, but the latter
+//             is only because we want to use storage and test env access)
+// ============================================================================
+
+// Per Cap'n Web docs: "Classes which are intended to be passed by reference 
+// and called over RPC must extend RpcTarget"
+export class CapnWebRpcTarget extends RpcTarget {
+  // RpcTarget requires us to manually capture ctx/env in constructor
+  constructor(
+    public ctx: DurableObjectState,
+    public env: any
+  ) {
+    super();
+  }
+  
+  increment(count: number = 1): number {
+    let currentCount = (this.ctx.storage.kv.get<number>("count")) ?? 0;
+    currentCount += count;
+    this.ctx.storage.kv.put("count", currentCount);
+    return currentCount;
+  }
+
+  echo(value: any): any {
+    return value;
+  }
+
+  fetch(request: Request): Response | Promise<Response> {
+    return newWorkersRpcResponse(request, this);
+  }
+}
+
+// ============================================================================
+// Worker - Route requests to appropriate DO
+// ============================================================================
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const lumenizeResponse = await routeDORequest(request, env, { prefix: '__rpc' });
+    if (lumenizeResponse) return lumenizeResponse;
+    
+    const capnwebResponse = await routeDORequest(request, env, { prefix: 'capnweb' });
+    if (capnwebResponse) return capnwebResponse;
+
+    // Fallback for non-RPC requests
+    return new Response('Not found', { status: 404 });
+  },
+};
+
+```
 
 ### wrangler.jsonc
 
-@import {json} "../wrangler.jsonc" [wrangler.jsonc]
+```json wrangler.jsonc
+{
+  "name": "feature-comparison",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LUMENIZE",
+        "class_name": "LumenizeDO"
+      },
+      {
+        "name": "CAPNWEB",
+        "class_name": "CapnWebRpcTarget"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LumenizeDO", "CapnWebRpcTarget"]
+    }
+  ]
+}
+
+```
 
 ### vitest.config.js
 
-@import {javascript} "../vitest.config.js" [vitest.config.js]
+```javascript vitest.config.js
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+
+export default defineWorkersProject({
+  test: {
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./wrangler.jsonc" },  
+      },
+    },
+    // Use `vitest --run --coverage` to get test coverage report(s)
+    coverage: {
+      provider: "istanbul",  // Cannot use V8
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
+    },
+  },
+});
+
+```
 
 ## Try it out
 
@@ -329,4 +524,3 @@ To see test coverage:
 ```bash
 vitest --run --coverage
 ```
-*/
