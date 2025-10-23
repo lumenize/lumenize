@@ -18,7 +18,7 @@ RPC and Cap'n Web (Cloudflare's official "last-mile" RPC solution).
 
 It was produced using the latest versions as of 2025-10-22:
 - Cap'n Web v0.1.0
-- Lumenize RPC v0.10.0
+- Lumenize RPC v0.10.0 [TODO: Need to upgrade to 0.10.1]
 
 Using this doc-test approach, when either package changes its implementation, 
 we'll know immediately because the tests will start failing as soon as we 
@@ -128,12 +128,14 @@ it('shows metrics when not using promise pipelining', async () => {
   // --- Payload bytes sent ----
   // Lumenize sends more bytes because it uses JSON-RPC
   // vs Cap'n Web's binary Cap'n Proto protocol
-  expect(lumenizeMetrics.wsSentPayloadBytes).toBeCloseTo(639, -1);
+  // Note: Batch format adds wrapper overhead but enables pipelining
+  expect(lumenizeMetrics.wsSentPayloadBytes).toBeCloseTo(744, -1);
   expect(capnwebMetrics.wsSentPayloadBytes).toBeCloseTo(195, -1);
   
   // --- Payload bytes received ---
   // Response sizes - Cap'n Web is much more compact
-  expect(lumenizeMetrics.wsReceivedPayloadBytes).toBeCloseTo(381, -1);
+  // Note: Batch format adds wrapper overhead but enables pipelining
+  expect(lumenizeMetrics.wsReceivedPayloadBytes).toBeCloseTo(483, -1);
   expect(capnwebMetrics.wsReceivedPayloadBytes).toBeCloseTo(45, -1);
   
   // --- Bytes per sent message ---
@@ -142,7 +144,8 @@ it('shows metrics when not using promise pipelining', async () => {
   const capnwebSentAvg = capnwebMetrics.wsSentPayloadBytes! / 
                          capnwebMetrics.wsSentMessages!;
   
-  expect(lumenizeSentAvg).toBeCloseTo(213, -1);  // ±5 bytes/msg
+  // Batch format has slightly more overhead per message (wrapper array)
+  expect(lumenizeSentAvg).toBeCloseTo(248, -1);  // ±5 bytes/msg
   expect(capnwebSentAvg).toBeCloseTo(21.7, 0);   // ±0.5 bytes/msg
 });
 
@@ -150,48 +153,61 @@ it('shows metrics when not using promise pipelining', async () => {
 ## Promise Pipelining
 
 Promise pipelining allows multiple RPC calls to be sent without waiting
-for each response. This significantly reduces round trips when making
+for each response. This can significantly reduce round trips when making
 multiple calls in sequence.
+
+**Implementation Status:**
+
+- **Lumenize**: ✅ Implements promise pipelining with message batching (v0.10.2+).
+  Multiple concurrent RPC calls are automatically batched into a single WebSocket
+  message using `queueMicrotask()`, achieving 1 round trip for 3 calls.
+
+- **Cap'n Web**: Implements full promise pipelining with message batching
+  (1 round trip for 3 calls). This is one of Cap'n Web's key optimizations.
+
+**How Lumenize Batching Works:**
+When you make concurrent RPC calls (without awaiting each one), Lumenize queues
+them and uses `queueMicrotask()` to batch all operations made in the same tick
+into a single WebSocket message. The server processes all operations and returns
+all results in a single response message.
 */
 it('shows metrics when using promise pipelining', async () => {
   const lumenizeMetrics: Metrics = {};
   const capnwebMetrics: Metrics = {};
 
   // ==========================================================================
-  // Lumenize RPC - with promise pipelining
+  // Lumenize RPC - with promise pipelining pattern
   // ==========================================================================
   using lumenizeClient = getLumenizeClient('pipeline-test', lumenizeMetrics);
-  lumenizeClient.increment();
-  lumenizeClient.increment();
-  const lumenizeResult = await lumenizeClient.increment();
+  lumenizeClient.increment();  // Returns promise, not awaited
+  lumenizeClient.increment();  // Returns promise, not awaited
+  const lumenizeResult = await lumenizeClient.increment();  // Await final result
 
   // ==========================================================================
-  // Cap'n Web - with promise pipelining
+  // Cap'n Web - with promise pipelining pattern
   // ==========================================================================
   using capnwebClient = getCapnWebClient('pipeline-test', capnwebMetrics);
-  capnwebClient.increment();
-  capnwebClient.increment();
-  const capnwebResult = await capnwebClient.increment();
+  capnwebClient.increment();  // Returns promise, not awaited
+  capnwebClient.increment();  // Returns promise, not awaited
+  const capnwebResult = await capnwebClient.increment();  // Await final result
 
   // Both should produce the same final result
   expect(lumenizeResult).toBe(3);
   expect(capnwebResult).toBe(3);
 
-  // Both create exactly one WebSocket connection
+  // Both create exactly one WebSocket connection (Lumenize fixed in v0.10.1)
   expect(lumenizeMetrics.wsUpgradeRequests).toBe(1);
   expect(capnwebMetrics.wsUpgradeRequests).toBe(1);
 
-  // --- Round trips (sent messages) with pipelining ---
-  // Lumenize still sends separately (implementation detail)
-  expect(lumenizeMetrics.wsSentMessages).toBe(3);
-  // Cap'n Web sends 5 messages with pipelining
-  expect(capnwebMetrics.wsSentMessages).toBe(5);
+  // --- Message batching comparison ---
   
-  // --- Round trips (received messages) with pipelining ---
-  // Lumenize still receives separately (implementation detail)
-  expect(lumenizeMetrics.wsReceivedMessages).toBe(3);
-  // Cap'n Web batches all responses into 1 message
-  expect(capnwebMetrics.wsReceivedMessages).toBe(1);
+  // Lumenize batches all concurrent calls into one message
+  expect(lumenizeMetrics.wsSentMessages).toBe(1);
+  expect(lumenizeMetrics.wsReceivedMessages).toBe(1);
+  
+  // Cap'n Web batches calls (Cap'n Proto protocol overhead + batched responses)
+  expect(capnwebMetrics.wsSentMessages).toBe(5);  // Protocol handshake + calls
+  expect(capnwebMetrics.wsReceivedMessages).toBe(1);  // Batched response
 });
 
 /*

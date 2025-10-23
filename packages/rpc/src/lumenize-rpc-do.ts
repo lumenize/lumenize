@@ -1,10 +1,11 @@
 import type {
   OperationChain,
-  Operation,
   RpcRequest,
   RpcResponse,
   RpcConfig,
-  RemoteFunctionMarker
+  RemoteFunctionMarker,
+  RpcWebSocketBatchRequest,
+  RpcWebSocketBatchResponse
 } from './types';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
@@ -404,30 +405,6 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
 // ============================================================================
 
 /**
- * RPC message envelope sent from client to server via WebSocket.
- * The entire request object (including the operations array) is encoded using
- * @ungap/structured-clone/json stringify() before transmission.
- */
-interface RpcWebSocketRequest {
-  id: string;
-  type: string; // e.g., '__rpc'
-  operations: OperationChain;
-}
-
-/**
- * RPC response envelope sent from server to client via WebSocket.
- * The entire response object (including result) will be encoded using
- * @ungap/structured-clone/json stringify() before transmission.
- */
-interface RpcWebSocketResponse {
-  id: string;
-  type: string; // e.g., '__rpc'
-  success: boolean;
-  result?: any;
-  error?: any;
-}
-
-/**
  * Handle RPC messages received via WebSocket.
  * 
  * Only use this if you want more direct control over the routing inside your DO.
@@ -464,45 +441,43 @@ export async function handleRpcMessage(
 
   try {
     // Parse the entire message using @ungap/structured-clone/json
-    const request: RpcWebSocketRequest = parse(message);
+    const batchRequest: RpcWebSocketBatchRequest = parse(message);
 
     // Check if this is an RPC message by verifying the type field
-    if (request.type !== messageType) {
+    if (batchRequest.type !== messageType) {
       return false; // Not an RPC message
     }
 
-    // Verify required fields
-    if (!request.id || !request.operations) {
-      console.warn('%o', {
-        type: 'warn',
-        where: 'handleRpcMessage',
-        message: 'Invalid RPC WebSocket request: missing id or operations'
+    const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
+
+    // Process each operation in the batch
+    for (const item of batchRequest.batch) {
+      const callResult = await dispatchCall(item.operations, doInstance, rpcConfig);
+      
+      // Log errors for debugging
+      if (!callResult.success) {
+        console.error('%o', {
+          type: 'error',
+          where: 'handleRpcMessage',
+          message: 'RPC operation execution failed',
+          id: item.id,
+          error: callResult.error
+        });
+      }
+
+      batchResults.push({
+        id: item.id,
+        ...callResult  // Spread success/result or success/error
       });
-      return false;
     }
 
-    // Dispatch the call (handles validation, execution, preprocessing, and errors)
-    const callResult = await dispatchCall(request.operations, doInstance, rpcConfig);
-    
-    // Build WebSocket response with request id and type
-    const response: RpcWebSocketResponse = {
-      id: request.id,
+    // Send batch response
+    const batchResponse: RpcWebSocketBatchResponse = {
       type: messageType,
-      ...callResult  // Spread success/result or success/error
+      batch: batchResults
     };
     
-    // Log errors for debugging
-    if (!callResult.success) {
-      console.error('%o', {
-        type: 'error',
-        where: 'handleRpcMessage',
-        message: 'RPC operation execution failed',
-        error: callResult.error
-      });
-    }
-    
-    // Serialize and send response
-    const responseBody = stringify(response);
+    const responseBody = stringify(batchResponse);
     ws.send(responseBody);
 
     return true; // Message was handled as RPC

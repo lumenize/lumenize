@@ -1,30 +1,11 @@
-import type { RpcTransport, OperationChain, RpcResponse } from './types';
+import type { 
+  RpcTransport, 
+  OperationChain, 
+  RpcWebSocketBatchRequest,
+  RpcWebSocketBatchResponse
+} from './types';
 import { deserializeError } from './error-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
-
-/**
- * RPC message envelope sent from client to server.
- * The entire request object (including the operations array) is encoded using
- * @ungap/structured-clone/json stringify() before transmission.
- */
-interface RpcWebSocketRequest {
-  id: string;
-  type: string; // Derived from prefix, e.g., '__rpc'
-  operations: OperationChain;
-}
-
-/**
- * RPC response envelope sent from server to client.
- * The entire response object (including result) will be encoded using
- * @ungap/structured-clone/json stringify() before transmission.
- */
-interface RpcWebSocketResponse {
-  id: string;
-  type: string; // Derived from prefix, e.g., '__rpc'
-  success: boolean;
-  result?: any;
-  error?: any;
-}
 
 /**
  * Pending operation tracking
@@ -33,6 +14,16 @@ interface PendingOperation {
   resolve: (value: any) => void;
   reject: (error: any) => void;
   timeoutId: ReturnType<typeof setTimeout>;
+}
+
+/**
+ * Queued execution waiting to be batched
+ */
+interface QueuedExecution {
+  id: string;
+  operations: OperationChain;
+  resolve: (value: any) => void;
+  reject: (error: any) => void;
 }
 
 /**
@@ -54,6 +45,10 @@ export class WebSocketRpcTransport implements RpcTransport {
   #pendingOperations: Map<string, PendingOperation> = new Map();
   #messageType: string; // e.g., '__rpc' (prefix with slashes removed)
   #nextId = 0;
+  
+  // Batching support for promise pipelining
+  #executionQueue: QueuedExecution[] = [];
+  #batchScheduled = false;
 
   constructor(config: {
     baseUrl: string;
@@ -190,62 +185,73 @@ export class WebSocketRpcTransport implements RpcTransport {
   }
 
   /**
-   * Handle incoming WebSocket message
+   * Handle incoming WebSocket message (always expects batch format)
    */
   #handleMessage(data: string): void {
     try {
-      // Parse the entire response using @ungap/structured-clone/json
-      const response: RpcWebSocketResponse = parse(data);
+      // Parse the response using @ungap/structured-clone/json
+      const batchResponse: RpcWebSocketBatchResponse = parse(data);
 
-      // Verify this is an RPC response
-      if (response.type !== this.#messageType) {
+      // Verify type
+      if (batchResponse.type !== this.#messageType) {
         console.warn('%o', {
           type: 'warn',
           where: 'WebSocketRpcTransport.handleMessage',
           message: 'Received message with unexpected type',
           expected: this.#messageType,
-          actual: response.type
+          actual: batchResponse.type
         });
         return;
       }
 
-      // Find pending operation
-      const pending = this.#pendingOperations.get(response.id);
-      if (!pending) {
-        console.warn('%o', {
-          type: 'warn',
-          where: 'WebSocketRpcTransport.handleMessage',
-          message: 'Received response for unknown operation',
-          id: response.id
-        });
-        return;
-      }
-
-      // Remove from pending
-      this.#pendingOperations.delete(response.id);
-      clearTimeout(pending.timeoutId);
-
-      // Handle response
-      if (response.success) {
-        // Result is already deserialized by parse()
-        pending.resolve(response.result);
-      } else {
-        // Reconstruct error
-        const error = deserializeError(response.error);
-        pending.reject(error);
+      // Process each response in the batch
+      for (const response of batchResponse.batch) {
+        this.#processResponse(response.id, response.success, response.result, response.error);
       }
     } catch (error) {
       console.error('%o', {
         type: 'error',
         where: 'WebSocketRpcTransport.handleMessage',
-        message: 'Failed to handle message',
+        message: 'Failed to parse WebSocket message',
         error: error instanceof Error ? error.message : String(error)
       });
     }
   }
 
   /**
+   * Process a single response from the batch
+   */
+  #processResponse(id: string, success: boolean, result?: any, error?: any): void {
+    // Find pending operation
+    const pending = this.#pendingOperations.get(id);
+    if (!pending) {
+      console.warn('%o', {
+        type: 'warn',
+        where: 'WebSocketRpcTransport.processResponse',
+        message: 'Received response for unknown operation',
+        id
+      });
+      return;
+    }
+
+    // Clear timeout and remove from pending
+    clearTimeout(pending.timeoutId);
+    this.#pendingOperations.delete(id);
+
+    // Resolve or reject the promise
+    if (success) {
+      // Success response
+      pending.resolve(result);
+    } else {
+      // Error response
+      const deserializedError = deserializeError(error);
+      pending.reject(deserializedError);
+    }
+  }
+
+  /**
    * Execute RPC operation chain
+   * Queues the operation and schedules a batch send in the next microtask
    */
   async execute(operations: OperationChain): Promise<any> {
     // Lazy connect (or reconnect if connection dropped)
@@ -256,44 +262,74 @@ export class WebSocketRpcTransport implements RpcTransport {
     // Generate unique message ID
     const id = `${Date.now()}-${this.#nextId++}`;
 
-    // Create request message
-    const request: RpcWebSocketRequest = {
-      id,
-      type: this.#messageType,
-      operations
-    };
-
     // Create promise for response
     const resultPromise = new Promise<any>((resolve, reject) => {
-      // Setup timeout
-      const timeoutId = setTimeout(() => {
-        this.#pendingOperations.delete(id);
-        reject(new Error(`RPC operation timed out after ${this.#config.timeout}ms`));
-      }, this.#config.timeout);
-
-      // Track pending operation
-      this.#pendingOperations.set(id, {
+      // Queue this execution for batching
+      this.#executionQueue.push({
+        id,
+        operations,
         resolve,
-        reject,
-        timeoutId
+        reject
       });
+
+      // Schedule batch send if not already scheduled
+      if (!this.#batchScheduled) {
+        this.#batchScheduled = true;
+        queueMicrotask(() => {
+          this.#sendBatch();
+        });
+      }
     });
 
-    // Send request - use stringify on the entire request
-    try {
-      const requestBody = stringify(request);
-      this.#ws!.send(requestBody);
-    } catch (error) {
-      // Remove pending operation and reject
-      const pending = this.#pendingOperations.get(id);
-      if (pending) {
-        this.#pendingOperations.delete(id);
-        clearTimeout(pending.timeoutId);
-      }
-      throw error;
+    return resultPromise;
+  }
+
+  /**
+   * Send all queued executions as a batch (always uses batch format, even for single operations)
+   */
+  #sendBatch(): void {
+    // Reset batch flag
+    this.#batchScheduled = false;
+
+    // Get all queued executions
+    const queue = this.#executionQueue;
+    this.#executionQueue = [];
+
+    if (queue.length === 0) {
+      return; // Nothing to send
     }
 
-    return resultPromise;
+    try {
+      // Setup timeouts and track all pending operations
+      for (const { id, resolve, reject } of queue) {
+        const timeoutId = setTimeout(() => {
+          this.#pendingOperations.delete(id);
+          reject(new Error(`RPC operation timed out after ${this.#config.timeout}ms`));
+        }, this.#config.timeout);
+
+        this.#pendingOperations.set(id, { resolve, reject, timeoutId });
+      }
+
+      // Always send as batch (even for single operations - simpler and more consistent)
+      const batchRequest: RpcWebSocketBatchRequest = {
+        type: this.#messageType,
+        batch: queue.map(({ id, operations }) => ({ id, operations }))
+      };
+
+      const requestBody = stringify(batchRequest);
+      this.#ws!.send(requestBody);
+
+    } catch (error) {
+      // On error, reject all queued operations
+      for (const { id, reject } of queue) {
+        const pending = this.#pendingOperations.get(id);
+        if (pending) {
+          clearTimeout(pending.timeoutId);
+          this.#pendingOperations.delete(id);
+        }
+        reject(error);
+      }
+    }
   }
 
   /**

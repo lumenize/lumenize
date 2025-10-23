@@ -42,6 +42,34 @@ export interface RpcResponse {
 }
 
 /**
+ * Batched RPC request envelope for WebSocket transport.
+ * Multiple operation chains batched into one message for promise pipelining.
+ * @internal
+ */
+export interface RpcWebSocketBatchRequest {
+  type: string; // Derived from prefix, e.g., '__rpc'
+  batch: Array<{
+    id: string;
+    operations: OperationChain;
+  }>;
+}
+
+/**
+ * Batched RPC response envelope for WebSocket transport.
+ * Multiple results batched into one message.
+ * @internal
+ */
+export interface RpcWebSocketBatchResponse {
+  type: string; // Derived from prefix, e.g., '__rpc'
+  batch: Array<{
+    id: string;
+    success: boolean;
+    result?: any;
+    error?: any;
+  }>;
+}
+
+/**
  * Configuration for RPC system on the Durable Object (server) side.
  * Used by both lumenizeRpcDO() factory and handleRpcRequest() for manual routing.
  */
