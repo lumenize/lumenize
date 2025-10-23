@@ -1,5 +1,14 @@
 import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils';
 import { getWebSocketShim } from './websocket-shim';
+import type { Metrics } from './metrics';
+
+/**
+ * Configuration options for Browser
+ */
+export interface BrowserOptions {
+  /** Optional metrics collector to track httpRequests. */
+  metrics?: Metrics;
+}
 
 /**
  * Information about a CORS preflight request
@@ -56,6 +65,7 @@ export class Browser {
   #cookies = new Map<string, Cookie>();
   #inferredHostname?: string;
   #baseFetch: typeof fetch;
+  #metrics?: Metrics;
 
   /**
    * Create a new Browser instance
@@ -63,6 +73,7 @@ export class Browser {
    * @param fetchFn - Optional fetch function to use. If not provided, will use globalThis.fetch.
    *   In Cloudflare Workers vitest environment, use the Browser from @lumenize/testing which
    *   automatically provides SELF.fetch.
+   * @param options - Optional configuration including metrics tracking.
    * 
    * @example
    * ```typescript
@@ -73,9 +84,15 @@ export class Browser {
    * // Outside Workers environments - pass fetch explicitly or use globalThis.fetch
    * import { Browser } from '@lumenize/utils';
    * const browser = new Browser(fetch);
+   * 
+   * // With metrics tracking
+   * const metrics: Metrics = {};
+   * const browser = new Browser(fetch, { metrics });
+   * await browser.fetch('https://example.com');
+   * console.log(metrics.httpRequests); // 1
    * ```
    */
-  constructor(fetchFn?: typeof fetch) {
+  constructor(fetchFn?: typeof fetch, options?: BrowserOptions) {
     if (fetchFn) {
       this.#baseFetch = fetchFn;
     } else if (typeof globalThis?.fetch === 'function') {
@@ -88,6 +105,7 @@ export class Browser {
         '3. Ensure globalThis.fetch is available'
       );
     }
+    this.#metrics = options?.metrics;
   }
 
   /**
@@ -109,6 +127,11 @@ export class Browser {
    */
   get fetch(): typeof fetch {
     return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      // Track HTTP request
+      if (this.#metrics) {
+        this.#metrics.httpRequests = (this.#metrics.httpRequests ?? 0) + 1;
+      }
+      
       const request = new Request(input, init);
       
       // Add cookies to request

@@ -9,7 +9,7 @@ export type { InstrumentDOProjectConfig, InstrumentedDOProject } from './instrum
 export type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 
 // Testing-optimized Browser with automatic SELF.fetch injection
-import { Browser as BrowserBase } from '@lumenize/utils';
+import { Browser as BrowserBase, type BrowserOptions } from '@lumenize/utils';
 
 /**
  * Testing-optimized Browser with automatic SELF.fetch injection.
@@ -31,16 +31,20 @@ import { Browser as BrowserBase } from '@lumenize/utils';
  * 
  * // Can still pass custom fetch if needed
  * const customBrowser = new Browser(myCustomFetch);
+ * 
+ * // With metrics tracking
+ * const metrics: Metrics = {};
+ * const browser = new Browser(undefined, { metrics });
  * ```
  */
 export class Browser extends BrowserBase {
-  constructor(fetchFn?: typeof fetch) {
+  constructor(fetchFn?: typeof fetch, options?: BrowserOptions) {
     // Lazy import SELF to avoid top-level cloudflare:test dependency that breaks module loading
     if (!fetchFn) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { SELF } = require('cloudflare:test');
       fetchFn = SELF.fetch.bind(SELF);
     }
-    super(fetchFn);
+    super(fetchFn, options);
   }
 }

@@ -1,3 +1,5 @@
+import type { Metrics } from './metrics';
+
 type WSData = string | ArrayBuffer | Blob | Uint8Array;
 
 interface InternalInit {
@@ -5,6 +7,7 @@ interface InternalInit {
   protocols?: string | string[];
   headers?: Record<string, string>;
   maxQueueBytes?: number;
+  metrics?: Metrics;
 }
 
 /**
@@ -15,6 +18,8 @@ export interface WebSocketShimOptions {
   headers?: Record<string, string>;
   /** Optional maximum number of bytes that can be queued while in CONNECTING state. Defaults to unlimited. */
   maxQueueBytes?: number;
+  /** Optional metrics collector to track wsUpgradeRequests and wsMessages. */
+  metrics?: Metrics;
 }
 
 /**
@@ -61,6 +66,7 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
     #queuedBytes = 0;
     #maxQueueBytes: number;
     #flushing = false;
+    #metrics?: Metrics;
 
     // Overloaded constructor to match browser WebSocket API
     constructor(url: string | URL, protocols?: string | string[]) {
@@ -74,11 +80,19 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         url: urlString,
         protocols,
         headers: factoryInit?.headers,
-        maxQueueBytes: factoryInit?.maxQueueBytes ?? Number.POSITIVE_INFINITY
+        maxQueueBytes: factoryInit?.maxQueueBytes ?? Number.POSITIVE_INFINITY,
+        metrics: factoryInit?.metrics
       };
 
       this.url = init.url;
       this.#maxQueueBytes = init.maxQueueBytes ?? Number.POSITIVE_INFINITY;
+      this.#metrics = init.metrics;
+      
+      // Track WebSocket upgrade request
+      if (this.#metrics) {
+        this.#metrics.wsUpgradeRequests = (this.#metrics.wsUpgradeRequests ?? 0) + 1;
+      }
+      
       // kick off upgrade (no await in constructor)
       void this.#connect(init);
     }
@@ -101,6 +115,13 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
     // Public API ---------------------------------------------------------------
 
     send(data: WSData) {
+      // Track metrics for sent messages
+      if (this.#metrics) {
+        this.#metrics.wsSentMessages = (this.#metrics.wsSentMessages ?? 0) + 1;
+        const bytes = byteLength(data);
+        this.#metrics.wsSentPayloadBytes = (this.#metrics.wsSentPayloadBytes ?? 0) + bytes;
+      }
+      
       const state = this.readyState;
       if (state === WebSocketShim.OPEN) {
         this.#ws!.send(data as any);
@@ -202,6 +223,13 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         });
 
         ws.addEventListener("message", (e) => {
+          // Track metrics for received messages
+          if (this.#metrics) {
+            this.#metrics.wsReceivedMessages = (this.#metrics.wsReceivedMessages ?? 0) + 1;
+            const bytes = byteLength(e.data);
+            this.#metrics.wsReceivedPayloadBytes = (this.#metrics.wsReceivedPayloadBytes ?? 0) + bytes;
+          }
+          
           const newEvent = new MessageEvent("message", {
             data: e.data,
             origin: e.origin,
