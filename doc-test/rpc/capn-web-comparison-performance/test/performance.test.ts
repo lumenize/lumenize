@@ -147,6 +147,54 @@ it('shows metrics when not using promise pipelining', async () => {
 });
 
 /*
+## Promise Pipelining
+
+Promise pipelining allows multiple RPC calls to be sent without waiting
+for each response. This significantly reduces round trips when making
+multiple calls in sequence.
+*/
+it('shows metrics when using promise pipelining', async () => {
+  const lumenizeMetrics: Metrics = {};
+  const capnwebMetrics: Metrics = {};
+
+  // ==========================================================================
+  // Lumenize RPC - with promise pipelining
+  // ==========================================================================
+  using lumenizeClient = getLumenizeClient('pipeline-test', lumenizeMetrics);
+  lumenizeClient.increment();
+  lumenizeClient.increment();
+  const lumenizeResult = await lumenizeClient.increment();
+
+  // ==========================================================================
+  // Cap'n Web - with promise pipelining
+  // ==========================================================================
+  using capnwebClient = getCapnWebClient('pipeline-test', capnwebMetrics);
+  capnwebClient.increment();
+  capnwebClient.increment();
+  const capnwebResult = await capnwebClient.increment();
+
+  // Both should produce the same final result
+  expect(lumenizeResult).toBe(3);
+  expect(capnwebResult).toBe(3);
+
+  // Both create exactly one WebSocket connection
+  expect(lumenizeMetrics.wsUpgradeRequests).toBe(1);
+  expect(capnwebMetrics.wsUpgradeRequests).toBe(1);
+
+  // --- Round trips (sent messages) with pipelining ---
+  // Lumenize still sends separately (implementation detail)
+  expect(lumenizeMetrics.wsSentMessages).toBe(3);
+  // Cap'n Web sends 5 messages with pipelining
+  expect(capnwebMetrics.wsSentMessages).toBe(5);
+  
+  // --- Round trips (received messages) with pipelining ---
+  // Lumenize still receives separately (implementation detail)
+  expect(lumenizeMetrics.wsReceivedMessages).toBe(3);
+  // Cap'n Web batches all responses into 1 message
+  expect(capnwebMetrics.wsReceivedMessages).toBe(1);
+});
+
+/*
 ## Installation
 
 ```bash npm2yarn

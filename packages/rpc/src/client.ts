@@ -150,6 +150,7 @@ export class RpcClient<T> {
     WebSocketClass?: RpcClientInternalConfig['WebSocketClass'];
   };
   #transport: RpcTransport | null = null;
+  #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
 
   constructor(config: RpcClientInternalConfig) {
@@ -190,16 +191,41 @@ export class RpcClient<T> {
 
   // Internal method to establish connection (called lazily on first execute)
   async #connect(): Promise<void> {
-    if (this.#transport?.isConnected?.()) {
+    // Create transport synchronously if it doesn't exist
+    // This ensures all concurrent calls use the same transport instance
+    if (!this.#transport) {
+      this.#transport = this.#createTransport();
+    }
+
+    // For stateful transports (WebSocket), ensure connection is established
+    if (this.#transport.isConnected?.()) {
       return; // Already connected
     }
 
-    // Create transport based on configuration
-    this.#transport = this.#createTransport();
+    // If connection in progress, wait for it
+    if (this.#connectionPromise) {
+      return this.#connectionPromise;
+    }
 
-    // Call transport's connect() if it exists (for stateful transports like WebSocket)
-    if (this.#transport.connect) {
-      await this.#transport.connect();
+    // Only stateful transports have a connect() method
+    if (!this.#transport.connect) {
+      return; // HTTP transport is ready to use immediately
+    }
+
+    // Start new connection
+    this.#connectionPromise = this.#connectInternal();
+    
+    try {
+      await this.#connectionPromise;
+    } finally {
+      this.#connectionPromise = null;
+    }
+  }
+
+  async #connectInternal(): Promise<void> {
+    // Call transport's connect() (for stateful transports like WebSocket)
+    if (this.#transport!.connect) {
+      await this.#transport!.connect();
     }
   }
 
@@ -251,22 +277,14 @@ export class RpcClient<T> {
 
   // Internal method to execute operations (called by ProxyHandler)
   async execute(operations: OperationChain, skipProcessing = false): Promise<any> {
-    // Lazy initialization: create transport on first use if not already created
-    if (!this.#transport) {
-      // Create transport synchronously to avoid race conditions
-      this.#transport = this.#createTransport();
-    }
-    
-    // Ensure connection is established (for stateful transports like WebSocket)
-    if (!this.#transport.isConnected?.()) {
-      await this.#connect();
-    }
+    // Ensure connection is established (creates transport and connects if needed)
+    await this.#connect();
 
     // Process outgoing operations to serialize Web API objects in args before sending
     const processedOperations = await processOutgoingOperations(operations);
 
     // Execute the operation chain via transport
-    const result = await this.#transport.execute(processedOperations);
+    const result = await this.#transport!.execute(processedOperations);
     
     // Optionally skip processing (for __asObject which handles conversion itself)
     if (skipProcessing) {
