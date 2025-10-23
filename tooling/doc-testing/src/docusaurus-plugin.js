@@ -61,8 +61,27 @@ function extractDocTestEntries(sidebarsPath, siteDir) {
 export default function docTestPlugin(context, options = {}) {
   const { verbose = false, injectNotice = true } = options;
   
+  // Cache doc-test entries for use by getPathsToWatch
+  let cachedDocTestEntries = null;
+  
   return {
     name: 'docusaurus-plugin-doc-test',
+    
+    getPathsToWatch() {
+      // Return the test files so Docusaurus watches them for changes
+      const siteDir = context.siteDir;
+      const sidebarsPath = path.join(siteDir, 'sidebars.ts');
+      
+      if (!fs.existsSync(sidebarsPath)) {
+        return [];
+      }
+      
+      const docTestEntries = extractDocTestEntries(sidebarsPath, siteDir);
+      cachedDocTestEntries = docTestEntries; // Cache for loadContent
+      
+      // Return array of test file paths
+      return docTestEntries.map(entry => entry.testFile);
+    },
     
     async loadContent() {
       const siteDir = context.siteDir;
@@ -75,8 +94,8 @@ export default function docTestPlugin(context, options = {}) {
         return;
       }
       
-      // Extract doc-test entries from sidebars
-      const docTestEntries = extractDocTestEntries(sidebarsPath, siteDir);
+      // Use cached entries from getPathsToWatch, or extract if not cached
+      const docTestEntries = cachedDocTestEntries || extractDocTestEntries(sidebarsPath, siteDir);
       
       if (docTestEntries.length === 0) {
         if (verbose) {
