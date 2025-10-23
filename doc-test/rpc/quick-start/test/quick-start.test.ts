@@ -1,7 +1,9 @@
 // DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
 // - Block comments (/* */) become Markdown in the docs
 // - Code between block comments becomes code blocks in the docs
-// - Single-line comments (//) stay in source only (not in docs)
+// - Single-line comments (//) before the first block comment (like this one)
+//   do not show up in the generated doc
+// - Single-line comments (//) after that are included in the generated doc
 // - Use @import directives to include external files
 // - Tests must pass - they validate the documentation
 // - Keep code blocks within 80 columns to prevent horizontal scrolling
@@ -12,32 +14,33 @@
 
 /*
 # Quick Start
-*/
 
-/*
 Here's what minimal use of Lumenize RPC looks like.
-
-## Version Detection
-
-This test asserts the installed version(s) and our release script warns if we 
-aren't using the latest so this living documentation should always be up to 
-date.
 */
 
-// Import package version for automatic version tracking
-import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
-
-it('detects package version', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.10.0');
-});
-
 /*
-## test/quick-start.test.ts
+## Imports
 */
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
+
+/*
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+*/
+import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
+it('detects package version', () => {
+  expect(lumenizeRpcPackage.version).toBe('0.10.0');
+});
+
+/*
+## Basic Usage
+*/
 
 import { Counter } from '../src/index';
 

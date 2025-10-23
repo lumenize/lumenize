@@ -1,7 +1,9 @@
 // DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
 // - Block comments (/* */) become Markdown in the docs
 // - Code between block comments becomes code blocks in the docs
-// - Single-line comments (//) stay in source only (not in docs)
+// - Single-line comments (//) before the first block comment (like this one)
+//   do not show up in the generated doc
+// - Single-line comments (//) after that are included in the generated doc
 // - Use @import directives to include external files
 // - Tests must pass - they validate the documentation
 // - Keep code blocks within 80 columns to prevent horizontal scrolling
@@ -27,6 +29,9 @@ to the latest version.
 - Lumenize RPC docs: https://lumenize.com/docs/rpc/introduction
 */
 
+/*
+## Imports
+*/
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
@@ -36,26 +41,24 @@ import { newWebSocketRpcSession } from 'capnweb';
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 
 /*
-## Version Detection
+## Version(s)
 
 This test asserts the installed version(s) and our release script warns if we 
-aren't using the latest so this living documentation should always be up to 
-date.
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
 */
-
-// Import package versions for automatic version tracking
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
-
 it('detects package versions', () => {
   expect(lumenizeRpcPackage.version).toBe('0.10.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
 
-// =============================================================================
-// Create clients - Similar amount of boilerplate
-// =============================================================================
 
+
+/*
+## Creating Clients
+*/
 // Most of this is for vitest-workers-pool. In production, this would be as 
 // simple as:
 // ```ts

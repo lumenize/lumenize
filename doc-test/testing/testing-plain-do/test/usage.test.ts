@@ -1,7 +1,9 @@
 // DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
 // - Block comments (/* */) become Markdown in the docs
 // - Code between block comments becomes code blocks in the docs
-// - Single-line comments (//) stay in source only (not in docs)
+// - Single-line comments (//) before the first block comment (like this one)
+//   do not show up in the generated doc
+// - Single-line comments (//) after that are included in the generated doc
 // - Use @import directives to include external files
 // - Tests must pass - they validate the documentation
 // - Keep code blocks within 80 columns to prevent horizontal scrolling
@@ -12,9 +14,7 @@
 
 /*
 # Usage
-*/
 
-/*
 `@lumenize/testing` is a superset of functionality of `cloudflare:test` with a 
 more de✨light✨ful DX. While `cloudflare:test`'s `runInDurableObject` 
 allows you to work with `ctx`/`state`, `@lumenize/testing` also allows you to 
@@ -39,17 +39,23 @@ do that plus:
       - `fetch` and `WebSocket` from same context share cookies
       - Simulates requests from a context/page loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
-
-## Version Detection
-
-This test asserts the installed version(s) and our release script warns if we 
-aren't using the latest so this living documentation should always be up to 
-date.
 */
 
-// Import package version for automatic version tracking
-import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+/*
+## Imports
+*/
+import { it, expect, vi } from 'vitest';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { MyDO } from '../src';
 
+/*
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+*/
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
 it('detects package version', () => {
   expect(lumenizeTestingPackage.version).toBe('0.10.0');
 });
@@ -64,10 +70,6 @@ Now, let's show basic usage following the basic pattern for all tests:
 4. **Assert on output**. check responses
 5. **Assert state**. check that storage and instance variables are as expected
 */
-import { it, expect, vi } from 'vitest';
-import { createTestingClient, Browser } from '@lumenize/testing';
-import { MyDO } from '../src';
-
 it('shows basic 5-step test', async () => {
   // 1. Create RPC testing client and Browser instance
   using client = createTestingClient<typeof MyDO>('MY_DO', '5-step');

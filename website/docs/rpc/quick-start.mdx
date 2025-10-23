@@ -24,7 +24,7 @@ Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code ins
 
 Here's what minimal use of Lumenize RPC looks like.
 
-## test/quick-start.test.ts
+## Imports
 
 
 
@@ -34,7 +34,36 @@ import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
+```
 
+
+
+
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+
+
+
+
+```typescript test
+import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
+it('detects package version', () => {
+  expect(lumenizeRpcPackage.version).toBe('0.10.0');
+});
+```
+
+
+
+
+## Basic Usage
+
+
+
+
+```typescript test
 import { Counter } from '../src/index';
 
 it('shows basic usage of Lumenize RPC', async () => {

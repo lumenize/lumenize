@@ -97,6 +97,41 @@ This gives you a number of advantages:
     `AgentClient` during the WebSocket upgrade handshake, HttpOnly cookies,
     etc.
 
+## Imports
+
+
+
+
+```typescript test
+import { it, expect, vi } from 'vitest';
+import type { RpcAccessible } from '@lumenize/testing';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { AgentClient } from 'agents/client';
+import { ChatAgent, AuthAgent } from '../src';
+```
+
+
+
+
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+
+
+
+
+```typescript test
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+it('detects package version', () => {
+  expect(lumenizeTestingPackage.version).toBe('0.10.0');
+});
+```
+
+
+
+
 ## Multi-user chat example
 
 This example demonstrates:
@@ -113,12 +148,6 @@ This example demonstrates:
 
 
 ```typescript test
-import { it, expect, vi } from 'vitest';
-import type { RpcAccessible } from '@lumenize/testing';
-import { createTestingClient, Browser } from '@lumenize/testing';
-import { AgentClient } from 'agents/client';
-import { ChatAgent, AuthAgent } from '../src';
-
 type ChatAgentType = RpcAccessible<InstanceType<typeof ChatAgent>>;
 type AuthAgentType = RpcAccessible<InstanceType<typeof AuthAgent>>;
 

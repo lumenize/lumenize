@@ -47,6 +47,39 @@ do that plus:
       - Simulates requests from a context/page loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
 
+## Imports
+
+
+
+
+```typescript test
+import { it, expect, vi } from 'vitest';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { MyDO } from '../src';
+```
+
+
+
+
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+
+
+
+
+```typescript test
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+it('detects package version', () => {
+  expect(lumenizeTestingPackage.version).toBe('0.10.0');
+});
+```
+
+
+
+
 ## Basic Usage
 
 Now, let's show basic usage following the basic pattern for all tests:
@@ -60,10 +93,6 @@ Now, let's show basic usage following the basic pattern for all tests:
 
 
 ```typescript test
-import { it, expect, vi } from 'vitest';
-import { createTestingClient, Browser } from '@lumenize/testing';
-import { MyDO } from '../src';
-
 it('shows basic 5-step test', async () => {
   // 1. Create RPC testing client and Browser instance
   using client = createTestingClient<typeof MyDO>('MY_DO', '5-step');

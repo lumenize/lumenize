@@ -1,7 +1,9 @@
 // DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
 // - Block comments (/* */) become Markdown in the docs
 // - Code between block comments becomes code blocks in the docs
-// - Single-line comments (//) stay in source only (not in docs)
+// - Single-line comments (//) before the first block comment (like this one)
+//   do not show up in the generated doc
+// - Single-line comments (//) after that are included in the generated doc
 // - Use @import directives to include external files
 // - Tests must pass - they validate the documentation
 // - Keep code blocks within 80 columns to prevent horizontal scrolling
@@ -12,9 +14,7 @@
 
 /*
 # Agents
-*/
 
-/*
 This document demonstrates testing your use of Cloudflare's `Agent` class and 
 `AgentClient` (both from the `agents` package) using `@lumenize/testing`. 
 We show two scenarios:
@@ -28,21 +28,6 @@ We show two scenarios:
 For basic usage of `@lumenize/testing`, see the 
 [usage documentation](/docs/testing/usage).
 
-## Version Detection
-
-This test asserts the installed version(s) and our release script warns if we 
-aren't using the latest so this living documentation should always be up to 
-date.
-*/
-
-// Import package version for automatic version tracking
-import lumenizeTestingPackage from '../../../../packages/testing/package.json';
-
-it('detects package version', () => {
-  expect(lumenizeTestingPackage.version).toBe('0.10.0');
-});
-
-/*
 ## Why testing an `Agent` is hard
 
 To test your `Agent` implementation, you have a few options.
@@ -106,6 +91,27 @@ This gives you a number of advantages:
     etc.
 */
 
+/*
+## Imports
+*/
+import { it, expect, vi } from 'vitest';
+import type { RpcAccessible } from '@lumenize/testing';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { AgentClient } from 'agents/client';
+import { ChatAgent, AuthAgent } from '../src';
+
+/*
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+*/
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+it('detects package version', () => {
+  expect(lumenizeTestingPackage.version).toBe('0.10.0');
+});
+
 /* 
 ## Multi-user chat example
 
@@ -119,12 +125,6 @@ This example demonstrates:
 - Accessing DO instance variables via RPC (`lastMessage`)
 - Verifying DO storage persistence (`totalMessageCount`)
 */
-import { it, expect, vi } from 'vitest';
-import type { RpcAccessible } from '@lumenize/testing';
-import { createTestingClient, Browser } from '@lumenize/testing';
-import { AgentClient } from 'agents/client';
-import { ChatAgent, AuthAgent } from '../src';
-
 type ChatAgentType = RpcAccessible<InstanceType<typeof ChatAgent>>;
 type AuthAgentType = RpcAccessible<InstanceType<typeof AuthAgent>>;
 
