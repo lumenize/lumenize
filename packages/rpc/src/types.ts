@@ -18,36 +18,14 @@ export type Operation =
 export type OperationChain = Operation[];
 
 /**
- * Request format sent to DO RPC endpoint.
+ * Core batched RPC request format used by all transports.
+ * Multiple operation chains batched together for promise pipelining.
  * 
- * The entire request object (including operations array) will be encoded using
- * @ungap/structured-clone/json stringify() at the transport boundary.
+ * The entire request object will be encoded using @ungap/structured-clone/json
+ * stringify() at the transport boundary.
  * @internal
  */
-export interface RpcRequest {
-  operations: OperationChain;
-}
-
-/**
- * RPC response payload sent from server to client.
- * 
- * The entire response object (including result) will be encoded using
- * @ungap/structured-clone/json stringify() at the transport boundary.
- * @internal
- */
-export interface RpcResponse {
-  success: boolean;
-  result?: any;
-  error?: any;
-}
-
-/**
- * Batched RPC request envelope for WebSocket transport.
- * Multiple operation chains batched into one message for promise pipelining.
- * @internal
- */
-export interface RpcWebSocketBatchRequest {
-  type: string; // Derived from prefix, e.g., '__rpc'
+export interface RpcBatchRequest {
   batch: Array<{
     id: string;
     operations: OperationChain;
@@ -55,18 +33,37 @@ export interface RpcWebSocketBatchRequest {
 }
 
 /**
- * Batched RPC response envelope for WebSocket transport.
- * Multiple results batched into one message.
+ * Core batched RPC response format used by all transports.
+ * Multiple results batched together.
+ * 
+ * The entire response object will be encoded using @ungap/structured-clone/json
+ * stringify() at the transport boundary.
  * @internal
  */
-export interface RpcWebSocketBatchResponse {
-  type: string; // Derived from prefix, e.g., '__rpc'
+export interface RpcBatchResponse {
   batch: Array<{
     id: string;
     success: boolean;
     result?: any;
     error?: any;
   }>;
+}
+
+/**
+ * WebSocket message envelope that wraps RpcBatchRequest with a type discriminator.
+ * The type field allows multiple message types to coexist on the same WebSocket connection.
+ * @internal
+ */
+export interface RpcWebSocketMessage extends RpcBatchRequest {
+  type: string; // Derived from prefix, e.g., '__rpc'
+}
+
+/**
+ * WebSocket message envelope that wraps RpcBatchResponse with a type discriminator.
+ * @internal
+ */
+export interface RpcWebSocketMessageResponse extends RpcBatchResponse {
+  type: string; // Derived from prefix, e.g., '__rpc'
 }
 
 /**
@@ -258,12 +255,19 @@ export interface RpcClientProxy {
 }
 
 /**
- * Transport interface for executing RPC operations.
- * Different transports can be implemented (HTTP, WebSocket, etc.).
+ * Transport interface for executing batched RPC operations.
+ * Different transports can be implemented (HTTP, WebSocket, MessagePort, etc.).
+ * 
+ * Transports are responsible for sending/receiving batch requests but NOT for
+ * batching operations - that's handled by the RpcClient using microtask queuing.
  * @internal
  */
 export interface RpcTransport {
-  execute(operations: OperationChain): Promise<any>;
+  /**
+   * Execute a batch of operation chains.
+   * Returns responses in the same order as requests (matched by id).
+   */
+  execute(batch: RpcBatchRequest): Promise<RpcBatchResponse>;
   
   // Optional lifecycle methods for stateful transports (e.g., WebSocket)
   connect?(): Promise<void>;

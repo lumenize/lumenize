@@ -14,6 +14,8 @@ import { SELF } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim, type RpcAccessible } from '../src/index';
 import { ExampleDO } from './test-worker-and-dos';
 import { behaviorTests, testCategories, type TestableClient } from './shared/behavior-tests';
+import { batchingTests, type TestableClientWithMetrics } from './shared/batching-tests';
+import type { Metrics } from '@lumenize/utils';
 
 type ExampleDOType = RpcAccessible<InstanceType<typeof ExampleDO>>;
 
@@ -51,7 +53,7 @@ const MATRIX = [
 /**
  * Create an RPC client for a given matrix configuration
  */
-function createMatrixClient(config: typeof MATRIX[number], instanceId: string): TestableClient<ExampleDOType> {
+function createMatrixClient(config: typeof MATRIX[number], instanceId: string, metrics?: Metrics): TestableClient<ExampleDOType> {
   const baseConfig = {
     transport: config.transport,
     baseUrl: 'https://fake-host.com',
@@ -60,9 +62,44 @@ function createMatrixClient(config: typeof MATRIX[number], instanceId: string): 
 
   // Add transport-specific config
   if (config.transport === 'websocket') {
-    (baseConfig as any).WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
+    (baseConfig as any).WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF), { metrics });
   } else {
-    (baseConfig as any).fetch = SELF.fetch.bind(SELF);
+    // For HTTP, we need to create a Browser-like wrapper with metrics
+    if (metrics) {
+      const fetchWithMetrics = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        metrics.httpRequests = (metrics.httpRequests ?? 0) + 1;
+        metrics.roundTrips = (metrics.roundTrips ?? 0) + 1;
+        
+        const request = new Request(input, init);
+        
+        // Track request payload size
+        if (request.body) {
+          try {
+            const clone = request.clone();
+            const arrayBuffer = await clone.arrayBuffer();
+            metrics.payloadBytesSent = (metrics.payloadBytesSent ?? 0) + arrayBuffer.byteLength;
+          } catch {
+            // If body can't be read, skip tracking
+          }
+        }
+        
+        const response = await SELF.fetch(request);
+        
+        // Track response payload size
+        try {
+          const clone = response.clone();
+          const arrayBuffer = await clone.arrayBuffer();
+          metrics.payloadBytesReceived = (metrics.payloadBytesReceived ?? 0) + arrayBuffer.byteLength;
+        } catch {
+          // If body can't be read, skip tracking
+        }
+        
+        return response;
+      };
+      (baseConfig as any).fetch = fetchWithMetrics;
+    } else {
+      (baseConfig as any).fetch = SELF.fetch.bind(SELF);
+    }
   }
 
   const client = createRpcClient<ExampleDOType>(config.doBindingName, instanceId, baseConfig);
@@ -305,6 +342,25 @@ MATRIX.forEach((matrixConfig) => {
         } finally {
           if (testable.cleanup) await testable.cleanup();
         }
+      });
+    });
+
+    describe('Promise Pipelining (Batching)', () => {
+      // These tests verify that operations in the same tick get batched into a single round trip
+      Object.keys(batchingTests).forEach((testName) => {
+        it(testName, async () => {
+          const instanceId = `matrix-${matrixConfig.doBindingName}-${testName}-${Date.now()}`;
+          const metrics: Metrics = {};
+          const testable = createMatrixClient(matrixConfig, instanceId, metrics);
+          try {
+            await batchingTests[testName as keyof typeof batchingTests]({
+              ...testable,
+              metrics
+            });
+          } finally {
+            if (testable.cleanup) await testable.cleanup();
+          }
+        });
       });
     });
   });

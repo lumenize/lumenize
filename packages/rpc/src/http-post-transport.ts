@@ -1,5 +1,4 @@
-import type { OperationChain, RpcRequest, RpcResponse, RpcTransport } from './types';
-import { deserializeError } from './error-serialization';
+import type { RpcBatchRequest, RpcBatchResponse, RpcTransport } from './types';
 import { stringify, parse } from '@ungap/structured-clone/json';
 
 /**
@@ -37,9 +36,9 @@ export class HttpPostRpcTransport implements RpcTransport {
   }
 
   /**
-   * Execute an operation chain via HTTP POST
+   * Execute a batch of operation chains via HTTP POST
    */
-  async execute(operations: OperationChain): Promise<any> {
+  async execute(batch: RpcBatchRequest): Promise<RpcBatchResponse> {
     // Build URL with four segments: ${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call
     const baseUrl = cleanSegment(this.#config.baseUrl);
     const prefix = cleanSegment(this.#config.prefix);
@@ -48,13 +47,10 @@ export class HttpPostRpcTransport implements RpcTransport {
 
     const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
 
-    const request: RpcRequest = { operations };
-
     console.debug('%o', {
       type: 'debug',
       where: 'HttpPostTransport.execute',
-      operations,
-      request
+      batch
     });
 
     const headers = {
@@ -62,8 +58,8 @@ export class HttpPostRpcTransport implements RpcTransport {
       ...this.#config.headers
     };
 
-    // Use stringify on the entire request object
-    const requestBody = stringify(request);
+    // Use stringify on the entire batch request
+    const requestBody = stringify(batch);
 
     const response = await this.#config.fetch(url, {
       method: 'POST',
@@ -74,22 +70,22 @@ export class HttpPostRpcTransport implements RpcTransport {
 
     // Parse the entire response using @ungap/structured-clone/json
     const responseText = await response.text();
-    const rpcResponse: RpcResponse = parse(responseText);
+    const batchResponse: RpcBatchResponse = parse(responseText);
 
     if (!response.ok) {
-      // Handle error response
-      if (!rpcResponse.success && rpcResponse.error) {
-        // This is an RPC error response, deserialize and throw the actual error
-        throw deserializeError(rpcResponse.error);
+      // Handle error response - if any operation failed, the server returns HTTP 500
+      // But the batch response still contains individual operation results
+      // We just return it and let the client handle per-operation errors
+      if (batchResponse.batch && batchResponse.batch.length > 0) {
+        return batchResponse;
       }
       
-      // Fallback to generic HTTP error
+      // Fallback to generic HTTP error if we can't parse the batch response
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    // At this point, response.ok is true, so rpcResponse.success should always be true
-    // Return the result directly (already deserialized by parse)
-    return rpcResponse.result;
+    // Return the batch response directly
+    return batchResponse;
   }
 
   isConnected(): boolean {

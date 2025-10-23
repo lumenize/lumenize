@@ -2,6 +2,8 @@ import type {
   OperationChain, 
   RemoteFunctionMarker, 
   RpcAccessible,
+  RpcBatchRequest,
+  RpcBatchResponse,
   RpcClientConfig, 
   RpcClientInternalConfig, 
   RpcClientProxy, 
@@ -116,6 +118,16 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
 }
 
 /**
+ * Queued execution waiting to be batched
+ */
+interface QueuedExecution {
+  id: string;
+  operations: OperationChain;
+  resolve: (value: any) => void;
+  reject: (error: any) => void;
+}
+
+/**
  * RPC Client that maintains a persistent connection to a Durable Object.
  * The constructor returns a Proxy that forwards unknown methods to the DO.
  * 
@@ -152,6 +164,11 @@ export class RpcClient<T> {
   #transport: RpcTransport | null = null;
   #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
+  
+  // Batching support for promise pipelining - operations in the same tick are batched
+  #executionQueue: QueuedExecution[] = [];
+  #batchScheduled = false;
+  #nextId = 0;
 
   constructor(config: RpcClientInternalConfig) {
     // Set defaults and merge with user config
@@ -276,15 +293,35 @@ export class RpcClient<T> {
   }
 
   // Internal method to execute operations (called by ProxyHandler)
+  // Queues the operation and schedules a batch send in the next microtask
   async execute(operations: OperationChain, skipProcessing = false): Promise<any> {
     // Ensure connection is established (creates transport and connects if needed)
     await this.#connect();
 
-    // Process outgoing operations to serialize Web API objects in args before sending
-    const processedOperations = await processOutgoingOperations(operations);
+    // Generate unique ID for this operation
+    const id = `${Date.now()}-${this.#nextId++}`;
 
-    // Execute the operation chain via transport
-    const result = await this.#transport!.execute(processedOperations);
+    // Create promise for response
+    const resultPromise = new Promise<any>((resolve, reject) => {
+      // Queue this execution for batching WITH RAW OPERATIONS
+      // Processing happens in #sendBatch() to avoid microtask boundaries breaking batching
+      this.#executionQueue.push({
+        id,
+        operations, // Store raw operations - will be processed in batch
+        resolve,
+        reject
+      });
+
+      // Schedule batch send if not already scheduled
+      if (!this.#batchScheduled) {
+        this.#batchScheduled = true;
+        queueMicrotask(() => {
+          this.#sendBatch();
+        });
+      }
+    });
+
+    const result = await resultPromise;
     
     // Optionally skip processing (for __asObject which handles conversion itself)
     if (skipProcessing) {
@@ -293,6 +330,62 @@ export class RpcClient<T> {
     
     // Process the result to convert markers to live objects (remote function markers to proxies, etc.)
     return this.postprocessResult(result, []);
+  }
+
+  // Send all queued executions as a batch
+  async #sendBatch(): Promise<void> {
+    // Reset batch flag
+    this.#batchScheduled = false;
+
+    // Get all queued executions
+    const queue = this.#executionQueue;
+    this.#executionQueue = [];
+
+    if (queue.length === 0) {
+      return; // Nothing to send
+    }
+
+    try {
+      // Process all operations in the batch (serialize Web API objects, etc.)
+      // This is done here (not in execute()) to avoid microtask boundaries breaking batching
+      const processedQueue = await Promise.all(
+        queue.map(async (item) => ({
+          ...item,
+          operations: await processOutgoingOperations(item.operations)
+        }))
+      );
+
+      // Build batch request
+      const batchRequest: RpcBatchRequest = {
+        batch: processedQueue.map(({ id, operations }) => ({ id, operations }))
+      };
+
+      // Execute the batch via transport
+      const batchResponse = await this.#transport!.execute(batchRequest);
+
+      // Route responses to the correct promises by matching IDs
+      for (const response of batchResponse.batch) {
+        const queued = queue.find(q => q.id === response.id);
+        if (!queued) {
+          console.warn('Received response for unknown operation ID:', response.id);
+          continue;
+        }
+
+        if (response.success) {
+          queued.resolve(response.result);
+        } else {
+          // Deserialize error object back to Error instance
+          const error = deserializeError(response.error);
+          queued.reject(error);
+        }
+      }
+
+    } catch (error) {
+      // On error, reject all queued operations
+      for (const { reject } of queue) {
+        reject(error);
+      }
+    }
   }
 
   postprocessResult(obj: any, baseOperations: any[], seen = new WeakMap()): any {

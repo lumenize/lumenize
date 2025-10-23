@@ -1,11 +1,11 @@
 import type {
   OperationChain,
-  RpcRequest,
-  RpcResponse,
+  RpcBatchRequest,
+  RpcBatchResponse,
   RpcConfig,
   RemoteFunctionMarker,
-  RpcWebSocketBatchRequest,
-  RpcWebSocketBatchResponse
+  RpcWebSocketMessage,
+  RpcWebSocketMessageResponse
 } from './types';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
@@ -70,7 +70,7 @@ export async function handleRpcRequest(
 }
 
 /**
- * Handle RPC call requests
+ * Handle RPC call requests (now always in batch format)
  * @internal - implementation detail of handleRpcRequest
  */
 async function handleCallRequest(
@@ -83,33 +83,47 @@ async function handleCallRequest(
   }
 
   try {
-    // Parse the entire request using @ungap/structured-clone/json
+    // Parse the batch request using @ungap/structured-clone/json
     const requestBody = await request.text();
-    const rpcRequest: RpcRequest = parse(requestBody);
+    const batchRequest: RpcBatchRequest = parse(requestBody);
 
-    // Dispatch the call (handles validation, execution, preprocessing, and errors)
-    const response = await dispatchCall(rpcRequest.operations, doInstance, config);
-    
-    // Serialize and return response
-    const responseBody = stringify(response);
-    
-    if (response.success) {
-      return new Response(responseBody, {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } else {
-      // Log error for debugging
-      console.error('%o', {
-        type: 'error',
-        where: 'handleCallRequest',
-        message: 'RPC call execution failed',
-        error: response.error
-      });
-      return new Response(responseBody, {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
+    const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
+
+    // Process each operation in the batch
+    for (const item of batchRequest.batch) {
+      const callResult = await dispatchCall(item.operations, doInstance, config);
+      
+      // Log errors for debugging
+      if (!callResult.success) {
+        console.error('%o', {
+          type: 'error',
+          where: 'handleCallRequest',
+          message: 'RPC operation execution failed',
+          id: item.id,
+          error: callResult.error
+        });
+      }
+
+      batchResults.push({
+        id: item.id,
+        ...callResult  // Spread success/result or success/error
       });
     }
+
+    // Send batch response
+    const batchResponse: RpcBatchResponse = {
+      batch: batchResults
+    };
+    
+    const responseBody = stringify(batchResponse);
+    
+    // Check if any operations failed
+    const hasErrors = batchResults.some(r => !r.success);
+    
+    return new Response(responseBody, {
+      status: hasErrors ? 500 : 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
     
   } catch (error: any) {
     // This catch is for request parsing errors, not RPC execution errors
@@ -119,11 +133,15 @@ async function handleCallRequest(
       message: 'Request parsing failed',
       error: error?.message || error
     });
-    const response: RpcResponse = {
-      success: false,
-      error: serializeError(error)
+    // Return a batch response with a single error
+    const batchResponse: RpcBatchResponse = {
+      batch: [{
+        id: 'parse-error',
+        success: false,
+        error: serializeError(error)
+      }]
     };
-    const responseBody = stringify(response);
+    const responseBody = stringify(batchResponse);
     return new Response(responseBody, {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -441,17 +459,17 @@ export async function handleRpcMessage(
 
   try {
     // Parse the entire message using @ungap/structured-clone/json
-    const batchRequest: RpcWebSocketBatchRequest = parse(message);
+    const wsMessage: RpcWebSocketMessage = parse(message);
 
     // Check if this is an RPC message by verifying the type field
-    if (batchRequest.type !== messageType) {
+    if (wsMessage.type !== messageType) {
       return false; // Not an RPC message
     }
 
     const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
 
     // Process each operation in the batch
-    for (const item of batchRequest.batch) {
+    for (const item of wsMessage.batch) {
       const callResult = await dispatchCall(item.operations, doInstance, rpcConfig);
       
       // Log errors for debugging
@@ -472,12 +490,12 @@ export async function handleRpcMessage(
     }
 
     // Send batch response
-    const batchResponse: RpcWebSocketBatchResponse = {
+    const messageResponse: RpcWebSocketMessageResponse = {
       type: messageType,
       batch: batchResults
     };
     
-    const responseBody = stringify(batchResponse);
+    const responseBody = stringify(messageResponse);
     ws.send(responseBody);
 
     return true; // Message was handled as RPC

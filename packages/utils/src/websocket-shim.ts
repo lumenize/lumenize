@@ -120,6 +120,8 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
         this.#metrics.wsSentMessages = (this.#metrics.wsSentMessages ?? 0) + 1;
         const bytes = byteLength(data);
         this.#metrics.wsSentPayloadBytes = (this.#metrics.wsSentPayloadBytes ?? 0) + bytes;
+        // Unified metrics
+        this.#metrics.payloadBytesSent = (this.#metrics.payloadBytesSent ?? 0) + bytes;
       }
       
       const state = this.readyState;
@@ -226,8 +228,11 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
           // Track metrics for received messages
           if (this.#metrics) {
             this.#metrics.wsReceivedMessages = (this.#metrics.wsReceivedMessages ?? 0) + 1;
+            this.#metrics.roundTrips = (this.#metrics.roundTrips ?? 0) + 1; // One message sent + received = 1 round trip
             const bytes = byteLength(e.data);
             this.#metrics.wsReceivedPayloadBytes = (this.#metrics.wsReceivedPayloadBytes ?? 0) + bytes;
+            // Unified metrics
+            this.#metrics.payloadBytesReceived = (this.#metrics.payloadBytesReceived ?? 0) + bytes;
           }
           
           const newEvent = new MessageEvent("message", {

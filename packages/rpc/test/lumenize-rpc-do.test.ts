@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { runInDurableObject, env, SELF } from 'cloudflare:test';
-import type { RpcRequest, RpcResponse } from '@lumenize/rpc';
+import type { RpcBatchRequest, RpcBatchResponse } from '@lumenize/rpc';
 
 // Use real structured-clone for sociable unit testing
 import { stringify, parse } from '@ungap/structured-clone/json';
@@ -26,16 +26,19 @@ describe('lumenizeRpcDO server-side functionality', () => {
     const stub = env.EXAMPLE_DO.get(id);
 
     await runInDurableObject(stub, async (instance: any) => {
-      const rpcRequest: RpcRequest = {
-        operations: [
-          { type: 'get', key: 'getArrayWithFunctions' },
-          { type: 'apply', args: [] }
-        ]
+      const rpcBatchRequest: RpcBatchRequest = {
+        batch: [{
+          id: 'test-1',
+          operations: [
+            { type: 'get', key: 'getArrayWithFunctions' },
+            { type: 'apply', args: [] }
+          ]
+        }]
       };
 
       const request = new Request(`https://example.com/__rpc/example-do/${id.toString()}/call`, {
         method: 'POST',
-        body: stringify(rpcRequest),
+        body: stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -43,9 +46,10 @@ describe('lumenizeRpcDO server-side functionality', () => {
       expect(response.status).toBe(200);
 
       const responseText = await response.text();
-      const data = parse(responseText) as RpcResponse;
-      expect(data.success).toBe(true);
-      const result = data.result;
+      const data = parse(responseText) as RpcBatchResponse;
+      expect(data.batch).toHaveLength(1);
+      expect(data.batch[0].success).toBe(true);
+      const result = data.batch[0].result;
       
       // Check array structure
       expect(Array.isArray(result)).toBe(true);
@@ -91,13 +95,16 @@ describe('lumenizeRpcDO server-side functionality', () => {
       // Create a chain longer than the default maxDepth (50)
       const operations = Array(51).fill({ type: 'get', key: 'someProperty' });
       
-      const rpcRequest: RpcRequest = {
-        operations
+      const rpcBatchRequest: RpcBatchRequest = {
+        batch: [{
+          id: 'test-1',
+          operations
+        }]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: stringify(rpcRequest),
+        body: stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -105,10 +112,11 @@ describe('lumenizeRpcDO server-side functionality', () => {
       expect(response.status).toBe(500);
 
       const responseText = await response.text();
-      const data = parse(responseText) as RpcResponse;
-      expect(data.success).toBe(false);
-      expect(data.error?.message).toContain('Operation chain too deep');
-      expect(data.error?.message).toContain('51 > 50');
+      const data = parse(responseText) as RpcBatchResponse;
+      expect(data.batch).toHaveLength(1);
+      expect(data.batch[0].success).toBe(false);
+      expect(data.batch[0].error?.message).toContain('Operation chain too deep');
+      expect(data.batch[0].error?.message).toContain('51 > 50');
     });
   });
 
@@ -121,16 +129,19 @@ describe('lumenizeRpcDO server-side functionality', () => {
       // Create an apply operation with more than maxArgs (100)
       const tooManyArgs = Array(101).fill(0);
       
-      const rpcRequest: RpcRequest = {
-        operations: [
-          { type: 'get', key: 'add' },
-          { type: 'apply', args: tooManyArgs }
-        ]
+      const rpcBatchRequest: RpcBatchRequest = {
+        batch: [{
+          id: 'test-1',
+          operations: [
+            { type: 'get', key: 'add' },
+            { type: 'apply', args: tooManyArgs }
+          ]
+        }]
       };
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: stringify(rpcRequest),
+        body: stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -138,10 +149,11 @@ describe('lumenizeRpcDO server-side functionality', () => {
       expect(response.status).toBe(500);
 
       const responseText = await response.text();
-      const data = parse(responseText) as RpcResponse;
-      expect(data.success).toBe(false);
-      expect(data.error?.message).toContain('Too many arguments');
-      expect(data.error?.message).toContain('101 > 100');
+      const data = parse(responseText) as RpcBatchResponse;
+      expect(data.batch).toHaveLength(1);
+      expect(data.batch[0].success).toBe(false);
+      expect(data.batch[0].error?.message).toContain('Too many arguments');
+      expect(data.batch[0].error?.message).toContain('101 > 100');
     });
   });
 });

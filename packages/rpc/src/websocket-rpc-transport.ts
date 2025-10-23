@@ -1,33 +1,25 @@
 import type { 
   RpcTransport, 
-  OperationChain, 
-  RpcWebSocketBatchRequest,
-  RpcWebSocketBatchResponse
+  RpcBatchRequest,
+  RpcBatchResponse,
+  RpcWebSocketMessage,
+  RpcWebSocketMessageResponse
 } from './types';
 import { deserializeError } from './error-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 
 /**
- * Pending operation tracking
+ * Pending batch tracking - maps batch ID to resolve/reject functions
  */
-interface PendingOperation {
-  resolve: (value: any) => void;
+interface PendingBatch {
+  resolve: (value: RpcBatchResponse) => void;
   reject: (error: any) => void;
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
 /**
- * Queued execution waiting to be batched
- */
-interface QueuedExecution {
-  id: string;
-  operations: OperationChain;
-  resolve: (value: any) => void;
-  reject: (error: any) => void;
-}
-
-/**
  * WebSocket-based RPC transport with lazy connection and auto-reconnect.
+ * Wraps/unwraps RpcBatchRequest with WebSocket message envelope (adds 'type' field).
  * Used internally by RpcClient - not intended for direct use.
  * @internal
  */
@@ -42,13 +34,8 @@ export class WebSocketRpcTransport implements RpcTransport {
   };
   #ws: WebSocket | null = null;
   #connectionPromise: Promise<void> | null = null;
-  #pendingOperations: Map<string, PendingOperation> = new Map();
+  #pendingBatches: Map<string, PendingBatch> = new Map();
   #messageType: string; // e.g., '__rpc' (prefix with slashes removed)
-  #nextId = 0;
-  
-  // Batching support for promise pipelining
-  #executionQueue: QueuedExecution[] = [];
-  #batchScheduled = false;
 
   constructor(config: {
     baseUrl: string;
@@ -175,39 +162,58 @@ export class WebSocketRpcTransport implements RpcTransport {
         reason: event.reason
       });
 
-      // Reject all pending operations
-      for (const [id, pending] of this.#pendingOperations.entries()) {
+      // Reject all pending batches
+      for (const [batchId, pending] of this.#pendingBatches.entries()) {
         clearTimeout(pending.timeoutId);
         pending.reject(new Error('WebSocket connection closed'));
       }
-      this.#pendingOperations.clear();
+      this.#pendingBatches.clear();
     });
   }
 
   /**
-   * Handle incoming WebSocket message (always expects batch format)
+   * Handle incoming WebSocket message (always expects batch format wrapped in type envelope)
    */
   #handleMessage(data: string): void {
     try {
       // Parse the response using @ungap/structured-clone/json
-      const batchResponse: RpcWebSocketBatchResponse = parse(data);
+      const messageResponse: RpcWebSocketMessageResponse = parse(data);
 
       // Verify type
-      if (batchResponse.type !== this.#messageType) {
+      if (messageResponse.type !== this.#messageType) {
         console.warn('%o', {
           type: 'warn',
           where: 'WebSocketRpcTransport.handleMessage',
           message: 'Received message with unexpected type',
           expected: this.#messageType,
-          actual: batchResponse.type
+          actual: messageResponse.type
         });
         return;
       }
 
-      // Process each response in the batch
-      for (const response of batchResponse.batch) {
-        this.#processResponse(response.id, response.success, response.result, response.error);
+      // Find the pending batch using first response ID
+      const firstResponseId = messageResponse.batch[0]?.id;
+      if (!firstResponseId) {
+        console.warn('Received empty batch response');
+        return;
       }
+
+      const pending = this.#pendingBatches.get(firstResponseId);
+      
+      if (!pending) {
+        console.warn('Received response for unknown operation ID:', firstResponseId);
+        return;
+      }
+
+      // Clear timeout and remove from pending
+      clearTimeout(pending.timeoutId);
+      this.#pendingBatches.delete(firstResponseId);
+
+      // Resolve with the batch response (unwrapped from message envelope)
+      pending.resolve({
+        batch: messageResponse.batch
+      });
+
     } catch (error) {
       console.error('%o', {
         type: 'error',
@@ -219,117 +225,49 @@ export class WebSocketRpcTransport implements RpcTransport {
   }
 
   /**
-   * Process a single response from the batch
+   * Execute a batch of RPC operations.
+   * Wraps the batch in a WebSocket message envelope with type field.
    */
-  #processResponse(id: string, success: boolean, result?: any, error?: any): void {
-    // Find pending operation
-    const pending = this.#pendingOperations.get(id);
-    if (!pending) {
-      console.warn('%o', {
-        type: 'warn',
-        where: 'WebSocketRpcTransport.processResponse',
-        message: 'Received response for unknown operation',
-        id
-      });
-      return;
-    }
-
-    // Clear timeout and remove from pending
-    clearTimeout(pending.timeoutId);
-    this.#pendingOperations.delete(id);
-
-    // Resolve or reject the promise
-    if (success) {
-      // Success response
-      pending.resolve(result);
-    } else {
-      // Error response
-      const deserializedError = deserializeError(error);
-      pending.reject(deserializedError);
-    }
-  }
-
-  /**
-   * Execute RPC operation chain
-   * Queues the operation and schedules a batch send in the next microtask
-   */
-  async execute(operations: OperationChain): Promise<any> {
+  async execute(batch: RpcBatchRequest): Promise<RpcBatchResponse> {
     // Lazy connect (or reconnect if connection dropped)
     if (!this.isConnected()) {
       await this.connect();
     }
 
-    // Generate unique message ID
-    const id = `${Date.now()}-${this.#nextId++}`;
+    // Extract first ID to use as batch tracking ID
+    const firstId = batch.batch[0]?.id;
+    if (!firstId) {
+      throw new Error('Cannot execute empty batch');
+    }
 
     // Create promise for response
-    const resultPromise = new Promise<any>((resolve, reject) => {
-      // Queue this execution for batching
-      this.#executionQueue.push({
-        id,
-        operations,
-        resolve,
-        reject
-      });
+    return new Promise<RpcBatchResponse>((resolve, reject) => {
+      // Setup timeout
+      const timeoutId = setTimeout(() => {
+        this.#pendingBatches.delete(firstId);
+        reject(new Error(`RPC batch timed out after ${this.#config.timeout}ms`));
+      }, this.#config.timeout);
 
-      // Schedule batch send if not already scheduled
-      if (!this.#batchScheduled) {
-        this.#batchScheduled = true;
-        queueMicrotask(() => {
-          this.#sendBatch();
-        });
-      }
-    });
+      // Track this pending batch using first ID
+      this.#pendingBatches.set(firstId, { resolve, reject, timeoutId });
 
-    return resultPromise;
-  }
+      try {
+        // Wrap batch in WebSocket message envelope with type field
+        // Preserve client-generated IDs
+        const message: RpcWebSocketMessage = {
+          type: this.#messageType,
+          batch: batch.batch
+        };
 
-  /**
-   * Send all queued executions as a batch (always uses batch format, even for single operations)
-   */
-  #sendBatch(): void {
-    // Reset batch flag
-    this.#batchScheduled = false;
+        const messageBody = stringify(message);
+        this.#ws!.send(messageBody);
 
-    // Get all queued executions
-    const queue = this.#executionQueue;
-    this.#executionQueue = [];
-
-    if (queue.length === 0) {
-      return; // Nothing to send
-    }
-
-    try {
-      // Setup timeouts and track all pending operations
-      for (const { id, resolve, reject } of queue) {
-        const timeoutId = setTimeout(() => {
-          this.#pendingOperations.delete(id);
-          reject(new Error(`RPC operation timed out after ${this.#config.timeout}ms`));
-        }, this.#config.timeout);
-
-        this.#pendingOperations.set(id, { resolve, reject, timeoutId });
-      }
-
-      // Always send as batch (even for single operations - simpler and more consistent)
-      const batchRequest: RpcWebSocketBatchRequest = {
-        type: this.#messageType,
-        batch: queue.map(({ id, operations }) => ({ id, operations }))
-      };
-
-      const requestBody = stringify(batchRequest);
-      this.#ws!.send(requestBody);
-
-    } catch (error) {
-      // On error, reject all queued operations
-      for (const { id, reject } of queue) {
-        const pending = this.#pendingOperations.get(id);
-        if (pending) {
-          clearTimeout(pending.timeoutId);
-          this.#pendingOperations.delete(id);
-        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.#pendingBatches.delete(firstId);
         reject(error);
       }
-    }
+    });
   }
 
   /**
@@ -350,11 +288,11 @@ export class WebSocketRpcTransport implements RpcTransport {
       ws.close(1000, 'Normal closure');
     }
 
-    // Reject all pending operations
-    for (const [id, pending] of this.#pendingOperations.entries()) {
+    // Reject all pending batches
+    for (const [batchId, pending] of this.#pendingBatches.entries()) {
       clearTimeout(pending.timeoutId);
       pending.reject(new Error('WebSocket disconnected'));
     }
-    this.#pendingOperations.clear();
+    this.#pendingBatches.clear();
   }
 }

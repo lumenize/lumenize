@@ -130,9 +130,21 @@ export class Browser {
       // Track HTTP request
       if (this.#metrics) {
         this.#metrics.httpRequests = (this.#metrics.httpRequests ?? 0) + 1;
+        this.#metrics.roundTrips = (this.#metrics.roundTrips ?? 0) + 1; // One HTTP request/response = 1 round trip
       }
       
       const request = new Request(input, init);
+      
+      // Track request payload size
+      if (this.#metrics && request.body) {
+        try {
+          const clone = request.clone();
+          const arrayBuffer = await clone.arrayBuffer();
+          this.#metrics.payloadBytesSent = (this.#metrics.payloadBytesSent ?? 0) + arrayBuffer.byteLength;
+        } catch {
+          // If body can't be read, skip tracking
+        }
+      }
       
       // Add cookies to request
       const cookieHeader = this.getCookiesForRequest(request.url);
@@ -142,6 +154,17 @@ export class Browser {
       
       // Make request
       const response = await this.#baseFetch(request);
+      
+      // Track response payload size
+      if (this.#metrics) {
+        try {
+          const clone = response.clone();
+          const arrayBuffer = await clone.arrayBuffer();
+          this.#metrics.payloadBytesReceived = (this.#metrics.payloadBytesReceived ?? 0) + arrayBuffer.byteLength;
+        } catch {
+          // If body can't be read, skip tracking
+        }
+      }
       
       // Store cookies from response
       this.#storeCookiesFromResponse(response, request.url);
