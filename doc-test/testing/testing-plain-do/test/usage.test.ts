@@ -39,7 +39,20 @@ do that plus:
       - `fetch` and `WebSocket` from same context share cookies
       - Simulates requests from a context/page loaded from the given origin
       - Perfect for testing CORS and Origin validation logic
+
+## Version Detection
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest so this living documentation should always be up to 
+date.
 */
+
+// Import package version for automatic version tracking
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+
+it('detects package version', () => {
+  expect(lumenizeTestingPackage.version).toBe('0.10.0');
+});
 
 /*
 ## Basic Usage

@@ -17,6 +17,21 @@
 /*
 Here's what minimal use of Lumenize RPC looks like.
 
+## Version Detection
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest so this living documentation should always be up to 
+date.
+*/
+
+// Import package version for automatic version tracking
+import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
+
+it('detects package version', () => {
+  expect(lumenizeRpcPackage.version).toBe('0.10.0');
+});
+
+/*
 ## test/quick-start.test.ts
 */
 import { it, expect } from 'vitest';

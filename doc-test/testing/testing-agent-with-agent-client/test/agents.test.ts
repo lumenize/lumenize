@@ -28,6 +28,21 @@ We show two scenarios:
 For basic usage of `@lumenize/testing`, see the 
 [usage documentation](/docs/testing/usage).
 
+## Version Detection
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest so this living documentation should always be up to 
+date.
+*/
+
+// Import package version for automatic version tracking
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+
+it('detects package version', () => {
+  expect(lumenizeTestingPackage.version).toBe('0.10.0');
+});
+
+/*
 ## Why testing an `Agent` is hard
 
 To test your `Agent` implementation, you have a few options.

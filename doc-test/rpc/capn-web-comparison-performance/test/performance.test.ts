@@ -43,7 +43,8 @@ import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 ## Version Detection
 
 This test asserts the installed version(s) and our release script warns if we 
-aren't using the latest so this should always be up to date.
+aren't using the latest so this living documentation should always be up to 
+date.
 */
 
 // Import package versions for automatic version tracking
