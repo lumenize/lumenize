@@ -560,6 +560,21 @@ export function createProxyFetch(queue: Queue, config: ProxyFetchConfig): typeof
 ## Later and possibly unrelated
 
 - [ ] Writeup my RPC performance findings and put it up as a doc on the website
+- [ ] Show that private methods are not available over Lumenize RPC
+- [ ] Need to test/demo this with Lumenize RPC. Notice the use of the first as a parameter in the second:
+  - An RpcPromise also acts as a stub for the eventual result of the promise. That means, you can access properties and invoke methods on it, without awaiting the promise first.
+    ```ts
+    // In a single round trip, authenticate the user, and fetch their notifications.
+    let user = api.authenticate(cookie);
+    let notifications = await user.getNotifications();
+    ```
+  - An RpcPromise (or its properties) can be passed as parameters to other RPC calls.
+    ```ts
+    // In a single round trip, authenticate the user, and fetch their public profile
+    // given their ID.
+    let user = api.authenticate(cookie);
+    let profile = await api.getUserProfile(user.id);
+    ```
 - [ ] Add examples and docs for plucking the bindingName and instanceNameOrId out of headers into storage for the DO
 - [ ] Add `TypeBox Value` support for RPC runtime checking (both TypeBox and JSON Schema) but don't make TypeBox a dependency. That last could be tricky since it'll have to sense if it's a TypeBox spec, or a JSON Schema spec.
 - [ ] Move debugOff into @lumenize/utils

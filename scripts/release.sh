@@ -73,6 +73,30 @@ cd "$ROOT_DIR"
 echo "✅ Doc-tests passed"
 echo ""
 
+# Check Cap'n Web version against npm registry
+echo "ℹ️  Checking external dependency versions..."
+CAPNWEB_CURRENT=$(node -e "console.log(require('./node_modules/capnweb/package.json').version)" 2>/dev/null || echo "not installed")
+if [ "$CAPNWEB_CURRENT" != "not installed" ]; then
+  CAPNWEB_LATEST=$(npm view capnweb version 2>/dev/null || echo "unknown")
+  echo "   Cap'n Web installed: v$CAPNWEB_CURRENT"
+  echo "   Cap'n Web latest:    v$CAPNWEB_LATEST"
+  
+  if [ "$CAPNWEB_CURRENT" != "$CAPNWEB_LATEST" ] && [ "$CAPNWEB_LATEST" != "unknown" ]; then
+    echo ""
+    echo "⚠️  WARNING: A newer version of Cap'n Web is available!"
+    echo "   Consider upgrading and updating the performance comparison doc-test."
+    echo ""
+    read -p "Continue with release anyway? [y/N]: " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "❌ Release cancelled"
+      ./scripts/restore-dev-mode.sh
+      exit 1
+    fi
+  fi
+fi
+echo ""
+
 # Step 3: Build packages and update package.json
 echo "3️⃣  Preparing packages for publish..."
 echo ""

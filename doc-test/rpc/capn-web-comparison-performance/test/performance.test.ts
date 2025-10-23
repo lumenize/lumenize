@@ -16,9 +16,8 @@
 This living documentation compares performance characteristics between Lumenize 
 RPC and Cap'n Web (Cloudflare's official "last-mile" RPC solution).
 
-It was produced using the latest versions as of 2025-10-22:
-- Cap'n Web v0.1.0
-- Lumenize RPC v0.10.0 [TODO: Need to upgrade to 0.10.1]
+The test suite automatically asserts the installed versions of both packages
+to ensure documentation always reflects what's actually being tested.
 
 Using this doc-test approach, when either package changes its implementation, 
 we'll know immediately because the tests will start failing as soon as we 
@@ -39,6 +38,22 @@ import { newWebSocketRpcSession } from 'capnweb';
 import type { Metrics } from '@lumenize/utils';
 
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
+
+/*
+## Version Detection
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest so this should always be up to date.
+*/
+
+// Import package versions for automatic version tracking
+import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
+import capnwebPackage from '../../../../node_modules/capnweb/package.json';
+
+it('detects package versions', () => {
+  expect(lumenizeRpcPackage.version).toBe('0.10.0');
+  expect(capnwebPackage.version).toBe('0.1.0');
+});
 
 // =============================================================================
 // Create clients - Similar amount of boilerplate
