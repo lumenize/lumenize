@@ -1,39 +1,175 @@
-// DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
-// - Block comments (/* */) become Markdown in the docs
-// - Code between block comments becomes code blocks in the docs
-// - Single-line comments (//) before the first block comment (like this one)
-//   do not show up in the generated doc
-// - Single-line comments (//) after that are included in the generated doc
-// - Use @import directives to include external files
-// - Tests must pass - they validate the documentation
-// - Keep code blocks within 80 columns to prevent horizontal scrolling
-// - Keep it brief - this is documentation, not exhaustive testing
-//   - Use one expect() to illustrate behavior
-//   - Only add more expects if the boundaries/edge cases are the point
-// - See: /tooling/doc-testing/README.md
+---
 
-/*
+generated_by: doc-testing
+
+---
+
+
+
 # vs Cap'n Web ("It just works")
+
+<details>
+<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
+
+This documentation uses **testable code examples** to ensure accuracy and reliability:
+
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual package(s)
+- **Guaranteed latest comparisons**: Further, our release script won't allow us to release a new
+  version of Lumenize, without prompting us to update any doc-tested comparison package 
+  (e.g. Cap'n Web).
+- **Always up-to-date**: When the library changes, the tests fail and the docs must be updated
+- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippet
+
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
+
+</details>
 
 Cap'n Web's documentation states that Workers RPC interoperability 
 ["basically, it 'just works.'"](https://github.com/cloudflare/capnweb/tree/main#cloudflare-workers-rpc-interoperability) This living documentation demonstrates 
 that claim and highlights the current limitations of it.
 
 **Bottom line**: Cap'n Web's syntax, which allows you to magically return an RpcTarget instance or Durable Object stub is quite elegant and conceptually consistent. Lumenize RPC's is more explicit but similarly concise. Still, we'd give the slight advantage to Cap'n Web except for one little thing-[unsupported types](https://github.com/cloudflare/capnweb/tree/main?tab=readme-ov-file#pass-by-value-types). We drill down on this in the next doc-test but if you want to skip ahead, there is [summary table of types supported by Workers RPC compared to those supported by Cap'n Web and Lumenize RPC](/docs/rpc/capn-web-comparison-basics-and-types#supported-types). Note, Cloudflare says some of these "may be added in the future" and if that happens we will quickly update these documents, but until then, the claim "it just works" falls short.
-*/
 
-/*
 ### src/index.ts
 
 Normally, we start off these doc-tests with the tests that show behavior, but in this case, we want you to look at the Worker, DurableObjects and RpcTargets first.
 
-@import {typescript} "../src/index.ts" [src/index.ts]
-*/
+```typescript src/index.ts
+import { DurableObject, RpcTarget } from 'cloudflare:workers';
+import { lumenizeRpcDO } from '@lumenize/rpc';
+import { routeDORequest } from '@lumenize/utils';
+import { newWorkersRpcResponse, RpcStub } from 'capnweb';
 
+// =======================================================================
+// Lumenize RPC - User and Room services
+// =======================================================================
 
-/*
+// Room stores messages using Map<number, string>
+export class Room extends DurableObject {
+  addMessage(text: string): number {
+    const messages =
+      this.ctx.storage.kv.get<Map<number, string>>('messages') ??
+      new Map();
+    const id = messages.size + 1;
+    messages.set(id, text);
+    this.ctx.storage.kv.put('messages', messages);
+    return id;
+  }
+
+  getMessages(): Map<number, string> {
+    return (
+      this.ctx.storage.kv.get<Map<number, string>>('messages') ??
+      new Map()
+    );
+  }
+}
+
+// User acts as a gateway, hopping to Room via env
+class _User extends DurableObject<Env> {
+  // Generic method forwarder - calls any Room method by name
+  room(roomName: string, method: string, ...params: any[]): Promise<any> {
+    return (this.env.ROOM.getByName(roomName) as any)[method](...params);
+  }
+}
+
+export const User = lumenizeRpcDO(_User);
+
+// =======================================================================
+// Cap'n Web - Clean and elegant
+// =======================================================================
+
+// Cap'n Web Room - Uses Map (will fail on getMessages())
+export class CapnWebRoom extends DurableObject<Env> {
+  addMessage(text: string): number {
+    const messages =
+      this.ctx.storage.kv.get<Map<number, string>>('messages') ??
+      new Map();
+    const id = messages.size + 1;
+    messages.set(id, text);
+    this.ctx.storage.kv.put('messages', messages);
+    return id;
+  }
+
+  getMessages(): Map<number, string> {
+    return (
+      this.ctx.storage.kv.get<Map<number, string>>('messages') ??
+      new Map()
+    );
+  }
+}
+
+// Cap'n Web PlainRoom - Uses plain object (will work)
+export class CapnWebPlainRoom extends DurableObject<Env> {
+  addMessage(text: string): number {
+    const messages =
+      this.ctx.storage.kv.get<Record<number, string>>('messages') ??
+      {};
+    const id = Object.keys(messages).length + 1;
+    messages[id] = text;
+    this.ctx.storage.kv.put('messages', messages);
+    return id;
+  }
+
+  getMessages(): Record<number, string> {
+    return (
+      this.ctx.storage.kv.get<Record<number, string>>('messages') ??
+      {}
+    );
+  }
+}
+
+// Cap'n Web User - RpcTarget instantiated directly in worker
+export class CapnWebUser extends RpcTarget {
+  constructor(private env: Env) {
+    super();
+  }
+
+  // Return Workers RPC stub to Room
+  // (uses Map - will fail on getMessages())
+  getRoom(roomName: string) {
+    return this.env.CAPNWEB_ROOM.getByName(roomName);
+  }
+
+  // Return Workers RPC stub to PlainRoom
+  // (uses plain object - will work)
+  getPlainRoom(roomName: string) {
+    return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
+  }
+}
+
+// =======================================================================
+// Worker - Route requests to appropriate service
+// =======================================================================
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    
+    // Route Lumenize RPC requests (both User and Room)
+    const lumenizeResponse = await routeDORequest( request, env, 
+      { prefix: '__rpc' });
+    if (lumenizeResponse) return lumenizeResponse;
+    
+    // Route Cap'n Web RPC requests
+    // - instantiate RpcTarget directly per Cap'n Web pattern
+    if (url.pathname === '/capnweb') {
+      return newWorkersRpcResponse(request, new CapnWebUser(env));
+    }
+
+    // Fallback for non-RPC requests
+    return new Response('Not found', { status: 404 });
+  },
+};
+
+```
+
 ## Imports
-*/
+
+
+
+
+```typescript test
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
@@ -41,24 +177,38 @@ import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
 import { newWebSocketRpcSession } from 'capnweb';
 
 import { User, CapnWebUser } from '../src/index';
+```
 
-/*
+
+
+
 ## Version(s)
 
 This test asserts the installed version(s) and our release script warns if we 
 aren't using the latest version published to npm, so this living documentation 
 should always be up to date.
-*/
+
+
+
+
+```typescript test
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
   expect(lumenizeRpcPackage.version).toBe('0.10.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
+```
 
-/*
+
+
+
 ## Creating Clients
-*/
+
+
+
+
+```typescript test
 function getLumenizeUserClient(instanceName: string) {
   return createRpcClient<typeof User>(
     'USER',
@@ -72,8 +222,11 @@ function getCapnWebUserClient() {
   const ws = new (getWebSocketShim(SELF.fetch.bind(SELF)))(url);
   return newWebSocketRpcSession<CapnWebUser>(ws);
 }
+```
 
-/*
+
+
+
 ## Service-to-Service Communication via Workers RPC
 
 A common pattern in chat applications: User service acts as a gateway/proxy,
@@ -90,7 +243,11 @@ hopping to Room services for actual storage operations.
 - ✅ Clean pattern - just return Workers RPC stubs directly
 - ✅ Works like magic when types are compatible
 - ⚠️ Limited type support breaks the magic for Map, Set, etc.
-*/
+
+
+
+
+```typescript test
 it('demonstrates service-to-service hopping', async () => {
   // ==========================================================================
   // Lumenize RPC
@@ -178,8 +335,11 @@ it('demonstrates service-to-service hopping', async () => {
   // Compare with Lumenize RPC where Map works seamlessly without
   // workarounds.
 });
+```
 
-/*
+
+
+
 ## The Type Support Problem
 
 Cap'n Web's "it just works" claim breaks down when you try to use 
@@ -195,9 +355,7 @@ circular references, etc.
 
 For a comprehensive type support comparison, see the 
 [basics and types documentation](/docs/rpc/capn-web-comparison-basics-and-types#supported-types).
-*/
 
-/*
 ## Configuration Comparison
 
 **Lumenize RPC**:
@@ -213,9 +371,7 @@ For a comprehensive type support comparison, see the
 
 The configuration differences show Lumenize RPC's design priority: 
 make it easy to add RPC to existing DOs without refactoring.
-*/
 
-/*
 ## Installation
 
 ```bash npm2yarn
@@ -231,11 +387,80 @@ npm install --save-dev capnweb
 
 ### wrangler.jsonc
 
-@import {json} "../wrangler.jsonc" [wrangler.jsonc]
+```json wrangler.jsonc
+{
+  "name": "capnweb-just-works-comparison",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "USER",
+        "class_name": "User"
+      },
+      {
+        "name": "ROOM",
+        "class_name": "Room"
+      },
+      {
+        "name": "CAPNWEB_ROOM",
+        "class_name": "CapnWebRoom"
+      },
+      {
+        "name": "CAPNWEB_PLAIN_ROOM",
+        "class_name": "CapnWebPlainRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "User", 
+        "Room", 
+        "CapnWebRoom", 
+        "CapnWebPlainRoom"
+      ]
+    }
+  ]
+}
+
+```
 
 ### vitest.config.js
 
-@import {javascript} "../vitest.config.js" [vitest.config.js]
+```javascript vitest.config.js
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+
+export default defineWorkersProject({
+  test: {
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./wrangler.jsonc" },  
+      },
+    },
+    // Use `vitest --run --coverage` to get test coverage report(s)
+    coverage: {
+      provider: "istanbul",  // Cannot use V8
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
+    },
+  },
+});
+
+```
 
 ## Try it out
 
@@ -248,4 +473,3 @@ To see test coverage:
 ```bash
 vitest --run --coverage
 ```
-*/

@@ -17,10 +17,6 @@
 
 This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's
 official "last-mile" RPC solution) handle basic operations and data types.
-
-Using this doc-test approach, when either package adds capability, we'll
-know immediately because the tests will start failing as soon as we upgrade
-to the latest version.
 */
 
 /*
@@ -174,6 +170,7 @@ update this table.
 
 | Type | Workers RPC | DO Storage | Lumenize RPC | Cap'n Web | Notes |
 |------|-------------|------------|--------------|-----------|-------|
+| **Cycles & Aliases** | ✅→❌ | ✅→❌ | ✅ | ❌ | Cap'n Web throws error<br />[Cloudflare plans to remove](https://github.com/cloudflare/capnweb/tree/main#cloudflare-workers-rpc-interoperability) |
 | **Primitives** | | | | | |
 | undefined | ✅ | ✅ | ✅ | ✅ | |
 | null | ✅ | ✅ | ✅ | ✅ | |
@@ -192,12 +189,12 @@ update this table.
 | **Errors** | | | | | |
 | Error (thrown) | ✅ | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
 | Error (value) | ✅ | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
-| **Circular References** | ✅ | ✅ | ✅ | ❌ | Cap'n Web throws error |
 | **Web API Types** | | | | | |
 | Request | ✅ | ❌ | ✅ | ❌ | |
 | Response | ✅ | ❌ | ✅ | ❌ | |
 | Headers | ✅ | ✅ | ✅ | ❌ | |
 | URL | ❌ | ❌ | ✅ | ❌ | |
+| **Streams** | | | | | |
 | ReadableStream | ✅ | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
 | WritableStream | ✅ | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
 

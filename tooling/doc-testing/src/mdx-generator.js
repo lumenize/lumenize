@@ -121,10 +121,13 @@ function generateTestableNotice() {
 
 This documentation uses **testable code examples** to ensure accuracy and reliability:
 
-- **Guaranteed accuracy**: All examples are real, working code that runs against the actual library
-- **Always up-to-date**: When the library changes, the tests fail and the docs must be updated
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual package(s)
+- **Guaranteed latest comparisons**: Further, our release script won't allow us to release a new
+  version of Lumenize, without prompting us to update any doc-tested comparison package 
+  (e.g. Cap'n Web)
+- **Always up-to-date**: When a package changes, the tests fail and the docs must be updated
 - **Copy-paste confidence**: What you see is what works - no outdated or broken examples
-- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippet
 
 Ignore the test boilerplate (\`it()\`, \`describe()\`, etc.) - focus on the code inside.
 

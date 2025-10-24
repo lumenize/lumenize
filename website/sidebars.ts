@@ -121,6 +121,13 @@ const sidebars: SidebarsConfig = {
         'rpc/capn-web-comparison',
         {
           type: 'doc',
+          id: 'rpc/capn-web-comparison-just-works',
+          customProps: {
+            docTest: 'doc-test/rpc/capn-web-comparison-just-works/test/just-works.test.ts'
+          }
+        },
+        {
+          type: 'doc',
           id: 'rpc/capn-web-comparison-basics-and-types',
           customProps: {
             docTest: 'doc-test/rpc/capn-web-comparison-basics-and-types/test/basics-and-types.test.ts'
