@@ -268,7 +268,7 @@ automatic batching of independent operations.
 **Key insight:** All three calls happen in one round trip because Cap'n Web
 substitutes the promise values on the server side.
 */
-it('demonstrates true promise pipelining (Cap\'n Web only)', async () => {
+it('demonstrates true promise pipelining (Cap\'n Web)', async () => {
   const metrics: Metrics = {};
   
   // ==========================================================================
@@ -289,6 +289,26 @@ it('demonstrates true promise pipelining (Cap\'n Web only)', async () => {
   expect(metrics.wsReceivedMessages).toBe(1);
 });
 
+it('demonstrates true promise pipelining (Lumenize)', async () => {
+  const metrics: Metrics = {};
+  
+  // ==========================================================================
+  // Lumenize - True promise pipelining with dependent operations
+  // ==========================================================================
+  using client = getLumenizeClient('geometric-progression', metrics);
+  
+  // Geometric progression using promise pipelining:
+  const firstResult = client.increment();  // increment() → 1
+  const secondResult = client.increment(firstResult);  // increment(1) → 2
+  const finalResult = await client.increment(secondResult);  // increment(2) → 4
+  
+  // Final result should be 4 (geometric progression: 1 → 2 → 4)
+  expect(finalResult).toBe(4);
+  
+  // All 3 dependent operations sent in exactly 1 round trip!
+  expect(metrics.wsUpgradeRequests).toBe(1);
+  expect(metrics.wsReceivedMessages).toBe(1);
+});
 
 /*
 ## Installation

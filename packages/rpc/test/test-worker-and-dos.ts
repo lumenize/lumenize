@@ -103,6 +103,23 @@ const SubclassDO = lumenizeRpcDO(_SubclassDO);
 export { SubclassDO };
 
 /**
+ * Simple DO for testing promise pipelining with geometric progression
+ * increment(count) adds count to current storage value
+ */
+class _PipeliningDO extends DurableObject<Env> {
+  increment(count: number = 1): number {
+    let currentCount = (this.ctx.storage.kv.get<number>("count")) ?? 0;
+    currentCount += count;
+    this.ctx.storage.kv.put("count", currentCount);
+    return currentCount;
+  }
+}
+
+// Export the lumenized version
+const PipeliningDO = lumenizeRpcDO(_PipeliningDO);
+export { PipeliningDO };
+
+/**
  * Example Durable Object that uses manual routing instead of the factory
  * This demonstrates how to use handleRpcRequest directly for custom routing
  * Has same methods as ExampleDO for consistent testing

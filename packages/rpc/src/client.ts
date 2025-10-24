@@ -9,7 +9,7 @@ import type {
   RpcTransport,
   PipelinedOperationMarker
 } from './types';
-import { isRemoteFunctionMarker } from './types';
+import { isRemoteFunctionMarker, isPipelinedOperationMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
@@ -76,26 +76,81 @@ export function createRpcClient<T>(
 }
 
 /**
+ * Recursively process an operation chain to convert any nested proxy objects to pipelined operation markers.
+ * This is needed because operation chains may contain proxies in their args, and those need to be
+ * converted to markers before the chain can be serialized.
+ */
+async function processOperationChainForMarker(chain: OperationChain): Promise<OperationChain> {
+  const processedChain: OperationChain = [];
+  
+  for (const operation of chain) {
+    if (operation.type === 'apply' && operation.args.length > 0) {
+      // Process args to convert any nested proxies to markers
+      const processedArgs: any[] = [];
+      for (const arg of operation.args) {
+        // Check if this arg is a proxy
+        if ((typeof arg === 'object' && arg !== null) || typeof arg === 'function') {
+          const nestedChain = proxyToOperationChain.get(arg);
+          if (nestedChain) {
+            // Recursively process the nested chain
+            const nestedProcessedChain = await processOperationChainForMarker(nestedChain);
+            processedArgs.push({
+              __isPipelinedOperation: true,
+              __operationChain: nestedProcessedChain
+            });
+            continue;
+          }
+        }
+        // Not a proxy, keep as-is
+        processedArgs.push(arg);
+      }
+      processedChain.push({
+        type: 'apply',
+        args: processedArgs
+      });
+    } else {
+      // get operations and apply with no args pass through unchanged
+      processedChain.push(operation);
+    }
+  }
+  
+  return processedChain;
+}
+
+/**
  * Process outgoing operations before sending to server.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
  * serialize any Web API objects, Errors, and special numbers in the args.
  * Also detects proxy arguments (for promise pipelining) and converts them to markers.
+ * Returns both processed operations and a set of operation chains that were pipelined.
  */
-async function processOutgoingOperations(operations: OperationChain): Promise<OperationChain> {
+async function processOutgoingOperations(operations: OperationChain): Promise<{ 
+  operations: OperationChain;
+  pipelinedChains: Set<OperationChain>;
+}> {
   const processedOperations: OperationChain = [];
+  const pipelinedChains = new Set<OperationChain>();
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
       // Use walkObject to serialize Web API objects, Errors, and special numbers in the args
       const transformer = async (value: any) => {
         // Check if this is a proxy that needs to be converted to a pipelined operation marker
-        if (typeof value === 'object' && value !== null) {
+        // Proxies can appear as either objects or functions depending on their target
+        if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
           const operationChain = proxyToOperationChain.get(value);
           if (operationChain) {
+            // Track that this operation chain was pipelined
+            pipelinedChains.add(operationChain);
+            
             // This is a proxy - convert to PipelinedOperationMarker
+            // The operation chain may contain nested proxies in its args, so we need to
+            // recursively process it to convert those proxies to markers as well
+            const processedChain = await processOperationChainForMarker(operationChain);
+            
             const marker: PipelinedOperationMarker = {
               __isPipelinedOperation: true,
-              __operationChain: operationChain
+              __operationChain: processedChain
             };
             return marker;
           }
@@ -121,7 +176,14 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
       // Walk the args array to find and serialize Web API objects, Errors, and special numbers
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
-        shouldSkipRecursion: isStructuredCloneNativeType
+        shouldSkipRecursion: (value) => {
+          // Skip recursion for pipelined operation markers - they're already fully formed
+          if (isPipelinedOperationMarker(value)) {
+            return true;
+          }
+          // Skip recursion for structured-clone native types
+          return isStructuredCloneNativeType(value);
+        }
       });
       
       processedOperations.push({
@@ -134,7 +196,7 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
     }
   }
   
-  return processedOperations;
+  return { operations: processedOperations, pipelinedChains };
 }
 
 /**
@@ -369,15 +431,39 @@ export class RpcClient<T> {
       // Process all operations in the batch (serialize Web API objects, etc.)
       // This is done here (not in execute()) to avoid microtask boundaries breaking batching
       const processedQueue = await Promise.all(
-        queue.map(async (item) => ({
-          ...item,
-          operations: await processOutgoingOperations(item.operations)
-        }))
+        queue.map(async (item) => {
+          const processed = await processOutgoingOperations(item.operations);
+          return {
+            ...item,
+            operations: processed.operations,
+            pipelinedChains: processed.pipelinedChains
+          };
+        })
       );
 
-      // Build batch request
+      // Collect all pipelined chains across all operations in the batch
+      const allPipelinedChains = new Set<OperationChain>();
+      for (const item of processedQueue) {
+        for (const chain of item.pipelinedChains) {
+          allPipelinedChains.add(chain);
+        }
+      }
+
+      // Filter out operations whose operation chains were used as pipelined arguments
+      // Only send operations that are actually being awaited
+      const filteredQueue = processedQueue.filter((item) => {
+        // Check if this item's ORIGINAL operations (before processing) match any pipelined chain
+        const originalItem = queue.find(q => q.id === item.id);
+        return !allPipelinedChains.has(originalItem!.operations);
+      });
+
+      // Note: Pipelined operations (those filtered out) have their promises left pending.
+      // This is correct - they should never be awaited since they're only used as arguments.
+      // Their results are computed on the server as part of the operation that used them.
+
+      // Build batch request with only non-pipelined operations
       const batchRequest: RpcBatchRequest = {
-        batch: processedQueue.map(({ id, operations }) => ({ id, operations }))
+        batch: filteredQueue.map(({ id, operations }) => ({ id, operations }))
       };
 
       // Execute the batch via transport
@@ -542,8 +628,9 @@ class ProxyHandler {
     this.#operationChain.push({ type: 'apply', args });
 
     // Execute the operation chain and wrap result in thenable proxy
-    const resultPromise = this.#executeOperations([...this.#operationChain]);
-    return this.#createThenableProxy(resultPromise);
+    const operationChain = [...this.#operationChain];
+    const resultPromise = this.#executeOperations(operationChain);
+    return this.#createThenableProxy(resultPromise, operationChain);
   }
 
   // Helper to execute operations
@@ -556,14 +643,14 @@ class ProxyHandler {
     return this.#rpcClient.postprocessResult(obj, baseOperations);
   }
 
-  #createThenableProxy(promise: Promise<any>): any {
+  #createThenableProxy(promise: Promise<any>, operationChain?: OperationChain): any {
     const self = this;
     
     // Use a function as the proxy target so it can be called
     const callableTarget = function() {};
     
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
-    return new Proxy(callableTarget, {
+    const proxy = new Proxy(callableTarget, {
       get(target: any, key: string | symbol, receiver: any) {
         // Allow standard Promise methods by delegating to the promise
         if (key === 'then' || key === 'catch' || key === 'finally') {
@@ -621,6 +708,13 @@ class ProxyHandler {
         });
       }
     });
+    
+    // Register this thenable proxy in the WeakMap if we have an operation chain
+    if (operationChain) {
+      proxyToOperationChain.set(proxy, operationChain);
+    }
+    
+    return proxy;
   }
 
   #createProxyWithCurrentChain(): any {
@@ -643,9 +737,11 @@ class ProxyHandler {
         return this.#createProxyWithCurrentChainForChain(newChain);
       },
       apply: (target: any, thisArg: any, args: any[]) => {
-        const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args }];
+        // Clone the args array to prevent mutation issues
+        const argsCopy = [...args];
+        const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args: argsCopy }];
         const resultPromise = this.#executeOperations(finalChain);
-        return this.#createThenableProxy(resultPromise);
+        return this.#createThenableProxy(resultPromise, finalChain);
       }
     });
     

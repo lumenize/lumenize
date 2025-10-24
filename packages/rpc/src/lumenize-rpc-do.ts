@@ -263,8 +263,10 @@ async function processIncomingOperations(operations: OperationChain, doInstance:
       const transformer = async (value: any) => {
         // Check if this is a pipelined operation marker that needs to be resolved
         if (isPipelinedOperationMarker(value)) {
-          // Recursively execute the pipelined operation chain to get the result
-          const result = await executeOperationChain(value.__operationChain, doInstance);
+          // First process the pipelined operation chain to resolve any nested markers
+          const processedChain = await processIncomingOperations(value.__operationChain, doInstance);
+          // Then execute the processed chain
+          const result = await executeOperationChain(processedChain, doInstance);
           return result;
         }
         // Check if this is a serialized special number

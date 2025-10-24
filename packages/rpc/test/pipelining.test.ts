@@ -1,0 +1,48 @@
+import { describe, it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+import { createRpcClient } from '../src/index';
+import { PipeliningDO } from './test-worker-and-dos';
+
+type PipeliningDO = InstanceType<typeof PipeliningDO>;
+
+// Base configuration shared across all tests
+const baseConfig = {
+  transport: 'http' as const,
+  baseUrl: 'https://fake-host.com',
+  prefix: '__rpc',
+  fetch: SELF.fetch.bind(SELF),
+};
+
+describe('Promise Pipelining', () => {
+
+  describe('Basic Functionality', () => {
+    it('should execute increment() and return 1', async () => {
+      using client = createRpcClient<PipeliningDO>('PIPELINING_DO', 'basic-test', baseConfig);
+      
+      const result = await client.increment();
+      expect(result).toBe(1);
+    });
+
+    it('should execute increment(5) and return 6', async () => {
+      using client = createRpcClient<PipeliningDO>('PIPELINING_DO', 'basic-test-2', baseConfig);
+      
+      const result = await client.increment(5);
+      expect(result).toBe(5); // 0 + 5 = 5
+    });
+  });
+
+  describe('Integration: Geometric Progression', () => {
+    it('should execute pipelined operations in single round trip', async () => {
+      using client = createRpcClient<PipeliningDO>('PIPELINING_DO', 'geometric', baseConfig);
+      
+      // Geometric progression using promise pipelining:
+      // Each increment adds the count parameter to current storage value
+      const first = client.increment();           // increment() → 1 (default count=1)
+      const second = client.increment(first);     // increment(1) → 2 (current 1 + arg 1)
+      const final = await client.increment(second);  // increment(2) → 4 (current 2 + arg 2)
+      
+      expect(final).toBe(4);
+    });
+  });
+});
