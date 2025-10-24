@@ -128,9 +128,6 @@ export class CapnWebUser extends RpcTarget {
     super();
   }
 
-  // Store client callbacks for proxying to DOs
-  #clientCallbacks = new Map<string, (message: string) => void>();
-
   // Return Workers RPC stub to Room
   // (uses Map - will fail on getMessages())
   getRoom(roomName: string) {
@@ -147,32 +144,6 @@ export class CapnWebUser extends RpcTarget {
   async testCallback(callback: (msg: string) => void): Promise<string> {
     await callback('Hello from CapnWebUser!');
     return 'callback invoked';
-  }
-
-  // Proxy pattern: Keep connection alive by not returning until done
-  async joinRoomAndListen(roomName: string, userName: string, clientCallback: (message: string) => void): Promise<void> {
-    // Store the client callback
-    const key = `${roomName}:${userName}`;
-    this.#clientCallbacks.set(key, clientCallback);
-
-    // Create our own callback that will be sent to the DO
-    const proxyCallback = (message: string) => {
-      console.log('User proxy callback invoked with:', message);
-      const cb = this.#clientCallbacks.get(key);
-      if (cb) {
-        cb(message);
-      }
-    };
-
-    // Get the DO stub and call joinAndListen - this won't return until the session ends
-    const roomStub = this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName) as any;
-    await roomStub.joinAndListen(userName, proxyCallback);
-  }
-
-  // Forward addMessage to the DO
-  async addRoomMessage(roomName: string, text: string): Promise<number> {
-    const roomStub = this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName) as any;
-    return await roomStub.addMessage(text);
   }
 }
 

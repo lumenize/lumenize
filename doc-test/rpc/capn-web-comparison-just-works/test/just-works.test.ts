@@ -215,33 +215,33 @@ it('demonstrates function callback support', async () => {
     expect(receivedMessages).toContain('Hello from CapnWebUser!');
   }, { timeout: 500 });
 
-  // Second test: Multi-hop callback with long-lived connection
-  // The key: joinAndListen doesn't return, keeping the RPC connection alive
+  // Second test: Multi-hop callback - direct stub pattern
+  // Client gets DO stub directly and calls joinAndListen on it
   const roomMessages: string[] = [];
   const roomCallback = (message: string) => {
     console.log('Client callback received:', message);
     roomMessages.push(message);
   };
 
-  // Start listening - this won't return for 5 seconds
-  const listenPromise = capnwebClient.joinRoomAndListen('room-callbacks-test', 'Alice', roomCallback);
+  // Get the DO stub directly from User
+  const plainRoomStub = await capnwebClient.getPlainRoom('room-callbacks-test') as any;
+
+  // Start listening - this won't return for 5 seconds, keeping the callback alive
+  const listenPromise = plainRoomStub.joinAndListen('Alice', roomCallback);
 
   // Give it a moment to establish
   await new Promise(resolve => setTimeout(resolve, 100));
 
-  // Add message which should trigger: DO → User proxy → Client
+  // Add message directly to the DO stub
   // The callback stub is still valid because joinAndListen hasn't returned yet
-  await capnwebClient.addRoomMessage('room-callbacks-test', 'Test message via proxy');
+  await plainRoomStub.addMessage('Test message direct');
 
   // Wait to see if callback fires
   await vi.waitFor(() => {
-    expect(roomMessages).toContain('Test message via proxy');
+    expect(roomMessages).toContain('Test message direct');
   }, { timeout: 500 });
   
-  expect(roomMessages).toEqual(['Test message via proxy']);
-  
-  // The listen promise will resolve after 5 seconds (or we could cancel it)
-  // For now, just let it timeout naturally
+  expect(roomMessages).toEqual(['Test message direct']);
 });
 
 /*
