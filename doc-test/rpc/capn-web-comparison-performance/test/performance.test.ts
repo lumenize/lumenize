@@ -18,8 +18,33 @@
 This living documentation compares performance characteristics between Lumenize 
 RPC and Cap'n Web (Cloudflare's official "last-mile" RPC solution).
 
-**Bottom line**: The performance differences between Cap'n Web and Lumenize RPC 
-are essentially zero (reciepts below).
+**Bottom line**: The percievable performance differences between Cap'n Web and 
+Lumenize RPC are essentially zero (reciepts below).
+
+## Round trip count completely determines performance
+
+We have [experimenally determined](https://github.com/lumenize/lumenize/blob/main/experiments/performance-comparisons/test/performance.test.ts) that the time of a round trip between a Worker/DO launched with `wrangler dev` and a vitest-workers-pool connecting to it over localhost is as follows:
+- Cap'n Web: 0.156ms
+- Lumenize RPC: 0.171ms
+- **Delta**: 0.015ms
+
+The round trip time (RTT) to Cloudflare edge network from a US East location is 
+rarely better than ~20ms. If you incure that extra 0.015ms on top of a single round trip, that works out to 0.075%. So, the difference between the two implementations is completely obscured by a single round trip.
+
+On the other hand, if Lumenize RPC or Cap'n Web required 2 round trips while that other required only 1, it would be 100% difference in performance.
+
+**In every case we show below, both require only a single RPC round trip for all use cases by making use of batching and/or promise pipeling.**
+
+## Full load throughput over localhost
+
+Not that it matters much, but the same experiment determined that the max fully loaded throughput was as follows: 
+- Cap'n Web exposed DO: 6414 ops/sec
+- Lumenize RPC exposed DO: 5858 ops/sec
+- **Delta**: 1.09x
+
+We say, "it doesn't matter much" because DOs are designed to be scaled out not up. If you have a DO approaching its max limit, you probably don't have fine enough granularity in what work you are sending to each DO. More importantly, these are micro-benchmarks with stupid simple methods being called. The real work your methods perform will be much more determinative of max throughput.
+
+As other documents in this comparison show, Lumenize RPC has signficant advantages that more than compensate for these small performance differences.
 */
 
 /*
@@ -229,7 +254,7 @@ it('compares byte count with 10KB payload', async () => {
 Here we demonstrate that Lumenize RPC passively batches over HTTP so it needs
 only one HTTP round trip per batch.
 
-The Cap'n Web `newHttpBatchRpcSession()` is not shown in this doc-test
+The Cap'n Web `newHttpBatchRpcSession()` is not shown in this doc-test.
 We may verify this experimentally at a later date, but for now we assume it 
 uses exactly one HTTP round trip, like Lumenize RPC.
 
