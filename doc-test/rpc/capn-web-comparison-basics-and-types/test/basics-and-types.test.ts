@@ -285,7 +285,7 @@ it('demonstrates error as value', async () => {
 /*
 ## Circular references and aliases
 
-**Lumenize RPC**: ✅ Handles circular references correctly  
+**Lumenize RPC**: ✅ Handles circular references and aliases correctly  
 **Cap'n Web**: ❌ Throws "DataCloneError: The object could not be cloned"
 
 Most disappointing to us at Lumenize regarding supported types is that Cap'n 

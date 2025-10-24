@@ -26,7 +26,7 @@ This living documentation compares performance characteristics between Lumenize
 RPC and Cap'n Web (Cloudflare's official "last-mile" RPC solution).
 
 **Bottom line**: The performance differences between Cap'n Web and Lumenize RPC 
-are essentially zero for the common use cases (reciepts below).
+are essentially zero (reciepts below).
 
 ## Imports
 
@@ -40,6 +40,7 @@ import { SELF } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
 import { newWebSocketRpcSession } from 'capnweb';
 import type { Metrics } from '@lumenize/utils';
+import { Browser } from '@lumenize/utils';
 
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';
 ```
@@ -90,6 +91,15 @@ function getCapnWebClient(instanceName: string, metrics?: Metrics) {
   const ws = new (getWebSocketShim(SELF.fetch.bind(SELF), { metrics }))(url);
   return newWebSocketRpcSession<CapnWebRpcTarget>(ws);
 }
+
+function getLumenizeHttpClient(instanceName: string, metrics: Metrics) {
+  const browser = new Browser(SELF.fetch.bind(SELF), { metrics });
+  return createRpcClient<typeof LumenizeDO>(
+    'LUMENIZE',
+    instanceName,
+    { transport: 'http', fetch: browser.fetch }
+  );
+}
 ```
 
 
@@ -117,15 +127,17 @@ essentially the entire performance story with a "remote" procedure calling
 system.
 
 **Key insight:** For this simple case, there is no difference between Cap'n Web 
-and Lumenize RPC with respect to round trip count. Cap'n Web is much more
+and Lumenize RPC with respect to RPC round trip count. Cap'n Web is much more
 chatty on the outgoing message count (5 for Cap'n Web vs 1 for Lumenize RPC).
 
 However, that's a distinction without a difference when using WebSockets which 
-will push them all out over the wire simultaneously. The only metrics here that 
-matter are the received message counts and the count of WebSocket upgrade 
-requests, which do represent another round trip.
+will push them all out over the wire rapidly one after the other. The only 
+metrics here that matter are the received message counts (representing RPC 
+round trips) and the count of WebSocket upgrade requests (representing the 
+one-time connection cost).
 
-**Cap'n Web and Lumenize RPC have identical round trip counts (2 each).**
+**Cap'n Web and Lumenize RPC both need 1 RPC round trip (wsReceivedMessages) 
+plus the initial connection (wsUpgradeRequests).**
 
 
 
@@ -138,7 +150,7 @@ it('compares round trips when using automatic batching', async () => {
   using lumenizeClient = getLumenizeClient('pipeline', lumenizeMetrics);
   lumenizeClient.increment();  // Returns promise, not awaited
   lumenizeClient.increment();  // Returns promise, not awaited
-  const lumenizeResult = await lumenizeClient.increment();  // Await final result
+  const lumenizeResult = await lumenizeClient.increment(); // Await final result
 
   // ==========================================================================
   // Cap'n Web - automatic batching
@@ -152,11 +164,12 @@ it('compares round trips when using automatic batching', async () => {
   expect(lumenizeResult).toBe(3);
   expect(capnwebResult).toBe(3);
 
+  // --- Connection cost (one-time) ---
   // Both create exactly one WebSocket connection
   expect(lumenizeMetrics.wsUpgradeRequests).toBe(1);
   expect(capnwebMetrics.wsUpgradeRequests).toBe(1);
 
-  // --- Message batching comparison ---
+  // --- RPC round trips (per-batch cost) ---
   
   // Lumenize batches all calls into one message and gets back one message
   expect(lumenizeMetrics.wsSentMessages).toBe(1);
@@ -213,9 +226,10 @@ it('compares byte count (small payloads)', async () => {
 
 ## Payload byte count (larger payloads)
 
-The previous test showed a 4.6x overhead for Lumenize RPC, but that's mostly
-framing overhead on tiny payloads. Let's test with a more realistic payload
-size - a 10KB string, which is not very large and would still travel over a very slow 10Mb/s in ~8ms.
+The previous test showed a 4.6x higher byte count for Lumenize RPC, but that's 
+almost all framing overhead on tiny payloads. Let's test with a more realistic 
+payload size - a 10KB string, which is not very large and would still travel 
+over a very slow 10Mb/s in ~8ms.
 
 **Key insight:** With actual data payloads, the framing overhead becomes
 negligible. Lumenize RPC is only 1.6% larger which translates to an additional
@@ -265,16 +279,17 @@ it('compares byte count with 10KB payload', async () => {
 ## HTTP Batching
 
 Here we demonstrate that Lumenize RPC passively batches over HTTP so it needs
-only one round trip per batch.
+only one HTTP round trip per batch.
 
 The Cap'n Web `newHttpBatchRpcSession()` is not shown in this doc-test
 We may verify this experimentally at a later date, but for now we assume it 
-uses exactly one round trip, like Lumenize RPC.
+uses exactly one HTTP round trip, like Lumenize RPC.
 
-**Key insight:** Lumenize RPC and Cap'n Web both use one round trip over HTTP.
+**Key insight:** Lumenize RPC and Cap'n Web both use one HTTP round trip.
 However, the DX advantage of Lumenize RPC is clear: client and server require 
 no code changes to switch between transports, just change the transport option 
-to 'http'.
+to 'http'. (Note: HTTP has no separate connection cost like WebSocket's upgrade 
+request - each HTTP request is its own connection.)
 
 
 
@@ -286,18 +301,7 @@ it('demonstrates HTTP batching in Lumenize RPC', async () => {
   // ==========================================================================
   // Lumenize RPC - HTTP transport (same DO as WebSocket examples above)
   // ==========================================================================
-  using client = createRpcClient<typeof LumenizeDO>(
-    'LUMENIZE',
-    'http-batch-demo',
-    { 
-      transport: 'http',  // Only difference from WebSocket!
-      fetch: (input, init) => {
-        metrics.httpRequests = (metrics.httpRequests ?? 0) + 1;
-        metrics.roundTrips = (metrics.roundTrips ?? 0) + 1;
-        return SELF.fetch(input, init);
-      }
-    }
-  );
+  using client = getLumenizeHttpClient('http-batch-demo', metrics);
   
   // Fire 3 operations - automatically batched into 1 HTTP request
   client.increment();
@@ -318,13 +322,15 @@ it('demonstrates HTTP batching in Lumenize RPC', async () => {
 
 Promise pipelining allows using the result of an unawaited call as a 
 parameter to another call. This creates dependent operations that can still be 
-done with a single round trip because the server resolves the promise values.
+done with a single RPC round trip because the server resolves the promise 
+values.
 
 Both Cap'n Web and Lumenize RPC support this feature, allowing complex 
 dependent operations to execute efficiently.
 
 **Key insight:** Both systems handle all three dependent calls in exactly one 
-round trip by substituting promise values on the server side.
+RPC round trip (wsReceivedMessages) by substituting promise values on the 
+server side, plus the one-time connection cost (wsUpgradeRequests).
 
 
 
@@ -358,11 +364,13 @@ it('compares promise pipelining performance', async () => {
   expect(lmResult).toBe(4);
   expect(cwResult).toBe(4);
   
+  // --- Connection cost (one-time) ---
   // Both create exactly one WebSocket connection
   expect(lmMetrics.wsUpgradeRequests).toBe(1);
   expect(cwMetrics.wsUpgradeRequests).toBe(1);
   
-  // All 3 dependent operations sent in exactly 1 round trip for both!
+  // --- RPC round trips (per-batch cost) ---
+  // All 3 dependent operations sent in exactly 1 RPC round trip for both!
   expect(lmMetrics.wsReceivedMessages).toBe(1);
   expect(cwMetrics.wsReceivedMessages).toBe(1);
 });
@@ -374,36 +382,49 @@ it('compares promise pipelining performance', async () => {
 ## Promise Pipelining (nested syntax)
 
 Promise pipelining also works with nested call syntax. Both calls are sent 
-in a single round trip with the server resolving dependencies.
+in a single RPC round trip with the server resolving dependencies.
 
 In this case, both the inner and outer calls receive 10 as their argument, 
 resulting in: 0 + 10 = 10, then 10 + 10 = 20.
+
+This works with both WebSocket and HTTP transports.
 
 
 
 
 ```typescript test
 it('compares promise pipelining with nested syntax', async () => {
+  const httpMetrics: Metrics = {};
   const lmMetrics: Metrics = {};
   const cwMetrics: Metrics = {};
   
   // ========================================================================
-  // Lumenize RPC - nested promise pipelining
+  // Lumenize RPC - nested promise pipelining (HTTP)
+  // ========================================================================
+  using httpClient = getLumenizeHttpClient('nested-http', httpMetrics);
+  const httpResult = await httpClient.increment(httpClient.increment(10));
+  
+  // ========================================================================
+  // Lumenize RPC - nested promise pipelining (WebSocket)
   // ========================================================================
   using lmClient = getLumenizeClient('nested-syntax', lmMetrics);
   const lmResult = await lmClient.increment(lmClient.increment(10));
   
   // ========================================================================
-  // Cap'n Web - nested promise pipelining
+  // Cap'n Web - nested promise pipelining (WebSocket)
   // ========================================================================
   using cwClient = getCapnWebClient('nested-syntax', cwMetrics);
   const cwResult = await cwClient.increment(cwClient.increment(10));
   
-  // Both produce same result: increment(10) → 10, increment(10) → 20
+  // All three produce same result: increment(10) → 10, increment(10) → 20
+  expect(httpResult).toBe(20);
   expect(lmResult).toBe(20);
   expect(cwResult).toBe(20);
   
-  // Both handle nested calls in exactly 1 round trip
+  // HTTP client handles nested calls in exactly 1 HTTP round trip
+  expect(httpMetrics.roundTrips).toBe(1);
+  
+  // WebSocket clients handle nested calls in exactly 1 RPC round trip
   expect(lmMetrics.wsReceivedMessages).toBe(1);
   expect(cwMetrics.wsReceivedMessages).toBe(1);
 });
