@@ -91,15 +91,16 @@ it('demonstrates service-to-service hopping', async () => {
   using lumenizeClient = getLumenizeUserClient('user-lumenize');
 
   // ✅ Client → User via Lumenize RPC
-  // ✅ User → Room via Workers RPC (automatic, seamless)
-  const msgId1 = await lumenizeClient.addMessageToRoom('room-lumenize', 'Hello');
+  // ✅ User.room() forwards method calls to Room via Workers RPC
+  // ✅ No explicit proxy methods needed - one generic forwarder!
+  const msgId1 = await lumenizeClient.room('room-lumenize', 'addMessage', 'Hello');
   expect(msgId1).toBe(1);
 
-  const msgId2 = await lumenizeClient.addMessageToRoom('room-lumenize', 'World');
+  const msgId2 = await lumenizeClient.room('room-lumenize', 'addMessage', 'World');
   expect(msgId2).toBe(2);
 
-  const messages = await lumenizeClient.getMessagesFromRoom('room-lumenize');
-  expect(messages).toBeInstanceOf(Map); // ✅ Map is returned
+  const messages = await lumenizeClient.room('room-lumenize', 'getMessages');
+  expect(messages).toBeInstanceOf(Map); // ✅ Map works seamlessly
   expect(messages.size).toBe(2);
   expect(messages.get(1)).toBe('Hello');
   expect(messages.get(2)).toBe('World');

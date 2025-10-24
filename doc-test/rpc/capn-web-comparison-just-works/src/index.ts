@@ -8,7 +8,7 @@ import { newWorkersRpcResponse, RpcStub } from 'capnweb';
 // ============================================================================
 
 // Room stores messages using Map<number, string> - a StructuredClone type
-class _Room extends DurableObject {
+export class Room extends DurableObject {
   #messageCounter = 0;
 
   addMessage(text: string): number {
@@ -24,21 +24,11 @@ class _Room extends DurableObject {
   }
 }
 
-export const Room = lumenizeRpcDO(_Room);
-
 // User acts as a gateway, hopping to Room via env
 class _User extends DurableObject<Env> {
-  addMessageToRoom(roomName: string, text: string): number {
-    // Seamlessly hop to Room using this.env - this uses Workers RPC under the hood
-    const roomId = this.env.ROOM.idFromName(roomName);
-    const room = this.env.ROOM.get(roomId);
-    return room.addMessage(text);
-  }
-
-  getMessagesFromRoom(roomName: string): Map<number, string> {
-    const roomId = this.env.ROOM.idFromName(roomName);
-    const room = this.env.ROOM.get(roomId);
-    return room.getMessages();
+  // Generic method forwarder - calls any Room method by name
+  room(roomName: string, method: string, ...params: any[]): Promise<any> {
+    return (this.env.ROOM.getByName(roomName) as any)[method](...params);
   }
 }
 
