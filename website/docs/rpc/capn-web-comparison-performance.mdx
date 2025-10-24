@@ -316,61 +316,96 @@ it('demonstrates HTTP batching in Lumenize RPC', async () => {
 
 ## Promise Pipelining
 
-Cap'n Web supports true promise pipelining where you can use the result of an 
-unawaited call as a parameter to another call. This creates dependent operations
-that can still be done with a single round trip because the server resolves the 
-promise values.
+Promise pipelining allows using the result of an unawaited call as a 
+parameter to another call. This creates dependent operations that can still be 
+done with a single round trip because the server resolves the promise values.
 
-Lumenize RPC does not currently support this feature - it only supports 
-automatic batching of independent operations.
+Both Cap'n Web and Lumenize RPC support this feature, allowing complex 
+dependent operations to execute efficiently.
 
-**Key insight:** All three calls happen in one round trip because Cap'n Web
-substitutes the promise values on the server side.
+**Key insight:** Both systems handle all three dependent calls in exactly one 
+round trip by substituting promise values on the server side.
 
 
 
 
 ```typescript test
-it('demonstrates true promise pipelining (Cap\'n Web)', async () => {
-  const metrics: Metrics = {};
+it('compares promise pipelining performance', async () => {
+  const lmMetrics: Metrics = {};
+  const cwMetrics: Metrics = {};
   
-  // ==========================================================================
-  // Cap'n Web - True promise pipelining with dependent operations
-  // ==========================================================================
-  using client = getCapnWebClient('geometric-progression', metrics);
+  // ========================================================================
+  // Lumenize RPC
+  // ========================================================================
+  using lmClient = getLumenizeClient('geometric-progression', lmMetrics);
   
   // Geometric progression using promise pipelining:
-  const firstResult = client.increment();  // increment() → 1
-  const secondResult = client.increment(firstResult);  // increment(1) → 2
-  const finalResult = await client.increment(secondResult);  // increment(2) → 4
+  const lm1 = lmClient.increment();           // increment() → 1
+  const lm2 = lmClient.increment(lm1);        // increment(1) → 2
+  const lmResult = await lmClient.increment(lm2);  // increment(2) → 4
   
-  // Final result should be 4 (geometric progression: 1 → 2 → 4)
-  expect(finalResult).toBe(4);
+  // ========================================================================
+  // Cap'n Web
+  // ========================================================================
+  using cwClient = getCapnWebClient('geometric-progression', cwMetrics);
   
-  // All 3 dependent operations sent in exactly 1 round trip!
-  expect(metrics.wsUpgradeRequests).toBe(1);
-  expect(metrics.wsReceivedMessages).toBe(1);
+  // Geometric progression using promise pipelining:
+  const cw1 = cwClient.increment();           // increment() → 1
+  const cw2 = cwClient.increment(cw1);        // increment(1) → 2
+  const cwResult = await cwClient.increment(cw2);  // increment(2) → 4
+  
+  // Both produce same result (geometric progression: 1 → 2 → 4)
+  expect(lmResult).toBe(4);
+  expect(cwResult).toBe(4);
+  
+  // Both create exactly one WebSocket connection
+  expect(lmMetrics.wsUpgradeRequests).toBe(1);
+  expect(cwMetrics.wsUpgradeRequests).toBe(1);
+  
+  // All 3 dependent operations sent in exactly 1 round trip for both!
+  expect(lmMetrics.wsReceivedMessages).toBe(1);
+  expect(cwMetrics.wsReceivedMessages).toBe(1);
 });
+```
 
-it('demonstrates true promise pipelining (Lumenize)', async () => {
-  const metrics: Metrics = {};
+
+
+
+## Promise Pipelining (nested syntax)
+
+Promise pipelining also works with nested call syntax. Both calls are sent 
+in a single round trip with the server resolving dependencies.
+
+In this case, both the inner and outer calls receive 10 as their argument, 
+resulting in: 0 + 10 = 10, then 10 + 10 = 20.
+
+
+
+
+```typescript test
+it('compares promise pipelining with nested syntax', async () => {
+  const lmMetrics: Metrics = {};
+  const cwMetrics: Metrics = {};
   
-  // ==========================================================================
-  // Lumenize - True promise pipelining with dependent operations
-  // ==========================================================================
-  using client = getLumenizeClient('geometric-progression', metrics);
+  // ========================================================================
+  // Lumenize RPC - nested promise pipelining
+  // ========================================================================
+  using lmClient = getLumenizeClient('nested-syntax', lmMetrics);
+  const lmResult = await lmClient.increment(lmClient.increment(10));
   
-  // Geometric progression using promise pipelining:
-  const firstResult = client.increment();  // increment() → 1
-  const secondResult = client.increment(firstResult);  // increment(1) → 2
-  const finalResult = await client.increment(secondResult);  // increment(2) → 4
+  // ========================================================================
+  // Cap'n Web - nested promise pipelining
+  // ========================================================================
+  using cwClient = getCapnWebClient('nested-syntax', cwMetrics);
+  const cwResult = await cwClient.increment(cwClient.increment(10));
   
-  // Final result should be 4 (geometric progression: 1 → 2 → 4)
-  expect(finalResult).toBe(4);
+  // Both produce same result: increment(10) → 10, increment(10) → 20
+  expect(lmResult).toBe(20);
+  expect(cwResult).toBe(20);
   
-  // All 3 dependent operations sent in exactly 1 round trip!
-  expect(metrics.wsUpgradeRequests).toBe(1);
-  expect(metrics.wsReceivedMessages).toBe(1);
+  // Both handle nested calls in exactly 1 round trip
+  expect(lmMetrics.wsReceivedMessages).toBe(1);
+  expect(cwMetrics.wsReceivedMessages).toBe(1);
 });
 ```
 
@@ -457,10 +492,14 @@ export class CapnWebRpcTarget extends RpcTarget {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const lumenizeResponse = await routeDORequest(request, env, { prefix: '__rpc' });
+    const lumenizeResponse = await routeDORequest(request, env, 
+      { prefix: '__rpc' }
+    );
     if (lumenizeResponse) return lumenizeResponse;
     
-    const capnwebResponse = await routeDORequest(request, env, { prefix: 'capnweb' });
+    const capnwebResponse = await routeDORequest(request, env, 
+      { prefix: 'capnweb' }
+    );
     if (capnwebResponse) return capnwebResponse;
 
     // Fallback for non-RPC requests

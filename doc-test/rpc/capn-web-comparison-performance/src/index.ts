@@ -60,10 +60,14 @@ export class CapnWebRpcTarget extends RpcTarget {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const lumenizeResponse = await routeDORequest(request, env, { prefix: '__rpc' });
+    const lumenizeResponse = await routeDORequest(request, env, 
+      { prefix: '__rpc' }
+    );
     if (lumenizeResponse) return lumenizeResponse;
     
-    const capnwebResponse = await routeDORequest(request, env, { prefix: 'capnweb' });
+    const capnwebResponse = await routeDORequest(request, env, 
+      { prefix: 'capnweb' }
+    );
     if (capnwebResponse) return capnwebResponse;
 
     // Fallback for non-RPC requests
