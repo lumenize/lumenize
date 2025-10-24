@@ -3,11 +3,11 @@ import type {
   RemoteFunctionMarker, 
   RpcAccessible,
   RpcBatchRequest,
-  RpcBatchResponse,
   RpcClientConfig, 
   RpcClientInternalConfig, 
   RpcClientProxy, 
-  RpcTransport 
+  RpcTransport,
+  PipelinedOperationMarker
 } from './types';
 import { isRemoteFunctionMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
@@ -18,6 +18,12 @@ import { serializeError, deserializeError, isSerializedError } from './error-ser
 import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
+
+/**
+ * WeakMap to track proxy objects and their operation chains.
+ * Used for promise pipelining - allows detecting when a proxy is used as an argument.
+ */
+const proxyToOperationChain = new WeakMap<object, OperationChain>();
 
 /**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
@@ -73,6 +79,7 @@ export function createRpcClient<T>(
  * Process outgoing operations before sending to server.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
  * serialize any Web API objects, Errors, and special numbers in the args.
+ * Also detects proxy arguments (for promise pipelining) and converts them to markers.
  */
 async function processOutgoingOperations(operations: OperationChain): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
@@ -81,6 +88,19 @@ async function processOutgoingOperations(operations: OperationChain): Promise<Op
     if (operation.type === 'apply' && operation.args.length > 0) {
       // Use walkObject to serialize Web API objects, Errors, and special numbers in the args
       const transformer = async (value: any) => {
+        // Check if this is a proxy that needs to be converted to a pipelined operation marker
+        if (typeof value === 'object' && value !== null) {
+          const operationChain = proxyToOperationChain.get(value);
+          if (operationChain) {
+            // This is a proxy - convert to PipelinedOperationMarker
+            const marker: PipelinedOperationMarker = {
+              __isPipelinedOperation: true,
+              __operationChain: operationChain
+            };
+            return marker;
+          }
+        }
+        
         // Check if this is a special number that needs serialization
         const specialNumber = serializeSpecialNumber(value);
         if (specialNumber !== value) {
@@ -606,32 +626,13 @@ class ProxyHandler {
   #createProxyWithCurrentChain(): any {
     // This is the main entry point for handling property access and method calls.
     // The returned proxy handles both further property access (via get trap) and method calls (via apply trap).
-    // NOTE: Coverage tools may not properly instrument Proxy trap handlers
     const currentChain = [...this.#operationChain];
-
-    return new Proxy(() => {}, {
-      get: (target: any, key: string | symbol) => {
-        // Special case: 'then' should execute the chain but not add 'then' to it
-        if (key === 'then') {
-          const promise = this.#executeOperations(currentChain);
-          return promise.then.bind(promise);
-        }
-        // Create NEW chain to avoid mutation of shared closure variable
-        const newChain: OperationChain = [...currentChain, { type: 'get', key }];
-        return this.#createProxyWithCurrentChainForChain(newChain);
-      },
-      apply: (target: any, thisArg: any, args: any[]) => {
-        // Create NEW chain to avoid mutation of shared closure variable
-        const finalChain: OperationChain = [...currentChain, { type: 'apply', args }];
-        const resultPromise = this.#executeOperations(finalChain);
-        return this.#createThenableProxy(resultPromise);
-      }
-    });
+    return this.#createProxyWithCurrentChainForChain(currentChain);
   }
 
   #createProxyWithCurrentChainForChain(chain: import('./types').OperationChain): any {
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
-    return new Proxy(() => {}, {
+    const proxy = new Proxy(() => {}, {
       get: (target: any, key: string | symbol) => {
         // Special case: 'then' should execute the chain but not add 'then' to it
         if (key === 'then') {
@@ -647,5 +648,10 @@ class ProxyHandler {
         return this.#createThenableProxy(resultPromise);
       }
     });
+    
+    // Register this proxy in the WeakMap for promise pipelining detection
+    proxyToOperationChain.set(proxy, chain);
+    
+    return proxy;
   }
 }

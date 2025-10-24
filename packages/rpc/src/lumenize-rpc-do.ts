@@ -7,6 +7,7 @@ import type {
   RpcWebSocketMessage,
   RpcWebSocketMessageResponse
 } from './types';
+import { isPipelinedOperationMarker } from './types';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
 import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
@@ -187,7 +188,7 @@ async function dispatchCall(
     const validatedOperations = validateOperationChain(operations, config);
     
     // Process incoming operations to deserialize Web API objects in args
-    const processedOperations = await processIncomingOperations(validatedOperations);
+    const processedOperations = await processIncomingOperations(validatedOperations, doInstance);
     
     // Execute operation chain
     const result = await executeOperationChain(processedOperations, doInstance);
@@ -251,14 +252,21 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
  * Process incoming operations to deserialize Web API objects, Errors, and special numbers in arguments before execution.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
  * deserialize any serialized Web API objects, Errors, and special numbers in the args.
+ * Also detects and resolves pipelined operation markers.
  */
-async function processIncomingOperations(operations: OperationChain): Promise<OperationChain> {
+async function processIncomingOperations(operations: OperationChain, doInstance: any): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
       // Use walkObject to deserialize Web API objects, Errors, and special numbers in the args
       const transformer = async (value: any) => {
+        // Check if this is a pipelined operation marker that needs to be resolved
+        if (isPipelinedOperationMarker(value)) {
+          // Recursively execute the pipelined operation chain to get the result
+          const result = await executeOperationChain(value.__operationChain, doInstance);
+          return result;
+        }
         // Check if this is a serialized special number
         if (isSerializedSpecialNumber(value)) {
           return deserializeSpecialNumber(value);
