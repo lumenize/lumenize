@@ -33,7 +33,7 @@ import { SELF } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
 import { newWebSocketRpcSession } from 'capnweb';
 
-import { User, CapnWebApi } from '../src/index';
+import { User, CapnWebUser } from '../src/index';
 
 /*
 ## Version(s)
@@ -60,10 +60,10 @@ function getLumenizeUserClient(instanceName: string) {
   );
 }
 
-function getCapnWebApiClient() {
-  const url = `wss://test.com/capnweb/api`;
+function getCapnWebUserClient() {
+  const url = `wss://test.com/capnweb`;
   const ws = new (getWebSocketShim(SELF.fetch.bind(SELF)))(url);
-  return newWebSocketRpcSession<CapnWebApi>(ws);
+  return newWebSocketRpcSession<CapnWebUser>(ws);
 }
 
 /*
@@ -80,9 +80,9 @@ hopping to Room services for actual storage operations.
 
 **Cap'n Web**:
 - ✅ Can hop from User to Room using stubs
-- ⚠️ Requires extending RpcTarget instead of DurableObject
-- ⚠️ More boilerplate (manual constructor, fetch method, stub management)
-- ⚠️ Creates remote resources (stubs) that can dangle
+- ✅ Clean pattern - just return Workers RPC stubs directly
+- ✅ Works like magic when types are compatible
+- ⚠️ Limited type support breaks the magic for Map, Set, etc.
 */
 it('demonstrates service-to-service hopping', async () => {
   // ==========================================================================
@@ -93,13 +93,13 @@ it('demonstrates service-to-service hopping', async () => {
   // ✅ Client → User via Lumenize RPC
   // ✅ User.room() forwards method calls to Room via Workers RPC
   // ✅ No explicit proxy methods needed - one generic forwarder!
-  const msgId1 = await lumenizeClient.room('room-lumenize', 'addMessage', 'Hello');
+  const msgId1 = await lumenizeClient.room('lumenize', 'addMessage', 'Hello');
   expect(msgId1).toBe(1);
 
-  const msgId2 = await lumenizeClient.room('room-lumenize', 'addMessage', 'World');
+  const msgId2 = await lumenizeClient.room('lumenize', 'addMessage', 'World');
   expect(msgId2).toBe(2);
 
-  const messages = await lumenizeClient.room('room-lumenize', 'getMessages');
+  const messages = await lumenizeClient.room('lumenize', 'getMessages');
   expect(messages).toBeInstanceOf(Map); // ✅ Map works seamlessly
   expect(messages.size).toBe(2);
   expect(messages.get(1)).toBe('Hello');
@@ -108,13 +108,15 @@ it('demonstrates service-to-service hopping', async () => {
   // ==========================================================================
   // Cap'n Web - Map type fails
   // ==========================================================================
-  using capnwebClient = getCapnWebApiClient();
+  using capnwebClient = getCapnWebUserClient();
 
-  // Get a stub to the Room (uses Map) - Cap'n Web API returns Workers RPC stub
+  // Get a stub to the Room (uses Map)
+  // - Cap'n Web User returns Workers RPC stub
   using roomStub = capnwebClient.getRoom('room-capnweb-map');
 
-  // ✅ Client → API via Cap'n Web RPC (API is RpcTarget instantiated in worker)
-  // ✅ API returns Workers RPC stub to Room
+  // ✅ Client → User via Cap'n Web RPC
+  //    (User is RpcTarget instantiated in worker)
+  // ✅ User returns Workers RPC stub to Room
   // ✅ Client → Room via the returned Workers RPC stub
   const capnMsgId1 = await roomStub.addMessage('Hello');
   expect(capnMsgId1).toBe(1);
@@ -123,8 +125,9 @@ it('demonstrates service-to-service hopping', async () => {
   expect(capnMsgId2).toBe(2);
 
   // ❌ Map FAILS even though this is a Workers RPC stub!
-  // While Cap'n Web proxies Workers RPC stubs, return values STILL go through
-  // Cap'n Web's serialization layer, which doesn't support Map.
+  // While Cap'n Web proxies Workers RPC stubs, return values STILL
+  // go through Cap'n Web's serialization layer, which doesn't
+  // support Map.
   let capnwebThrew = false;
   let capnwebError: Error | undefined;
   try {
@@ -141,7 +144,9 @@ it('demonstrates service-to-service hopping', async () => {
   // ==========================================================================
   
   // Get a stub to PlainRoom (uses plain object instead of Map)
-  using plainRoomStub = capnwebClient.getPlainRoom('room-capnweb-plain');
+  using plainRoomStub = capnwebClient.getPlainRoom(
+    'room-capnweb-plain'
+  );
 
   const plainMsgId1 = await plainRoomStub.addMessage('Hello');
   expect(plainMsgId1).toBe(1);
@@ -157,12 +162,14 @@ it('demonstrates service-to-service hopping', async () => {
   // ===========================================================================
   // CONCLUSION: "It Just Works" requires Cap'n Web-compatible types
   // ===========================================================================
-  // Cap'n Web can proxy Workers RPC stubs (getRoom() and getPlainRoom() work),
-  // but return values STILL go through Cap'n Web serialization.
+  // Cap'n Web can proxy Workers RPC stubs (getRoom() and
+  // getPlainRoom() work), but return values STILL go through Cap'n
+  // Web serialization.
   // - Map, Set, RegExp, ArrayBuffer: ❌ Fail
   // - Plain objects, arrays, primitives: ✅ Work
   //
-  // Compare with Lumenize RPC where Map works seamlessly without workarounds.
+  // Compare with Lumenize RPC where Map works seamlessly without
+  // workarounds.
 });
 
 /*

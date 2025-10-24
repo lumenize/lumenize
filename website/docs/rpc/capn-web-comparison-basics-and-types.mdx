@@ -212,34 +212,34 @@ framework measures up to that standard.
 type support is a significant foot-gun. If that improves over time, we'll 
 update this table.
 
-| Type | DO Storage | Lumenize RPC | Cap'n Web | Notes |
-|------|------------|--------------|-----------|-------|
-| **Primitives** | | | | |
-| undefined | ✅ | ✅ | ✅ | |
-| null | ✅ | ✅ | ✅ | |
-| **Special Numbers** | | | | |
-| NaN | ✅ | ✅ | ❌ | Cap'n Web returns null |
-| Infinity | ✅ | ✅ | ❌ | Cap'n Web returns null |
-| -Infinity | ✅ | ✅ | ❌ | Cap'n Web returns null |
-| **Built-in Types** | | | | |
-| BigInt | ✅ | ✅ | ✅ | |
-| Date | ✅ | ✅ | ✅ | |
-| RegExp | ✅ | ✅ | ❌ | |
-| Map | ✅ | ✅ | ❌ | |
-| Set | ✅ | ✅ | ❌ | |
-| ArrayBuffer | ✅ | ✅ | ❌ | |
-| Uint8Array | ✅ | ✅ | ✅ | |
-| **Errors** | | | | |
-| Error (thrown) | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
-| Error (value) | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
-| **Circular References** | ✅ | ✅ | ❌ | Cap'n Web throws error |
-| **Web API Types** | | | | |
-| Request | ❌ | ✅ | ❌ | |
-| Response | ❌ | ✅ | ❌ | |
-| Headers | ✅ | ✅ | ❌ | |
-| URL | ❌ | ✅ | ❌ | |
-| ReadableStream | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
-| WritableStream | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
+| Type | Workers RPC | DO Storage | Lumenize RPC | Cap'n Web | Notes |
+|------|-------------|------------|--------------|-----------|-------|
+| **Primitives** | | | | | |
+| undefined | ✅ | ✅ | ✅ | ✅ | |
+| null | ✅ | ✅ | ✅ | ✅ | |
+| **Special Numbers** | | | | | |
+| NaN | ✅ | ✅ | ✅ | ❌ | Cap'n Web returns null |
+| Infinity | ✅ | ✅ | ✅ | ❌ | Cap'n Web returns null |
+| -Infinity | ✅ | ✅ | ✅ | ❌ | Cap'n Web returns null |
+| **Built-in Types** | | | | | |
+| BigInt | ✅ | ✅ | ✅ | ✅ | |
+| Date | ✅ | ✅ | ✅ | ✅ | |
+| RegExp | ✅ | ✅ | ✅ | ❌ | |
+| Map | ✅ | ✅ | ✅ | ❌ | |
+| Set | ✅ | ✅ | ✅ | ❌ | |
+| ArrayBuffer | ✅ | ✅ | ✅ | ❌ | |
+| Uint8Array | ✅ | ✅ | ✅ | ✅ | |
+| **Errors** | | | | | |
+| Error (thrown) | ? | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
+| Error (value) | ? | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
+| **Circular References** | ✅ | ✅ | ✅ | ❌ | Cap'n Web throws error |
+| **Web API Types** | | | | | |
+| Request | ✅ | ❌ | ✅ | ❌ | |
+| Response | ✅ | ❌ | ✅ | ❌ | |
+| Headers | ? | ✅ | ✅ | ❌ | |
+| URL | ? | ❌ | ✅ | ❌ | |
+| ReadableStream | ✅ | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
+| WritableStream | ✅ | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
 
 For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 

@@ -8,7 +8,6 @@ import { newWorkersRpcResponse, RpcStub } from 'capnweb';
 // =======================================================================
 
 // Room stores messages using Map<number, string>
-// - a StructuredClone type
 export class Room extends DurableObject {
   addMessage(text: string): number {
     const messages =
@@ -31,21 +30,15 @@ export class Room extends DurableObject {
 // User acts as a gateway, hopping to Room via env
 class _User extends DurableObject<Env> {
   // Generic method forwarder - calls any Room method by name
-  room(
-    roomName: string,
-    method: string,
-    ...params: any[]
-  ): Promise<any> {
-    return (this.env.ROOM.getByName(roomName) as any)[method](
-      ...params
-    );
+  room(roomName: string, method: string, ...params: any[]): Promise<any> {
+    return (this.env.ROOM.getByName(roomName) as any)[method](...params);
   }
 }
 
 export const User = lumenizeRpcDO(_User);
 
 // =======================================================================
-// Cap'n Web - More boilerplate and limitations
+// Cap'n Web - Clean and elegant
 // =======================================================================
 
 // Cap'n Web Room - Uses Map (will fail on getMessages())
@@ -88,11 +81,8 @@ export class CapnWebPlainRoom extends DurableObject<Env> {
   }
 }
 
-// Cap'n Web API - RpcTarget instantiated directly in worker
-// (no DO needed for API layer)
-// Per Cap'n Web docs pattern: worker creates `new MyApiServer()`
-// in fetch handler
-export class CapnWebApi extends RpcTarget {
+// Cap'n Web User - RpcTarget instantiated directly in worker
+export class CapnWebUser extends RpcTarget {
   constructor(private env: Env) {
     super();
   }
@@ -100,15 +90,13 @@ export class CapnWebApi extends RpcTarget {
   // Return Workers RPC stub to Room
   // (uses Map - will fail on getMessages())
   getRoom(roomName: string) {
-    const roomId = this.env.CAPNWEB_ROOM.idFromName(roomName);
-    return this.env.CAPNWEB_ROOM.get(roomId);
+    return this.env.CAPNWEB_ROOM.getByName(roomName);
   }
 
   // Return Workers RPC stub to PlainRoom
   // (uses plain object - will work)
   getPlainRoom(roomName: string) {
-    const roomId = this.env.CAPNWEB_PLAIN_ROOM.idFromName(roomName);
-    return this.env.CAPNWEB_PLAIN_ROOM.get(roomId);
+    return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
   }
 }
 
@@ -121,17 +109,14 @@ export default {
     const url = new URL(request.url);
     
     // Route Lumenize RPC requests (both User and Room)
-    const lumenizeResponse = await routeDORequest(
-      request,
-      env,
-      { prefix: '__rpc' }
-    );
+    const lumenizeResponse = await routeDORequest( request, env, 
+      { prefix: '__rpc' });
     if (lumenizeResponse) return lumenizeResponse;
     
     // Route Cap'n Web RPC requests
     // - instantiate RpcTarget directly per Cap'n Web pattern
-    if (url.pathname === '/capnweb/api') {
-      return newWorkersRpcResponse(request, new CapnWebApi(env));
+    if (url.pathname === '/capnweb') {
+      return newWorkersRpcResponse(request, new CapnWebUser(env));
     }
 
     // Fallback for non-RPC requests
