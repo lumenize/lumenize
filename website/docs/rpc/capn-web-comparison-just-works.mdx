@@ -31,6 +31,11 @@ that claim and highlights the current limitations of it.
 
 **Bottom line**: Cap'n Web's syntax, which allows you to magically return an RpcTarget instance or Durable Object stub is quite elegant and conceptually consistent. Lumenize RPC's is more explicit but similarly concise. Still, we'd give the slight advantage to Cap'n Web except for one little thing-[unsupported types](https://github.com/cloudflare/capnweb/tree/main?tab=readme-ov-file#pass-by-value-types). We drill down on this in the next doc-test but if you want to skip ahead, there is [summary table of types supported by Workers RPC compared to those supported by Cap'n Web and Lumenize RPC](/docs/rpc/capn-web-comparison-basics-and-types#supported-types). Note, Cloudflare says some of these "may be added in the future" and if that happens we will quickly update these documents, but until then, the claim "it just works" falls short.
 
+TODO:
+- Doesn't callbacks break consistency guarantees of input/output gates because you must await a callback function.
+- Maybe too much magic. I had to fight my LLM to force it to even try. It kept saying, "that won't work" but once I forced it to try, it did!
+- 
+
 ### src/index.ts
 
 Normally, we start off these doc-tests with the tests that show behavior, but in this case, we want you to look at the Worker, DurableObjects and RpcTargets first.
@@ -101,13 +106,54 @@ export class CapnWebRoom extends DurableObject<Env> {
 
 // Cap'n Web PlainRoom - Uses plain object (will work)
 export class CapnWebPlainRoom extends DurableObject<Env> {
-  addMessage(text: string): number {
+  // Store callbacks to test multi-hop scenario
+  #callbacks = new Map<string, (message: string) => void>();
+  #joinPromises = new Map<string, {resolve: () => void, reject: (err: any) => void}>();
+
+  async joinAndListen(userName: string, onMessage: (message: string) => void): Promise<void> {
+    console.log('CapnWebPlainRoom.joinAndListen called for user:', userName);
+    this.#callbacks.set(userName, onMessage);
+    console.log('Callback stored, total callbacks:', this.#callbacks.size);
+    
+    // Don't return - keep the RPC connection alive
+    // Create a promise that we'll resolve when the user leaves
+    return new Promise((resolve, reject) => {
+      this.#joinPromises.set(userName, { resolve, reject });
+      // For testing, auto-resolve after 5 seconds
+      setTimeout(() => {
+        console.log('Auto-resolving join for user:', userName);
+        resolve();
+      }, 5000);
+    });
+  }
+
+  join(userName: string, onMessage: (message: string) => void): void {
+    console.log('CapnWebPlainRoom.join called for user:', userName);
+    this.#callbacks.set(userName, onMessage);
+    console.log('Callback stored, total callbacks:', this.#callbacks.size);
+  }
+
+  async addMessage(text: string): Promise<number> {
+    console.log('CapnWebPlainRoom.addMessage called with:', text);
+    console.log('Total callbacks registered:', this.#callbacks.size);
     const messages =
       this.ctx.storage.kv.get<Record<number, string>>('messages') ??
       {};
     const id = Object.keys(messages).length + 1;
     messages[id] = text;
     this.ctx.storage.kv.put('messages', messages);
+    
+    // Try invoking callbacks
+    for (const [userName, callback] of this.#callbacks.entries()) {
+      console.log('Attempting to invoke callback for user:', userName);
+      try {
+        await (callback as any)(text);
+        console.log('Callback invoked successfully for user:', userName);
+      } catch (error) {
+        console.error('Error invoking callback for user:', userName, error);
+      }
+    }
+    
     return id;
   }
 
@@ -125,6 +171,9 @@ export class CapnWebUser extends RpcTarget {
     super();
   }
 
+  // Store client callbacks for proxying to DOs
+  #clientCallbacks = new Map<string, (message: string) => void>();
+
   // Return Workers RPC stub to Room
   // (uses Map - will fail on getMessages())
   getRoom(roomName: string) {
@@ -135,6 +184,38 @@ export class CapnWebUser extends RpcTarget {
   // (uses plain object - will work)
   getPlainRoom(roomName: string) {
     return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
+  }
+
+  // Test callback directly on User (no Room hop)
+  async testCallback(callback: (msg: string) => void): Promise<string> {
+    await callback('Hello from CapnWebUser!');
+    return 'callback invoked';
+  }
+
+  // Proxy pattern: Keep connection alive by not returning until done
+  async joinRoomAndListen(roomName: string, userName: string, clientCallback: (message: string) => void): Promise<void> {
+    // Store the client callback
+    const key = `${roomName}:${userName}`;
+    this.#clientCallbacks.set(key, clientCallback);
+
+    // Create our own callback that will be sent to the DO
+    const proxyCallback = (message: string) => {
+      console.log('User proxy callback invoked with:', message);
+      const cb = this.#clientCallbacks.get(key);
+      if (cb) {
+        cb(message);
+      }
+    };
+
+    // Get the DO stub and call joinAndListen - this won't return until the session ends
+    const roomStub = this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName) as any;
+    await roomStub.joinAndListen(userName, proxyCallback);
+  }
+
+  // Forward addMessage to the DO
+  async addRoomMessage(roomName: string, text: string): Promise<number> {
+    const roomStub = this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName) as any;
+    return await roomStub.addMessage(text);
   }
 }
 
@@ -170,9 +251,9 @@ export default {
 
 
 ```typescript test
-import { it, expect } from 'vitest';
+import { it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
-import { SELF } from 'cloudflare:test';
+import { SELF, env } from 'cloudflare:test';
 import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
 import { newWebSocketRpcSession } from 'capnweb';
 
@@ -222,6 +303,9 @@ function getCapnWebUserClient() {
   const ws = new (getWebSocketShim(SELF.fetch.bind(SELF)))(url);
   return newWebSocketRpcSession<CapnWebUser>(ws);
 }
+
+// Alias for brevity
+const getCapnWebClient = getCapnWebUserClient;
 ```
 
 
@@ -334,6 +418,70 @@ it('demonstrates service-to-service hopping', async () => {
   //
   // Compare with Lumenize RPC where Map works seamlessly without
   // workarounds.
+});
+```
+
+
+
+
+## Function Callbacks Work (With Limitations)
+
+Cap'n Web supports passing functions as RPC parameters, leveraging Workers RPC's 
+ability to pass functions as stubs. When you pass a function, the recipient gets 
+a stub that makes an RPC **back** to the sender when called.
+
+**Testing hypothesis**: Does extending RpcTarget instead of DurableObject allow 
+callbacks to work across multiple hops?
+
+
+
+
+```typescript test
+it('demonstrates function callback support', async () => {
+  // ✅ Works: Direct call from client to CapnWebUser (RpcTarget)
+  const capnwebClient = getCapnWebClient();
+
+  const receivedMessages: string[] = [];
+  
+  const myCallback = (message: string) => {
+    receivedMessages.push(message);
+  };
+
+  // First test: Direct callback works
+  const result = await capnwebClient.testCallback(myCallback);
+  expect(result).toBe('callback invoked');
+
+  await vi.waitFor(() => {
+    expect(receivedMessages).toContain('Hello from CapnWebUser!');
+  }, { timeout: 500 });
+
+  // Second test: Multi-hop callback with long-lived connection
+  // The key: joinAndListen doesn't return, keeping the RPC connection alive
+  const roomMessages: string[] = [];
+  const roomCallback = (message: string) => {
+    console.log('Client callback received:', message);
+    roomMessages.push(message);
+  };
+
+  // Start listening - this won't return for 5 seconds
+  const listenPromise = capnwebClient.joinRoomAndListen('room-callbacks-test', 'Alice', roomCallback);
+
+  // Give it a moment to establish
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  // Add message which should trigger: DO → User proxy → Client
+  // The callback stub is still valid because joinAndListen hasn't returned yet
+  await capnwebClient.addRoomMessage('room-callbacks-test', 'Test message via proxy');
+
+  // Wait to see if callback fires
+  await vi.waitFor(() => {
+    expect(roomMessages).toContain('Test message via proxy');
+  }, { timeout: 500 });
+  
+  expect(roomMessages).toEqual(['Test message via proxy']);
+  
+  // The listen promise will resolve after 5 seconds (or we could cancel it)
+  // For now, just let it timeout naturally
 });
 ```
 

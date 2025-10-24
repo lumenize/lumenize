@@ -63,13 +63,54 @@ export class CapnWebRoom extends DurableObject<Env> {
 
 // Cap'n Web PlainRoom - Uses plain object (will work)
 export class CapnWebPlainRoom extends DurableObject<Env> {
-  addMessage(text: string): number {
+  // Store callbacks to test multi-hop scenario
+  #callbacks = new Map<string, (message: string) => void>();
+  #joinPromises = new Map<string, {resolve: () => void, reject: (err: any) => void}>();
+
+  async joinAndListen(userName: string, onMessage: (message: string) => void): Promise<void> {
+    console.log('CapnWebPlainRoom.joinAndListen called for user:', userName);
+    this.#callbacks.set(userName, onMessage);
+    console.log('Callback stored, total callbacks:', this.#callbacks.size);
+    
+    // Don't return - keep the RPC connection alive
+    // Create a promise that we'll resolve when the user leaves
+    return new Promise((resolve, reject) => {
+      this.#joinPromises.set(userName, { resolve, reject });
+      // For testing, auto-resolve after 5 seconds
+      setTimeout(() => {
+        console.log('Auto-resolving join for user:', userName);
+        resolve();
+      }, 5000);
+    });
+  }
+
+  join(userName: string, onMessage: (message: string) => void): void {
+    console.log('CapnWebPlainRoom.join called for user:', userName);
+    this.#callbacks.set(userName, onMessage);
+    console.log('Callback stored, total callbacks:', this.#callbacks.size);
+  }
+
+  async addMessage(text: string): Promise<number> {
+    console.log('CapnWebPlainRoom.addMessage called with:', text);
+    console.log('Total callbacks registered:', this.#callbacks.size);
     const messages =
       this.ctx.storage.kv.get<Record<number, string>>('messages') ??
       {};
     const id = Object.keys(messages).length + 1;
     messages[id] = text;
     this.ctx.storage.kv.put('messages', messages);
+    
+    // Try invoking callbacks
+    for (const [userName, callback] of this.#callbacks.entries()) {
+      console.log('Attempting to invoke callback for user:', userName);
+      try {
+        await (callback as any)(text);
+        console.log('Callback invoked successfully for user:', userName);
+      } catch (error) {
+        console.error('Error invoking callback for user:', userName, error);
+      }
+    }
+    
     return id;
   }
 
@@ -87,6 +128,9 @@ export class CapnWebUser extends RpcTarget {
     super();
   }
 
+  // Store client callbacks for proxying to DOs
+  #clientCallbacks = new Map<string, (message: string) => void>();
+
   // Return Workers RPC stub to Room
   // (uses Map - will fail on getMessages())
   getRoom(roomName: string) {
@@ -97,6 +141,38 @@ export class CapnWebUser extends RpcTarget {
   // (uses plain object - will work)
   getPlainRoom(roomName: string) {
     return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
+  }
+
+  // Test callback directly on User (no Room hop)
+  async testCallback(callback: (msg: string) => void): Promise<string> {
+    await callback('Hello from CapnWebUser!');
+    return 'callback invoked';
+  }
+
+  // Proxy pattern: Keep connection alive by not returning until done
+  async joinRoomAndListen(roomName: string, userName: string, clientCallback: (message: string) => void): Promise<void> {
+    // Store the client callback
+    const key = `${roomName}:${userName}`;
+    this.#clientCallbacks.set(key, clientCallback);
+
+    // Create our own callback that will be sent to the DO
+    const proxyCallback = (message: string) => {
+      console.log('User proxy callback invoked with:', message);
+      const cb = this.#clientCallbacks.get(key);
+      if (cb) {
+        cb(message);
+      }
+    };
+
+    // Get the DO stub and call joinAndListen - this won't return until the session ends
+    const roomStub = this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName) as any;
+    await roomStub.joinAndListen(userName, proxyCallback);
+  }
+
+  // Forward addMessage to the DO
+  async addRoomMessage(roomName: string, text: string): Promise<number> {
+    const roomStub = this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName) as any;
+    return await roomStub.addMessage(text);
   }
 }
 
