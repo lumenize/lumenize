@@ -190,14 +190,14 @@ update this table.
 | ArrayBuffer | ✅ | ✅ | ✅ | ❌ | |
 | Uint8Array | ✅ | ✅ | ✅ | ✅ | |
 | **Errors** | | | | | |
-| Error (thrown) | ? | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
-| Error (value) | ? | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
+| Error (thrown) | ✅ | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
+| Error (value) | ✅ | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
 | **Circular References** | ✅ | ✅ | ✅ | ❌ | Cap'n Web throws error |
 | **Web API Types** | | | | | |
 | Request | ✅ | ❌ | ✅ | ❌ | |
 | Response | ✅ | ❌ | ✅ | ❌ | |
-| Headers | ? | ✅ | ✅ | ❌ | |
-| URL | ? | ❌ | ✅ | ❌ | |
+| Headers | ✅ | ✅ | ✅ | ❌ | |
+| URL | ❌ | ❌ | ✅ | ❌ | |
 | ReadableStream | ✅ | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
 | WritableStream | ✅ | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
 
