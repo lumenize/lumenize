@@ -112,6 +112,27 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
   return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
 }
 
+/**
+ * Internal marker for pipelined operations during serialization.
+ * When a client passes an unawaited RPC call result as an argument to another call,
+ * this marker carries the operation chain that needs to be executed server-side first.
+ * The server recursively executes the pipelined operation and substitutes the result.
+ * @internal
+ */
+export interface PipelinedOperationMarker {
+  __isPipelinedOperation: true;
+  __operationChain: OperationChain;
+}
+
+/**
+ * Type guard to check if an object is a pipelined operation marker.
+ * Used internally by the server to identify arguments that need recursive execution.
+ * @internal
+ */
+export function isPipelinedOperationMarker(obj: any): obj is PipelinedOperationMarker {
+  return obj && typeof obj === 'object' && obj.__isPipelinedOperation === true;
+}
+
 // =====================================================================================
 // CLIENT-SIDE TYPES
 // =====================================================================================
