@@ -16,7 +16,7 @@
 # vs Cap'n Web (basics and types)
 
 This living documentation compares how Lumenize RPC and Cap'n Web (Cloudflare's
-official "last-mile" RPC solution) handle basic usage and supported types.
+official "last-mile" RPC solution) handle basic operations and data types.
 
 Using this doc-test approach, when either package adds capability, we'll
 know immediately because the tests will start failing as soon as we upgrade
