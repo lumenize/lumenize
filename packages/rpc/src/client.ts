@@ -79,42 +79,32 @@ export function createRpcClient<T>(
  * Recursively process an operation chain to convert any nested proxy objects to pipelined operation markers.
  * This is needed because operation chains may contain proxies in their args, and those need to be
  * converted to markers before the chain can be serialized.
+ * Uses walkObject() to handle the recursion consistently with other processing.
  */
 async function processOperationChainForMarker(chain: OperationChain): Promise<OperationChain> {
-  const processedChain: OperationChain = [];
-  
-  for (const operation of chain) {
-    if (operation.type === 'apply' && operation.args.length > 0) {
-      // Process args to convert any nested proxies to markers
-      const processedArgs: any[] = [];
-      for (const arg of operation.args) {
-        // Check if this arg is a proxy
-        if ((typeof arg === 'object' && arg !== null) || typeof arg === 'function') {
-          const nestedChain = proxyToOperationChain.get(arg);
-          if (nestedChain) {
-            // Recursively process the nested chain
-            const nestedProcessedChain = await processOperationChainForMarker(nestedChain);
-            processedArgs.push({
-              __isPipelinedOperation: true,
-              __operationChain: nestedProcessedChain
-            });
-            continue;
-          }
-        }
-        // Not a proxy, keep as-is
-        processedArgs.push(arg);
+  // Transformer to convert Proxy objects to markers
+  const transformer = async (value: any) => {
+    // Check if this is a proxy that needs to be converted to a marker
+    if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+      const nestedChain = proxyToOperationChain.get(value);
+      if (nestedChain) {
+        // Recursively process the nested chain and create a marker
+        const nestedProcessedChain = await processOperationChainForMarker(nestedChain);
+        return {
+          __isPipelinedOperation: true,
+          __operationChain: nestedProcessedChain
+        } as PipelinedOperationMarker;
       }
-      processedChain.push({
-        type: 'apply',
-        args: processedArgs
-      });
-    } else {
-      // get operations and apply with no args pass through unchanged
-      processedChain.push(operation);
     }
-  }
-  
-  return processedChain;
+    // Not a proxy, return unchanged
+    return value;
+  };
+
+  // Walk the entire operation chain to find and convert nested proxies
+  // Skip recursion into markers that are already fully formed
+  return await walkObject(chain, transformer, {
+    shouldSkipRecursion: (value) => isPipelinedOperationMarker(value)
+  }) as OperationChain;
 }
 
 /**
