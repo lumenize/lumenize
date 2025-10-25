@@ -62,7 +62,7 @@ OCAN has three complementary aspects:
 Lumenize RPC builds an **operation chain** that describes the sequence and 
 dependencies of your operations, then executes them in one round trip.
 
-Let's peek under the hood to see how operation chains are structured.
+Let's peek under the hood to see how OCAN structures are built.
 
 ### Imports
 
@@ -122,7 +122,10 @@ it('demonstrates operation chaining', async () => {
   setInspectMode(true);
   
   // Build a chain by calling methods on client without awaiting
-  const result = await client.setValue('greeting', 'hello').uppercaseValue();
+  // Each method returns a Proxy, allowing you to "cache" operation chains
+  const afterSetValue = client.setValue('greeting', 'hello');
+  const afterUppercase = afterSetValue.uppercaseValue();
+  const result = await afterUppercase;  // await triggers the round trip
   
   const batchRequest = getLastBatchRequest();
   setInspectMode(false);
@@ -144,10 +147,32 @@ it('demonstrates operation chaining', async () => {
 
 
 
+**"Proxy speak"**: The operations you see above 
+are essentially "Proxy speak" - they correspond to JavaScript 
+[Proxy handler traps](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy#handler_functions). 
+The [`get` trap](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy/Proxy/get) 
+captures property access (like `client.setValue`), while the 
+[`apply` trap](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Proxy/Proxy/apply) 
+captures function calls (like `setValue('greeting', 'hello')`). Lumenize RPC 
+uses a Proxy to intercept these operations and build the OCAN structure you see above.
+
+**The beauty of a thenable Proxy**: Because the Proxy is thenable, we know the 
+exact moment you use `await` - that's what triggers the round trip. Until then, 
+each method call returns a new Proxy, allowing you to "cache" operation chains 
+and build them incrementally. When you finally `await`, the client sends the 
+complete structure in a single round trip.
+
+**Server-side execution**: When `lumenizeRpcDO` receives this OCAN structure, 
+it walks through the operations in sequence, executing each `get` (property 
+access) and `apply` (function call) against your Durable Object. For nested 
+operations, it recursively resolves the nested chains first, then uses their 
+results as arguments. This means complex multi-step operations execute entirely 
+on the server side, with only one network round trip.
+
 ### Operation Nesting Example
 
 When you pass unawaited operations as arguments, they become nested in the 
-operation chain:
+OCAN structure:
 
 
 

@@ -43,7 +43,10 @@ rarely better than ~20ms. If you incure that extra 0.015ms on top of a single ro
 
 On the other hand, if Lumenize RPC or Cap'n Web required 2 round trips while that other required only 1, it would be 100% difference in performance.
 
-**In every case we show below, both require only a single RPC round trip for all use cases by making use of batching and/or promise pipeling.**
+**In every case we show below, both require only a single RPC round trip for 
+all use cases by making use of
+[OCAN](/docs/rpc/operation-chaining-and-nesting) 
+(Operation Chaining and Nesting).**
 
 ## Full load throughput over localhost
 
@@ -237,13 +240,13 @@ it('compares byte count (small payloads)', async () => {
   // --- Payload bytes sent ----
   // Lumenize sends more bytes because it uses JSON-RPC
   // vs Cap'n Web's binary Cap'n Proto protocol
-  // Note: Batch format adds wrapper overhead but enables pipelining
+  // Note: Batch format adds wrapper overhead but enables operation nesting
   expect(lumenizeMetrics.wsSentPayloadBytes).toBeCloseTo(460, -1);
   expect(capnwebMetrics.wsSentPayloadBytes).toBeCloseTo(145, -1);
   
   // --- Payload bytes received ---
   // Response sizes - Cap'n Web is much more compact
-  // Note: Batch format adds wrapper overhead but enables pipelining
+  // Note: Batch format adds wrapper overhead but enables operation nesting
   expect(lumenizeMetrics.wsReceivedPayloadBytes).toBeCloseTo(277, -1);
   expect(capnwebMetrics.wsReceivedPayloadBytes).toBeCloseTo(15, -1);
 });
@@ -346,9 +349,9 @@ it('demonstrates HTTP batching in Lumenize RPC', async () => {
 
 
 
-## Promise Pipelining
+## Operation Nesting
 
-Promise pipelining allows using the result of an unawaited call as a 
+Operation nesting allows using the result of an unawaited call as a 
 parameter to another call. This creates dependent operations that can still be 
 done with a single RPC round trip because the server resolves the promise 
 values.
@@ -373,7 +376,7 @@ it('compares promise pipelining performance', async () => {
   // ========================================================================
   using lmClient = getLumenizeClient('geometric-progression', lmMetrics);
   
-  // Geometric progression using promise pipelining:
+  // Geometric progression using operation nesting:
   const lm1 = lmClient.increment();           // increment() → 1
   const lm2 = lmClient.increment(lm1);        // increment(1) → 2
   const lmResult = await lmClient.increment(lm2);  // increment(2) → 4
@@ -407,9 +410,9 @@ it('compares promise pipelining performance', async () => {
 
 
 
-## Promise Pipelining (nested syntax)
+## Operation Nesting (nested syntax)
 
-Promise pipelining also works with nested call syntax. Both calls are sent 
+Operation nesting also works with nested call syntax. Both calls are sent 
 in a single RPC round trip with the server resolving dependencies.
 
 In this case, both the inner and outer calls receive 10 as their argument, 
@@ -427,13 +430,13 @@ it('compares promise pipelining with nested syntax', async () => {
   const cwMetrics: Metrics = {};
   
   // ========================================================================
-  // Lumenize RPC - nested promise pipelining (HTTP)
+  // Lumenize RPC - nested operation calls (HTTP)
   // ========================================================================
   using httpClient = getLumenizeHttpClient('nested-http', httpMetrics);
   const httpResult = await httpClient.increment(httpClient.increment(10));
   
   // ========================================================================
-  // Lumenize RPC - nested promise pipelining (WebSocket)
+  // Lumenize RPC - nested operation calls (WebSocket)
   // ========================================================================
   using lmClient = getLumenizeClient('nested-syntax', lmMetrics);
   const lmResult = await lmClient.increment(lmClient.increment(10));

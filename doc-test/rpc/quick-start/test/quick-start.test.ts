@@ -15,6 +15,11 @@
 /*
 # Quick Start
 
+## TODO:
+- Mine @lumenize/testing for other features
+- Cover access to ctx and env
+- Mention must use await even for non-async calls
+
 Here's what minimal use of Lumenize RPC looks like.
 */
 
@@ -39,7 +44,7 @@ it('detects package version', () => {
 });
 
 /*
-## Basic Usage
+## Basic Usage (test/quick-start.test.ts)
 */
 
 import { Counter } from '../src/index';
@@ -67,9 +72,11 @@ it('shows basic usage of Lumenize RPC', async () => {
 });
 
 /*
-To run the example above, put it in `test/quick-start.test.ts` and perform the 
-following setup.
+There are only a few other calling patterns for using Lumenize RPC. They are 
+described next in [How It Works](/docs/rpc/operation-chaining-and-nesting).
+*/
 
+/*
 ## Installation
 
 First let's install some tools
