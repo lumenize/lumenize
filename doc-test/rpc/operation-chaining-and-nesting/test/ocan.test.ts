@@ -170,7 +170,7 @@ it('demonstrates operation nesting', async () => {
     }
   ]);
   
-  // Verify the result (execution happened normally despite inspect mode)
+  // Verify the result
   expect(result).toBe('hello + world');
 });
 
