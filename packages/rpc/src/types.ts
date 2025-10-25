@@ -19,7 +19,7 @@ export type OperationChain = Operation[];
 
 /**
  * Core batched RPC request format used by all transports.
- * Multiple operation chains batched together for promise pipelining.
+ * Multiple operation chains batched together
  * 
  * The entire request object will be encoded using @ungap/structured-clone/json
  * stringify() at the transport boundary.

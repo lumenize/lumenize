@@ -232,7 +232,7 @@ sequenceDiagram
   - Need to track and build operation chain paths
   - Handle prototype chains (server-side only)
 
-### Promise Pipelining
+### Object Chaining and Nesting (OCAN)
 - **Client-side detection:**
   - `proxyToOperationChain` WeakMap tracks proxy → chain mappings
   - Proxies detected during `processOutgoingOperations()`

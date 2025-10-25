@@ -190,18 +190,19 @@ above, this is also a distinction without much of a difference. The latency
 impact of this 577 byte difference at even a very slow connection of say 10Mb/s 
 is 0.46ms (0.00046 seconds) and more importantly, the payloads are so small
 that all we are measuring is framing.
+
+More importantly, we have intentionally decided not to optimize this payload 
+byte count, because we [value de✨light✨ful DX (DDX)](/docs/rpc/operation-chaining-and-nesting#delightful-dx-ddx-vs-optimization)
+everything else.
 */
 it('compares byte count (small payloads)', async () => {
   // --- Payload bytes sent ----
-  // Lumenize sends more bytes because it uses JSON-RPC
-  // vs Cap'n Web's binary Cap'n Proto protocol
-  // Note: Batch format adds wrapper overhead but enables operation nesting
+  // Outgoing - Lumenize sends more bytes vs Cap'n Web's encoding
   expect(lumenizeMetrics.wsSentPayloadBytes).toBeCloseTo(460, -1);
   expect(capnwebMetrics.wsSentPayloadBytes).toBeCloseTo(145, -1);
   
   // --- Payload bytes received ---
-  // Response sizes - Cap'n Web is much more compact
-  // Note: Batch format adds wrapper overhead but enables operation nesting
+  // Incomming - Cap'n Web is much more compact
   expect(lumenizeMetrics.wsReceivedPayloadBytes).toBeCloseTo(277, -1);
   expect(capnwebMetrics.wsReceivedPayloadBytes).toBeCloseTo(15, -1);
 });
@@ -211,7 +212,7 @@ it('compares byte count (small payloads)', async () => {
 
 The previous test showed a 4.6x higher byte count for Lumenize RPC, but that's 
 almost all framing overhead on tiny payloads. Let's test with a more realistic 
-payload size - a 10KB string, which is not very large and would still travel 
+payload size - a 10KB string, which is not very large and would travel 
 over a very slow 10Mb/s in ~8ms.
 
 **Key insight:** With actual data payloads, the framing overhead becomes
@@ -264,8 +265,7 @@ uses exactly one HTTP round trip, like Lumenize RPC.
 **Key insight:** Lumenize RPC and Cap'n Web both use one HTTP round trip.
 However, the DX advantage of Lumenize RPC is clear: client and server require 
 no code changes to switch between transports, just change the transport option 
-to 'http'. (Note: HTTP has no separate connection cost like WebSocket's upgrade 
-request - each HTTP request is its own connection.)
+to 'http'.
 */
 it('demonstrates HTTP batching in Lumenize RPC', async () => {
   const metrics: Metrics = {};
@@ -343,8 +343,7 @@ it('compares promise pipelining performance', async () => {
 /*
 ## Operation Nesting (nested syntax)
 
-Operation nesting also works with nested call syntax. Both calls are sent 
-in a single RPC round trip with the server resolving dependencies.
+Operation nesting also works with nested call syntax.
 
 In this case, both the inner and outer calls receive 10 as their argument, 
 resulting in: 0 + 10 = 10, then 10 + 10 = 20.

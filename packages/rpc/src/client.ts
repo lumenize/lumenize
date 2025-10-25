@@ -21,7 +21,8 @@ import { isStructuredCloneNativeType } from './structured-clone-utils';
 
 /**
  * WeakMap to track proxy objects and their operation chains.
- * Used for promise pipelining - allows detecting when a proxy is used as an argument.
+ * Used for object chaining and nesting (OCAN) - allows detecting when 
+ * a proxy is used as an argument.
  */
 const proxyToOperationChain = new WeakMap<object, OperationChain>();
 
@@ -164,7 +165,7 @@ async function processOperationChainForMarker(chain: OperationChain): Promise<Op
  * Process outgoing operations before sending to server.
  * Walks the operation chain, finds 'apply' operations, and uses walkObject to
  * serialize any Web API objects, Errors, and special numbers in the args.
- * Also detects proxy arguments (for promise pipelining) and converts them to markers.
+ * Also detects proxy arguments (for OCAN) and converts them to markers.
  * Returns both processed operations and a set of operation chains that were pipelined.
  */
 async function processOutgoingOperations(operations: OperationChain): Promise<{ 
@@ -290,7 +291,7 @@ export class RpcClient<T> {
   #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
   
-  // Batching support for promise pipelining - operations in the same tick are batched
+  // Operations in the same tick are batched
   #executionQueue: QueuedExecution[] = [];
   #batchScheduled = false;
   #nextId = 0;
@@ -793,7 +794,7 @@ class ProxyHandler {
       }
     });
     
-    // Register this proxy in the WeakMap for promise pipelining detection
+    // Register this proxy in the WeakMap for OCAN detection
     proxyToOperationChain.set(proxy, chain);
     
     return proxy;
