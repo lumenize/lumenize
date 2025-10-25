@@ -26,15 +26,36 @@ Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code ins
 </details>
 
 Cap'n Web's documentation states that Workers RPC interoperability 
-["basically, it 'just works.'"](https://github.com/cloudflare/capnweb/tree/main#cloudflare-workers-rpc-interoperability) This living documentation demonstrates 
-that claim and highlights the current limitations of it.
+["basically, it 'just works.'"](https://github.com/cloudflare/capnweb/tree/main#cloudflare-workers-rpc-interoperability)
+This living documentation explores that claim and highlights what we've learned 
+about its limitations.
 
-**Bottom line**: Cap'n Web's syntax, which allows you to magically return an RpcTarget instance or Durable Object stub is quite elegant and conceptually consistent. Lumenize RPC's is more explicit but similarly concise. Still, we'd give the slight advantage to Cap'n Web except for one little thing-[unsupported types](https://github.com/cloudflare/capnweb/tree/main?tab=readme-ov-file#pass-by-value-types). We drill down on this in the next doc-test but if you want to skip ahead, there is [summary table of types supported by Workers RPC compared to those supported by Cap'n Web and Lumenize RPC](/docs/rpc/capn-web-comparison-basics-and-types#supported-types). Note, Cloudflare says some of these "may be added in the future" and if that happens we will quickly update these documents, but until then, the claim "it just works" falls short.
+**Our experience**: Cap'n Web's syntax is quite elegant—you can magically 
+return an RpcTarget instance or Durable Object stub, and it's conceptually 
+consistent. Lumenize RPC is more explicit but similarly concise. We'd give the 
+win to Cap'n Web's elegance, except that once you get past the, "Wow! That's 
+cool!" we discovered some things that "just don't work" as expected. 
 
-TODO:
-- Doesn't callbacks break consistency guarantees of input/output gates because you must await a callback function.
-- Maybe too much magic. I had to fight my LLM to force it to even try. It kept saying, "that won't work" but once I forced it to try, it did!
-- 
+1. **Limited type support**: Cap'n Web doesn't support many types that Workers 
+   RPC handles seamlessly (Map, Set, RegExp, ArrayBuffer, circular references, 
+   etc.). See the [type support comparison](/docs/rpc/capn-web-comparison-basics-and-types#supported-types).
+
+2. **No hibernating WebSocket support**: Cap'n Web uses `server.accept()` 
+   instead of `ctx.acceptWebSocket()`, meaning Durable Objects can't maintain 
+   connections through hibernations, which makes sense because...
+
+3. **Function callbacks don't survive hibernation**: While function 
+   callbacks work (which is impressive!), they require keeping the DO awake because you can't serialize a callback to restore from storage after it wakes up.
+
+4. **Potentially confusing magic**: The syntax is so elegant it might seem "too 
+   good to be true"—even our LLM initially refused to try patterns that 
+   actually work, assuming they wouldn't!
+
+**Important**: We might be missing something fundamental. If there are 
+different patterns that work better and/or if Cloudflare adds support for more 
+types, we'll quickly update this document. Cloudflare has noted that some 
+type support "may be added in the future." For now, based on our testing, the 
+claim "it just works" comes with significant caveats.
 
 ### src/index.ts
 
@@ -44,7 +65,7 @@ Normally, we start off these doc-tests with the tests that show behavior, but in
 import { DurableObject, RpcTarget } from 'cloudflare:workers';
 import { lumenizeRpcDO } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/utils';
-import { newWorkersRpcResponse, RpcStub } from 'capnweb';
+import { newWorkersRpcResponse } from 'capnweb';
 
 // =======================================================================
 // Lumenize RPC - User and Room services
@@ -104,38 +125,22 @@ export class CapnWebRoom extends DurableObject<Env> {
   }
 }
 
-// Cap'n Web PlainRoom - Uses plain object (will work)
+// Cap'n Web PlainRoom - Uses plain object instead of Map
 export class CapnWebPlainRoom extends DurableObject<Env> {
-  // Store callbacks to test multi-hop scenario
-  #callbacks = new Map<string, (message: string) => void>();
-  #joinPromises = new Map<string, {resolve: () => void, reject: (err: any) => void}>();
+  #callbacks = new Map<string, (msg: string) => void>();
 
-  async joinAndListen(userName: string, onMessage: (message: string) => void): Promise<void> {
-    console.log('CapnWebPlainRoom.joinAndListen called for user:', userName);
-    this.#callbacks.set(userName, onMessage);
-    console.log('Callback stored, total callbacks:', this.#callbacks.size);
+  join(userName: string, onMsg: (msg: string) => void): Promise<void> {
+    this.#callbacks.set(userName, onMsg);
     
-    // Don't return - keep the RPC connection alive
-    // Create a promise that we'll resolve when the user leaves
-    return new Promise((resolve, reject) => {
-      this.#joinPromises.set(userName, { resolve, reject });
-      // For testing, auto-resolve after 5 seconds
-      setTimeout(() => {
-        console.log('Auto-resolving join for user:', userName);
-        resolve();
-      }, 5000);
+    // This hack keeps the RPC connection alive so callback stub remains valid
+    // I suspect there is a way to get rid of this, but if we can't this is
+    // doesn't align with "It just works"
+    return new Promise((resolve) => {
+      setTimeout(() => { resolve(); }, 5000);
     });
   }
 
-  join(userName: string, onMessage: (message: string) => void): void {
-    console.log('CapnWebPlainRoom.join called for user:', userName);
-    this.#callbacks.set(userName, onMessage);
-    console.log('Callback stored, total callbacks:', this.#callbacks.size);
-  }
-
-  async addMessage(text: string): Promise<number> {
-    console.log('CapnWebPlainRoom.addMessage called with:', text);
-    console.log('Total callbacks registered:', this.#callbacks.size);
+  addMessage(text: string): number {
     const messages =
       this.ctx.storage.kv.get<Record<number, string>>('messages') ??
       {};
@@ -143,15 +148,9 @@ export class CapnWebPlainRoom extends DurableObject<Env> {
     messages[id] = text;
     this.ctx.storage.kv.put('messages', messages);
     
-    // Try invoking callbacks
+    // Invoke callbacks
     for (const [userName, callback] of this.#callbacks.entries()) {
-      console.log('Attempting to invoke callback for user:', userName);
-      try {
-        await (callback as any)(text);
-        console.log('Callback invoked successfully for user:', userName);
-      } catch (error) {
-        console.error('Error invoking callback for user:', userName, error);
-      }
+      callback(text);
     }
     
     return id;
@@ -182,12 +181,6 @@ export class CapnWebUser extends RpcTarget {
   getPlainRoom(roomName: string) {
     return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
   }
-
-  // Test callback directly on User (no Room hop)
-  async testCallback(callback: (msg: string) => void): Promise<string> {
-    await callback('Hello from CapnWebUser!');
-    return 'callback invoked';
-  }
 }
 
 // =======================================================================
@@ -215,6 +208,25 @@ export default {
 };
 
 ```
+
+Some observations about the three implementations above:
+
+**Lumenize RPC**:
+- DOs extend `DurableObject` (no special base class required)
+- `lumenizeRpcDO()` wrapper handles all RPC setup
+- Requires explicit method forwarder (`_User.room()`) 
+
+**Cap'n Web**:
+- Allows you to return DurableObject stubs (`CapnWebRoom` and 
+  `CapnWebPlainRoom`)
+- Magical syntax for returing an `RpcTarget` instance (`CapnWebUser`)
+- `newWorkersRpcResponse` handles all Cap'n Web setup
+- Function callbacks require keeping RPC connections alive with `setTimeout()`
+
+**Configuration trade-offs**: Lumenize RPC prioritizes making it easy to add 
+RPC to existing DOs without refactoring, while Cap'n Web's elegant syntax of 
+directly returning stubs comes with keep alive considerations and dangling 
+resource risks.
 
 ## Imports
 
@@ -282,36 +294,29 @@ const getCapnWebClient = getCapnWebUserClient;
 
 
 
-## Service-to-Service Communication via Workers RPC
+## Service-to-Service Communication
 
 A common pattern in chat applications: User service acts as a gateway/proxy,
 hopping to Room services for actual storage operations.
 
-**Lumenize RPC**:
-- ✅ Seamlessly hops from User to Room via `this.env.ROOM`
+### Lumenize RPC Approach
+
+Lumenize RPC seamlessly hops from User to Room via `this.env.ROOM`:
 - ✅ Client accesses User via Lumenize RPC
 - ✅ User → Room communication uses Workers RPC automatically
-- ✅ No configuration needed - it "just works"
-
-**Cap'n Web**:
-- ✅ Can hop from User to Room using stubs
-- ✅ Clean pattern - just return Workers RPC stubs directly
-- ✅ Works like magic when types are compatible
-- ⚠️ Limited type support breaks the magic for Map, Set, etc.
+- ✅ Map and other StructuredClone types work seamlessly
+- ✅ it "just works"
 
 
 
 
 ```typescript test
-it('demonstrates service-to-service hopping', async () => {
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
+it('demonstrates Lumenize RPC service hopping', async () => {
   using lumenizeClient = getLumenizeUserClient('user-lumenize');
 
-  // ✅ Client → User via Lumenize RPC
-  // ✅ User.room() forwards method calls to Room via Workers RPC
-  // ✅ No explicit proxy methods needed - one generic forwarder!
+  // Client → User via Lumenize RPC
+  // User.room() forwards method calls to Room via Workers RPC
+  // No explicit proxy methods needed - one generic forwarder!
   const msgId1 = await lumenizeClient.room('lumenize', 'addMessage', 'Hello');
   expect(msgId1).toBe(1);
 
@@ -323,20 +328,44 @@ it('demonstrates service-to-service hopping', async () => {
   expect(messages.size).toBe(2);
   expect(messages.get(1)).toBe('Hello');
   expect(messages.get(2)).toBe('World');
+});
+```
+
+
+
+
+### Cap'n Web Type Limitations
+
+Cap'n Web can hop from User to Room by returning Workers RPC stubs directly—a 
+clean and elegant pattern. However, even though you're getting a Workers RPC 
+stub, return values **still go through Cap'n Web's serialization layer**, which 
+has limited type support:
+
+- ✅ Plain objects, arrays, primitives: Work
+- ❌ Map, Set, RegExp, ArrayBuffer: Fail
+- ❌ Objects with cycles or aliases: Fail
+
+This means you must constrain your DO's return types to Cap'n Web-compatible 
+types, even when using Workers RPC stubs or pre/post process.
+
+
+
+
+```typescript test
+it('demonstrates Cap\'n Web type limitations', async () => {
+  using capnwebClient = getCapnWebUserClient();
 
   // ==========================================================================
   // Cap'n Web - Map type fails
   // ==========================================================================
-  using capnwebClient = getCapnWebUserClient();
-
+  
   // Get a stub to the Room (uses Map)
-  // - Cap'n Web User returns Workers RPC stub
+  // Cap'n Web User returns a Workers RPC stub
   using roomStub = capnwebClient.getRoom('room-capnweb-map');
 
-  // ✅ Client → User via Cap'n Web RPC
-  //    (User is RpcTarget instantiated in worker)
-  // ✅ User returns Workers RPC stub to Room
-  // ✅ Client → Room via the returned Workers RPC stub
+  // ✅ Client → User via Cap'n Web RPC (User is RpcTarget)
+  // ✅ User returns Workers RPC stub to Room DO
+  // ✅ Client → Room via the returned stub
   const capnMsgId1 = await roomStub.addMessage('Hello');
   expect(capnMsgId1).toBe(1);
 
@@ -344,9 +373,7 @@ it('demonstrates service-to-service hopping', async () => {
   expect(capnMsgId2).toBe(2);
 
   // ❌ Map FAILS even though this is a Workers RPC stub!
-  // While Cap'n Web proxies Workers RPC stubs, return values STILL
-  // go through Cap'n Web's serialization layer, which doesn't
-  // support Map.
+  // Return values go through Cap'n Web serialization
   let capnwebThrew = false;
   let capnwebError: Error | undefined;
   try {
@@ -377,60 +404,70 @@ it('demonstrates service-to-service hopping', async () => {
   const plainMessages = await plainRoomStub.getMessages();
   expect(plainMessages[1]).toBe('Hello');
   expect(plainMessages[2]).toBe('World');
-
-  // ===========================================================================
-  // CONCLUSION: "It Just Works" requires Cap'n Web-compatible types
-  // ===========================================================================
-  // Cap'n Web can proxy Workers RPC stubs (getRoom() and
-  // getPlainRoom() work), but return values STILL go through Cap'n
-  // Web serialization.
-  // - Map, Set, RegExp, ArrayBuffer: ❌ Fail
-  // - Plain objects, arrays, primitives: ✅ Work
-  //
-  // Compare with Lumenize RPC where Map works seamlessly without
-  // workarounds.
 });
 ```
 
 
 
 
+**The bottom line**: Cap'n Web's elegant stub-returning syntax works 
+beautifully when your return types are Cap'n Web-compatible (plain objects, 
+arrays, primitives). But the moment you need Map, Set, RegExp, ArrayBuffer, or 
+objects with cycles or aliases-types that Workers RPC handles seamlessly—you'll 
+hit serialization errors or need workarounds.
+
+Lumenize RPC supports all the types that Workers RPC supports (except 
+Readable/WritableStream, which Cap'n Web also doesn't support), without 
+requiring you to change your DO's return types or add pre/post processing.
+
 ## Function Callbacks Work (With Limitations)
 
-Cap'n Web supports passing functions as RPC parameters, leveraging Workers RPC's 
-ability to pass functions as stubs. When you pass a function, the recipient gets 
-a stub that makes an RPC **back** to the sender when called.
+Cap'n Web duplicates Workers RPC's ability to pass functions as RPC parameters.
+ When you pass a function, the recipient gets a stub that it can use to make a 
+ call a **back** to the sender.
 
-**Testing hypothesis**: Does extending RpcTarget instead of DurableObject allow 
-callbacks to work across multiple hops?
+**Our Understanding (possibly incomplete)**: Based on our testing, RPC callback 
+stubs cannot be serialized, stored, or survive Durable Object hibernation and 
+they break when the method that they were passed into returns. This means:
+
+- ✅ The method receiving the callback can invoke it immediately
+- ✅ The method can store it in memory and invoke it later
+- ❌ But, the callback goes away once the scope is exited or the callee leaves 
+     memory
+
+This is why our `join()` method returns a Promise that doesn't resolve for 5 
+seconds - it keeps the RPC connection (and thus the callback stub) alive. Maybe 
+we're missing something fundamental, and if someone from Cloudflare points out 
+our mistake, we'll quickly update this document. But this was the only pattern 
+that allows callbacks to survive long enough to be useful.
+
+**Hibernating WebSockets**: Imagine our surprise when we noticed that Cap'n Web 
+uses [`server.accept()`](https://github.com/cloudflare/capnweb/blob/c3409357b1c84dd515b4e739786addbdd135c244/src/websocket.ts#L33) 
+instead of `ctx.acceptWebSocket()`, instead of 
+`this.ctx.acceptWebSocket(server)` meaning that it's not using hibernating 
+WebSockets. Then again, when we thought about it, it made sense. Since callback 
+stubs can't be serialized, they'd be lost when the DO hibernates anyway. Even 
+with hibernating WebSockets, you'd still need to keep the DO instance alive and 
+the RPC connection open to use callbacks.
+
+To be fair, until we release LumenizeBase, which solves all of this (supports 
+hibernating WebSockets, no dangling resources, etc.) we aren't showing an 
+equivalent Lumenize way to support any server to client updates. Stay tuned.
+
+**Bottom line**: Function callbacks provide a syntactically elegant way for the 
+server to call the client, but require a `setTimeout()` to prevent losing the 
+callback. If there's a batter pattern we've missed, please let us know!
 
 
 
 
 ```typescript test
 it('demonstrates function callback support', async () => {
-  // ✅ Works: Direct call from client to CapnWebUser (RpcTarget)
   const capnwebClient = getCapnWebClient();
 
-  const receivedMessages: string[] = [];
-  
-  const myCallback = (message: string) => {
-    receivedMessages.push(message);
-  };
-
-  // First test: Direct callback works
-  const result = await capnwebClient.testCallback(myCallback);
-  expect(result).toBe('callback invoked');
-
-  await vi.waitFor(() => {
-    expect(receivedMessages).toContain('Hello from CapnWebUser!');
-  }, { timeout: 500 });
-
-  // Second test: Multi-hop callback - direct stub pattern
-  // Client gets DO stub directly and calls joinAndListen on it
+  // Multi-hop callback - client → User → PlainRoom
   const roomMessages: string[] = [];
   const roomCallback = (message: string) => {
-    console.log('Client callback received:', message);
     roomMessages.push(message);
   };
 
@@ -438,13 +475,13 @@ it('demonstrates function callback support', async () => {
   const plainRoomStub = await capnwebClient.getPlainRoom('room-callbacks-test') as any;
 
   // Start listening - this won't return for 5 seconds, keeping the callback alive
-  const listenPromise = plainRoomStub.joinAndListen('Alice', roomCallback);
+  const listenPromise = plainRoomStub.join('Alice', roomCallback);
 
   // Give it a moment to establish
   await new Promise(resolve => setTimeout(resolve, 100));
 
   // Add message directly to the DO stub
-  // The callback stub is still valid because joinAndListen hasn't returned yet
+  // The callback stub is still valid because join hasn't returned yet
   await plainRoomStub.addMessage('Test message direct');
 
   // Wait to see if callback fires
@@ -458,38 +495,6 @@ it('demonstrates function callback support', async () => {
 
 
 
-
-## The Type Support Problem
-
-Cap'n Web's "it just works" claim breaks down when you try to use 
-StructuredClone types that Workers RPC supports but Cap'n Web doesn't.
-
-**Workers RPC** (DO Storage): Supports all StructuredClone types including 
-Map, Set, RegExp, ArrayBuffer, circular references, etc.
-
-**Lumenize RPC**: Supports everything Workers RPC supports (and more).
-
-**Cap'n Web**: Limited type support - no Map, Set, RegExp, ArrayBuffer,
-circular references, etc.
-
-For a comprehensive type support comparison, see the 
-[basics and types documentation](/docs/rpc/capn-web-comparison-basics-and-types#supported-types).
-
-## Configuration Comparison
-
-**Lumenize RPC**:
-- DOs extend `DurableObject` (no special base class required)
-- No manual constructor or fetch method needed
-- `lumenizeRpcDO()` wrapper handles all RPC setup
-
-**Cap'n Web**:
-- DOs must extend `RpcTarget` instead of `DurableObject`
-- Must manually implement constructor to capture `ctx` and `env`
-- Must manually implement `fetch()` method
-- Cannot reuse existing DurableObjects without modification
-
-The configuration differences show Lumenize RPC's design priority: 
-make it easy to add RPC to existing DOs without refactoring.
 
 ## Installation
 

@@ -1,7 +1,7 @@
 import { DurableObject, RpcTarget } from 'cloudflare:workers';
 import { lumenizeRpcDO } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/utils';
-import { newWorkersRpcResponse, RpcStub } from 'capnweb';
+import { newWorkersRpcResponse } from 'capnweb';
 
 // =======================================================================
 // Lumenize RPC - User and Room services
@@ -61,38 +61,22 @@ export class CapnWebRoom extends DurableObject<Env> {
   }
 }
 
-// Cap'n Web PlainRoom - Uses plain object (will work)
+// Cap'n Web PlainRoom - Uses plain object instead of Map
 export class CapnWebPlainRoom extends DurableObject<Env> {
-  // Store callbacks to test multi-hop scenario
-  #callbacks = new Map<string, (message: string) => void>();
-  #joinPromises = new Map<string, {resolve: () => void, reject: (err: any) => void}>();
+  #callbacks = new Map<string, (msg: string) => void>();
 
-  async joinAndListen(userName: string, onMessage: (message: string) => void): Promise<void> {
-    console.log('CapnWebPlainRoom.joinAndListen called for user:', userName);
-    this.#callbacks.set(userName, onMessage);
-    console.log('Callback stored, total callbacks:', this.#callbacks.size);
+  join(userName: string, onMsg: (msg: string) => void): Promise<void> {
+    this.#callbacks.set(userName, onMsg);
     
-    // Don't return - keep the RPC connection alive
-    // Create a promise that we'll resolve when the user leaves
-    return new Promise((resolve, reject) => {
-      this.#joinPromises.set(userName, { resolve, reject });
-      // For testing, auto-resolve after 5 seconds
-      setTimeout(() => {
-        console.log('Auto-resolving join for user:', userName);
-        resolve();
-      }, 5000);
+    // This hack keeps the RPC connection alive so callback stub remains valid
+    // I suspect there is a way to get rid of this, but if we can't this is
+    // doesn't align with "It just works"
+    return new Promise((resolve) => {
+      setTimeout(() => { resolve(); }, 5000);
     });
   }
 
-  join(userName: string, onMessage: (message: string) => void): void {
-    console.log('CapnWebPlainRoom.join called for user:', userName);
-    this.#callbacks.set(userName, onMessage);
-    console.log('Callback stored, total callbacks:', this.#callbacks.size);
-  }
-
-  async addMessage(text: string): Promise<number> {
-    console.log('CapnWebPlainRoom.addMessage called with:', text);
-    console.log('Total callbacks registered:', this.#callbacks.size);
+  addMessage(text: string): number {
     const messages =
       this.ctx.storage.kv.get<Record<number, string>>('messages') ??
       {};
@@ -100,15 +84,9 @@ export class CapnWebPlainRoom extends DurableObject<Env> {
     messages[id] = text;
     this.ctx.storage.kv.put('messages', messages);
     
-    // Try invoking callbacks
+    // Invoke callbacks
     for (const [userName, callback] of this.#callbacks.entries()) {
-      console.log('Attempting to invoke callback for user:', userName);
-      try {
-        await (callback as any)(text);
-        console.log('Callback invoked successfully for user:', userName);
-      } catch (error) {
-        console.error('Error invoking callback for user:', userName, error);
-      }
+      callback(text);
     }
     
     return id;
@@ -138,12 +116,6 @@ export class CapnWebUser extends RpcTarget {
   // (uses plain object - will work)
   getPlainRoom(roomName: string) {
     return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
-  }
-
-  // Test callback directly on User (no Room hop)
-  async testCallback(callback: (msg: string) => void): Promise<string> {
-    await callback('Hello from CapnWebUser!');
-    return 'callback invoked';
   }
 }
 
