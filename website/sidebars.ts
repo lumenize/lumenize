@@ -118,6 +118,13 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
           }
         },
+        {
+          type: 'doc',
+          id: 'rpc/operation-chaining-and-nesting',
+          customProps: {
+            docTest: 'doc-test/rpc/operation-chaining-and-nesting/test/ocan.test.ts'
+          }
+        },
         'rpc/capn-web-comparison',
         {
           type: 'doc',

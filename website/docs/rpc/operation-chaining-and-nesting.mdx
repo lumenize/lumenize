@@ -1,0 +1,327 @@
+---
+
+generated_by: doc-testing
+
+---
+
+
+
+# How It Works
+
+<details>
+<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
+
+This documentation uses **testable code examples** to ensure accuracy and reliability:
+
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual package(s)
+- **Guaranteed latest comparisons**: Further, our release script won't allow us to release a new
+  version of Lumenize, without prompting us to update any doc-tested comparison package 
+  (e.g. Cap'n Web)
+- **Always up-to-date**: When a package changes, the tests fail and the docs must be updated
+- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippet
+
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
+
+</details>
+
+## Operation Chaining and Nesting (OCAN)
+
+Lumenize RPC is built on what we call **Operation Chaining and Nesting (OCAN)** 
+- a powerful pattern for composing multiple RPC operations efficiently. 
+
+Cloudflare uses terms like "promise pipelining" and "batching" for Cap'n Web 
+optimizations. We know Lumenize RPC has some things in common, like a thenable 
+Proxy, and maybe what we are doing could also fall under those terms, but we 
+use OCAN to describe what Lumenize RPC is doing on the covers.
+
+## What is OCAN?
+
+OCAN has two complementary aspects:
+
+1. **Operation Chaining**: Chain method calls on returned values without 
+   awaiting intermediate results
+   ```typescript
+   client.setValue('key', 'value').processValue(...)
+   ```
+
+2. **Operation Nesting**: Use unawaited operations as arguments to other 
+   operations
+   ```typescript
+   client.combineValues(client.getValue('a'), client.getValue('b'))
+   ```
+
+Both patterns work because Lumenize RPC builds an **operation chain** that 
+describes the sequence and dependencies of your operations, then executes them 
+in one round trip.
+
+Let's peek under the hood to see how operation chains are structured.
+
+### Imports
+
+
+
+
+```typescript test
+import { it, expect } from 'vitest';
+// @ts-expect-error - cloudflare:test module types are not consistently exported
+import { SELF } from 'cloudflare:test';
+import { 
+  createRpcClient, 
+  getWebSocketShim,
+  setInspectMode,
+  getLastOperationChain 
+} from '@lumenize/rpc';
+import { DataService } from '../src/index';
+```
+
+
+
+
+### Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+
+
+
+
+```typescript test
+import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
+it('detects package version', () => {
+  expect(lumenizeRpcPackage.version).toBe('0.10.0');
+});
+```
+
+
+
+
+### Operation Chaining Example
+
+Each method call adds an operation to the chain:
+
+
+
+
+```typescript test
+it('demonstrates operation chaining', async () => {
+  using client = createRpcClient<typeof DataService>(
+    'DATA_SERVICE',
+    'test-chaining',
+    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+  );
+
+  // Enable inspect mode to capture the operation chain
+  setInspectMode(true);
+  
+  // Build a chain by calling methods on client without awaiting
+  const result = await client.setValue('greeting', 'hello').processValue();
+  
+  // Get the captured operation chain structure
+  const batchRequest = getLastOperationChain();
+  
+  // Disable inspect mode
+  setInspectMode(false);
+  
+  // The operation chain shows the sequence of operations
+  expect(batchRequest?.batch[0].operations).toMatchObject([
+    { type: 'get', key: 'setValue' },
+    { type: 'apply', args: ['greeting', 'hello'] },
+    { type: 'get', key: 'processValue' },
+    { type: 'apply', args: [] }
+  ]);
+  
+  // Verify the result (execution happened normally despite inspect mode)
+  expect(result).toBe('HELLO');
+});
+```
+
+
+
+
+### Operation Nesting Example
+
+When you pass unawaited operations as arguments, they become nested in the 
+operation chain:
+
+
+
+
+```typescript test
+it('demonstrates operation nesting', async () => {
+  using client = createRpcClient<typeof DataService>(
+    'DATA_SERVICE',
+    'test-nesting',
+    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+  );
+
+  // Set up some test data first
+  await client.setValue('first', 'hello');
+  await client.setValue('second', 'world');
+  
+  // Enable inspect mode to capture the operation chain
+  setInspectMode(true);
+  
+  // Combine two values - note we're NOT awaiting the getValue() calls!
+  const result = await client.combineValues(
+    client.getValue('first') as any,
+    client.getValue('second') as any
+  );
+  
+  // Get the captured operation chain structure
+  const batchRequest = getLastOperationChain();
+  
+  // Disable inspect mode
+  setInspectMode(false);
+  
+  // The nested operations appear as nested operation chains in the args
+  expect(batchRequest?.batch[0].operations).toMatchObject([
+    { type: 'get', key: 'combineValues' },
+    { 
+      type: 'apply', 
+      args: [
+        // First arg is a nested operation chain
+        {
+          __isPipelinedOperation: true,
+          __operationChain: [
+            { type: 'get', key: 'getValue' },
+            { type: 'apply', args: ['first'] }
+          ]
+        },
+        // Second arg is another nested operation chain
+        {
+          __isPipelinedOperation: true,
+          __operationChain: [
+            { type: 'get', key: 'getValue' },
+            { type: 'apply', args: ['second'] }
+          ]
+        }
+      ]
+    }
+  ]);
+  
+  // Verify the result (execution happened normally despite inspect mode)
+  expect(result).toBe('hello + world');
+});
+```
+
+
+
+
+## The Power of OCAN
+
+These operation chains are sent to the server as a single request, where the 
+server can:
+- Execute dependent operations in sequence
+- Optimize execution (parallelization where possible)
+- Return only the final result
+
+This eliminates round-trip latency for dependent operations while maintaining 
+clean, intuitive code.
+
+## Installation and Setup
+
+```typescript src/index.ts
+import { lumenizeRpcDO } from '@lumenize/rpc';
+import { routeDORequest } from '@lumenize/utils';
+import { DurableObject } from 'cloudflare:workers';
+
+// A simple data service that demonstrates operation chaining and nesting
+class _DataService extends DurableObject {
+  // Get a value by key
+  getValue(key: string): string {
+    return this.ctx.storage.kv.get(key) ?? '';
+  }
+
+  // Set a value by key and return this for chaining
+  setValue(key: string, value: string): this {
+    this.ctx.storage.kv.put(key, value);
+    this.ctx.storage.kv.put('lastValue', value); // Store for chaining
+    return this;
+  }
+
+  // Process the last value (uppercase it)
+  processValue(): string {
+    const value = this.ctx.storage.kv.get<string>('lastValue') ?? '';
+    return value.toUpperCase();
+  }
+
+  // Get multiple values and combine them
+  combineValues(val1: string, val2: string): string {
+    return `${val1} + ${val2}`;
+  }
+}
+
+// Wrap with RPC support
+export const DataService = lumenizeRpcDO(_DataService);
+
+// Export a default worker to route RPC requests
+export default {
+  async fetch(request: Request, env: any): Promise<Response> {
+    // Route RPC requests to the Durable Object
+    const response = await routeDORequest(request, env, { prefix: '__rpc' });
+    if (response) return response;
+    
+    // Fallback for non-RPC requests
+    return new Response('Not Found', { status: 404 });
+  },
+};
+
+```
+
+```json wrangler.jsonc
+{
+  "name": "rpc-operation-chaining-and-nesting",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DATA_SERVICE",
+        "class_name": "DataService"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DataService"]
+    }
+  ]
+}
+
+```
+
+```javascript vitest.config.js
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+
+export default defineWorkersProject({
+  test: {
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./wrangler.jsonc" },  
+      },
+    },
+    // Use `vitest --run --coverage` to get test coverage report(s)
+    coverage: {
+      provider: "istanbul",  // Cannot use V8
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
+    },
+  },
+});
+
+```

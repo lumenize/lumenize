@@ -1,0 +1,19 @@
+{
+  "name": "rpc-operation-chaining-and-nesting",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DATA_SERVICE",
+        "class_name": "DataService"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DataService"]
+    }
+  ]
+}

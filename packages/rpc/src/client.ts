@@ -26,6 +26,48 @@ import { isStructuredCloneNativeType } from './structured-clone-utils';
 const proxyToOperationChain = new WeakMap<object, OperationChain>();
 
 /**
+ * Module-scoped variable to capture the last batch request for inspection.
+ * When inspect mode is enabled, the preprocessed operation chain is stored here
+ * while still executing normally over the wire.
+ * 
+ * @example
+ * ```typescript
+ * import { setInspectMode, getLastOperationChain } from '@lumenize/rpc';
+ * 
+ * setInspectMode(true);
+ * await client.setValue('key', 'value').processValue();
+ * const opChain = getLastOperationChain();
+ * console.log(opChain); // Shows the operation chain structure
+ * setInspectMode(false);
+ * ```
+ */
+let _inspectMode = false;
+let _opsChain: RpcBatchRequest | null = null;
+
+/**
+ * Set inspect mode for RPC operations. When enabled, the preprocessed operation
+ * chain is captured in a global variable while still executing normally.
+ * 
+ * @param enabled - Whether to enable inspect mode
+ */
+export function setInspectMode(enabled: boolean): void {
+  _inspectMode = enabled;
+  if (!enabled) {
+    _opsChain = null; // Clear on disable
+  }
+}
+
+/**
+ * Get the last captured operation chain from inspect mode.
+ * Returns the batch request with all preprocessed operations.
+ * 
+ * @returns The last batch request, or null if inspect mode is not enabled
+ */
+export function getLastOperationChain(): RpcBatchRequest | null {
+  return _opsChain;
+}
+
+/**
  * Creates an RPC client that proxies method calls to a remote Durable Object.
  * For the WebSocket transport, connection is established automatically on first 
  * method call (lazy connection) and auto-reconnected on first call after disconnect.
@@ -455,6 +497,11 @@ export class RpcClient<T> {
       const batchRequest: RpcBatchRequest = {
         batch: filteredQueue.map(({ id, operations }) => ({ id, operations }))
       };
+
+      // If in inspect mode, capture the batch request for inspection
+      if (_inspectMode) {
+        _opsChain = batchRequest;
+      }
 
       // Execute the batch via transport
       const batchResponse = await this.#transport!.execute(batchRequest);
