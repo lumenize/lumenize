@@ -23,7 +23,7 @@ Lumenize RPC is built on what we call **Operation Chaining and Nesting (OCAN)**
 Cloudflare uses terms like "promise pipelining" and "batching" for Cap'n Web 
 optimizations. We know Lumenize RPC has some things in common, like a thenable 
 Proxy, and maybe what we are doing could also fall under those terms, but we 
-use OCAN to describe what Lumenize RPC is doing on the covers.
+use OCAN to describe what Lumenize RPC is doing under the covers.
 */
 
 /*
@@ -43,9 +43,8 @@ OCAN has two complementary aspects:
    client.combineValues(client.getValue('a'), client.getValue('b'))
    ```
 
-Both patterns work because Lumenize RPC builds an **operation chain** that 
-describes the sequence and dependencies of your operations, then executes them 
-in one round trip.
+Lumenize RPC builds an **operation chain** that describes the sequence and 
+dependencies of your operations, then executes them in one round trip.
 
 Let's peek under the hood to see how operation chains are structured.
 */
@@ -92,7 +91,7 @@ it('demonstrates operation chaining', async () => {
   setInspectMode(true);
   
   // Build a chain by calling methods on client without awaiting
-  const result = await client.setValue('greeting', 'hello').processValue();
+  const result = await client.setValue('greeting', 'hello').uppercaseValue();
   
   // Get the captured operation chain structure
   const batchRequest = getLastOperationChain();
@@ -104,7 +103,7 @@ it('demonstrates operation chaining', async () => {
   expect(batchRequest?.batch[0].operations).toMatchObject([
     { type: 'get', key: 'setValue' },
     { type: 'apply', args: ['greeting', 'hello'] },
-    { type: 'get', key: 'processValue' },
+    { type: 'get', key: 'uppercaseValue' },
     { type: 'apply', args: [] }
   ]);
   
@@ -152,7 +151,7 @@ it('demonstrates operation nesting', async () => {
       args: [
         // First arg is a nested operation chain
         {
-          __isPipelinedOperation: true,
+          __isNestedOperation: true,
           __operationChain: [
             { type: 'get', key: 'getValue' },
             { type: 'apply', args: ['first'] }
@@ -160,7 +159,7 @@ it('demonstrates operation nesting', async () => {
         },
         // Second arg is another nested operation chain
         {
-          __isPipelinedOperation: true,
+          __isNestedOperation: true,
           __operationChain: [
             { type: 'get', key: 'getValue' },
             { type: 'apply', args: ['second'] }

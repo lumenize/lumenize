@@ -7,7 +7,7 @@ import type {
   RpcWebSocketMessage,
   RpcWebSocketMessageResponse
 } from './types';
-import { isPipelinedOperationMarker } from './types';
+import { isNestedOperationMarker } from './types';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
 import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
@@ -261,9 +261,9 @@ async function processIncomingOperations(operations: OperationChain, doInstance:
     if (operation.type === 'apply' && operation.args.length > 0) {
       // Use walkObject to deserialize Web API objects, Errors, and special numbers in the args
       const transformer = async (value: any) => {
-        // Check if this is a pipelined operation marker that needs to be resolved
-        if (isPipelinedOperationMarker(value)) {
-          // First process the pipelined operation chain to resolve any nested markers
+        // Check if this is a nested operation marker that needs to be resolved
+        if (isNestedOperationMarker(value)) {
+          // First process the nested operation chain to resolve any nested markers
           const processedChain = await processIncomingOperations(value.__operationChain, doInstance);
           // Then execute the processed chain
           const result = await executeOperationChain(processedChain, doInstance);

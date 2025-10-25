@@ -7,9 +7,9 @@ import type {
   RpcClientInternalConfig, 
   RpcClientProxy, 
   RpcTransport,
-  PipelinedOperationMarker
+  NestedOperationMarker
 } from './types';
-import { isRemoteFunctionMarker, isPipelinedOperationMarker } from './types';
+import { isRemoteFunctionMarker, isNestedOperationMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
@@ -133,9 +133,9 @@ async function processOperationChainForMarker(chain: OperationChain): Promise<Op
         // Recursively process the nested chain and create a marker
         const nestedProcessedChain = await processOperationChainForMarker(nestedChain);
         return {
-          __isPipelinedOperation: true,
+          __isNestedOperation: true,
           __operationChain: nestedProcessedChain
-        } as PipelinedOperationMarker;
+        } as NestedOperationMarker;
       }
     }
     // Not a proxy, return unchanged
@@ -145,7 +145,7 @@ async function processOperationChainForMarker(chain: OperationChain): Promise<Op
   // Walk the entire operation chain to find and convert nested proxies
   // Skip recursion into markers that are already fully formed
   return await walkObject(chain, transformer, {
-    shouldSkipRecursion: (value) => isPipelinedOperationMarker(value)
+    shouldSkipRecursion: (value) => isNestedOperationMarker(value)
   }) as OperationChain;
 }
 
@@ -175,13 +175,13 @@ async function processOutgoingOperations(operations: OperationChain): Promise<{
             // Track that this operation chain was pipelined
             pipelinedChains.add(operationChain);
             
-            // This is a proxy - convert to PipelinedOperationMarker
+            // This is a proxy - convert to NestedOperationMarker
             // The operation chain may contain nested proxies in its args, so we need to
             // recursively process it to convert those proxies to markers as well
             const processedChain = await processOperationChainForMarker(operationChain);
             
-            const marker: PipelinedOperationMarker = {
-              __isPipelinedOperation: true,
+            const marker: NestedOperationMarker = {
+              __isNestedOperation: true,
               __operationChain: processedChain
             };
             return marker;
@@ -209,8 +209,8 @@ async function processOutgoingOperations(operations: OperationChain): Promise<{
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
         shouldSkipRecursion: (value) => {
-          // Skip recursion for pipelined operation markers - they're already fully formed
-          if (isPipelinedOperationMarker(value)) {
+          // Skip recursion for nested operation markers - they're already fully formed
+          if (isNestedOperationMarker(value)) {
             return true;
           }
           // Skip recursion for structured-clone native types

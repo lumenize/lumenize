@@ -16,8 +16,8 @@ class _DataService extends DurableObject {
     return this;
   }
 
-  // Process the last value (uppercase it)
-  processValue(): string {
+  // Uppercase the last value
+  uppercaseValue(): string {
     const value = this.ctx.storage.kv.get<string>('lastValue') ?? '';
     return value.toUpperCase();
   }
