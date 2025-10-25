@@ -367,7 +367,7 @@ server side, plus the one-time connection cost (wsUpgradeRequests).
 
 
 ```typescript test
-it('compares pipelining/OCAN performance', async () => {
+it('compares promise pipelining performance', async () => {
   const lmMetrics: Metrics = {};
   const cwMetrics: Metrics = {};
   
@@ -386,7 +386,7 @@ it('compares pipelining/OCAN performance', async () => {
   // ========================================================================
   using cwClient = getCapnWebClient('geometric-progression', cwMetrics);
   
-  // Geometric progression using pipelining/OCAN:
+  // Geometric progression using promise pipelining:
   const cw1 = cwClient.increment();           // increment() → 1
   const cw2 = cwClient.increment(cw1);        // increment(1) → 2
   const cwResult = await cwClient.increment(cw2);  // increment(2) → 4
@@ -423,7 +423,7 @@ This works with both WebSocket and HTTP transports.
 
 
 ```typescript test
-it('compares pipelining/OCAN for nested syntax', async () => {
+it('compares promise pipelining with nested syntax', async () => {
   const httpMetrics: Metrics = {};
   const lmMetrics: Metrics = {};
   const cwMetrics: Metrics = {};

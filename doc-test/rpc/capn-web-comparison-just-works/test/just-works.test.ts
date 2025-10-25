@@ -60,7 +60,8 @@ Some observations about the three implementations above:
 **Lumenize RPC**:
 - DOs extend `DurableObject` (no special base class required)
 - `lumenizeRpcDO()` wrapper handles all RPC setup
-- Requires explicit method forwarder (`_User.room()`) 
+- Requires explicit method forwarder (`_User.room()`) but this
+  will be unecessary once we release `LumenizeBase`
 
 **Cap'n Web**:
 - Allows you to return DurableObject stubs (`CapnWebRoom` and 
@@ -141,7 +142,7 @@ it('demonstrates Lumenize RPC service hopping', async () => {
 
   // Client → User via Lumenize RPC
   // User.room() forwards method calls to Room via Workers RPC
-  // No explicit proxy methods needed - one generic forwarder!
+  // Clunky syntax will be unecessary once we release LumenizeBase
   const msgId1 = await lumenizeClient.room('lumenize', 'addMessage', 'Hello');
   expect(msgId1).toBe(1);
 
