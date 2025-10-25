@@ -27,44 +27,55 @@ const proxyToOperationChain = new WeakMap<object, OperationChain>();
 
 /**
  * Module-scoped variable to capture the last batch request for inspection.
- * When inspect mode is enabled, the preprocessed operation chain is stored here
+ * When inspect mode is enabled, the preprocessed batch request is stored here
  * while still executing normally over the wire.
  * 
  * @example
  * ```typescript
- * import { setInspectMode, getLastOperationChain } from '@lumenize/rpc';
+ * import { setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
  * 
  * setInspectMode(true);
  * await client.setValue('key', 'value').processValue();
- * const opChain = getLastOperationChain();
- * console.log(opChain); // Shows the operation chain structure
+ * const batchRequest = getLastBatchRequest();
+ * console.log(batchRequest); // Shows the batch request structure
  * setInspectMode(false);
  * ```
  */
 let _inspectMode = false;
-let _opsChain: RpcBatchRequest | null = null;
+let _lastBatch: RpcBatchRequest | null = null;
 
 /**
- * Set inspect mode for RPC operations. When enabled, the preprocessed operation
- * chain is captured in a global variable while still executing normally.
+ * Set inspect mode for RPC operations. When enabled, the preprocessed batch
+ * request is captured in a global variable while still executing normally.
+ * 
+ * @example
+ * ```typescript
+ * import { setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
+ * 
+ * setInspectMode(true);
+ * await client.someMethod();
+ * const batchRequest = getLastBatchRequest();
+ * setInspectMode(false);
+ * console.log(batchRequest?.batch[0].operations);
+ * ```
  * 
  * @param enabled - Whether to enable inspect mode
  */
 export function setInspectMode(enabled: boolean): void {
   _inspectMode = enabled;
   if (!enabled) {
-    _opsChain = null; // Clear on disable
+    _lastBatch = null; // Clear on disable
   }
 }
 
 /**
- * Get the last captured operation chain from inspect mode.
+ * Get the last captured batch request from inspect mode.
  * Returns the batch request with all preprocessed operations.
  * 
  * @returns The last batch request, or null if inspect mode is not enabled
  */
-export function getLastOperationChain(): RpcBatchRequest | null {
-  return _opsChain;
+export function getLastBatchRequest(): RpcBatchRequest | null {
+  return _lastBatch;
 }
 
 /**
@@ -500,7 +511,7 @@ export class RpcClient<T> {
 
       // If in inspect mode, capture the batch request for inspection
       if (_inspectMode) {
-        _opsChain = batchRequest;
+        _lastBatch = batchRequest;
       }
 
       // Execute the batch via transport

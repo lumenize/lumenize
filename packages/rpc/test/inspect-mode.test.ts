@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, setInspectMode, getLastOperationChain } from '@lumenize/rpc';
+import { createRpcClient, getWebSocketShim, setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
 import { ExampleDO } from './test-worker-and-dos';
 
 it('simple case with inspect mode', async () => {
@@ -18,7 +18,7 @@ it('simple case with inspect mode', async () => {
   const result = await client.add(2, 3);
   
   // Get the captured operation chain
-  const batchRequest = getLastOperationChain();
+  const batchRequest = getLastBatchRequest();
   
   // Disable inspect mode
   setInspectMode(false);
@@ -52,7 +52,7 @@ it('chaining case with inspect mode', async () => {
   });
   
   // Get the captured operation chain from the second operation
-  const batchRequest = getLastOperationChain();
+  const batchRequest = getLastBatchRequest();
   
   // Disable inspect mode
   setInspectMode(false);

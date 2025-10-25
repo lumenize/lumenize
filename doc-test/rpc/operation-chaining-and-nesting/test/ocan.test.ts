@@ -17,13 +17,11 @@
 
 ## Operation Chaining and Nesting (OCAN)
 
-Lumenize RPC is built on what we call **Operation Chaining and Nesting (OCAN)** 
-- a powerful pattern for composing multiple RPC operations efficiently. 
-
 Cloudflare uses terms like "promise pipelining" and "batching" for Cap'n Web 
 optimizations. We know Lumenize RPC has some things in common, like a thenable 
 Proxy, and maybe what we are doing could also fall under those terms, but we 
-use OCAN to describe what Lumenize RPC is doing under the covers.
+use **Operation Chaining and Nesting (OCAN)** to describe what Lumenize RPC is 
+doing under the covers.
 */
 
 /*
@@ -59,7 +57,7 @@ import {
   createRpcClient, 
   getWebSocketShim,
   setInspectMode,
-  getLastOperationChain 
+  getLastBatchRequest 
 } from '@lumenize/rpc';
 import { DataService } from '../src/index';
 
@@ -87,19 +85,16 @@ it('demonstrates operation chaining', async () => {
     { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
   );
 
-  // Enable inspect mode to capture the operation chain
   setInspectMode(true);
   
   // Build a chain by calling methods on client without awaiting
   const result = await client.setValue('greeting', 'hello').uppercaseValue();
   
-  // Get the captured operation chain structure
-  const batchRequest = getLastOperationChain();
-  
-  // Disable inspect mode
+  const batchRequest = getLastBatchRequest();
   setInspectMode(false);
   
   // The operation chain shows the sequence of operations
+  // (batch[0] because automatic batching could send multiple chains)
   expect(batchRequest?.batch[0].operations).toMatchObject([
     { type: 'get', key: 'setValue' },
     { type: 'apply', args: ['greeting', 'hello'] },
@@ -107,7 +102,7 @@ it('demonstrates operation chaining', async () => {
     { type: 'apply', args: [] }
   ]);
   
-  // Verify the result (execution happened normally despite inspect mode)
+  // Verify the result
   expect(result).toBe('HELLO');
 });
 
@@ -128,7 +123,6 @@ it('demonstrates operation nesting', async () => {
   await client.setValue('first', 'hello');
   await client.setValue('second', 'world');
   
-  // Enable inspect mode to capture the operation chain
   setInspectMode(true);
   
   // Combine two values - note we're NOT awaiting the getValue() calls!
@@ -137,13 +131,11 @@ it('demonstrates operation nesting', async () => {
     client.getValue('second') as any
   );
   
-  // Get the captured operation chain structure
-  const batchRequest = getLastOperationChain();
-  
-  // Disable inspect mode
+  const batchRequest = getLastBatchRequest();
   setInspectMode(false);
   
   // The nested operations appear as nested operation chains in the args
+  // (batch[0] because this is a single operation - see batching example below)
   expect(batchRequest?.batch[0].operations).toMatchObject([
     { type: 'get', key: 'combineValues' },
     { 
@@ -174,22 +166,86 @@ it('demonstrates operation nesting', async () => {
 });
 
 /*
-## The Power of OCAN
+### Automatic Batching Example
 
-These operation chains are sent to the server as a single request, where the 
-server can:
-- Execute dependent operations in sequence
-- Optimize execution (parallelization where possible)
-- Return only the final result
+When you trigger multiple operations in the same microtask, they're 
+automatically batched into a single request:
+*/
+it('demonstrates automatic batching', async () => {
+  using client = createRpcClient<typeof DataService>(
+    'DATA_SERVICE',
+    'test-batching',
+    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+  );
 
-This eliminates round-trip latency for dependent operations while maintaining 
-clean, intuitive code.
+  // Set up test data
+  await client.setValue('first', 'hello');
+  await client.setValue('second', 'world');
+  await client.setValue('third', 'foo');
+  
+  setInspectMode(true);
+  
+  // Trigger multiple operations in the same microtask (don't await yet)
+  const p1 = client.getValue('first');
+  const p2 = client.getValue('second');
+  const p3 = client.getValue('third');
+  
+  // Now await them all
+  const [result1, result2, result3] = await Promise.all([p1, p2, p3]);
+  
+  const batchRequest = getLastBatchRequest();
+  setInspectMode(false);
+  
+  // All three operations are batched together in one request
+  expect(batchRequest?.batch).toHaveLength(3);
+  
+  // First operation chain
+  expect(batchRequest?.batch[0].operations).toMatchObject([
+    { type: 'get', key: 'getValue' },
+    { type: 'apply', args: ['first'] }
+  ]);
+  
+  // Second operation chain
+  expect(batchRequest?.batch[1].operations).toMatchObject([
+    { type: 'get', key: 'getValue' },
+    { type: 'apply', args: ['second'] }
+  ]);
+  
+  // Third operation chain
+  expect(batchRequest?.batch[2].operations).toMatchObject([
+    { type: 'get', key: 'getValue' },
+    { type: 'apply', args: ['third'] }
+  ]);
+  
+  // Verify all results
+  expect(result1).toBe('hello');
+  expect(result2).toBe('world');
+  expect(result3).toBe('foo');
+});
 
-## Installation and Setup
+/*
+## Installation
+
+```bash npm2yarn
+npm install --save-dev vitest@3.2
+npm install --save-dev @vitest/coverage-istanbul@3.2
+npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @lumenize/rpc
+npm install --save-dev @lumenize/utils
+npm install --save-dev capnweb
+```
+
+## Configuration Files
+
+### src/index.ts
 
 @import {typescript} "../src/index.ts" [src/index.ts]
 
+### wrangler.jsonc
+
 @import {json} "../wrangler.jsonc" [wrangler.jsonc]
+
+### vitest.config.js
 
 @import {javascript} "../vitest.config.js" [vitest.config.js]
 */

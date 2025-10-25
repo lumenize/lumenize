@@ -2,7 +2,7 @@
 export { lumenizeRpcDO, handleRpcRequest, handleRpcMessage } from './lumenize-rpc-do';
 
 // Client-side exports  
-export { createRpcClient, setInspectMode, getLastOperationChain } from './client';
+export { createRpcClient, setInspectMode, getLastBatchRequest } from './client';
 
 // WebSocket shim for testing - re-export from @lumenize/utils
 export { getWebSocketShim } from '@lumenize/utils';
