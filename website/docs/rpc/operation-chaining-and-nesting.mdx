@@ -35,18 +35,28 @@ doing under the covers.
 
 ## What is OCAN?
 
-OCAN has two complementary aspects:
+OCAN has three complementary aspects:
 
 1. **Operation Chaining**: Chain method calls on returned values without 
    awaiting intermediate results
    ```typescript
-   client.setValue('key', 'value').processValue(...)
+   client.setValue('key', 'value').uppercaseValue(...)
    ```
 
 2. **Operation Nesting**: Use unawaited operations as arguments to other 
    operations
    ```typescript
    client.combineValues(client.getValue('a'), client.getValue('b'))
+   ```
+
+3. **Automatic Batching**: Multiple operations triggered in the same microtask 
+   are automatically batched into a single request
+   ```typescript
+   const [a, b, c] = await Promise.all([
+     client.getValue('x'),
+     client.getValue('y'),
+     client.getValue('z')
+   ]);
    ```
 
 Lumenize RPC builds an **operation chain** that describes the sequence and 
@@ -158,8 +168,8 @@ it('demonstrates operation nesting', async () => {
   
   // Combine two values - note we're NOT awaiting the getValue() calls!
   const result = await client.combineValues(
-    client.getValue('first') as any,
-    client.getValue('second') as any
+    client.getValue('first'),
+    client.getValue('second')
   );
   
   const batchRequest = getLastBatchRequest();
