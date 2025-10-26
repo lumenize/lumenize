@@ -68,7 +68,7 @@ As other documents in this comparison show, Lumenize RPC has signficant advantag
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient } from '@lumenize/rpc';
+import { createRpcClient, createWebSocketTransport, createHttpTransport } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 import type { Metrics } from '@lumenize/utils';
@@ -111,11 +111,11 @@ it('detects package versions', () => {
 
 ```typescript test
 function getLumenizeClient(instanceName: string, metrics?: Metrics) {
-  return createRpcClient<typeof LumenizeDO>(
-    'LUMENIZE',
-    instanceName,
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF), { metrics }) }
-  );
+  return createRpcClient<typeof LumenizeDO>({
+    transport: createWebSocketTransport('LUMENIZE', instanceName,
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF), { metrics }) }
+    )
+  });
 }
 
 function getCapnWebClient(instanceName: string, metrics?: Metrics) {
@@ -126,11 +126,13 @@ function getCapnWebClient(instanceName: string, metrics?: Metrics) {
 
 function getLumenizeHttpClient(instanceName: string, metrics: Metrics) {
   const browser = new Browser(SELF.fetch.bind(SELF), { metrics });
-  return createRpcClient<typeof LumenizeDO>(
-    'LUMENIZE',
-    instanceName,
-    { transport: 'http', fetch: browser.fetch }
-  );
+  return createRpcClient<typeof LumenizeDO>({
+    transport: createHttpTransport(
+      'LUMENIZE',
+      instanceName,
+      { fetch: browser.fetch }
+    )
+  });
 }
 ```
 
@@ -318,10 +320,8 @@ The Cap'n Web `newHttpBatchRpcSession()` is not shown in this doc-test.
 We may verify this experimentally at a later date, but for now we assume it 
 uses exactly one HTTP round trip, like Lumenize RPC.
 
-**Key insight:** Lumenize RPC and Cap'n Web both use one HTTP round trip.
-However, for Lumenize: client and server require no code changes to switch 
-between transports, just change the transport option to 'http' while Cap'n
-Web uses a different client for HTTP batching.
+**Key insight:** Both Lumenize RPC and Cap'n Web use exactly one HTTP round 
+trip for batched operations.
 
 
 

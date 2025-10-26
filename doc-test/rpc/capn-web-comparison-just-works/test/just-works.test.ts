@@ -110,9 +110,7 @@ it('detects package versions', () => {
 */
 function getLumenizeUserClient(instanceName: string) {
   return createRpcClient<typeof User>({
-    transport: createWebSocketTransport(
-      'USER',
-      instanceName,
+    transport: createWebSocketTransport('USER', instanceName,
       { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
     )
   });

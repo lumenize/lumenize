@@ -45,7 +45,7 @@ a strong recommendation for it.
     calls where the result of one operation can be used in another one while incurring
     only a single round trip.
   - Both clients run anywhere JavaScript runs
-  - They each support adding custom transports via a well-defined interface
+  - They each support injecting custom transports via a well-defined interface
 - They have essentially the same perceived performance which is driven almost entirely by 
   minimizing round trips. We couldn't find a single pattern where their round trip counts
   differed.
@@ -54,9 +54,10 @@ a strong recommendation for it.
 ### Differences
 
 - Cap'n Web's server side is designed to run anywhere JavaScript is run, while Lumenize
-  RPC server-side only runs in Cloudflare
-- Lumenize RPC's default transport layer uses DurableObjects hibernating WebSockets.
-  Cap'n Web uses non-hibernating WebSockets even when running on DurableObjects.
+  RPC server-side only runs in Cloudflare (although we will release a SharedWorker 
+  "server" when we relase LumenizeBase)
+- Lumenize RPC's default transport layer uses Durable Objects hibernating WebSockets.
+  Cap'n Web uses non-hibernating WebSockets even when running on Durable Objects.
 - Cap'n Web includes MessagePort transport out of the box and Lumenize does not.
 - Cap'n Web supports passing functions as parameters which enable bidirection 
   communication (although we found significant limitations). The as-yet-unreleased 

@@ -48,8 +48,8 @@ it('detects package versions', () => {
 /*
 ## Creating Clients
 */
-// Most of this is for vitest-workers-pool. In production, this would be as 
-// simple as:
+// The `WebSocketClass` injection is for vitest-workers-pool. In production, 
+// this would be (3 lines):
 // ```ts
 // const client = createRpcClient<typeof LumenizeDO>({
 //   transport: createWebSocketTransport('LUMENIZE', 'name')
@@ -57,16 +57,13 @@ it('detects package versions', () => {
 // ```
 function getLumenizeClient(instanceName: string) {
   return createRpcClient<typeof LumenizeDO>({
-    transport: createWebSocketTransport(
-      'LUMENIZE',
-      instanceName,
+    transport: createWebSocketTransport('LUMENIZE', instanceName,
       { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
     )
   });
 }
 
-// Similarly, some of this is for vitest-workers-pool. In production, this 
-// would be as simple as:
+// Similarly, in production, this would be (2 lines):
 // ```ts
 // const url = `wss://test.com/capnweb/capnweb/name`;
 // const client = newWebSocketRpcSession<CapnWebRpcTarget>(url);

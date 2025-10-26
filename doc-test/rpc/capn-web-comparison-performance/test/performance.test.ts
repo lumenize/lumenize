@@ -87,9 +87,7 @@ it('detects package versions', () => {
 
 function getLumenizeClient(instanceName: string, metrics?: Metrics) {
   return createRpcClient<typeof LumenizeDO>({
-    transport: createWebSocketTransport(
-      'LUMENIZE',
-      instanceName,
+    transport: createWebSocketTransport('LUMENIZE', instanceName,
       { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF), { metrics }) }
     )
   });
@@ -267,10 +265,8 @@ The Cap'n Web `newHttpBatchRpcSession()` is not shown in this doc-test.
 We may verify this experimentally at a later date, but for now we assume it 
 uses exactly one HTTP round trip, like Lumenize RPC.
 
-**Key insight:** Lumenize RPC and Cap'n Web both use one HTTP round trip.
-However, for Lumenize: client and server require no code changes to switch 
-between transports, just change the transport option to 'http' while Cap'n
-Web uses a different client for HTTP batching.
+**Key insight:** Both Lumenize RPC and Cap'n Web use exactly one HTTP round 
+trip for batched operations.
 */
 it('demonstrates HTTP batching in Lumenize RPC', async () => {
   const metrics: Metrics = {};
