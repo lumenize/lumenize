@@ -88,6 +88,24 @@ export interface RpcConfig {
    * @default 100
    */
   maxArgs?: number;
+  
+  /**
+   * Use blockConcurrencyWhile() to ensure all RPC operations and storage
+   * complete before the next request/message can be processed.
+   * 
+   * When enabled:
+   * - Guarantees that async operations complete before the next request
+   * - Ensures storage operations are fully persisted
+   * - Maintains DO consistency even with async/await usage
+   * 
+   * When disabled (default):
+   * - Relies on Cloudflare's automatic input/output gates
+   * - Should still be safe if you avoid fetch(), setTimeout(), setInterval()
+   * - Slightly less explicit but potentially more performant
+   * 
+   * @default false
+   */
+  blockConcurrency?: boolean;
 }
 
 /**

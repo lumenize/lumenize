@@ -96,8 +96,9 @@ export class Room extends DurableObject {
 }
 
 // Empty class to hold the hibernatable WebSocket (accepted by `lumenizeRpcDO`)
-// In a real implementation, it would have methods like login, etc.
-class _User extends DurableObject<Env> {}
+class _User extends DurableObject<Env> {
+  // A real implementation would have methods like login, etc.
+}
 
 export const User = lumenizeRpcDO(_User);
 
@@ -126,15 +127,16 @@ export class CapnWebRoom extends DurableObject<Env> {
 }
 
 // Cap'n Web PlainRoom - Uses plain object instead of Map
+// This version also has a join() method so we can test passing functions
+// as parameters and calling them back
 export class CapnWebPlainRoom extends DurableObject<Env> {
   #callbacks = new Map<string, (msg: string) => void>();
 
   join(userName: string, onMsg: (msg: string) => void): Promise<void> {
     this.#callbacks.set(userName, onMsg);
     
-    // This hack keeps the RPC connection alive so callback stub remains valid
-    // I suspect there is a way to get rid of this, but if we can't this is
-    // doesn't align with "It just works"
+    // ❌ This hack keeps the RPC connection alive so callback stub remains valid
+    // Maybe there is a better way? If not, this isn't "It just works"
     return new Promise((resolve) => {
       setTimeout(() => { resolve(); }, 5000);
     });
@@ -191,7 +193,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     
-    // Route Lumenize RPC requests (both User and Room)
+    // Route Lumenize RPC requests
     const lumenizeResponse = await routeDORequest( request, env, 
       { prefix: '__rpc' });
     if (lumenizeResponse) return lumenizeResponse;
@@ -299,7 +301,7 @@ const getCapnWebClient = getCapnWebUserClient;
 A common pattern in chat applications: User service acts as a gateway/proxy,
 hopping to Room services for actual storage operations.
 
-### Lumenize RPC Approach
+### Hop Between DOs Using `env`
 
 Lumenize RPC seamlessly hops from User to Room via `client.env.ROOM`:
 - ✅ Client → User via Lumenize RPC → Room via Workers RPC
@@ -318,6 +320,7 @@ it('demonstrates Lumenize RPC service hopping', async () => {
   // Get stub for room - not as slick as Cap'n Web syntax but works
   const roomStub = lumenizeClient.env.ROOM.getByName('lumenize');
   
+  // Type checking works across the hop so no red-squigly for `addMessage()`
   const msgId1 = await roomStub.addMessage('Hello');
   expect(msgId1).toBe(1);
 

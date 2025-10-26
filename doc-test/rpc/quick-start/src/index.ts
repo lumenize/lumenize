@@ -3,11 +3,17 @@ import { routeDORequest } from '@lumenize/utils';
 import { DurableObject } from 'cloudflare:workers';
 
 class _Counter extends DurableObject {
-  increment() {
+  instanceVariable = 'my instance variable';
+
+  increment(by: number = 1) {
     let count: number = this.ctx.storage.kv.get('count') ?? 0;
-    count++;
+    count += by;
     this.ctx.storage.kv.put('count', count);
     return count;
+  }
+
+  echo(value: any) {
+    return value;
   }
 }
 

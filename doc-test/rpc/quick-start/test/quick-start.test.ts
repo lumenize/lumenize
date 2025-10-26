@@ -15,11 +15,6 @@
 /*
 # Quick Start
 
-## TODO:
-- Mine @lumenize/testing for other features
-- Cover access to ctx and env
-- Mention must use await even for non-async calls
-
 Here's what minimal use of Lumenize RPC looks like.
 */
 
@@ -49,31 +44,90 @@ it('detects package version', () => {
 
 import { Counter } from '../src/index';
 
-it('shows basic usage of Lumenize RPC', async () => {
-  using client = createRpcClient<typeof Counter>(
+function getLumenizeClient(instanceName: string) {
+  // You can type the client so TypeScript type checking works
+  return createRpcClient<typeof Counter>(
     'COUNTER', // or 'counter' if you want pretty URLs
-    'test-counter',
+    instanceName,
     // Since we're doc-testing in a vitest-pool-worker env, we need to provide
     // this WebSocketClass, but you woudldn't in production
     { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
   );
+}
 
-  // Test increment
-  const result1 = await client.increment();
-  expect(result1).toBe(1);
+it('shows basic usage of Lumenize RPC', async () => {
+  // Use `using` for automatic resource cleanup and WebSocket connection close
+  // when `client` leaves scope.
+  using client = getLumenizeClient('basics');
 
-  // Test again
-  const result2 = await client.increment();
-  expect(result2).toBe(2);
+  // Call increment
+  const result = await client.increment();
+  expect(result).toBe(1);
 
-  // Verify value in storage
-  const value = await client.ctx.storage.kv.get('count');  // await always required
-  expect(value).toBe(2);
+  // All types supported by Workers RPC work plus a few more
+  const map = new Map<string, number>([['a', 1], ['b', 2]]);
+  const echoResult = await client.echo(map);
+  expect(echoResult).toEqual(map);
+
+  // Access instance variables
+  expect(await client.instanceVariable).toBe('my instance variable');
 });
 
 /*
-There are only a few other calling patterns for using Lumenize RPC. They are 
-described next in [How It Works](/docs/rpc/operation-chaining-and-nesting).
+## Direct Access to `ctx` (DurableObjectState)
+
+Other than JavaScript private "#" memembers, everything is usable over
+the RPC connection even ctx and env. For example of using env to hop from
+one DO to another once "inside" with RPC, see: [Hop Between DOs Using `env`](/docs/rpc/capn-web-comparison-just-works#hop-between-dos-using-env)
+
+Notice how we don't await the first call to ctx.storage.kv.put. That starts
+a batch which won't round trip until it sees `await` in the next line.
+
+Also notice how we are using await on the call to the non-`async` storage
+operation. This is required to trigger the round trip eventhough if you
+were actually inside the DO, you wouldn't need to `await` this call.
+*/
+it('shows remote access to ctx (DurableObjectState)', async () => {
+  using client = getLumenizeClient('ctx-access');
+  
+  client.ctx.storage.kv.put('key', 'value');  // not `await`ing builds a batch
+  const result = await client.ctx.storage.kv.get('key');  // must `await`
+  expect(result).toBe('value');
+});
+
+/*
+## Chaining
+
+We showed batching in the last example, but chaining is also supported with the
+same single round trip performance benefits.
+*/
+it('shows chaining', async () => {
+  using client = getLumenizeClient('chaining');
+  
+  const storage = client.ctx.storage; 
+  storage.kv.put('key', 'value');
+  const result = await storage.kv.get('key');
+  expect(result).toBe('value');
+});
+
+/*
+## Nesting
+
+You can even make the result of one call be the input to another - again,
+all in one round trip.
+*/
+it('shows nesting', async () => {
+  using client = getLumenizeClient('nesting');
+
+  const result = await client.increment(
+    client.echo(10)
+  )
+  expect(result).toBe(10);  // 0 + 10 = 10
+});
+
+/*
+For a deeper dive on how we do chaining, nesting, and batching in a single 
+round trip, see: [How It Works](/docs/rpc/operation-chaining-and-nesting).
 */
 
 /*

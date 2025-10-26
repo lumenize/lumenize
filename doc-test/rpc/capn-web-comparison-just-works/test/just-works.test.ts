@@ -132,7 +132,7 @@ hopping to Room services for actual storage operations.
 */
 
 /*
-### Lumenize RPC Approach
+### Hop Between DOs Using `env`
 
 Lumenize RPC seamlessly hops from User to Room via `client.env.ROOM`:
 - ✅ Client → User via Lumenize RPC → Room via Workers RPC
@@ -147,6 +147,7 @@ it('demonstrates Lumenize RPC service hopping', async () => {
   // Get stub for room - not as slick as Cap'n Web syntax but works
   const roomStub = lumenizeClient.env.ROOM.getByName('lumenize');
   
+  // Type checking works across the hop so no red-squigly for `addMessage()`
   const msgId1 = await roomStub.addMessage('Hello');
   expect(msgId1).toBe(1);
 

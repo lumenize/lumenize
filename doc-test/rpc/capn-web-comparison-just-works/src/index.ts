@@ -28,8 +28,9 @@ export class Room extends DurableObject {
 }
 
 // Empty class to hold the hibernatable WebSocket (accepted by `lumenizeRpcDO`)
-// In a real implementation, it would have methods like login, etc.
-class _User extends DurableObject<Env> {}
+class _User extends DurableObject<Env> {
+  // A real implementation would have methods like login, etc.
+}
 
 export const User = lumenizeRpcDO(_User);
 
@@ -58,15 +59,16 @@ export class CapnWebRoom extends DurableObject<Env> {
 }
 
 // Cap'n Web PlainRoom - Uses plain object instead of Map
+// This version also has a join() method so we can test passing functions
+// as parameters and calling them back
 export class CapnWebPlainRoom extends DurableObject<Env> {
   #callbacks = new Map<string, (msg: string) => void>();
 
   join(userName: string, onMsg: (msg: string) => void): Promise<void> {
     this.#callbacks.set(userName, onMsg);
     
-    // This hack keeps the RPC connection alive so callback stub remains valid
-    // I suspect there is a way to get rid of this, but if we can't this is
-    // doesn't align with "It just works"
+    // ❌ This hack keeps the RPC connection alive so callback stub remains valid
+    // Maybe there is a better way? If not, this isn't "It just works"
     return new Promise((resolve) => {
       setTimeout(() => { resolve(); }, 5000);
     });
@@ -123,7 +125,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     
-    // Route Lumenize RPC requests (both User and Room)
+    // Route Lumenize RPC requests
     const lumenizeResponse = await routeDORequest( request, env, 
       { prefix: '__rpc' });
     if (lumenizeResponse) return lumenizeResponse;

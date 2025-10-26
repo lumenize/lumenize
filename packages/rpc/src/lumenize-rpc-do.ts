@@ -22,6 +22,7 @@ const DEFAULT_CONFIG: Required<RpcConfig> = {
   prefix: '/__rpc',
   maxDepth: 50,
   maxArgs: 100,
+  blockConcurrency: false,
 };
 
 // ============================================================================
@@ -64,6 +65,12 @@ export async function handleRpcRequest(
   
   switch (endpoint) {
     case 'call':
+      // Use blockConcurrencyWhile if configured, otherwise call directly
+      if (rpcConfig.blockConcurrency) {
+        return doInstance.ctx.blockConcurrencyWhile(() => 
+          handleCallRequest(request, doInstance, rpcConfig)
+        );
+      }
       return handleCallRequest(request, doInstance, rpcConfig);
     default:
       return new Response(`Unknown RPC endpoint: ${url.pathname}`, { status: 404 });
@@ -588,12 +595,23 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
     }
 
     async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-      // Try to handle as RPC message
-      const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
-      
-      // If not handled as RPC, call parent's webSocketMessage (if it exists)
-      if (!wasHandled && super.webSocketMessage) {
-        return super.webSocketMessage(ws, message);
+      // Use blockConcurrencyWhile if configured, otherwise call directly
+      if (rpcConfig.blockConcurrency) {
+        await this.ctx.blockConcurrencyWhile(async () => {
+          const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
+          
+          // If not handled as RPC, call parent's webSocketMessage (if it exists)
+          if (!wasHandled && super.webSocketMessage) {
+            return super.webSocketMessage(ws, message);
+          }
+        });
+      } else {
+        const wasHandled = await handleRpcMessage(ws, message, this, rpcConfig);
+        
+        // If not handled as RPC, call parent's webSocketMessage (if it exists)
+        if (!wasHandled && super.webSocketMessage) {
+          return super.webSocketMessage(ws, message);
+        }
       }
     }
 

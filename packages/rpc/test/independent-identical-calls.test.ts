@@ -48,30 +48,4 @@ describe('Independent Identical Calls', () => {
     expect(r1).toBe(8);
     expect(r2).toBe(8);
   });
-
-  it('should correctly identify true prefix when chaining from same proxy', async () => {
-    using client = createRpcClient<ExampleDO>('EXAMPLE_DO', 'true-prefix-test', baseConfig);
-
-    // This IS a true prefix relationship:
-    // p1 is a proxy for increment()
-    // p2 extends p1 by accessing a property (though this isn't a real use case for increment)
-    // Let's use a better example with getCounter
-    const p1 = client.increment();
-    // Can't really chain from increment() since it returns a number
-    // Let me use a different approach: multiple increments in a batch where one is prefix of another
-
-    // Actually, the prefix scenario is: client.method() vs client.method().property
-    // But our test methods don't return objects with properties
-    // Let's just verify that true chaining (same proxy extended) works correctly
-    
-    const baseProxy = client.increment();
-    // Await both the base and ... wait, we can't extend increment() meaningfully
-    
-    // Skip this test - our DO methods don't support the chaining pattern needed
-    // The important test is the first one: two independent identical calls
-  });
-
-  it.skip('should handle mix of independent and chained calls', async () => {
-    // Skipped - need better DO methods that return objects for chaining
-  });
 });
