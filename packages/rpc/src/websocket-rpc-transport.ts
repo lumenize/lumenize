@@ -30,7 +30,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     doBindingName: string;
     doInstanceNameOrId: string;
     timeout: number;
-    WebSocketClass?: new (url: string, protocols?: string | string[]) => WebSocket;
+    WebSocketClass?: typeof WebSocket;
   };
   #ws: WebSocket | null = null;
   #connectionPromise: Promise<void> | null = null;
@@ -43,7 +43,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     doBindingName: string;
     doInstanceNameOrId: string;
     timeout: number;
-    WebSocketClass?: new (url: string, protocols?: string | string[]) => WebSocket;
+    WebSocketClass?: typeof WebSocket;
   }) {
     this.#config = config;
     // Extract message type from prefix (remove leading/trailing slashes)

@@ -32,7 +32,7 @@ export interface WebSocketShimOptions {
  * @param factoryInit - Optional configuration for headers and queue limits.
  * @returns A WebSocket-compatible constructor class.
  */
-export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, factoryInit?: WebSocketShimOptions): new (url: string | URL, protocols?: string | string[]) => WebSocket {
+export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, factoryInit?: WebSocketShimOptions): typeof WebSocket {
   class WebSocketShim extends EventTarget {
     // Ready state constants (match browser WebSocket)
     static readonly CONNECTING = 0;
@@ -318,7 +318,8 @@ export function getWebSocketShim(fetchFn: typeof fetch = globalThis.fetch, facto
     }
   }
 
-  return WebSocketShim as any;
+  // The WebSocketShim class has all required static properties to match typeof WebSocket
+  return WebSocketShim as unknown as typeof WebSocket;
 }
 
 // Helper: approximate byte length for bufferedAmount accounting
