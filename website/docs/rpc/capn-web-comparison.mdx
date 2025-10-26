@@ -41,25 +41,36 @@ a strong recommendation for it.
   to feel like Workers RPC even if it shares little, if anything, in terms of code.
 - They also have some architectural similarities:
   - They do their magic using a thenable `Proxy`
+  - While the terminology is different, they both support batching, chaining, and nesting
+    calls where the result of one operation can be used in another one while incurring
+    only a single round trip.
   - Both clients run anywhere JavaScript runs
+  - They each support adding custom transports via a well-defined interface
 - They have essentially the same perceived performance which is driven almost entirely by 
   minimizing round trips. We couldn't find a single pattern where their round trip counts
   differed.
+- Both support `using` syntax for automatic resource cleanup on the client-side
 
 ### Differences
 
 - Cap'n Web's server side is designed to run anywhere JavaScript is run, while Lumenize
   RPC server-side only runs in Cloudflare
-- Cap'n Web supports plugging in your own transport layer. While Lumenize RPC has a
-  documented interface for its transport layers and provides HTTP and WebSockets 
-  transports, they are configuration options, not injectable at this point in time.
 - Lumenize RPC's default transport layer uses DurableObjects hibernating WebSockets.
   Cap'n Web uses non-hibernating WebSockets even when running on DurableObjects.
+- Cap'n Web includes MessagePort transport out of the box and Lumenize does not.
+- Cap'n Web supports passing functions as parameters which enable bidirection 
+  communication (although we found significant limitations). The as-yet-unreleased 
+  LumenizeBase supports server to client communications over hibernating WebSockets.
+- Cap'n Web has a ["magic `map()` method"](https://github.com/cloudflare/capnweb#the-magic-map-method) which can be used to remotely transform a value, without pulling it back locally. In Lumenize, you'd need to call a method that does the transformation.
 - Lumenize RPC provides seemless access to ctx (including storage) and env, even allowing 
-  you to use env to hop from the RPC host to another DO (e.g. `client.env.DO_BINDING.getByName('instance-name').someMethod()`) just works. Cap'n Web doesn't allow this.
+  you to use env to hop from the RPC host to another DO (e.g. `client.env.DO_BINDING.getByName('instance-name').someMethod()` just works). Cap'n Web doesn't allow this.
 - Lumenize RPC supports every type that Workers RPC supports (Set, Map, objects with 
   cycles and aliases, etc.) except Readable/Writable Stream. Type support in Cap'n
   Web is very limited in comparison.
+- Lumenize RPC requires no resources be maintained on the server-side. Even
+  the hiberating WebSocket support is lazily re-connected the first time it's needed
+  again after a disconnect. Cap'n Web dedicates ~10% of its documentation to discussing
+  "Resource Management and Disposal"
 
 To continue, proceed to the next comparison document
 ["It just works"](/docs/rpc/capn-web-comparison-just-works)

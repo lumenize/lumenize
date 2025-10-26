@@ -100,7 +100,7 @@ should always be up to date.
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.10.0');
+  expect(lumenizeRpcPackage.version).toBe('0.11.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
 
@@ -264,9 +264,8 @@ our mistake, we'll quickly update this document. But this was the only pattern
 that allows callbacks to survive long enough to be useful.
 
 **Hibernating WebSockets**: Imagine our surprise when we noticed that Cap'n Web 
-uses [`server.accept()`](https://github.com/cloudflare/capnweb/blob/c3409357b1c84dd515b4e739786addbdd135c244/src/websocket.ts#L33) 
-instead of `ctx.acceptWebSocket()`, instead of 
-`this.ctx.acceptWebSocket(server)` meaning that it's not using hibernating 
+uses [`server.accept()`](https://github.com/cloudflare/capnweb/blob/c3409357b1c84dd515b4e739786addbdd135c244/src/websocket.ts#L33), 
+instead of `ctx.acceptWebSocket()`, meaning that it's not using hibernating 
 WebSockets. Then again, when we thought about it, it made sense. Since callback 
 stubs can't be serialized, they'd be lost when the DO hibernates anyway. Even 
 with hibernating WebSockets, you'd still need to keep the DO instance alive and 
