@@ -18,12 +18,12 @@
 This living documentation compares performance characteristics between Lumenize 
 RPC and Cap'n Web (Cloudflare's official "last-mile" RPC solution).
 
-**Bottom line**: The percievable performance differences between Cap'n Web and 
-Lumenize RPC are essentially zero (reciepts below).
+**Bottom line**: The perceivable performance differences between Cap'n Web and 
+Lumenize RPC are essentially zero (receipts below).
 
 ## Round trip count completely determines performance
 
-We have [experimenally determined](https://github.com/lumenize/lumenize/blob/main/experiments/performance-comparisons/test/performance.test.ts) that the time of a round trip between a Worker/DO launched with `wrangler dev` and a vitest-workers-pool connecting to it over localhost is as follows:
+We have [experimentally determined](https://github.com/lumenize/lumenize/blob/main/experiments/performance-comparisons/test/performance.test.ts) that the time of a round trip between a Worker/DO launched with `wrangler dev` and a vitest-workers-pool connecting to it over localhost is as follows:
 - Cap'n Web: 0.156ms
 - Lumenize RPC: 0.171ms
 - **Delta**: 0.015ms

@@ -36,7 +36,11 @@ Here's what minimal use of Lumenize RPC looks like.
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
+import { 
+  createRpcClient, 
+  createWebSocketTransport, 
+  createHttpTransport 
+} from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 ```
 
@@ -105,9 +109,36 @@ it('shows basic usage of Lumenize RPC', async () => {
 
 
 
+## HTTP Transport
+
+Lumenize RPC supports both WebSocket and HTTP transports. HTTP is simpler and
+stateless - each round trip is a separate HTTP request. WebSocket maintains a
+persistent connection for lower latency.
+
+
+
+
+```typescript test
+it('shows HTTP transport usage', async () => {
+  using client = createRpcClient<typeof Counter>({
+    transport: createHttpTransport('COUNTER', 'http-basics',
+      // Since we're doc-testing in a vitest-pool-worker env, we need to
+      // provide this fetch, but you wouldn't in production
+      { fetch: SELF.fetch.bind(SELF) }
+    )
+  });
+  
+  const result = await client.increment();
+  expect(result).toBe(1);
+});
+```
+
+
+
+
 ## Direct Access to `ctx` (DurableObjectState)
 
-Other than JavaScript private "#" memembers, everything is usable over
+Other than JavaScript private "#" members, everything is usable over
 the RPC connection even ctx and env. For example of using env to hop from
 one DO to another once "inside" with RPC, see: [Hop Between DOs Using `env`](/docs/rpc/capn-web-comparison-just-works#hop-between-dos-using-env)
 
@@ -115,7 +146,7 @@ Notice how we don't await the first call to ctx.storage.kv.put. That starts
 a batch which won't round trip until it sees `await` in the next line.
 
 Also notice how we are using await on the call to the non-`async` storage
-operation. This is required to trigger the round trip eventhough if you
+operation. This is required to trigger the round trip even though if you
 were actually inside the DO, you wouldn't need to `await` this call.
 
 

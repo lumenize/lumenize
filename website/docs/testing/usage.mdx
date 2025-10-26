@@ -101,7 +101,7 @@ it('shows basic 5-step test', async () => {
   using client = createTestingClient<typeof MyDO>('MY_DO', '5-step');
   const browser = new Browser();
 
-  // 2. Pre-populate storage via RPC to call asycn KV API
+  // 2. Pre-populate storage via RPC to call async KV API
   await client.ctx.storage.put('count', 10);
 
   // 3. Make a fetch and RPC call to increment
