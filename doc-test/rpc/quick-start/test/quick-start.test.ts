@@ -40,7 +40,7 @@ should always be up to date.
 */
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 it('detects package version', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.11.0');
+  expect(lumenizeRpcPackage.version).toBe('0.12.0');
 });
 
 /*
