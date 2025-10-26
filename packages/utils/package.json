@@ -3,8 +3,8 @@
   "version": "0.11.0",
   "description": "De✨light✨ful utility functions for Cloudflare Durable Objects projects",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
