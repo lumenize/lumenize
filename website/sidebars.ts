@@ -125,6 +125,7 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/rpc/operation-chaining-and-nesting/test/ocan.test.ts'
           }
         },
+        'rpc/security-patterns',
         'rpc/capn-web-comparison',
         {
           type: 'doc',

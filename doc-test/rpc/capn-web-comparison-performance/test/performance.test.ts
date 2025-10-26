@@ -263,9 +263,9 @@ We may verify this experimentally at a later date, but for now we assume it
 uses exactly one HTTP round trip, like Lumenize RPC.
 
 **Key insight:** Lumenize RPC and Cap'n Web both use one HTTP round trip.
-However, the DX advantage of Lumenize RPC is clear: client and server require 
-no code changes to switch between transports, just change the transport option 
-to 'http'.
+However, for Lumenize: client and server require no code changes to switch 
+between transports, just change the transport option to 'http' while Cap'n
+Web uses a different client for HTTP batching.
 */
 it('demonstrates HTTP batching in Lumenize RPC', async () => {
   const metrics: Metrics = {};
@@ -291,10 +291,9 @@ it('demonstrates HTTP batching in Lumenize RPC', async () => {
 
 Operation nesting allows using the result of an unawaited call as a 
 parameter to another call. This creates dependent operations that can still be 
-done with a single RPC round trip because the server resolves the promise 
-values.
+done with a single RPC round trip.
 
-Both Cap'n Web and Lumenize RPC support this feature, allowing complex 
+Both Cap'n Web and Lumenize RPC both have this capability, allowing complex 
 dependent operations to execute efficiently.
 
 **Key insight:** Both systems handle all three dependent calls in exactly one 

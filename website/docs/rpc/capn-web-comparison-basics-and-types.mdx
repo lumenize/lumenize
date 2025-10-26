@@ -203,13 +203,12 @@ it('demonstrates RPC client access to ctx and env', async () => {
 
 ## Supported Types
 
-This table shows DO Storage support first (the foundation), then how each RPC 
-framework measures up to that standard.
+**Lumenize RPC** supports everything that Durable Object storage 
+(SQLite engine) supports, plus a few additional types. The only types that 
+Workers RPC supports that Lumenize does not are Readable/Writable Streams. 
 
-**Key insight**: Lumenize RPC supports everything that Durable Object storage 
-(SQLite engine) supports, plus a few additional types. Cap'n Web's limited 
-type support is a significant foot-gun. If that improves over time, we'll 
-update this table.
+**Cap'n Web's** limited type support is a significant foot-gun. If that 
+improves over time, we'll update this table.
 
 | Type | Workers RPC | DO Storage | Lumenize RPC | Cap'n Web | Notes |
 |------|-------------|------------|--------------|-----------|-------|

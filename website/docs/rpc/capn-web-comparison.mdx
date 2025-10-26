@@ -3,72 +3,63 @@ title: vs Cap'n Web (summary)
 description: Comparing Lumenize RPC to Cloudflare Cap'n Web
 ---
 
-# Introduction to Lumenize RPC
+# Comparsison to Cap'n Web
 
-## TODO
-- MessagePort transport
-- Pluggable transports
+We were days away from releasing `@lumenize/rpc` and `@lumenize/testing` when Cloudflare 
+released Cap'n Web (Cloudflare's own last-mile RPC built under the leadership of the 
+father of Durable Objects, Kenton Varga). We went ahead and released 
+`@lumenize/testing` with full documentation as planned because it had been promised
+to the community and we soft-released `@lumenize/rpc` because 
+`@lumenize/testing` depends upon it, but with almost no docs and those said that
+we were holding off on recommending it until we'd had a chance to do a deep dive
+comparison between the two.
 
-Lumenize RPC provides remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
+At the time, we were thinking of several possibilities:
+1. Cap'n Web would be everything we'd hoped it would be and we'd port all of Lumenize
+   (including `@lumenize/testing`) over to it.
+2. We'd continue using Lumenize RPC internally and maintaining it, but not strongly
+   recommend it, or at least say when to choose which.
+3. Lumenize RPC would hold up well in comparison, and we'd be able to strongly recommend
+   it.
+
+We're happy to say that today we are delivering that deep dive analysis and are making
+a strong recommendation for it.
 
 ## References
 
 - Cap'n Web blog post: https://blog.cloudflare.com/capnweb-javascript-rpc-library/
 - Cap'n Web GitHub: https://github.com/cloudflare/capnweb
-- [Lumenize RPC docs](/docs/rpc/intro)
+- [Lumenize RPC docs](/docs/rpc/introduction)
 
-:::note
-<details>
-  <summary>
-    <strong>Lumenize RPC</strong> vs <strong>Cloudflare Cap'n Web</strong>
-  </summary>
-  If the Lumenize RPC documentation feels comparatively light (we wrote over 500 lines for [`routeDORequest`](/docs/utils/route-do-request) and its [CORS Support](/docs/utils/cors-support)), it's intentional. Somewhere between open-sourcing Lumenize and publishing to npm, Cloudflare released its own browser-based RPC, Cap'n Web, under the leadership of the father of Durable Objects, Kenton Varga.
+## High Level Comparison
 
-  As of this writing, we lack definitive guidance on when to choose which solution. We'll update this document once we have more experience with and a performance comparison with Cap'n Web.
+### Similarities
 
-  However, Lumenize RPC supports circular data structures, a feature Kenton Varga has indicated will not be added to Cap'n Web. He even suggested deprecating circular support in Cloudflare-native RPC (Cap'n Proto). Because LumenizeBase and our backend depend on circular structure handling, this functionality will remain in `@lumenize/testing`
+- Both magically make it feel like you are working with local resources.
+- Both are new, but based upon signficant legacy. The first versions of Lumenize running 
+  on Azure go back over a decade. Cap'n Web was built with learning from and designed
+  to feel like Workers RPC even if it shares little, if anything, in terms of code.
+- They also have some architectural similarities:
+  - They do their magic using a thenable `Proxy`
+  - Both clients run anywhere JavaScript runs
+- They have essentially the same perceived performance which is driven almost entirely by 
+  minimizing round trips. We couldn't find a single pattern where their round trip counts
+  differed.
 
-  Another difference that we know of is that this RPC implementation transports Errors across the wire. They are automatically `catch`ed on the callee side, serialized in a particular way and re-`throw`n on the caller side with all properties like stack traces preserved. We don't currently have experimental or documentation insight into Cap'n Web's handling of Errors but it is unlikely that it will preserve stack traces and other properties since Cap'n Proto preserves only the message property.
-</details>
-:::
-   
-## In-production RPC
+### Differences
 
-1. **Purpose**: Interact with your Durable Objects from a browser client as if running inside the DO.
+- Cap'n Web's server side is designed to run anywhere JavaScript is run, while Lumenize
+  RPC server-side only runs in Cloudflare
+- Cap'n Web supports plugging in your own transport layer. While Lumenize RPC has a
+  documented interface for its transport layers and provides HTTP and WebSockets 
+  transports, they are configuration options, not injectable at this point in time.
+- Lumenize RPC's default transport layer uses DurableObjects hibernating WebSockets.
+  Cap'n Web uses non-hibernating WebSockets even when running on DurableObjects.
+- Lumenize RPC provides seemless access to ctx (including storage) and env, even allowing 
+  you to use env to hop from the RPC host to another DO (e.g. `client.env.DO_BINDING.getByName('instance-name').someMethod()`) just works. Cap'n Web doesn't allow this.
+- Lumenize RPC supports every type that Workers RPC supports (Set, Map, objects with 
+  cycles and aliases, etc.) except Readable/Writable Stream. Type support in Cap'n
+  Web is very limited in comparison.
 
-2. **Supports**:
-   - Any StructuredCloneable type (e.g., `Set`, `Map`, `Date`, circular objects)
-   - Automatic propagation of errors thrown by your DO back to the client
-   - Both HTTP and WebSocket transports
-
-3. **Secure**:
-   - Security hooks and best-practice examples included
-
-4. **Example Usage**:
-   ```typescript
-   // Store a value in the DO's storage
-   await client.ctx.storage.put('count', '10');
-   // Call an RPC method defined in your DO
-   const currentCount = await client.increment(); // returns 11
-   ```
-
-## WebSocket vs HTTP
-
-Both transports offer identical RPC functionality but have different performance characteristics.
-
-### WebSocket (default)
-- Persistent connection for multiple RPC calls
-- Higher initial connection overhead
-- Lower latency for subsequent calls
-- Automatic connection management
-- Automatically re-establishes connection on demand
-
-### HTTP (default for `@lumenize/testing`)
-- One HTTP request per RPC call
-- Simpler
-- Slightly higher per-call latency
-
-Choose based on your requirements:
-- **When in doubt**: WebSocket is generally more efficient and low-latency
-- **Production scenarios with restrictive intermediaries**: HTTP may be more robust
-- **Future-proofing**: LumenizeBase will build on WebSockets for real-time state sync — your client code will remain the same
+To continue, proceed to the next comparison document
+["It just works"](/docs/rpc/capn-web-comparison-just-works)

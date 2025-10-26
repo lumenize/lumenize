@@ -5,17 +5,11 @@ description: Understanding Lumenize RPC for Durable Objects
 
 # Introduction to Lumenize RPC
 
-## TODO:
-- Mention Typescript support
-- Security patterns
-  - Borrow or use Agent example
-  - Zod or TypeBox
-
 Lumenize RPC provides remote procedure calls to Cloudflare Durable Objects over HTTP or WebSocket transports.
 
 Lumenize RPC supports two main use cases:
 1. In-process integration testing (documented in [`@lumenize/testing` Usage](/docs/testing/usage))
-2. In-production RPC (documented below)
+2. In-production RPC (documented in this section)
    
 ## In-production RPC
 
@@ -47,6 +41,7 @@ Both transports offer identical RPC functionality but have different performance
 - Lower latency for subsequent calls
 - Automatic connection management
 - Automatically re-establishes connection on demand
+- Utilizes Cloudflare DurableObject's hibernating WebSockets
 
 ### HTTP (default for `@lumenize/testing`)
 - One HTTP request per RPC call
@@ -56,4 +51,4 @@ Both transports offer identical RPC functionality but have different performance
 Choose based on your requirements:
 - **When in doubt**: WebSocket is generally more efficient and low-latency
 - **Production scenarios with restrictive intermediaries**: HTTP may be more robust
-- **Future-proofing**: LumenizeBase will build on WebSockets for real-time state sync — your client code will remain the same
+- **Future-proofing**: LumenizeBase builds on WebSockets for real-time state sync — your client code will remain the same

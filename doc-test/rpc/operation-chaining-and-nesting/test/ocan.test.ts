@@ -142,19 +142,26 @@ operations, it recursively resolves the nested chains first, then uses their
 results as arguments. This means complex multi-step operations execute entirely 
 on the server side, with only one network round trip.
 
-### De✨light✨ful DX (DDX) vs optimization
-
-BTW, the fact that you can see exactly what it's doing under the covers by 
-showing the actual data structure that's going over the wire is a great example 
-of how Lumenize prioritizes DDX over everything else. The [byte count for the 
-above payload is 4x-5x larger than the equivalent we measured for Cap'n Web](/docs/rpc/capn-web-comparison-performance#payload-byte-count-small-payloads). We 
-could eliminate that delta by using an integer code for the operation and 1-2 
-character keys. '__isNestedOperation' shown below could have been '_n'. DDX 
-doesn't just apply to our users. It applies to our own development. Also, we 
-have seen that this level of explicitness and exposure of internal mechanics
-and data structures (behind an "inspect mode" flag) empowers our AI coding LLMs 
-to figure it out as well. It's surprising how much meaning LLMs discern 
-from your identifier choices.
+:::note
+<details>
+  <summary>
+    <strong>De✨light✨ful DX (DDX) vs optimization</strong>
+  </summary>
+  The fact that you can see exactly what it's doing under the covers by 
+  showing the actual data structure that's going over the wire is a great 
+  example of how Lumenize prioritizes DDX over everything else.
+  
+  The [byte count for the above payload is 4x-5x larger than the equivalent we measured for Cap'n Web](/docs/rpc/capn-web-comparison-performance#payload-byte-count-small-payloads). We 
+  could eliminate that delta by using an integer code for the operation and 1-2 
+  character keys. '__isNestedOperation' shown below could have been '_n'.
+  
+  However, DDX doesn't just apply to our users. It applies to our own 
+  development. Also, we have seen that this level of explicitness and exposure 
+  of internal mechanics and data structures (behind an "inspect mode" flag) 
+  empowers our AI coding LLMs to figure it out as well. It's surprising how 
+  much meaning LLMs discern from your how things are labeled.
+</details>
+:::
 */
 
 /*
