@@ -85,7 +85,8 @@ resource risks.
 import { it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF, env } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
+import { createRpcClient } from '@lumenize/rpc';
+import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 
 import { User, CapnWebUser } from '../src/index';

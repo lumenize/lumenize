@@ -4,8 +4,5 @@ export { lumenizeRpcDO, handleRpcRequest, handleRpcMessage } from './lumenize-rp
 // Client-side exports  
 export { createRpcClient, setInspectMode, getLastBatchRequest } from './client';
 
-// WebSocket shim for testing - re-export from @lumenize/utils
-export { getWebSocketShim } from '@lumenize/utils';
-
 // Type exports - re-export all types from types
 export type * from './types';

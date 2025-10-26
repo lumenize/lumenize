@@ -68,7 +68,8 @@ As other documents in this comparison show, Lumenize RPC has signficant advantag
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
+import { createRpcClient } from '@lumenize/rpc';
+import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 import type { Metrics } from '@lumenize/utils';
 import { Browser } from '@lumenize/utils';

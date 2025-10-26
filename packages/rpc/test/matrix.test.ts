@@ -11,7 +11,8 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, type RpcAccessible } from '../src/index';
+import { createRpcClient, type RpcAccessible } from '../src/index';
+import { getWebSocketShim } from '@lumenize/utils';
 import { ExampleDO } from './test-worker-and-dos';
 import { behaviorTests, testCategories, type TestableClient } from './shared/behavior-tests';
 import { batchingTests, type TestableClientWithMetrics } from './shared/batching-tests';

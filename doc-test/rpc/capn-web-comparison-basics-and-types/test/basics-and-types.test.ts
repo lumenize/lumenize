@@ -25,7 +25,8 @@ official "last-mile" RPC solution) handle basic operations and data types.
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim } from '@lumenize/rpc';
+import { createRpcClient } from '@lumenize/rpc';
+import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 
 import { LumenizeDO, CapnWebRpcTarget } from '../src/index';

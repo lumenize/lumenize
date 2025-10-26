@@ -1,7 +1,8 @@
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, getWebSocketShim, setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
+import { createRpcClient, setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
+import { getWebSocketShim } from '@lumenize/utils';
 import { ExampleDO } from './test-worker-and-dos';
 
 it('simple case with inspect mode', async () => {
