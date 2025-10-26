@@ -212,7 +212,9 @@ async function dispatchCall(
 async function executeOperationChain(operations: OperationChain, doInstance: any): Promise<any> {
   let current: any = doInstance; // Start from the DO instance
   
-  for (const operation of operations) {
+  for (let i = 0; i < operations.length; i++) {
+    const operation = operations[i];
+    
     if (operation.type === 'get') {
       // Property/element access
       current = current[operation.key];
@@ -222,9 +224,19 @@ async function executeOperationChain(operations: OperationChain, doInstance: any
         throw new Error(`TypeError: ${String(current)} is not a function`);
       }
       
-      // Find the correct 'this' context by walking back to the parent object
-      const parent = findParentObject(operations.slice(0, operations.indexOf(operation)), doInstance);
-      current = await current.apply(parent, operation.args);
+      // Call the method on its parent object to preserve 'this' context.
+      // This works for both regular methods and Workers RPC stub methods.
+      const parent = findParentObject(operations.slice(0, i), doInstance);
+      const prevOp = i > 0 ? operations[i - 1] : null;
+      
+      if (prevOp?.type === 'get') {
+        // Previous operation was property access, call as method
+        const methodName = prevOp.key;
+        current = await parent[methodName](...operation.args);
+      } else {
+        // Direct function call (no property access), use apply
+        current = await current.apply(parent, operation.args);
+      }
     }
   }
   
@@ -558,8 +570,8 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
           const webSocketPair = new WebSocketPair();
           const [client, server] = Object.values(webSocketPair);
           
-          // Accept the WebSocket connection
-          (this as any).ctx.acceptWebSocket(server);
+          // Accept the hibernatable WebSocket connection
+          this.ctx.acceptWebSocket(server);
           
           return new Response(null, {
             status: 101,
@@ -595,7 +607,7 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
 
   // Copy static properties from original class
   Object.setPrototypeOf(LumenizedDO, DOClass);
-  Object.defineProperty(LumenizedDO, 'name', { value: (DOClass as any).name });
+  Object.defineProperty(LumenizedDO, 'name', { value: DOClass.name });
 
   return LumenizedDO as T;
 }

@@ -27,6 +27,23 @@ import { isStructuredCloneNativeType } from './structured-clone-utils';
 const proxyToOperationChain = new WeakMap<object, OperationChain>();
 
 /**
+ * WeakMap to track proxy parent-child relationships for prefix detection.
+ * When a proxy is extended (e.g., client.setValue('x').uppercaseValue()),
+ * the child proxy (uppercaseValue result) is registered with its parent
+ * (setValue result) so we can identify true prefix relationships.
+ * This prevents false positives where two independent calls happen to have
+ * identical operations.
+ */
+const proxyToParent = new WeakMap<object, object>();
+
+/**
+ * Map to track operation chain object references to their proxy objects.
+ * This allows us to look up which proxy owns a specific operation chain
+ * instance during batching, so we can build the lineage graph.
+ */
+const operationChainToProxy = new WeakMap<OperationChain, object>();
+
+/**
  * Module-scoped variable to capture the last batch request for inspection.
  * When inspect mode is enabled, the preprocessed batch request is stored here
  * while still executing normally over the wire.
@@ -249,6 +266,7 @@ async function processOutgoingOperations(operations: OperationChain): Promise<{
 interface QueuedExecution {
   id: string;
   operations: OperationChain;
+  proxy?: object; // The proxy object that triggered this execution (for lineage tracking)
   resolve: (value: any) => void;
   reject: (error: any) => void;
 }
@@ -495,10 +513,65 @@ export class RpcClient<T> {
 
       // Filter out operations whose operation chains were used as pipelined arguments
       // Only send operations that are actually being awaited
-      const filteredQueue = processedQueue.filter((item) => {
+      let filteredQueue = processedQueue.filter((item) => {
         // Check if this item's ORIGINAL operations (before processing) match any pipelined chain
         const originalItem = queue.find(q => q.id === item.id);
         return !allPipelinedChains.has(originalItem!.operations);
+      });
+
+      // CRITICAL: Also filter out operations that are PREFIXES of longer chains in the batch.
+      // This happens when we chain operations without awaiting intermediate results:
+      // e.g., const p = client.setValue('x', 'y'); await p.uppercaseValue()
+      // This queues TWO operations:
+      //   1. [get setValue, apply ['x', 'y']]
+      //   2. [get setValue, apply ['x', 'y'], get uppercaseValue, apply []]
+      // We only want to send #2 since it includes #1.
+      // But we need to resolve promise #1 with the intermediate result from chain #2.
+      //
+      // IMPORTANT: We use proxy lineage tracking (not operation content comparison) to detect
+      // true prefix relationships. This prevents false positives where two independent calls
+      // happen to have identical operations (e.g., two separate client.setValue('x', 'y') calls).
+      const prefixToLongerChain = new Map<string, string>(); // prefix ID -> longer chain ID
+      filteredQueue = filteredQueue.filter((item) => {
+        // Get the proxy object for this operation chain (if it exists)
+        const originalItem = queue.find(q => q.id === item.id);
+        const itemProxy = originalItem ? operationChainToProxy.get(originalItem.operations) : null;
+        
+        if (!itemProxy) {
+          return true; // No proxy tracking, keep it
+        }
+        
+        // Walk up the proxy lineage chain to find all ancestors
+        const ancestors = new Set<object>();
+        let current: object | undefined = itemProxy;
+        while (current) {
+          ancestors.add(current);
+          current = proxyToParent.get(current);
+        }
+        
+        // Check if any other item in the batch is a descendant of this item
+        // If so, this item is a prefix and should be filtered out
+        for (const other of filteredQueue) {
+          if (item.id === other.id) continue; // Don't compare with self
+          
+          const originalOther = queue.find(q => q.id === other.id);
+          const otherProxy = originalOther ? operationChainToProxy.get(originalOther.operations) : null;
+          
+          if (!otherProxy) continue;
+          
+          // Check if otherProxy is a descendant of itemProxy by walking its ancestry
+          let otherCurrent: object | undefined = otherProxy;
+          while (otherCurrent) {
+            if (otherCurrent === itemProxy) {
+              // Found it! otherProxy descends from itemProxy, so itemProxy is a prefix
+              prefixToLongerChain.set(item.id, other.id);
+              return false; // Filter out this prefix
+            }
+            otherCurrent = proxyToParent.get(otherCurrent);
+          }
+        }
+        
+        return true; // Not a prefix of any other operation
       });
 
       // Note: Pipelined operations (those filtered out) have their promises left pending.
@@ -692,7 +765,7 @@ class ProxyHandler {
     return this.#rpcClient.postprocessResult(obj, baseOperations);
   }
 
-  #createThenableProxy(promise: Promise<any>, operationChain?: OperationChain): any {
+  #createThenableProxy(promise: Promise<any>, operationChain?: OperationChain, parentProxy?: object): any {
     const self = this;
     
     // Use a function as the proxy target so it can be called
@@ -705,6 +778,16 @@ class ProxyHandler {
         if (key === 'then' || key === 'catch' || key === 'finally') {
           const method = (promise as any)[key];
           return typeof method === 'function' ? method.bind(promise) : method;
+        }
+        
+        // CRITICAL: If we have an operation chain, CONTINUE BUILDING THE CHAIN
+        // instead of resolving the promise. This allows chaining like:
+        // client.env.ROOM.getByName('x').addMessage('y')
+        if (operationChain) {
+          // Build a new chain by adding this property access
+          const newChain: OperationChain = [...operationChain, { type: 'get', key }];
+          // Pass current proxy as parent so child knows it extends this chain
+          return self.#createProxyWithCurrentChainForChain(newChain, proxy);
         }
         
         // For other properties, create a new thenable proxy that accesses the property after resolution
@@ -761,6 +844,12 @@ class ProxyHandler {
     // Register this thenable proxy in the WeakMap if we have an operation chain
     if (operationChain) {
       proxyToOperationChain.set(proxy, operationChain);
+      operationChainToProxy.set(operationChain, proxy);
+      
+      // Track parent-child relationship for prefix detection
+      if (parentProxy) {
+        proxyToParent.set(proxy, parentProxy);
+      }
     }
     
     return proxy;
@@ -773,7 +862,7 @@ class ProxyHandler {
     return this.#createProxyWithCurrentChainForChain(currentChain);
   }
 
-  #createProxyWithCurrentChainForChain(chain: import('./types').OperationChain): any {
+  #createProxyWithCurrentChainForChain(chain: import('./types').OperationChain, parentProxy?: object): any {
     // NOTE: Coverage tools may not properly instrument Proxy trap handlers
     const proxy = new Proxy(() => {}, {
       get: (target: any, key: string | symbol) => {
@@ -783,19 +872,27 @@ class ProxyHandler {
           return promise.then.bind(promise);
         }
         const newChain: import('./types').OperationChain = [...chain, { type: 'get', key }];
-        return this.#createProxyWithCurrentChainForChain(newChain);
+        // Pass current proxy as parent for the new proxy
+        return this.#createProxyWithCurrentChainForChain(newChain, proxy);
       },
       apply: (target: any, thisArg: any, args: any[]) => {
         // Clone the args array to prevent mutation issues
         const argsCopy = [...args];
         const finalChain: import('./types').OperationChain = [...chain, { type: 'apply', args: argsCopy }];
         const resultPromise = this.#executeOperations(finalChain);
-        return this.#createThenableProxy(resultPromise, finalChain);
+        // Pass current proxy as parent for the thenable proxy
+        return this.#createThenableProxy(resultPromise, finalChain, proxy);
       }
     });
     
     // Register this proxy in the WeakMap for OCAN detection
     proxyToOperationChain.set(proxy, chain);
+    operationChainToProxy.set(chain, proxy);
+    
+    // Track parent-child relationship for prefix detection
+    if (parentProxy) {
+      proxyToParent.set(proxy, parentProxy);
+    }
     
     return proxy;
   }

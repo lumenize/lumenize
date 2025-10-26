@@ -27,13 +27,9 @@ export class Room extends DurableObject {
   }
 }
 
-// User acts as a gateway, hopping to Room via env
-class _User extends DurableObject<Env> {
-  // Generic method forwarder - calls any Room method by name
-  room(roomName: string, method: string, ...params: any[]): Promise<any> {
-    return (this.env.ROOM.getByName(roomName) as any)[method](...params);
-  }
-}
+// Empty class to hold the hibernatable WebSocket (accepted by `lumenizeRpcDO`)
+// In a real implementation, it would have methods like login, etc.
+class _User extends DurableObject<Env> {}
 
 export const User = lumenizeRpcDO(_User);
 
