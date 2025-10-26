@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, type RpcAccessible } from '../src/index';
+import { createRpcClient, createHttpTransport, createWebSocketTransport, type RpcAccessible } from '../src/index';
 import { getWebSocketShim } from '@lumenize/utils';
 import { SubclassDO } from './test-worker-and-dos';
 
@@ -22,28 +22,28 @@ type SubclassDOType = RpcAccessible<InstanceType<typeof SubclassDO>>;
  * Test inheritance with both transports
  */
 const TRANSPORTS = [
-  { name: 'WebSocket', transport: 'websocket' as const },
-  { name: 'HTTP', transport: 'http' as const },
+  { name: 'WebSocket', factory: createWebSocketTransport },
+  { name: 'HTTP', factory: createHttpTransport },
 ] as const;
 
-TRANSPORTS.forEach(({ name, transport }) => {
+TRANSPORTS.forEach(({ name, factory }) => {
   describe(`Inheritance (${name} transport)`, () => {
     it('should call inherited methods from base class', async () => {
-      const instanceId = `subclass-inherited-${transport}-${Date.now()}`;
+      const instanceId = `subclass-inherited-${name}-${Date.now()}`;
       
-      const config: any = {
-        transport,
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-      };
+      const transport = factory === createWebSocketTransport
+        ? factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+          })
+        : factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            fetch: SELF.fetch.bind(SELF),
+          });
 
-      if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
-      } else {
-        config.fetch = SELF.fetch.bind(SELF);
-      }
-
-      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
+      const client = createRpcClient<SubclassDOType>({ transport });
 
       try {
         // Test inherited method: getArray
@@ -65,21 +65,21 @@ TRANSPORTS.forEach(({ name, transport }) => {
     });
 
     it('should call overridden methods with subclass behavior', async () => {
-      const instanceId = `subclass-override-${transport}-${Date.now()}`;
+      const instanceId = `subclass-override-${name}-${Date.now()}`;
       
-      const config: any = {
-        transport,
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-      };
+      const transport = factory === createWebSocketTransport
+        ? factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+          })
+        : factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            fetch: SELF.fetch.bind(SELF),
+          });
 
-      if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
-      } else {
-        config.fetch = SELF.fetch.bind(SELF);
-      }
-
-      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
+      const client = createRpcClient<SubclassDOType>({ transport });
 
       try {
         // Test overridden increment: should add 1000 bonus
@@ -98,21 +98,21 @@ TRANSPORTS.forEach(({ name, transport }) => {
     });
 
     it('should call new methods only in subclass', async () => {
-      const instanceId = `subclass-new-methods-${transport}-${Date.now()}`;
+      const instanceId = `subclass-new-methods-${name}-${Date.now()}`;
       
-      const config: any = {
-        transport,
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-      };
+      const transport = factory === createWebSocketTransport
+        ? factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+          })
+        : factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            fetch: SELF.fetch.bind(SELF),
+          });
 
-      if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
-      } else {
-        config.fetch = SELF.fetch.bind(SELF);
-      }
-
-      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
+      const client = createRpcClient<SubclassDOType>({ transport });
 
       try {
         // Test new method: multiply
@@ -138,21 +138,21 @@ TRANSPORTS.forEach(({ name, transport }) => {
     });
 
     it('should include all methods in __asObject() inspection', async () => {
-      const instanceId = `subclass-asObject-${transport}-${Date.now()}`;
+      const instanceId = `subclass-asObject-${name}-${Date.now()}`;
       
-      const config: any = {
-        transport,
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-      };
+      const transport = factory === createWebSocketTransport
+        ? factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+          })
+        : factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            fetch: SELF.fetch.bind(SELF),
+          });
 
-      if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
-      } else {
-        config.fetch = SELF.fetch.bind(SELF);
-      }
-
-      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
+      const client = createRpcClient<SubclassDOType>({ transport });
 
       try {
         const obj = await (client as any).__asObject();
@@ -178,21 +178,21 @@ TRANSPORTS.forEach(({ name, transport }) => {
     });
 
     it('should handle complex inheritance scenarios', async () => {
-      const instanceId = `subclass-complex-${transport}-${Date.now()}`;
+      const instanceId = `subclass-complex-${name}-${Date.now()}`;
       
-      const config: any = {
-        transport,
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-      };
+      const transport = factory === createWebSocketTransport
+        ? factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+          })
+        : factory('subclass-do', instanceId, {
+            baseUrl: 'https://fake-host.com',
+            prefix: '__rpc',
+            fetch: SELF.fetch.bind(SELF),
+          });
 
-      if (transport === 'websocket') {
-        config.WebSocketClass = getWebSocketShim(SELF.fetch.bind(SELF));
-      } else {
-        config.fetch = SELF.fetch.bind(SELF);
-      }
-
-      const client = createRpcClient<SubclassDOType>('subclass-do', instanceId, config);
+      const client = createRpcClient<SubclassDOType>({ transport });
 
       try {
         // Mix inherited and new methods

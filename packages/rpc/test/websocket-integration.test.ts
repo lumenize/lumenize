@@ -1,19 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, type RpcAccessible } from '../src/index';
+import { createRpcClient, createWebSocketTransport, type RpcAccessible } from '../src/index';
 import { getWebSocketShim } from '@lumenize/utils';
 
 import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = RpcAccessible<InstanceType<typeof ExampleDO>>;
-
-// Base configuration for WebSocket tests
-const baseConfig = {
-  transport: 'websocket' as const,
-  baseUrl: 'https://fake-host.com',
-  prefix: '__rpc',
-  WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-};
 
 /**
  * WebSocket Edge Case Tests
@@ -25,7 +17,13 @@ describe('WebSocket RPC Integration', () => {
 
   // KEPT: Explicit disconnect error handling - edge case not covered by matrix
   it('should reject pending operations when explicitly disconnected', async () => {
-    await using client = createRpcClient<ExampleDO>('example-do', 'websocket-explicit-disconnect-test', baseConfig);
+    await using client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'websocket-explicit-disconnect-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
+    });
 
     // Start a slow operation that will still be in-flight when we disconnect
     const promise = client.slowIncrement(500); // 500ms delay
@@ -42,7 +40,13 @@ describe('WebSocket RPC Integration', () => {
 
   // Test already-connected path (line 85) - reconnection prevention
   it('should not reconnect when already connected', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'websocket-already-connected-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'websocket-already-connected-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
+    });
 
     try {
       // First call establishes connection
@@ -63,7 +67,13 @@ describe('WebSocket RPC Integration', () => {
 
   // Test concurrent connection attempts (line 90) - connection promise reuse
   it('should handle concurrent operations before first connection', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'websocket-concurrent-connect-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'websocket-concurrent-connect-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
+    });
 
     try {
       // Fire multiple operations simultaneously before any connection exists
@@ -94,7 +104,13 @@ describe('WebSocket RPC Integration', () => {
 
   // Test auto-reconnect after disconnect (line 271)
   it('should auto-reconnect after explicit disconnect', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'websocket-auto-reconnect-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'websocket-auto-reconnect-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
+    });
 
     try {
       // First call connects and increments
@@ -119,7 +135,13 @@ describe('WebSocket RPC Integration', () => {
 
   // Test close handler with pending operations (lines 176-189)
   it('should reject all pending operations when WebSocket closes', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'websocket-close-pending-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'websocket-close-pending-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
+    });
 
     try {
       // Start a slow operation that will be pending when we close
@@ -174,11 +196,12 @@ describe('WebSocket RPC Integration', () => {
       });
 
       // Meanwhile, user also creates RPC client (which creates its own WebSocket on RPC endpoint)
-      const client = createRpcClient<ExampleDO>('manual-routing-do', instanceId, {
-        transport: 'websocket',
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-        WebSocketClass,
+      const client = createRpcClient<ExampleDO>({
+        transport: createWebSocketTransport('manual-routing-do', instanceId, {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          WebSocketClass,
+        })
       });
 
       // RPC client should work fine (separate WebSocket connection on /__rpc endpoint)
@@ -438,7 +461,13 @@ describe('WebSocket Shim Integration', () => {
     const MAX = 100
     let i;
     for (i = 0; i < MAX; i++) {
-      const client = createRpcClient<ExampleDO>('example-do', `stress-test-${i}`, baseConfig);
+      const client = createRpcClient<ExampleDO>({
+        transport: createWebSocketTransport('example-do', `stress-test-${i}`, {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+        })
+      });
       
       // Make a call to establish connection and wait for result
       const result = await client.increment();

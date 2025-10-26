@@ -1,5 +1,5 @@
 import type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
-import { createRpcClient } from '@lumenize/rpc';
+import { createRpcClient, createHttpTransport } from '@lumenize/rpc';
 
 /**
  * Creates a testing-optimized RPC client for Cloudflare Durable Objects.
@@ -32,10 +32,11 @@ import { createRpcClient } from '@lumenize/rpc';
  * type MyDOType = RpcAccessible<InstanceType<typeof MyDO>>;
  * using client = createTestingClient<MyDOType>('MY_DO', 'instance-name');
  * 
- * // Production - full control (use createRpcClient)
- * using client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name', {
- *   transport: 'websocket',
- *   baseUrl: 'https://api.example.com'
+ * // Production - full control (use createRpcClient with createWebSocketTransport)
+ * using client = createRpcClient<typeof MyDO>({
+ *   transport: createWebSocketTransport('MY_DO', 'instance-name', {
+ *     baseUrl: 'https://api.example.com'
+ *   })
  * });
  * ```
  * 
@@ -57,9 +58,10 @@ export function createTestingClient<T>(
   // Use HTTP transport - simpler and faster for testing
   const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
   
-  // Call createRpcClient with same type parameter
-  return createRpcClient<T>(doBindingName, doInstanceNameOrId, {
-    fetch: baseFetch,
-    transport: 'http',
+  // Call createRpcClient with HTTP transport factory
+  return createRpcClient<T>({
+    transport: createHttpTransport(doBindingName, doInstanceNameOrId, {
+      fetch: baseFetch,
+    }),
   });
 }

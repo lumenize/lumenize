@@ -1,31 +1,35 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient } from '../src/index';
+import { createRpcClient, createHttpTransport } from '../src/index';
 import { PipeliningDO } from './test-worker-and-dos';
 
 type PipeliningDO = InstanceType<typeof PipeliningDO>;
-
-// Base configuration shared across all tests
-const baseConfig = {
-  transport: 'http' as const,
-  baseUrl: 'https://fake-host.com',
-  prefix: '__rpc',
-  fetch: SELF.fetch.bind(SELF),
-};
 
 describe('Promise Pipelining', () => {
 
   describe('Basic Functionality', () => {
     it('should execute increment() and return 1', async () => {
-      using client = createRpcClient<PipeliningDO>('PIPELINING_DO', 'basic-test', baseConfig);
+      using client = createRpcClient<PipeliningDO>({
+        transport: createHttpTransport('PIPELINING_DO', 'basic-test', {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          fetch: SELF.fetch.bind(SELF),
+        })
+      });
       
       const result = await client.increment();
       expect(result).toBe(1);
     });
 
     it('should execute increment(5) and return 6', async () => {
-      using client = createRpcClient<PipeliningDO>('PIPELINING_DO', 'basic-test-2', baseConfig);
+      using client = createRpcClient<PipeliningDO>({
+        transport: createHttpTransport('PIPELINING_DO', 'basic-test-2', {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          fetch: SELF.fetch.bind(SELF),
+        })
+      });
       
       const result = await client.increment(5);
       expect(result).toBe(5); // 0 + 5 = 5
@@ -34,7 +38,13 @@ describe('Promise Pipelining', () => {
 
   describe('Integration: Geometric Progression', () => {
     it('should execute pipelined operations in single round trip', async () => {
-      using client = createRpcClient<PipeliningDO>('PIPELINING_DO', 'geometric', baseConfig);
+      using client = createRpcClient<PipeliningDO>({
+        transport: createHttpTransport('PIPELINING_DO', 'geometric', {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          fetch: SELF.fetch.bind(SELF),
+        })
+      });
       
       // Geometric progression using promise pipelining:
       // Each increment adds the count parameter to current storage value

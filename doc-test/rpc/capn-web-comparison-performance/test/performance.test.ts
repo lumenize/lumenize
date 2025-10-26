@@ -56,7 +56,7 @@ As other documents in this comparison show, Lumenize RPC has signficant advantag
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient } from '@lumenize/rpc';
+import { createRpcClient, createWebSocketTransport, createHttpTransport } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 import type { Metrics } from '@lumenize/utils';
@@ -86,11 +86,13 @@ it('detects package versions', () => {
 */
 
 function getLumenizeClient(instanceName: string, metrics?: Metrics) {
-  return createRpcClient<typeof LumenizeDO>(
-    'LUMENIZE',
-    instanceName,
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF), { metrics }) }
-  );
+  return createRpcClient<typeof LumenizeDO>({
+    transport: createWebSocketTransport(
+      'LUMENIZE',
+      instanceName,
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF), { metrics }) }
+    )
+  });
 }
 
 function getCapnWebClient(instanceName: string, metrics?: Metrics) {
@@ -101,11 +103,13 @@ function getCapnWebClient(instanceName: string, metrics?: Metrics) {
 
 function getLumenizeHttpClient(instanceName: string, metrics: Metrics) {
   const browser = new Browser(SELF.fetch.bind(SELF), { metrics });
-  return createRpcClient<typeof LumenizeDO>(
-    'LUMENIZE',
-    instanceName,
-    { transport: 'http', fetch: browser.fetch }
-  );
+  return createRpcClient<typeof LumenizeDO>({
+    transport: createHttpTransport(
+      'LUMENIZE',
+      instanceName,
+      { fetch: browser.fetch }
+    )
+  });
 }
 
 /*

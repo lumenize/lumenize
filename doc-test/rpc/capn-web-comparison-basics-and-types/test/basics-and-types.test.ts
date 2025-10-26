@@ -25,7 +25,7 @@ official "last-mile" RPC solution) handle basic operations and data types.
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient } from '@lumenize/rpc';
+import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 
@@ -51,14 +51,18 @@ it('detects package versions', () => {
 // Most of this is for vitest-workers-pool. In production, this would be as 
 // simple as:
 // ```ts
-// const client = createRpcClient<typeof LumenizeDO>('LUMENIZE', 'name');
+// const client = createRpcClient<typeof LumenizeDO>({
+//   transport: createWebSocketTransport('LUMENIZE', 'name')
+// });
 // ```
 function getLumenizeClient(instanceName: string) {
-  return createRpcClient<typeof LumenizeDO>(
-    'LUMENIZE',
-    instanceName,
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  return createRpcClient<typeof LumenizeDO>({
+    transport: createWebSocketTransport(
+      'LUMENIZE',
+      instanceName,
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+    )
+  });
 }
 
 // Similarly, some of this is for vitest-workers-pool. In production, this 

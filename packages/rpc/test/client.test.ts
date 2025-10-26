@@ -1,26 +1,31 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient } from '../src/index';
+import { createRpcClient, createHttpTransport, createWebSocketTransport } from '../src/index';
 import { getWebSocketShim } from '@lumenize/utils';
 
 import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = InstanceType<typeof ExampleDO>;
 
-// Base configuration shared across all tests
-const baseConfig = {
-  transport: 'http' as const,
+// Base transport shared across all HTTP tests
+const httpTransport = createHttpTransport('example-do', 'default-instance', {
   baseUrl: 'https://fake-host.com',
   prefix: '__rpc',
   fetch: SELF.fetch.bind(SELF),
-};
+});
 
 describe('RPC client-side functionality', () => {
 
   // KEPT: HTTP-specific baseline test (matrix tests focus on behavior patterns, not HTTP baseline)
   it('should execute simple RPC calls via client proxy', async () => {
     // Create RPC client for the DO instance
-    const client = createRpcClient<ExampleDO>('example-do', 'simple-rpc-call', baseConfig);
+    const client = createRpcClient<ExampleDO>({ 
+      transport: createHttpTransport('example-do', 'simple-rpc-call', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+      })
+    });
 
     // Execute simple method call through proxy
     const result = await client.increment();
@@ -31,13 +36,17 @@ describe('RPC client-side functionality', () => {
   // KEPT: Custom configuration testing (timeout, headers) - unique to this test
   it('should handle custom configuration options', async () => {
     // Create client with custom configuration
-    const client = createRpcClient<ExampleDO>('example-do', 'config-test', {
-      ...baseConfig,
-      timeout: 5000,
-      headers: {
-        'Authorization': 'Bearer test-token',
-        'X-Custom-Header': 'test-value'
-      },
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'config-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+        timeout: 5000,
+        headers: {
+          'Authorization': 'Bearer test-token',
+          'X-Custom-Header': 'test-value'
+        },
+      })
     });
 
     // Execute call to verify custom config is applied
@@ -48,9 +57,13 @@ describe('RPC client-side functionality', () => {
   // KEPT: Verify timeout configuration is actually enforced
   it('should enforce custom timeout configuration', async () => {
     // Create client with a very short timeout
-    const client = createRpcClient<ExampleDO>('example-do', 'timeout-test', {
-      ...baseConfig,
-      timeout: 50, // Very short timeout - 50ms
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'timeout-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+        timeout: 50, // Very short timeout - 50ms
+      })
     });
 
     // Try to call a slow method that will exceed the timeout
@@ -63,13 +76,17 @@ describe('RPC client-side functionality', () => {
   // KEPT: Verify custom headers are passed through
   it('should pass custom headers to transport', async () => {
     // Create client with custom headers
-    const client = createRpcClient<ExampleDO>('example-do', 'headers-test', {
-      ...baseConfig,
-      headers: {
-        'Authorization': 'Bearer test-token',
-        'X-Custom-Header': 'custom-value',
-        'X-Test-Id': 'headers-test-123'
-      },
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'headers-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+        headers: {
+          'Authorization': 'Bearer test-token',
+          'X-Custom-Header': 'custom-value',
+          'X-Test-Id': 'headers-test-123'
+        },
+      })
     });
 
     // Execute a call - headers will be passed to the underlying fetch
@@ -85,12 +102,13 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Verify timeout works for WebSocket transport too
   it('should enforce timeout for WebSocket transport', async () => {
-    await using client = createRpcClient<ExampleDO>('example-do', 'websocket-timeout-test', {
-      transport: 'websocket',
-      baseUrl: 'https://fake-host.com',
-      prefix: '__rpc',
-      timeout: 50, // Very short timeout - 50ms
-      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+    await using client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'websocket-timeout-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        timeout: 50, // Very short timeout - 50ms
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
     });
 
     // Try to call a slow method that will exceed the timeout
@@ -101,7 +119,13 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Test symbol property access (line 219 - returns undefined for symbols)
   it('should return undefined for symbol property access', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'symbol-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'symbol-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+      })
+    });
 
     // Access a symbol property (should return undefined, not try to RPC it)
     const symbolProp = (client as any)[Symbol.iterator];
@@ -112,7 +136,13 @@ describe('RPC client-side functionality', () => {
   it('should support synchronous Symbol.dispose', () => {
     // This tests the synchronous dispose path (line 140)
     {
-      using client = createRpcClient<ExampleDO>('example-do', 'sync-dispose-test', baseConfig) as any; // Cast to any since using is a newer TS feature
+      using client = createRpcClient<ExampleDO>({
+        transport: createHttpTransport('example-do', 'sync-dispose-test', {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          fetch: SELF.fetch.bind(SELF),
+        })
+      }) as any; // Cast to any since using is a newer TS feature
       
       // Client will be automatically disposed at end of scope
       expect(client).toBeDefined();
@@ -122,7 +152,13 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Test calling non-function property throws error (lines 339-342)
   it('should throw error when attempting to call non-function property', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'non-function-error-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'non-function-error-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+      })
+    });
 
     // Get object with non-function property
     const obj = await client.getObjectWithNonFunction();
@@ -137,11 +173,12 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Test WebSocket reconnection logic (line 77 - already connected path)
   it('should handle multiple calls without reconnecting (WebSocket)', async () => {
-    await using client = createRpcClient<ExampleDO>('example-do', 'ws-reconnect-test', {
-      transport: 'websocket',
-      baseUrl: 'https://fake-host.com',
-      prefix: '__rpc',
-      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+    await using client = createRpcClient<ExampleDO>({
+      transport: createWebSocketTransport('example-do', 'ws-reconnect-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      })
     });
 
     // First call establishes connection
@@ -164,11 +201,12 @@ describe('RPC client-side functionality', () => {
     
     {
       // Test with 'await using' (works with sync dispose)
-      await using c = createRpcClient<ExampleDO>('example-do', 'dispose-test-1', {
-        transport: 'websocket',
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      await using c = createRpcClient<ExampleDO>({
+        transport: createWebSocketTransport('example-do', 'dispose-test-1', {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+        })
       });
       
       client = c;
@@ -183,11 +221,12 @@ describe('RPC client-side functionality', () => {
     
     // Also test plain 'using'
     {
-      using c2 = createRpcClient<ExampleDO>('example-do', 'dispose-test-2', {
-        transport: 'websocket',
-        baseUrl: 'https://fake-host.com',
-        prefix: '__rpc',
-        WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+      using c2 = createRpcClient<ExampleDO>({
+        transport: createWebSocketTransport('example-do', 'dispose-test-2', {
+          baseUrl: 'https://fake-host.com',
+          prefix: '__rpc',
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+        })
       });
       
       client = c2;
@@ -203,7 +242,13 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Test explicit .then() usage (lines 241-244 - 'then' handling in proxy)
   it('should support explicit .then() chaining', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'then-chain-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'then-chain-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+      })
+    });
 
     // Use .then() explicitly instead of await to test the 'then' trap handler
     const result = await client.increment().then((value: number) => {
@@ -216,7 +261,13 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Test promise chaining with property access (lines 241-244, 299-328)
   it('should support promise chaining with property access', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'promise-chain-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'promise-chain-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+      })
+    });
 
     // Chain .then() after property access (cast to any to test thenable proxy)
     const result = await (client.getObject() as any)
@@ -246,7 +297,13 @@ describe('RPC client-side functionality', () => {
 
   // KEPT: Test chained property access to cover operation chain reset logic (lines 307-320)
   it('should handle accessing properties on returned objects', async () => {
-    const client = createRpcClient<ExampleDO>('example-do', 'property-access-test', baseConfig);
+    const client = createRpcClient<ExampleDO>({
+      transport: createHttpTransport('example-do', 'property-access-test', {
+        baseUrl: 'https://fake-host.com',
+        prefix: '__rpc',
+        fetch: SELF.fetch.bind(SELF),
+      })
+    });
 
     // Get object and access its nested properties
     const obj = await client.getObject();

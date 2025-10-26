@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { env, SELF } from 'cloudflare:test';
-import { createRpcClient } from '../src/index';
+import { createRpcClient, createWebSocketTransport } from '../src/index';
 import { getWebSocketShim } from '@lumenize/utils';
 import { ManualRoutingDO } from './test-worker-and-dos';
 
@@ -17,11 +17,11 @@ describe('Env chaining functionality', () => {
   describe('Direct env chaining with getByName syntax', () => {
     it('should chain through env.EXAMPLE_DO.getByName().method()', async () => {
       // Create RPC client to ManualRoutingDO which has env bindings
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       // This syntax chains: env.EXAMPLE_DO -> getByName('test') -> add(2, 3)
       // All executed server-side in one operation chain
@@ -31,11 +31,11 @@ describe('Env chaining functionality', () => {
     });
 
     it('should chain through env.PIPELINING_DO.getByName().method()', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-pipe-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-pipe-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       const result = await (client as any).env.PIPELINING_DO.getByName('test-pipe').increment(10);
       
@@ -43,11 +43,11 @@ describe('Env chaining functionality', () => {
     });
 
     it('should support nested operation chains through env', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-nested-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-nested-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       // Chain multiple operations: getByName('test') -> increment() -> (wait) -> add(result, 5)
       const stub = (client as any).env.EXAMPLE_DO.getByName('test-nested');
@@ -61,11 +61,11 @@ describe('Env chaining functionality', () => {
 
   describe('Two-line env chaining syntax', () => {
     it('should work with stub variable stored across lines', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-two-line-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-two-line-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       // Split into two lines - demonstrates "caching" the operation chain
       const exampleStub = (client as any).env.EXAMPLE_DO.getByName('test-two-line');
@@ -75,11 +75,11 @@ describe('Env chaining functionality', () => {
     });
 
     it('should allow multiple calls on same stub', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-multi-call-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-multi-call-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       const pipeStub = (client as any).env.PIPELINING_DO.getByName('test-multi-call');
       
@@ -96,11 +96,11 @@ describe('Env chaining functionality', () => {
 
   describe('Prefix filtering', () => {
     it('should only send final operation chain, not intermediate chains', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-prefix-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-prefix-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       // This test verifies that when we build:
       // env.EXAMPLE_DO -> getByName('test') -> add(2, 3)
@@ -116,11 +116,11 @@ describe('Env chaining functionality', () => {
 
   describe('Subclass env chaining', () => {
     it('should work with subclass DO through env binding', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-subclass-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-subclass-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       const result = await (client as any).env.SUBCLASS_DO.getByName('test-subclass').multiply(4, 5);
       
@@ -128,11 +128,11 @@ describe('Env chaining functionality', () => {
     });
 
     it('should use subclass overridden methods through env', async () => {
-      using client = createRpcClient<ManualRoutingDO>(
-        'manual-routing-do',
-        'env-chain-subclass-override-test',
-        { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-      );
+      using client = createRpcClient<ManualRoutingDO>({
+        transport: createWebSocketTransport('manual-routing-do', 'env-chain-subclass-override-test', {
+          WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+        })
+      });
       
       // SubclassDO.add() adds 100 bonus
       const result = await (client as any).env.SUBCLASS_DO.getByName('test-subclass-override').add(2, 3);

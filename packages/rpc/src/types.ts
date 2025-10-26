@@ -175,80 +175,39 @@ export type RpcAccessible<T> = Omit<T, 'ctx' | 'env'> & {
 
 /**
  * Configuration options for creating an RPC client.
- * These are the optional parameters passed to createRpcClient().
  * 
  * @example
  * ```typescript
- * const client = createRpcClient<MyDO>('MY_DO', 'instance-name', {
- *   transport: 'websocket',
- *   baseUrl: 'https://api.example.com',
- *   headers: { 'Authorization': 'Bearer token' }
+ * import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
+ * 
+ * const client = createRpcClient({
+ *   transport: createWebSocketTransport('MY_DO', 'instance-name')
  * });
  * ```
  */
 export interface RpcClientConfig {
   /**
-   * Transport type to use for RPC communication
-   * @default 'websocket'
+   * Transport instance for RPC communication.
+   * Use createWebSocketTransport() or createHttpTransport() for built-in transports,
+   * or provide your own RpcTransport implementation.
+   * 
+   * @example
+   * ```typescript
+   * import { createWebSocketTransport } from '@lumenize/rpc';
+   * 
+   * const client = createRpcClient({
+   *   transport: createWebSocketTransport('my-do', 'instance-1')
+   * });
+   * ```
    */
-  transport?: 'websocket' | 'http';
-  
-  /**
-   * Base URL for the RPC endpoints
-   * @default location.origin (browser) or 'http://localhost:8787' (Node)
-   */
-  baseUrl?: string;
-  
-  /**
-   * RPC endpoint prefix (must match server-side RpcConfig.prefix)
-   * @default '/__rpc'
-   */
-  prefix?: string;
-  
-  /**
-   * Request timeout in milliseconds
-   * @default 30000
-   */
-  timeout?: number;
-  
-  /**
-   * Alternative fetch function (e.g. `SELF.fetch.bind(SELF)` for in vitest Workers pool env)
-   * @default globalThis.fetch
-   */
-  fetch?: typeof globalThis.fetch;
-  
-  /**
-   * Request headers to include in all HTTP RPC requests
-   * @default {}
-   */
-  headers?: Record<string, string>;
-  
-  /**
-   * WebSocket class. Use the WebSocket that's returned from `getWebSocketShim(...)` in vitest Workers pool env
-   * @default globalThis.WebSocket
-   */
-  WebSocketClass?: new (url: string, protocols?: string | string[]) => WebSocket;
+  transport: RpcTransport;
 }
 
 /**
- * Internal full configuration with required binding name and instance ID.
- * This is what's used internally by RpcClient after createRpcClient merges the parameters.
+ * Internal full configuration - same as public config now that transport is required.
  * @internal
  */
-export interface RpcClientInternalConfig extends RpcClientConfig {
-  /**
-   * Name of the DO binding in your wrangler config
-   */
-  doBindingName: string;
-  
-  /**
-   * Instance ID or name for the specific DO instance.
-   * Can be either:
-   * - A named instance (any string)
-   * - A unique ID (64-character hex string)
-   */
-  doInstanceNameOrId: string;
-}
+export type RpcClientInternalConfig = RpcClientConfig;
 
 /**
  * Lifecycle methods added to the RPC client proxy by createRpcClient().
@@ -263,12 +222,28 @@ export interface RpcClientProxy {
    * 
    * @example
    * ```typescript
-   * using client = createRpcClient<MyDO>('MY_DO', 'instance-name');
+   * using client = createRpcClient<MyDO>({
+   *   transport: createWebSocketTransport('MY_DO', 'instance-name')
+   * });
    * // Use client here - auto-connects on first method call
    * // disconnect() called automatically at end of scope
    * ```
    */
   [Symbol.dispose](): void;
+
+  /**
+   * Access to the underlying transport instance.
+   * Useful for advanced scenarios like checking connection status.
+   * 
+   * @example
+   * ```typescript
+   * const client = createRpcClient<MyDO>({
+   *   transport: createWebSocketTransport('MY_DO', 'instance-name')
+   * });
+   * const isConnected = client.transportInstance.isConnected?.() ?? false;
+   * ```
+   */
+  transportInstance: RpcTransport;
 
   /**
    * Returns a plain object representation of the proxied object with functions
@@ -277,7 +252,9 @@ export interface RpcClientProxy {
    * 
    * @example
    * ```typescript
-   * const client = createRpcClient<MyDO>('MY_DO', 'instance-name');
+   * const client = createRpcClient<MyDO>({
+   *   transport: createWebSocketTransport('MY_DO', 'instance-name')
+   * });
    * const structure = await client.__asObject();
    * // {
    * //   increment: "increment [Function]",

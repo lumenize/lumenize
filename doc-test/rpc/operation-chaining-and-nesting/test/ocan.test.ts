@@ -64,11 +64,12 @@ import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { 
-  createRpcClient, 
-  getWebSocketShim,
+  createRpcClient,
+  createWebSocketTransport,
   setInspectMode,
   getLastBatchRequest 
 } from '@lumenize/rpc';
+import { getWebSocketShim } from '@lumenize/utils';
 import { DataService } from '../src/index';
 
 /*
@@ -89,11 +90,13 @@ it('detects package version', () => {
 Each method call adds an operation to the chain:
 */
 it('demonstrates operation chaining', async () => {
-  using client = createRpcClient<typeof DataService>(
-    'DATA_SERVICE',
-    'test-chaining',
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  using client = createRpcClient<typeof DataService>({
+    transport: createWebSocketTransport(
+      'DATA_SERVICE',
+      'test-chaining',
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+    )
+  });
 
   setInspectMode(true);
   
@@ -166,11 +169,13 @@ When you pass unawaited operations as arguments, they become nested in the
 OCAN structure:
 */
 it('demonstrates operation nesting', async () => {
-  using client = createRpcClient<typeof DataService>(
-    'DATA_SERVICE',
-    'test-nesting',
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  using client = createRpcClient<typeof DataService>({
+    transport: createWebSocketTransport(
+      'DATA_SERVICE',
+      'test-nesting',
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+    )
+  });
 
   // Set up some test data first
   await client.setValue('first', 'hello');
@@ -225,11 +230,13 @@ When you trigger multiple operations in the same microtask, they're
 automatically batched into a single request:
 */
 it('demonstrates automatic batching', async () => {
-  using client = createRpcClient<typeof DataService>(
-    'DATA_SERVICE',
-    'test-batching',
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  using client = createRpcClient<typeof DataService>({
+    transport: createWebSocketTransport(
+      'DATA_SERVICE',
+      'test-batching',
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+    )
+  });
 
   // Set up test data
   await client.setValue('first', 'hello');

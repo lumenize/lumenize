@@ -103,14 +103,20 @@ export function getLastBatchRequest(): RpcBatchRequest | null {
  * 
  * Use 'using' for automatic cleanup:
  * ```typescript
- * using client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name');
+ * import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
+ * 
+ * using client = createRpcClient<typeof MyDO>({
+ *   transport: createWebSocketTransport('MY_DO', 'instance-name')
+ * });
  * await client.someMethod();
  * // disconnect() called automatically at end of scope
  * ```
  * 
  * Or manually manage lifecycle:
  * ```typescript
- * const client = createRpcClient<typeof MyDO>('MY_DO', 'instance-name');
+ * const client = createRpcClient<typeof MyDO>({
+ *   transport: createWebSocketTransport('MY_DO', 'instance-name')
+ * });
  * try {
  *   await client.someMethod();
  * } finally {
@@ -127,21 +133,12 @@ export function getLastBatchRequest(): RpcBatchRequest | null {
  * @see [Usage Examples](https://lumenize.com/docs/rpc/quick-start#creating-an-rpc-client)
  * 
  * @typeParam T - Either a DO instance type (e.g., `RpcAccessible<InstanceType<typeof MyDO>>`) or the DO class constructor (e.g., `typeof MyDO`). When passing a class constructor, instance type with RpcAccessible is inferred automatically.
- * @param doBindingName - The DO binding name from wrangler.jsonc (e.g., 'MY_DO')
- * @param doInstanceNameOrId - The DO instance name or ID
- * @param options - Optional configuration (transport, baseUrl, headers, etc.)
+ * @param config - Configuration with required transport
  * @returns A proxy object with both lifecycle methods and DO method calls
  */
 export function createRpcClient<T>(
-  doBindingName: string,
-  doInstanceNameOrId: string,
-  options?: RpcClientConfig
+  config: RpcClientConfig
 ): (T extends abstract new (...args: any[]) => infer I ? RpcAccessible<I> : T) & RpcClientProxy {
-  const config: RpcClientInternalConfig = {
-    doBindingName,
-    doInstanceNameOrId,
-    ...options
-  };
   const client = new RpcClient<T>(config);
   return client as any; // Constructor returns Proxy, so type is correct
 }
@@ -301,11 +298,8 @@ interface QueuedExecution {
  * scenarios, without compromise.
  */
 export class RpcClient<T> {
-  // Type: All config properties are required (defaults applied) except WebSocketClass (only needed for websocket transport)
-  #config: Required<Omit<RpcClientInternalConfig, 'WebSocketClass'>> & { 
-    WebSocketClass?: RpcClientInternalConfig['WebSocketClass'];
-  };
-  #transport: RpcTransport | null = null;
+  #config: RpcClientConfig;
+  #transport: RpcTransport;
   #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
   
@@ -314,18 +308,9 @@ export class RpcClient<T> {
   #batchScheduled = false;
   #nextId = 0;
 
-  constructor(config: RpcClientInternalConfig) {
-    // Set defaults and merge with user config
-    this.#config = {
-      transport: 'websocket',
-      prefix: '/__rpc',
-      baseUrl: typeof location !== 'undefined' ? location.origin : 'http://localhost:8787',
-      timeout: 30000,
-      fetch: globalThis.fetch,
-      headers: {},
-      WebSocketClass: WebSocket,
-      ...config
-    };
+  constructor(config: RpcClientConfig) {
+    this.#config = config;
+    this.#transport = config.transport;
 
     // Create the DO proxy handler
     const proxyHandler = new ProxyHandler(this);
@@ -344,6 +329,11 @@ export class RpcClient<T> {
           return typeof method === 'function' ? method.bind(target) : method;
         }
 
+        // Handle transportInstance getter
+        if (prop === 'transportInstance') {
+          return target.#transport;
+        }
+
         // Delegate all other property access to the DO proxy
         return Reflect.get(this.#doProxy as any, prop, receiver);
       }
@@ -352,12 +342,6 @@ export class RpcClient<T> {
 
   // Internal method to establish connection (called lazily on first execute)
   async #connect(): Promise<void> {
-    // Create transport synchronously if it doesn't exist
-    // This ensures all concurrent calls use the same transport instance
-    if (!this.#transport) {
-      this.#transport = this.#createTransport();
-    }
-
     // For stateful transports (WebSocket), ensure connection is established
     if (this.#transport.isConnected?.()) {
       return; // Already connected
@@ -385,49 +369,17 @@ export class RpcClient<T> {
 
   async #connectInternal(): Promise<void> {
     // Call transport's connect() (for stateful transports like WebSocket)
-    if (this.#transport!.connect) {
-      await this.#transport!.connect();
-    }
-  }
-
-  #createTransport(): RpcTransport {
-    if (this.#config.transport === 'http') {
-      // Create HTTP POST transport
-      return new HttpPostRpcTransport({
-        baseUrl: this.#config.baseUrl,
-        prefix: this.#config.prefix,
-        doBindingName: this.#config.doBindingName,
-        doInstanceNameOrId: this.#config.doInstanceNameOrId,
-        timeout: this.#config.timeout,
-        fetch: this.#config.fetch,
-        headers: this.#config.headers
-      });
-    } else {
-      // Create WebSocket transport (default)
-      return new WebSocketRpcTransport({
-        baseUrl: this.#config.baseUrl,
-        prefix: this.#config.prefix,
-        doBindingName: this.#config.doBindingName,
-        doInstanceNameOrId: this.#config.doInstanceNameOrId,
-        timeout: this.#config.timeout,
-        WebSocketClass: this.#config.WebSocketClass
-      });
+    if (this.#transport.connect) {
+      await this.#transport.connect();
     }
   }
 
   // Internal method to disconnect (synchronous - ws.close() is sync)
   #disconnect(): void {
-    if (!this.#transport) {
-      return; // No transport to disconnect
-    }
-
     // Call transport's disconnect() if it exists (for stateful transports like WebSocket)
     if (this.#transport.disconnect) {
       this.#transport.disconnect();
     }
-
-    // Clean up transport
-    this.#transport = null;
   }
 
   // Explicit resource management (Symbol.dispose)

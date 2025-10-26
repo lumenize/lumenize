@@ -1,16 +1,16 @@
 import { it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
-import { createRpcClient, setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
+import { createRpcClient, createWebSocketTransport, setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 import { ExampleDO } from './test-worker-and-dos';
 
 it('simple case with inspect mode', async () => {
-  using client = createRpcClient<typeof ExampleDO>(
-    'EXAMPLE_DO',
-    'inspect-test',
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  using client = createRpcClient<typeof ExampleDO>({
+    transport: createWebSocketTransport('EXAMPLE_DO', 'inspect-test', {
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+    })
+  });
 
   // Enable inspect mode
   setInspectMode(true);
@@ -37,11 +37,11 @@ it('simple case with inspect mode', async () => {
 });
 
 it('chaining case with inspect mode', async () => {
-  using client = createRpcClient<typeof ExampleDO>(
-    'EXAMPLE_DO',
-    'inspect-chain-test',
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  using client = createRpcClient<typeof ExampleDO>({
+    transport: createWebSocketTransport('EXAMPLE_DO', 'inspect-chain-test', {
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+    })
+  });
 
   // Enable inspect mode
   setInspectMode(true);

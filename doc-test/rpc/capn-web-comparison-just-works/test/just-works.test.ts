@@ -85,7 +85,7 @@ resource risks.
 import { it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF, env } from 'cloudflare:test';
-import { createRpcClient } from '@lumenize/rpc';
+import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 import { newWebSocketRpcSession } from 'capnweb';
 
@@ -109,11 +109,13 @@ it('detects package versions', () => {
 ## Creating Clients
 */
 function getLumenizeUserClient(instanceName: string) {
-  return createRpcClient<typeof User>(
-    'USER',
-    instanceName,
-    { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
-  );
+  return createRpcClient<typeof User>({
+    transport: createWebSocketTransport(
+      'USER',
+      instanceName,
+      { WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)) }
+    )
+  });
 }
 
 function getCapnWebUserClient() {
