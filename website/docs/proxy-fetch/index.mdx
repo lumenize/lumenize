@@ -46,8 +46,7 @@ sequenceDiagram
     box rgb(240, 248, 255) Durable Object
         participant User as Your Code
         participant ProxyFetch as proxyFetch()
-        participant Storage as DO Storage
-        participant ProxyFetchHandler as proxyFetchHandler()
+        participant Handler as yourHandler()
     end
     participant Queue as Queue
     box rgb(255, 250, 240) Worker
@@ -55,20 +54,17 @@ sequenceDiagram
     end
     participant API as External API
 
-    User->>ProxyFetch: proxyFetch(request, 'handleResponse')
-    ProxyFetch->>Storage: Store handler name
-    ProxyFetch->>Queue: Queue request
-    ProxyFetch-->>User: Returns immediately
-    Note over User,ProxyFetchHandler: DO wall clock billing stops (can hibernate in 10 seconds) ⚡
+    User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'handleResponse')
+    ProxyFetch->>Queue: Queue request + handler name
+    ProxyFetch-->>User: Returns reqId immediately
+    Note over User,Handler: DO wall clock billing stops (can hibernate in 10 seconds) ⚡
 
     Queue->>QueueConsumer: Deliver message
     QueueConsumer->>API: fetch(request)
     API-->>QueueConsumer: Response
-    QueueConsumer->>ProxyFetchHandler: RPC call
-    Note over User,ProxyFetchHandler: DO wall clock billing restarts (wakes if hibernated)
-    ProxyFetchHandler->>Storage: Get handler name
-    Storage-->>ProxyFetchHandler: Handler name
-    ProxyFetchHandler->>User: yourHandler(response)
+    QueueConsumer->>Handler: RPC: yourHandler(response)
+    Note over User,Handler: DO wall clock billing restarts (wakes if hibernated)
+    Handler->>User: Process response
 ```
 
 ## Variants

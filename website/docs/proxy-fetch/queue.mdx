@@ -16,8 +16,7 @@ sequenceDiagram
     box rgb(240, 248, 255) Durable Object
         participant User as Your Code
         participant ProxyFetch as proxyFetch()
-        participant Storage as DO Storage
-        participant ProxyFetchHandler as proxyFetchHandler()
+        participant Handler as yourHandler()
     end
     participant Queue as Queue
     box rgb(255, 250, 240) Worker
@@ -25,20 +24,17 @@ sequenceDiagram
     end
     participant API as External API
 
-    User->>ProxyFetch: proxyFetch(request, 'handleResponse')
-    ProxyFetch->>Storage: Store handler name
-    ProxyFetch->>Queue: Queue request
-    ProxyFetch-->>User: Returns immediately
-    Note over User,ProxyFetchHandler: DO can hibernate ⚡
+    User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'handleResponse')
+    ProxyFetch->>Queue: Queue request + handler name
+    ProxyFetch-->>User: Returns reqId immediately
+    Note over User,Handler: DO can hibernate ⚡
 
     Queue->>QueueConsumer: Deliver message
     QueueConsumer->>API: fetch(request)
     API-->>QueueConsumer: Response
-    QueueConsumer->>ProxyFetchHandler: RPC call
-    Note over User,ProxyFetchHandler: Wakes if hibernated
-    ProxyFetchHandler->>Storage: Get handler name
-    Storage-->>ProxyFetchHandler: Handler name
-    ProxyFetchHandler->>User: yourHandler(response)
+    QueueConsumer->>Handler: RPC: yourHandler(response)
+    Note over User,Handler: Wakes if hibernated
+    Handler->>User: Process response
 ```
 
 ## Quick Start
@@ -95,11 +91,11 @@ Add queue configuration to your `wrangler.jsonc`:
 
 ### 3. Set Up DO
 
-Import the functions and implement your DO:
+Import the function and implement your DO:
 
 ```typescript title="src/my-do.ts" @check-example('packages/proxy-fetch/test/test-worker-and-dos.ts')
 import { DurableObject } from 'cloudflare:workers';
-import { proxyFetchHandler, proxyFetch } from '@lumenize/proxy-fetch';
+import { proxyFetch } from '@lumenize/proxy-fetch';
 import type { ProxyFetchHandlerItem } from '@lumenize/proxy-fetch';
 
 export class MyDO extends DurableObject<Env> {
@@ -107,12 +103,12 @@ export class MyDO extends DurableObject<Env> {
    * Your business logic that needs to call external API
    */
   async myBusinessProcess(): Promise<void> {
-    // Send to queue - returns immediately, DO wall clock billing stops
-    await proxyFetch(
+    // Send to queue - returns reqId, DO wall clock billing stops
+    const reqId = await proxyFetch(
       this,                    // DO instance
       'https://api.example.com/data',  // URL or Request object
-      'myResponseHandler',         // Handler method name
-      'MY_DO'                  // DO binding name
+      'MY_DO',                 // DO binding name
+      'myResponseHandler'      // Handler method name (optional for fire-and-forget)
     );
     
     // Response will arrive later via myResponseHandler()
@@ -121,10 +117,9 @@ export class MyDO extends DurableObject<Env> {
   /**
    * Your response handler - called when response arrives
    */
-  async myResponseHandler({ response, error }: ProxyFetchHandlerItem): Promise<void> {
+  async myResponseHandler({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
       console.error('Fetch failed:', error);
-      // ...
       return;
     }
     
@@ -132,16 +127,9 @@ export class MyDO extends DurableObject<Env> {
     const data = await response!.json();
     // Store it, process it, whatever your business logic needs
     this.ctx.storage.kv.put('api-data', JSON.stringify(data));
-    // ...
   }
-
-  /**
-   * Required boilerplate: Dispatches responses from queue worker to your handler
-   */
-  async proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void> {
-    // Could have some logic here
-    return proxyFetchHandler(this, item);
-  }
+  
+  // No proxyFetchHandler method needed! Handlers called directly via RPC.
   
   // ...
 }
@@ -171,11 +159,11 @@ That's it! Now when you call `myBusinessProcess()`, the fetch happens in a Worke
 Control retry behavior and timeouts:
 
 ```typescript @skip-check
-await proxyFetch(
+const reqId = await proxyFetch(
   this,
   'https://api.example.com/data',
-  'myResponseHandler',
   'MY_DO',
+  'myResponseHandler',
   {
     timeout: 30000,        // Request timeout in ms (default: 30000)
     maxRetries: 3,         // Max retry attempts (default: 3)
@@ -206,7 +194,7 @@ const request = new Request('https://api.example.com/data', {
   body: JSON.stringify({ query: 'something' })
 });
 
-await proxyFetch(this, request, 'myResponseHandler', 'MY_DO');
+await proxyFetch(this, request, 'MY_DO', 'myResponseHandler');
 ```
 
 ## Error Handling
@@ -217,6 +205,7 @@ Your handler receives both successful responses and errors:
 async myResponseHandler({
   response,
   error,
+  reqId,
   retryCount,
   duration
 }: ProxyFetchHandlerItem): Promise<void> {
@@ -235,7 +224,7 @@ async myResponseHandler({
   
   // Success
   const data = await response.json();
-  console.log(`Received after ${retryCount} retries, took ${duration}ms`);
+  console.log(`Request ${reqId} received after ${retryCount} retries, took ${duration}ms`);
   // Process data...
 }
 ```
@@ -247,48 +236,69 @@ Use different handlers for different API calls:
 ```typescript @skip-check
 export class MyDO extends DurableObject {
   async fetchUsers(): Promise<void> {
-    await proxyFetch(this, '/api/users', 'handleUsers', 'MY_DO');
+    await proxyFetch(this, '/api/users', 'MY_DO', 'handleUsers');
   }
   
   async fetchPosts(): Promise<void> {
-    await proxyFetch(this, '/api/posts', 'handlePosts', 'MY_DO');
+    await proxyFetch(this, '/api/posts', 'MY_DO', 'handlePosts');
   }
   
   async handleUsers({ response }: ProxyFetchHandlerItem): Promise<void> {
-    const users = await response.json();
+    const users = await response!.json();
     // Store users...
   }
   
   async handlePosts({ response }: ProxyFetchHandlerItem): Promise<void> {
-    const posts = await response.json();
+    const posts = await response!.json();
     // Store posts...
-  }
-  
-  async proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void> {
-    return proxyFetchHandler(this, item);
   }
 }
 ```
 
+## Fire-and-Forget Mode
+
+Omit the handler parameter for fire-and-forget requests (no callback):
+
+```typescript @skip-check
+export class MyDO extends DurableObject {
+  async logAnalytics(): Promise<void> {
+    // Queue the request but don't wait for response
+    const reqId = await proxyFetch(
+      this,
+      'https://analytics.example.com/event',
+      'MY_DO'
+      // No handler - fire and forget!
+    );
+    
+    // Continue immediately, no callback when fetch completes
+  }
+}
+```
+
+**Use cases:**
+- Logging and analytics
+- Webhooks where you don't need the response
+- Background tasks that don't affect business logic
+
+**Note:** The queue consumer still processes the request, but skips the RPC callback if no handler is specified.
+
 ## How the Pieces Fit Together
 
-The three core functions work together to route requests through the queue:
+The two core functions work together to route requests through the queue:
 
 1. **`proxyFetch()`** - Called from within your DO
-   - Stores handler metadata in DO storage
-   - Sends serialized request to queue
-   - Returns immediately (non-blocking)
+   - Validates handler exists on DO instance (if provided)
+   - Serializes request and queues it with handler name embedded
+   - Returns reqId immediately (non-blocking)
 
 2. **`proxyFetchQueueConsumer()`** - Your worker's queue consumer
    - Deserializes requests from queue
    - Makes external fetch calls (CPU time billing)
    - Handles retries with exponential backoff
    - Routes responses back to DOs via Workers RPC
+   - Calls your handler directly: `stub[handlerName](handlerItem)`
 
-3. **`proxyFetchHandler()`** - Called by queue consumer via Workers RPC
-   - Looks up handler name from storage
-   - Calls your handler method with response/error
-   - Cleans up storage
+The handler name travels with the queue message, so no storage lookups are needed. Workers RPC handles the callback automatically.
 
 ## When To Use
 
@@ -330,26 +340,34 @@ async handleResponse({ response, error }: ProxyFetchHandlerItem): Promise<void> 
 
 ### Storage Patterns
 
-Store handler context if needed before calling proxyFetch:
+Store context before calling proxyFetch if your handler needs it:
 
 ```typescript @skip-check
-async processUser(userId: string, session: any): Promise<void> {
-  // Store session that handler will need
-  this.ctx.storage.kv.put(userId, session);
+async processUser(userId: string, sessionData: any): Promise<void> {
+  // Store context that handler will need
+  this.ctx.storage.kv.put(`session:${userId}`, JSON.stringify(sessionData));
   
-  await proxyFetch(this, `/api/users/${userId}`, 'handleUserData', 'MY_DO');
+  // Include userId in the request URL or body so handler can retrieve context
+  await proxyFetch(
+    this,
+    `/api/users/${userId}`,
+    'MY_DO',
+    'handleUserData'
+  );
 }
 
-async handleUserData({ response }: ProxyFetchHandlerItem): Promise<void> {
-  // Extract userId from response header
-  const userId = response!.headers.get('X-User-Id');
-
-  // Retrieve session
-  const session = this.ctx.storage.kv.get(userId);
-  const data = await response.json();
+async handleUserData({ response, error }: ProxyFetchHandlerItem): Promise<void> {
+  if (error) return;
   
-  // Do something with data and session
-  this.ctx.storage.kv.put(`user:${userId}`, { data, session });
+  const data = await response!.json();
+  const userId = data.id; // Extract from response
+  
+  // Retrieve stored context
+  const sessionJson = this.ctx.storage.kv.get(`session:${userId}`) as string;
+  const session = JSON.parse(sessionJson);
+  
+  // Process with both response data and stored context
+  this.ctx.storage.kv.put(`user:${userId}`, JSON.stringify({ data, session }));
 }
 ```
 
@@ -407,7 +425,7 @@ export class MyDO extends DurableObject {
 export class MyDO extends DurableObject {
   async fetchData(): Promise<void> {
     // Returns immediately (no blocking)
-    await proxyFetch(this, 'https://api.example.com/data', 'handleData', 'MY_DO');
+    await proxyFetch(this, 'https://api.example.com/data', 'MY_DO', 'handleData');
   }
   
   async handleData({ response, error }: ProxyFetchHandlerItem): Promise<void> {
@@ -416,19 +434,19 @@ export class MyDO extends DurableObject {
       return;
     }
     
-    const data = await response.json();
+    const data = await response!.json();
     this.ctx.storage.kv.put('data', JSON.stringify(data));
-  }
-  
-  async proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void> {
-    return proxyFetchHandler(this, item);
   }
 }
 ```
 
 **Key Differences:**
 1. Add handler method that receives response
-2. Add `proxyFetchHandler()` method to your DO
+2. Logic splits into two methods (trigger + handler)
 3. Set up queue configuration in wrangler.jsonc
 4. Add queue consumer to worker
-5. Logic splits into two methods (trigger + handler)
+5. `proxyFetch` returns reqId (string) instead of void
+
+**No longer needed:**
+- ~~`proxyFetchHandler()` boilerplate method~~ - Handlers called directly via RPC
+- ~~Storage metadata~~ - Handler name travels with queue message

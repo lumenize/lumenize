@@ -1,9 +1,9 @@
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-import { proxyFetch } from '../src/proxyFetch';
-import { proxyFetchQueueConsumer } from '../src/proxyFetchQueueConsumer';
-import type { ProxyFetchHandlerItem } from '../src/types';
+import { proxyFetch } from '@lumenize/proxy-fetch';
+import { proxyFetchQueueConsumer } from '@lumenize/proxy-fetch';
+import type { ProxyFetchHandlerItem } from '@lumenize/proxy-fetch';
 
 /**
  * Test Durable Object for proxy-fetch
@@ -15,25 +15,23 @@ export class MyDO extends DurableObject<Env> {
    * Your business logic that needs to call external API
    */
   async myBusinessProcess(): Promise<void> {
-    // Send to queue - returns immediately, DO can hibernate
-    await proxyFetch(
-      this,                            // DO instance
+    // Send to queue - returns reqId, DO wall clock billing stops
+    const reqId = await proxyFetch(
+      this,                    // DO instance
       'https://api.example.com/data',  // URL or Request object
-      'MY_DO',                         // DO binding name
-      'myResponseHandler'              // Handler method name
+      'MY_DO',                 // DO binding name
+      'myResponseHandler'      // Handler method name (optional for fire-and-forget)
     );
     
-    // Function returns immediately!
     // Response will arrive later via myResponseHandler()
   }
 
   /**
    * Your response handler - called when response arrives
    */
-  async myResponseHandler({ response, error }: ProxyFetchHandlerItem): Promise<void> {
+  async myResponseHandler({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
       console.error('Fetch failed:', error);
-      this.ctx.storage.kv.put('last-error', error.message);
       return;
     }
     
@@ -41,10 +39,9 @@ export class MyDO extends DurableObject<Env> {
     const data = await response!.json();
     // Store it, process it, whatever your business logic needs
     this.ctx.storage.kv.put('api-data', JSON.stringify(data));
-    
-    // Also store for test verification
-    this.ctx.storage.kv.put('last-response', JSON.stringify(data));
   }
+  
+  // No proxyFetchHandler method needed! Handlers called directly via RPC.
   
   // ========== Test helper methods below ==========
   
@@ -183,6 +180,7 @@ export default {
     return new Response('Not Found', { status: 404 });
   },
   
+  // Required boilerplate
   async queue(batch: MessageBatch<any>, env: Env): Promise<void> {
     await proxyFetchQueueConsumer(batch, env);
   }
