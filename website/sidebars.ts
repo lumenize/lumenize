@@ -167,6 +167,15 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
+    // Proxy Fetch
+    {
+      type: 'category',
+      label: 'Proxy Fetch',
+      items: [
+        'proxy-fetch/index',
+      ],
+    },
+
     // LumenizeBase
     {
       type: 'category',

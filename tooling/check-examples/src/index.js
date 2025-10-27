@@ -30,7 +30,7 @@ import * as path from 'node:path';
 
 /**
  * Normalize TypeScript/JavaScript code for comparison:
- * Remove imports, comments, and collapse whitespace
+ * Remove imports, comments, type parameters, and collapse whitespace
  * Supports // ... as a wildcard to skip intervening code
  * @param {string} code - Code to normalize
  * @returns {string} Normalized code
@@ -41,6 +41,11 @@ function normalizeCode(code) {
     .replace(/^import\s+.*?from\s+['"].*?['"];?\s*$/gm, '')
     // Remove export statements from the beginning (export default, export const, etc.)
     .replace(/^export\s+(default\s+)?(class|function|const|let|var|type|interface|enum)\s+/gm, '$2 ')
+    // Remove type parameters from class/interface declarations (e.g., DurableObject<Env> → DurableObject)
+    .replace(/(class|interface|type)\s+(\w+)<[^>]+>/g, '$1 $2')
+    // Remove generic type parameters from extends/implements (e.g., extends DurableObject<Env> → extends DurableObject)
+    .replace(/extends\s+(\w+)<[^>]+>/g, 'extends $1')
+    .replace(/implements\s+(\w+)<[^>]+>/g, 'implements $1')
     // Replace // ... with a unique placeholder before removing other comments
     .replace(/\/\/\s*\.\.\.\s*$/gm, '___ELLIPSIS___')
     // Remove single-line comments

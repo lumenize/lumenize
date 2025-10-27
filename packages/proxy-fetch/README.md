@@ -1,6 +1,6 @@
 # @lumenize/proxy-fetch
 
-A de✨light✨ful proxy fetch for cost-effective external API calls from Durable Objects.
+A de✨light✨ful proxy fetch that offloads external API calls from Durable Objects to Workers via Cloudflare Queues, eliminating wall-clock billing while waiting for responses.
 
 For complete documentation, visit **[https://lumenize.com/docs/proxy-fetch](https://lumenize.com/docs/proxy-fetch)**
 

@@ -7,44 +7,77 @@ import { proxyFetchQueueConsumer } from '../src/proxyFetchQueueConsumer';
 import type { ProxyFetchHandlerItem } from '../src/types';
 
 /**
- * Test Durable Object for proxy-fetch experiments
+ * Test Durable Object for proxy-fetch
+ * 
+ * This is the pedagogical example from the docs!
  */
-export class ProxyFetchTestDO extends DurableObject<Env> {
+export class MyDO extends DurableObject<Env> {
   /**
-   * Handler for successful proxy fetch responses
+   * Your response handler - called when response arrives
    */
-  async handleSuccess({ reqId, response, error }: ProxyFetchHandlerItem): Promise<void> {
+  async handleSuccess({ response, error }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
-      throw error;
-    }
-    if (!response) {
-      throw new Error('Expected response but got none');
+      console.error('Fetch failed:', error);
+      this.ctx.storage.kv.put('last-error', error.message);
+      return;
     }
     
-    // Store response data for test verification
-    const data = await response.json();
+    // Process the response
+    const data = await response!.json();
+    // Store it, process it, whatever your business logic needs
+    this.ctx.storage.kv.put('api-data', JSON.stringify(data));
+    
+    // Also store for test verification
     this.ctx.storage.kv.put('last-response', JSON.stringify(data));
-    this.ctx.storage.kv.put('last-req-id', reqId);
   }
 
   /**
-   * Handler for error cases
+   * Your business logic that needs to call external API
    */
-  async handleError({ reqId, response, error }: ProxyFetchHandlerItem): Promise<void> {
-    // Store error for test verification
+  async fetchExternalData(): Promise<void> {
+    // Send to queue - returns immediately, DO can hibernate
+    await proxyFetch(
+      this,                    // DO instance
+      'https://api.example.com/data',  // URL or Request object
+      'handleSuccess',         // Handler method name
+      'MY_DO'                  // DO binding name
+    );
+    
+    // Function returns immediately!
+    // Response will arrive later via handleSuccess()
+  }
+
+  /**
+   * Required: Receive responses from queue worker
+   */
+  async proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void> {
+    return proxyFetchHandler(this, item);
+  }
+  
+  // ========== Test helper methods below ==========
+  
+  /**
+   * Handler for error cases (for tests)
+   */
+  async handleError({ response, error }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
+      console.error('Fetch failed:', error);
       this.ctx.storage.kv.put('last-error', error.message);
-    } else if (response) {
+      return;
+    }
+    
+    // Check HTTP status for non-OK responses
+    if (response && !response.ok) {
+      console.error('HTTP error:', response.status, response.statusText);
       this.ctx.storage.kv.put('last-response-status', response.status);
     }
-    this.ctx.storage.kv.put('last-req-id', reqId);
   }
 
   /**
-   * Trigger a proxy fetch
+   * Trigger a proxy fetch (for HTTP endpoint testing)
    */
   async triggerProxyFetch(urlOrRequest: string | Request, handlerName: string): Promise<void> {
-    await proxyFetch(this, urlOrRequest, handlerName, 'PROXY_FETCH_TEST_DO');
+    await proxyFetch(this, urlOrRequest, handlerName, 'MY_DO');
   }
 
   /**
@@ -57,13 +90,6 @@ export class ProxyFetchTestDO extends DurableObject<Env> {
       return { reqId };
     }
     return null;
-  }
-
-  /**
-   * RPC endpoint for queue consumer to deliver responses
-   */
-  async proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void> {
-    return proxyFetchHandler(this, item);
   }
 
   /**
@@ -90,7 +116,7 @@ export class ProxyFetchTestDO extends DurableObject<Env> {
 }
 
 /**
- * Queue consumer for proxy-fetch
+ * Worker with queue consumer
  */
 export default {
   /**
@@ -115,7 +141,7 @@ export default {
         handlerName: string;
       };
       
-      const stub = env.PROXY_FETCH_TEST_DO.getByName(body.doName);
+      const stub = env.MY_DO.getByName(body.doName);
       
       // Create Request object
       const fetchRequest = new Request(body.url, {
@@ -128,14 +154,8 @@ export default {
       await stub.triggerProxyFetch(fetchRequest, body.handlerName);
       
       // Get the reqId that was stored
-      let reqId: string | null = null;
-      const id = await stub.id;
-      
-      // Use runInDurableObject equivalent by calling a method
       const metadata = await stub.getMetadata();
-      if (metadata) {
-        reqId = metadata.reqId;
-      }
+      const reqId = metadata?.reqId ?? null;
       
       return new Response(JSON.stringify({ reqId }), {
         headers: { 'Content-Type': 'application/json' },
@@ -145,7 +165,7 @@ export default {
     // Check result
     if (url.pathname === '/check-result' && request.method === 'POST') {
       const body = await request.json() as { doName: string };
-      const stub = env.PROXY_FETCH_TEST_DO.getByName(body.doName);
+      const stub = env.MY_DO.getByName(body.doName);
       const response = await stub.getLastResponse();
       
       return new Response(JSON.stringify({ response }), {
@@ -156,7 +176,7 @@ export default {
     // Check error
     if (url.pathname === '/check-error' && request.method === 'POST') {
       const body = await request.json() as { doName: string };
-      const stub = env.PROXY_FETCH_TEST_DO.getByName(body.doName);
+      const stub = env.MY_DO.getByName(body.doName);
       const error = await stub.getLastError();
       
       return new Response(JSON.stringify({ error }), {
@@ -168,9 +188,6 @@ export default {
   },
   
   async queue(batch: MessageBatch<any>, env: Env): Promise<void> {
-    console.log('=== Queue Consumer Received ===');
-    console.log('Batch size:', batch.messages.length);
     await proxyFetchQueueConsumer(batch, env);
-    console.log('=== Queue Consumer Complete ===\n');
   }
-};
+} satisfies ExportedHandler<Env>;

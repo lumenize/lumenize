@@ -5,8 +5,8 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "PROXY_FETCH_TEST_DO",
-        "class_name": "ProxyFetchTestDO"
+        "name": "MY_DO",
+        "class_name": "MyDO"
       }
     ]
   },
@@ -30,7 +30,7 @@
     {
       "tag": "v1",
       "new_sqlite_classes": [
-        "ProxyFetchTestDO"
+        "MyDO"
       ]
     }
   ]
