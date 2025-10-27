@@ -13,9 +13,25 @@ import type { ProxyFetchHandlerItem } from '../src/types';
  */
 export class MyDO extends DurableObject<Env> {
   /**
+   * Your business logic that needs to call external API
+   */
+  async myBusinessProcess(): Promise<void> {
+    // Send to queue - returns immediately, DO can hibernate
+    await proxyFetch(
+      this,                    // DO instance
+      'https://api.example.com/data',  // URL or Request object
+      'myResponseHandler',         // Handler method name
+      'MY_DO'                  // DO binding name
+    );
+    
+    // Function returns immediately!
+    // Response will arrive later via myResponseHandler()
+  }
+
+  /**
    * Your response handler - called when response arrives
    */
-  async handleSuccess({ response, error }: ProxyFetchHandlerItem): Promise<void> {
+  async myResponseHandler({ response, error }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
       console.error('Fetch failed:', error);
       this.ctx.storage.kv.put('last-error', error.message);
@@ -29,22 +45,6 @@ export class MyDO extends DurableObject<Env> {
     
     // Also store for test verification
     this.ctx.storage.kv.put('last-response', JSON.stringify(data));
-  }
-
-  /**
-   * Your business logic that needs to call external API
-   */
-  async fetchExternalData(): Promise<void> {
-    // Send to queue - returns immediately, DO can hibernate
-    await proxyFetch(
-      this,                    // DO instance
-      'https://api.example.com/data',  // URL or Request object
-      'handleSuccess',         // Handler method name
-      'MY_DO'                  // DO binding name
-    );
-    
-    // Function returns immediately!
-    // Response will arrive later via handleSuccess()
   }
 
   /**

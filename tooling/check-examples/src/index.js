@@ -58,6 +58,23 @@ function normalizeCode(code) {
 }
 
 /**
+ * Normalize JSON/JSONC for comparison:
+ * Remove comments and collapse whitespace
+ * @param {string} code - JSON/JSONC to normalize
+ * @returns {string} Normalized JSON
+ */
+function normalizeJson(code) {
+  return code
+    // Remove single-line comments (JSONC)
+    .replace(/\/\/.*$/gm, '')
+    // Remove multi-line comments (JSONC)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    // Collapse whitespace (including newlines)
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Check if code should use normalization or strict matching
  * @param {string} lang - Language identifier
  * @param {boolean} strict - Strict mode flag
@@ -65,7 +82,7 @@ function normalizeCode(code) {
  */
 function shouldNormalize(lang, strict) {
   if (strict) return false;
-  return lang === 'typescript' || lang === 'ts' || lang === 'javascript' || lang === 'js';
+  return lang === 'typescript' || lang === 'ts' || lang === 'javascript' || lang === 'js' || lang === 'json' || lang === 'jsonc';
 }
 
 /**
@@ -247,8 +264,12 @@ function verifyCodeBlock(block, testFileCache, repoRoot) {
   // Normalize or use strict matching
   const useNormalization = shouldNormalize(block.lang, block.strict || false);
   
-  const docCode = useNormalization ? normalizeCode(block.code) : block.code;
-  const testCode = useNormalization ? normalizeCode(testContent) : testContent;
+  // Choose appropriate normalization function based on language
+  const isJson = block.lang === 'json' || block.lang === 'jsonc';
+  const normalizer = isJson ? normalizeJson : normalizeCode;
+  
+  const docCode = useNormalization ? normalizer(block.code) : block.code;
+  const testCode = useNormalization ? normalizer(testContent) : testContent;
   
   // Check if doc code contains ellipsis wildcards
   if (docCode.includes('___ELLIPSIS___')) {

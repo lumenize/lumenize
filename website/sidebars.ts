@@ -7,6 +7,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 let typedocRpcSidebar: any[] = [];
 let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
+let typedocProxyFetchSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -27,6 +28,13 @@ try {
   console.log('✅ Loaded testing sidebar, items:', typedocTestingSidebar?.length);
 } catch (e) {
   console.warn('⚠️  TypeDoc testing sidebar not yet generated, using empty sidebar');
+}
+
+try {
+  typedocProxyFetchSidebar = require('./docs/proxy-fetch/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded proxy-fetch sidebar, items:', typedocProxyFetchSidebar?.length);
+} catch (e) {
+  console.warn('⚠️  TypeDoc proxy-fetch sidebar not yet generated, using empty sidebar');
 }
 
 /**
@@ -173,6 +181,13 @@ const sidebars: SidebarsConfig = {
       label: 'Proxy Fetch',
       items: [
         'proxy-fetch/index',
+        'proxy-fetch/queue',
+        'proxy-fetch/durable-object',
+        'proxy-fetch/streaming',
+        'proxy-fetch/agents',
+        ...(typedocProxyFetchSidebar && typedocProxyFetchSidebar.length > 0
+          ? [wrapInApiReference(typedocProxyFetchSidebar, 'API Reference')]
+          : []),
       ],
     },
 

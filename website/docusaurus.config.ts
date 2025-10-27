@@ -91,6 +91,24 @@ const config: Config = {
           hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
       ],
+      [
+        'docusaurus-plugin-typedoc',
+        {
+          id: 'proxy-fetch',
+          entryPoints: ['../packages/proxy-fetch/src/index.ts'],
+          tsconfig: '../packages/proxy-fetch/tsconfig.json',
+          out: 'docs/proxy-fetch/api',
+          sidebar: {
+            autoConfiguration: true,
+          },
+          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+          excludeInternal: true,
+          excludeExternals: true,
+          excludePrivate: true,
+          readme: 'none',
+          hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
+        },
+      ],
       // Doc-test plugin - generates docs from test files
       [
         docTestPlugin,

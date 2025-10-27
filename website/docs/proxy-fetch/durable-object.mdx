@@ -1,0 +1,14 @@
+---
+title: Durable Object
+description: Use a dedicated proxy DO to handle external fetches
+---
+
+# Durable Object-Based Proxy Fetch
+
+Uses a dedicated proxy DO to handle fetches.
+- Simpler
+- Low latency penalty
+- Max throughput under ideal conditions is 1,000 DOs doing 100,000 fetches per day each
+  - Divide by 10 if peak burst throughput is 10x mean throughput
+
+## Coming Soon
