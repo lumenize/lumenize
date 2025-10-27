@@ -1,0 +1,37 @@
+{
+  "name": "lumenize-proxy-fetch",
+  "main": "test/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PROXY_FETCH_TEST_DO",
+        "class_name": "ProxyFetchTestDO"
+      }
+    ]
+  },
+  "queues": {
+    "producers": [
+      {
+        "queue": "proxy-fetch-queue",
+        "binding": "PROXY_FETCH_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "proxy-fetch-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ProxyFetchTestDO"
+      ]
+    }
+  ]
+}
