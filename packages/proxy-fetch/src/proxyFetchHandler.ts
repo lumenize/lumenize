@@ -1,5 +1,5 @@
-import type { ProxyFetchHandlerItem, ProxyFetchMetadata } from './types';
-import { deserializeWebApiObject } from './web-api-serialization';
+import type { ProxyFetchHandlerItem, ProxyFetchCapable, ProxyFetchMetadata } from './types';
+import { deserializeWebApiObject } from '@lumenize/utils';
 
 /**
  * Routes a proxy fetch response to the appropriate user handler method.

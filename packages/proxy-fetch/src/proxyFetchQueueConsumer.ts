@@ -1,4 +1,4 @@
-import { deserializeWebApiObject, serializeWebApiObject } from './web-api-serialization';
+import { deserializeWebApiObject, serializeWebApiObject } from '@lumenize/utils';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchCapable, ProxyFetchOptions } from './types';
 
 /**

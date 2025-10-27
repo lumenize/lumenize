@@ -13,7 +13,7 @@ import { isRemoteFunctionMarker, isNestedOperationMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
-import { deserializeWebApiObject, serializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
+import { deserializeWebApiObject, serializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from '@lumenize/utils';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
 import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
 import { walkObject } from './walk-object';

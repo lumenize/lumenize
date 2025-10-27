@@ -8,6 +8,7 @@ export * from './cookie-utils';
 export * from './browser';
 export * from './websocket-shim';
 export * from './metrics';
+export * from './web-api-serialization';
 
 // Convenience exports
 import { routeDORequest, type RouteOptions } from './route-do-request';

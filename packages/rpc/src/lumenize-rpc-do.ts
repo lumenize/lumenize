@@ -9,7 +9,7 @@ import type {
 } from './types';
 import { isNestedOperationMarker } from './types';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
-import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from './web-api-serialization';
+import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from '@lumenize/utils';
 import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
 import { stringify, parse } from '@ungap/structured-clone/json';
 import { walkObject } from './walk-object';

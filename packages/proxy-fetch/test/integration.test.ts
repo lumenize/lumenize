@@ -8,7 +8,7 @@ import { env, createMessageBatch, createExecutionContext, getQueueResult, runInD
 import { describe, test, expect, vi } from 'vitest';
 import worker from '../test/test-worker-and-dos';
 import type { ProxyFetchQueueMessage } from '../src/types';
-import { serializeWebApiObject } from '../src/web-api-serialization';
+import { serializeWebApiObject } from '@lumenize/utils';
 import { proxyFetch } from '../src/proxyFetch';
 
 describe('proxyFetch() Function', () => {

@@ -1,4 +1,4 @@
-import { serializeWebApiObject } from './web-api-serialization';
+import { serializeWebApiObject } from '@lumenize/utils';
 import type { ProxyFetchMetadata, ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
 
 /**
