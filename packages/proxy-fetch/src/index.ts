@@ -6,6 +6,5 @@
 
 export { proxyFetch } from './proxyFetch';
 export { proxyFetchQueueConsumer } from './proxyFetchQueueConsumer';
-export { proxyFetchHandler } from './proxyFetchHandler';
 
-export type { ProxyFetchMetadata, ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchCapable, ProxyFetchOptions } from './types';
+export type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';

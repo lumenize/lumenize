@@ -1,5 +1,5 @@
-import { deserializeWebApiObject, serializeWebApiObject } from '@lumenize/utils';
-import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchCapable, ProxyFetchOptions } from './types';
+import { deserializeWebApiObject } from '@lumenize/utils';
+import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
 
 /**
  * Default configuration options
@@ -152,18 +152,30 @@ export async function proxyFetchQueueConsumer(
         throw fetchError;
       }
       
-      // Success - serialize and route response
-      const serializedResponse = await serializeWebApiObject(response!);
+      // Success - Response objects can be passed directly over Workers RPC
       const duration = Date.now() - startTime;
       
-      // Route back to the DO instance via Workers RPC
+      // Route back to the DO instance via Workers RPC (if handler provided)
+      if (!queueMessage.handlerName) {
+        // Fire-and-forget mode - no callback needed
+        console.debug('%o', {
+          type: 'debug',
+          where: 'proxyFetchQueueConsumer',
+          message: 'Fire-and-forget mode - no handler callback',
+          reqId,
+          duration
+        });
+        message.ack();
+        continue;
+      }
+      
       const namespace = env[doBindingName] as DurableObjectNamespace;
       if (!namespace) {
         throw new Error(`DO binding ${doBindingName} not found in environment`);
       }
       
       const doId = namespace.idFromString(instanceId);
-      const stub = namespace.get(doId) as unknown as ProxyFetchCapable;
+      const stub = namespace.get(doId) as any; // Use 'any' for RPC bracket notation
       
       console.debug('%o', {
         type: 'debug',
@@ -171,19 +183,25 @@ export async function proxyFetchQueueConsumer(
         message: 'Routing response to DO',
         reqId,
         instanceId: instanceId.slice(0, 16) + '...',
-        duration: duration
+        duration: duration,
+        handler: queueMessage.handlerName
       });
       
-      // Call proxyFetchHandler on the DO
+      // Call handler method directly via RPC bracket notation
+      // Response objects serialize automatically over Workers RPC
       const handlerItem: ProxyFetchHandlerItem = {
         reqId,
-        response: serializedResponse,
+        response: response!,
         retryCount,
         duration,
       };
       
       try {
-        await stub.proxyFetchHandler(handlerItem);
+        // Use bracket notation to call the handler method dynamically
+        if (typeof stub[queueMessage.handlerName] !== 'function') {
+          throw new Error(`Handler method '${queueMessage.handlerName}' not found on DO instance`);
+        }
+        await stub[queueMessage.handlerName](handlerItem);
         
         console.debug('%o', {
           type: 'debug',
@@ -221,9 +239,21 @@ export async function proxyFetchQueueConsumer(
       
       // If fetch or routing setup fails, route error back to DO
       try {
+        // Skip error callback if fire-and-forget mode
+        if (!queueMessage.handlerName) {
+          console.debug('%o', {
+            type: 'debug',
+            where: 'proxyFetchQueueConsumer',
+            message: 'Fire-and-forget mode - not routing error to DO',
+            reqId
+          });
+          message.ack();
+          continue;
+        }
+        
         const namespace = env[doBindingName] as DurableObjectNamespace;
         const doId = namespace.idFromString(instanceId);
-        const stub = namespace.get(doId) as unknown as ProxyFetchCapable;
+        const stub = namespace.get(doId) as any; // Use 'any' for RPC bracket notation
         
         const duration = Date.now() - startTime;
         const handlerItem: ProxyFetchHandlerItem = {
@@ -233,7 +263,8 @@ export async function proxyFetchQueueConsumer(
           duration,
         };
         
-        await stub.proxyFetchHandler(handlerItem);
+        // Use bracket notation to call the handler method dynamically
+        await stub[queueMessage.handlerName](handlerItem);
         
         console.debug('%o', {
           type: 'debug',

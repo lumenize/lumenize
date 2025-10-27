@@ -1,5 +1,5 @@
 import { serializeWebApiObject } from '@lumenize/utils';
-import type { ProxyFetchMetadata, ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
+import type { ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
 
 /**
  * Generate a unique request ID using crypto.randomUUID
@@ -13,24 +13,30 @@ function generateReqId(): string {
  * 
  * This function allows Durable Objects to offload external fetch() calls to Workers,
  * avoiding wall-clock billing. The response is delivered asynchronously via a callback
- * handler method on the DO.
+ * handler method on the DO, or not at all if handler is omitted (fire-and-forget).
  * 
  * **Must be called from within a Durable Object** as it uses `ctx.storage` and `ctx.id`.
  * 
  * @param doInstance - The Durable Object instance (pass `this` from within DO methods)
  * @param req - Request object or URL string to fetch
- * @param handler - Name of the handler method on the DO to call with the response
  * @param doBindingName - Name of the DO binding for return routing
+ * @param handler - Optional name of the handler method on the DO to call with the response. If omitted, fire-and-forget mode (no callback).
  * @param options - Optional configuration for timeout, retries, etc.
  * @returns Promise that resolves when the request is queued
+ * @throws Error if handler is provided but doesn't exist as a method on the DO instance
  */
 export async function proxyFetch(
   doInstance: any, // DurableObject instance with ctx and env properties
   req: Request | string,
-  handler: string,
   doBindingName: string,
+  handler?: string,
   options?: ProxyFetchOptions
-): Promise<void> {
+): Promise<string> {
+  // Validate handler exists if provided
+  if (handler && typeof doInstance[handler] !== 'function') {
+    throw new Error(`Handler method '${handler}' not found on DO instance. Fire-and-forget mode requires omitting the handler parameter.`);
+  }
+  
   // Generate unique request ID
   const reqId = generateReqId();
   
@@ -40,25 +46,18 @@ export async function proxyFetch(
   // Serialize the Request object for queue transmission
   const serializedRequest = await serializeWebApiObject(request);
   
-  // Store metadata in DO storage for later handler lookup
-  const metadata: ProxyFetchMetadata = {
-    handlerName: handler,
-    doBindingName,
-    instanceId: doInstance.ctx.id.toString(),
-    timestamp: Date.now(),
-    options,
-  };
-  doInstance.ctx.storage.kv.put(`proxy-fetch:${reqId}`, JSON.stringify(metadata));
-  
-  // Send message to queue
+  // Send message to queue with all data needed for processing and callback
   const queueMessage: ProxyFetchQueueMessage = {
     reqId,
     request: serializedRequest,
     doBindingName,
     instanceId: doInstance.ctx.id.toString(),
+    handlerName: handler, // Optional - undefined for fire-and-forget
     retryCount: 0,
+    timestamp: Date.now(),
     options,
   };
   
   await doInstance.env.PROXY_FETCH_QUEUE.send(queueMessage);
+  return reqId;
 }

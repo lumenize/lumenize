@@ -19,22 +19,6 @@ export interface ProxyFetchOptions {
 }
 
 /**
- * Metadata stored in DO storage for each proxy fetch request
- */
-export interface ProxyFetchMetadata {
-  /** Name of the handler method to call on the DO */
-  handlerName: string;
-  /** DO binding name for return routing */
-  doBindingName: string;
-  /** DO instance ID for return routing */
-  instanceId: string;
-  /** Timestamp when request was initiated */
-  timestamp: number;
-  /** Configuration options for this request */
-  options?: ProxyFetchOptions;
-}
-
-/**
  * Message sent to queue from DO
  */
 export interface ProxyFetchQueueMessage {
@@ -46,14 +30,18 @@ export interface ProxyFetchQueueMessage {
   doBindingName: string;
   /** DO instance ID for return routing */
   instanceId: string;
+  /** Name of the handler method to call on the DO (optional for fire-and-forget) */
+  handlerName?: string;
   /** Current retry attempt number (starts at 0) */
   retryCount?: number;
   /** Configuration options for this request */
   options?: ProxyFetchOptions;
+  /** Timestamp when request was initiated */
+  timestamp: number;
 }
 
 /**
- * Item passed to user's handler method and proxyFetchHandler
+ * Item passed to user's handler method
  */
 export interface ProxyFetchHandlerItem {
   /** Unique request ID */
@@ -66,16 +54,4 @@ export interface ProxyFetchHandlerItem {
   retryCount?: number;
   /** Total duration in milliseconds from initial request to completion */
   duration?: number;
-}
-
-/**
- * Interface for DOs that can receive proxy fetch responses.
- * Any DO that uses proxyFetch() must implement this method.
- */
-export interface ProxyFetchCapable {
-  /**
-   * Receives responses/errors from the proxy fetch queue consumer.
-   * This is called via Workers RPC after the external fetch completes.
-   */
-  proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void>;
 }

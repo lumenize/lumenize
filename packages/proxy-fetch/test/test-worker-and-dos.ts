@@ -1,7 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-import { proxyFetchHandler } from '../src/proxyFetchHandler';
 import { proxyFetch } from '../src/proxyFetch';
 import { proxyFetchQueueConsumer } from '../src/proxyFetchQueueConsumer';
 import type { ProxyFetchHandlerItem } from '../src/types';
@@ -18,10 +17,10 @@ export class MyDO extends DurableObject<Env> {
   async myBusinessProcess(): Promise<void> {
     // Send to queue - returns immediately, DO can hibernate
     await proxyFetch(
-      this,                    // DO instance
+      this,                            // DO instance
       'https://api.example.com/data',  // URL or Request object
-      'myResponseHandler',         // Handler method name
-      'MY_DO'                  // DO binding name
+      'MY_DO',                         // DO binding name
+      'myResponseHandler'              // Handler method name
     );
     
     // Function returns immediately!
@@ -45,13 +44,6 @@ export class MyDO extends DurableObject<Env> {
     
     // Also store for test verification
     this.ctx.storage.kv.put('last-response', JSON.stringify(data));
-  }
-
-  /**
-   * Required: Receive responses from queue worker
-   */
-  async proxyFetchHandler(item: ProxyFetchHandlerItem): Promise<void> {
-    return proxyFetchHandler(this, item);
   }
   
   // ========== Test helper methods below ==========
@@ -93,20 +85,11 @@ export class MyDO extends DurableObject<Env> {
   /**
    * Trigger a proxy fetch (for HTTP endpoint testing)
    */
-  async triggerProxyFetch(urlOrRequest: string | Request, handlerName: string): Promise<void> {
-    await proxyFetch(this, urlOrRequest, handlerName, 'MY_DO');
-  }
-
-  /**
-   * Get metadata for the most recent proxy fetch request
-   */
-  async getMetadata(): Promise<{ reqId: string } | null> {
-    const keys = this.ctx.storage.kv.list({ prefix: 'proxy-fetch:' });
-    for (const [key, value] of keys) {
-      const reqId = key.replace('proxy-fetch:', '');
-      return { reqId };
-    }
-    return null;
+  async triggerProxyFetch(urlOrRequest: string | Request, handlerName: string): Promise<string> {
+    const reqId = await proxyFetch(this, urlOrRequest, 'MY_DO', handlerName);
+    // Store reqId for live tests
+    this.ctx.storage.kv.put('last-req-id', reqId);
+    return reqId;
   }
 
   /**
@@ -168,11 +151,7 @@ export default {
       });
       
       // Trigger proxy fetch
-      await stub.triggerProxyFetch(fetchRequest, body.handlerName);
-      
-      // Get the reqId that was stored
-      const metadata = await stub.getMetadata();
-      const reqId = metadata?.reqId ?? null;
+      const reqId = await stub.triggerProxyFetch(fetchRequest, body.handlerName);
       
       return new Response(JSON.stringify({ reqId }), {
         headers: { 'Content-Type': 'application/json' },
