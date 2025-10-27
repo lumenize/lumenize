@@ -23,7 +23,7 @@ At the time, we were thinking of several possibilities:
    it.
 
 We're happy to say that today we are delivering that deep dive analysis and are making
-a strong recommendation for it.
+a strong recommendation for Lumenize RPC.
 
 ## References
 
@@ -66,7 +66,7 @@ a strong recommendation for it.
   you to use env to hop from the RPC host to another DO (e.g. `client.env.DO_BINDING.getByName('instance-name').someMethod()` just works). Cap'n Web doesn't allow this.
 - Lumenize RPC supports every type that Workers RPC supports (Set, Map, objects with 
   cycles and aliases, etc.) except Readable/Writable Stream. Type support in Cap'n
-  Web is very limited at the moment. That will improve but objects with cycles and
+  Web is very limited at the moment. That will improve but objects with cycles or
   aliases will not be part of that improvement. In fact, Cloudflare plans to remove
   support for cycles and aliases from Workers RPC.
 - Lumenize RPC maintains no server-side resources. Cap'n Web dedicates ~10% of its 

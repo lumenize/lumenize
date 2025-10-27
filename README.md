@@ -2,4 +2,4 @@
 
 # Lumenize monorepo
 
-See here for documentation on the Lumenize project: [Lumenize Docs](https://lumenize.com/)
+See here for documentation on the [`@lumenize/proxy-fetch`](https://lumenize.com/docs/proxy-fetch)

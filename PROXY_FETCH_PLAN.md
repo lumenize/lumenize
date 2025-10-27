@@ -30,19 +30,66 @@ Queue + Worker:
 
 ## Architecture Overview
 
-### Message Flow
+### Message Flow Diagram
 
+```mermaid
+sequenceDiagram
+    participant User as User Code
+    participant DO as Durable Object
+    participant Storage as DO Storage
+    participant Queue as Cloudflare Queue
+    participant Worker as Queue Consumer Worker
+    participant API as External API
+
+    Note over User,API: 1. Initiate Proxy Fetch
+    User->>DO: Call business method
+    DO->>DO: proxyFetch(req, 'handleSuccess', 'MY_DO')
+    
+    Note over DO,Storage: 2. Store Handler Metadata
+    DO->>Storage: kv.put('proxy-fetch:{reqId}', {handler, instanceId})
+    
+    Note over DO,Queue: 3. Queue Request (Non-Blocking)
+    DO->>Queue: send({reqId, request, doBindingName, instanceId})
+    DO-->>User: Returns immediately
+    Note over DO: DO can now hibernate ⚡
+
+    Note over Queue,Worker: 4. Queue Delivery (Async)
+    Queue->>Worker: batch.messages[]
+    
+    Note over Worker,API: 5. External Fetch (CPU Time Billing 💰)
+    Worker->>API: fetch(request)
+    API-->>Worker: Response
+    
+    Note over Worker,DO: 6. Route Response Back
+    Worker->>DO: proxyFetchHandler({reqId, response, retryCount, duration})
+    Note over DO: Wakes from hibernation if needed
+    
+    Note over DO,Storage: 7. Lookup Handler
+    DO->>Storage: kv.get('proxy-fetch:{reqId}')
+    Storage-->>DO: {handler: 'handleSuccess', ...}
+    DO->>Storage: kv.delete('proxy-fetch:{reqId}')
+    
+    Note over DO,User: 8. Invoke User Handler
+    DO->>User: handleSuccess({response, retryCount, duration})
+    User->>User: Process response data
+
+    Note over Worker,Queue: 9. Acknowledge Message
+    Worker->>Queue: message.ack()
 ```
-1. DO calls proxyFetch()
-   ↓ (sends to queue, non-blocking)
-2. Queue delivers to Worker
-   ↓ (worker makes external fetch - CPU time billing)
-3. Worker calls DO.proxyFetchHandler()
-   ↓ (wakes DO if hibernated)
-4. DO looks up handler from storage
-   ↓ (calls user's handler method)
-5. User's handler processes response
-```
+
+### Detailed Flow Steps
+
+1. **User Code Triggers Fetch** - Business logic calls `proxyFetch()` in DO
+2. **Store Handler Metadata** - Handler name and instance ID saved to DO storage (survives hibernation)
+3. **Queue Request** - Serialized request sent to queue, function returns immediately
+4. **DO Can Hibernate** - No blocking, DO free to hibernate until response arrives
+5. **Queue Delivery** - Queue delivers message batch to worker queue consumer
+6. **External Fetch** - Worker makes fetch (CPU time billing, not wall clock!)
+7. **Route Response Back** - Worker uses RPC to call `proxyFetchHandler()` on DO
+8. **DO Wakes Up** - If hibernated, DO wakes to handle response
+9. **Lookup Handler** - Retrieve handler name from storage using reqId
+10. **Invoke User Handler** - Call user's handler method with response/error
+11. **Acknowledge Message** - Worker acks message, queue removes it
 
 ### Key Design Decisions
 
@@ -59,7 +106,47 @@ Queue + Worker:
 
 **Return Addressing:**
 - Queue message includes `doBindingName` and `instanceId`
-- Worker uses this to route response: `env[doBindingName].getById(instanceId).proxyFetchHandler(...)`
+- Worker uses this to route response: `env[doBindingName].idFromString(instanceId).proxyFetchHandler(...)`
+
+### How It All Fits Together
+
+**The Three Core Functions:**
+
+1. **`proxyFetch(doInstance, request, handlerName, doBindingName, options?)`**
+   - Called from within your DO
+   - Stores handler metadata in DO storage
+   - Sends serialized request to queue
+   - Returns immediately (non-blocking)
+
+2. **`proxyFetchQueueConsumer(batch, env)`**
+   - Your worker's queue consumer
+   - Deserializes requests from queue
+   - Makes external fetch calls (CPU time billing)
+   - Handles retries with exponential backoff
+   - Routes responses back to DOs via RPC
+   - Handles errors and timeouts
+
+3. **`proxyFetchHandler(doInstance, item)`**
+   - Called by queue consumer via RPC
+   - Looks up handler name from storage
+   - Calls your handler method with response/error
+   - Cleans up storage
+
+**The Flow Through These Functions:**
+```
+Your DO method
+  └─> proxyFetch() 
+        ├─> Storage: save handler metadata
+        └─> Queue: send request
+              └─> proxyFetchQueueConsumer()
+                    ├─> Deserialize request
+                    ├─> fetch() external API
+                    ├─> Retry logic if needed
+                    └─> proxyFetchHandler()
+                          ├─> Storage: get handler name
+                          ├─> Call: yourDO.yourHandler()
+                          └─> Storage: cleanup
+```
 
 ## API Design
 
@@ -425,37 +512,53 @@ test('happy path - DO sends to queue, gets response back', async () => {
 
 ## Implementation Phases
 
-### Phase 0: Research & Experimentation
-- [ ] Create test queue in wrangler.jsonc
-- [ ] Set up test DO with queue consumer in test/test-worker-and-dos.ts
-- [ ] Discover queue message structure via vitest-pool-workers
-- [ ] Test if Queue supports Request/Response directly (likely yes, since Workers RPC does)
-- [ ] Verify queue consumer gets called automatically in test environment
+### Phase 0: Research & Experimentation ✅ COMPLETE
+- ✅ Create test queue in wrangler.jsonc
+- ✅ Set up test DO with queue consumer in test/test-worker-and-dos.ts
+- ✅ Discover queue message structure via vitest-pool-workers
+- ✅ Test if Queue supports Request/Response directly (Answer: Need serialization)
+- ✅ Verify queue consumer gets called automatically in test environment
 
-### Phase 1: Core Implementation (Happy Path)
-- [ ] Implement `proxyFetch()` - send Request to queue
-- [ ] Implement `proxyFetchQueueConsumer()` - fetch and return Response via Workers RPC
-- [ ] Implement `proxyFetchHandler()` - route to user handler
-- [ ] Basic tests with real queue in vitest-pool-workers
-- [ ] Verify storage operations work across hibernation
+### Phase 1: Core Implementation (Happy Path) ✅ COMPLETE
+- ✅ Implement `proxyFetch()` - send Request to queue
+- ✅ Implement `proxyFetchQueueConsumer()` - fetch and return Response via Workers RPC
+- ✅ Implement `proxyFetchHandler()` - route to user handler
+- ✅ Basic tests with real queue in vitest-pool-workers (4 tests)
+- ✅ Verify storage operations work across hibernation
+- ✅ Use `serializeWebApiObject/deserializeWebApiObject` from `@lumenize/utils`
 
-### Phase 2: Error Handling (No Custom Serialization Needed)
-- [ ] Catch fetch errors in worker
-- [ ] Route errors back to DO
-- [ ] Handle missing handler methods
-- [ ] Handle handler exceptions
-- [ ] Implement queue retry logic
+### Phase 2: Error Handling ✅ COMPLETE
+- ✅ Catch fetch errors in worker
+- ✅ Route errors back to DO
+- ✅ Handle missing handler methods
+- ✅ Handle handler exceptions (logged, message acked)
+- ✅ Implement request timeout with AbortController
+- ✅ Implement exponential backoff retry logic
+- ✅ Configurable retry options (maxRetries, retryDelay, maxRetryDelay, retryOn5xx)
+- ✅ Network error retry support
+- ✅ 5xx retry support (configurable)
+- ✅ 4xx errors don't retry
+- ✅ Proper message acknowledgment flow
+- ✅ Enhanced metadata (retryCount, duration)
+- ✅ Structured JSON logging (console.debug/error)
+- ✅ Error handling tests (5 tests)
 
-### Phase 3: Testing & Documentation
-- [ ] Integration tests with real queue
-- [ ] Hibernation tests
-- [ ] Performance tests
-- [ ] Write comprehensive README
+### Phase 3: Testing & Documentation 🔄 IN PROGRESS
+- ✅ Integration tests with real queue (11 tests total)
+- ✅ Error handling tests (timeout, retry, backoff, 5xx, 4xx)
+- ✅ Live test infrastructure for manual testing
+- ✅ Test coverage: 74% statements, 54% branches
+- ✅ 100% coverage on proxyFetch.ts
+- [ ] **Write comprehensive README**
+- [ ] **Create website documentation** (`/website/docs/proxy-fetch/`)
+  - [ ] Overview with flow diagram
+  - [ ] Quick Start guide (includes setup files)
+  - [ ] API Reference (auto-generated, but need to review/edit JSDoc)
+  - [ ] Configuration options (maybe we can do this in the quick start?)
 - [ ] Usage examples
 - [ ] Migration guide from direct fetch()
 
-### Phase 4: Advanced Features (Future)
-- [ ] Timeout configuration
+### Phase 4: Advanced Features (Future) ⏸️ DEFERRED
 - [ ] Request batching (same domain)
 - [ ] Circuit breaker patterns
 - [ ] Metrics/observability

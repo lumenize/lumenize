@@ -185,7 +185,8 @@ Let's compare the byte counts for the payloads for the above calls.
 
 **Key insight:** For this simple case, the bytes needed to achieve
 [Lumenize RPC's greater type support](/docs/rpc/capn-web-comparison-basics-and-types#supported-types)
-(cycles/aliases, Set, Map, etc.)
+(cycles/aliases, Set, Map, etc.) and more 
+[human-readable OCAN](/docs/rpc/operation-chaining-and-nesting)
 results in it needing 4.6x the byte count.
 
 However, just like Cap'n Web's 5x messages sent count disadvantage in the test 
@@ -294,7 +295,7 @@ Operation nesting allows using the result of an unawaited call as a
 parameter to another call. This creates dependent operations that can still be 
 done with a single RPC round trip.
 
-Both Cap'n Web and Lumenize RPC both have this capability, allowing complex 
+Both Cap'n Web and Lumenize RPC have this capability, allowing complex 
 dependent operations to execute efficiently.
 
 **Key insight:** Both systems handle all three dependent calls in exactly one 

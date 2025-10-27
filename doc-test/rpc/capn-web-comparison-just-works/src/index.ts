@@ -58,9 +58,12 @@ export class CapnWebRoom extends DurableObject<Env> {
   }
 }
 
+// =======================================================================
 // Cap'n Web PlainRoom - Uses plain object instead of Map
 // This version also has a join() method so we can test passing functions
-// as parameters and calling them back
+// as parameters and calling them back.
+// =======================================================================
+
 export class CapnWebPlainRoom extends DurableObject<Env> {
   #callbacks = new Map<string, (msg: string) => void>();
 
@@ -111,7 +114,7 @@ export class CapnWebUser extends RpcTarget {
   }
 
   // Return Workers RPC stub to PlainRoom
-  // (uses plain object - will work)
+  // (uses plain object - will work with setTimeout() hack
   getPlainRoom(roomName: string) {
     return this.env.CAPNWEB_PLAIN_ROOM.getByName(roomName);
   }

@@ -107,7 +107,7 @@ Cap'n Web and Lumenize RPC.
 
 **Lumenize RPC**:
 - ✅ **Full client access**: `client.ctx.storage.kv.put('key', 'value')`
-- ✅ **Full client access to env**: `client.env.SOME_BINDING.getByName()`
+- ✅ **Full client access to env**: `client.env.BINDING.getByName().someMethod()`
 - ✅ No custom methods needed for storage/state access
 
 **Cap'n Web**:
