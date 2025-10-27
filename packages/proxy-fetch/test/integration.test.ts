@@ -13,7 +13,7 @@ import { proxyFetch } from '../src/proxyFetch';
 
 describe('proxyFetch() Function', () => {
   test('queues request with URL string', async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('proxy-fetch-test');
+    const stub = env.MY_DO.getByName('proxy-fetch-test');
     
     // Call proxyFetch from within the DO - should not throw
     // @ts-expect-error - cloudflare:test types not available at compile time
@@ -23,14 +23,14 @@ describe('proxyFetch() Function', () => {
           instance,
           'https://httpbin.org/json',
           'handleSuccess',
-          'PROXY_FETCH_TEST_DO'
+          'MY_DO'
         )
       ).resolves.toBeUndefined();
     });
   });
 
   test('queues request with Request object and options', async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('proxy-fetch-options-test');
+    const stub = env.MY_DO.getByName('proxy-fetch-options-test');
     
     // @ts-expect-error - cloudflare:test types not available at compile time
     await runInDurableObject(stub, async (instance) => {
@@ -44,7 +44,7 @@ describe('proxyFetch() Function', () => {
           instance,
           request,
           'handleSuccess',
-          'PROXY_FETCH_TEST_DO',
+          'MY_DO',
           { timeout: 5000, maxRetries: 1 }
         )
       ).resolves.toBeUndefined();
@@ -54,7 +54,7 @@ describe('proxyFetch() Function', () => {
 
 describe('Proxy Fetch Integration', () => {
   test('full flow: DO triggers proxy fetch, queue processes, response delivered', { timeout: 5000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('integration-full-flow');
+    const stub = env.MY_DO.getByName('integration-full-flow');
     const id = await stub.id;
     
     // Generate a reqId for this test
@@ -65,7 +65,7 @@ describe('Proxy Fetch Integration', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put(`proxy-fetch:${reqId}`, JSON.stringify({
         handlerName: 'handleSuccess',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -83,7 +83,7 @@ describe('Proxy Fetch Integration', () => {
         body: {
           reqId: reqId,
           request: serializedRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
         },
@@ -111,11 +111,11 @@ describe('Proxy Fetch Integration', () => {
     expect(storedReqId).toBe(reqId);
   });
 
-  test('queue consumer processes multiple messages in batch', { timeout: 5000 }, async () => {
-    const stub1 = env.PROXY_FETCH_TEST_DO.getByName('batch-test-1');
+  test('queue consumer processes multiple messages in batch', { timeout: 10000 }, async () => {
+    const stub1 = env.MY_DO.getByName('batch-test-1');
     const id1 = await stub1.id;
     
-    const stub2 = env.PROXY_FETCH_TEST_DO.getByName('batch-test-2');
+    const stub2 = env.MY_DO.getByName('batch-test-2');
     const id2 = await stub2.id;
     
     // Create a batch with multiple messages using real serialization
@@ -132,7 +132,7 @@ describe('Proxy Fetch Integration', () => {
         body: {
           reqId: 'req-1',
           request: serializedReq1,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id1.toString(),
           retryCount: 0,
         },
@@ -144,7 +144,7 @@ describe('Proxy Fetch Integration', () => {
         body: {
           reqId: 'req-2',
           request: serializedReq2,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id2.toString(),
           retryCount: 0,
         },
@@ -156,7 +156,7 @@ describe('Proxy Fetch Integration', () => {
     await runInDurableObject(stub1, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:req-1', JSON.stringify({
         handlerName: 'handleSuccess',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id1.toString(),
         timestamp: Date.now(),
       }));
@@ -166,7 +166,7 @@ describe('Proxy Fetch Integration', () => {
     await runInDurableObject(stub2, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:req-2', JSON.stringify({
         handlerName: 'handleSuccess',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id2.toString(),
         timestamp: Date.now(),
       }));
@@ -182,11 +182,11 @@ describe('Proxy Fetch Integration', () => {
       const response2 = await stub2.getLastResponse();
       expect(response1).toBeDefined();
       expect(response2).toBeDefined();
-    }, { timeout: 3000 });
+    }, { timeout: 5000 });
   });
 
   test('queue consumer handles fetch errors', async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('error-test');
+    const stub = env.MY_DO.getByName('error-test');
     const id = await stub.id;
     
     // Create message with invalid URL using real serialization
@@ -201,7 +201,7 @@ describe('Proxy Fetch Integration', () => {
         body: {
           reqId: 'error-req-1',
           request: serializedErrorRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
           options: { maxRetries: 0 }, // Don't retry for this test
@@ -214,7 +214,7 @@ describe('Proxy Fetch Integration', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:error-req-1', JSON.stringify({
         handlerName: 'handleError',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -235,7 +235,7 @@ describe('Proxy Fetch Integration', () => {
   });
 
   test('serialization preserves Request headers and method', { timeout: 5000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('serialization-test');
+    const stub = env.MY_DO.getByName('serialization-test');
     const id = await stub.id;
     
     // Create message with POST request and custom headers using real serialization
@@ -257,7 +257,7 @@ describe('Proxy Fetch Integration', () => {
         body: {
           reqId: 'post-req-1',
           request: serializedPostRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
         },
@@ -269,7 +269,7 @@ describe('Proxy Fetch Integration', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:post-req-1', JSON.stringify({
         handlerName: 'handleSuccess',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -294,7 +294,7 @@ describe('Proxy Fetch Integration', () => {
 
 describe('Error Handling and Retries', () => {
   test('timeout aborts long-running requests', { timeout: 10000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('timeout-test');
+    const stub = env.MY_DO.getByName('timeout-test');
     const id = await stub.id;
     
     // httpbin.org/delay/N delays for N seconds
@@ -309,7 +309,7 @@ describe('Error Handling and Retries', () => {
         body: {
           reqId: 'timeout-req-1',
           request: serializedRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
           options: { 
@@ -325,7 +325,7 @@ describe('Error Handling and Retries', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:timeout-req-1', JSON.stringify({
         handlerName: 'handleError',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -346,7 +346,7 @@ describe('Error Handling and Retries', () => {
   });
 
   test('retries network errors with exponential backoff', { timeout: 15000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('retry-test');
+    const stub = env.MY_DO.getByName('retry-test');
     const id = await stub.id;
     
     // Invalid URL that will fail with network error
@@ -361,7 +361,7 @@ describe('Error Handling and Retries', () => {
         body: {
           reqId: 'retry-req-1',
           request: serializedRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
           options: { 
@@ -377,7 +377,7 @@ describe('Error Handling and Retries', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:retry-req-1', JSON.stringify({
         handlerName: 'handleError',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -399,7 +399,7 @@ describe('Error Handling and Retries', () => {
   });
 
   test('retries 5xx errors when configured', { timeout: 10000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('5xx-retry-test');
+    const stub = env.MY_DO.getByName('5xx-retry-test');
     const id = await stub.id;
     
     // httpbin.org/status/500 returns a 500 error
@@ -414,7 +414,7 @@ describe('Error Handling and Retries', () => {
         body: {
           reqId: '5xx-req-1',
           request: serializedRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
           options: { 
@@ -431,7 +431,7 @@ describe('Error Handling and Retries', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:5xx-req-1', JSON.stringify({
         handlerName: 'handleSuccess',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -446,7 +446,7 @@ describe('Error Handling and Retries', () => {
   });
 
   test('does not retry 4xx client errors', { timeout: 5000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('4xx-test');
+    const stub = env.MY_DO.getByName('4xx-test');
     const id = await stub.id;
     
     // httpbin.org/status/404 returns a 404 error (with empty body)
@@ -461,7 +461,7 @@ describe('Error Handling and Retries', () => {
         body: {
           reqId: '4xx-req-1',
           request: serializedRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 0,
           options: { 
@@ -476,7 +476,7 @@ describe('Error Handling and Retries', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:4xx-req-1', JSON.stringify({
         handlerName: 'handleError', // Use error handler to avoid JSON parse issues
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));
@@ -495,7 +495,7 @@ describe('Error Handling and Retries', () => {
   });
 
   test('includes retry count and duration in handler item', { timeout: 5000 }, async () => {
-    const stub = env.PROXY_FETCH_TEST_DO.getByName('metadata-test');
+    const stub = env.MY_DO.getByName('metadata-test');
     const id = await stub.id;
     
     const request = new Request('https://httpbin.org/uuid');
@@ -509,7 +509,7 @@ describe('Error Handling and Retries', () => {
         body: {
           reqId: 'metadata-req-1',
           request: serializedRequest,
-          doBindingName: 'PROXY_FETCH_TEST_DO',
+          doBindingName: 'MY_DO',
           instanceId: id.toString(),
           retryCount: 2, // Simulate this is attempt #3
         },
@@ -521,7 +521,7 @@ describe('Error Handling and Retries', () => {
     await runInDurableObject(stub, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:metadata-req-1', JSON.stringify({
         handlerName: 'handleSuccess',
-        doBindingName: 'PROXY_FETCH_TEST_DO',
+        doBindingName: 'MY_DO',
         instanceId: id.toString(),
         timestamp: Date.now(),
       }));

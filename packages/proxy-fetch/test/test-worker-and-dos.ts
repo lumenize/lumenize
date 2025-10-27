@@ -57,6 +57,23 @@ export class MyDO extends DurableObject<Env> {
   // ========== Test helper methods below ==========
   
   /**
+   * Handler for successful responses (for tests)
+   */
+  async handleSuccess({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
+    if (error) {
+      console.error('Fetch failed:', error);
+      this.ctx.storage.kv.put('last-error', error.message);
+      return;
+    }
+    
+    // Process the response
+    const data = await response!.json();
+    // Store for test verification
+    this.ctx.storage.kv.put('last-response', JSON.stringify(data));
+    this.ctx.storage.kv.put('last-req-id', reqId);
+  }
+  
+  /**
    * Handler for error cases (for tests)
    */
   async handleError({ response, error }: ProxyFetchHandlerItem): Promise<void> {
