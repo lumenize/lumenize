@@ -1,5 +1,5 @@
 import { serializeWebApiObject } from './web-api-serialization';
-import type { ProxyFetchMetadata, ProxyFetchQueueMessage } from './types';
+import type { ProxyFetchMetadata, ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
 
 /**
  * Generate a unique request ID using crypto.randomUUID
@@ -21,13 +21,15 @@ function generateReqId(): string {
  * @param req - Request object or URL string to fetch
  * @param handler - Name of the handler method on the DO to call with the response
  * @param doBindingName - Name of the DO binding for return routing
+ * @param options - Optional configuration for timeout, retries, etc.
  * @returns Promise that resolves when the request is queued
  */
 export async function proxyFetch(
   doInstance: any, // DurableObject instance with ctx and env properties
   req: Request | string,
   handler: string,
-  doBindingName: string
+  doBindingName: string,
+  options?: ProxyFetchOptions
 ): Promise<void> {
   // Generate unique request ID
   const reqId = generateReqId();
@@ -44,6 +46,7 @@ export async function proxyFetch(
     doBindingName,
     instanceId: doInstance.ctx.id.toString(),
     timestamp: Date.now(),
+    options,
   };
   doInstance.ctx.storage.kv.put(`proxy-fetch:${reqId}`, JSON.stringify(metadata));
   
@@ -53,6 +56,8 @@ export async function proxyFetch(
     request: serializedRequest,
     doBindingName,
     instanceId: doInstance.ctx.id.toString(),
+    retryCount: 0,
+    options,
   };
   
   await doInstance.env.PROXY_FETCH_QUEUE.send(queueMessage);
