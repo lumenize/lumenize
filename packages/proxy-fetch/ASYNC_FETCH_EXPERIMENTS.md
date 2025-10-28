@@ -98,7 +98,7 @@ When you attempt to open more than 6 connections:
 - Earlier connections can delay later ones
 - Stalled connections may be closed with `Response closed due to connection limit` exception
 
-**No documented limit on pending queue capacity** - appears to be quite large (our experiment attempted 100 without errors, though we couldn't measure accurately due to clock stopping).
+**Pending queue capacity**: No documented limit. Our experiments successfully queued 200 fetches without errors. According to a Cloudflare employee on Discord (October 28, 2025), he believes the actual limit is **more than 1000** - far more than needed for typical use cases.
 
 ### Stalled Connection Detection
 

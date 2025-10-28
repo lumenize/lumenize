@@ -4,7 +4,9 @@
  * @module @lumenize/proxy-fetch
  */
 
-export { proxyFetch } from './proxyFetch';
+export { proxyFetch, proxyFetchQueue } from './proxyFetch';
+export { proxyFetchDO } from './proxyFetchDO';
 export { proxyFetchQueueConsumer } from './proxyFetchQueueConsumer';
+export { ProxyFetchDO } from './ProxyFetchDurableObject';
 
 export type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';

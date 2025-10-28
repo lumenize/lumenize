@@ -1,41 +1,6 @@
 import { deserializeWebApiObject } from '@lumenize/utils';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
-
-/**
- * Default configuration options
- */
-const DEFAULT_OPTIONS: Required<ProxyFetchOptions> = {
-  timeout: 30000, // 30 seconds
-  maxRetries: 3,
-  retryDelay: 1000, // 1 second
-  maxRetryDelay: 10000, // 10 seconds
-  retryOn5xx: true,
-};
-
-/**
- * Determine if an error or response is retryable
- */
-function isRetryable(error: Error | null, response: Response | null, options: Required<ProxyFetchOptions>): boolean {
-  // Network errors are always retryable
-  if (error) {
-    return true;
-  }
-  
-  // 5xx errors are retryable if configured
-  if (response && options.retryOn5xx && response.status >= 500 && response.status < 600) {
-    return true;
-  }
-  
-  return false;
-}
-
-/**
- * Calculate retry delay with exponential backoff
- */
-function getRetryDelay(retryCount: number, options: Required<ProxyFetchOptions>): number {
-  const delay = options.retryDelay * Math.pow(2, retryCount);
-  return Math.min(delay, options.maxRetryDelay);
-}
+import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
 
 /**
  * Queue consumer that fetches external APIs and routes responses back to DOs.
