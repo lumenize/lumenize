@@ -6,8 +6,9 @@ description: Cost-effective external API calls from Durable Objects using Cloudf
 # Proxy Fetch
 
 Make external API calls from Durable Objects without paying for wall-clock time. 
-`@lumenize/proxy-fetch` offloads HTTP fetches to Workers (CPU billing) or a shared DO via 
-Cloudflare Queues, letting your DOs hibernate while waiting for responses.
+`@lumenize/proxy-fetch` offloads HTTP fetches to Workers (CPU billing) via 
+Cloudflare Queues or a shared DO, stopping the accrual of wall clock time charges while 
+waiting for responses.
 
 ## The Problem
 
@@ -18,14 +19,14 @@ Durable Objects are billed on **wall clock time**, not CPU time. When a DO makes
 **Example Cost Scenario:**
 ```
 100,000 fetches/day × 200ms avg = 20,000 seconds/day per instance
-over 30 days => 600,000 seconds => 170 hours/month wall clock time per instance
-1,000 instances => 170,000 hours/month => 230 months wall clock time per month
-@ $4/month
+Over 30 days => 600,000 seconds => 167 hours/month wall clock time per instance
+1,000 instances => 167,000 hours/month
+@ $4/month per 1,000 hours
 ======================================================================
-$720/month waiting on external APIs
+$668/month waiting on external APIs
 ```
 
-Note, the above cost calculations do not take into account the additional requests
+Note: The above cost calculations do not take into account the additional requests
 charges. Those are smaller in comparison, but not zero.
 
 ## The Solution
@@ -34,7 +35,7 @@ charges. Those are smaller in comparison, but not zero.
 (Proxy Fetch Queue variant)! Similarly, the wall clock charges of running one DO 24/7 to 
 serve the fetch needs of 1,000 DOs is only ~$4/month (other Proxy Fetch variants)!
 
-By satisifying external fetches somewhere else (Worker or shared DO):
+By satisfying external fetches somewhere else (Worker or shared DO):
 - ✅ DO wall clock billing stops as soon as fetch is queued
 - ✅ Worker makes fetch with CPU billing or shared DO that is running 24/7
 - ✅ Response delivered back to DO via Workers RPC
