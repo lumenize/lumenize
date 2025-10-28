@@ -1,12 +1,19 @@
 import { DurableObject } from 'cloudflare:workers';
-import { ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
-import { proxyFetchDO } from '../../src/proxyFetch';
+import { ProxyFetchDO as _ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
+import { proxyFetch } from '../../src/proxyFetch';
+import type { ProxyFetchHandlerItem } from '../../src/types';
 import { instrumentDOProject } from '@lumenize/testing';
 
+// Re-export the base DO classes for typing in tests
+export { _ProxyFetchDO };
+
 /**
- * TestDO - Test DO for integration testing
+ * _TestDO - Test DO for integration testing
+ * 
+ * This follows the pedagogical pattern from the docs - uses proxyFetch() 
+ * which auto-detects DO vs Queue variant based on environment bindings.
  */
-export class TestDO extends DurableObject {
+export class _TestDO extends DurableObject {
   #results: Map<string, any> = new Map();
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -14,43 +21,69 @@ export class TestDO extends DurableObject {
   }
 
   /**
-   * Trigger a proxy fetch request from this DO
+   * Business logic that needs to call external API - uses proxyFetch() auto-detect
    */
-  async triggerProxyFetch(url: string, handler?: string, options?: any): Promise<string> {
-    return proxyFetchDO(this, url, 'TEST_DO', handler, options);
+  async myBusinessProcess(url: string, handler?: string, options?: any): Promise<string> {
+    // Uses proxyFetch() which auto-detects DO vs Queue variant
+    const reqId = await proxyFetch(
+      this,         // DO instance
+      url,          // URL or Request object
+      'TEST_DO',    // DO binding name
+      handler,      // Handler method name (optional for fire-and-forget)
+      options       // Options (optional)
+    );
+    return reqId;
   }
 
-  async handleSuccess(item: any): Promise<void> {
-    console.log('TestDO.handleSuccess:', item.reqId);
-    this.#results.set(item.reqId, { success: true, item });
+  /**
+   * Response handler - called when response arrives
+   */
+  async handleSuccess({ response, error, reqId, retryCount, duration }: ProxyFetchHandlerItem): Promise<void> {
+    console.log('_TestDO.handleSuccess:', reqId);
+    if (error) {
+      console.error('Unexpected error in handleSuccess:', error);
+      this.#results.set(reqId, { success: false, item: { reqId, error, retryCount, duration } });
+      return;
+    }
+    
+    // Store successful result
+    this.#results.set(reqId, { 
+      success: true, 
+      item: { reqId, response, retryCount, duration } 
+    });
   }
 
-  async handleError(item: any): Promise<void> {
-    console.log('TestDO.handleError:', item.reqId);
-    this.#results.set(item.reqId, { success: false, item });
+  /**
+   * Error handler - called when fetch fails or returns error status
+   */
+  async handleError({ response, error, reqId, retryCount, duration }: ProxyFetchHandlerItem): Promise<void> {
+    console.log('_TestDO.handleError:', reqId);
+    this.#results.set(reqId, { 
+      success: false, 
+      item: { reqId, response, error, retryCount, duration } 
+    });
   }
 
+  /**
+   * Test helper: Get result for verification
+   */
   async getResult(reqId: string): Promise<any> {
     return this.#results.get(reqId);
   }
 
+  /**
+   * Test helper: Reset state
+   */
   async reset(): Promise<void> {
     this.#results.clear();
   }
 }
 
-interface Env {
-  PROXY_FETCH_DO: DurableObjectNamespace<ProxyFetchDO>;
-  TEST_DO: DurableObjectNamespace<TestDO>;
-  TEST_TOKEN: string;
-  TEST_ENDPOINTS_URL: string;
-}
-
 // Use instrumentDOProject to wrap both DOs with RPC and create worker
 const instrumented = instrumentDOProject({
-  sourceModule: { ProxyFetchDO, TestDO },
+  sourceModule: { ProxyFetchDO: _ProxyFetchDO, TestDO: _TestDO },
   doClassNames: ['ProxyFetchDO', 'TestDO']
 });
 
-export const { ProxyFetchDO: InstrumentedProxyFetchDO, TestDO: InstrumentedTestDO } = instrumented.dos;
+export const { ProxyFetchDO, TestDO } = instrumented.dos;
 export default instrumented.worker;

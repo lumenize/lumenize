@@ -8,6 +8,7 @@ See [PROXY_FETCH_PLAN.md](./PROXY_FETCH_PLAN.md) for detailed implementation pla
 
 ## Later and possibly unrelated
 
+- [ ] We need true integration tests for the Queue variant of proxy-fetch
 - [ ] Writeup my RPC performance findings and put it up as a doc on the website
 - [ ] Show that private methods are not available over Lumenize RPC
 - [ ] Need to test/demo this with Lumenize RPC. Notice the use of the first as a parameter in the second:

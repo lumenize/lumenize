@@ -1,6 +1,6 @@
 {
-  "name": "proxy-fetch-do-tests",
-  "main": "test-worker.ts",
+  "name": "proxy-fetch-live-test",
+  "main": "worker.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [

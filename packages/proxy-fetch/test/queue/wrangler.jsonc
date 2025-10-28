@@ -2,6 +2,10 @@
   "name": "lumenize-proxy-fetch-queue-tests",
   "main": "test-worker-and-dos.ts",
   "compatibility_date": "2025-09-12",
+  "vars": {
+    "TEST_ENDPOINTS_URL": "https://test-endpoints.transformation.workers.dev",
+    "TEST_TOKEN": "1f52af06-7f0b-4822-8eb3-e5859a9c0226"
+  },
   "durable_objects": {
     "bindings": [
       {

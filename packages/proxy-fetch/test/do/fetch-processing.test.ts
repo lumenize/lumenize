@@ -1,13 +1,28 @@
+/**
+ * Integration Tests: ProxyFetchDO Fetch Processing (Low-Level)
+ * 
+ * These are INTEGRATION tests that verify the complete fetch processing flow:
+ * - Manually construct ProxyFetchQueueMessage objects
+ * - Enqueue them via proxyStub.enqueue()
+ * - Wait for async processing (alarm triggers, fetches execute, callbacks deliver)
+ * - Verify results via testStub.getResult()
+ * 
+ * This tests the low-level message processing without using @lumenize/testing helpers.
+ * Uses raw DO stubs obtained from env.PROXY_FETCH_DO.get() and env.TEST_DO.get().
+ * 
+ * For higher-level integration tests using @lumenize/testing, see integration.test.ts.
+ * For unit tests of just the enqueue method, see unit-queue.test.ts.
+ */
 import { describe, test, expect, beforeEach } from 'vitest';
+// @ts-expect-error
 import { env } from 'cloudflare:test';
 import { serializeWebApiObject } from '@lumenize/utils';
 import { createTestEndpoints } from '@lumenize/test-endpoints/src/client';
-import type { ProxyFetchDO, TestDO } from './test-worker';
 import type { ProxyFetchQueueMessage } from '../../src/types';
 
 describe('ProxyFetchDO Fetch Processing', () => {
-  let proxyStub: DurableObjectStub<ProxyFetchDO>;
-  let testStub: DurableObjectStub<TestDO>;
+  let proxyStub: any; // Instrumented DO stub has RPC methods added dynamically
+  let testStub: any; // Instrumented DO stub has RPC methods added dynamically
   let testId: string;
   let TEST_ENDPOINTS: ReturnType<typeof createTestEndpoints>;
 

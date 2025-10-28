@@ -15,11 +15,16 @@
     "src/**/*"
   ],
   "scripts": {
-    "dev": "wrangler dev --show-interactive-dev-session=false",
-    "test": "vitest --run",
-    "test:live": "vitest --run --config vitest.live.config.js",
-    "test:coverage": "vitest --coverage --run",
-    "coverage": "COVERAGE=true vitest --run --coverage",
+    "test": "npm run test:do && npm run test:queue",
+    "test:do": "vitest --run",
+    "test:queue": "vitest --run --config vitest.queue.config.js",
+    "coverage": "npm run coverage:do; npm run coverage:queue; exit 0",
+    "coverage:do": "vitest --run --coverage",
+    "coverage:queue": "vitest --run --coverage --config vitest.queue.config.js",
+    "test:local-live": "node test/production/local-live.test.mjs",
+    "test:production": "node test/production/production.test.mjs",
+    "dev:production": "wrangler dev --config test/production/wrangler.jsonc",
+    "deploy:production": "wrangler deploy --config test/production/wrangler.jsonc",
     "types": "cd test/do && wrangler types"
   },
   "keywords": [

@@ -4,6 +4,7 @@ export default defineWorkersProject({
   test: {
     globals: true,
     testTimeout: 10000,
+    exclude: ['**/node_modules/**', '**/*.mjs'],
     poolOptions: {
       workers: {
         isolatedStorage: false, // Required for WebSocket support

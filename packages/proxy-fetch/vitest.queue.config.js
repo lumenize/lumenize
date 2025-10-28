@@ -1,16 +1,14 @@
 import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 
-// Main config runs DO variant tests
 export default defineWorkersProject({
   test: {
     globals: true,
     testTimeout: 10000,
-    include: ['test/do/**/*.test.ts'],
-    exclude: ['**/node_modules/**', '**/*.mjs', '**/production/**', '**/local-live/**'],
+    include: ['test/queue/**/*.test.ts'],
     poolOptions: {
       workers: {
-        isolatedStorage: false, // Required for WebSocket support
-        wrangler: { configPath: './test/do/wrangler.jsonc' },
+        isolatedStorage: false,
+        wrangler: { configPath: './test/queue/wrangler.jsonc' },
       },
     },
     coverage: {
