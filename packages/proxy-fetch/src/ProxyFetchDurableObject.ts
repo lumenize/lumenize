@@ -85,6 +85,16 @@ export class ProxyFetchDO extends DurableObject {
   }
 
   /**
+   * TEST ONLY: Manually trigger orphaned request recovery
+   * 
+   * This method exists solely for testing. In production, recovery happens
+   * automatically in the constructor when a DO is evicted and reinstantiated.
+   */
+  async triggerRecovery(): Promise<void> {
+    await this.#doRecovery();
+  }
+
+  /**
    * Process a batch of queued items
    * 
    * Moves items from queued to in-flight state and fires off fetch operations.

@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ProxyFetchDO as _ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
-import { proxyFetch } from '../../src/proxyFetch';
+import { proxyFetch, proxyFetchQueue } from '../../src/proxyFetch';
 import type { ProxyFetchHandlerItem } from '../../src/types';
 import { instrumentDOProject } from '@lumenize/testing';
 
@@ -65,10 +65,36 @@ export class _TestDO extends DurableObject {
   }
 
   /**
-   * Test helper: Get result for verification
+   * Test helper: Get stored result
    */
   async getResult(reqId: string): Promise<any> {
     return this.#results.get(reqId);
+  }
+
+  /**
+   * Test helper: Trigger proxyFetch with invalid handler to test validation
+   */
+  async triggerInvalidHandler(): Promise<void> {
+    await proxyFetch(
+      this,
+      'https://test-endpoints.transformation.workers.dev/uuid?token=1f52af06-7f0b-4822-8eb3-e5859a9c0226',
+      'TEST_DO',
+      'nonExistentHandler' // This handler doesn't exist
+    );
+  }
+
+  /**
+   * Test helper: Trigger proxyFetchQueue with invalid handler to test validation
+   * Note: Directly calls proxyFetchQueue() to test Queue variant validation
+   */
+  async triggerInvalidHandlerQueue(): Promise<void> {
+    // Directly call proxyFetchQueue to test Queue variant handler validation
+    await proxyFetchQueue(
+      this,
+      'https://test-endpoints.transformation.workers.dev/uuid?token=1f52af06-7f0b-4822-8eb3-e5859a9c0226',
+      'TEST_DO',
+      'anotherNonExistentHandler' // This handler doesn't exist
+    );
   }
 
   /**

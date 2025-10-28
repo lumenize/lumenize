@@ -109,6 +109,64 @@ describe('Proxy Fetch Integration', () => {
     expect(storedReqId).toBe(reqId);
   });
 
+  test('fire-and-forget mode: no handler callback', { timeout: 5000 }, async () => {
+    const testRequest = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
+    const serializedRequest = await serializeWebApiObject(testRequest);
+    
+    const batch = createMessageBatch('proxy-fetch-queue', [
+      {
+        id: 'fire-forget-msg-1',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          reqId: 'fire-forget-req-1',
+          request: serializedRequest,
+          doBindingName: 'MY_DO',
+          instanceId: 'not-needed-for-fire-and-forget',
+          handlerName: undefined, // No handler = fire-and-forget
+          timestamp: Date.now(),
+        },
+      },
+    ]);
+    
+    const ctx = createExecutionContext();
+    await worker.queue(batch, env);
+    await getQueueResult(batch, ctx);
+    
+    // Message should be acked immediately without callback
+    // Test passes if no errors thrown
+  });
+
+  test('fire-and-forget mode: skips error callback on fetch failure', { timeout: 5000 }, async () => {
+    const testRequest = new Request('https://invalid-domain-for-fire-and-forget.invalid/');
+    const serializedRequest = await serializeWebApiObject(testRequest);
+    
+    const batch = createMessageBatch('proxy-fetch-queue', [
+      {
+        id: 'fire-forget-error-msg-1',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          reqId: 'fire-forget-error-req-1',
+          request: serializedRequest,
+          doBindingName: 'MY_DO',
+          instanceId: 'not-needed-for-fire-and-forget',
+          handlerName: undefined, // No handler = fire-and-forget
+          timestamp: Date.now(),
+          options: { maxRetries: 0 }, // Don't retry
+        },
+      },
+    ]);
+    
+    const ctx = createExecutionContext();
+    await worker.queue(batch, env);
+    await getQueueResult(batch, ctx);
+    
+    // Message should be acked even though fetch failed
+    // No error callback should be attempted since handlerName is undefined
+    // Test passes if no errors thrown
+  });
+
   test('queue consumer processes multiple messages in batch', { timeout: 10000 }, async () => {
     const stub1 = env.MY_DO.getByName('batch-test-1');
     const id1 = await stub1.id;
@@ -472,5 +530,42 @@ describe('Error Handling and Retries', () => {
     const response = await stub.getLastResponse();
     expect(response).toBeDefined();
   });
-});
 
+  test('acks message even when handler throws error', { timeout: 5000 }, async () => {
+    const stub = env.MY_DO.getByName('throwing-handler-test');
+    const id = await stub.id;
+    
+    const request = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
+    const serializedRequest = await serializeWebApiObject(request);
+    
+    const batch = createMessageBatch('proxy-fetch-queue', [
+      {
+        id: 'throwing-msg-1',
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          reqId: 'throwing-req-1',
+          request: serializedRequest,
+          doBindingName: 'MY_DO',
+          instanceId: id.toString(),
+          handlerName: 'handleThrowingError', // This handler throws
+          timestamp: Date.now(),
+          retryCount: 0,
+        },
+      },
+    ]);
+    
+    const ctx = createExecutionContext();
+    await worker.queue(batch, env);
+    await getQueueResult(batch, ctx);
+    
+    // Verify handler was called despite throwing
+    await vi.waitFor(async () => {
+      const wasHandlerCalled = await stub.getHandlerWasCalled();
+      expect(wasHandlerCalled).toBe('throwing-req-1');
+    }, { timeout: 3000 });
+    
+    // Message should be acked (not retried) - user code errors aren't retryable
+    // The test passing means the queue consumer continued processing
+  });
+});

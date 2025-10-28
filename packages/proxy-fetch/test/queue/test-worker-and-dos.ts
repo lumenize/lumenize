@@ -145,6 +145,15 @@ export class MyDO extends DurableObject<Env> {
   }
 
   /**
+   * Handler that throws an error (for testing error handling in queue consumer)
+   */
+  async handleThrowingError({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
+    // Record that we were called before throwing
+    this.ctx.storage.kv.put('handler-was-called', reqId);
+    throw new Error('Handler intentionally threw an error');
+  }
+
+  /**
    * Trigger a proxy fetch (for HTTP endpoint testing)
    */
   async triggerProxyFetch(urlOrRequest: string | Request, handlerName: string): Promise<string> {
@@ -173,6 +182,13 @@ export class MyDO extends DurableObject<Env> {
    */
   async getLastReqId(): Promise<string | null> {
     return this.ctx.storage.kv.get('last-req-id') as string | null;
+  }
+
+  /**
+   * Get handler-was-called flag for test verification
+   */
+  async getHandlerWasCalled(): Promise<string | null> {
+    return this.ctx.storage.kv.get('handler-was-called') as string | null;
   }
 }
 
