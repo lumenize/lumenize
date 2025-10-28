@@ -38,12 +38,69 @@ export class MyDO extends DurableObject<Env> {
     // Process the response
     const data = await response!.json();
     // Store it, process it, whatever your business logic needs
-    this.ctx.storage.kv.put('api-data', JSON.stringify(data));
+    this.ctx.storage.kv.put('api-data', data);
   }
   
   // No proxyFetchHandler method needed! Handlers called directly via RPC.
   
   // ========== Test helper methods below ==========
+  
+  /**
+   * Example: Using reqId to correlate with stored context
+   */
+  async fetchUserWithContext(userId: string): Promise<void> {
+    const reqId = await proxyFetch(
+      this,
+      `https://api.example.com/users/${userId}`,
+      'MY_DO',
+      'handleUserWithContext'
+    );
+    
+    // Store context associated with this specific request
+    this.ctx.storage.kv.put(`context:${reqId}`, {
+      userId,
+      requestedAt: Date.now(),
+      source: 'user-sync'
+    });
+  }
+  
+  /**
+   * Handler that retrieves context using reqId
+   */
+  async handleUserWithContext({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
+    // Retrieve the context we stored using reqId
+    const context = this.ctx.storage.kv.get(`context:${reqId}`) as { userId: string; requestedAt: number; source: string } | null;
+    if (!context) {
+      console.error(`No context found for reqId: ${reqId}`);
+      return;
+    }
+    
+    if (error) {
+      console.error(`[${reqId}] Fetch failed for user ${context.userId}:`, error);
+      // Store error with context
+      this.ctx.storage.kv.put(`error:${context.userId}`, {
+        error: error.message,
+        reqId,
+        context
+      });
+      // Clean up context
+      this.ctx.storage.kv.delete(`context:${reqId}`);
+      return;
+    }
+    
+    const userData = await response!.json();
+    console.log(`[${reqId}] Processed user ${context.userId} in ${Date.now() - context.requestedAt}ms`);
+    
+    // Store result with both API data and our context
+    this.ctx.storage.kv.put(`user:${context.userId}`, {
+      userData,
+      fetchedFrom: context.source,
+      reqId
+    });
+    
+    // Clean up context now that we're done
+    this.ctx.storage.kv.delete(`context:${reqId}`);
+  }
   
   /**
    * Handler for successful responses (for tests)
@@ -58,14 +115,14 @@ export class MyDO extends DurableObject<Env> {
     // Process the response
     const data = await response!.json();
     // Store for test verification
-    this.ctx.storage.kv.put('last-response', JSON.stringify(data));
+    this.ctx.storage.kv.put('last-response', data);
     this.ctx.storage.kv.put('last-req-id', reqId);
   }
   
   /**
    * Handler for error cases (for tests)
    */
-  async handleError({ response, error }: ProxyFetchHandlerItem): Promise<void> {
+  async handleError({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
       console.error('Fetch failed:', error);
       this.ctx.storage.kv.put('last-error', error.message);
@@ -76,6 +133,14 @@ export class MyDO extends DurableObject<Env> {
     if (response && !response.ok) {
       console.error('HTTP error:', response.status, response.statusText);
       this.ctx.storage.kv.put('last-response-status', response.status);
+      return;
+    }
+    
+    // Store successful responses too (for test verification)
+    if (response && response.ok) {
+      const data = await response.json();
+      this.ctx.storage.kv.put('last-response', data);
+      this.ctx.storage.kv.put('last-req-id', reqId);
     }
   }
 
@@ -93,8 +158,7 @@ export class MyDO extends DurableObject<Env> {
    * Get stored response data for test verification
    */
   async getLastResponse(): Promise<any> {
-    const data = this.ctx.storage.kv.get('last-response') as string | null;
-    return data ? JSON.parse(data) : null;
+    return this.ctx.storage.kv.get('last-response');
   }
 
   /**

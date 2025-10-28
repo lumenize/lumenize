@@ -30,12 +30,12 @@ charges. Those are smaller in comparison, but not zero.
 
 ## The Solution
 
-**Key Insight:** Cloudflare Workers are billed on **CPU time**, not wall clock time!
-Similarly, running one DO to serve the fetch needs of 1,000 DOs is only $4/month!
+**Key Insight:** Cloudflare Workers are billed on **CPU time**, not wall clock time 
+(Proxy Fetch Queue variant)! Similarly, the wall clock charges of running one DO 24/7 to 
+serve the fetch needs of 1,000 DOs is only ~$4/month (other Proxy Fetch variants)!
 
-By satisifying external fetches somewhere else (Worker or shared DO), you:
+By satisifying external fetches somewhere else (Worker or shared DO):
 - ✅ DO wall clock billing stops as soon as fetch is queued
-     DO can hibernate for requests > 10 seconds
 - ✅ Worker makes fetch with CPU billing or shared DO that is running 24/7
 - ✅ Response delivered back to DO via Workers RPC
 
@@ -44,9 +44,9 @@ By satisifying external fetches somewhere else (Worker or shared DO), you:
 ```mermaid @skip-check
 sequenceDiagram
     box rgb(240, 248, 255) Durable Object
-        participant User as Your Code
+        participant User as My Code
         participant ProxyFetch as proxyFetch()
-        participant Handler as yourHandler()
+        participant Handler as myHandler()
     end
     participant Queue as Queue
     box rgb(255, 250, 240) Worker
@@ -54,7 +54,7 @@ sequenceDiagram
     end
     participant API as External API
 
-    User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'handleResponse')
+    User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'myHandler')
     ProxyFetch->>Queue: Queue request + handler name
     ProxyFetch-->>User: Returns reqId immediately
     Note over User,Handler: DO wall clock billing stops (can hibernate in 10 seconds) ⚡
@@ -62,9 +62,8 @@ sequenceDiagram
     Queue->>QueueConsumer: Deliver message
     QueueConsumer->>API: fetch(request)
     API-->>QueueConsumer: Response
-    QueueConsumer->>Handler: RPC: yourHandler(response)
+    QueueConsumer->>Handler: RPC: myHandler(response)
     Note over User,Handler: DO wall clock billing restarts (wakes if hibernated)
-    Handler->>User: Process response
 ```
 
 ## Variants

@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",
-    "test:code": "npm run test -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils",
+    "test:code": "npm run test -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils -w @lumenize/proxy-fetch",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",
     "type-check": "npm run type-check -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils",
