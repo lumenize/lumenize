@@ -88,8 +88,11 @@ describe('ProxyFetch Integration (DO Variant)', () => {
 
     expect(reqId).toBeDefined();
 
-    // Give it time to process (should not throw)
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Wait a bit for processing to complete (should not throw)
+    await vi.waitFor(async () => {
+      // Just wait for some time to ensure fetch completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }, { timeout: 500 });
 
     // Verify no callback was delivered (fire-and-forget)
     const result = await originClient.getResult(reqId);

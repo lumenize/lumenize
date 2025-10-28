@@ -118,7 +118,7 @@ describe('Proxy Fetch Integration', () => {
     
     // Create a batch with multiple messages using real serialization
     const req1 = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
-    const req2 = new Request(`${env.TEST_ENDPOINTS_URL}/delay/1000?token=${env.TEST_TOKEN}`); // 1 second = 1000ms
+    const req2 = new Request(`${env.TEST_ENDPOINTS_URL}/delay/500?token=${env.TEST_TOKEN}`); // 500ms delay
     const serializedReq1 = await serializeWebApiObject(req1);
     const serializedReq2 = await serializeWebApiObject(req2);
     
@@ -272,7 +272,7 @@ describe('Error Handling and Retries', () => {
     const id = await stub.id;
     
     // test-endpoints.transformation.workers.dev/delay/N delays for N milliseconds
-    const timeoutRequest = new Request(`${env.TEST_ENDPOINTS_URL}/delay/10000?token=${env.TEST_TOKEN}`); // 10 second delay = 10000ms
+    const timeoutRequest = new Request(`${env.TEST_ENDPOINTS_URL}/delay/5000?token=${env.TEST_TOKEN}`); // 5 second delay
     const serializedRequest = await serializeWebApiObject(timeoutRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -289,7 +289,7 @@ describe('Error Handling and Retries', () => {
           timestamp: Date.now(),
           retryCount: 0,
           options: { 
-            timeout: 1000, // 1 second timeout
+            timeout: 500, // 500ms timeout
             maxRetries: 0, // No retries for this test
           },
         },
@@ -304,10 +304,10 @@ describe('Error Handling and Retries', () => {
     await vi.waitFor(async () => {
       const error = await stub.getLastError();
       expect(error).toBeDefined();
-    }, { timeout: 5000 });
+    }, { timeout: 3000 });
     
     const error = await stub.getLastError();
-    expect(error).toContain('Request timeout after 1000ms');
+    expect(error).toContain('Request timeout after 500ms');
   });
 
   test('retries network errors with exponential backoff', { timeout: 15000 }, async () => {
