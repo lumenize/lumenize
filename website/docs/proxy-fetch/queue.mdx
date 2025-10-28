@@ -7,7 +7,11 @@ description: Route fetch requests through Cloudflare Queues for cost-effective e
 
 Route fetch requests through Cloudflare Queues to Workers with CPU billing.
 - Automatically scales to cloud-scale
-- High latency penalty (60ms to 2-3 seconds p90)
+- High latency penalty (200ms to 2-3 seconds p90)
+
+:::tip Auto-Selection
+`proxyFetch()` automatically selects the Queue variant when it detects a `PROXY_FETCH_QUEUE` binding in your environment. If you have multiple proxy-fetch variants configured and want to explicitly use the Queue variant, call `proxyFetchQueue()` directly instead.
+:::
 
 ## How It Works
 
@@ -48,10 +52,10 @@ npm install @lumenize/proxy-fetch
 
 Add queue configuration to your `wrangler.jsonc`:
 
-```jsonc title="wrangler.jsonc" @check-example('packages/proxy-fetch/wrangler.jsonc')
+```jsonc title="wrangler.jsonc" @check-example('packages/proxy-fetch/test/queue/wrangler.jsonc')
 {
-  "name": "lumenize-proxy-fetch",
-  "main": "test/test-worker-and-dos.ts",
+  "name": "lumenize-proxy-fetch-queue-tests",
+  "main": "test-worker-and-dos.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [
@@ -90,7 +94,7 @@ Add queue configuration to your `wrangler.jsonc`:
 
 ### 3. Set Up DO
 
-```typescript title="src/my-do.ts" @check-example('packages/proxy-fetch/test/test-worker-and-dos.ts')
+```typescript title="src/my-do.ts" @check-example('packages/proxy-fetch/test/queue/test-worker-and-dos.ts')
 import { DurableObject } from 'cloudflare:workers';
 import { proxyFetch } from '@lumenize/proxy-fetch';
 import type { ProxyFetchHandlerItem } from '@lumenize/proxy-fetch';
@@ -137,7 +141,7 @@ export class MyDO extends DurableObject<Env> {
 
 In your worker, handle queue messages:
 
-```typescript title="src/index.ts" @check-example('packages/proxy-fetch/test/test-worker-and-dos.ts')
+```typescript title="src/index.ts" @check-example('packages/proxy-fetch/test/queue/test-worker-and-dos.ts')
 import { proxyFetchQueueConsumer } from '@lumenize/proxy-fetch';
 
 export default {
@@ -374,7 +378,7 @@ async handleUserData({ response, error }: ProxyFetchHandlerItem): Promise<void> 
 
 Use `reqId` to correlate responses with stored context:
 
-```typescript @check-example('packages/proxy-fetch/test/test-worker-and-dos.ts')
+```typescript @check-example('packages/proxy-fetch/test/queue/test-worker-and-dos.ts')
 /**
  * Example: Using reqId to correlate with stored context
  */

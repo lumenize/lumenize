@@ -22,6 +22,7 @@ We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and t
 - After each step/phase, ask for code review before proceeding. Ask "Ready to proceed with [next step/phase]?" after completing each step or phase.
 - Pre-publication packages: Don't worry about backward compatibility when refactoring unpublished APIs.
 - API changes: Mark one test as `.only` to verify the new pattern works, then update remaining tests.
+- **CRITICAL SECURITY: NEVER put secrets, tokens, API keys, or credentials directly in source code files (including wrangler.jsonc, tsconfig.json, etc.). Always use `.dev.vars` files (which are gitignored) or environment variables. Tokens in wrangler.jsonc `vars` section will be committed to git.**
 
 ## How we do things around here
 

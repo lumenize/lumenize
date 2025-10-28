@@ -11,6 +11,8 @@ import { ulidFactory } from 'ulid-workers';
 import { createTestingClient } from '@lumenize/testing';
 import { _ProxyFetchDO } from './test-worker';
 import { serializeWebApiObject } from '@lumenize/utils';
+// @ts-expect-error - cloudflare:test types not available at compile time
+import { env } from 'cloudflare:test';
 
 const ulid = ulidFactory();
 
@@ -23,7 +25,7 @@ it('recovers orphaned requests from in-flight state', async () => {
   // Manually inject a request into "in-flight" state to simulate an orphaned request
   const requestUlid = ulid();
   const testRequest = new Request(
-    'https://test-endpoints.transformation.workers.dev/uuid?token=1f52af06-7f0b-4822-8eb3-e5859a9c0226',
+    `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`,
     { method: 'GET' }
   );
   const serializedRequest = await serializeWebApiObject(testRequest);
@@ -72,7 +74,7 @@ it('expires old orphaned requests', async () => {
   const oldUlid = oldUlidFactory(thirtyOneMinutesAgo);
   
   const expiredRequest = new Request(
-    'https://test-endpoints.transformation.workers.dev/uuid?token=1f52af06-7f0b-4822-8eb3-e5859a9c0226',
+    `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`,
     { method: 'GET' }
   );
   const serializedExpiredRequest = await serializeWebApiObject(expiredRequest);

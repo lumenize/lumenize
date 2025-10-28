@@ -6,9 +6,126 @@ description: Use a dedicated proxy DO to handle external fetches
 # Durable Object-Based Proxy Fetch
 
 Uses a dedicated proxy DO to handle fetches.
-- Simpler
-- Low latency penalty
+- Simpler configuration than Queue variant
+- Low latency penalty (~50-100ms)
 - Max throughput under ideal conditions is 1,000 DOs doing 100,000 fetches per day each
   - Divide by 10 if peak burst throughput is 10x mean throughput
 
-## Coming Soon
+:::tip Auto-Selection
+`proxyFetch()` automatically selects the DO variant when it detects a `PROXY_FETCH_DO` binding in your environment. If you have multiple proxy-fetch variants configured and want to explicitly use the DO variant, call `proxyFetchDO()` directly instead.
+:::
+
+## How It Works
+
+```mermaid @skip-check
+sequenceDiagram
+    box rgb(240, 248, 255) Your Durable Object
+        participant User as My Code
+        participant ProxyFetch as proxyFetch()
+        participant Handler as myHandler()
+    end
+    box rgb(255, 250, 240) ProxyFetchDO
+        participant ProxyFetchDO as ProxyFetchDO
+    end
+    participant API as External API
+
+    User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'myHandler')
+    ProxyFetch->>ProxyFetchDO: RPC: enqueue request + handler name
+    ProxyFetch-->>User: Returns reqId immediately
+    Note over User,Handler: Your DO wall clock billing continues ⚡
+
+    ProxyFetchDO->>API: fetch(request)
+    API-->>ProxyFetchDO: Response
+    ProxyFetchDO->>Handler: RPC: myHandler(response)
+```
+
+## Documentation
+
+The DO variant works identically to the [Queue variant](/docs/proxy-fetch/queue) with the same API, error handling, request patterns, and best practices. The only difference is the configuration.
+
+## Configuration
+
+### 1. Install
+
+```bash @skip-check
+npm install @lumenize/proxy-fetch
+```
+
+### 2. Configure Durable Object Binding
+
+Add the ProxyFetchDO binding to your `wrangler.jsonc`:
+
+```jsonc title="wrangler.jsonc" @skip-check
+{
+  "name": "lumenize-proxy-fetch",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PROXY_FETCH_DO",
+        "class_name": "ProxyFetchDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ProxyFetchDO"
+      ]
+    }
+  ]
+}
+```
+
+**Imortant:** `PROXY_FETCH_DO` binding name is required (this is what `proxyFetch()` 
+looks for)
+
+### 3. Set Up Your DO
+
+Use the same API as the Queue variant:
+
+```typescript title="src/my-do.ts" @skip-check
+import { DurableObject } from 'cloudflare:workers';
+import { proxyFetch } from '@lumenize/proxy-fetch';
+import type { ProxyFetchHandlerItem } from '@lumenize/proxy-fetch';
+
+export class MyDO extends DurableObject<Env> {
+  /**
+   * Your business logic that needs to call external API
+   */
+  async myBusinessProcess(): Promise<void> {
+    // Send to ProxyFetchDO - returns reqId immediately
+    const reqId = await proxyFetch(
+      this,                    // DO instance
+      'https://api.example.com/data',  // URL or Request object
+      'MY_DO',                 // DO binding name
+      'myResponseHandler'      // Handler method name (optional for fire-and-forget)
+    );
+    
+    // Response will arrive later via myResponseHandler()
+  }
+
+  /**
+   * Your response handler - called when response arrives
+   */
+  async myResponseHandler({
+    response,
+    error,
+    reqId 
+  }: ProxyFetchHandlerItem): Promise<void> {
+    if (error) {
+      console.error('Fetch failed:', error);
+      return;
+    }
+    
+    // Process the response
+    const data = await response!.json();
+    // Store it, process it, whatever your business logic needs
+    this.ctx.storage.kv.put('api-data', data);
+  }
+  // ...
+}
+```
+

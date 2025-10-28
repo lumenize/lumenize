@@ -1,0 +1,2 @@
+TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
+TEST_TOKEN=your-secret-token-here

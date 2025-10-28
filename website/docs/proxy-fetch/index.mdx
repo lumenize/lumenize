@@ -80,10 +80,24 @@ high-volume use cases where you can live with high latency penalty.
 ### [Durable Object](/docs/proxy-fetch/durable-object)
 Use a dedicated proxy DO to handle fetches. Simpler. Low latency penalty. 
 Max throughput is 1,000 DOs doing 100,000 fetches per day each steady state. 
-Divide by 10 if burst throughput is 10x mean throughput. **Coming soon**.
+Divide by 10 if burst throughput is 10x mean throughput. **Currently available**.
 
 ### [Streaming](/docs/proxy-fetch/streaming)
 Stream large responses back to your DO. **Coming soon**.
 
 ### [Agents](/docs/proxy-fetch/agents)
 Proxy SSE MCP and LLM stutter-speak responses back to DO. **Coming soon**.
+
+## Variant Comparison
+
+| Feature | DO Variant | Queue Variant |
+|---------|-----------|---------------|
+| **Latency** | ~50-100ms | 200ms-3s (p90) |
+| **Throughput** | ~100k req/day per DO | Cloud-scale |
+| **Configuration** | ProxyFetchDO binding | Queue binding |
+| **Billing** | ~$4/month (1 DO 24/7) + 3x req count | 2x req count |
+| **Function to call** | `proxyFetch()` or `proxyFetchDO()` | `proxyFetch()` or `proxyFetchQueue()` |
+
+All variants share the same API for error handling, fire-and-forget mode, and request 
+patterns. See the [Queue variant docs](/docs/proxy-fetch/queue) for complete guidance and 
+examples.
