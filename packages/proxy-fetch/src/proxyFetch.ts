@@ -12,7 +12,7 @@ function generateReqId(): string {
  * Send a fetch request to be executed by a Worker via queue.
  * 
  * This function allows Durable Objects to offload external fetch() calls to Workers,
- * avoiding wall-clock billing. The response is delivered asynchronously via a callback
+ * avoiding wall-clock billing. The response is delivered later via a callback
  * handler method on the DO, or not at all if handler is omitted (fire-and-forget).
  * 
  * **Must be called from within a Durable Object** as it uses `ctx.storage` and `ctx.id`.
@@ -34,7 +34,7 @@ export async function proxyFetch(
 ): Promise<string> {
   // Validate handler exists if provided
   if (handler && typeof doInstance[handler] !== 'function') {
-    throw new Error(`Handler method '${handler}' not found on DO instance. Fire-and-forget mode requires omitting the handler parameter.`);
+    throw new Error(`Handler method '${handler}' not found on DO instance`);
   }
   
   // Generate unique request ID
