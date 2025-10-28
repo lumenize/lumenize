@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/proxy-fetch",
-  "version": "0.1.0",
+  "version": "0.13.0",
   "description": "De✨light✨ful proxy fetch for cost-effective external API calls from Durable Objects",
   "type": "module",
   "main": "src/index.ts",
@@ -44,7 +44,7 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/utils": "*"
+    "@lumenize/utils": "^0.13.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
