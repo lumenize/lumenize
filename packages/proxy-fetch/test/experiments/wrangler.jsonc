@@ -1,0 +1,21 @@
+{
+  "name": "proxy-fetch-experiments",
+  "main": "experiment-worker.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EXPERIMENT_DO",
+        "class_name": "ExperimentDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ExperimentDO"
+      ]
+    }
+  ]
+}
