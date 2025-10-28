@@ -15,12 +15,10 @@
     "src/**/*"
   ],
   "scripts": {
-    "test": "npm run test:do && npm run test:queue",
-    "test:do": "vitest --run",
-    "test:queue": "vitest --run --config vitest.queue.config.js",
-    "coverage": "npm run coverage:do; npm run coverage:queue; exit 0",
-    "coverage:do": "vitest --run --coverage",
-    "coverage:queue": "vitest --run --coverage --config vitest.queue.config.js",
+    "test": "vitest --run",
+    "test:do": "vitest --run --project do",
+    "test:queue": "vitest --run --project queue",
+    "coverage": "vitest --run --coverage",
     "test:local-live": "node test/production/local-live.test.mjs",
     "test:production": "node test/production/production.test.mjs",
     "dev:production": "wrangler dev --config test/production/wrangler.jsonc",

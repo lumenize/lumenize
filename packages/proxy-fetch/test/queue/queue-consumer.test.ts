@@ -260,8 +260,9 @@ describe('Proxy Fetch Integration', () => {
     
     const response = await stub.getLastResponse();
     expect(response).toHaveProperty('headers');
-    expect(response.headers).toHaveProperty('X-Custom-Header');
-    expect(response.headers['X-Custom-Header']).toBe('test-value');
+    // Headers are normalized to lowercase by Cloudflare Workers
+    expect(response.headers).toHaveProperty('x-custom-header');
+    expect(response.headers['x-custom-header']).toBe('test-value');
   });
 });
 
