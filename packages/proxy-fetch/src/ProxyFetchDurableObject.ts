@@ -55,11 +55,11 @@ export class ProxyFetchDO extends DurableObject {
     this.#recoverOrphanedRequests();
   }
 
-  /**
-   * Enqueue a fetch request for processing
+    /**
+   * Enqueue a request for async processing
    * 
    * Called by proxyFetchDO() client function to add a request to the queue.
-   * Generates a monotonic ULID for FIFO ordering and triggers alarm processing.
+   * Generates a monotonic ULID for FIFO ordering and immediately processes the queue.
    * 
    * @param request - Serialized request with metadata
    */
@@ -70,27 +70,28 @@ export class ProxyFetchDO extends DurableObject {
     // Store in queued state
     this.ctx.storage.kv.put(`reqs-queued:${requestUlid}`, request);
     
-    console.log('[ProxyFetchDO] Enqueued request', {
-      reqId: request.reqId,
-      ulid: requestUlid,
-      url: request.request?.url,
-    });
-    
-    // Trigger alarm to process queue
-    await this.#scheduleAlarm();
+    // Process queue immediately instead of waiting for alarm
+    await this.#processQueue();
   }
 
   /**
    * Process the queue via alarm
    * 
-   * Alarm is triggered automatically by Cloudflare when scheduled. Processes a batch
-   * of queued items, moving them to in-flight state and firing off fetch operations.
-   * Reschedules itself if more items remain in queue.
+   * Alarm is triggered automatically by Cloudflare when scheduled. Calls the
+   * shared queue processing logic.
    */
   async alarm(): Promise<void> {
+    await this.#processQueue();
+  }
+
+  /**
+   * Process a batch of queued items
+   * 
+   * Moves items from queued to in-flight state and fires off fetch operations.
+   * Schedules an alarm if more items remain in the queue.
+   */
+  async #processQueue(): Promise<void> {
     try {
-      console.log('[ProxyFetchDO] Alarm triggered - processing queue');
-      
       // Process batch of queued items (full throttle - no artificial limits)
       const queued = this.ctx.storage.kv.list({ 
         prefix: 'reqs-queued:', 
@@ -138,7 +139,7 @@ export class ProxyFetchDO extends DurableObject {
         await this.#scheduleAlarm();
       }
     } catch (error) {
-      console.error('[ProxyFetchDO] Alarm processing error:', error);
+      console.error('[ProxyFetchDO] Queue processing error:', error);
       // Back off and retry
       await this.ctx.storage.setAlarm(Date.now() + 1000);
     }

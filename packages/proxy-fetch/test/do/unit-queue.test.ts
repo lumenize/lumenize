@@ -83,8 +83,8 @@ describe('ProxyFetchDO Storage Queue', () => {
         timestamp: Date.now(),
       },
       {
-        reqId: 'req-3',
-        request: { url: `${env.TEST_ENDPOINTS_URL}/delay/1?token=${env.TEST_TOKEN}`, method: 'GET' },
+        reqId: 'test-request-3',
+        request: { url: `${env.TEST_ENDPOINTS_URL}/delay/1000?token=${env.TEST_TOKEN}`, method: 'GET' }, // 1 second = 1000ms
         doBindingName: 'TEST_DO',
         instanceId: 'id-3',
         handlerName: 'handleSuccess',

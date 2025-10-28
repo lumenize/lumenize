@@ -118,7 +118,7 @@ describe('Proxy Fetch Integration', () => {
     
     // Create a batch with multiple messages using real serialization
     const req1 = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
-    const req2 = new Request(`${env.TEST_ENDPOINTS_URL}/delay/1?token=${env.TEST_TOKEN}`);
+    const req2 = new Request(`${env.TEST_ENDPOINTS_URL}/delay/1000?token=${env.TEST_TOKEN}`); // 1 second = 1000ms
     const serializedReq1 = await serializeWebApiObject(req1);
     const serializedReq2 = await serializeWebApiObject(req2);
     
@@ -271,8 +271,8 @@ describe('Error Handling and Retries', () => {
     const stub = env.MY_DO.getByName('timeout-test');
     const id = await stub.id;
     
-    // test-endpoints.transformation.workers.dev/delay/N delays for N seconds
-    const timeoutRequest = new Request(`${env.TEST_ENDPOINTS_URL}/delay/10?token=${env.TEST_TOKEN}`); // 10 second delay
+    // test-endpoints.transformation.workers.dev/delay/N delays for N milliseconds
+    const timeoutRequest = new Request(`${env.TEST_ENDPOINTS_URL}/delay/10000?token=${env.TEST_TOKEN}`); // 10 second delay = 10000ms
     const serializedRequest = await serializeWebApiObject(timeoutRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [

@@ -8,7 +8,7 @@
  * - GET /uuid - Returns JSON with a random UUID
  * - GET /json - Returns sample JSON data
  * - GET /status/{code} - Returns specified HTTP status code
- * - GET /delay/{seconds} - Delays response by N seconds (max 30)
+ * - GET /delay/{milliseconds} - Delays response by N milliseconds (max 30000)
  * - POST /post - Echoes back request body and headers
  * 
  * Authentication (one of):
@@ -76,21 +76,21 @@ export default {
         return new Response('', { status: code });
       }
 
-      // GET /delay/{seconds} - delay response (max 30 seconds)
+      // GET /delay/{milliseconds} - delay response (max 30000ms / 30 seconds)
       if (path.startsWith('/delay/') && request.method === 'GET') {
-        const seconds = parseInt(path.split('/')[2]);
-        if (isNaN(seconds) || seconds < 0) {
+        const ms = parseInt(path.split('/')[2]);
+        if (isNaN(ms) || ms < 0) {
           return new Response('Invalid delay value', { status: 400 });
         }
-        if (seconds > 30) {
-          return new Response('Delay too long (max 30 seconds)', { status: 400 });
+        if (ms > 30000) {
+          return new Response('Delay too long (max 30000ms)', { status: 400 });
         }
         
         // Delay the response
-        await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+        await new Promise(resolve => setTimeout(resolve, ms));
         
         return Response.json({ 
-          delay: seconds,
+          delay: ms,
           timestamp: new Date().toISOString()
         });
       }
