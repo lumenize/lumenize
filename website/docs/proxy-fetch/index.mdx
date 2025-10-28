@@ -21,13 +21,14 @@ Durable Objects are billed on **wall clock time**, not CPU time. When a DO makes
 100,000 fetches/day × 200ms avg = 20,000 seconds/day per instance
 Over 30 days => 600,000 seconds => 167 hours/month wall clock time per instance
 1,000 instances => 167,000 hours/month
-@ $4/month per 1,000 hours
+@ ~$0.006 per hour
 ======================================================================
-$668/month waiting on external APIs
+~$1000/month waiting on external APIs
 ```
 
 Note: The above cost calculations do not take into account the additional requests
-charges. Those are smaller in comparison, but not zero.
+charges incurred when using `@lumenize/proxy-fetch`. Those are smaller in comparison, 
+but not zero.
 
 ## The Solution
 
