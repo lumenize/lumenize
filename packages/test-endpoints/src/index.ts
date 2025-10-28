@@ -11,21 +11,27 @@
  * - GET /delay/{seconds} - Delays response by N seconds (max 30)
  * - POST /post - Echoes back request body and headers
  * 
- * All requests must include: X-Test-Token: <token from env.TEST_TOKEN>
+ * Authentication (one of):
+ * - X-Test-Token: <token> header
+ * - ?token=<token> query parameter
  */
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Token check for all requests
-    const token = request.headers.get('X-Test-Token');
+    const url = new URL(request.url);
+    
+    // Token check for all requests - accept via header OR query parameter
+    const headerToken = request.headers.get('X-Test-Token');
+    const queryToken = url.searchParams.get('token');
+    const token = headerToken || queryToken;
+    
     if (!env.TEST_TOKEN || token !== env.TEST_TOKEN) {
-      return new Response('Unauthorized - X-Test-Token header required', { 
+      return new Response('Unauthorized - X-Test-Token header or ?token= query parameter required', { 
         status: 401,
         headers: { 'Content-Type': 'text/plain' }
       });
     }
 
-    const url = new URL(request.url);
     const path = url.pathname;
 
     try {

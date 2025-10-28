@@ -6,18 +6,18 @@
     "bindings": [
       {
         "name": "PROXY_FETCH_DO",
-        "class_name": "ProxyFetchDO"
+        "class_name": "InstrumentedProxyFetchDO"
       },
       {
         "name": "TEST_DO",
-        "class_name": "TestDO"
+        "class_name": "InstrumentedTestDO"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["ProxyFetchDO", "TestDO"]
+      "new_sqlite_classes": ["InstrumentedProxyFetchDO", "InstrumentedTestDO"]
     }
   ],
   "vars": {

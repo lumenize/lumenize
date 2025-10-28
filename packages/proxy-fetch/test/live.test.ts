@@ -43,7 +43,7 @@ describe('Proxy Fetch Live Integration', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         doName: testId,
-        url: 'https://httpbin.org/json',
+        url: 'https://test-endpoints.transformation.workers.dev/json',
         handlerName: 'handleSuccess',
       }),
     });
@@ -86,7 +86,7 @@ describe('Proxy Fetch Live Integration', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         doName: testId,
-        url: 'https://httpbin.org/post',
+        url: 'https://test-endpoints.transformation.workers.dev/post',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -136,7 +136,7 @@ describe('Proxy Fetch Live Integration', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         doName: testId,
-        url: 'https://httpbin.org/status/404',
+        url: 'https://test-endpoints.transformation.workers.dev/status/404',
         handlerName: 'handleError',
       }),
     });

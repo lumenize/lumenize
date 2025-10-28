@@ -1,0 +1,4 @@
+worker-configuration.d.ts
+test/**/worker-configuration.d.ts
+.wrangler/
+.dev.vars

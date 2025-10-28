@@ -20,7 +20,7 @@
     "test:live": "vitest --run --config vitest.live.config.js",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
-    "types": "wrangler types"
+    "types": "cd test/do && wrangler types"
   },
   "keywords": [
     "cloudflare",

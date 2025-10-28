@@ -1,8 +1,7 @@
-import { WorkerEntrypoint, DurableObject } from 'cloudflare:workers';
+import { DurableObject } from 'cloudflare:workers';
 import { ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
-
-// Re-export ProxyFetchDO for wrangler bindings
-export { ProxyFetchDO };
+import { proxyFetchDO } from '../../src/proxyFetch';
+import { instrumentDOProject } from '@lumenize/testing';
 
 /**
  * TestDO - Test DO for integration testing
@@ -12,6 +11,13 @@ export class TestDO extends DurableObject {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+  }
+
+  /**
+   * Trigger a proxy fetch request from this DO
+   */
+  async triggerProxyFetch(url: string, handler?: string, options?: any): Promise<string> {
+    return proxyFetchDO(this, url, 'TEST_DO', handler, options);
   }
 
   async handleSuccess(item: any): Promise<void> {
@@ -33,18 +39,18 @@ export class TestDO extends DurableObject {
   }
 }
 
-/**
- * Worker entrypoint for testing
- */
-export default class TestWorker extends WorkerEntrypoint<Env> {
-  async fetch(request: Request): Promise<Response> {
-    return new Response('Test worker for ProxyFetchDO');
-  }
-}
-
 interface Env {
   PROXY_FETCH_DO: DurableObjectNamespace<ProxyFetchDO>;
   TEST_DO: DurableObjectNamespace<TestDO>;
   TEST_TOKEN: string;
   TEST_ENDPOINTS_URL: string;
 }
+
+// Use instrumentDOProject to wrap both DOs with RPC and create worker
+const instrumented = instrumentDOProject({
+  sourceModule: { ProxyFetchDO, TestDO },
+  doClassNames: ['ProxyFetchDO', 'TestDO']
+});
+
+export const { ProxyFetchDO: InstrumentedProxyFetchDO, TestDO: InstrumentedTestDO } = instrumented.dos;
+export default instrumented.worker;
