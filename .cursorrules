@@ -1,0 +1,52 @@
+# Lumenize Development Rules
+
+> For details see AGENTS.md. For Durable Objects concepts see CLOUDFLARE_DO_GUIDE.md.
+
+## Critical "Don't Do This" Rules
+
+- **NEVER use pnpm or yarn** - only npm
+- **NEVER use TypeScript `private`** - use `#` prefix
+- **NEVER use async storage** - only `ctx.storage.kv.*` or `ctx.storage.sql.*` (not `ctx.storage.put/get`)
+- **NEVER use wrangler compatibility_date before "2025-09-12"**
+- **NEVER commit secrets** - use `.dev.vars` (gitignored)
+- **NEVER create temp docs** - only `/website/docs/` `.mdx` files
+
+## Cloudflare Durable Objects - CRITICAL
+
+**Keep DO methods synchronous** (no `async`/`await`) except:
+- `fetch()`, `alarm()`, WebSocket handlers, `ctx.waitUntil()` callbacks
+
+**Never use** (outside `ctx.waitUntil()`):
+- `setTimeout`, `setInterval`
+
+**Why**: `async` breaks input/output gates → race conditions
+
+**Instance lifecycle**:
+- Fetch from storage at handler start
+- Persist before returning
+- Don't rely on instance variables
+
+## Code Patterns
+
+- Use TypeBox for anything crossing boundaries (network/process/storage)
+- TypeScript types for in-memory only
+- Package.json points to `src/` in dev (modified during publish)
+- Run tests: `vitest --run`
+- Integration tests primary, unit tests only for complex algorithms
+- For doc examples: create `test/for-docs/`, use `@check-example` annotations
+
+## Documentation
+
+- All docs in `/website/docs/` and `/website/sidebars.ts`
+- Use `doc-testing` plugin for literate programming
+- Use `check-examples` plugin to validate examples against tests
+- README.md: minimal, link to lumenize.com
+
+## Workflow
+
+- Use WIP.md for multi-step plans
+- Ask permission before installing npm packages
+- Ask "Ready to proceed?" after each phase
+- Favor breaking changes over technical debt
+- When refactoring: mark one test `.only`, verify, update others
+
