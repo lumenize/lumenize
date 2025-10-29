@@ -34,6 +34,21 @@ export default defineConfig({
           },
         },
       }),
+      // Documentation validation tests - minimal test to verify docs work
+      defineWorkersProject({
+        test: {
+          name: 'for-docs',
+          globals: true,
+          testTimeout: 3000,
+          include: ['test/for-docs/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              isolatedStorage: false, // Required for WebSocket support
+              wrangler: { configPath: './test/for-docs/wrangler.jsonc' },
+            },
+          },
+        },
+      }),
     ],
     coverage: {
       provider: 'istanbul',

@@ -55,7 +55,7 @@ npm install @lumenize/proxy-fetch
 
 Add the ProxyFetchDO binding to your `wrangler.jsonc`:
 
-```jsonc title="wrangler.jsonc" @skip-check
+```jsonc title="wrangler.jsonc" @check-example('packages/proxy-fetch/test/for-docs/wrangler.jsonc')
 {
   "name": "lumenize-proxy-fetch",
   "main": "src/index.ts",
@@ -65,6 +65,10 @@ Add the ProxyFetchDO binding to your `wrangler.jsonc`:
       {
         "name": "PROXY_FETCH_DO",
         "class_name": "ProxyFetchDO"
+      },
+      {
+        "name": "MY_DO",
+        "class_name": "MyDO"
       }
     ]
   },
@@ -72,39 +76,52 @@ Add the ProxyFetchDO binding to your `wrangler.jsonc`:
     {
       "tag": "v1",
       "new_sqlite_classes": [
-        "ProxyFetchDO"
+        "ProxyFetchDO",
+        "MyDO"
       ]
     }
   ]
 }
 ```
 
-**Imortant:** `PROXY_FETCH_DO` binding name is required (this is what `proxyFetch()` 
+**Important:** `PROXY_FETCH_DO` binding name is required (this is what `proxyFetch()` 
 looks for)
 
 ### 3. Set Up Your DO
 
 Use the same API as the Queue variant:
 
-```typescript title="src/my-do.ts" @skip-check
+```typescript title="src/my-do.ts" @check-example('packages/proxy-fetch/test/for-docs/src/index.ts')
 import { DurableObject } from 'cloudflare:workers';
+import { ProxyFetchDO } from '@lumenize/proxy-fetch';
 import { proxyFetch } from '@lumenize/proxy-fetch';
 import type { ProxyFetchHandlerItem } from '@lumenize/proxy-fetch';
 
-export class MyDO extends DurableObject<Env> {
+// Re-export ProxyFetchDO - required for the binding to work
+export { ProxyFetchDO };
+
+/**
+ * Your Durable Object that uses proxy-fetch
+ */
+export class MyDO extends DurableObject {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+  }
+
   /**
    * Your business logic that needs to call external API
    */
-  async myBusinessProcess(): Promise<void> {
+  async myBusinessProcess(): Promise<string> {
     // Send to ProxyFetchDO - returns reqId immediately
     const reqId = await proxyFetch(
       this,                    // DO instance
-      'https://api.example.com/data',  // URL or Request object
+      `${this.env.TEST_ENDPOINTS_URL}/uuid?token=${this.env.TEST_TOKEN}`,
       'MY_DO',                 // DO binding name
-      'myResponseHandler'      // Handler method name (optional for fire-and-forget)
+      'myResponseHandler'      // Handler method name
     );
     
     // Response will arrive later via myResponseHandler()
+    return reqId;
   }
 
   /**
@@ -117,13 +134,12 @@ export class MyDO extends DurableObject<Env> {
   }: ProxyFetchHandlerItem): Promise<void> {
     if (error) {
       console.error('Fetch failed:', error);
+      this.ctx.storage.kv.put('last-error', error.message);
       return;
     }
     
-    // Process the response
-    const data = await response!.json();
-    // Store it, process it, whatever your business logic needs
-    this.ctx.storage.kv.put('api-data', data);
+    // Store success - response was received
+    this.ctx.storage.kv.put('callback-received', reqId);
   }
   // ...
 }

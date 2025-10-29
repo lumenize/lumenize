@@ -166,6 +166,7 @@ All wrangler.jsonc files for Worker packages should:
 - **No test ossification**: Don't make tests pass at all costs after a refactor if the behavior should be deprecated
 - **No technical debt to avoid test updates**: Never create aliases just to avoid modifying tests - fix them properly
 - **Single test iteration during API changes**: When refactoring a package API, mark one test as `.only` to get the new pattern working, then update others
+- **Leave working tests alone**: When documentation examples need validation, create separate minimal test projects (e.g., `test/for-docs/`) rather than modifying existing integration tests. Existing tests serve their purpose - new minimal tests serve documentation validation.
 
 ### Documentation
 - **All user-facing documentation goes directly into `/website/docs/`** - This is our Docusaurus-based documentation site at https://lumenize.com
