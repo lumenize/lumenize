@@ -44,9 +44,11 @@
 
 ## Workflow
 
-- Use WIP.md for multi-step plans
+- Create task file in `tasks/[project-name].md` for multi-phase projects
+- Update `tasks/backlog.md` for small standalone tasks
 - Ask permission before installing npm packages
 - Ask "Ready to proceed?" after each phase
 - Favor breaking changes over technical debt
 - When refactoring: mark one test `.only`, verify, update others
+- Archive completed projects to `tasks/archive/`
 

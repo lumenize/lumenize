@@ -15,10 +15,16 @@ Lumenize is a collection of liberally licensed (MIT) and more restrictively lice
 
 ## Development Workflow Instructions
 
-We use WIP.md (WIP stands for Work in Progress) to create multi-step plans and track progress on them. The contents are broken down into phases and steps or for smaller efforts, just steps.
+We use task files in the `tasks/` directory to track work:
+- **`tasks/backlog.md`** - Small tasks and ideas for casual coding time
+- **`tasks/[project-name].md`** - Active multi-phase projects with detailed plans
+- **`tasks/decisions/`** - Research findings and technical decisions
+- **`tasks/archive/`** - Completed projects for reference
+
+When starting a new project, create a task file with phases and steps. See `tasks/README.md` for template and usage.
 
 ### General Development Rules
-- When we change our minds on the plan from learning of earlier steps, propose updates to the plan in WIP.md.
+- When we change our minds on the plan from learning of earlier steps, propose updates to the task file.
 - Provide clear summaries of what was implemented after each step.
 - Explain design decisions and trade-offs.
 - After each step/phase, ask for code review before proceeding. Ask "Ready to proceed with [next step/phase]?" after completing each step or phase.
