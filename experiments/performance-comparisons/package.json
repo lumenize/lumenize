@@ -1,6 +1,6 @@
 {
   "name": "@lumenize-experiments/performance-comparisons",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lumenize/rpc": "^0.13.0",
+    "@lumenize/rpc": "^0.14.0",
     "capnweb": "^0.1.0"
   },
   "devDependencies": {
