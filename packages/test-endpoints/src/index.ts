@@ -9,7 +9,7 @@
  * - GET /json - Returns sample JSON data
  * - GET /status/{code} - Returns specified HTTP status code
  * - GET /delay/{milliseconds} - Delays response by N milliseconds (max 30000)
- * - POST /post - Echoes back request body and headers
+ * - POST /echo - Echoes back request body and headers
  * 
  * Authentication (one of):
  * - X-Test-Token: <token> header
@@ -95,8 +95,8 @@ export default {
         });
       }
 
-      // POST /post - echo back request body and headers
-      if (path === '/post' && request.method === 'POST') {
+      // POST /echo - echo back request body and headers
+      if (path === '/echo' && request.method === 'POST') {
         let jsonBody = null;
         const contentType = request.headers.get('Content-Type') || '';
         

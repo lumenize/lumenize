@@ -279,7 +279,7 @@ describe('Proxy Fetch Integration', () => {
     const id = await stub.id;
     
     // Create message with POST request and custom headers using real serialization
-    const postRequest = new Request(`${env.TEST_ENDPOINTS_URL}/post?token=${env.TEST_TOKEN}`, {
+    const postRequest = new Request(`${env.TEST_ENDPOINTS_URL}/echo?token=${env.TEST_TOKEN}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

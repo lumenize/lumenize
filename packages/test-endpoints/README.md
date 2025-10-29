@@ -12,7 +12,7 @@ All requests require `X-Test-Token: <token>` header (configured via `TEST_TOKEN`
 - **GET /json** - Returns sample JSON data
 - **GET /status/{code}** - Returns specified HTTP status code
 - **GET /delay/{seconds}** - Delays response by N seconds (max 30)
-- **POST /post** - Echoes back request body and headers
+- **POST /echo** - Echoes back request body and headers
 
 ## Setup
 

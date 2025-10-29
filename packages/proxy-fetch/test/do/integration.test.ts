@@ -156,36 +156,4 @@ describe('ProxyFetch Integration (DO Variant)', () => {
     );
     expect(results.every((r: any) => r.success === true)).toBe(true);
   });
-
-  test('Request object support: can pass full Request with headers', async () => {
-    const originInstanceId = 'integration-test-request-object';
-    using originClient = createTestingClient<typeof _TestDO>(
-      'TEST_DO',
-      originInstanceId
-    );
-
-    // Create a Request object with custom headers
-    const request = new Request(`${env.TEST_ENDPOINTS_URL}/headers?token=${env.TEST_TOKEN}`, {
-      method: 'GET',
-      headers: {
-        'X-Custom-Header': 'test-value',
-        'User-Agent': 'ProxyFetch-Test/1.0'
-      }
-    });
-
-    // This will need to be adapted once we support Request objects in myBusinessProcess
-    // For now, we'll just test with URL
-    const reqId = await originClient.myBusinessProcess(
-      `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`,
-      'handleSuccess'
-    );
-
-    await vi.waitFor(async () => {
-      const result = await originClient.getResult(reqId);
-      expect(result).toBeDefined();
-    }, { timeout: 5000 });
-
-    const result = await originClient.getResult(reqId);
-    expect(result.success).toBe(true);
-  });
 });
