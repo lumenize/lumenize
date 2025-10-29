@@ -32,11 +32,12 @@ sequenceDiagram
     User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'myHandler')
     ProxyFetch->>ProxyFetchDO: RPC: enqueue request + handler name
     ProxyFetch-->>User: Returns reqId immediately
-    Note over User,Handler: Your DO wall clock billing continues ⚡
+    Note over User,Handler: DO wall clock billing stops (can hibernate in 10 seconds)
 
     ProxyFetchDO->>API: fetch(request)
     API-->>ProxyFetchDO: Response
     ProxyFetchDO->>Handler: RPC: myHandler(response)
+    Note over User,Handler: DO wall clock billing resumes (wakes if hibernated)
 ```
 
 ## Documentation

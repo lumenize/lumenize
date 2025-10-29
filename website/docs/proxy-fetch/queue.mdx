@@ -31,13 +31,13 @@ sequenceDiagram
     User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'myHandler')
     ProxyFetch->>Queue: Queue request + handler name
     ProxyFetch-->>User: Returns reqId immediately
-    Note over User,Handler: DO wall clock billing stops (can hibernate in 10 seconds) ⚡
+    Note over User,Handler: DO wall clock billing stops (can hibernate in 10 seconds)
 
     Queue->>QueueConsumer: Deliver message
     QueueConsumer->>API: fetch(request)
     API-->>QueueConsumer: Response
     QueueConsumer->>Handler: RPC: myHandler(response)
-    Note over User,Handler: DO wall clock billing restarts (wakes if hibernated)
+    Note over User,Handler: DO wall clock billing resumes (wakes if hibernated)
 ```
 
 ## Quick Start
