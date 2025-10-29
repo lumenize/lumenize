@@ -77,7 +77,7 @@ export class _TestDO extends DurableObject {
   async triggerInvalidHandler(): Promise<void> {
     await proxyFetch(
       this,
-      `https://test-endpoints.transformation.workers.dev/uuid?token=${this.env.TEST_TOKEN}`,
+      `${this.env.TEST_ENDPOINTS_URL}/uuid?token=${this.env.TEST_TOKEN}`,
       'TEST_DO',
       'nonExistentHandler' // This handler doesn't exist
     );
@@ -91,7 +91,7 @@ export class _TestDO extends DurableObject {
     // Directly call proxyFetchQueue to test Queue variant handler validation
     await proxyFetchQueue(
       this,
-      `https://test-endpoints.transformation.workers.dev/uuid?token=${this.env.TEST_TOKEN}`,
+      `${this.env.TEST_ENDPOINTS_URL}/uuid?token=${this.env.TEST_TOKEN}`,
       'TEST_DO',
       'anotherNonExistentHandler' // This handler doesn't exist
     );

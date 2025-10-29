@@ -33,6 +33,19 @@ When starting a new project, create a task file with phases and steps. See `task
 
 ## How we do things around here
 
+### Environment Variables and Secrets
+**Centralized `.dev.vars` management**:
+- Single root `/lumenize/.dev.vars` file (gitignored) contains all secrets
+- Test directories use symlinks to the root `.dev.vars`
+- `/lumenize/.dev.vars.example` provides template for contributors
+- `scripts/setup-symlinks.sh` automatically creates/verifies symlinks (runs via `postinstall` hook)
+- Run manually anytime: `./scripts/setup-symlinks.sh`
+
+**When adding new test environments**:
+1. Add symlink to `scripts/setup-symlinks.sh` SYMLINKS array
+2. Add any new variables to root `.dev.vars` and `.dev.vars.example`
+3. Run `./scripts/setup-symlinks.sh` to verify setup
+
 ### Tools
 - Use `npm`. Never `pnpm` or `yarn`.
 - If the library is installed never use `npx` because it requires me to approve it.

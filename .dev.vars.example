@@ -1,9 +1,13 @@
+# Local development secrets
+# Copy this file to .dev.vars and fill in the values
+
 # Test token for test-endpoints service
-# This token is required by all endpoints for authentication
 # For local dev, use: lumenize-test-local-dev-2025
+# Must match the token configured in your test-endpoints deployment
 TEST_TOKEN=your-test-token-here
 
-# Test endpoints URL (for contributors who deploy their own instance)
+# Test endpoints URL
 # Default: https://test-endpoints.transformation.workers.dev
 # For your own deployment: https://your-test-endpoints.workers.dev
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
+

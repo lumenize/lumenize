@@ -18,13 +18,9 @@ All requests require `X-Test-Token: <token>` header (configured via `TEST_TOKEN`
 
 ### Local Development
 
-Create `.dev.vars` in the test package directory (already gitignored):
+The repository has a root `.dev.vars` file with `TEST_TOKEN` and `TEST_ENDPOINTS_URL`. Test directories symlink to it.
 
-```bash
-TEST_TOKEN=lumenize-test-local-dev-2025
-```
-
-This file is automatically loaded by wrangler during local development and testing.
+For contributors: Copy `/lumenize/.dev.vars.example` to `/lumenize/.dev.vars` and update if deploying your own instance.
 
 ### Production Deployment
 
@@ -36,18 +32,16 @@ echo "your-secret-token" | wrangler secret put TEST_TOKEN
 npm run deploy
 ```
 
-**Security Note**: The production token should match the token in your test `.dev.vars` files, or you can use different tokens for local vs production if needed.
+**Security Note**: The production token must match `TEST_TOKEN` in your root `.dev.vars` file for tests to pass.
 
 ## Usage in Tests
-
-The test package must have a `.dev.vars` file with matching `TEST_TOKEN`:
 
 ```typescript
 import { createTestEndpoints } from '@lumenize/test-endpoints/src/client';
 import { env } from 'cloudflare:test';
 
 // In your test
-const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN);
+const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL);
 
 const response = await TEST_ENDPOINTS.fetch('/uuid');
 const data = await response.json();
@@ -62,21 +56,12 @@ const request = TEST_ENDPOINTS.createRequest('/json', {
 
 ## Adding to New Test Packages
 
-1. Add `.dev.vars` to your test directory (where `wrangler.jsonc` is located):
-   ```
-   TEST_TOKEN=lumenize-test-local-dev-2025
-   ```
-
-2. Add env binding to your test wrangler.jsonc (wrangler loads TEST_TOKEN from .dev.vars):
-   ```jsonc
-   {
-     "vars": {
-       "TEST_ENDPOINTS_URL": "https://test-endpoints.transformation.workers.dev"
-     }
-   }
+1. Create a symlink to root `.dev.vars`:
+   ```bash
+   ln -sf ../../../../.dev.vars packages/your-package/test/.dev.vars
    ```
 
-3. Update your test worker's Env interface:
+2. Update your test worker's Env interface:
    ```typescript
    interface Env {
      TEST_TOKEN: string;
@@ -85,5 +70,5 @@ const request = TEST_ENDPOINTS.createRequest('/json', {
    }
    ```
 
-4. Use in tests as shown above.
+3. Use in tests as shown above.
 

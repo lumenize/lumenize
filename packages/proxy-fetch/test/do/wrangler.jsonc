@@ -19,8 +19,5 @@
       "tag": "v1",
       "new_sqlite_classes": ["ProxyFetchDO", "TestDO"]
     }
-  ],
-  "vars": {
-    "TEST_ENDPOINTS_URL": "https://test-endpoints.transformation.workers.dev"
-  }
+  ]
 }

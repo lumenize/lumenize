@@ -3,17 +3,16 @@
  * 
  * Use this instead of httpbin.org for reliable, fast test endpoints.
  * 
- * The token is stored in .dev.vars for local dev and as a Cloudflare secret in production.
+ * The token and URL are stored in .dev.vars for local dev and as Cloudflare secrets in production.
  */
-
-const BASE_URL = 'https://test-endpoints.transformation.workers.dev';
 
 /**
- * Create test endpoints client with token from environment
+ * Create test endpoints client with token and URL from environment
  * 
- * @param token - Test token (from env.TEST_TOKEN in tests)
+ * @param token - Test token (from env.TEST_TOKEN)
+ * @param baseUrl - Base URL for test endpoints (from env.TEST_ENDPOINTS_URL)
  */
-export function createTestEndpoints(token: string) {
+export function createTestEndpoints(token: string, baseUrl: string) {
   return {
     /**
      * Create request with test token header
@@ -22,7 +21,7 @@ export function createTestEndpoints(token: string) {
       const headers = new Headers(init?.headers);
       headers.set('X-Test-Token', token);
       
-      return new Request(`${BASE_URL}${path}`, {
+      return new Request(`${baseUrl}${path}`, {
         ...init,
         headers
       });

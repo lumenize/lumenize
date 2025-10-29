@@ -8,7 +8,7 @@
 - **NEVER use TypeScript `private`** - use `#` prefix
 - **NEVER use async storage** - only `ctx.storage.kv.*` or `ctx.storage.sql.*` (not `ctx.storage.put/get`)
 - **NEVER use wrangler compatibility_date before "2025-09-12"**
-- **NEVER commit secrets** - use `.dev.vars` (gitignored)
+- **NEVER commit secrets** - use root `.dev.vars` (gitignored, auto-symlinked via postinstall)
 - **NEVER create temp docs** - only `/website/docs/` `.mdx` files
 
 ## Cloudflare Durable Objects - CRITICAL
