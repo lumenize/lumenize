@@ -5,6 +5,17 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/**/*",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "dev": "tsc --watch",
     "clean": "rm -rf dist",

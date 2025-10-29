@@ -18,6 +18,7 @@ PACKAGES=(
   "packages/rpc"
   "packages/testing"
   "packages/utils"
+  "packages/proxy-fetch"
 )
 
 echo ""

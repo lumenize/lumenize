@@ -36,6 +36,7 @@ PACKAGES=(
   "packages/rpc"
   "packages/testing"
   "packages/utils"
+  "packages/proxy-fetch"
 )
 
 for package in "${PACKAGES[@]}"; do

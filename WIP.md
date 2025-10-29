@@ -1,12 +1,12 @@
 # Work In Progress (WIP)
 
-## Current Focus: @lumenize/proxy-fetch - Cost-Effective External Fetch Offloading
+## Current Focus
 
-See [PROXY_FETCH_PLAN.md](./PROXY_FETCH_PLAN.md) for detailed implementation plan.
+Nothing active - ready for next project!
 
 ---
 
-## Later and possibly unrelated
+## Backlog
 
 - [ ] We need true integration tests for the Queue variant of proxy-fetch
 - [ ] Writeup my RPC performance findings and put it up as a doc on the website
