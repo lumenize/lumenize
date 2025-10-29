@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/test-endpoints",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Test HTTP endpoints for Lumenize integration tests",
   "type": "module",
   "main": "src/index.ts",

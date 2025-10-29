@@ -41,7 +41,7 @@ should always be up to date.
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.14.0');
+  expect(lumenizeRpcPackage.version).toBe('0.14.1');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
 
