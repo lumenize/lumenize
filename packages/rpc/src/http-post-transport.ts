@@ -93,4 +93,11 @@ export class HttpPostRpcTransport implements RpcTransport {
     return true;
   }
 
+  /**
+   * No-op for HTTP transport (keep-alive not applicable for stateless requests)
+   */
+  setKeepAlive(enabled: boolean): void {
+    // HTTP transport is stateless, no keep-alive needed
+  }
+
 }

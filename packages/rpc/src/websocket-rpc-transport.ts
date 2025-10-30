@@ -31,11 +31,17 @@ export class WebSocketRpcTransport implements RpcTransport {
     doInstanceNameOrId: string;
     timeout: number;
     WebSocketClass?: typeof WebSocket;
+    clientId?: string;
   };
   #ws: WebSocket | null = null;
   #connectionPromise: Promise<void> | null = null;
   #pendingBatches: Map<string, PendingBatch> = new Map();
   #messageType: string; // e.g., '__rpc' (prefix with slashes removed)
+  #messageHandler?: (data: string) => boolean | Promise<boolean>;
+  #keepAliveEnabled: boolean = false;
+  #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
+  #reconnectAttempts: number = 0;
+  #heartbeatIntervalId?: ReturnType<typeof setInterval>;
 
   constructor(config: {
     baseUrl: string;
@@ -44,6 +50,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     doInstanceNameOrId: string;
     timeout: number;
     WebSocketClass?: typeof WebSocket;
+    clientId?: string;
   }) {
     this.#config = config;
     // Extract message type from prefix (remove leading/trailing slashes)
@@ -55,6 +62,38 @@ export class WebSocketRpcTransport implements RpcTransport {
    */
   isConnected(): boolean {
     return this.#ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Register a message handler to intercept incoming messages.
+   * Handler returns true if message was handled, false to use default RPC logic.
+   */
+  setMessageHandler(handler: (data: string) => boolean | Promise<boolean>): void {
+    this.#messageHandler = handler;
+  }
+
+  /**
+   * Enable/disable keep-alive mode with auto-reconnect.
+   * When enabled:
+   * - Sends periodic ping messages to keep connection alive
+   * - Automatically reconnects when connection drops
+   * - Can reconnect hours/days later (browser tab sleep/wake)
+   */
+  setKeepAlive(enabled: boolean): void {
+    this.#keepAliveEnabled = enabled;
+    
+    if (!enabled) {
+      // Disable keep-alive: clear timers
+      if (this.#reconnectTimeoutId) {
+        clearTimeout(this.#reconnectTimeoutId);
+        this.#reconnectTimeoutId = undefined;
+      }
+      if (this.#heartbeatIntervalId) {
+        clearInterval(this.#heartbeatIntervalId);
+        this.#heartbeatIntervalId = undefined;
+      }
+      this.#reconnectAttempts = 0;
+    }
   }
 
   /**
@@ -95,7 +134,17 @@ export class WebSocketRpcTransport implements RpcTransport {
     }
 
     // Create WebSocket connection
-    const ws = new WebSocketClass(wsUrl);
+    // For Node.js 'ws' library, pass headers in options (second parameter can be options)
+    // For browser WebSocket, second parameter is protocols (array), so this will be ignored
+    const wsOptions = this.#config.clientId ? {
+      headers: {
+        'X-Client-Id': this.#config.clientId
+      }
+    } : undefined;
+    
+    const ws = wsOptions 
+      ? new WebSocketClass(wsUrl, wsOptions as any)
+      : new WebSocketClass(wsUrl);
     this.#ws = ws;
 
     // Setup event handlers
@@ -106,6 +155,14 @@ export class WebSocketRpcTransport implements RpcTransport {
       const onOpen = () => {
         ws.removeEventListener('open', onOpen);
         ws.removeEventListener('error', onError);
+        // Reset reconnect attempts on successful connection
+        this.#reconnectAttempts = 0;
+        
+        // Start heartbeat if keep-alive is enabled
+        if (this.#keepAliveEnabled) {
+          this.#startHeartbeat();
+        }
+        
         resolve();
       };
 
@@ -132,7 +189,13 @@ export class WebSocketRpcTransport implements RpcTransport {
     const doBindingName = cleanSegment(this.#config.doBindingName);
     const doInstanceNameOrId = cleanSegment(this.#config.doInstanceNameOrId);
     
-    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
+    let url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
+    
+    // Add clientId as query parameter for browser WebSocket (which doesn't support custom headers)
+    if (this.#config.clientId) {
+      url += `?clientId=${encodeURIComponent(this.#config.clientId)}`;
+    }
+    
     return url;
   }
 
@@ -162,21 +225,100 @@ export class WebSocketRpcTransport implements RpcTransport {
         reason: event.reason
       });
 
+      // Stop heartbeat
+      if (this.#heartbeatIntervalId) {
+        clearInterval(this.#heartbeatIntervalId);
+        this.#heartbeatIntervalId = undefined;
+      }
+
       // Reject all pending batches
       for (const [batchId, pending] of this.#pendingBatches.entries()) {
         clearTimeout(pending.timeoutId);
         pending.reject(new Error('WebSocket connection closed'));
       }
       this.#pendingBatches.clear();
+
+      // Schedule reconnect if keep-alive is enabled
+      if (this.#keepAliveEnabled) {
+        this.#scheduleReconnect();
+      }
     });
   }
 
   /**
-   * Handle incoming WebSocket message (always expects batch format wrapped in type envelope)
+   * Start heartbeat interval to keep connection alive
+   */
+  #startHeartbeat(): void {
+    // Clear any existing heartbeat
+    if (this.#heartbeatIntervalId) {
+      clearInterval(this.#heartbeatIntervalId);
+    }
+
+    // Send ping every 30 seconds
+    this.#heartbeatIntervalId = setInterval(() => {
+      if (this.isConnected()) {
+        try {
+          this.#ws?.send('ping');
+        } catch (error) {
+          console.error('%o', {
+            type: 'error',
+            where: 'WebSocketRpcTransport.startHeartbeat',
+            message: 'Failed to send ping',
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    }, 30000); // 30 seconds
+  }
+
+  /**
+   * Schedule reconnection with exponential backoff
+   */
+  #scheduleReconnect(): void {
+    // Clear any existing reconnect timeout
+    if (this.#reconnectTimeoutId) {
+      clearTimeout(this.#reconnectTimeoutId);
+    }
+
+    // Calculate delay with exponential backoff (max 30 seconds)
+    const delay = Math.min(1000 * Math.pow(2, this.#reconnectAttempts), 30000);
+    this.#reconnectAttempts++;
+
+    console.debug('%o', {
+      type: 'debug',
+      where: 'WebSocketRpcTransport',
+      message: 'Scheduling reconnect',
+      delay,
+      attempt: this.#reconnectAttempts
+    });
+
+    this.#reconnectTimeoutId = setTimeout(() => {
+      this.connect().catch((error) => {
+        console.error('%o', {
+          type: 'error',
+          where: 'WebSocketRpcTransport.scheduleReconnect',
+          message: 'Reconnection failed',
+          error: error instanceof Error ? error.message : String(error)
+        });
+        // Will trigger another reconnect via close handler
+      });
+    }, delay);
+  }
+
+  /**
+   * Handle incoming WebSocket message (RPC responses or downstream messages)
    */
   async #handleMessage(data: string): Promise<void> {
     try {
-      // Parse the response using @lumenize/structured-clone
+      // If message handler is registered, let it try to handle the message first
+      if (this.#messageHandler) {
+        const handled = await this.#messageHandler(data);
+        if (handled) {
+          return; // Message was handled by custom handler
+        }
+      }
+
+      // Default RPC handling: Parse the response using @lumenize/structured-clone
       const messageResponse: RpcWebSocketMessageResponse = await parse(data);
 
       // Verify type

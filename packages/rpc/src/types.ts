@@ -289,5 +289,23 @@ export interface RpcTransport {
   connect?(): Promise<void>;
   disconnect?(): void;
   isConnected?(): boolean;
+  
+  /**
+   * Register a message handler to intercept incoming messages (optional).
+   * Handler returns true if message was handled, false for default logic.
+   * Used for downstream messaging - allows application layer to handle non-RPC messages.
+   * Only WebSocket transport implements this.
+   */
+  setMessageHandler?(handler: (data: string) => boolean | Promise<boolean>): void;
+  
+  /**
+   * Enable/disable keep-alive mode (required).
+   * When enabled:
+   * - Uses setWebSocketAutoResponse for heartbeat (WebSocket only)
+   * - Automatically reconnects when connection drops
+   * - Can reconnect hours/days later (browser tab sleep/wake)
+   * HTTP transport implements as no-op.
+   */
+  setKeepAlive(enabled: boolean): void;
 }
 
