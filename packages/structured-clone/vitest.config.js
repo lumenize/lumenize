@@ -1,0 +1,48 @@
+import { defineConfig } from 'vitest/config';
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+
+export default defineConfig({
+  test: {
+    projects: [
+      // Node.js environment - standard npm usage
+      {
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: ['test/**/*.test.ts'],
+          globals: true,
+          testTimeout: 2000,
+        },
+      },
+      // Cloudflare Workers environment - our primary use case
+      defineWorkersProject({
+        test: {
+          name: 'workers',
+          include: ['test/**/*.test.ts'],
+          globals: true,
+          testTimeout: 2000,
+          poolOptions: {
+            workers: {
+              isolatedStorage: false,
+              wrangler: { configPath: './wrangler.jsonc' },
+            },
+          },
+        },
+      }),
+    ],
+    coverage: {
+      provider: 'istanbul',
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/*.config.*',
+        '**/test/**/*.test.ts'
+      ],
+      skipFull: false,
+      all: false,
+    },
+  },
+});
+

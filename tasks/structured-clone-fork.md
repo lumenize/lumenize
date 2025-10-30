@@ -217,35 +217,70 @@ packages/structured-clone/
 
 ## Implementation Phases
 
-### Phase 0: Setup and Research
+### Phase 0: Setup and Research ✅ COMPLETE
 
 **Goal**: Fork repository, understand @ungap's internals, set up package structure.
 
 **Changes**:
-- [ ] Research @ungap/structured-clone implementation
-  - Find their GitHub repository
-  - Identify the object walker/traversal logic
-  - Understand their replacer/reviver pattern
-  - Note their test coverage approach
-- [ ] Create package directory structure
+- [x] Research @ungap/structured-clone implementation
+  - Found GitHub repository: https://github.com/ungap/structured-clone
+  - Identified object walker in `serialize.js` using `serializer()` closure
+  - Uses type constants (VOID, PRIMITIVE, ARRAY, OBJECT, DATE, REGEXP, MAP, SET, ERROR, BIGINT)
+  - `typeOf()` helper for type detection using `toString.call(value)`
+  - Tracks visited objects with Map for cycle detection
+  - `deserialize.js` uses `deserializer()` closure with similar pattern
+  - Simple, clean architecture - perfect for extension
+- [x] Create package directory structure
   - `packages/structured-clone/` with standard Lumenize layout
-  - Copy package.json template from another package
-  - Set up tsconfig.json (extends root)
-  - Set up vitest.config.js (Node environment, not Workers)
-- [ ] License and attribution
-  - Copy MIT license from @ungap/structured-clone
-  - Add entry to root ATTRIBUTIONS.md
-  - Note in package README that it's a fork
-- [ ] Initial package.json
+  - Copied package.json template and adapted
+  - Set up tsconfig.json (extends root, Node types)
+  - Set up tsconfig.build.json for publish builds
+  - Set up vitest.config.js with multi-environment test matrix
+    - Node.js project: Standard npm usage, runs all test files
+    - Workers project: Cloudflare Workers (primary use case), runs same tests
+    - Named projects display as `|node|` and `|workers|` in output
+    - Scripts: `test:node`, `test:workers`, `test` (runs both)
+    - Each test runs in both environments = 2× test coverage
+- [x] License and attribution
+  - Copied ISC license from @ungap/structured-clone (preserved original copyright)
+  - Added Lumenize copyright for extensions
+  - Created root ATTRIBUTIONS.md with full attribution
+  - README acknowledges fork and original author
+- [x] Initial package.json
   - `"name": "@lumenize/structured-clone"`
-  - `"license": "MIT"`
+  - `"license": "ISC"` (preserved from original)
   - `"type": "module"`
   - `"main": "src/index.ts"`
-  - No dependencies initially (we're forking the code)
+  - Zero dependencies (forking the code)
+- [x] Created placeholder exports (src/index.ts)
+  - `stringify`, `parse`, `preprocess`, `postprocess` (all async, throw "not implemented")
+  - Full JSDoc comments explaining purpose
+  - Ready for Phase 1 implementation
 
 **Testing**:
-- [ ] Package builds successfully
-- [ ] Can import from other packages via workspace
+- [x] Package builds successfully
+- [x] Can import from other packages via workspace
+- [x] Multi-environment test matrix works perfectly
+  - Node.js: ✓ 5 tests passing
+  - Workers: ✓ 5 tests passing
+  - Total: 10 test executions (5 tests × 2 environments)
+  - Ensures compatibility across both target environments
+
+**Key Findings from Research**:
+1. **Object Walker**: `serializer()` creates a `pair()` function that recursively walks objects
+2. **Type Detection**: Uses `typeof` + `toString.call()` for robust type detection
+3. **Cycle Handling**: Map tracks `value → index` to detect revisited objects
+4. **Output Format**: Array of `[TYPE, value]` tuples, indexed for cross-references
+5. **Clean Hooks**: Easy to add custom type handling in `typeOf()` switch cases
+6. **Deserializer**: Mirrors serializer structure, reconstructs from indices
+7. **JSON Support**: `json.js` wraps serialize/deserialize with `JSON.stringify/parse`
+
+**Browser Testing (Future)**:
+- Browser environment testing deferred (JSDom not realistic enough)
+- Could add browser project with Playwright or similar in the future
+- Not blocking for Phase 1 - Node + Workers coverage is sufficient
+
+**Next Steps**: Ready for Phase 1 - Port core functionality
 
 ### Phase 1: Port Core Functionality
 
