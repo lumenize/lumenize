@@ -4,16 +4,15 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
-- [ ] True integration tests for Queue variant of proxy-fetch
 - [ ] Show that private methods are not available over Lumenize RPC
 - [ ] Test websocket-shim throws when passed http[s] urls (requires changing matrix tests)
 - [ ] Test in production on Cloudflare (not just local with vitest)
 
 ## Documentation
 
-- [ ] Write up RPC performance findings and publish on website
+- [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
-- [ ] Move promise pipelining from quirks to its own doc section
+- [ ] Move promise pipelining from quirks to its own doc section and use our new name for it Operation Chaining and Nesting (OCAN)
 - [ ] Add comprehensive security documentation (currently just a warning)
 
 ## RPC Features to Demo/Test
