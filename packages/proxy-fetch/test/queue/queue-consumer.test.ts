@@ -19,13 +19,11 @@ import { serializeWebApiObject } from '@lumenize/utils';
 import { proxyFetch } from '../../src/proxyFetch';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
-// Instance name for this test suite
-const INSTANCE_NAME = 'queue-consumer-test';
-const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
-
 describe('proxyFetch() Function', () => {
   test('queues request with URL string', async () => {
-    const stub = env.MY_DO.getByName('proxy-fetch-test');
+    const instanceId = 'proxy-fetch-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     
     // Call proxyFetch from within the DO - should return a reqId
     // @ts-expect-error - cloudflare:test types not available at compile time
@@ -42,7 +40,9 @@ describe('proxyFetch() Function', () => {
   });
 
   test('queues request with Request object and options', async () => {
-    const stub = env.MY_DO.getByName('proxy-fetch-options-test');
+    const instanceId = 'proxy-fetch-options-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     
     // @ts-expect-error - cloudflare:test types not available at compile time
     await runInDurableObject(stub, async (instance) => {
@@ -69,7 +69,9 @@ describe('proxyFetch() Function', () => {
 
 describe('Proxy Fetch Integration', () => {
   test('full flow: DO triggers proxy fetch, queue processes, response delivered', { timeout: 5000 }, async () => {
-    const stub = env.MY_DO.getByName('integration-full-flow');
+    const instanceId = 'integration-full-flow';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     // Generate a reqId for this test
@@ -120,6 +122,9 @@ describe('Proxy Fetch Integration', () => {
   });
 
   test('fire-and-forget mode: no handler callback', { timeout: 5000 }, async () => {
+    const instanceId = 'fire-forget-test';
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
+    
     const testRequest = new Request(
       TEST_ENDPOINTS.buildUrl('/uuid')
     );
@@ -180,11 +185,14 @@ describe('Proxy Fetch Integration', () => {
   });
 
   test('queue consumer processes multiple messages in batch', { timeout: 10000 }, async () => {
-    const stub1 = env.MY_DO.getByName('batch-test-1');
+    const instanceId1 = 'batch-test-1';
+    const stub1 = env.MY_DO.getByName(instanceId1);
     const id1 = await stub1.id;
     
-    const stub2 = env.MY_DO.getByName('batch-test-2');
+    const instanceId2 = 'batch-test-2';
+    const stub2 = env.MY_DO.getByName(instanceId2);
     const id2 = await stub2.id;
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'batch-test');
     
     // Create a batch with multiple messages using real serialization
     const req1 = new Request(TEST_ENDPOINTS.buildUrl('/uuid'));
@@ -287,7 +295,9 @@ describe('Proxy Fetch Integration', () => {
   });
 
   test('serialization preserves Request headers and method', { timeout: 5000 }, async () => {
-    const stub = env.MY_DO.getByName('serialization-test');
+    const instanceId = 'serialization-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     // Create message with POST request and custom headers using real serialization
@@ -340,7 +350,9 @@ describe('Proxy Fetch Integration', () => {
 
 describe('Error Handling and Retries', () => {
   test('timeout aborts long-running requests', { timeout: 10000 }, async () => {
-    const stub = env.MY_DO.getByName('timeout-test');
+    const instanceId = 'timeout-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     // test-endpoints.transformation.workers.dev/delay/N delays for N milliseconds
@@ -429,7 +441,9 @@ describe('Error Handling and Retries', () => {
   });
 
   test('retries 5xx errors when configured', { timeout: 10000 }, async () => {
-    const stub = env.MY_DO.getByName('5xx-retry-test');
+    const instanceId = '5xx-retry-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     // test-endpoints/status/500 returns a 500 error
@@ -469,7 +483,9 @@ describe('Error Handling and Retries', () => {
   });
 
   test('does not retry 4xx client errors', { timeout: 5000 }, async () => {
-    const stub = env.MY_DO.getByName('4xx-test');
+    const instanceId = '4xx-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     // test-endpoints/status/404 returns a 404 error (with empty body)
@@ -511,7 +527,9 @@ describe('Error Handling and Retries', () => {
   });
 
   test('includes retry count and duration in handler item', { timeout: 5000 }, async () => {
-    const stub = env.MY_DO.getByName('metadata-test');
+    const instanceId = 'metadata-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     const request = new Request(
@@ -554,7 +572,9 @@ describe('Error Handling and Retries', () => {
   });
 
   test('acks message even when handler throws error', { timeout: 5000 }, async () => {
-    const stub = env.MY_DO.getByName('throwing-handler-test');
+    const instanceId = 'throwing-handler-test';
+    const stub = env.MY_DO.getByName(instanceId);
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     const id = await stub.id;
     
     const request = new Request(

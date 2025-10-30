@@ -15,16 +15,17 @@ import { serializeWebApiObject } from '@lumenize/utils';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
-const INSTANCE_NAME = 'recovery-test';
-const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
-
 const ulid = ulidFactory();
 
 it('recovers orphaned requests from in-flight state', async () => {
+  const proxyInstanceId = 'proxy-fetch-recovery';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
-    'proxy-fetch-recovery'
+    proxyInstanceId
   );
+
+  // Create test endpoints client isolated to this test
+  const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, proxyInstanceId);
 
   // Manually inject a request into "in-flight" state to simulate an orphaned request
   const requestUlid = ulid();
@@ -66,10 +67,14 @@ it('recovers orphaned requests from in-flight state', async () => {
 });
 
 it('expires old orphaned requests', async () => {
+  const proxyInstanceId = 'proxy-fetch-expire';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
-    'proxy-fetch-expire'
+    proxyInstanceId
   );
+
+  // Create test endpoints client isolated to this test
+  const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, proxyInstanceId);
 
   // Create a ULID representing a request from 31 minutes ago (older than MAX_REQUEST_AGE_MS = 30min)
   // Use non-monotonic factory so it doesn't refuse to go backward in time

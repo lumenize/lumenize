@@ -17,9 +17,6 @@ import { test, expect, vi, describe } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTestingClient } from '@lumenize/testing';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
-
-const INSTANCE_NAME = 'rpc-based-test';
-const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
 import type { _ProxyFetchDO, _TestDO } from './test-worker';
 
 describe.sequential('RPC-Based ProxyFetch Tests', () => {
@@ -30,10 +27,14 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
     'PROXY_FETCH_DO',
     'proxy-fetch-global'  // Must match the instance name in proxyFetch.ts!
   );
+  const userInstanceId = 'rpc-test-user';
   using userClient = createTestingClient<typeof _TestDO>(
     'TEST_DO', 
-    'rpc-test-user'
+    userInstanceId
   );
+
+  // Create test endpoints client isolated to this test
+  const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, userInstanceId);
 
   // 2. Act: User calls proxyFetch with a fast endpoint with 50ms delay
   const reqId = await userClient.myBusinessProcess(
@@ -68,10 +69,14 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
     'PROXY_FETCH_DO',
     'proxy-fetch-global'
   );
+  const userInstanceId = 'rpc-test-batch';
   using userClient = createTestingClient<typeof _TestDO>(
     'TEST_DO', 
-    'rpc-test-batch'
+    userInstanceId
   );
+
+  // Create test endpoints client isolated to this test
+  const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, userInstanceId);
 
   // Enqueue 5 requests - thenable Proxies batch on client side until awaited
   const calls = [];
@@ -123,10 +128,14 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
     'PROXY_FETCH_DO',
     'proxy-fetch-global'
   );
+  const userInstanceId = 'rpc-test-retry';
   using userClient = createTestingClient<typeof _TestDO>(
     'TEST_DO',
-    'rpc-test-retry'
+    userInstanceId
   );
+
+  // Create test endpoints client isolated to this test
+  const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, userInstanceId);
 
   // Request to endpoint that returns 500 error - should retry
   const reqId = await userClient.myBusinessProcess(
@@ -158,10 +167,14 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
     'PROXY_FETCH_DO',
     'proxy-fetch-global'
   );
+  const userInstanceId = 'rpc-test-fire-forget';
   using userClient = createTestingClient<typeof _TestDO>(
     'TEST_DO',
-    'rpc-test-fire-forget'
+    userInstanceId
   );
+
+  // Create test endpoints client isolated to this test
+  const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, userInstanceId);
 
   // Request without handler - fire and forget
   const reqId = await userClient.myBusinessProcess(

@@ -17,15 +17,16 @@ import { env } from 'cloudflare:test';
 import type { ProxyFetchQueueMessage } from '../../src/types';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
-const INSTANCE_NAME = 'unit-queue-test';
-const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
-
 describe('ProxyFetchDO Storage Queue', () => {
   let stub: any; // Instrumented DO stub has RPC methods added dynamically
+  let TEST_ENDPOINTS: ReturnType<typeof createTestEndpoints>;
   
   beforeEach(async () => {
-    const id = env.PROXY_FETCH_DO.idFromName('queue-test');
+    const instanceId = 'queue-test';
+    const id = env.PROXY_FETCH_DO.idFromName(instanceId);
     stub = env.PROXY_FETCH_DO.get(id);
+    // Create test endpoints client isolated to this test suite
+    TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
   });
 
   test('can enqueue a request', async () => {

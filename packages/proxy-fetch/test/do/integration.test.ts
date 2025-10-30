@@ -20,12 +20,6 @@ import { _TestDO } from './test-worker';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
-// Instance name for this test suite
-const INSTANCE_NAME = 'integration-test';
-
-// Create test endpoints client for this suite
-const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
-
 describe('ProxyFetch Integration (DO Variant)', () => {
   test('full flow: origin DO calls proxyFetch(), gets callback', async () => {
     // Create testing client for origin DO
@@ -34,6 +28,9 @@ describe('ProxyFetch Integration (DO Variant)', () => {
       'TEST_DO',
       originInstanceId
     );
+
+    // Create test endpoints client isolated to this test
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
 
     // Call the user-facing API - proxyFetch() auto-detects DO variant
     const reqId = await originClient.myBusinessProcess(
@@ -113,6 +110,9 @@ describe('ProxyFetch Integration (DO Variant)', () => {
       originInstanceId
     );
 
+    // Create test endpoints client isolated to this test
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
+
     const reqId = await originClient.myBusinessProcess(
       TEST_ENDPOINTS.buildUrl('/status/500'),
       'handleError',
@@ -138,6 +138,9 @@ describe('ProxyFetch Integration (DO Variant)', () => {
       'TEST_DO',
       originInstanceId
     );
+    
+    // Create test endpoints client isolated to this test
+    const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
     
     // Fire off 3 requests in parallel using the user-facing API
     const reqIds = await Promise.all([
