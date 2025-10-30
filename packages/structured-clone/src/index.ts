@@ -77,38 +77,8 @@ export async function postprocess(value: any): Promise<any> {
   return deserialize(value);
 }
 
-// Re-export types for users
-export type { Record, OperationChain, Operation } from './serialize.js';
-export type { SpecialNumberMarker, NaNMarker, InfinityMarker, NegInfinityMarker } from './special-numbers.js';
-export type { 
-  WebApiMarker, 
-  RequestMarker, 
-  ResponseMarker, 
-  HeadersMarker, 
-  URLMarker 
-} from './web-api-objects.js';
-
-// Re-export utility functions for special numbers (useful for RPC layer)
-export { 
-  isSpecialNumber, 
-  serializeSpecialNumber, 
-  isSerializedSpecialNumber, 
-  deserializeSpecialNumber 
-} from './special-numbers.js';
-
-// Re-export utility functions for Web API objects (useful for RPC layer)
-export {
-  isWebApiObject,
-  getWebApiType,
-  serializeRequest,
-  serializeResponse,
-  serializeHeaders,
-  serializeURL,
-  deserializeRequest,
-  deserializeResponse,
-  deserializeHeaders,
-  deserializeURL,
-  isSerializedWebApiObject,
-  deserializeWebApiObject
-} from './web-api-objects.js';
+// Note: Internal types and utilities are NOT exported from this package.
+// If the RPC layer needs them, import directly from the source files:
+// - import type { OperationChain } from '@lumenize/structured-clone/src/serialize.js'
+// - import { isWebApiObject } from '@lumenize/structured-clone/src/web-api-objects.js'
 

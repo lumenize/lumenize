@@ -8,6 +8,7 @@ let typedocRpcSidebar: any[] = [];
 let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
 let typedocProxyFetchSidebar: any[] = [];
+let typedocStructuredCloneSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -35,6 +36,13 @@ try {
   console.log('✅ Loaded proxy-fetch sidebar, items:', typedocProxyFetchSidebar?.length);
 } catch (e) {
   console.warn('⚠️  TypeDoc proxy-fetch sidebar not yet generated, using empty sidebar');
+}
+
+try {
+  typedocStructuredCloneSidebar = require('./docs/structured-clone/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded structured-clone sidebar, items:', typedocStructuredCloneSidebar?.length);
+} catch (e) {
+  console.warn('⚠️  TypeDoc structured-clone sidebar not yet generated, using empty sidebar');
 }
 
 /**
@@ -171,6 +179,18 @@ const sidebars: SidebarsConfig = {
         'utils/cors-support',
         ...(typedocUtilsSidebar && typedocUtilsSidebar.length > 0
           ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
+          : []),
+      ],
+    },
+
+    // Structured Clone
+    {
+      type: 'category',
+      label: 'Structured Clone',
+      items: [
+        'structured-clone/index',
+        ...(typedocStructuredCloneSidebar && typedocStructuredCloneSidebar.length > 0
+          ? [wrapInApiReference(typedocStructuredCloneSidebar, 'API Reference')]
           : []),
       ],
     },

@@ -4,20 +4,30 @@
  */
 
 /**
+ * @internal
  * Marker types for special numbers
  */
 export interface NaNMarker {
   __lmz_NaN: true;
 }
 
+/**
+ * @internal
+ */
 export interface InfinityMarker {
   __lmz_Infinity: true;
 }
 
+/**
+ * @internal
+ */
 export interface NegInfinityMarker {
   __lmz_NegInfinity: true;
 }
 
+/**
+ * @internal
+ */
 export type SpecialNumberMarker = NaNMarker | InfinityMarker | NegInfinityMarker;
 
 /**

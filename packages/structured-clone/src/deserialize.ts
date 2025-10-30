@@ -9,13 +9,13 @@ import {
   DATE, REGEXP, MAP, SET,
   ERROR, BIGINT, FUNCTION
 } from './types.js';
-import type { Record } from './serialize.js';
+import type { SerializedRecord } from './serialize.js';
 import { isSerializedSpecialNumber, deserializeSpecialNumber } from './special-numbers.js';
 import { isSerializedWebApiObject, deserializeWebApiObject } from './web-api-objects.js';
 
 const env = typeof self === 'object' ? self : globalThis;
 
-const deserializer = ($: Map<number, any>, _: Record[]) => {
+const deserializer = ($: Map<number, any>, _: SerializedRecord[]) => {
   const as = (out: any, index: number): any => {
     $.set(index, out);
     return out;
@@ -126,11 +126,11 @@ const deserializer = ($: Map<number, any>, _: Record[]) => {
 };
 
 /**
- * Returns a deserialized value from a serialized array of Records.
+ * Returns a deserialized value from a serialized array of records.
  * @param serialized - A previously serialized value
  * @returns The deserialized value
  */
-export const deserialize = (serialized: Record[]): any => {
+export const deserialize = (serialized: SerializedRecord[]): any => {
   return deserializer(new Map, serialized)(0);
 };
 

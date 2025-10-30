@@ -4,6 +4,7 @@
  */
 
 /**
+ * @internal
  * Marker types for Web API objects
  */
 export interface RequestMarker {
@@ -20,6 +21,9 @@ export interface RequestMarker {
   integrity?: string;
 }
 
+/**
+ * @internal
+ */
 export interface ResponseMarker {
   __lmz_Response: true;
   body: string | null;
@@ -28,16 +32,25 @@ export interface ResponseMarker {
   headers: Record<string, string>;
 }
 
+/**
+ * @internal
+ */
 export interface HeadersMarker {
   __lmz_Headers: true;
   entries: Record<string, string>;
 }
 
+/**
+ * @internal
+ */
 export interface URLMarker {
   __lmz_URL: true;
   href: string;
 }
 
+/**
+ * @internal
+ */
 export type WebApiMarker = RequestMarker | ResponseMarker | HeadersMarker | URLMarker;
 
 /**

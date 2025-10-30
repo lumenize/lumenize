@@ -324,6 +324,88 @@ When writing documentation that needs code validation:
 4. Reference these tests in `.mdx` files using `@check-example` annotations
 5. The `check-examples` plugin will verify documentation matches working tests
 
+#### TypeDoc API Documentation Setup
+
+**Purpose**: Auto-generate API reference documentation from JSDoc comments in TypeScript source files.
+
+**When to use**: For packages with public APIs that users will import (e.g., `@lumenize/structured-clone`, `@lumenize/rpc`).
+
+**Setup checklist** (all three required):
+
+1. **Add TypeDoc plugin to `website/docusaurus.config.ts`:**
+   ```typescript
+   [
+     'docusaurus-plugin-typedoc',
+     {
+       id: 'package-name',  // Unique ID for each package
+       entryPoints: ['../packages/package-name/src/index.ts'],
+       tsconfig: '../packages/package-name/tsconfig.build.json',  // Use build config!
+       out: 'docs/package-name/api',
+       sidebar: {
+         autoConfiguration: true,
+       },
+       plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+       excludeInternal: true,  // Hide @internal tagged items
+       excludeExternals: true,
+       excludePrivate: true,
+       readme: 'none',
+       hideBreadcrumbs: true,
+     },
+   ],
+   ```
+
+2. **Add TypeDoc sidebar loader to `website/sidebars.ts`:**
+   ```typescript
+   // At top of file:
+   let typedocPackageNameSidebar: any[] = [];
+   
+   try {
+     typedocPackageNameSidebar = require('./docs/package-name/api/typedoc-sidebar.cjs');
+     console.log('✅ Loaded package-name sidebar, items:', typedocPackageNameSidebar?.length);
+   } catch (e) {
+     console.warn('⚠️  TypeDoc package-name sidebar not yet generated, using empty sidebar');
+   }
+   
+   // In sidebar config:
+   {
+     type: 'category',
+     label: 'Package Name',
+     items: [
+       'package-name/index',
+       ...(typedocPackageNameSidebar && typedocPackageNameSidebar.length > 0
+         ? [wrapInApiReference(typedocPackageNameSidebar, 'API Reference')]
+         : []),
+     ],
+   },
+   ```
+
+3. **Control what appears in API docs** (in package's `src/index.ts`):
+   - **Primary strategy**: Only export what users should see
+   - **Don't export** internal types, utilities, or marker types
+   - **Benefits**: Clean IntelliSense + clean API docs
+   - **Alternative**: Use `@internal` JSDoc tag (hides from docs but still exported, shows in IntelliSense)
+
+**Critical details**:
+
+- **Use `tsconfig.build.json`** (not `tsconfig.json`) - excludes test files from TypeDoc
+- **Type name conflicts**: Avoid names that conflict with TypeScript built-ins (e.g., `Record` → `SerializedRecord`)
+- **Internal access**: If other packages need internal types/utilities, they can import directly from source:
+  ```typescript
+  import type { InternalType } from '@lumenize/package/src/internal-file.js'
+  ```
+- **First build**: TypeDoc generates files during build, so sidebar loader needs try/catch for first run
+- **`@skip-check` usage**: Only for non-executable examples like `npm install` commands - never for code examples
+
+**Example of clean export strategy:**
+```typescript
+// src/index.ts - Only export public API
+export async function stringify(value: any): Promise<string> { /* ... */ }
+export async function parse(value: string): Promise<any> { /* ... */ }
+
+// Note: Internal types not exported
+// If RPC layer needs them: import type { OperationChain } from '@lumenize/structured-clone/src/serialize.js'
+```
+
 ### Publishing and Releases
 
 #### Development vs. Production Builds
