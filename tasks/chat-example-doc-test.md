@@ -20,6 +20,12 @@ Unlike the Cap'n Web comparison docs, this is a **single implementation** focuse
 
 ## Architecture
 
+**Worker (Edge):**
+- Handles `/login` endpoint - generates tokens, stores in Workers KV
+- Routes WebSocket connections to User DOs with authentication
+- Uses `routeDORequest` with `onBeforeConnect` for token validation
+- Workers KV (`TOKENS`) stores session tokens with expiration
+
 **Two Durable Object Classes:**
 
 1. **User DO** (per-user instance: `user-alice`, `user-bob`)
@@ -27,7 +33,8 @@ Unlike the Cap'n Web comparison docs, this is a **single implementation** focuse
    - Acts as facade/gateway to Room DO
    - Receives downstream messages from Room, forwards to client
    - Stores user settings as `Map<string, any>` (name, theme, etc.)
-   - Hides `#env` to prevent direct DO hopping via RPC
+   - Hides `#env` to prevent direct DO hopping or Workers KV access via RPC
+   - **Security**: Private `#env` prevents clients from manipulating tokens in KV
 
 2. **Room DO** (shared instance: `room-general`)
    - Accessed by User DOs via Workers RPC
@@ -288,17 +295,30 @@ it('demonstrates what is/isn\'t accessible via RPC', async () => {
 ### Worker (`src/index.ts`)
 
 ```typescript
+interface Env {
+  USER: DurableObjectNamespace;
+  ROOM: DurableObjectNamespace;
+  TOKENS: KVNamespace;  // Workers KV for token storage
+}
+
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     
-    // Login endpoint
+    // Login endpoint (in Worker, not DO)
     if (url.pathname === '/login') {
       const username = url.searchParams.get('username');
-      const token = crypto.randomUUID();
+      if (!username) {
+        return new Response('Username required', { status: 400 });
+      }
       
-      // In real app, store token in KV with expiration
-      // For doc-test, we'll keep it simple
+      // Generate token (simplified: token = userId)
+      const token = `user-${username.toLowerCase()}`;
+      
+      // Store token in Workers KV with expiration
+      await env.TOKENS.put(token, JSON.stringify({ username }), {
+        expirationTtl: 3600  // 1 hour
+      });
       
       return new Response(JSON.stringify({ token }), {
         headers: { 'Content-Type': 'application/json' }
@@ -320,10 +340,14 @@ export default {
           return new Response('Unauthorized', { status: 401 });
         }
         
-        // Validate token (simplified for doc-test)
-        // In real app, check KV, verify expiration, etc.
+        // Validate token against Workers KV
+        const tokenData = await env.TOKENS.get(token);
+        if (!tokenData) {
+          return new Response('Unauthorized - Invalid token', { status: 401 });
+        }
         
         // Token IS the userId for simplicity (e.g., 'user-alice')
+        // KV expiration handles token expiration automatically
         // Update the DO instance name to use the token as userId
         return {
           doInstanceNameOrId: token,  // e.g., 'user-alice'
@@ -345,12 +369,14 @@ interface Env {
 
 class User extends DurableObject<Env> {
   #clientId: string | null = null;
-  #env: Env;  // Hidden - cannot hop via RPC
+  #env: Env;  // Hidden - cannot hop via RPC or access Workers KV
   #tokenExpired: boolean = false;
   
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.#env = env;  // Hide env from external access
+    // Security: #env is private, so client can't access env.TOKENS KV
+    // or hop to other DOs without going through permission-checked methods
   }
   
   // Called internally by lumenizeRpcDO when WebSocket connects
@@ -596,11 +622,16 @@ class Room extends DurableObject<Env> {
       { "name": "ROOM", "class_name": "Room", "script_name": "chat-example-doctest" }
     ]
   },
+  "kv_namespaces": [
+    { "binding": "TOKENS", "id": "preview_id", "preview_id": "preview_id" }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["User", "Room"] }
   ]
 }
 ```
+
+**Note**: In production, replace `"preview_id"` with actual KV namespace IDs.
 
 ## Testing Setup
 
@@ -629,6 +660,9 @@ export default instrumented.worker;
       { "name": "ROOM", "class_name": "Room" }
     ]
   },
+  "kv_namespaces": [
+    { "binding": "TOKENS", "id": "test_tokens_kv" }
+  ],
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["User", "Room"] }
   ]
