@@ -53,6 +53,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Challenge: Cloudflare's WebSocket lifecycle is deeply integrated
   - Likely answer is "no" due to platform constraints, but worth investigating
 
+- [ ] Simplify OCAN proxy-to-marker conversion in client.ts
+  - `processOutgoingOperations()` currently does manual serialization walk
+  - Can be much simpler: only walk operation chain, stop at parameters
+  - No risk of cycles/aliases in operation chains → no WeakMap needed
+  - @lumenize/structured-clone handles all parameter serialization
+  - Should significantly reduce code complexity
+
 ## Infrastructure
 
 - [ ] Deploy to Cloudflare button
