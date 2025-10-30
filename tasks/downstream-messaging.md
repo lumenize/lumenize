@@ -469,45 +469,54 @@ class MyDO extends DurableObject {
 
 **Decision**: Standalone function is cleanest and most explicit.
 
-### 3. Full Type Serialization: Reuse Existing Infrastructure
+### 3. Full Type Serialization: Use @lumenize/structured-clone
 
 **Problem**: Need to support all RPC types (Errors, Web API objects, etc.) in downstream messages.
 
-**Solution**: Reuse existing serialization pipeline:
+**Solution**: Use our new `@lumenize/structured-clone` package directly:
 
 **Server-side (outgoing - same direction as RPC responses)**:
-1. Call `preprocessResult(payload, [])` - converts special types to markers
-2. Call `stringify()` from `@ungap/structured-clone/json`
-3. Send over WebSocket
+1. Call `stringify(payload)` from `@lumenize/structured-clone`
+2. Send over WebSocket
 
 **Client-side (incoming)**:
-1. Receive and `parse()` message
-2. Call `postprocessResult(payload, [])` - converts markers back to objects
-3. Pass to `onDownstream` handler
+1. Receive and `parse(message)` from `@lumenize/structured-clone`
+2. Pass to `onDownstream` handler
 
 **Why this works**:
 - Same direction as RPC responses (server→client)
-- Already handles Errors, Web API objects, special numbers, circular refs
-- Already tested and proven
-- Minimizes package size
+- `@lumenize/structured-clone` handles all types automatically:
+  - Errors (full-fidelity with stack, cause, custom properties)
+  - Web API objects (Request, Response, Headers, URL)
+  - Special numbers (NaN, ±Infinity)
+  - Standard types (Date, RegExp, Map, Set, circular refs, etc.)
+- Already tested and proven (78 tests + 295 RPC integration tests)
+- Minimizes package size (zero runtime dependencies)
+- Clean API (async `stringify`/`parse`)
 
-**Implementation strategy** (per Larry's guidance):
-- **Attempt 1**: Extract and reuse existing `preprocessResult()` and `postprocessResult()`
-- **If extraction proves too risky**: Copy the server→client code and adapt it
-  - The "on the way back" code is less tricky than "on the way up"
-  - Safer to copy than break existing RPC functionality
-  - Document why duplication was necessary
-  
-**⚠️ Complexity warning**: The pre/post processing code is sophisticated:
-- Multiple object crawls with cycle detection
-- Handles aliases and circular references
-- Took several days to get right originally
-- Must be handled carefully during extraction/copying
+**Implementation is simple**:
+```typescript
+// Server-side
+import { stringify } from '@lumenize/structured-clone';
 
-**Code locations**:
-- `preprocessResult()` - in `lumenize-rpc-do.ts` (may need to export)
-- `postprocessResult()` - in `client.ts` (already exists on RpcClient)
-- Both use `@ungap/structured-clone/json` for final serialization
+async function sendDownstream(clientIds, doInstance, payload) {
+  const message = { type: '__downstream', payload };
+  const messageString = await stringify(message);
+  // Send to WebSocket...
+}
+
+// Client-side
+import { parse } from '@lumenize/structured-clone';
+
+async function handleIncomingMessage(data: string) {
+  const message = await parse(data);
+  if (message.type === '__downstream') {
+    this.#config.onDownstream(message.payload); // Already deserialized!
+  }
+}
+```
+
+**No extraction or copying needed** - the package handles everything!
 
 ### 4. Application-Layer Catchup Pattern (Fire-and-Forget)
 
@@ -728,10 +737,10 @@ export interface RpcTransport {
   - Only if transport has `setMessageHandler` (WebSocket does, HTTP doesn't)
 - [ ] Implement `#handleIncomingMessage()` routing logic
   - Check for RPC response (existing logic)
-  - Check for downstream object:
-    - Parse message
-    - Call `postprocessResult()` on payload (markers → live objects)
-    - Pass processed payload to `onDownstream` handler
+  - Check for downstream message:
+    - Call `await parse(data)` from `@lumenize/structured-clone` (handles all type deserialization)
+    - If `message.type === '__downstream'`, pass `message.payload` to `onDownstream` handler
+    - Payload already fully deserialized (Errors, Web API objects, etc.)
   - Return false if neither
 - [ ] Enable keep-alive when `onDownstream` registered
   - Call `transport.setKeepAlive(true)`
@@ -745,8 +754,8 @@ export interface RpcTransport {
 
 **Testing**:
 - [ ] Test runtime error when onDownstream but no clientId
-- [ ] Test downstream objects routed to handler
-- [ ] Test postprocessing works (Errors, Dates, Web API objects, Maps, Sets)
+- [ ] Test downstream messages routed to handler
+- [ ] Test all types deserialized correctly (Errors, Dates, Web API objects, Maps, Sets, NaN, ±Infinity)
 - [ ] Test RPC messages still handled normally
 - [ ] Test keep-alive enabled when handler registered
 - [ ] Test connection stays alive
@@ -771,19 +780,15 @@ export interface RpcTransport {
   - Document custom close code range: 4401 (auth expired), 4403 (auth failed), 4429 (rate limited)
   - Example: `ws.close(4401, 'Authentication expired')` for token validation failures
 - [ ] Add `sendDownstream()` standalone export function (fire-and-forget)
-  - Signature: `(clientIds: string | string[], doInstance: DurableObject, payload: any)`
+  - Signature: `(clientIds: string | string[], doInstance: DurableObject, payload: any): Promise<void>`
   - Normalize clientIds to array
-  - Calls `preprocessResult()` on payload once (special types → markers)
-  - Uses `stringify()` from `@ungap/structured-clone/json`
+  - Create message object: `{ type: '__downstream', payload }`
+  - Call `await stringify(message)` from `@lumenize/structured-clone` (handles all type serialization)
   - Loops through client IDs:
     - Find WebSocket via `doInstance.ctx.getWebSockets('rpc:${clientId}')`
     - If socket found: send immediately
     - If socket NOT found: silently skip (fire-and-forget, client will catchup)
-  - Message format: `{ type: '__downstream', payload: processedPayload }`
   - Log send attempts for monitoring (success/client-not-found)
-- [ ] Attempt to extract/reuse existing `preprocessResult()`
-  - If extraction too risky, copy server→client code
-  - Document which approach was taken and why
 - [ ] NO method added to `LumenizedDO` class (avoid name collisions)
 - [ ] Export `sendDownstream` from package index
 
@@ -792,9 +797,9 @@ export interface RpcTransport {
 - [ ] Test WebSocket accepted without tag when no header (backward compat)
 - [ ] Test `sendDownstream()` with single client ID
 - [ ] Test `sendDownstream()` with array of client IDs
-- [ ] Test downstream objects reach connected client immediately
+- [ ] Test downstream messages reach connected client immediately
 - [ ] Test silently skips when client disconnected (fire-and-forget)
-- [ ] Test preprocessing works (Errors, Web API objects, Dates, Maps, etc.)
+- [ ] Test all types serialize correctly (Errors, Web API objects, Dates, Maps, NaN, ±Infinity, circular refs)
 - [ ] Test multiple clients receive independently
 - [ ] Test server can close with custom code (4401)
 - [ ] Test errors handled gracefully
@@ -834,53 +839,7 @@ export interface RpcTransport {
   - Simple notification pattern
   - Link to full examples
 
-### Phase 5: Migrate Existing RPC to @lumenize/structured-clone
-
-**Goal**: Replace existing RPC pre/post processing with new @lumenize/structured-clone package.
-
-**Prerequisites**: 
-- Phase 0 (structured-clone fork) must be complete
-- @lumenize/structured-clone published to npm or available via workspace
-- All tests passing for new package
-
-**Changes**:
-- [ ] Update `lumenize-rpc-do.ts`
-  - Replace local `preprocessResult()` with `import { preprocess } from '@lumenize/structured-clone'`
-  - Replace `stringify()` from @ungap with new package's `stringify()`
-  - Verify all special type handling preserved (Errors, Web API objects, etc.)
-- [ ] Update `client.ts`
-  - Replace local `postprocessResult()` with `import { postprocess } from '@lumenize/structured-clone'`
-  - Replace `parse()` from @ungap with new package's `parse()`
-  - Verify all special type restoration works (Errors, Web API objects, etc.)
-- [ ] Update `websocket-rpc-transport.ts`
-  - Use new package's `stringify()`/`parse()` if directly called
-- [ ] Update package.json
-  - Remove `@ungap/structured-clone` dependency
-  - Add `@lumenize/structured-clone` dependency (version `"*"` for workspace)
-- [ ] Remove old preprocessing code if fully replaced
-  - Only if extraction successful and tests pass
-  - Keep commented backup initially for safety
-
-**Testing**:
-- [ ] Run full RPC test suite - all existing tests must pass
-- [ ] Test all special types (Errors, Dates, Maps, Sets, Web API objects)
-- [ ] Test circular references and aliases
-- [ ] Test OCAN (operation chaining and nesting)
-- [ ] Test performance - no significant regression
-- [ ] Test downstream messaging still works (uses same preprocess/postprocess)
-- [ ] Coverage remains >80% branch, >90% statement
-
-**Rollback Plan**:
-- If any test fails or coverage drops, revert to old code
-- Keep old implementation available in git history
-- Can temporarily run both implementations side-by-side for comparison
-
-**Success Criteria**:
-- ✅ All existing RPC tests pass unchanged
-- ✅ All special type handling preserved
-- ✅ Performance impact <5%
-- ✅ Code coverage maintained
-- ✅ Package size reduced (single dependency vs duplicated code)
+**Note**: Originally Phase 5 was "Migrate Existing RPC to @lumenize/structured-clone" but that was completed as a separate project (see `tasks/archive/structured-clone-fork.md`). The RPC package now uses `@lumenize/structured-clone` throughout.
 
 ## Alternative Approaches Considered
 
