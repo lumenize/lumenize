@@ -18,6 +18,13 @@ import { createTestingClient } from '@lumenize/testing';
 import { _TestDO } from './test-worker';
 // @ts-expect-error - cloudflare:test types not available at compile time
 import { env } from 'cloudflare:test';
+import { createTestEndpoints } from '@lumenize/test-endpoints';
+
+// Instance name for this test suite
+const INSTANCE_NAME = 'integration-test';
+
+// Create test endpoints client for this suite
+const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
 
 describe('ProxyFetch Integration (DO Variant)', () => {
   test('full flow: origin DO calls proxyFetch(), gets callback', async () => {
@@ -30,7 +37,7 @@ describe('ProxyFetch Integration (DO Variant)', () => {
 
     // Call the user-facing API - proxyFetch() auto-detects DO variant
     const reqId = await originClient.myBusinessProcess(
-      `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`,
+      TEST_ENDPOINTS.buildUrl('/uuid'),
       'handleSuccess'
     );
 
@@ -107,7 +114,7 @@ describe('ProxyFetch Integration (DO Variant)', () => {
     );
 
     const reqId = await originClient.myBusinessProcess(
-      `${env.TEST_ENDPOINTS_URL}/status/500?token=${env.TEST_TOKEN}`,
+      TEST_ENDPOINTS.buildUrl('/status/500'),
       'handleError',
       { maxRetries: 2, retryDelay: 100, retryOn5xx: true }
     );
@@ -134,9 +141,9 @@ describe('ProxyFetch Integration (DO Variant)', () => {
     
     // Fire off 3 requests in parallel using the user-facing API
     const reqIds = await Promise.all([
-      originClient.myBusinessProcess(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`, 'handleSuccess'),
-      originClient.myBusinessProcess(`${env.TEST_ENDPOINTS_URL}/json?token=${env.TEST_TOKEN}`, 'handleSuccess'),
-      originClient.myBusinessProcess(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`, 'handleSuccess'),
+      originClient.myBusinessProcess(TEST_ENDPOINTS.buildUrl('/uuid'), 'handleSuccess'),
+      originClient.myBusinessProcess(TEST_ENDPOINTS.buildUrl('/json'), 'handleSuccess'),
+      originClient.myBusinessProcess(TEST_ENDPOINTS.buildUrl('/uuid'), 'handleSuccess'),
     ]);
 
     expect(reqIds).toHaveLength(3);

@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "wrangler dev --show-interactive-dev-session=false",
     "deploy": "wrangler deploy",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "test": "vitest --run"
   },
   "keywords": [
     "cloudflare",
@@ -21,6 +22,10 @@
   "files": [
     "src/**/*"
   ],
+  "dependencies": {
+    "@lumenize/testing": "*",
+    "@lumenize/utils": "*"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "*",
     "wrangler": "^4.38.0"

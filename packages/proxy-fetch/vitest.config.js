@@ -11,6 +11,7 @@ export default defineConfig({
           globals: true,
           testTimeout: 10000,
           include: ['test/do/**/*.test.ts'],
+          fileParallelism: false, // Required: tests share 'proxy-fetch-global' DO instance
           poolOptions: {
             workers: {
               isolatedStorage: false, // Required for WebSocket support

@@ -8,14 +8,22 @@
  * - Verify internal queue state via SQL queries
  * 
  * This provides faster, more precise tests than setTimeout-based waiting.
+ * 
+ * NOTE: These tests run SEQUENTIALLY because they all share the same 
+ * 'proxy-fetch-global' DO instance (by design) and inspect its internal state.
  */
-import { test, expect, vi } from 'vitest';
+import { test, expect, vi, describe } from 'vitest';
 // @ts-expect-error
 import { env } from 'cloudflare:test';
 import { createTestingClient } from '@lumenize/testing';
+import { createTestEndpoints } from '@lumenize/test-endpoints';
+
+const INSTANCE_NAME = 'rpc-based-test';
+const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
 import type { _ProxyFetchDO, _TestDO } from './test-worker';
 
-it('demonstrates RPC access to ProxyFetchDO internals', async () => {
+describe.sequential('RPC-Based ProxyFetch Tests', () => {
+  test('demonstrates RPC access to ProxyFetchDO internals', async () => {
   // 1. Setup: Create RPC clients for both DOs
   // CRITICAL: Use 'proxy-fetch-global' to match the named instance used by proxyFetch()
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
@@ -29,7 +37,7 @@ it('demonstrates RPC access to ProxyFetchDO internals', async () => {
 
   // 2. Act: User calls proxyFetch with a fast endpoint with 50ms delay
   const reqId = await userClient.myBusinessProcess(
-    `${env.TEST_ENDPOINTS_URL}/delay/50?token=${env.TEST_TOKEN}`,
+    TEST_ENDPOINTS.buildUrl('/delay/50'),
     'handleSuccess'
   );
   
@@ -55,7 +63,7 @@ it('demonstrates RPC access to ProxyFetchDO internals', async () => {
   expect(afterProcessing.length).toBe(0);
 });
 
-it('handles multiple concurrent requests (batching)', async () => {
+  test('handles multiple concurrent requests (batching)', async () => {
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
     'proxy-fetch-global'
@@ -70,7 +78,7 @@ it('handles multiple concurrent requests (batching)', async () => {
   for (let i = 0; i < 5; i++) {
     calls.push(
       userClient.myBusinessProcess(
-        `${env.TEST_ENDPOINTS_URL}/delay/50?token=${env.TEST_TOKEN}`,
+        TEST_ENDPOINTS.buildUrl('/delay/50'),
         'handleSuccess'
       )
     );
@@ -110,7 +118,7 @@ it('handles multiple concurrent requests (batching)', async () => {
   }
 });
 
-it('retries failed requests with exponential backoff', async () => {
+  test('retries failed requests with exponential backoff', async () => {
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
     'proxy-fetch-global'
@@ -122,7 +130,7 @@ it('retries failed requests with exponential backoff', async () => {
 
   // Request to endpoint that returns 500 error - should retry
   const reqId = await userClient.myBusinessProcess(
-    `${env.TEST_ENDPOINTS_URL}/status/500?token=${env.TEST_TOKEN}`,
+    TEST_ENDPOINTS.buildUrl('/status/500'),
     'handleError',
     {
       maxRetries: 2,
@@ -145,7 +153,7 @@ it('retries failed requests with exponential backoff', async () => {
   expect(storage).toHaveLength(0);
 });
 
-it('fire-and-forget requests skip callback', async () => {
+  test('fire-and-forget requests skip callback', async () => {
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
     'proxy-fetch-global'
@@ -157,7 +165,7 @@ it('fire-and-forget requests skip callback', async () => {
 
   // Request without handler - fire and forget
   const reqId = await userClient.myBusinessProcess(
-    `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`,
+    TEST_ENDPOINTS.buildUrl('/uuid'),
     undefined  // No handler
   );
 
@@ -170,7 +178,8 @@ it('fire-and-forget requests skip callback', async () => {
     expect(storage).toHaveLength(0);
   }, { timeout: 500 });
 
-  // Verify no callback was delivered (no result stored)
-  const result = await userClient.getResult(reqId);
-  expect(result).toBeUndefined();
+    // Verify no callback was delivered (no result stored)
+    const result = await userClient.getResult(reqId);
+    expect(result).toBeUndefined();
+  });
 });

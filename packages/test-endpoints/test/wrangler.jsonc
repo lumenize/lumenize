@@ -1,10 +1,7 @@
 {
-  "name": "test-endpoints",
-  "main": "src/index.ts",
+  "name": "test-endpoints-tests",
+  "main": "./test-harness.ts",
   "compatibility_date": "2025-09-12",
-  "observability": {
-    "enabled": true
-  },
   "durable_objects": {
     "bindings": [
       {
@@ -20,3 +17,4 @@
     }
   ]
 }
+

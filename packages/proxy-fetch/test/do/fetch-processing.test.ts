@@ -35,8 +35,8 @@ describe('ProxyFetchDO Fetch Processing', () => {
     testStub = env.TEST_DO.get(testDoId);
     testId = testDoId.toString();
 
-    // Create test endpoints client with token from env
-    TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL);
+    // Create test endpoints client with token from env and unique instance name
+    TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'fetch-processing-test');
 
     // Reset test DO state
     await testStub.reset();

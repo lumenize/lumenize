@@ -15,6 +15,10 @@ import { describe, test, expect, beforeEach } from 'vitest';
 // @ts-expect-error
 import { env } from 'cloudflare:test';
 import type { ProxyFetchQueueMessage } from '../../src/types';
+import { createTestEndpoints } from '@lumenize/test-endpoints';
+
+const INSTANCE_NAME = 'unit-queue-test';
+const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
 
 describe('ProxyFetchDO Storage Queue', () => {
   let stub: any; // Instrumented DO stub has RPC methods added dynamically
@@ -27,7 +31,7 @@ describe('ProxyFetchDO Storage Queue', () => {
   test('can enqueue a request', async () => {
     const message: ProxyFetchQueueMessage = {
       reqId: 'test-req-1',
-      request: { url: `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`, method: 'GET' },
+      request: { url: TEST_ENDPOINTS.buildUrl('/uuid'), method: 'GET' },
       doBindingName: 'TEST_DO',
       instanceId: '12345',
       handlerName: 'handleSuccess',
@@ -44,7 +48,7 @@ describe('ProxyFetchDO Storage Queue', () => {
   test('queued requests are stored with ULID keys', async () => {
     const message: ProxyFetchQueueMessage = {
       reqId: 'test-req-2',
-      request: { url: `${env.TEST_ENDPOINTS_URL}/json?token=${env.TEST_TOKEN}`, method: 'GET' },
+      request: { url: TEST_ENDPOINTS.buildUrl('/json'), method: 'GET' },
       doBindingName: 'TEST_DO',
       instanceId: '67890',
       handlerName: 'handleSuccess',
@@ -66,7 +70,7 @@ describe('ProxyFetchDO Storage Queue', () => {
     const messages: ProxyFetchQueueMessage[] = [
       {
         reqId: 'req-1',
-        request: { url: `${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`, method: 'GET' },
+        request: { url: TEST_ENDPOINTS.buildUrl('/uuid'), method: 'GET' },
         doBindingName: 'TEST_DO',
         instanceId: 'id-1',
         handlerName: 'handleSuccess',
@@ -75,7 +79,7 @@ describe('ProxyFetchDO Storage Queue', () => {
       },
       {
         reqId: 'req-2',
-        request: { url: `${env.TEST_ENDPOINTS_URL}/json?token=${env.TEST_TOKEN}`, method: 'GET' },
+        request: { url: TEST_ENDPOINTS.buildUrl('/json'), method: 'GET' },
         doBindingName: 'TEST_DO',
         instanceId: 'id-2',
         handlerName: 'handleSuccess',
@@ -84,7 +88,7 @@ describe('ProxyFetchDO Storage Queue', () => {
       },
       {
         reqId: 'test-request-3',
-        request: { url: `${env.TEST_ENDPOINTS_URL}/delay/1000?token=${env.TEST_TOKEN}`, method: 'GET' }, // 1 second = 1000ms
+        request: { url: TEST_ENDPOINTS.buildUrl('/delay/1000'), method: 'GET' }, // 1 second = 1000ms
         doBindingName: 'TEST_DO',
         instanceId: 'id-3',
         handlerName: 'handleSuccess',

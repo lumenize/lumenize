@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { ProxyFetchDO as _ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
 import { proxyFetch, proxyFetchQueue } from '../../src/proxyFetch';
 import type { ProxyFetchHandlerItem } from '../../src/types';
+import { createTestEndpoints } from '@lumenize/test-endpoints';
 import { instrumentDOProject } from '@lumenize/testing';
 
 // Re-export the base DO classes for typing in tests
@@ -75,9 +76,10 @@ export class _TestDO extends DurableObject {
    * Test helper: Trigger proxyFetch with invalid handler to test validation
    */
   async triggerInvalidHandler(): Promise<void> {
+    const TEST_ENDPOINTS = createTestEndpoints(this.env.TEST_TOKEN, this.env.TEST_ENDPOINTS_URL, 'test-worker');
     await proxyFetch(
       this,
-      `${this.env.TEST_ENDPOINTS_URL}/uuid?token=${this.env.TEST_TOKEN}`,
+      TEST_ENDPOINTS.buildUrl('/uuid'),
       'TEST_DO',
       'nonExistentHandler' // This handler doesn't exist
     );
@@ -89,9 +91,10 @@ export class _TestDO extends DurableObject {
    */
   async triggerInvalidHandlerQueue(): Promise<void> {
     // Directly call proxyFetchQueue to test Queue variant handler validation
+    const TEST_ENDPOINTS = createTestEndpoints(this.env.TEST_TOKEN, this.env.TEST_ENDPOINTS_URL, 'test-worker');
     await proxyFetchQueue(
       this,
-      `${this.env.TEST_ENDPOINTS_URL}/uuid?token=${this.env.TEST_TOKEN}`,
+      TEST_ENDPOINTS.buildUrl('/uuid'),
       'TEST_DO',
       'anotherNonExistentHandler' // This handler doesn't exist
     );

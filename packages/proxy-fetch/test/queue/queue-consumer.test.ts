@@ -17,6 +17,11 @@ import { describe, test, expect, vi } from 'vitest';
 import worker from './test-worker-and-dos';
 import { serializeWebApiObject } from '@lumenize/utils';
 import { proxyFetch } from '../../src/proxyFetch';
+import { createTestEndpoints } from '@lumenize/test-endpoints';
+
+// Instance name for this test suite
+const INSTANCE_NAME = 'queue-consumer-test';
+const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, INSTANCE_NAME);
 
 describe('proxyFetch() Function', () => {
   test('queues request with URL string', async () => {
@@ -27,7 +32,7 @@ describe('proxyFetch() Function', () => {
     await runInDurableObject(stub, async (instance) => {
       const reqId = await proxyFetch(
         instance,
-        `${env.TEST_ENDPOINTS_URL}/json?token=${env.TEST_TOKEN}`,
+        TEST_ENDPOINTS.buildUrl('/json'),
         'MY_DO',
         'handleSuccess'
       );
@@ -41,10 +46,13 @@ describe('proxyFetch() Function', () => {
     
     // @ts-expect-error - cloudflare:test types not available at compile time
     await runInDurableObject(stub, async (instance) => {
-      const request = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`, { 
-        method: 'POST',
-        body: JSON.stringify({ test: 'data' })
-      });
+      const request = new Request(
+        TEST_ENDPOINTS.buildUrl('/uuid'), 
+        { 
+          method: 'POST',
+          body: JSON.stringify({ test: 'data' })
+        }
+      );
       
       const reqId = await proxyFetch(
         instance,
@@ -68,7 +76,9 @@ describe('Proxy Fetch Integration', () => {
     const reqId = crypto.randomUUID();
     
     // Create a MessageBatch to simulate what the queue consumer receives
-    const testRequest = new Request(`${env.TEST_ENDPOINTS_URL}/json?token=${env.TEST_TOKEN}`);
+    const testRequest = new Request(
+      TEST_ENDPOINTS.buildUrl('/json')
+    );
     const serializedRequest = await serializeWebApiObject(testRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -110,7 +120,9 @@ describe('Proxy Fetch Integration', () => {
   });
 
   test('fire-and-forget mode: no handler callback', { timeout: 5000 }, async () => {
-    const testRequest = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
+    const testRequest = new Request(
+      TEST_ENDPOINTS.buildUrl('/uuid')
+    );
     const serializedRequest = await serializeWebApiObject(testRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -175,8 +187,8 @@ describe('Proxy Fetch Integration', () => {
     const id2 = await stub2.id;
     
     // Create a batch with multiple messages using real serialization
-    const req1 = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
-    const req2 = new Request(`${env.TEST_ENDPOINTS_URL}/delay/500?token=${env.TEST_TOKEN}`); // 500ms delay
+    const req1 = new Request(TEST_ENDPOINTS.buildUrl('/uuid'));
+    const req2 = new Request(TEST_ENDPOINTS.buildUrl('/delay/500')); // 500ms delay
     const serializedReq1 = await serializeWebApiObject(req1);
     const serializedReq2 = await serializeWebApiObject(req2);
     
@@ -279,12 +291,14 @@ describe('Proxy Fetch Integration', () => {
     const id = await stub.id;
     
     // Create message with POST request and custom headers using real serialization
-    const postRequest = new Request(`${env.TEST_ENDPOINTS_URL}/echo?token=${env.TEST_TOKEN}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Custom-Header': 'test-value',
-      },
+    const postRequest = new Request(
+      TEST_ENDPOINTS.buildUrl('/echo'), 
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Custom-Header': 'test-value',
+        },
       body: JSON.stringify({ test: 'data' }),
     });
     const serializedPostRequest = await serializeWebApiObject(postRequest);
@@ -330,7 +344,9 @@ describe('Error Handling and Retries', () => {
     const id = await stub.id;
     
     // test-endpoints.transformation.workers.dev/delay/N delays for N milliseconds
-    const timeoutRequest = new Request(`${env.TEST_ENDPOINTS_URL}/delay/5000?token=${env.TEST_TOKEN}`); // 5 second delay
+    const timeoutRequest = new Request(
+      TEST_ENDPOINTS.buildUrl('/delay/5000')
+    ); // 5 second delay
     const serializedRequest = await serializeWebApiObject(timeoutRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -417,7 +433,9 @@ describe('Error Handling and Retries', () => {
     const id = await stub.id;
     
     // test-endpoints/status/500 returns a 500 error
-    const errorRequest = new Request(`${env.TEST_ENDPOINTS_URL}/status/500?token=${env.TEST_TOKEN}`);
+    const errorRequest = new Request(
+      TEST_ENDPOINTS.buildUrl('/status/500')
+    );
     const serializedRequest = await serializeWebApiObject(errorRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -455,7 +473,9 @@ describe('Error Handling and Retries', () => {
     const id = await stub.id;
     
     // test-endpoints/status/404 returns a 404 error (with empty body)
-    const errorRequest = new Request(`${env.TEST_ENDPOINTS_URL}/status/404?token=${env.TEST_TOKEN}`);
+    const errorRequest = new Request(
+      TEST_ENDPOINTS.buildUrl('/status/404')
+    );
     const serializedRequest = await serializeWebApiObject(errorRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -494,7 +514,9 @@ describe('Error Handling and Retries', () => {
     const stub = env.MY_DO.getByName('metadata-test');
     const id = await stub.id;
     
-    const request = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
+    const request = new Request(
+      TEST_ENDPOINTS.buildUrl('/uuid')
+    );
     const serializedRequest = await serializeWebApiObject(request);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
@@ -535,7 +557,9 @@ describe('Error Handling and Retries', () => {
     const stub = env.MY_DO.getByName('throwing-handler-test');
     const id = await stub.id;
     
-    const request = new Request(`${env.TEST_ENDPOINTS_URL}/uuid?token=${env.TEST_TOKEN}`);
+    const request = new Request(
+      TEST_ENDPOINTS.buildUrl('/uuid')
+    );
     const serializedRequest = await serializeWebApiObject(request);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
