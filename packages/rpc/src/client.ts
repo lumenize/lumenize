@@ -312,6 +312,21 @@ export class RpcClient<T> {
     this.#config = config;
     this.#transport = config.transport;
 
+    // Validate downstream messaging configuration
+    if (config.onDownstream && !config.clientId) {
+      throw new Error('clientId is required when using onDownstream handler');
+    }
+
+    // Set up downstream messaging if handler is provided
+    if (config.onDownstream && this.#transport.setDownstreamHandler) {
+      this.#setupDownstreamMessaging(config.onDownstream);
+    }
+
+    // Enable keep-alive if downstream messaging is configured
+    if (config.onDownstream || config.onClose) {
+      this.#transport.setKeepAlive(true);
+    }
+
     // Create the DO proxy handler
     const proxyHandler = new ProxyHandler(this);
     this.#doProxy = new Proxy(() => {}, proxyHandler) as T;
@@ -338,6 +353,16 @@ export class RpcClient<T> {
         return Reflect.get(this.#doProxy as any, prop, receiver);
       }
     }) as any;
+  }
+
+  /**
+   * Set up downstream messaging handler to process server-sent messages
+   * @internal
+   */
+  #setupDownstreamMessaging(onDownstream: (payload: any) => void | Promise<void>): void {
+    // Simply pass the user's handler to the transport
+    // The transport will route messages with type '__downstream' to this handler
+    this.#transport.setDownstreamHandler!(onDownstream);
   }
 
   // Internal method to establish connection (called lazily on first execute)

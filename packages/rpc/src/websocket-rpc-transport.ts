@@ -32,12 +32,13 @@ export class WebSocketRpcTransport implements RpcTransport {
     timeout: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    onClose?: (code: number, reason: string) => void | Promise<void>;
   };
   #ws: WebSocket | null = null;
   #connectionPromise: Promise<void> | null = null;
   #pendingBatches: Map<string, PendingBatch> = new Map();
   #messageType: string; // e.g., '__rpc' (prefix with slashes removed)
-  #messageHandler?: (data: string) => boolean | Promise<boolean>;
+  #downstreamHandler?: (payload: any) => void | Promise<void>;
   #keepAliveEnabled: boolean = false;
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #reconnectAttempts: number = 0;
@@ -51,6 +52,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     timeout: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    onClose?: (code: number, reason: string) => void | Promise<void>;
   }) {
     this.#config = config;
     // Extract message type from prefix (remove leading/trailing slashes)
@@ -65,11 +67,11 @@ export class WebSocketRpcTransport implements RpcTransport {
   }
 
   /**
-   * Register a message handler to intercept incoming messages.
-   * Handler returns true if message was handled, false to use default RPC logic.
+   * Register a handler for downstream messages.
+   * Handler is called with the deserialized payload for messages with type '__downstream'.
    */
-  setMessageHandler(handler: (data: string) => boolean | Promise<boolean>): void {
-    this.#messageHandler = handler;
+  setDownstreamHandler(handler: (payload: any) => void | Promise<void>): void {
+    this.#downstreamHandler = handler;
   }
 
   /**
@@ -238,6 +240,20 @@ export class WebSocketRpcTransport implements RpcTransport {
       }
       this.#pendingBatches.clear();
 
+      // Call user's onClose handler if provided
+      if (this.#config.onClose) {
+        try {
+          this.#config.onClose(event.code, event.reason);
+        } catch (error) {
+          console.error('%o', {
+            type: 'error',
+            where: 'WebSocketRpcTransport.closeHandler',
+            message: 'Error in onClose handler',
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
       // Schedule reconnect if keep-alive is enabled
       if (this.#keepAliveEnabled) {
         this.#scheduleReconnect();
@@ -254,7 +270,8 @@ export class WebSocketRpcTransport implements RpcTransport {
       clearInterval(this.#heartbeatIntervalId);
     }
 
-    // Send ping every 30 seconds
+    // Send ping every 25 seconds to keep intermediaries from closing the connection
+    // (Most network intermediaries allow 30+ seconds of inactivity)
     this.#heartbeatIntervalId = setInterval(() => {
       if (this.isConnected()) {
         try {
@@ -268,7 +285,7 @@ export class WebSocketRpcTransport implements RpcTransport {
           });
         }
       }
-    }, 30000); // 30 seconds
+    }, 25000); // 25 seconds
   }
 
   /**
@@ -310,57 +327,61 @@ export class WebSocketRpcTransport implements RpcTransport {
    */
   async #handleMessage(data: string): Promise<void> {
     try {
-      // If message handler is registered, let it try to handle the message first
-      if (this.#messageHandler) {
-        const handled = await this.#messageHandler(data);
-        if (handled) {
-          return; // Message was handled by custom handler
+      // Parse the message using @lumenize/structured-clone
+      const message = await parse(data);
+
+      // Route based on message type
+      if (message.type === '__downstream') {
+        // Downstream message - call user's handler if registered
+        if (this.#downstreamHandler) {
+          await this.#downstreamHandler(message.payload);
+        } else {
+          console.warn('%o', {
+            type: 'warn',
+            where: 'WebSocketRpcTransport.handleMessage',
+            message: 'Received downstream message but no handler registered'
+          });
         }
+        return;
       }
 
-      // Default RPC handling: Parse the response using @lumenize/structured-clone
-      const messageResponse: RpcWebSocketMessageResponse = await parse(data);
+      if (message.type === this.#messageType) {
+        // RPC response - handle normally
+        const messageResponse = message as RpcWebSocketMessageResponse;
 
-      // Verify type
-      if (messageResponse.type !== this.#messageType) {
-        console.warn('%o', {
-          type: 'warn',
-          where: 'WebSocketRpcTransport.handleMessage',
-          message: 'Received message with unexpected type',
-          expected: this.#messageType,
-          actual: messageResponse.type
+        // Find the pending batch using first response ID
+        const firstResponseId = messageResponse.batch[0]?.id;
+        if (!firstResponseId) {
+          console.warn('Received empty batch response');
+          return;
+        }
+
+        const pending = this.#pendingBatches.get(firstResponseId);
+        
+        if (!pending) {
+          console.warn('Received response for unknown operation ID:', firstResponseId);
+          return;
+        }
+
+        // Clear timeout and remove from pending
+        clearTimeout(pending.timeoutId);
+        this.#pendingBatches.delete(firstResponseId);
+
+        // Resolve with the batch response (unwrapped from message envelope)
+        pending.resolve({
+          batch: messageResponse.batch
         });
         return;
       }
 
-      // Find the pending batch using first response ID
-      const firstResponseId = messageResponse.batch[0]?.id;
-      if (!firstResponseId) {
-        console.warn('Received empty batch response');
-        return;
-      }
-
-      const pending = this.#pendingBatches.get(firstResponseId);
-      
-      if (!pending) {
-        console.warn('Received response for unknown operation ID:', firstResponseId);
-        return;
-      }
-
-      // Clear timeout and remove from pending
-      clearTimeout(pending.timeoutId);
-      this.#pendingBatches.delete(firstResponseId);
-
-      // Resolve with the batch response (unwrapped from message envelope)
-      pending.resolve({
-        batch: messageResponse.batch
-      });
+      // Unknown message type - throw error
+      throw new Error(`Unknown message type: ${message.type}. Expected '${this.#messageType}' or '__downstream'`);
 
     } catch (error) {
       console.error('%o', {
         type: 'error',
         where: 'WebSocketRpcTransport.handleMessage',
-        message: 'Failed to parse WebSocket message',
+        message: 'Failed to parse or handle WebSocket message',
         error: error instanceof Error ? error.message : String(error)
       });
     }

@@ -201,6 +201,65 @@ export interface RpcClientConfig {
    * ```
    */
   transport: RpcTransport;
+
+  /**
+   * Optional client identifier for tracking WebSocket connections on the server.
+   * Required when using downstream messaging (onDownstream handler).
+   * The server can use this to target specific clients when sending messages.
+   */
+  clientId?: string;
+
+  /**
+   * Optional handler for downstream messages sent from the server.
+   * Receives deserialized payloads with full type support.
+   * 
+   * When provided:
+   * - Automatically enables keep-alive mode
+   * - Requires clientId to be set
+   * - Connection stays open and auto-reconnects
+   * 
+   * @example
+   * ```typescript
+   * const client = createRpcClient({
+   *   transport: createWebSocketTransport('CHAT_ROOM', 'room-123'),
+   *   clientId: 'user-456',
+   *   onDownstream: (message) => {
+   *     console.log('New message:', message);
+   *   }
+   * });
+   * ```
+   */
+  onDownstream?: (payload: any) => void | Promise<void>;
+
+  /**
+   * Optional handler called when the WebSocket connection closes.
+   * Receives close code and reason, allowing the application to:
+   * - Handle authentication expiration (code 4401)
+   * - Refresh tokens and reconnect
+   * - Update UI to show disconnected state
+   * - Implement custom reconnection logic
+   * 
+   * Common close codes:
+   * - 1000: Normal closure
+   * - 1006: Abnormal closure (connection lost)
+   * - 4401: Custom code for authentication expired
+   * 
+   * @example
+   * ```typescript
+   * const client = createRpcClient({
+   *   transport: createWebSocketTransport('MY_DO', 'instance'),
+   *   clientId: 'user-123',
+   *   onClose: async (code, reason) => {
+   *     if (code === 4401) {
+   *       // Authentication expired - refresh and reconnect
+   *       const newToken = await refreshToken();
+   *       // Create new client with fresh token
+   *     }
+   *   }
+   * });
+   * ```
+   */
+  onClose?: (code: number, reason: string) => void | Promise<void>;
 }
 
 /**
@@ -291,12 +350,13 @@ export interface RpcTransport {
   isConnected?(): boolean;
   
   /**
-   * Register a message handler to intercept incoming messages (optional).
-   * Handler returns true if message was handled, false for default logic.
+   * Register a handler for downstream messages (type: '__downstream').
+   * Handler is called with the deserialized payload for server-sent messages.
    * Used for downstream messaging - allows application layer to handle non-RPC messages.
    * Only WebSocket transport implements this.
+   * @internal
    */
-  setMessageHandler?(handler: (data: string) => boolean | Promise<boolean>): void;
+  setDownstreamHandler?(handler: (payload: any) => void | Promise<void>): void;
   
   /**
    * Enable/disable keep-alive mode (required).

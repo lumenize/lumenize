@@ -69,6 +69,8 @@ export function createWebSocketTransport(
     prefix?: string;
     timeout?: number;
     WebSocketClass?: typeof WebSocket;
+    clientId?: string;
+    onClose?: (code: number, reason: string) => void | Promise<void>;
   }
 ): RpcTransport {
   return new WebSocketRpcTransport({
@@ -77,6 +79,8 @@ export function createWebSocketTransport(
     baseUrl: config?.baseUrl ?? (typeof location !== 'undefined' ? location.origin : 'http://localhost:8787'),
     prefix: config?.prefix ?? '/__rpc',
     timeout: config?.timeout ?? 30000,
-    WebSocketClass: config?.WebSocketClass ?? WebSocket
+    WebSocketClass: config?.WebSocketClass ?? WebSocket,
+    clientId: config?.clientId,
+    onClose: config?.onClose
   });
 }
