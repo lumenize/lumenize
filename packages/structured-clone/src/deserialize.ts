@@ -65,8 +65,38 @@ const deserializer = ($: Map<number, any>, _: Record[]) => {
         return set;
       }
       case ERROR: {
-        const { name, message } = value;
-        return as(new (env as any)[name](message), index);
+        // Enhanced Error deserialization with full fidelity
+        const { name, message, stack, cause, customProps } = value;
+        
+        // Create Error with proper subclass type
+        const ErrorConstructor = (env as any)[name] || Error;
+        const error = new ErrorConstructor(message || '');
+        
+        // Capture the error early to handle circular references
+        as(error, index);
+        
+        // Restore stack trace if explicitly provided
+        // Note: Constructor auto-generates stack, so only override if we saved one
+        if (stack !== undefined) {
+          error.stack = stack;
+        } else {
+          // If no stack was saved, delete the auto-generated one
+          delete error.stack;
+        }
+        
+        // Restore cause recursively (might be another Error)
+        if (cause !== undefined) {
+          error.cause = unpair(cause);
+        }
+        
+        // Restore custom properties
+        if (customProps) {
+          for (const key in customProps) {
+            error[key] = unpair(customProps[key]);
+          }
+        }
+        
+        return error;
       }
       case BIGINT:
         return as(BigInt(value), index);

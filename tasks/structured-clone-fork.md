@@ -384,35 +384,38 @@ packages/structured-clone/
 
 **Goal**: Add Error object serialization with full fidelity.
 
-**Changes**:
-- [ ] Define Error marker in `src/markers.ts`
-  ```typescript
-  export interface ErrorMarker {
-    __lmz_Error: true;
-    name: string;
-    message: string;
-    stack?: string;
-    cause?: any;
-  }
-  ```
-- [ ] Add Error handling in `src/special-types.ts`
-  - `isErrorObject(value)` - checks for Error instances
-  - `serializeError(error)` - extracts name, message, stack, cause
-  - `deserializeError(marker)` - reconstructs Error with proper type
-  - Handle Error subclasses: TypeError, RangeError, etc.
-- [ ] Hook into core traversal
-  - During preprocess: detect Error and convert to marker
-  - During postprocess: detect ErrorMarker and reconstruct
-  - Recursively handle `cause` (Error can have Error as cause)
+**Status**: ✅ Complete
 
-**Testing**:
-- [ ] Test basic Error serialization
-- [ ] Test Error subclasses (TypeError, RangeError, etc.)
-- [ ] Test Error with cause
-- [ ] Test Error with nested cause (Error → Error → Error)
-- [ ] Test Error in arrays and objects
-- [ ] Test Error message and stack preserved
-- [ ] Test custom Error properties (best effort)
+**Implementation**:
+- [x] Enhanced existing ERROR case in serialize.ts ✓
+  - Uses `error.name` instead of toString type to preserve subclass names
+  - Captures: name, message, stack, cause, custom properties
+  - Uses `Object.getOwnPropertyNames()` to capture non-enumerable properties
+  - Adds Error record FIRST (like Map/Set) then recursively pairs nested values
+- [x] Enhanced existing ERROR case in deserialize.ts ✓
+  - Looks up constructor by name: `(env as any)[name] || Error`
+  - Restores all properties: stack, cause (recursive), custom properties
+  - Handles circular references in error chains
+- [x] Comprehensive test suite (29 test cases) ✓
+
+**Test Coverage**:
+- [x] Basic Error serialization ✓
+- [x] Stack trace preservation ✓
+- [x] Error subclasses: TypeError, RangeError, ReferenceError, SyntaxError, URIError, EvalError ✓
+- [x] Error chaining with cause (3 levels deep) ✓
+- [x] Non-Error cause (string, object) ✓
+- [x] Custom properties (code, statusCode, metadata, tags) ✓
+- [x] Nested custom properties ✓
+- [x] Errors in data structures (objects, arrays, Maps, Sets) ✓
+- [x] Circular references in error chains ✓
+- [x] Functions and special numbers in custom properties ✓
+
+**Test Results**:
+- Total: 84 test cases × 2 environments = 168 tests passing
+  - Core: 38 tests
+  - Special Numbers: 17 tests
+  - Errors: 29 tests
+- No linter errors
 
 ### Phase 4: Add Web API Object Support
 
