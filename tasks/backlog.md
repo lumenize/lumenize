@@ -17,6 +17,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## RPC Features to Demo/Test
 
+- [ ] Maybe we need a way to secure the DO access over RPC so it can't change storage, or maybe we just need examples that show it not being accessible. Maybe you move this.ctx to this.#ctx and this.env to this.#env. Extending from DurableObject makes those public, but it's JavaScript so you can dynamically do whatever you want in the constructor.
+
 - [ ] RpcPromise acts as stub for eventual result - can access properties without awaiting
   ```ts
   // Single round trip: authenticate + fetch notifications
