@@ -44,7 +44,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Consider scoped "where" clauses
   - Not necessarily env-var based like old debug library
 
-- [ ] Consider forking @ungap/structured-clone to claim zero dependencies
+- [x] ~~Consider forking @ungap/structured-clone to claim zero dependencies~~ (DONE - see tasks/structured-clone-fork.md)
+
+- [ ] Investigate server-side transport pluggability for RPC
+  - Currently only client-side has pluggable transports (HTTP/WebSocket)
+  - Server-side is tightly coupled to Cloudflare's fetch/WebSocket handlers
+  - Would allow custom serialization, compression, or alternative protocols
+  - Challenge: Cloudflare's WebSocket lifecycle is deeply integrated
+  - Likely answer is "no" due to platform constraints, but worth investigating
 
 ## Infrastructure
 

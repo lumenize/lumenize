@@ -41,8 +41,8 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/utils": "^0.14.1",
-    "@ungap/structured-clone": "^1.3.0"
+    "@lumenize/structured-clone": "*",
+    "@lumenize/utils": "^0.14.1"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

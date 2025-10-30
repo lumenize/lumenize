@@ -11,7 +11,7 @@ import { isNestedOperationMarker } from './types';
 import { serializeError, deserializeError, isSerializedError } from './error-serialization';
 import { serializeWebApiObject, deserializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from '@lumenize/utils';
 import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
-import { stringify, parse } from '@ungap/structured-clone/json';
+import { stringify, parse } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 
@@ -91,9 +91,9 @@ async function handleCallRequest(
   }
 
   try {
-    // Parse the batch request using @ungap/structured-clone/json
+    // Parse the batch request using @lumenize/structured-clone
     const requestBody = await request.text();
-    const batchRequest: RpcBatchRequest = parse(requestBody);
+    const batchRequest: RpcBatchRequest = await parse(requestBody);
 
     const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
 
@@ -123,7 +123,7 @@ async function handleCallRequest(
       batch: batchResults
     };
     
-    const responseBody = stringify(batchResponse);
+    const responseBody = await stringify(batchResponse);
     
     // Check if any operations failed
     const hasErrors = batchResults.some(r => !r.success);
@@ -149,7 +149,7 @@ async function handleCallRequest(
         error: serializeError(error)
       }]
     };
-    const responseBody = stringify(batchResponse);
+    const responseBody = await stringify(batchResponse);
     return new Response(responseBody, {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -487,8 +487,8 @@ export async function handleRpcMessage(
   const messageType = rpcConfig.prefix.replace(/^\/+|\/+$/g, '');
 
   try {
-    // Parse the entire message using @ungap/structured-clone/json
-    const wsMessage: RpcWebSocketMessage = parse(message);
+    // Parse the entire message using @lumenize/structured-clone
+    const wsMessage: RpcWebSocketMessage = await parse(message);
 
     // Check if this is an RPC message by verifying the type field
     if (wsMessage.type !== messageType) {
@@ -524,7 +524,7 @@ export async function handleRpcMessage(
       batch: batchResults
     };
     
-    const responseBody = stringify(messageResponse);
+    const responseBody = await stringify(messageResponse);
     ws.send(responseBody);
 
     return true; // Message was handled as RPC

@@ -725,26 +725,52 @@ const restored = await parse(json); // Now async!
   - Website documentation created with pedagogical tests
   - README updated with minimal content linking to docs
 
-### 📝 Phase 6: Pending
+### ✅ Phase 6: Complete
 **Migrate Existing RPC to @lumenize/structured-clone**
 
-**Current state**: The `@lumenize/rpc` package still imports from `@ungap/structured-clone/json` in:
-- `packages/rpc/src/http-post-transport.ts`
-- `packages/rpc/src/lumenize-rpc-do.ts`
-- `packages/rpc/src/websocket-rpc-transport.ts`
+**Changes made**:
+1. ✅ Updated imports in 3 files:
+   - `packages/rpc/src/http-post-transport.ts`
+   - `packages/rpc/src/lumenize-rpc-do.ts`
+   - `packages/rpc/src/websocket-rpc-transport.ts`
+   - Changed from: `import { stringify, parse } from '@ungap/structured-clone/json'`
+   - Changed to: `import { stringify, parse } from '@lumenize/structured-clone'`
 
-**Expected TypeScript errors** (until Phase 6 is complete):
-```
-error TS7016: Could not find a declaration file for module '@ungap/structured-clone/json'
-```
+2. ✅ Updated all stringify/parse calls to async:
+   - Added `await` to all `stringify()` calls (6 total)
+   - Added `await` to all `parse()` calls (4 total)
+   - Made `#handleMessage` async in WebSocketRpcTransport
+   - Made Promise executor async in WebSocketRpcTransport.execute
 
-**Migration tasks**:
-1. Update imports to use `@lumenize/structured-clone`
-2. Update function calls (async API)
-3. Remove `@ungap/structured-clone` dependency from `package.json`
-4. Remove pre/post processing code that's now in structured-clone
-5. Update tests to use new API
-6. Verify all RPC tests pass
+3. ✅ Updated package.json:
+   - Removed: `"@ungap/structured-clone": "^1.3.0"`
+   - Added: `"@lumenize/structured-clone": "*"`
 
-**Ready for Phase 6 when user approves.**
+4. ✅ Verified all tests pass:
+   - **295 tests passed** across 11 test files
+   - No pre/post processing removal needed (that code is for OCAN, not serialization)
+
+**Result**: Zero runtime dependencies achieved! The RPC package now uses our custom fork with all the Lumenize-specific extensions.
+
+## Project Complete! 🎉
+
+The `@lumenize/structured-clone` package is now:
+- ✅ **Fully implemented** with all planned features
+- ✅ **Thoroughly tested** with 78 tests (core, special numbers, errors, web API objects, pedagogical)
+- ✅ **Well documented** with Docusaurus integration and TypeDoc API auto-generation
+- ✅ **Integrated into RPC** - all 295 RPC tests passing
+- ✅ **Zero runtime dependencies** - achieved the original goal!
+
+**Package features:**
+- Async API for Request/Response bodies
+- Special number support (NaN, ±Infinity)
+- Full-fidelity Error serialization (stack, cause, custom properties)
+- Web API object support (Request, Response, Headers, URL)
+- Function marker support for RPC layer
+- Strict symbol handling (throws TypeError)
+- All standard structured-clone types (Date, RegExp, Map, Set, etc.)
+
+**Next steps:**
+- Consider archiving this task file to `tasks/archive/`
+- Return to `tasks/downstream-messaging.md` or `tasks/backlog.md`
 

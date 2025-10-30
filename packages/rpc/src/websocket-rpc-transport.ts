@@ -6,7 +6,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { deserializeError } from './error-serialization';
-import { stringify, parse } from '@ungap/structured-clone/json';
+import { stringify, parse } from '@lumenize/structured-clone';
 
 /**
  * Pending batch tracking - maps batch ID to resolve/reject functions
@@ -174,10 +174,10 @@ export class WebSocketRpcTransport implements RpcTransport {
   /**
    * Handle incoming WebSocket message (always expects batch format wrapped in type envelope)
    */
-  #handleMessage(data: string): void {
+  async #handleMessage(data: string): Promise<void> {
     try {
-      // Parse the response using @ungap/structured-clone/json
-      const messageResponse: RpcWebSocketMessageResponse = parse(data);
+      // Parse the response using @lumenize/structured-clone
+      const messageResponse: RpcWebSocketMessageResponse = await parse(data);
 
       // Verify type
       if (messageResponse.type !== this.#messageType) {
@@ -241,7 +241,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     }
 
     // Create promise for response
-    return new Promise<RpcBatchResponse>((resolve, reject) => {
+    return new Promise<RpcBatchResponse>(async (resolve, reject) => {
       // Setup timeout
       const timeoutId = setTimeout(() => {
         this.#pendingBatches.delete(firstId);
@@ -259,7 +259,7 @@ export class WebSocketRpcTransport implements RpcTransport {
           batch: batch.batch
         };
 
-        const messageBody = stringify(message);
+        const messageBody = await stringify(message);
         this.#ws!.send(messageBody);
 
       } catch (error) {

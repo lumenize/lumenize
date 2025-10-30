@@ -1,5 +1,5 @@
 import type { RpcBatchRequest, RpcBatchResponse, RpcTransport } from './types';
-import { stringify, parse } from '@ungap/structured-clone/json';
+import { stringify, parse } from '@lumenize/structured-clone';
 
 /**
  * Utility function to remove leading and trailing slashes from a URL segment
@@ -59,7 +59,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     };
 
     // Use stringify on the entire batch request
-    const requestBody = stringify(batch);
+    const requestBody = await stringify(batch);
 
     const response = await this.#config.fetch(url, {
       method: 'POST',
@@ -68,9 +68,9 @@ export class HttpPostRpcTransport implements RpcTransport {
       signal: AbortSignal.timeout(this.#config.timeout)
     });
 
-    // Parse the entire response using @ungap/structured-clone/json
+    // Parse the entire response using @lumenize/structured-clone
     const responseText = await response.text();
-    const batchResponse: RpcBatchResponse = parse(responseText);
+    const batchResponse: RpcBatchResponse = await parse(responseText);
 
     if (!response.ok) {
       // Handle error response - if any operation failed, the server returns HTTP 500
