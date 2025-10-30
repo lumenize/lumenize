@@ -135,18 +135,15 @@ export class WebSocketRpcTransport implements RpcTransport {
       throw new Error('WebSocket is not available. Please provide WebSocketClass in config.');
     }
 
-    // Create WebSocket connection
-    // For Node.js 'ws' library, pass headers in options (second parameter can be options)
-    // For browser WebSocket, second parameter is protocols (array), so this will be ignored
-    const wsOptions = this.#config.clientId ? {
-      headers: {
-        'X-Client-Id': this.#config.clientId
-      }
-    } : undefined;
+    // Create WebSocket connection with protocols for clientId smuggling
+    // Use protocols array to securely pass clientId without logging it in URLs
+    // Format: ['lumenize.rpc', 'lumenize.rpc.clientId.${clientId}']
+    // Server will respond with 'lumenize.rpc' and pluck out the clientId for tagging
+    const protocols = this.#config.clientId
+      ? ['lumenize.rpc', `lumenize.rpc.clientId.${this.#config.clientId}`]
+      : ['lumenize.rpc'];
     
-    const ws = wsOptions 
-      ? new WebSocketClass(wsUrl, wsOptions as any)
-      : new WebSocketClass(wsUrl);
+    const ws = new WebSocketClass(wsUrl, protocols);
     this.#ws = ws;
 
     // Setup event handlers
@@ -191,12 +188,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     const doBindingName = cleanSegment(this.#config.doBindingName);
     const doInstanceNameOrId = cleanSegment(this.#config.doInstanceNameOrId);
     
-    let url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
-    
-    // Add clientId as query parameter for browser WebSocket (which doesn't support custom headers)
-    if (this.#config.clientId) {
-      url += `?clientId=${encodeURIComponent(this.#config.clientId)}`;
-    }
+    const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
     
     return url;
   }

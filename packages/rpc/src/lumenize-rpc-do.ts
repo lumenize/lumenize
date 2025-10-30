@@ -26,6 +26,64 @@ const DEFAULT_CONFIG: Required<RpcConfig> = {
 };
 
 // ============================================================================
+// Downstream Messaging
+// ============================================================================
+
+/**
+ * Send a downstream message to specific clients via their WebSocket connections.
+ * 
+ * Messages are sent with type '__downstream' and support full type serialization
+ * via @lumenize/structured-clone (Errors, Web API objects, special numbers, etc.).
+ * 
+ * This is a fire-and-forget operation - messages are sent immediately to connected
+ * clients. If a client is disconnected, the message is not queued or retried.
+ * Use application-layer catchup patterns (e.g., fetching missed messages by ID)
+ * for reliability.
+ * 
+ * @param clientIds - Client ID(s) to send the message to (string or array of strings)
+ * @param doInstance - The Durable Object instance (pass `this`)
+ * @param payload - The payload to send (supports all serializable types)
+ * 
+ * @see [Downstream Messaging Guide](https://lumenize.com/docs/rpc/downstream-messaging) - Complete examples with authentication
+ */
+export async function sendDownstream(
+  clientIds: string | string[],
+  doInstance: any,
+  payload: any
+): Promise<void> {
+  // Normalize to array
+  const ids = Array.isArray(clientIds) ? clientIds : [clientIds];
+  
+  // Build downstream message envelope
+  const message = {
+    type: '__downstream',
+    payload
+  };
+
+  // Serialize the message with full type support
+  const messageString = await stringify(message);
+
+  // Get WebSockets with matching tags
+  for (const clientId of ids) {
+    const connections = doInstance.ctx.getWebSockets(clientId);
+    
+    for (const ws of connections) {
+      try {
+        ws.send(messageString);
+      } catch (error) {
+        console.error('%o', {
+          type: 'error',
+          where: 'sendDownstream',
+          message: 'Failed to send downstream message',
+          clientId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
+}
+
+// ============================================================================
 // Standalone RPC Handler Functions (for manual routing)
 // ============================================================================
 
@@ -577,12 +635,41 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
           const webSocketPair = new WebSocketPair();
           const [client, server] = Object.values(webSocketPair);
           
-          // Accept the hibernatable WebSocket connection
-          this.ctx.acceptWebSocket(server);
+          // Extract clientId from WebSocket protocols header
+          // Client should send: ['lumenize.rpc', 'lumenize.rpc.clientId.${clientId}']
+          // This smuggles the clientId securely without logging it in URLs
+          let clientId: string | null = null;
+          const protocolsHeader = request.headers.get('Sec-WebSocket-Protocol');
+          if (protocolsHeader) {
+            const protocols = protocolsHeader.split(',').map(p => p.trim());
+            for (const protocol of protocols) {
+              if (protocol.startsWith('lumenize.rpc.clientId.')) {
+                clientId = protocol.substring('lumenize.rpc.clientId.'.length);
+                break;
+              }
+            }
+          }
           
+          // Set up server-side heartbeat using setWebSocketAutoResponse
+          // This allows the DO to auto-respond to pings without waking from hibernation
+          this.ctx.setWebSocketAutoResponse(
+            new WebSocketRequestResponsePair('ping', 'pong')
+          );
+          
+          // Accept the hibernatable WebSocket connection with optional tag
+          if (clientId) {
+            this.ctx.acceptWebSocket(server, [clientId]);
+          } else {
+            this.ctx.acceptWebSocket(server);
+          }
+          
+          // Respond with the primary protocol (not the clientId one)
           return new Response(null, {
             status: 101,
             webSocket: client,
+            headers: {
+              'Sec-WebSocket-Protocol': 'lumenize.rpc'
+            }
           });
         }
       }
