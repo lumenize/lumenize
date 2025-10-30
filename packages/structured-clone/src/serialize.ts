@@ -10,6 +10,14 @@ import {
   ERROR, BIGINT, FUNCTION
 } from './types.js';
 import { isSpecialNumber, serializeSpecialNumber } from './special-numbers.js';
+import { 
+  isWebApiObject, 
+  getWebApiType,
+  serializeRequest,
+  serializeResponse,
+  serializeHeaders,
+  serializeURL
+} from './web-api-objects.js';
 
 /**
  * Operation type for building operation chains
@@ -68,7 +76,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
     return index;
   };
 
-  const pair = (value: any, currentChain: OperationChain): number => {
+  const pair = async (value: any, currentChain: OperationChain): Promise<number> => {
     if ($.has(value))
       return $.get(value)!;
 
@@ -76,6 +84,32 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
     // These are typeof 'number' but need special serialization for JSON
     if (isSpecialNumber(value)) {
       return as([PRIMITIVE, serializeSpecialNumber(value)], value);
+    }
+
+    // Handle Web API objects (Request, Response, Headers, URL) before typeOf
+    // These need async serialization for body reading
+    if (isWebApiObject(value)) {
+      const webApiType = getWebApiType(value);
+      let marker: any;
+      
+      switch (webApiType) {
+        case 'Request':
+          marker = await serializeRequest(value);
+          break;
+        case 'Response':
+          marker = await serializeResponse(value);
+          break;
+        case 'Headers':
+          marker = serializeHeaders(value);
+          break;
+        case 'URL':
+          marker = serializeURL(value);
+          break;
+        default:
+          throw new Error(`Unknown Web API type: ${webApiType}`);
+      }
+      
+      return as([OBJECT, marker], value);
     }
 
     let [TYPE, type] = typeOf(value);
@@ -119,7 +153,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
         const index = as([TYPE, arr], value);
         for (let i = 0; i < value.length; i++) {
           const itemChain = [...currentChain, { type: 'get' as const, key: i }];
-          arr.push(pair(value[i], itemChain));
+          arr.push(await pair(value[i], itemChain));
         }
         return index;
       }
@@ -139,7 +173,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
         const index = as([TYPE, entries], value);
         for (const key of keys(value)) {
           const keyChain = [...currentChain, { type: 'get' as const, key }];
-          entries.push([pair(key, currentChain), pair(value[key], keyChain)]);
+          entries.push([await pair(key, currentChain), await pair(value[key], keyChain)]);
         }
         return index;
       }
@@ -155,7 +189,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
         let mapIndex = 0;
         for (const [key, entry] of value) {
           const entryChain = [...currentChain, { type: 'get' as const, key: mapIndex++ }];
-          entries.push([pair(key, entryChain), pair(entry, entryChain)]);
+          entries.push([await pair(key, entryChain), await pair(entry, entryChain)]);
         }
         return index;
       }
@@ -165,7 +199,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
         let setIndex = 0;
         for (const entry of value) {
           const entryChain = [...currentChain, { type: 'get' as const, key: setIndex++ }];
-          entries.push(pair(entry, entryChain));
+          entries.push(await pair(entry, entryChain));
         }
         return index;
       }
@@ -198,7 +232,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
     // NOW recursively serialize cause and custom properties
     // Preserve cause (recursive - cause can be another Error)
     if (value.cause !== undefined) {
-      errorData.cause = pair(value.cause, [...currentChain, { type: 'get' as const, key: 'cause' }]);
+      errorData.cause = await pair(value.cause, [...currentChain, { type: 'get' as const, key: 'cause' }]);
     }
     
     // Capture custom properties (best effort)
@@ -208,7 +242,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
     for (const key of allProps) {
       if (key !== 'name' && key !== 'message' && key !== 'stack' && key !== 'cause') {
         try {
-          customProps[key] = pair(value[key], [...currentChain, { type: 'get' as const, key }]);
+          customProps[key] = await pair(value[key], [...currentChain, { type: 'get' as const, key }]);
         } catch (e) {
           // Skip properties that can't be accessed or serialized
         }
@@ -234,14 +268,16 @@ export type Record = [string | number, any];
 /**
  * Returns an array of serialized Records.
  * Functions are converted to markers with operation chains.
+ * Web API objects (Request/Response) are serialized asynchronously.
  * Throws TypeError for symbols.
  * 
  * @param value - A serializable value
  * @param baseOperationChain - Base operation chain for building function markers (default: [])
  * @returns Array of serialized records
  */
-export const serialize = (value: any, baseOperationChain: OperationChain = []): Record[] => {
+export const serialize = async (value: any, baseOperationChain: OperationChain = []): Promise<Record[]> => {
   const _: Record[] = [];
-  return serializer(new Map, _, baseOperationChain)(value, baseOperationChain), _;
+  await serializer(new Map, _, baseOperationChain)(value, baseOperationChain);
+  return _;
 };
 

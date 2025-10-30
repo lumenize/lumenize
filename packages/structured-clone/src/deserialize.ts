@@ -11,6 +11,7 @@ import {
 } from './types.js';
 import type { Record } from './serialize.js';
 import { isSerializedSpecialNumber, deserializeSpecialNumber } from './special-numbers.js';
+import { isSerializedWebApiObject, deserializeWebApiObject } from './web-api-objects.js';
 
 const env = typeof self === 'object' ? self : globalThis;
 
@@ -41,6 +42,12 @@ const deserializer = ($: Map<number, any>, _: Record[]) => {
         return arr;
       }
       case OBJECT: {
+        // Check if this is a Web API object marker (stored as plain object)
+        if (isSerializedWebApiObject(value)) {
+          return as(deserializeWebApiObject(value), index);
+        }
+        
+        // Regular object deserialization (value is array of [key, value] pairs)
         const object: any = as({}, index);
         for (const [key, idx] of value)
           object[unpair(key)] = unpair(idx);

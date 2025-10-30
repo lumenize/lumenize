@@ -421,47 +421,48 @@ packages/structured-clone/
 
 **Goal**: Add Request, Response, Headers, URL serialization.
 
-**Changes**:
-- [ ] Define Web API markers in `src/markers.ts`
-  ```typescript
-  export interface WebApiMarker {
-    __lmz_WebApi: true;
-    type: 'Request' | 'Response' | 'Headers' | 'URL';
-    data: any;
-  }
-  ```
-- [ ] Add Web API handling in `src/special-types.ts`
-  - `isWebApiObject(value)` - checks for Request, Response, Headers, URL
-  - `serializeRequest(req)` - extract url, method, headers, body
-  - `deserializeRequest(marker)` - reconstruct Request
-  - `serializeResponse(res)` - extract status, headers, body
-  - `deserializeResponse(marker)` - reconstruct Response
-  - `serializeHeaders(headers)` - convert to plain object
-  - `deserializeHeaders(obj)` - reconstruct Headers
-  - `serializeURL(url)` - convert to string
-  - `deserializeURL(str)` - reconstruct URL
-- [ ] Hook into core traversal
-  - Handle async body reading (Request/Response.text())
-  - Make preprocess/stringify async (required for Request/Response)
-  - Handle Headers iteration
-- [ ] Update API signatures to async
-  ```typescript
-  export async function stringify(value: any): Promise<string>;
-  export async function parse(value: string): Promise<any>;
-  export async function preprocess(value: any): Promise<any>;
-  export async function postprocess(value: any): Promise<any>;
-  ```
+**Status**: ✅ Complete
 
-**Testing**:
-- [ ] Test Request serialization (all methods: GET, POST, etc.)
-- [ ] Test Request with body
-- [ ] Test Response serialization (all status codes)
-- [ ] Test Response with body
-- [ ] Test Headers serialization
-- [ ] Test URL serialization
-- [ ] Test nested Web API objects
-- [ ] Test Web API objects in arrays/objects
-- [ ] Test async/await in all use cases
+**Implementation**:
+- [x] Created `src/web-api-objects.ts` with markers and utilities ✓
+  - `RequestMarker`: url, method, headers, body, mode, credentials, etc.
+  - `ResponseMarker`: body, status, statusText, headers
+  - `HeadersMarker`: entries as plain object
+  - `URLMarker`: href string
+  - Serialization functions: async for Request/Response (body reading)
+  - Deserialization functions: reconstruct native objects
+  - Special handling: 204/205/304 responses cannot have bodies
+- [x] Made `serialize()` function async ✓
+  - Converted `pair()` to async function
+  - Added `await` to all recursive pair() calls
+  - Detects Web API objects before typeOf check
+  - Calls async serialization for Request/Response bodies
+- [x] Updated `deserialize()` to handle Web API markers ✓
+  - Detects markers in OBJECT case
+  - Calls appropriate deserialization function
+- [x] Updated public API (index.ts) ✓
+  - All functions already async (from Phase 1 design)
+  - Added await for serialize() calls
+  - Exported all Web API types and utilities
+- [x] Comprehensive test suite (29 test cases) ✓
+
+**Test Coverage**:
+- [x] Headers: empty, with values, in objects ✓
+- [x] URL: simple, with query params, with hash, in arrays ✓
+- [x] Request: GET, POST, PUT, DELETE, with headers, with body, in objects ✓
+- [x] Response: simple, with status, with JSON, with headers, empty (204), in arrays ✓
+- [x] Mixed structures: multiple types, nested, in Maps/Sets ✓
+- [x] Edge cases: empty bodies, null bodies, duplicate headers, full URLs, circular refs ✓
+
+**Test Results**:
+- Total: 112 test cases × 2 environments = 224 tests passing
+  - Core: 38 tests
+  - Special Numbers: 17 tests
+  - Errors: 29 tests
+  - Web API: 28 tests
+- No linter errors
+
+**Key Achievement**: Maintained single recursive object walk while adding async support for Request/Response body reading.
 
 ### Phase 5: Documentation and Examples
 

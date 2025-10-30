@@ -20,9 +20,10 @@ const { parse: $parse, stringify: $stringify } = JSON;
  * Convert value to JSON string with full type support.
  * Handles cycles, Date, RegExp, Map, Set, Error, BigInt, TypedArrays.
  * Functions are converted to markers with operation chains.
+ * Web API objects (Request, Response, Headers, URL) are serialized with full fidelity.
  * Throws TypeError for symbols.
  * 
- * Note: Currently synchronous. Will become async in Phase 4 for Request/Response support.
+ * Note: Async for Request/Response body reading.
  * 
  * @param value - Any serializable value
  * @param baseOperationChain - Base operation chain for building function markers (default: [])
@@ -30,7 +31,7 @@ const { parse: $parse, stringify: $stringify } = JSON;
  * @throws TypeError if value contains symbols
  */
 export async function stringify(value: any, baseOperationChain: OperationChain = []): Promise<string> {
-  return $stringify(serialize(value, baseOperationChain));
+  return $stringify(await serialize(value, baseOperationChain));
 }
 
 /**
@@ -50,9 +51,10 @@ export async function parse(value: string): Promise<any> {
  * Returns processed object ready for JSON.stringify().
  * Use when you need control between processing and stringification.
  * Functions are converted to markers with operation chains.
+ * Web API objects (Request, Response, Headers, URL) are serialized with full fidelity.
  * Throws TypeError for symbols.
  * 
- * Note: Currently synchronous. Will become async in Phase 4 for Request/Response support.
+ * Note: Async for Request/Response body reading.
  * 
  * @param value - Any serializable value
  * @param baseOperationChain - Base operation chain for building function markers (default: [])
@@ -60,7 +62,7 @@ export async function parse(value: string): Promise<any> {
  * @throws TypeError if value contains symbols
  */
 export async function preprocess(value: any, baseOperationChain: OperationChain = []): Promise<any> {
-  return serialize(value, baseOperationChain);
+  return await serialize(value, baseOperationChain);
 }
 
 /**
@@ -78,6 +80,13 @@ export async function postprocess(value: any): Promise<any> {
 // Re-export types for users
 export type { Record, OperationChain, Operation } from './serialize.js';
 export type { SpecialNumberMarker, NaNMarker, InfinityMarker, NegInfinityMarker } from './special-numbers.js';
+export type { 
+  WebApiMarker, 
+  RequestMarker, 
+  ResponseMarker, 
+  HeadersMarker, 
+  URLMarker 
+} from './web-api-objects.js';
 
 // Re-export utility functions for special numbers (useful for RPC layer)
 export { 
@@ -86,4 +95,20 @@ export {
   isSerializedSpecialNumber, 
   deserializeSpecialNumber 
 } from './special-numbers.js';
+
+// Re-export utility functions for Web API objects (useful for RPC layer)
+export {
+  isWebApiObject,
+  getWebApiType,
+  serializeRequest,
+  serializeResponse,
+  serializeHeaders,
+  serializeURL,
+  deserializeRequest,
+  deserializeResponse,
+  deserializeHeaders,
+  deserializeURL,
+  isSerializedWebApiObject,
+  deserializeWebApiObject
+} from './web-api-objects.js';
 
