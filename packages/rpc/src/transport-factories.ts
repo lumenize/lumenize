@@ -70,6 +70,7 @@ export function createWebSocketTransport(
     timeout?: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    additionalProtocols?: string[];
     onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
   }
@@ -82,6 +83,7 @@ export function createWebSocketTransport(
     timeout: config?.timeout ?? 30000,
     WebSocketClass: config?.WebSocketClass ?? WebSocket,
     clientId: config?.clientId,
+    additionalProtocols: config?.additionalProtocols,
     onDownstream: config?.onDownstream,
     onClose: config?.onClose
   });

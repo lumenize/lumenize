@@ -32,6 +32,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     timeout: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    additionalProtocols?: string[];
     onClose?: (code: number, reason: string) => void | Promise<void>;
   };
   #ws: WebSocket | null = null;
@@ -52,6 +53,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     timeout: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    additionalProtocols?: string[];
     onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
   }) {
@@ -148,6 +150,11 @@ export class WebSocketRpcTransport implements RpcTransport {
     const protocols = this.#config.clientId
       ? ['lumenize.rpc', `lumenize.rpc.clientId.${this.#config.clientId}`]
       : ['lumenize.rpc'];
+    
+    // Append additional protocols if provided (e.g., for authentication tokens)
+    if (this.#config.additionalProtocols) {
+      protocols.push(...this.#config.additionalProtocols);
+    }
     
     const ws = new WebSocketClass(wsUrl, protocols);
     this.#ws = ws;

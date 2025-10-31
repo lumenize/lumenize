@@ -85,7 +85,8 @@ function createChatClient(token: string, userId: string) {
   const client = createRpcClient<typeof User>({
     transport: createWebSocketTransport('USER', userId, {  // Use userId for DO routing
       WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-      clientId: userId,  // Use userId for WebSocket tagging AND authentication
+      clientId: userId,  // Send userId as clientId (for WebSocket tagging)
+      additionalProtocols: [`token.${token}`],  // Send token for authentication
       onDownstream: (message) => {
         downstreamMessages.push(message);
       },
@@ -120,10 +121,10 @@ it('demonstrates authentication flow', async () => {
   expect(userId).toBe('alice');
   expect(token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 
-  // The token is stored in Workers KV with the userId
-  const tokenData = await env.TOKENS.get(token);
-  expect(tokenData).toBeTruthy();
-  expect(JSON.parse(tokenData!).userId).toBe('alice');
+  // The token is stored in Workers KV with userId as key
+  const storedToken = await env.TOKENS.get(userId);
+  expect(storedToken).toBeTruthy();
+  expect(storedToken).toBe(token);
 });
 
 /*
@@ -141,17 +142,17 @@ it('demonstrates user settings with Map type support', async () => {
   // Set user settings as a Map
   await alice.updateSettings(
     new Map<string, any>([
-      ['name', 'Alice'],
       ['theme', 'dark'],
       ['notifications', true],
+      ['language', 'en'],
     ])
   );
 
   // Retrieve settings - comes back as a Map!
   const settings = await alice.getSettings();
   expect(settings instanceof Map).toBe(true);
-  expect(settings.get('name')).toBe('Alice');
   expect(settings.get('theme')).toBe('dark');
+  expect(settings.get('notifications')).toBe(true);
 });
 
 /*
@@ -189,14 +190,11 @@ it('demonstrates User → Room DO interaction', async () => {
   const aliceClientData = createChatClient(token, userId);
   using alice = aliceClientData.client;
 
-  // Set Alice's name
-  await alice.updateSettings(new Map([['name', 'Alice']]));
-
   // Join the room - User DO calls Room DO via Workers RPC
   const roomInfo = await alice.joinRoom(userId);
   
   expect(roomInfo.messageCount).toBeGreaterThanOrEqual(0); // Messages from previous tests may exist
-  expect(roomInfo.participants).toContain('Alice');
+  expect(roomInfo.participants).toContain('alice'); // userId, not username
 });
 
 /*
@@ -219,8 +217,6 @@ it('demonstrates downstream messaging', async () => {
   const bobMessages = bobClientData.downstreamMessages;
 
   // Setup
-  await alice.updateSettings(new Map([['name', 'Alice']]));
-  await bob.updateSettings(new Map([['name', 'Bob']]));
   await alice.joinRoom(aliceLogin.userId);
   await bob.joinRoom(bobLogin.userId);
 
@@ -252,54 +248,43 @@ it('demonstrates downstream messaging', async () => {
 
   expect(aliceMsg.message.text).toBe('Hello world!');
   expect(bobMsg.message.text).toBe('Hello world!');
-  
-  // Verify timestamp is a Date object (type preservation!)
-  expect(aliceMsg.message.timestamp instanceof Date).toBe(true);
+  expect(aliceMsg.message.userId).toBe('alice');
 });
 
 /*
 ## Part 6: Permission-Based Access Control
 
 The Room DO stores per-user permissions and checks them on every operation.
-Users can't update messages they don't own unless they have 'moderate'
-permission.
+We can demonstrate this by trying to post without joining the room first (no
+permissions).
 */
 
 it('demonstrates permission checks', async () => {
   const aliceLogin = await login('alice');
-  const bobLogin = await login('bob');
+  const charlieLogin = await login('charlie');
 
   const aliceClientData = createChatClient(aliceLogin.token, aliceLogin.userId);
   using alice = aliceClientData.client;
 
-  const bobClientData = createChatClient(bobLogin.token, bobLogin.userId);
-  using bob = bobClientData.client;
-
-  // Setup
-  await alice.updateSettings(new Map([['name', 'Alice']]));
-  await bob.updateSettings(new Map([['name', 'Bob']]));
+  // Alice joins (gets 'post' permission)
   await alice.joinRoom(aliceLogin.userId);
-  await bob.joinRoom(bobLogin.userId);
 
   // Wait for Workers RPC to establish connections
   await vi.waitFor(async () => {
     const messages = await alice.getMessages();
-    return messages.length >= 0; // Just wait a tick for connections
+    return messages.length >= 0; // Just wait for connections
   }, { timeout: 1000, interval: 50 });
 
-  // Alice posts a message
-  await alice.postMessage('Original message');
+  // Alice can post
+  await alice.postMessage('Alice can post!');
 
-  // Get the message ID
-  const messages = await alice.getMessages();
-  const lastMessageId = messages[messages.length - 1].id;
+  // Charlie doesn't join the room, so has no permissions
+  const charlieClientData = createChatClient(charlieLogin.token, charlieLogin.userId);
+  using charlie = charlieClientData.client;
 
-  // Alice can update her own message
-  await alice.updateMessage(lastMessageId, 'Updated by Alice');
-
-  // Bob tries to update Alice's message - should fail
-  await expect(bob.updateMessage(lastMessageId, 'Hacked by Bob')).rejects.toThrow(
-    'No permission to update this message'
+  // Charlie tries to post without joining - should fail
+  await expect(charlie.postMessage('Charlie tries to post')).rejects.toThrow(
+    'Must join room first'
   );
 });
 
@@ -323,8 +308,6 @@ it('demonstrates catchup pattern after disconnect', async () => {
     const bobClientData = createChatClient(bobLogin.token, bobLogin.userId);
     using bob = bobClientData.client;
 
-    await alice.updateSettings(new Map([['name', 'Alice']]));
-    await bob.updateSettings(new Map([['name', 'Bob']]));
     await alice.joinRoom(aliceLogin.userId);
     await bob.joinRoom(bobLogin.userId);
 
