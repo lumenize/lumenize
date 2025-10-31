@@ -16,8 +16,8 @@ const FeatureList: FeatureItem[] = [
     Svg: require('@site/static/img/trophy.svg').default,
     description: (
       <>
-        The best from Cloudflare (e.g. Actor, Agent) and the community
-        (e.g. PartyKit) as well as adding some of our own (e.g. in-process 
+        The best from Cloudflare (e.g., Actor, Agent) and the community
+        (e.g., PartyKit) as well as adding some of our own (e.g., in-process 
         integration testing for WebSockets)
       </>
     ),
@@ -29,8 +29,8 @@ const FeatureList: FeatureItem[] = [
     description: (
       <>
         Use a single utility.
-        Start with a barbones base class and plugin only what you want
-        (e.g. <code>sql`</code>, auth, etc.)
+        Start with a bare-bones base class and plugin only what you want
+        (e.g., <code>sql`</code>, auth, etc.)
         up to a complete MCP-first backend with access control, per-row synchronization, etc.
       </>
     ),

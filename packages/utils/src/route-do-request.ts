@@ -21,8 +21,6 @@ export class MissingInstanceNameError extends Error {
 
 /**
  * CORS configuration options. See [CORS Support](/docs/utils/cors-support) for details.
- * 
- * @interface
  */
 export type CorsOptions = 
   | false  // No CORS headers

@@ -266,7 +266,7 @@ class _NotificationDO extends DurableObject<Env> {
   }
 
   async notifySubscriber(message: string): Promise<void> {
-    const clientId = this.ctx.storage.kv.get('subscriber');
+    const clientId = this.ctx.storage.kv.get<string>('subscriber');
     if (clientId) {
       await sendDownstream(clientId, this, { type: 'notification', message });
     }

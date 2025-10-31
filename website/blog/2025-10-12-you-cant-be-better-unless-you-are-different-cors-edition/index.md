@@ -78,7 +78,7 @@ Contract in plain English:
 Although not all of it is in the components we have open-sourced, the commercial version of Lumenize does all of this and you should keep these items in mind if you decide to implement your own non-standard implementation:
 
 - Do not treat CORS as a security boundary—authenticate and authorize requests explicitly.
-- Decide a policy for `Origin: null` or missing; some legit clients won’t send it.
+- Decide on a policy for `Origin: null` or missing; some legit clients won't send it.
 - Add `Vary: Origin` whenever you echo a specific origin; be careful with CDN caching of error responses.
 - Plan for multi‑tenant allowlists and dynamic configuration if relevant.
 - Implement correct preflight handling; use `Access-Control-Max-Age` to cache preflights when safe.

@@ -179,7 +179,7 @@ Next add this Worker and Durable Object:
 
 ## wrangler.jsonc
 
-You `wrangler` config should look something like this:
+Your `wrangler` config should look something like this:
 
 @import {json} "../wrangler.jsonc" [wrangler.jsonc]
 

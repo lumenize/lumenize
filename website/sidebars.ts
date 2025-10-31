@@ -71,13 +71,71 @@ function transformTypeDocSidebar(items: any[]): any[] {
 }
 
 /**
+ * Transform structured-clone sidebar to highlight main functions and group specialized ones.
+ */
+function transformStructuredCloneSidebar(items: any[]): any[] {
+  if (!items || !Array.isArray(items)) {
+    return [];
+  }
+  
+  const mainFunctions = ['stringify', 'parse', 'preprocess', 'postprocess'];
+  const result: any[] = [];
+  const specializedFunctions: any[] = [];
+  
+  items.forEach((item) => {
+    if (item.type === 'category' && item.label === 'Functions') {
+      // Split functions into main and specialized
+      const orderedMain: any[] = [];
+      
+      // First, collect all function items
+      item.items?.forEach((funcItem: any) => {
+        const funcName = funcItem.id?.split('/').pop()?.replace(/\.md$/, '');
+        if (mainFunctions.includes(funcName || '')) {
+          orderedMain.push(funcItem);
+        } else {
+          specializedFunctions.push(funcItem);
+        }
+      });
+      
+      // Sort main functions in the desired order
+      orderedMain.sort((a, b) => {
+        const aName = a.id?.split('/').pop()?.replace(/\.md$/, '') || '';
+        const bName = b.id?.split('/').pop()?.replace(/\.md$/, '') || '';
+        return mainFunctions.indexOf(aName) - mainFunctions.indexOf(bName);
+      });
+      
+      // Add ordered main functions first
+      result.push(...orderedMain);
+      
+      // Add specialized functions in a submenu if there are any
+      if (specializedFunctions.length > 0) {
+        result.push({
+          type: 'category',
+          label: 'Specialized Serializers',
+          items: specializedFunctions.sort((a, b) => {
+            const aLabel = a.label || '';
+            const bLabel = b.label || '';
+            return aLabel.localeCompare(bLabel);
+          }),
+        });
+      }
+    } else {
+      // Keep other categories as-is (with normal transformation)
+      result.push(item);
+    }
+  });
+  
+  return transformTypeDocSidebar(result);
+}
+
+/**
  * Wrap TypeDoc items in an "API Reference" category
  */
-function wrapInApiReference(items: any[], label: string = 'API Reference'): any {
+function wrapInApiReference(items: any[], label: string = 'API Reference', transformer?: (items: any[]) => any[]): any {
   return {
     type: 'category',
     label,
-    items: transformTypeDocSidebar(items),
+    items: transformer ? transformer(items) : transformTypeDocSidebar(items),
   };
 }
 
@@ -190,7 +248,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'structured-clone/index',
         ...(typedocStructuredCloneSidebar && typedocStructuredCloneSidebar.length > 0
-          ? [wrapInApiReference(typedocStructuredCloneSidebar, 'API Reference')]
+          ? [wrapInApiReference(typedocStructuredCloneSidebar, 'API Reference', transformStructuredCloneSidebar)]
           : []),
       ],
     },

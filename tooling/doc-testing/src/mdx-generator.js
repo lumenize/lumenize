@@ -127,7 +127,7 @@ This documentation uses **testable code examples** to ensure accuracy and reliab
   (e.g. Cap'n Web)
 - **Always up-to-date**: When a package changes, the tests fail and the docs must be updated
 - **Copy-paste confidence**: What you see is what works - no outdated or broken examples
-- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippet
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
 
 Ignore the test boilerplate (\`it()\`, \`describe()\`, etc.) - focus on the code inside.
 

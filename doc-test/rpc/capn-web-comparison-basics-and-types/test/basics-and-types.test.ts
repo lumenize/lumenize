@@ -169,35 +169,9 @@ Workers RPC supports that Lumenize does not are Readable/Writable Streams.
 **Cap'n Web's** limited type support is a significant foot-gun. If that 
 improves over time, we'll update this table.
 
-| Type | Workers RPC | DO Storage | Lumenize RPC | Cap'n Web | Notes |
-|------|-------------|------------|--------------|-----------|-------|
-| **Cycles & Aliases** | ✅→❌ | ✅→❌ | ✅ | ❌ | Cap'n Web throws error<br />[Cloudflare plans to remove](https://github.com/cloudflare/capnweb/tree/main#cloudflare-workers-rpc-interoperability) |
-| **Primitives** | | | | | |
-| undefined | ✅ | ✅ | ✅ | ✅ | |
-| null | ✅ | ✅ | ✅ | ✅ | |
-| **Special Numbers** | | | | | |
-| NaN | ✅ | ✅ | ✅ | ❌ | Cap'n Web returns null |
-| Infinity | ✅ | ✅ | ✅ | ❌ | Cap'n Web returns null |
-| -Infinity | ✅ | ✅ | ✅ | ❌ | Cap'n Web returns null |
-| **Built-in Types** | | | | | |
-| BigInt | ✅ | ✅ | ✅ | ✅ | |
-| Date | ✅ | ✅ | ✅ | ✅ | |
-| RegExp | ✅ | ✅ | ✅ | ❌ | |
-| Map | ✅ | ✅ | ✅ | ❌ | |
-| Set | ✅ | ✅ | ✅ | ❌ | |
-| ArrayBuffer | ✅ | ✅ | ✅ | ❌ | |
-| Uint8Array | ✅ | ✅ | ✅ | ✅ | |
-| **Errors** | | | | | |
-| Error (thrown) | ✅ | N/A | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
-| Error (value) | ✅ | ⚠️ | ✅ | ⚠️ | Cap'n Web loses name and remote stack |
-| **Web API Types** | | | | | |
-| Request | ✅ | ❌ | ✅ | ❌ | |
-| Response | ✅ | ❌ | ✅ | ❌ | |
-| Headers | ✅ | ✅ | ✅ | ❌ | |
-| URL | ❌ | ❌ | ✅ | ❌ | |
-| **Streams** | | | | | |
-| ReadableStream | ✅ | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
-| WritableStream | ✅ | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
+import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
+
+<TypeSupportTable />
 
 For comprehensive type support testing, see the [behavior test suite](https://github.com/lumenize/lumenize/blob/main/packages/rpc/test/shared/behavior-tests.ts).
 */

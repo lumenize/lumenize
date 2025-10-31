@@ -34,7 +34,7 @@ class NotificationDO {
 
   // Send notification to subscriber
   async notifySubscriber(message: string): Promise<void> {
-    const clientId = this.ctx.storage.kv.get('subscriber');
+    const clientId = this.ctx.storage.kv.get<string>('subscriber');
     if (clientId) {
       await sendDownstream(clientId, this, { type: 'notification', message });
     }
@@ -130,9 +130,7 @@ describe('Downstream Messaging', () => {
     expect(pingResult).toBe('pong');
 
     // Server closes connection with custom code (simulating auth expiration)
-    client.closeClient(clientId, 4401, 'Token expired').catch(() => {
-      // Expected - connection will close before response arrives
-    });
+    client.closeClient(clientId, 4401, 'Token expired');
 
     // Wait for close handler to be called
     await vi.waitFor(() => {
@@ -159,7 +157,7 @@ describe('Downstream Messaging', () => {
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
         clientId: client1Id,
-        onDownstream: (message) => messages1.push(message),
+        onDownstream: (message) => { messages1.push(message); },
       })
     });
 
@@ -169,7 +167,7 @@ describe('Downstream Messaging', () => {
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
         clientId: client2Id,
-        onDownstream: (message) => messages2.push(message),
+        onDownstream: (message) => { messages2.push(message); },
       })
     });
 
@@ -179,7 +177,7 @@ describe('Downstream Messaging', () => {
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
         clientId: client3Id,
-        onDownstream: (message) => messages3.push(message),
+        onDownstream: (message) => { messages3.push(message); },
       })
     });
 
@@ -275,7 +273,7 @@ describe('Downstream Messaging', () => {
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
         clientId,
-        onDownstream: (message) => messages1.push(message),
+        onDownstream: (message) => { messages1.push(message); },
       })
     });
 
@@ -285,7 +283,7 @@ describe('Downstream Messaging', () => {
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
         clientId, // Same clientId!
-        onDownstream: (message) => messages2.push(message),
+        onDownstream: (message) => { messages2.push(message); },
       })
     });
 
@@ -385,9 +383,7 @@ describe('Downstream Messaging', () => {
     expect(await client.ping()).toBe('pong');
 
     // Trigger close
-    client.closeClient(clientId, 1000, 'Normal close').catch(() => {
-      // Expected - connection will close before response arrives
-    });
+    client.closeClient(clientId, 1000, 'Normal close');
 
     await vi.waitFor(() => {
       expect(closeCalled).toBe(true);

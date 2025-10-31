@@ -17,7 +17,7 @@ Software systems, and APIs in particular, are no different. Every layer of trans
 
 MCP is all about context portability: moving structured data democratically across agents, runtimes, and languages. The type/schema has to remain the same throughout the journey around the circle of friends. Tooling decisions have very real consequences for portability and correctness. So imagine my surprise when I discovered the Babel of type/schema translations running in MCP stacks today.
 
-Somewhere between recess and real life we all learned the difference between a childhood crush and a partner you can build with. Flash is fun on the playground; fidelity gets you into adulthood. With Lumenize, I wasn’t looking for puppy love. I was looking for a commitment that would survive different runtimes, languages, and teams.
+Somewhere between recess and real life, we all learned the difference between a childhood crush and a partner you can build with. Flash is fun on the playground; fidelity gets you into adulthood. With Lumenize, I wasn’t looking for puppy love. I was looking for a commitment that would survive different runtimes, languages, and teams.
 
 <!-- truncate -->
 
@@ -148,7 +148,7 @@ Concrete places where starting from TS/Zod and emitting JSON Schema, or mixing d
     https://github.com/modelcontextprotocol/typescript-sdk/issues/689
     https://github.com/modelcontextprotocol/typescript-sdk/pull/1012
 
-- Fresh schema/detail drift in generated outputs
+- Schema/detail drift in generated outputs
   - Example: missing fields (like `_meta`) in generated JSON Schema that were expected by the TS source/spec.
   - Evidence: Spec issue (#1616)
     https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1616
@@ -168,7 +168,7 @@ Why this matters for elicitation in particular
 
 > TypeBox is a runtime type system that creates in-memory Json Schema objects that infer as TypeScript types. ~1st line in TypeBox documentation
 
-Every story needs the steady one. TypeBox was the approachable friend I’d never considered “marriage material.” Not flashy—just compatible. Its 1st language is the one that the world already uses ([JSON Schema](https://json-schema.org/)), and it lets me keep speaking TypeScript at home. No grand gestures, fewer surprises.
+Every story needs the steady one. TypeBox was the approachable friend I'd never considered "marriage material." Not flashy—just compatible. Its first language is the one that the world already uses ([JSON Schema](https://json-schema.org/)), and it lets me keep speaking TypeScript at home. No grand gestures, fewer surprises.
 
 If TypeSpec was the high‑maintenance seductress, TypeBox is the low‑drama partner: you write in JSON Schema grammar and get precise TypeScript types back, plus runtime validation. That combination travels well across gateways, languages, and runtimes without asking teams to learn a new language—think of TypeBox as a TypeScript way to author JSON Schema, not a new dialect.
 

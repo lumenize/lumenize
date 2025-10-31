@@ -368,6 +368,9 @@ async function processIncomingOperations(
             return result;
           } else {
             // Legacy marker without refId (backward compatibility)
+            if (!value.__operationChain) {
+              throw new Error('Nested operation marker missing __operationChain');
+            }
             const processedChain = await processIncomingOperations(value.__operationChain, doInstance, refIdCache);
             const result = await executeOperationChain(processedChain, doInstance);
             return result;
