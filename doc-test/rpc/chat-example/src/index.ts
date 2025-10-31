@@ -21,7 +21,6 @@ interface Participant {
 // ========== User Durable Object ==========
 
 class _User extends DurableObject<Env> {
-  #clientId: string | null = null;
   #env: Env; // Hidden - cannot hop via RPC or access Workers KV
   #tokenExpired: boolean = false;
 
@@ -30,11 +29,6 @@ class _User extends DurableObject<Env> {
     this.#env = env; // Hide env from external access
     // Security: #env is private, so client can't access env.TOKENS KV
     // or hop to other DOs without going through permission-checked methods
-  }
-
-  // Called internally by lumenizeRpcDO when WebSocket connects
-  __setClientId(clientId: string): void {
-    this.#clientId = clientId;
   }
 
   // User settings (demonstrates Map type support)
@@ -47,32 +41,41 @@ class _User extends DurableObject<Env> {
   }
 
   // Room interaction facade (permission-checked)
-  async joinRoom(): Promise<{ messageCount: number; participants: string[] }> {
+  async joinRoom(userId: string): Promise<{ messageCount: number; participants: string[] }> {
+    // Store userId as clientId for downstream messaging
+    this.ctx.storage.kv.put('clientId', userId);
+    
     const settings = await this.getSettings();
     const username = settings.get('name') ?? 'Anonymous';
 
     const room = this.#env.ROOM.get(this.#env.ROOM.idFromName('general'));
-    return await room.addParticipant(this.#clientId!, username);
+    return await room.addParticipant(userId, username);
   }
 
   async postMessage(text: string): Promise<void> {
     this.#checkAuth();
 
+    const clientId = this.ctx.storage.kv.get<string>('clientId');
+    if (!clientId) throw new Error('Must join room first');
+
     const room = this.#env.ROOM.get(this.#env.ROOM.idFromName('general'));
-    const permissions = await room.getUserPermissions(this.#clientId!);
+    const permissions = await room.getUserPermissions(clientId);
 
     if (!permissions.includes('post')) {
       throw new Error('No permission to post');
     }
 
-    await room.postMessage(this.#clientId!, text);
+    await room.postMessage(clientId, text);
   }
 
   async updateMessage(messageId: number, newText: string): Promise<void> {
     this.#checkAuth();
 
+    const clientId = this.ctx.storage.kv.get<string>('clientId');
+    if (!clientId) throw new Error('Must join room first');
+
     const room = this.#env.ROOM.get(this.#env.ROOM.idFromName('general'));
-    await room.updateMessage(this.#clientId!, messageId, newText);
+    await room.updateMessage(clientId, messageId, newText);
   }
 
   async getMessages(fromId?: number): Promise<Message[]> {
@@ -80,15 +83,11 @@ class _User extends DurableObject<Env> {
     return await room.getMessages(fromId);
   }
 
-  async leaveRoom(): Promise<void> {
-    const room = this.#env.ROOM.get(this.#env.ROOM.idFromName('general'));
-    await room.removeParticipant(this.#clientId!);
-  }
-
   // Called by Room DO via Workers RPC to forward downstream
   async receiveDownstream(payload: any): Promise<void> {
-    if (!this.#clientId) return;
-    await sendDownstream(this.#clientId, this, payload);
+    const clientId = this.ctx.storage.kv.get<string>('clientId');
+    if (!clientId) return;
+    await sendDownstream(clientId, this, payload);
   }
 
   // Test helper to simulate token expiration
@@ -205,6 +204,7 @@ class _Room extends DurableObject<Env> {
       throw new Error('No permission to update this message');
     }
 
+
     // Update message
     message.text = newText;
     this.ctx.storage.kv.put(`message:${messageId}`, message);
@@ -224,21 +224,6 @@ class _Room extends DurableObject<Env> {
     }
 
     return messages;
-  }
-
-  async removeParticipant(userId: string): Promise<void> {
-    const participants = this.#getParticipants();
-    const participant = participants.get(userId);
-    if (!participant) return;
-
-    participants.delete(userId);
-    this.#saveParticipants(participants);
-
-    await this.#broadcastToOthers(userId, {
-      type: 'user_left',
-      userId,
-      username: participant.username,
-    });
   }
 
   async getUserPermissions(userId: string): Promise<string[]> {
@@ -282,20 +267,20 @@ export default {
 
     // Login endpoint (in Worker, not DO)
     if (url.pathname === '/login') {
-      const username = url.searchParams.get('username');
-      if (!username) {
-        return new Response('Username required', { status: 400 });
+      const userId = url.searchParams.get('userId');
+      if (!userId) {
+        return new Response('userId required', { status: 400 });
       }
 
-      // Generate token (simplified: token = userId)
-      const token = `user-${username.toLowerCase()}`;
+      // Generate random authentication token
+      const token = crypto.randomUUID();
 
       // Store token in Workers KV with expiration
-      await env.TOKENS.put(token, JSON.stringify({ username }), {
+      await env.TOKENS.put(token, JSON.stringify({ userId }), {
         expirationTtl: 3600, // 1 hour
       });
 
-      return new Response(JSON.stringify({ token }), {
+      return new Response(JSON.stringify({ token, userId }), {
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -303,34 +288,29 @@ export default {
     // Route to User DO with authentication
     const response = await routeDORequest(request, env, {
       prefix: '__rpc',
-      doNamespace: env.USER, // Route to User DO
-      doInstanceNameOrId: 'from-token', // Extract from token below
       onBeforeConnect: async (request, { doNamespace, doInstanceNameOrId }) => {
-        // Extract token/clientId from protocols
+        // Extract clientId (userId) from protocols header
         const protocols = request.headers.get('Sec-WebSocket-Protocol');
         const protocolArray = protocols?.split(',').map((p) => p.trim()) ?? [];
         const clientIdProtocol = protocolArray.find((p) =>
           p.startsWith('lumenize.rpc.clientId.')
         );
-        const token = clientIdProtocol?.substring('lumenize.rpc.clientId.'.length);
+        const clientIdFromProtocol = clientIdProtocol?.substring('lumenize.rpc.clientId.'.length);
 
-        if (!token) {
+        if (!clientIdFromProtocol) {
           return new Response('Unauthorized', { status: 401 });
         }
 
-        // Validate token against Workers KV
-        const tokenData = await env.TOKENS.get(token);
-        if (!tokenData) {
-          return new Response('Unauthorized - Invalid token', { status: 401 });
+        // Verify that the clientId from protocol matches the URL's doInstanceNameOrId
+        // This ensures the client is connecting to their own DO
+        if (clientIdFromProtocol !== doInstanceNameOrId) {
+          return new Response('Unauthorized - Client/DO mismatch', { status: 403 });
         }
 
-        // Token IS the userId for simplicity (e.g., 'user-alice')
-        // KV expiration handles token expiration automatically
-        // Update the DO instance name to use the token as userId
-        return {
-          doInstanceNameOrId: token, // e.g., 'user-alice'
-          request: request,
-        };
+        // For this example, we trust the userId in the URL
+        // In production, you'd validate an auth token here
+        // KV expiration would handle token expiration automatically
+        return undefined; // Continue with the request
       },
     });
 

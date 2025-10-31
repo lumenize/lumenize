@@ -70,6 +70,7 @@ export function createWebSocketTransport(
     timeout?: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
   }
 ): RpcTransport {
@@ -81,6 +82,7 @@ export function createWebSocketTransport(
     timeout: config?.timeout ?? 30000,
     WebSocketClass: config?.WebSocketClass ?? WebSocket,
     clientId: config?.clientId,
+    onDownstream: config?.onDownstream,
     onClose: config?.onClose
   });
 }

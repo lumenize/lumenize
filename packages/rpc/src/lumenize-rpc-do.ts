@@ -659,6 +659,9 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
           // Accept the hibernatable WebSocket connection with optional tag
           if (clientId) {
             this.ctx.acceptWebSocket(server, [clientId]);
+            // Store clientId in WebSocket attachment for easy retrieval
+            // This persists across DO hibernation and is accessible via deserializeAttachment()
+            server.serializeAttachment({ clientId });
           } else {
             this.ctx.acceptWebSocket(server);
           }

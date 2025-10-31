@@ -52,11 +52,17 @@ export class WebSocketRpcTransport implements RpcTransport {
     timeout: number;
     WebSocketClass?: typeof WebSocket;
     clientId?: string;
+    onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
   }) {
     this.#config = config;
     // Extract message type from prefix (remove leading/trailing slashes)
     this.#messageType = config.prefix.replace(/^\/+|\/+$/g, '');
+    
+    // If onDownstream handler provided, register it
+    if (config.onDownstream) {
+      this.setDownstreamHandler(config.onDownstream);
+    }
   }
 
   /**
