@@ -1,6 +1,6 @@
 /**
  * Pedagogical examples for Web API objects documentation
- * Cloudflare Workers use cases with clear examples
+ * Demonstrates serialization of Request, Response, Headers, and URL
  */
 
 import { describe, it, expect } from 'vitest';
@@ -94,10 +94,10 @@ describe('Headers and URL', () => {
   });
 });
 
-describe('Workers Use Cases', () => {
+describe('Web API Use Cases', () => {
   it('handles request/response pairs', async () => {
-    const workerData = {
-      incomingRequest: new Request('https://worker.example.com/api', {
+    const apiData = {
+      incomingRequest: new Request('https://api.example.com/endpoint', {
         method: 'POST',
         body: 'request data'
       }),
@@ -107,7 +107,7 @@ describe('Workers Use Cases', () => {
       timestamp: Date.now()
     };
     
-    const restored = await parse(await stringify(workerData));
+    const restored = await parse(await stringify(apiData));
     
     expect(restored.incomingRequest).toBeInstanceOf(Request);
     expect(await restored.incomingRequest.text()).toBe('request data');

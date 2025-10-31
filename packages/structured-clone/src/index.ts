@@ -19,28 +19,27 @@ const { parse: $parse, stringify: $stringify } = JSON;
 /**
  * Convert value to JSON string with full type support.
  * Handles cycles, Date, RegExp, Map, Set, Error, BigInt, TypedArrays.
- * Functions are converted to markers with operation chains.
+ * Functions are converted to internal markers (structure preserved, not executable).
  * Web API objects (Request, Response, Headers, URL) are serialized with full fidelity.
  * Throws TypeError for symbols.
  * 
  * Note: Async for Request/Response body reading.
  * 
  * @param value - Any serializable value
- * @param baseOperationChain - Base operation chain for building function markers (default: [])
  * @returns JSON string representation
  * @throws TypeError if value contains symbols
  */
-export async function stringify(value: any, baseOperationChain: OperationChain = []): Promise<string> {
-  return $stringify(await serialize(value, baseOperationChain));
+export async function stringify(value: any): Promise<string> {
+  return $stringify(await serialize(value));
 }
 
 /**
  * Restore value from JSON string.
  * Inverse of stringify().
- * Function markers are restored as marker objects.
+ * Functions are restored as marker objects (structure preserved, not executable).
  * 
  * @param value - JSON string to parse
- * @returns Restored value with all types (function markers as objects)
+ * @returns Restored value with all types
  */
 export async function parse(value: string): Promise<any> {
   return deserialize($parse(value));
@@ -50,28 +49,27 @@ export async function parse(value: string): Promise<any> {
  * Preprocess value for serialization without converting to string.
  * Returns processed object ready for JSON.stringify().
  * Use when you need control between processing and stringification.
- * Functions are converted to markers with operation chains.
+ * Functions are converted to internal markers (structure preserved, not executable).
  * Web API objects (Request, Response, Headers, URL) are serialized with full fidelity.
  * Throws TypeError for symbols.
  * 
  * Note: Async for Request/Response body reading.
  * 
  * @param value - Any serializable value
- * @param baseOperationChain - Base operation chain for building function markers (default: [])
  * @returns Processed object (not stringified)
  * @throws TypeError if value contains symbols
  */
-export async function preprocess(value: any, baseOperationChain: OperationChain = []): Promise<any> {
-  return await serialize(value, baseOperationChain);
+export async function preprocess(value: any): Promise<any> {
+  return await serialize(value);
 }
 
 /**
  * Restore value from preprocessed object.
  * Inverse of preprocess().
- * Function markers are restored as marker objects.
+ * Functions are restored as marker objects (structure preserved, not executable).
  * 
  * @param value - Preprocessed object
- * @returns Restored value with all types (function markers as objects)
+ * @returns Restored value with all types
  */
 export async function postprocess(value: any): Promise<any> {
   return deserialize(value);

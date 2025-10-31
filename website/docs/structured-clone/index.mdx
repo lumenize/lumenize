@@ -1,15 +1,15 @@
 ---
 title: "@lumenize/structured-clone"
-description: "Zero-dependency serialization for Cloudflare Workers with full type support"
+description: "Zero-dependency serialization with full-fidelity type support for JavaScript"
 ---
 
 # @lumenize/structured-clone
 
-A zero-dependency fork of `@ungap/structured-clone` with Lumenize-specific enhancements for Cloudflare Workers. Provides full-fidelity serialization for complex JavaScript types including Errors, Web API objects, and special numbers.
+A zero-dependency fork of `@ungap/structured-clone` with enhanced serialization for complex JavaScript types including Errors, Web API objects, and special numbers.
 
 ## Why This Package?
 
-When building RPC systems or storing data in Cloudflare Workers, you need to serialize complex JavaScript objects. JSON alone isn't enough:
+When building RPC systems, storing data, or passing objects between contexts, you need to serialize complex JavaScript objects. JSON alone isn't enough:
 
 - **Lost Types**: JSON loses `Date`, `Map`, `Set`, `Error` objects
 - **No Circulars**: JSON can't handle circular references
@@ -23,6 +23,34 @@ This package solves all of these problems while maintaining a single, efficient 
 ```bash @skip-check
 npm install @lumenize/structured-clone
 ```
+
+## Supported Types
+
+While this package was originally optimized for the Cloudflare edge compute platform, **nothing in it is Cloudflare-specific**. All tests run in both Node.js and simulated Cloudflare environments, with plans to add headless browser testing. Our primary use case includes browser clients, and it runs perfectly in browser environments today.
+
+**Not a Cloudflare user?** Feel free to ignore the first three columns in the comparison table below. This package is simply an enhanced fork of the excellent `@ungap/structured-clone` with better Error handling, special number support, and Web API object serialization—useful in any JavaScript environment.
+
+import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
+
+<TypeSupportTable />
+
+### Key Highlights
+
+- **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
+- **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects
+- **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types
+- **Circular References**: Automatically handled without errors
+- **Zero Dependencies**: No external packages required
+
+### Why Fork @ungap/structured-clone?
+
+We needed several enhancements that go beyond the original:
+- **Full Error fidelity**: Stack traces, `cause` chains, custom properties, and subclass types
+- **Special numbers**: `NaN`, `Infinity`, `-Infinity` preserved (JSON converts these to `null`)
+- **Web API objects**: Native `Request`, `Response`, `Headers`, `URL` serialization
+- **Strict symbol handling**: Always throws on symbols (consistent behavior)
+- **Async API**: All methods async for Request/Response body reading
+- **Single object walk**: All enhancements integrated into one traversal for efficiency
 
 ## Basic Usage
 
@@ -44,7 +72,7 @@ expect(restored.name).toBe('Alice');
 // ...
 ```
 
-This works with complex nested structures, arrays, and all types shown in the comparison table below.
+This works with complex nested structures, arrays, and all types shown in the table above.
 
 ## Key Features with Examples
 
@@ -81,13 +109,13 @@ expect(restored.statusCode).toBe(500);
 // ...
 ```
 
-### Cloudflare Workers Use Case
+### Web API Objects Example
 
-Perfect for serializing Worker request/response pairs:
+Serialize Request/Response objects for storage, queues, or RPC:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/web-api.test.ts
-const workerData = {
-  incomingRequest: new Request('https://worker.example.com/api', {
+const apiData = {
+  incomingRequest: new Request('https://api.example.com/endpoint', {
     method: 'POST',
     body: 'request data'
   }),
@@ -97,7 +125,7 @@ const workerData = {
   timestamp: Date.now()
 };
 
-const restored = await parse(await stringify(workerData));
+const restored = await parse(await stringify(apiData));
 
 expect(restored.incomingRequest).toBeInstanceOf(Request);
 // ...
@@ -105,85 +133,12 @@ expect(restored.incomingRequest).toBeInstanceOf(Request);
 
 **Note:** Request/Response bodies are consumed during serialization (streams become strings).
 
-## API Reference
-
-### `stringify(value, baseOperationChain?): Promise<string>`
-
-Converts a value to a JSON string with full type support.
-
-- **Parameters**:
-  - `value`: Any serializable value
-  - `baseOperationChain` (optional): Base operation chain for RPC function markers
-- **Returns**: Promise resolving to JSON string
-- **Throws**: `TypeError` if value contains symbols
-
-### `parse(value): Promise<any>`
-
-Restores a value from a JSON string created by `stringify()`.
-
-- **Parameters**:
-  - `value`: JSON string to parse
-- **Returns**: Promise resolving to restored value with all types
-
-### `preprocess(value, baseOperationChain?): Promise<any>`
-
-Preprocesses a value for serialization without converting to string. Useful when you need control between processing and stringification.
-
-- **Parameters**:
-  - `value`: Any serializable value
-  - `baseOperationChain` (optional): Base operation chain for RPC function markers
-- **Returns**: Promise resolving to processed object (not stringified)
-- **Throws**: `TypeError` if value contains symbols
-
-### `postprocess(value): Promise<any>`
-
-Restores a value from a preprocessed object. Inverse of `preprocess()`.
-
-- **Parameters**:
-  - `value`: Preprocessed object
-- **Returns**: Promise resolving to restored value with all types
-
-## Supported Types
-
-`@lumenize/structured-clone` powers both `@lumenize/rpc` and can be used directly for storage serialization. Here's how it compares to other Cloudflare serialization systems:
-
-import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
-
-<TypeSupportTable />
-
-### Key Highlights
-
-- **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects
-- **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types
-- **Circular References**: Automatically handled without errors
-- **Workers-Optimized**: Native support for `Request`, `Response`, `Headers`, `URL`
-
-### What Lumenize Adds
-
-Compared to Workers RPC and DO Storage:
-- **Workers RPC** [plans to remove cycles/aliases](https://github.com/cloudflare/capnweb/tree/main#cloudflare-workers-rpc-interoperability) — Lumenize keeps them
-- **DO Storage** can't serialize Web API objects — Lumenize can
-- **Cap'n Web** lacks Maps, Sets, special numbers — Lumenize has full support
-
 ## Limitations
 
 - **Symbols**: Cannot be serialized (throws `TypeError`)
-- **Functions**: Converted to markers (for RPC integration only)
+- **Functions**: Converted to internal markers (preserved structure, not executable)
 - **Signed Zero**: `-0` becomes `+0` (JSON limitation)
-- **Streams**: `ReadableStream`/`WritableStream` not supported (use WebSockets for streaming)
-
-## Differences from @ungap/structured-clone
-
-This package is a fork of `@ungap/structured-clone` with these enhancements:
-
-1. **Zero runtime dependencies**: No external packages
-2. **Function markers**: Functions converted to RPC-compatible markers
-3. **Special number support**: NaN, Infinity, -Infinity preserved
-4. **Full Error fidelity**: Stack traces, cause chains, custom properties
-5. **Web API objects**: Request, Response, Headers, URL serialization
-6. **Strict symbol handling**: Always throws on symbols
-7. **Async API**: All methods async for Request/Response body reading
-8. **Single object walk**: All enhancements integrated into one traversal
+- **Streams**: `ReadableStream`/`WritableStream` not supported
 
 ## License
 

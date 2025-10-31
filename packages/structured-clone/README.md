@@ -1,14 +1,15 @@
 # @lumenize/structured-clone
 
-A de✨light✨ful fork of [@ungap/structured-clone](https://github.com/ungap/structured-clone) with extensions for Cloudflare Workers, providing full-fidelity serialization of complex JavaScript types.
+A de✨light✨ful fork of [@ungap/structured-clone](https://github.com/ungap/structured-clone) providing full-fidelity serialization of complex JavaScript types.
 
 For complete documentation, visit **[https://lumenize.com/docs/structured-clone](https://lumenize.com/docs/structured-clone)**
 
 ## Features
 
-- **Native Serialization**: Automatic via `stringify`/`parse` - preserves Error objects, Web API objects (Request, Response, Headers, URL), special numbers (NaN, ±Infinity), and all standard structured-clone types
-- **Marker-Based Serialization**: Explicit control via `serializeError`/`deserializeError` and `serializeWebApiObject`/`deserializeWebApiObject` for protocol-level errors and queue storage
-- **Full Type Support**: Errors with custom properties, Web API objects with body preservation, circular references, and complex nesting
+- **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
+- **Full Type Support**: Errors with stack traces and custom properties, Web API objects (Request, Response, Headers, URL), special numbers (NaN, ±Infinity), circular references, and all standard structured-clone types
+- **Zero Dependencies**: No external packages required
+- **Async API**: Handles Request/Response body streaming
 
 ## Installation
 

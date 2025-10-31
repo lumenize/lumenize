@@ -267,16 +267,17 @@ export type SerializedRecord = [string | number, any];
 
 /**
  * Returns an array of serialized records.
- * Functions are converted to markers with operation chains.
+ * Functions are converted to internal markers (structure preserved, not executable).
  * Web API objects (Request/Response) are serialized asynchronously.
  * Throws TypeError for symbols.
  * 
  * @param value - A serializable value
- * @param baseOperationChain - Base operation chain for building function markers (default: [])
  * @returns Array of serialized records
+ * @internal
  */
-export const serialize = async (value: any, baseOperationChain: OperationChain = []): Promise<SerializedRecord[]> => {
+export const serialize = async (value: any): Promise<SerializedRecord[]> => {
   const _: SerializedRecord[] = [];
+  const baseOperationChain: OperationChain = [];
   await serializer(new Map, _, baseOperationChain)(value, baseOperationChain);
   return _;
 };
