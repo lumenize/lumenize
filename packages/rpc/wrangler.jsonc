@@ -19,6 +19,10 @@
       {
         "name": "PIPELINING_DO",
         "class_name": "PipeliningDO"
+      },
+      {
+        "name": "NOTIFICATION_DO",
+        "class_name": "NotificationDO"
       }
     ]
   },
@@ -45,6 +49,12 @@
       "tag": "v4",
       "new_sqlite_classes": [
         "PipeliningDO"
+      ]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": [
+        "NotificationDO"
       ]
     }
   ]

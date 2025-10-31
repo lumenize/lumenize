@@ -254,6 +254,48 @@ export interface ManualRoutingDO extends Omit<typeof sharedDOMethods, 'increment
 }
 
 /**
+ * NotificationDO for testing downstream messaging
+ * Simulates a notification/messaging system
+ */
+import { sendDownstream } from '../src/lumenize-rpc-do';
+
+class _NotificationDO extends DurableObject<Env> {
+  subscribe(clientId: string): string {
+    this.ctx.storage.kv.put('subscriber', clientId);
+    return `Subscribed: ${clientId}`;
+  }
+
+  async notifySubscriber(message: string): Promise<void> {
+    const clientId = this.ctx.storage.kv.get('subscriber');
+    if (clientId) {
+      await sendDownstream(clientId, this, { type: 'notification', message });
+    }
+  }
+
+  async broadcast(clientIds: string[], message: string): Promise<void> {
+    await sendDownstream(clientIds, this, { type: 'broadcast', message });
+  }
+
+  closeClient(clientId: string, code: number, reason: string): void {
+    const connections = this.ctx.getWebSockets(clientId);
+    for (const ws of connections) {
+      ws.close(code, reason);
+    }
+  }
+
+  getConnectionCount(clientId: string): number {
+    return this.ctx.getWebSockets(clientId).length;
+  }
+
+  ping(): string {
+    return 'pong';
+  }
+}
+
+const NotificationDO = lumenizeRpcDO(_NotificationDO);
+export { NotificationDO };
+
+/**
  * Worker fetch handler that uses routeDORequest to handle RPC requests
  * and falls back to existing Worker handlers/responses for non-RPC requests
  */
