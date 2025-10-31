@@ -73,6 +73,8 @@ export function createWebSocketTransport(
     additionalProtocols?: string[];
     onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
+    onConnectionChange?: (connected: boolean) => void | Promise<void>;
+    heartbeatIntervalMs?: number;
   }
 ): RpcTransport {
   return new WebSocketRpcTransport({
@@ -85,6 +87,8 @@ export function createWebSocketTransport(
     clientId: config?.clientId,
     additionalProtocols: config?.additionalProtocols,
     onDownstream: config?.onDownstream,
-    onClose: config?.onClose
+    onClose: config?.onClose,
+    onConnectionChange: config?.onConnectionChange,
+    heartbeatIntervalMs: config?.heartbeatIntervalMs
   });
 }

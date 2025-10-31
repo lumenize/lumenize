@@ -34,6 +34,8 @@ export class WebSocketRpcTransport implements RpcTransport {
     clientId?: string;
     additionalProtocols?: string[];
     onClose?: (code: number, reason: string) => void | Promise<void>;
+    onConnectionChange?: (connected: boolean) => void | Promise<void>;
+    heartbeatIntervalMs?: number;
   };
   #ws: WebSocket | null = null;
   #connectionPromise: Promise<void> | null = null;
@@ -56,6 +58,8 @@ export class WebSocketRpcTransport implements RpcTransport {
     additionalProtocols?: string[];
     onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
+    onConnectionChange?: (connected: boolean) => void | Promise<void>;
+    heartbeatIntervalMs?: number;
   }) {
     this.#config = config;
     // Extract message type from prefix (remove leading/trailing slashes)
@@ -175,6 +179,20 @@ export class WebSocketRpcTransport implements RpcTransport {
           this.#startHeartbeat();
         }
         
+        // Notify connection change
+        if (this.#config.onConnectionChange) {
+          try {
+            this.#config.onConnectionChange(true);
+          } catch (error) {
+            console.error('%o', {
+              type: 'error',
+              where: 'WebSocketRpcTransport.onOpen',
+              message: 'Error in onConnectionChange handler',
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+        
         resolve();
       };
 
@@ -259,6 +277,20 @@ export class WebSocketRpcTransport implements RpcTransport {
         }
       }
 
+      // Notify connection change
+      if (this.#config.onConnectionChange) {
+        try {
+          this.#config.onConnectionChange(false);
+        } catch (error) {
+          console.error('%o', {
+            type: 'error',
+            where: 'WebSocketRpcTransport.closeHandler',
+            message: 'Error in onConnectionChange handler',
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+
       // Schedule reconnect if keep-alive is enabled
       if (this.#keepAliveEnabled) {
         this.#scheduleReconnect();
@@ -275,8 +307,9 @@ export class WebSocketRpcTransport implements RpcTransport {
       clearInterval(this.#heartbeatIntervalId);
     }
 
-    // Send ping every 25 seconds to keep intermediaries from closing the connection
-    // (Most network intermediaries allow 30+ seconds of inactivity)
+    // Send ping at configured interval (default 25 seconds) to keep intermediaries 
+    // from closing the connection. Most network intermediaries allow 30+ seconds of inactivity.
+    const intervalMs = this.#config.heartbeatIntervalMs ?? 25000;
     this.#heartbeatIntervalId = setInterval(() => {
       if (this.isConnected()) {
         try {

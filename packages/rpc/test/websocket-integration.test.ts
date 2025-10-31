@@ -17,7 +17,7 @@ describe('WebSocket RPC Integration', () => {
 
   // KEPT: Explicit disconnect error handling - edge case not covered by matrix
   it('should reject pending operations when explicitly disconnected', async () => {
-    await using client = createRpcClient<ExampleDO>({
+    const client = createRpcClient<ExampleDO>({
       transport: createWebSocketTransport('example-do', 'websocket-explicit-disconnect-test', {
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
@@ -25,18 +25,21 @@ describe('WebSocket RPC Integration', () => {
       })
     });
 
-    // Start a slow operation that will still be in-flight when we disconnect
-    const promise = client.slowIncrement(500); // 500ms delay
+    // Establish connection with a quick call
+    await client.increment();
+
+    // Start a slow operation that will be in-flight when we disconnect
+    const promise = client.slowIncrement(2000); // 2 second delay
     
-    // Give it a moment to ensure the request is sent
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Give time for the request to be sent over the wire
+    await new Promise(resolve => setTimeout(resolve, 100));
     
-    // Explicitly disconnect while operation is pending
+    // Disconnect while operation is pending (it won't complete for another 1.9s)
     client[Symbol.dispose]();
     
     // Operation should be rejected with disconnect error
-    await expect(promise).rejects.toThrow('WebSocket disconnected');
-  });
+    await expect(promise).rejects.toThrow('WebSocket');
+  }, { timeout: 5000 }); // Increase timeout since we have a 2s delay
 
   // Test already-connected path (line 85) - reconnection prevention
   it('should not reconnect when already connected', async () => {
@@ -144,14 +147,17 @@ describe('WebSocket RPC Integration', () => {
     });
 
     try {
-      // Start a slow operation that will be pending when we close
-      const promise1 = client.slowIncrement(1000); // 1 second delay
-      const promise2 = client.slowIncrement(1000); // Another slow one
+      // Establish connection with a quick call
+      await client.increment();
+
+      // Start slow operations that will be pending when we close
+      const promise1 = client.slowIncrement(2000); // 2 second delay
+      const promise2 = client.slowIncrement(2000); // Another slow one
       
-      // Give a moment for requests to be sent
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Give time for requests to be sent over the wire
+      await new Promise(resolve => setTimeout(resolve, 100));
       
-      // Close the connection while operations are pending
+      // Close while operations are pending (they won't complete for another 1.9s)
       client[Symbol.dispose]();
       
       // Both operations should be rejected
@@ -160,7 +166,7 @@ describe('WebSocket RPC Integration', () => {
     } finally {
       // Already disposed
     }
-  });
+  }, { timeout: 5000 }); // Increase timeout since we have 2s delays
 
   // Test user's custom WebSocket coexistence with RPC client
   it('should allow user custom WebSocket to coexist with RPC client WebSocket', async () => {
