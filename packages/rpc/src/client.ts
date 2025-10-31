@@ -13,9 +13,6 @@ import { isRemoteFunctionMarker, isNestedOperationMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
-import { deserializeWebApiObject, serializeWebApiObject, isSerializedWebApiObject, isWebApiObject } from '@lumenize/utils';
-import { serializeError, deserializeError, isSerializedError } from './error-serialization';
-import { serializeSpecialNumber, deserializeSpecialNumber, isSerializedSpecialNumber } from './special-number-serialization';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 
@@ -189,9 +186,8 @@ async function processOperationChainForMarker(chain: OperationChain): Promise<Op
 
 /**
  * Process outgoing operations before sending to server.
- * Walks the operation chain, finds 'apply' operations, and uses walkObject to
- * serialize any Web API objects, Errors, and special numbers in the args.
- * Also detects proxy arguments (for OCAN) and converts them to markers.
+ * Walks the operation chain, finds 'apply' operations, and detects proxy arguments
+ * (for OCAN), converting them to markers. Structured-clone handles all other serialization.
  * Returns both processed operations and a set of operation chains that were pipelined.
  */
 async function processOutgoingOperations(
@@ -639,23 +635,8 @@ export class RpcClient<T> {
       });
     }
 
-    // Check for serialized Web API objects (Request, Response, Headers, URL)
-    if (isSerializedWebApiObject(obj)) {
-      return deserializeWebApiObject(obj);
-    }
-
-    // Check for serialized Error objects
-    if (isSerializedError(obj)) {
-      return deserializeError(obj);
-    }
-
-    // Check for serialized special numbers
-    if (isSerializedSpecialNumber(obj)) {
-      return deserializeSpecialNumber(obj);
-    }
-
     if (obj === null || typeof obj !== 'object') {
-      return obj; // Primitive values pass through unchanged
+      return obj; // Primitive values pass through unchanged (structured-clone handles special numbers)
     }
 
     // Handle circular references - return the already-processed object
@@ -679,8 +660,10 @@ export class RpcClient<T> {
 
     // Check if this is a plain object (not a built-in type like Date, Map, etc.)
     // Built-in types that structured-clone preserves (Date, Map, Set, RegExp, ArrayBuffer, 
-    // TypedArrays, Error) should pass through unchanged - they're already properly deserialized.
-    // Note: Custom class instances are NOT preserved by structured-clone - they become plain 
+    // TypedArrays, Error, Web API objects) should pass through unchanged - they're already properly deserialized.
+    // Note: Error custom properties (name, custom fields) currently may not be fully preserved by
+    // structured-clone - this needs to be fixed in @lumenize/structured-clone, not here.
+    // Custom class instances are NOT preserved by structured-clone - they become plain 
     // objects during serialization, so they'll be processed recursively below.
     const proto = Object.getPrototypeOf(obj);
     if (proto !== null && proto !== Object.prototype) {
