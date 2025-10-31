@@ -69,3 +69,83 @@ it('chaining case with inspect mode', async () => {
   // Result should be correct (1 from increment + 10)
   expect(result).toBe(11);
 });
+
+it('detects aliases when same proxy is reused (not duplicated)', async () => {
+  using client = createRpcClient<typeof ExampleDO>({
+    transport: createWebSocketTransport('EXAMPLE_DO', 'alias-test', {
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF))
+    })
+  });
+
+  setInspectMode(true);
+  
+  // Build OCAN chains without awaiting, then await both together
+  const x = client.increment();              // No `await` - just building a chain
+  const y = client.add(x, 10);               // Also no `await` - x used as arg
+  const z = client.add(x, 20);               // Also no `await` - x used AGAIN
+  const [yResult, zResult] = await Promise.all([y, z]);  // Both batched together
+  
+  const batchRequest = getLastBatchRequest();
+  setInspectMode(false);
+
+  // CRITICAL: `x` appears in TWO different operations (y and z) in the SAME batch
+  // It should be:
+  // 1. Assigned a unique __refId on first encounter (in y's args)
+  // 2. Second occurrence (in z's args) references same __refId (alias, not duplicate)
+  // 
+  // If duplicated, `increment()` executes TWICE:
+  // - Local behavior: x = 1, y = add(1, 10) = 11, z = add(1, 20) = 21
+  // - RPC with duplication: 
+  //   - First `x` resolves: increment() → 1 (counter: 0 → 1)
+  //   - Second `x` resolves: increment() → 2 (counter: 1 → 2)
+  //   - y = add(1, 10) = 11 ✅
+  //   - z = add(2, 20) = 22 ❌ WRONG! Should be 21
+  // 
+  // This breaks the fundamental contract: RPC should behave identically to local calls!
+  
+  expect(batchRequest).toBeTruthy();
+  expect(batchRequest!.batch).toHaveLength(2);  // Both y and z in batch
+  
+  // Check first operation (y)
+  const yOps = batchRequest!.batch[0].operations;
+  expect(yOps).toHaveLength(2);
+  expect(yOps[0]).toMatchObject({ type: 'get', key: 'add' });
+  expect(yOps[1].type).toBe('apply');
+  expect(yOps[1].args).toMatchObject([expect.any(Object), 10]);
+  
+  // Check second operation (z)
+  const zOps = batchRequest!.batch[1].operations;
+  expect(zOps).toHaveLength(2);
+  expect(zOps[0]).toMatchObject({ type: 'get', key: 'add' });
+  expect(zOps[1].type).toBe('apply');
+  expect(zOps[1].args).toMatchObject([expect.any(Object), 20]);
+  
+  // CURRENT BEHAVIOR (BEFORE REFACTOR): Both operations have full nested markers
+  const yFirstArg = yOps[1].args[0];
+  const zFirstArg = zOps[1].args[0];
+  
+  expect(yFirstArg).toHaveProperty('__isNestedOperation', true);
+  expect(yFirstArg).toHaveProperty('__operationChain');
+  expect(zFirstArg).toHaveProperty('__isNestedOperation', true);
+  expect(zFirstArg).toHaveProperty('__operationChain');
+  
+  // EXPECTED BEHAVIOR (AFTER REFACTOR): First has full marker, second is alias
+  // yFirstArg = {
+  //   __isNestedOperation: true,
+  //   __refId: 'proxy-1',
+  //   __operationChain: [{ type: 'get', key: 'increment' }, { type: 'apply', args: [] }]
+  // }
+  // zFirstArg = {
+  //   __isNestedOperation: true,
+  //   __refId: 'proxy-1'  // Same ID, NO __operationChain (alias!)
+  // }
+  
+  // EXPECTED RESULT: increment() executes ONCE (alias detection working)
+  expect(yResult).toBe(11);  // add(1, 10) = 11 ✅
+  expect(zResult).toBe(21);  // add(1, 20) = 21 ✅ (currently fails with 22)
+  
+  // TODO: After refactoring, also validate:
+  // 1. __refId exists in both yFirstArg and zFirstArg
+  // 2. yFirstArg has __operationChain (first occurrence)
+  // 3. zFirstArg has NO __operationChain (alias)
+});
