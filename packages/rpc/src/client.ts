@@ -44,6 +44,18 @@ const proxyToParent = new WeakMap<object, object>();
 const operationChainToProxy = new WeakMap<OperationChain, object>();
 
 /**
+ * WeakMap to track unique IDs for proxy objects (for alias detection).
+ * When the same proxy appears multiple times in a batch, we use this ID
+ * to create alias markers instead of duplicating the full operation chain.
+ */
+const proxyToId = new WeakMap<object, string>();
+
+/**
+ * Counter for generating unique proxy IDs.
+ */
+let nextProxyId = 0;
+
+/**
  * Module-scoped variable to capture the last batch request for inspection.
  * When inspect mode is enabled, the preprocessed batch request is stored here
  * while still executing normally over the wire.
@@ -182,16 +194,21 @@ async function processOperationChainForMarker(chain: OperationChain): Promise<Op
  * Also detects proxy arguments (for OCAN) and converts them to markers.
  * Returns both processed operations and a set of operation chains that were pipelined.
  */
-async function processOutgoingOperations(operations: OperationChain): Promise<{ 
+async function processOutgoingOperations(
+  operations: OperationChain,
+  serializedProxies?: Set<string>  // Optional: shared across batch for alias detection
+): Promise<{ 
   operations: OperationChain;
   pipelinedChains: Set<OperationChain>;
 }> {
   const processedOperations: OperationChain = [];
   const pipelinedChains = new Set<OperationChain>();
+  // Use provided Set if available (shared across batch), otherwise create new one
+  const proxiesSet = serializedProxies || new Set<string>();
   
   for (const operation of operations) {
     if (operation.type === 'apply' && operation.args.length > 0) {
-      // Use walkObject to serialize Web API objects, Errors, and special numbers in the args
+      // Use walkObject to convert proxies to markers in the args
       const transformer = async (value: any) => {
         // Check if this is a proxy that needs to be converted to a pipelined operation marker
         // Proxies can appear as either objects or functions depending on their target
@@ -201,37 +218,46 @@ async function processOutgoingOperations(operations: OperationChain): Promise<{
             // Track that this operation chain was pipelined
             pipelinedChains.add(operationChain);
             
-            // This is a proxy - convert to NestedOperationMarker
-            // The operation chain may contain nested proxies in its args, so we need to
-            // recursively process it to convert those proxies to markers as well
-            const processedChain = await processOperationChainForMarker(operationChain);
+            // Get or assign unique ID for this proxy (for alias detection)
+            let proxyId = proxyToId.get(value);
+            if (!proxyId) {
+              proxyId = `proxy-${nextProxyId++}`;
+              proxyToId.set(value, proxyId);
+            }
             
-            const marker: NestedOperationMarker = {
-              __isNestedOperation: true,
-              __operationChain: processedChain
-            };
-            return marker;
+            // Check if this is the first occurrence of this proxy in this batch
+            if (!proxiesSet.has(proxyId)) {
+              // First occurrence: create full marker with both __refId and __operationChain
+              proxiesSet.add(proxyId);
+              
+              // The operation chain may contain nested proxies in its args, so we need to
+              // recursively process it to convert those proxies to markers as well
+              const processedChain = await processOperationChainForMarker(operationChain);
+              
+              const marker: NestedOperationMarker = {
+                __isNestedOperation: true,
+                __refId: proxyId,
+                __operationChain: processedChain
+              };
+              return marker;
+            } else {
+              // Subsequent occurrence: create alias marker with only __refId
+              const aliasMarker: NestedOperationMarker = {
+                __isNestedOperation: true,
+                __refId: proxyId
+                // No __operationChain - this is an alias!
+              };
+              return aliasMarker;
+            }
           }
         }
         
-        // Check if this is a special number that needs serialization
-        const specialNumber = serializeSpecialNumber(value);
-        if (specialNumber !== value) {
-          return specialNumber;
-        }
-        // Check if this is an Error that needs serialization
-        if (value instanceof Error) {
-          return serializeError(value);
-        }
-        // Check if this is a Web API object that needs serialization
-        if (isWebApiObject(value)) {
-          return await serializeWebApiObject(value);
-        }
         // Everything else passes through unchanged
+        // structured-clone handles Web API objects, Errors, and special numbers natively
         return value;
       };
       
-      // Walk the args array to find and serialize Web API objects, Errors, and special numbers
+      // Walk the args array to find and convert proxies to markers
       // Skip recursing into built-in types that structured-clone handles natively
       const processedArgs = await walkObject(operation.args, transformer, {
         shouldSkipRecursion: (value) => {
@@ -469,16 +495,24 @@ export class RpcClient<T> {
     try {
       // Process all operations in the batch (serialize Web API objects, etc.)
       // This is done here (not in execute()) to avoid microtask boundaries breaking batching
-      const processedQueue = await Promise.all(
-        queue.map(async (item) => {
-          const processed = await processOutgoingOperations(item.operations);
-          return {
-            ...item,
-            operations: processed.operations,
-            pipelinedChains: processed.pipelinedChains
-          };
-        })
-      );
+      // IMPORTANT: Process sequentially (not Promise.all) so alias detection works correctly
+      const serializedProxies = new Set<string>();  // Shared across batch for alias detection
+      const processedQueue: Array<{
+        id: string;
+        operations: OperationChain;
+        resolve: (value: any) => void;
+        reject: (error: any) => void;
+        pipelinedChains: Set<OperationChain>;
+      }> = [];
+      
+      for (const item of queue) {
+        const processed = await processOutgoingOperations(item.operations, serializedProxies);
+        processedQueue.push({
+          ...item,
+          operations: processed.operations,
+          pipelinedChains: processed.pipelinedChains
+        });
+      }
 
       // Collect all pipelined chains across all operations in the batch
       const allPipelinedChains = new Set<OperationChain>();

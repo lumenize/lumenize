@@ -154,10 +154,11 @@ async function handleCallRequest(
     const batchRequest: RpcBatchRequest = await parse(requestBody);
 
     const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
+    const refIdCache = new Map<string, any>();  // Shared cache for alias detection across batch
 
     // Process each operation in the batch
     for (const item of batchRequest.batch) {
-      const callResult = await dispatchCall(item.operations, doInstance, config);
+      const callResult = await dispatchCall(item.operations, doInstance, config, refIdCache);
       
       // Log errors for debugging
       if (!callResult.success) {
@@ -246,14 +247,15 @@ function validateOperationChain(operations: OperationChain, config: Required<Rpc
 async function dispatchCall(
   operations: OperationChain,
   doInstance: any,
-  config: Required<RpcConfig>
+  config: Required<RpcConfig>,
+  refIdCache?: Map<string, any>  // Optional cache for alias detection (shared across batch)
 ): Promise<{ success: true; result: any } | { success: false; error: any }> {
   try {
     // Validate the operations chain
     const validatedOperations = validateOperationChain(operations, config);
     
     // Process incoming operations to deserialize Web API objects in args
-    const processedOperations = await processIncomingOperations(validatedOperations, doInstance);
+    const processedOperations = await processIncomingOperations(validatedOperations, doInstance, refIdCache);
     
     // Execute operation chain
     const result = await executeOperationChain(processedOperations, doInstance);
@@ -331,7 +333,11 @@ function findParentObject(operations: OperationChain, doInstance: any): any {
  * deserialize any serialized Web API objects, Errors, and special numbers in the args.
  * Also detects and resolves pipelined operation markers.
  */
-async function processIncomingOperations(operations: OperationChain, doInstance: any): Promise<OperationChain> {
+async function processIncomingOperations(
+  operations: OperationChain, 
+  doInstance: any,
+  refIdCache: Map<string, any> = new Map()  // Cache results by refId for alias detection
+): Promise<OperationChain> {
   const processedOperations: OperationChain = [];
   
   for (const operation of operations) {
@@ -340,11 +346,34 @@ async function processIncomingOperations(operations: OperationChain, doInstance:
       const transformer = async (value: any) => {
         // Check if this is a nested operation marker that needs to be resolved
         if (isNestedOperationMarker(value)) {
-          // First process the nested operation chain to resolve any nested markers
-          const processedChain = await processIncomingOperations(value.__operationChain, doInstance);
-          // Then execute the processed chain
-          const result = await executeOperationChain(processedChain, doInstance);
-          return result;
+          // Check if this marker has a refId (for alias detection)
+          if (value.__refId) {
+            // Check cache first
+            if (refIdCache.has(value.__refId)) {
+              return refIdCache.get(value.__refId);
+            }
+            
+            // Not in cache - must have __operationChain (first occurrence)
+            if (!value.__operationChain) {
+              throw new Error(
+                `Alias marker with refId "${value.__refId}" has no operation chain and no cached result. ` +
+                `This indicates the alias was encountered before the full marker.`
+              );
+            }
+            
+            // First occurrence: process and execute, then cache
+            const processedChain = await processIncomingOperations(value.__operationChain, doInstance, refIdCache);
+            const result = await executeOperationChain(processedChain, doInstance);
+            
+            // Cache the result for subsequent alias references
+            refIdCache.set(value.__refId, result);
+            return result;
+          } else {
+            // Legacy marker without refId (backward compatibility)
+            const processedChain = await processIncomingOperations(value.__operationChain, doInstance, refIdCache);
+            const result = await executeOperationChain(processedChain, doInstance);
+            return result;
+          }
         }
         // Check if this is a serialized special number
         if (isSerializedSpecialNumber(value)) {
@@ -554,10 +583,11 @@ export async function handleRpcMessage(
     }
 
     const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
+    const refIdCache = new Map<string, any>();  // Shared cache for alias detection across batch
 
     // Process each operation in the batch
     for (const item of wsMessage.batch) {
-      const callResult = await dispatchCall(item.operations, doInstance, rpcConfig);
+      const callResult = await dispatchCall(item.operations, doInstance, rpcConfig, refIdCache);
       
       // Log errors for debugging
       if (!callResult.success) {

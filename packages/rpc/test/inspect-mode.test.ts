@@ -120,14 +120,12 @@ it('detects aliases when same proxy is reused (not duplicated)', async () => {
   expect(zOps[1].type).toBe('apply');
   expect(zOps[1].args).toMatchObject([expect.any(Object), 20]);
   
-  // CURRENT BEHAVIOR (BEFORE REFACTOR): Both operations have full nested markers
+  // Check the nested operation markers
   const yFirstArg = yOps[1].args[0];
   const zFirstArg = zOps[1].args[0];
   
   expect(yFirstArg).toHaveProperty('__isNestedOperation', true);
-  expect(yFirstArg).toHaveProperty('__operationChain');
   expect(zFirstArg).toHaveProperty('__isNestedOperation', true);
-  expect(zFirstArg).toHaveProperty('__operationChain');
   
   // EXPECTED BEHAVIOR (AFTER REFACTOR): First has full marker, second is alias
   // yFirstArg = {
@@ -142,10 +140,14 @@ it('detects aliases when same proxy is reused (not duplicated)', async () => {
   
   // EXPECTED RESULT: increment() executes ONCE (alias detection working)
   expect(yResult).toBe(11);  // add(1, 10) = 11 ✅
-  expect(zResult).toBe(21);  // add(1, 20) = 21 ✅ (currently fails with 22)
+  expect(zResult).toBe(21);  // add(1, 20) = 21 ✅
   
-  // TODO: After refactoring, also validate:
-  // 1. __refId exists in both yFirstArg and zFirstArg
-  // 2. yFirstArg has __operationChain (first occurrence)
-  // 3. zFirstArg has NO __operationChain (alias)
+  // Validate alias structure
+  expect(yFirstArg.__refId).toBeDefined();
+  expect(yFirstArg.__refId).toMatch(/^proxy-\d+$/);  // Format: proxy-{number}
+  expect(yFirstArg.__operationChain).toBeDefined();  // First occurrence has full chain
+  
+  expect(zFirstArg.__refId).toBeDefined();
+  expect(zFirstArg.__refId).toBe(yFirstArg.__refId);  // Same ID - it's an alias!
+  expect(zFirstArg.__operationChain).toBeUndefined();  // Alias has NO chain
 });

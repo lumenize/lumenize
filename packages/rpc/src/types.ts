@@ -139,7 +139,8 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
  */
 export interface NestedOperationMarker {
   __isNestedOperation: true;
-  __operationChain: OperationChain;
+  __refId?: string;  // Unique identifier for alias detection
+  __operationChain?: OperationChain;  // Optional - omitted for aliases
 }
 
 /**
