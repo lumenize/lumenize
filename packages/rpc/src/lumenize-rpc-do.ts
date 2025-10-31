@@ -8,7 +8,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { isNestedOperationMarker } from './types';
-import { serializeError } from './error-serialization';
+import { serializeError } from '@lumenize/structured-clone';
 import { stringify, parse } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
@@ -414,9 +414,8 @@ async function preprocessResult(result: any, operationChain: OperationChain, see
   }
   
   // Handle built-in types that structured-clone preserves perfectly - return as-is
-  // This includes Web API objects, Dates, Maps, Sets, etc.
-  // Note: Error objects also pass through - structured-clone should handle them
-  if (isStructuredCloneNativeType(result) || result instanceof Error) {
+  // This includes Web API objects, Dates, Maps, Sets, Errors, etc.
+  if (isStructuredCloneNativeType(result)) {
     return result;
   }
   

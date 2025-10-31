@@ -1,14 +1,22 @@
 /**
- * Serialization utilities for Web API objects over RPC
+ * Marker-based Web API object serialization utilities
  * 
- * Handles Request, Response, Headers, and URL objects that can't be directly
- * serialized by @ungap/structured-clone. Similar to error-serialization.ts,
- * we convert these to plain objects with markers and reconstruct them on the
- * client side.
+ * These are LOW-LEVEL utilities for when you need explicit control over Web API serialization.
+ * Most users should use stringify()/parse() which handle Web API objects automatically via native serialization.
+ * 
+ * Use cases for marker-based approach:
+ * - Storing in queues where you control serialization timing (proxy-fetch)
+ * - Persisting to DO storage where you need the marker flag
+ * - Manual control over when serialization happens
+ * 
+ * Note: Unlike native serialization which preserves full Web API instances,
+ * this marker-based approach converts to plain objects with __isSerializedX flags.
+ * 
+ * Handles Request, Response, Headers, and URL objects that are common in Cloudflare Workers.
  */
 
 /**
- * Type guard to check if an object is a serialized Web API object
+ * Type guard to check if an object is a marker-based serialized Web API object
  * 
  * @param obj - The object to check
  * @returns true if the object has a Web API serialization marker
@@ -38,11 +46,29 @@ export function isWebApiObject(value: any): boolean {
 }
 
 /**
- * Serializes Web API objects (Request, Response, Headers, URL) for transmission
+ * Serializes Web API objects (Request, Response, Headers, URL) to plain objects with marker flags
  * 
- * @ungap/structured-clone partially handles Request/Response but loses prototypes
- * and doesn't handle Headers or URL properly. This function explicitly converts
- * them to plain objects with markers for proper reconstruction.
+ * Preserves all important properties for proper reconstruction. AbortSignals cannot be serialized
+ * and are set to `null`. Request/Response bodies are cloned before reading to avoid consumption.
+ * 
+ * Use this when you need explicit control over serialization timing (e.g., queue storage).
+ * For general Web API serialization, use `stringify()` which preserves instances via native serialization.
+ * 
+ * @example
+ * ```typescript
+ * // Queue storage (e.g., proxy-fetch)
+ * const request = new Request('https://api.example.com', {
+ *   method: 'POST',
+ *   body: JSON.stringify({ data: 'test' })
+ * });
+ * const serialized = await serializeWebApiObject(request);
+ * await queue.send({ request: serialized }); // Queue message
+ * 
+ * // Later, in consumer:
+ * const message = await queue.receive();
+ * const restored = deserializeWebApiObject(message.request); // Back to Request
+ * const data = await restored.json();
+ * ```
  */
 export async function serializeWebApiObject(value: any): Promise<any> {
   // Handle Request
@@ -122,10 +148,13 @@ export async function serializeWebApiObject(value: any): Promise<any> {
 }
 
 /**
- * Deserializes Web API objects back to proper instances
+ * Deserializes marker-based Web API objects back to proper instances
  * 
  * Reconstructs Request, Response, Headers, and URL instances from the plain
- * objects created by serializeWebApiObject.
+ * objects created by serializeWebApiObject().
+ * 
+ * Note: This is for explicit deserialization control (e.g., proxy-fetch queues).
+ * For general Web API deserialization, use parse() which handles them via native serialization.
  */
 export function deserializeWebApiObject(value: any): any {
   if (!value || typeof value !== 'object') {
@@ -176,3 +205,4 @@ export function deserializeWebApiObject(value: any): any {
   // Not a serialized Web API object, return as-is
   return value;
 }
+

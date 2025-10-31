@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
+// Test the re-exported functions from @lumenize/utils for backwards compatibility
 import {
   serializeWebApiObject,
   deserializeWebApiObject,
   isSerializedWebApiObject,
   isWebApiObject,
-} from '../../src/web-api-serialization';
+} from '../../src/index';
 
 describe('Web API Serialization', () => {
   describe('isWebApiObject', () => {

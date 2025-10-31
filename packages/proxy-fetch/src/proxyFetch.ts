@@ -1,4 +1,4 @@
-import { serializeWebApiObject } from '@lumenize/utils';
+import { serializeWebApiObject } from '@lumenize/structured-clone';
 import type { ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
 
 /**

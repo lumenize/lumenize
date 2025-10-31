@@ -1,4 +1,4 @@
-import { deserializeWebApiObject } from '@lumenize/utils';
+import { deserializeWebApiObject } from '@lumenize/structured-clone';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
 import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
 

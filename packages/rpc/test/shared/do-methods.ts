@@ -160,6 +160,10 @@ export const sharedDOMethods = {
   },
 
   // Method that echoes through DO storage to test what types survive round-trip
+  // NOTE: Just uses DO storage's built-in serialization. This has limitations:
+  // - Errors lose custom properties
+  // - Request/Response/URL cannot be serialized (ReadableStream limitation)
+  // - Custom error names revert to 'Error'
   echoThroughStorage(this: WithContext, value: any): any {
     this.ctx.storage.kv.put('test-echo', value);
     return this.ctx.storage.kv.get('test-echo');

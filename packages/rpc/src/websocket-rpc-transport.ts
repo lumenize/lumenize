@@ -5,7 +5,7 @@ import type {
   RpcWebSocketMessage,
   RpcWebSocketMessageResponse
 } from './types';
-import { deserializeError } from './error-serialization';
+import { deserializeError } from '@lumenize/structured-clone';
 import { stringify, parse } from '@lumenize/structured-clone';
 
 /**

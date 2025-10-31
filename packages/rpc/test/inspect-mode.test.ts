@@ -81,8 +81,8 @@ it('detects aliases when same proxy is reused (not duplicated)', async () => {
   
   // Build OCAN chains without awaiting, then await both together
   const x = client.increment();              // No `await` - just building a chain
-  const y = client.add(x, 10);               // Also no `await` - x used as arg
-  const z = client.add(x, 20);               // Also no `await` - x used AGAIN
+  const y = client.add(x as any, 10);        // Also no `await` - x used as arg (cast for OCAN)
+  const z = client.add(x as any, 20);        // Also no `await` - x used AGAIN (cast for OCAN)
   const [yResult, zResult] = await Promise.all([y, z]);  // Both batched together
   
   const batchRequest = getLastBatchRequest();
@@ -111,16 +111,23 @@ it('detects aliases when same proxy is reused (not duplicated)', async () => {
   expect(yOps).toHaveLength(2);
   expect(yOps[0]).toMatchObject({ type: 'get', key: 'add' });
   expect(yOps[1].type).toBe('apply');
-  expect(yOps[1].args).toMatchObject([expect.any(Object), 10]);
+  if (yOps[1].type === 'apply') {
+    expect(yOps[1].args).toMatchObject([expect.any(Object), 10]);
+  }
   
   // Check second operation (z)
   const zOps = batchRequest!.batch[1].operations;
   expect(zOps).toHaveLength(2);
   expect(zOps[0]).toMatchObject({ type: 'get', key: 'add' });
   expect(zOps[1].type).toBe('apply');
-  expect(zOps[1].args).toMatchObject([expect.any(Object), 20]);
+  if (zOps[1].type === 'apply') {
+    expect(zOps[1].args).toMatchObject([expect.any(Object), 20]);
+  }
   
-  // Check the nested operation markers
+  // Check the nested operation markers (type narrowing ensures args exists)
+  if (yOps[1].type !== 'apply' || zOps[1].type !== 'apply') {
+    throw new Error('Expected apply operations');
+  }
   const yFirstArg = yOps[1].args[0];
   const zFirstArg = zOps[1].args[0];
   

@@ -562,17 +562,17 @@ export async function testEchoError(testable: TestableClient): Promise<void> {
 /**
  * Built-in types - Echo custom Error subclass (client → server → client)
  * 
- * Tests that custom Error subclasses preserve their type (name) through RPC
- * without requiring manual `this.name = 'CustomError'` in constructor.
+ * Tests that custom Error subclasses with manually set names are preserved through RPC.
+ * Note: JavaScript doesn't automatically set the name to the class name, so it must be set manually.
  */
 export async function testEchoCustomErrorClass(testable: TestableClient): Promise<void> {
   const { client } = testable;
   
-  // Create a custom Error subclass WITHOUT manually setting name
+  // Create a custom Error subclass WITH manually set name
   class ValidationError extends Error {
     constructor(message: string, public field?: string) {
       super(message);
-      // Note: NOT setting this.name = 'ValidationError' here
+      this.name = 'ValidationError'; // Required for name to be preserved
     }
   }
   

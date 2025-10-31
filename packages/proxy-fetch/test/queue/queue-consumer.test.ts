@@ -15,7 +15,7 @@
 import { env, createMessageBatch, createExecutionContext, getQueueResult, runInDurableObject } from 'cloudflare:test';
 import { describe, test, expect, vi } from 'vitest';
 import worker from './test-worker-and-dos';
-import { serializeWebApiObject } from '@lumenize/utils';
+import { serializeWebApiObject } from '@lumenize/structured-clone';
 import { proxyFetch } from '../../src/proxyFetch';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 

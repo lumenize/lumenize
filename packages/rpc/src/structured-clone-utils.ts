@@ -9,12 +9,13 @@
  * passed through to @lumenize/structured-clone as-is.
  * 
  * @lumenize/structured-clone handles all these types natively, including:
- * - Built-in types: Date, RegExp, Map, Set, ArrayBuffer, TypedArrays
+ * - Built-in types: Date, RegExp, Map, Set, ArrayBuffer, TypedArrays, Error
  * - Web API objects: Request, Response, Headers, URL, URLSearchParams, Blob, File, FormData
  * - Special numbers: Infinity, -Infinity, NaN
  * 
- * TODO: Error objects should be handled by @lumenize/structured-clone but currently don't
- * preserve all properties (name, custom fields). This needs to be fixed in structured-clone.
+ * Note: Error objects preserve name, message, stack, cause, and custom properties.
+ * The prototype chain (CustomError.prototype) cannot be preserved across serialization
+ * boundaries - a CustomError becomes an Error instance with name='CustomError'.
  * 
  * @param value - The value to check
  * @returns true if the value needs no preprocessing and should not be recursed into
@@ -31,6 +32,7 @@ export function isStructuredCloneNativeType(value: any): boolean {
     value instanceof Set ||
     value instanceof ArrayBuffer ||
     ArrayBuffer.isView(value) || // TypedArrays (Uint8Array, etc.)
+    value instanceof Error ||
     // Web API objects
     value instanceof Request ||
     value instanceof Response ||

@@ -10,7 +10,7 @@ import { it, expect, vi } from 'vitest';
 import { ulidFactory } from 'ulid-workers';
 import { createTestingClient } from '@lumenize/testing';
 import { _ProxyFetchDO } from './test-worker';
-import { serializeWebApiObject } from '@lumenize/utils';
+import { serializeWebApiObject } from '@lumenize/structured-clone';
 // @ts-expect-error - cloudflare:test types not available at compile time
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';

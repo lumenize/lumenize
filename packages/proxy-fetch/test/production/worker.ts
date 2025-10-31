@@ -8,7 +8,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
 import { proxyFetchDO } from '../../src/proxyFetch';
-import { deserializeWebApiObject } from '@lumenize/utils';
+import { deserializeWebApiObject } from '@lumenize/structured-clone';
 
 // Re-export ProxyFetchDO so it's available to wrangler
 export { ProxyFetchDO };

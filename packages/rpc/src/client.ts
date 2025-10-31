@@ -13,6 +13,7 @@ import { isRemoteFunctionMarker, isNestedOperationMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
+import { deserializeError } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 
@@ -658,11 +659,11 @@ export class RpcClient<T> {
       return processedArray;
     }
 
-    // Check if this is a plain object (not a built-in type like Date, Map, etc.)
+    // Check if this is a plain object (not a built-in type like Date, Map, Error, etc.)
     // Built-in types that structured-clone preserves (Date, Map, Set, RegExp, ArrayBuffer, 
     // TypedArrays, Error, Web API objects) should pass through unchanged - they're already properly deserialized.
-    // Note: Error custom properties (name, custom fields) currently may not be fully preserved by
-    // structured-clone - this needs to be fixed in @lumenize/structured-clone, not here.
+    // Note: Custom Error subclasses (CustomError) become base Error instances with name='CustomError'.
+    // The prototype chain cannot be preserved because the class definition isn't available across boundaries.
     // Custom class instances are NOT preserved by structured-clone - they become plain 
     // objects during serialization, so they'll be processed recursively below.
     const proto = Object.getPrototypeOf(obj);

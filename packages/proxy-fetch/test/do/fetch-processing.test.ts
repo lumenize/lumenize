@@ -17,7 +17,7 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 // @ts-expect-error
 import { env } from 'cloudflare:test';
-import { serializeWebApiObject } from '@lumenize/utils';
+import { serializeWebApiObject } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints/src/client';
 import type { ProxyFetchQueueMessage } from '../../src/types';
 

@@ -198,18 +198,21 @@ describe('Error Serialization - Custom Properties', () => {
     expect(result.context.response.status).toBe(500);
   });
 
-  it('does not serialize standard properties as custom', async () => {
+  it('preserves custom name property on standard Error', async () => {
     const error: any = new Error('Standard');
-    error.name = 'CustomName'; // This is standard, not custom
+    error.name = 'CustomName'; // Custom name should be preserved
     error.message = 'Standard message';
     error.stack = 'Custom stack';
     
     const result: any = await parse(await stringify(error));
     
-    // Standard properties should be on the error itself
-    expect(result.name).toBe('Error'); // Name from constructor
+    // Standard properties should be preserved with their custom values
+    expect(result.name).toBe('CustomName'); // Custom name is preserved
     expect(result.message).toBe('Standard message');
     expect(result.stack).toBe('Custom stack');
+    
+    // name, message, stack should NOT be in customProps (they're standard properties)
+    expect(result.customProps).toBeUndefined();
   });
 });
 

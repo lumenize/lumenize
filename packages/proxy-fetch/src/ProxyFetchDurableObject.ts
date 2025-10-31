@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { ulidFactory, decodeTime } from 'ulid-workers';
 import type { ProxyFetchQueueMessage } from './types';
 import { MAX_REQUEST_AGE_MS, ALARM_INTERVAL_NORMAL_MS, QUEUE_PROCESS_BATCH_SIZE, isRetryable, getRetryDelay, DEFAULT_OPTIONS } from './utils';
-import { serializeWebApiObject, deserializeWebApiObject } from '@lumenize/utils';
+import { serializeWebApiObject, deserializeWebApiObject } from '@lumenize/structured-clone';
 
 // Create monotonic ULID factory at module level for DO persistence
 const ulid = ulidFactory();

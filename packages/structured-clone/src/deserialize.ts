@@ -79,6 +79,11 @@ const deserializer = ($: Map<number, any>, _: SerializedRecord[]) => {
         const ErrorConstructor = (env as any)[name] || Error;
         const error = new ErrorConstructor(message || '');
         
+        // CRITICAL: Explicitly set the name property
+        // Built-in Error constructors (TypeError, RangeError) set this automatically,
+        // but for custom error names (CustomError, ValidationError), we must set it manually
+        error.name = name;
+        
         // Capture the error early to handle circular references
         as(error, index);
         
