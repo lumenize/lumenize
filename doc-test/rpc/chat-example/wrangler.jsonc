@@ -1,0 +1,18 @@
+{
+	"name": "rpc-chat-example",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-09-12",
+	"durable_objects": {
+		"bindings": [
+			{ "name": "USER", "class_name": "User" },
+			{ "name": "ROOM", "class_name": "Room" }
+		]
+	},
+	"kv_namespaces": [
+		{ "binding": "TOKENS", "id": "preview_id", "preview_id": "preview_id" }
+	],
+	"migrations": [
+		{ "tag": "v1", "new_sqlite_classes": ["User", "Room"] }
+	]
+}
+
