@@ -49,9 +49,12 @@ Use reference markers similar to JSON Schema, but with a safe marker that won't 
 **Why not `$ref`**: JSON Schema uses `$ref` as a keyword. If user data contains `"$ref"` as a property, schema validators will try to resolve it as a reference, causing conflicts.
 
 **Alternative markers to consider**:
-- `__ref` - Double underscore convention for "internal use", unlikely in user data
-- `@ref` - Used by JSON-LD, but might be confused with JSON-LD processing
-- `$lmz_ref` - Namespaced, zero conflict risk, but more verbose
+- `__ref` - Double underscore convention for "internal use", unlikely in user data (6 characters)
+- `@ref` - Used by JSON-LD, but might be confused with JSON-LD processing (4 characters)
+- `$lmz` - Namespaced with `$` prefix (like JSON Schema `$ref`), very unlikely to conflict, shorter than `__ref` (5 characters)
+- `$lmz_ref` - More verbose namespaced option, zero conflict risk (8 characters)
+
+**Recommendation**: `$lmz` offers the best balance - one character shorter than `__ref` (5 vs 6), similarly collision-resistant due to namespace (`lmz` = Lumenize), and uses the `$` prefix convention (like JSON Schema `$ref`) which signals "special/internal" meaning.
 
 **Pros**:
 - More human-readable than indexed arrays
@@ -114,7 +117,7 @@ Or inline markers:
 - Handling edge cases (self-referential objects, deep cycles)
 
 **High Risk**:
-- Maintaining backward compatibility with existing indexed format
+- Maintaining backward compatibility with existing indexed format (NOT IMPORTANT)
 - Test coverage for cycles/aliases (currently very limited - only 1 basic test)
 - Request/Response async handling (already works in structured-clone)
 

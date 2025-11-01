@@ -121,6 +121,58 @@ function createComplexStructure() {
   };
 }
 
+/**
+ * Structure with Error objects (verbose markers impact size)
+ */
+function createErrorStructure() {
+  const error1 = new Error('First error');
+  error1.stack = 'Error: First error\n    at createErrorStructure (test.js:1:1)\n    at <anonymous>';
+  error1.code = 'ERR_FIRST';
+  error1.statusCode = 404;
+  
+  const error2 = new TypeError('Type error occurred');
+  error2.stack = 'TypeError: Type error occurred\n    at processData (data.js:10:5)';
+  error2.cause = error1; // Nested error
+  
+  return {
+    operation: 'fetch',
+    errors: [error1, error2],
+    metadata: {
+      timestamp: new Date(),
+      source: 'api-client'
+    }
+  };
+}
+
+/**
+ * Structure with Web API types (Request, Response, URL, Headers)
+ * These have verbose __isSerializedX markers that impact payload size
+ */
+function createWebApiStructure() {
+  const url = new URL('https://api.example.com/v1/users?page=1&limit=10');
+  const headers = new Headers({
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer token123',
+    'X-Request-ID': 'req-456'
+  });
+  
+  // Note: Request/Response require async body reading, so we'll just test URL/Headers
+  // For full Request/Response testing, we'd need to handle async serialization
+  return {
+    endpoint: url,
+    headers: headers,
+    config: {
+      timeout: 5000,
+      retries: 3,
+      baseUrl: new URL('https://api.example.com')
+    },
+    metadata: {
+      createdAt: new Date(),
+      version: 'v1'
+    }
+  };
+}
+
 // ============================================================================
 // Benchmarking Utilities
 // ============================================================================
@@ -235,6 +287,41 @@ async function serializeRefStyle(data: any): Promise<string> {
         serialized = { type: 'date', iso: value.toISOString() };
       } else if (value instanceof RegExp) {
         serialized = { type: 'regexp', source: value.source, flags: value.flags };
+      } else if (value instanceof Error) {
+        // Error object - preserve name, message, stack, cause, custom properties
+        serialized = {
+          type: 'error',
+          name: value.name || 'Error',
+          message: value.message || ''
+        };
+        if (value.stack) serialized.stack = value.stack;
+        if (value.cause !== undefined) serialized.cause = serializeValue(value.cause);
+        // Custom properties
+        const customProps: any = {};
+        const allProps = Object.getOwnPropertyNames(value);
+        for (const key of allProps) {
+          if (!['name', 'message', 'stack', 'cause'].includes(key)) {
+            try {
+              customProps[key] = serializeValue((value as any)[key]);
+            } catch {}
+          }
+        }
+        if (Object.keys(customProps).length > 0) {
+          serialized.customProps = customProps;
+        }
+      } else if (value instanceof URL) {
+        serialized = { type: 'url', href: value.href };
+      } else if (value instanceof Headers) {
+        const entries: [string, string][] = [];
+        value.forEach((val, key) => {
+          entries.push([key, val]);
+        });
+        serialized = { type: 'headers', entries };
+      } else if (value instanceof ArrayBuffer) {
+        // Convert ArrayBuffer to base64
+        const bytes = new Uint8Array(value);
+        const base64 = btoa(String.fromCharCode.apply(null, Array.from(bytes)));
+        serialized = { type: 'arraybuffer', base64 };
       } else {
         // Plain object
         serialized = {};
@@ -284,6 +371,29 @@ async function parseRefStyle(json: string): Promise<any> {
     } else if (value.type === 'regexp') {
       deserialized = new RegExp(value.source, value.flags);
       objects.set(id, deserialized);
+    } else if (value.type === 'error') {
+      const ErrorClass = value.name === 'TypeError' ? TypeError :
+                        value.name === 'RangeError' ? RangeError :
+                        value.name === 'ReferenceError' ? ReferenceError :
+                        Error;
+      deserialized = new ErrorClass(value.message);
+      if (value.stack) deserialized.stack = value.stack;
+      objects.set(id, deserialized);
+    } else if (value.type === 'url') {
+      deserialized = new URL(value.href);
+      objects.set(id, deserialized);
+    } else if (value.type === 'headers') {
+      deserialized = new Headers(value.entries);
+      objects.set(id, deserialized);
+    } else if (value.type === 'arraybuffer') {
+      // Convert base64 back to ArrayBuffer
+      const binary = atob(value.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      deserialized = bytes.buffer;
+      objects.set(id, deserialized);
     } else if (Array.isArray(value)) {
       deserialized = [];
       objects.set(id, deserialized);
@@ -315,13 +425,23 @@ async function parseRefStyle(json: string): Promise<any> {
       for (let i = 0; i < value.length; i++) {
         deserialized[i] = resolveRef(value[i], objects);
       }
+    } else if (value.type === 'error') {
+      // Error already created in first pass, but need to set cause and customProps
+      if (value.cause !== undefined) {
+        (deserialized as Error).cause = resolveRef(value.cause, objects);
+      }
+      if (value.customProps) {
+        for (const key in value.customProps) {
+          (deserialized as any)[key] = resolveRef(value.customProps[key], objects);
+        }
+      }
     } else if (!value.type) {
       // Plain object
       for (const key in value) {
         deserialized[key] = resolveRef(value[key], objects);
       }
     }
-    // date and regexp already fully deserialized in first pass
+    // date, regexp, url, headers, arraybuffer already fully deserialized in first pass
   }
   
   // Third pass: resolve root
@@ -598,6 +718,75 @@ describe('Format Comparison Experiments', () => {
     
     console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
     console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
+  });
+  
+  it('Error objects with stack traces and custom properties', async () => {
+    const data = createErrorStructure();
+    
+    const current = await benchmarkFormat(
+      'Current (indexed)',
+      data,
+      serializeCurrentFormat,
+      parseCurrentFormat
+    );
+    
+    const refStyle = await benchmarkFormat(
+      '__ref style',
+      data,
+      serializeRefStyle,
+      parseRefStyle
+    );
+    
+    console.log('\n=== Error Structure (with stack traces, custom properties) ===');
+    console.log(`\n📊 Current (indexed) format:`);
+    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
+    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
+    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
+    
+    console.log(`\n📊 __ref style format:`);
+    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
+    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
+    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
+    
+    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
+    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
+    console.log(`\n💡 Note: Error objects have verbose property names (name, message, stack, customProps, cause)`);
+    console.log(`   that get indexed separately in current format. __isSerializedError marker also adds overhead.`);
+  });
+  
+  it('Web API types (URL, Headers with verbose markers)', async () => {
+    const data = createWebApiStructure();
+    
+    const current = await benchmarkFormat(
+      'Current (indexed)',
+      data,
+      serializeCurrentFormat,
+      parseCurrentFormat
+    );
+    
+    const refStyle = await benchmarkFormat(
+      '__ref style',
+      data,
+      serializeRefStyle,
+      parseRefStyle
+    );
+    
+    console.log('\n=== Web API Structure (URL, Headers) ===');
+    console.log(`\n📊 Current (indexed) format:`);
+    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
+    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
+    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
+    
+    console.log(`\n📊 __ref style format:`);
+    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
+    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
+    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
+    
+    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
+    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
+    console.log(`\n💡 Note: Web API types use verbose __isSerializedX markers (18-22 chars each):`);
+    console.log(`   __isSerializedURL (18), __isSerializedHeaders (22), __isSerializedRequest (21), __isSerializedResponse (22)`);
+    console.log(`   These marker property names get indexed separately in current format, adding overhead.`);
   });
 });
 
