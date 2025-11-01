@@ -57,7 +57,10 @@ echo "1️⃣  Running package tests..."
 echo ""
 
 # Get list of publishable packages
-mapfile -t PACKAGES < <(discover_packages)
+PACKAGES=()
+while IFS= read -r line; do
+  [ -n "$line" ] && PACKAGES+=("$line")
+done < <(discover_packages)
 
 if [ ${#PACKAGES[@]} -eq 0 ]; then
   echo "❌ No publishable packages found in packages/"
