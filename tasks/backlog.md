@@ -7,6 +7,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Show that private methods are not available over Lumenize RPC
 - [ ] Test websocket-shim throws when passed http[s] urls (requires changing matrix tests)
 - [ ] Test in production on Cloudflare (not just local with vitest)
+- [ ] Revisit Workers RPC type support testing methodology
+  - Investigate why Headers appeared to be supported in Workers RPC when Cap'n Web analysis showed it's only a type annotation
+  - Review testing approach to ensure we're testing actual serialization, not just TypeScript type compatibility
+  - Audit type support table for other potentially incorrect entries (check serialization vs type annotations)
+  - Improve testing to distinguish between type system support and runtime serialization support
 
 ## Documentation
 
