@@ -18,7 +18,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 // @ts-expect-error
 import { env } from 'cloudflare:test';
 import { serializeWebApiObject } from '@lumenize/structured-clone';
-import { createTestEndpoints } from '@lumenize/test-endpoints/src/client';
+import { createTestEndpoints } from '@lumenize/test-endpoints';
 import type { ProxyFetchQueueMessage } from '../../src/types';
 
 describe('ProxyFetchDO Fetch Processing', () => {
