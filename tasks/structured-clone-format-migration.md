@@ -48,34 +48,65 @@ Based on experiments in `structured-clone-format-experiments-results.md`:
 - Not human-readable
 - Index-based referencing
 
-## Target Format (`$lmz`)
+## Target Format: **Tuple-based `$lmz`** ✅
 
 ```javascript
-// Inline values with $lmz references for cycles/aliases
+// Cap'n Web tuple format with $lmz references
 {
-  x: { id: 1, data: "shared" },
-  y: { $lmz: "x" },        // Reference to x
-  z: [
-    { $lmz: "x" },         // Another reference to x
-    { $lmz: "x" }          // Same object multiple times
+  "root": ["$lmz", 0],
+  "objects": [
+    ["object", {
+      "name": ["string", "John"],
+      "age": ["number", 30],
+      "tags": ["$lmz", 1]
+    }],
+    ["array", [
+      ["string", "developer"],
+      ["string", "javascript"]
+    ]]
   ]
 }
+
+// Error with recursive cause
+["error", {
+  "name": "Error",
+  "message": "Failed",
+  "cause": ["$lmz", "0"]  // Reference to another error
+}]
+
+// Map with aliased value
+["map", [
+  [["string", "key1"], ["string", "val1"]],
+  [["string", "key2"], ["$lmz", "0"]]  // Reference
+]]
 ```
 
-**Characteristics**:
-- Human-readable (inline values)
-- 2-3x faster serialization
-- Similar parse performance
-- Path-based referencing (JSONPath-like)
-- 16-35% larger payloads
+**Confirmed Characteristics** (from experiments):
+- ✅ **75x faster serialization** than current indexed format
+- ✅ **1.8x faster parsing** than current indexed format
+- ✅ Human-readable type names (vs numeric codes)
+- ✅ Consistent with Cap'n Web tuple format
+- ✅ **Beats indexed format on Web API types** (11% smaller)
+- ✅ More compact than Object-based `$lmz` (tuples vs object wrappers)
+- ⚠️ 11-103% larger payloads than indexed (avg 20-50%, acceptable trade-off for performance + readability)
+
+**Why Tuple `$lmz` Over Alternatives**:
+1. **Performance is king**: 75x faster serialization is dramatic
+2. **Best balance**: Compact tuples + readable + fast
+3. **Beats Object `$lmz`**: Smaller and faster
+4. **Cap'n Web alignment**: Consistent format with Cap'n Web (aids future interop)
+5. **Special win**: Only format that beat indexed on Web API types
 
 ## Migration Phases
 
-### Phase 0: Preparation ✅
+### Phase 0: Complete Format Experiments ✅
 - [x] Test suite optimized (95.81% coverage)
 - [x] All duplicate code removed
-- [x] Format experiments completed
-- [x] Decision made to proceed
+- [x] Experiments: Indexed vs Object-based `$lmz` 
+- [x] Implement tuple-based `$lmz` format in experiments
+- [x] Run comprehensive comparison (3 formats across 9 test cases)
+- [x] Analyze results and make final format decision
+- [x] **Decision**: Proceed with **Tuple-based `$lmz` format**
 
 ### Phase 1: Implement `$lmz` Serializer
 - [ ] Create `serialize-ref-style.ts` with:

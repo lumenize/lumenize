@@ -22,9 +22,9 @@
 - Serialize time
 
 **Formats to compare**:
-1. Current indexed format: `[[TYPE_NUMBER, value], ...]`
-2. Cap'n Web format (no cycles): `["type", data]`
-3. Proposed $ref-like format: TBD (see Experiment 2)
+1. Current indexed format: `[[TYPE_NUMBER, value], ...]` with numeric indices for references
+2. Object-based `$lmz` format: `{root: {...}, objects: [...]}` with `{"$lmz": "ref"}` for cycles/aliases
+3. **Tuple-based `$lmz` format**: `["type", data]` (Cap'n Web style) with `["$lmz", "ref"]` tuples for cycles/aliases
 
 ### Experiment 2: Reference Marker Alternatives
 
@@ -88,9 +88,51 @@
 
 **Preferred**: `__ref` seems best balance of readability and safety.
 
+## Tuple-Based `$lmz` Format Specification
+
+Combines Cap'n Web's compact tuple format with cycle/alias support:
+
+**Format**: `["type", data]` for values, `["$lmz", "ref"]` for references
+
+**Examples**:
+```javascript
+// Primitives
+["string", "hello"]
+["number", 42]
+["boolean", true]
+
+// Error with recursive cause
+["error", {
+  "name": "Error",
+  "message": "Root cause",
+  "cause": ["$lmz", "0"]  // Points to another error at index 0
+}]
+
+// Map with aliased value
+["map", [
+  [["key1", "val1"], ["key2", ["$lmz", "0"]]]  // Reference to shared object
+]]
+
+// Object with self-reference
+["object", {
+  "id": 1,
+  "self": ["$lmz", "#root"]  // Points back to this object
+}]
+```
+
+**Advantages over object-based `$lmz`**:
+- More compact (tuple vs object wrapper)
+- Consistent with Cap'n Web format
+- Type information explicit and readable
+
+**Advantages over indexed format**:
+- Human-readable type names
+- Inline values (no index lookup needed)
+- Clear reference markers
+
 ## Results
 
-See `structured-clone-format-experiments-results.md` for initial findings from Experiment 1.
+See `structured-clone-format-experiments-results.md` for initial findings comparing indexed vs object-based `$lmz`.
 
-**Initial Key Finding**: Indexed format is 87.7% larger for simple objects, but 13.4% smaller for aliased objects (due to deduplication). The trade-off depends on how often we have aliases/cycles in real data.
+**TODO**: Add tuple-based `$lmz` format to experiments for complete comparison.
 

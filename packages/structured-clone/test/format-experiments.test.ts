@@ -466,6 +466,236 @@ function resolveRef(value: any, objects: Map<string, any>): any {
 }
 
 /**
+ * Tuple-based $lmz format (Cap'n Web style + cycles/aliases)
+ * Format: ["type", data] for values, ["$lmz", "ref"] for references
+ * Combines Cap'n Web's compact tuples with cycle/alias support
+ */
+async function serializeTupleStyle(data: any): Promise<string> {
+  const seen = new WeakMap<any, number>();
+  const objects: any[] = [];
+  let nextId = 0;
+  
+  function serializeValue(value: any): any {
+    // Primitives
+    if (value === null) return ["null"];
+    if (value === undefined) return ["undefined"];
+    if (typeof value === 'string') return ["string", value];
+    if (typeof value === 'number') {
+      if (Number.isNaN(value)) return ["number", "NaN"];
+      if (value === Infinity) return ["number", "Infinity"];
+      if (value === -Infinity) return ["number", "-Infinity"];
+      return ["number", value];
+    }
+    if (typeof value === 'boolean') return ["boolean", value];
+    if (typeof value === 'bigint') return ["bigint", value.toString()];
+    
+    // Objects - check for cycles/aliases
+    if (typeof value === 'object') {
+      // Check for cycles/aliases
+      if (seen.has(value)) {
+        return ["$lmz", seen.get(value)!];
+      }
+      
+      // Assign ID and track
+      const id = nextId++;
+      seen.set(value, id);
+      
+      // Serialize based on type
+      if (Array.isArray(value)) {
+        const items = value.map(item => serializeValue(item));
+        const tuple: any = ["array", items];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value instanceof Map) {
+        const entries: any[] = [];
+        for (const [key, val] of value) {
+          entries.push([serializeValue(key), serializeValue(val)]);
+        }
+        const tuple: any = ["map", entries];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value instanceof Set) {
+        const values: any[] = [];
+        for (const item of value) {
+          values.push(serializeValue(item));
+        }
+        const tuple: any = ["set", values];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value instanceof Date) {
+        return ["date", value.toISOString()];
+      } else if (value instanceof RegExp) {
+        return ["regexp", { source: value.source, flags: value.flags }];
+      } else if (value instanceof Error) {
+        // Error object - preserve name, message, stack, cause, custom properties
+        const errorData: any = {
+          name: value.name || 'Error',
+          message: value.message || ''
+        };
+        if (value.stack) errorData.stack = value.stack;
+        if (value.cause !== undefined) errorData.cause = serializeValue(value.cause);
+        
+        // Custom properties
+        const allProps = Object.getOwnPropertyNames(value);
+        for (const key of allProps) {
+          if (!['name', 'message', 'stack', 'cause'].includes(key)) {
+            try {
+              errorData[key] = serializeValue((value as any)[key]);
+            } catch {}
+          }
+        }
+        
+        const tuple: any = ["error", errorData];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (typeof (value as any).constructor === 'function') {
+        // Check for Web API types
+        const constructorName = value.constructor.name;
+        if (constructorName === 'URL') {
+          return ["url", { href: value.href }];
+        } else if (constructorName === 'Headers') {
+          const entries: [string, string][] = [];
+          (value as Headers).forEach((val: string, key: string) => {
+            entries.push([key, val]);
+          });
+          return ["headers", entries];
+        } else if (constructorName.includes('Array') && value.buffer) {
+          // TypedArray
+          const arr = Array.from(value as any);
+          return ["arraybuffer", arr];
+        }
+      }
+      
+      // Plain object
+      const obj: any = {};
+      for (const key in value) {
+        obj[key] = serializeValue(value[key]);
+      }
+      const tuple: any = ["object", obj];
+      objects[id] = tuple;
+      return ["$lmz", id];
+    }
+    
+    return value;
+  }
+  
+  const root = serializeValue(data);
+  return JSON.stringify({ root, objects });
+}
+
+async function parseTupleStyle(json: string): Promise<any> {
+  const data = JSON.parse(json);
+  const objects = new Map<number, any>();
+  
+  // First pass: create all objects
+  if (data.objects) {
+    for (let i = 0; i < data.objects.length; i++) {
+      const tuple = data.objects[i];
+      if (!tuple || !Array.isArray(tuple)) continue;
+      
+      const [type, value] = tuple;
+      
+      if (type === 'array') {
+        objects.set(i, []);
+      } else if (type === 'map') {
+        objects.set(i, new Map());
+      } else if (type === 'set') {
+        objects.set(i, new Set());
+      } else if (type === 'error') {
+        const ErrorConstructor = (globalThis as any)[value.name] || Error;
+        const error = new ErrorConstructor(value.message || '');
+        error.name = value.name;
+        if (value.stack !== undefined) {
+          error.stack = value.stack;
+        } else {
+          delete error.stack;
+        }
+        objects.set(i, error);
+      } else if (type === 'object') {
+        objects.set(i, {});
+      }
+    }
+  }
+  
+  // Second pass: fill structures
+  if (data.objects) {
+    for (let i = 0; i < data.objects.length; i++) {
+      const tuple = data.objects[i];
+      if (!tuple || !Array.isArray(tuple)) continue;
+      
+      const [type, value] = tuple;
+      const obj = objects.get(i)!;
+      
+      if (type === 'array') {
+        for (const item of value) {
+          obj.push(resolveValue(item, objects));
+        }
+      } else if (type === 'map') {
+        for (const [key, val] of value) {
+          obj.set(
+            resolveValue(key, objects),
+            resolveValue(val, objects)
+          );
+        }
+      } else if (type === 'set') {
+        for (const item of value) {
+          obj.add(resolveValue(item, objects));
+        }
+      } else if (type === 'error') {
+        // Error already created, fill cause and custom props
+        if (value.cause !== undefined) {
+          obj.cause = resolveValue(value.cause, objects);
+        }
+        for (const key in value) {
+          if (!['name', 'message', 'stack', 'cause'].includes(key)) {
+            obj[key] = resolveValue(value[key], objects);
+          }
+        }
+      } else if (type === 'object') {
+        for (const key in value) {
+          obj[key] = resolveValue(value[key], objects);
+        }
+      }
+    }
+  }
+  
+  // Resolve root
+  return resolveValue(data.root, objects);
+}
+
+function resolveValue(value: any, objects: Map<number, any>): any {
+  if (!value || !Array.isArray(value)) return value;
+  
+  const [type, data] = value;
+  
+  // Reference
+  if (type === '$lmz') {
+    return objects.get(data);
+  }
+  
+  // Direct value
+  if (type === 'null') return null;
+  if (type === 'undefined') return undefined;
+  if (type === 'string') return data;
+  if (type === 'number') {
+    if (data === 'NaN') return NaN;
+    if (data === 'Infinity') return Infinity;
+    if (data === '-Infinity') return -Infinity;
+    return data;
+  }
+  if (type === 'boolean') return data;
+  if (type === 'bigint') return BigInt(data);
+  if (type === 'date') return new Date(data);
+  if (type === 'regexp') return new RegExp(data.source, data.flags);
+  if (type === 'url') return new URL(data.href);
+  if (type === 'headers') return new Headers(data);
+  if (type === 'arraybuffer') return new Uint8Array(data);
+  
+  // Nested values (shouldn't reach here in normal flow)
+  return value;
+}
+
+/**
  * Cap'n Web style format (no cycles - will fail on cycles/aliases)
  * Simplified version that demonstrates inline format
  * Note: This doesn't handle all special types properly - it's just for size comparison
@@ -506,166 +736,101 @@ describe('Format Comparison Experiments', () => {
     );
     
     const refStyle = await benchmarkFormat(
-      '__ref style',
+      'Object $lmz',
       data,
       serializeRefStyle,
       parseRefStyle
     );
     
+    const tupleStyle = await benchmarkFormat(
+      'Tuple $lmz',
+      data,
+      serializeTupleStyle,
+      parseTupleStyle
+    );
+    
     const currentJson = await serializeCurrentFormat(data);
     const refJson = await serializeRefStyle(data);
+    const tupleJson = await serializeTupleStyle(data);
     
     console.log('\n=== Simple Object (No Cycles/Aliases) ===');
     console.log(`\n📊 Current (indexed) format:`);
-    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    console.log(`  Performance vs __ref: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse`);
-    console.log(`  Format: ${currentJson.substring(0, 150)}...`);
+    console.log(`  Size: ${current.sizeMinified} bytes`);
+    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms, Parse: ${current.parseTime.toFixed(3)}ms`);
+    console.log(`  Format: ${currentJson.substring(0, 100)}...`);
     
-    console.log(`\n📊 __ref style format:`);
-    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
-    console.log(`  Format: ${refJson.substring(0, 200)}...`);
-    console.log(`  Readability: ✅ Much easier - inline values, named references`);
+    console.log(`\n📊 Object $lmz format:`);
+    console.log(`  Size: ${refStyle.sizeMinified} bytes (${((refStyle.sizeMinified - current.sizeMinified) / current.sizeMinified * 100).toFixed(1)}% vs indexed)`);
+    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms, Parse: ${refStyle.parseTime.toFixed(3)}ms`);
+    console.log(`  Format: ${refJson.substring(0, 100)}...`);
     
-    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% larger (current)`);
+    console.log(`\n📊 Tuple $lmz format:`);
+    console.log(`  Size: ${tupleStyle.sizeMinified} bytes (${((tupleStyle.sizeMinified - current.sizeMinified) / current.sizeMinified * 100).toFixed(1)}% vs indexed)`);
+    console.log(`  Serialize: ${tupleStyle.serializeTime.toFixed(3)}ms, Parse: ${tupleStyle.parseTime.toFixed(3)}ms`);
+    console.log(`  Format: ${tupleJson.substring(0, 100)}...`);
+    console.log(`  Readability: ✅ Compact tuples + human-readable type names`);
+    
+    console.log(`\n📈 Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format} (smallest size)`);
   });
   
   it('Cyclic object (self-reference)', async () => {
     const data = createCyclicObject();
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
-    
-    const refStyle = await benchmarkFormat(
-      '__ref style',
-      data,
-      serializeRefStyle,
-      parseRefStyle
-    );
-    
-    const currentJson = await serializeCurrentFormat(data);
-    const refJson = await serializeRefStyle(data);
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Cyclic Object (Self-Reference) ===');
-    console.log(`\n📊 Current (indexed) format:`);
-    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    console.log(`  Format: ${currentJson.substring(0, 150)}...`);
-    
-    console.log(`\n📊 __ref style format:`);
-    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
-    console.log(`  Format: ${refJson.substring(0, 200)}...`);
-    console.log(`  Readability: ✅ Clear reference markers, inline structure`);
-    
-    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
-    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Aliased object (same object, different paths)', async () => {
     const data = createAliasedObject();
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
-    
-    const refStyle = await benchmarkFormat(
-      '__ref style',
-      data,
-      serializeRefStyle,
-      parseRefStyle
-    );
-    
-    const currentJson = await serializeCurrentFormat(data);
-    const refJson = await serializeRefStyle(data);
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Aliased Object (Same Object, Different Paths) ===');
-    console.log(`\n📊 Current (indexed) format:`);
-    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    console.log(`  Format: ${currentJson.substring(0, 150)}...`);
-    
-    console.log(`\n📊 __ref style format:`);
-    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
-    console.log(`  Format: ${refJson.substring(0, 200)}...`);
-    console.log(`  Readability: ✅ Clear reference markers show shared object`);
-    
-    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
-    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Deep nested structure', async () => {
     const data = createDeepNested(50);
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Deep Nested (50 levels) ===');
-    console.log(`Current format: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Large shared subtree', async () => {
     const data = createLargeSharedSubtree();
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Large Shared Subtree ===');
-    console.log(`Current format: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    console.log(`  (Shows alias efficiency - shared data stored once)`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Complex structure (Map, Set, RegExp, etc.)', async () => {
     const data = createComplexStructure();
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
-    
-    const refStyle = await benchmarkFormat(
-      '__ref style',
-      data,
-      serializeRefStyle,
-      parseRefStyle
-    );
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Complex Structure (Map, Set, RegExp) ===');
-    console.log(`Current format: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    console.log(`__ref style: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Mixed workload (50% simple, 50% aliased)', async () => {
@@ -691,102 +856,37 @@ describe('Format Comparison Experiments', () => {
     mixed.mixed.ref1 = mixed.mixed.shared;
     mixed.mixed.ref2 = mixed.mixed.shared;
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      mixed,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
-    
-    const refStyle = await benchmarkFormat(
-      '__ref style',
-      mixed,
-      serializeRefStyle,
-      parseRefStyle
-    );
+    const current = await benchmarkFormat('Current (indexed)', mixed, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', mixed, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', mixed, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Mixed Workload (50% Simple, 50% Aliased/Cyclic) ===');
-    console.log(`\n📊 Current (indexed) format:`);
-    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    
-    console.log(`\n📊 __ref style format:`);
-    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
-    
-    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
-    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Error objects with stack traces and custom properties', async () => {
     const data = createErrorStructure();
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
-    
-    const refStyle = await benchmarkFormat(
-      '__ref style',
-      data,
-      serializeRefStyle,
-      parseRefStyle
-    );
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Error Structure (with stack traces, custom properties) ===');
-    console.log(`\n📊 Current (indexed) format:`);
-    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    
-    console.log(`\n📊 __ref style format:`);
-    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
-    
-    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
-    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
-    console.log(`\n💡 Note: Error objects have verbose property names (name, message, stack, customProps, cause)`);
-    console.log(`   that get indexed separately in current format. __isSerializedError marker also adds overhead.`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
   
   it('Web API types (URL, Headers with verbose markers)', async () => {
     const data = createWebApiStructure();
     
-    const current = await benchmarkFormat(
-      'Current (indexed)',
-      data,
-      serializeCurrentFormat,
-      parseCurrentFormat
-    );
-    
-    const refStyle = await benchmarkFormat(
-      '__ref style',
-      data,
-      serializeRefStyle,
-      parseRefStyle
-    );
+    const current = await benchmarkFormat('Current (indexed)', data, serializeCurrentFormat, parseCurrentFormat);
+    const refStyle = await benchmarkFormat('Object $lmz', data, serializeRefStyle, parseRefStyle);
+    const tupleStyle = await benchmarkFormat('Tuple $lmz', data, serializeTupleStyle, parseTupleStyle);
     
     console.log('\n=== Web API Structure (URL, Headers) ===');
-    console.log(`\n📊 Current (indexed) format:`);
-    console.log(`  Size: ${current.sizeMinified} bytes, ${current.charCount} chars`);
-    console.log(`  Serialize: ${current.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${current.parseTime.toFixed(3)}ms`);
-    
-    console.log(`\n📊 __ref style format:`);
-    console.log(`  Size: ${refStyle.sizeMinified} bytes, ${refStyle.charCount} chars`);
-    console.log(`  Serialize: ${refStyle.serializeTime.toFixed(3)}ms`);
-    console.log(`  Parse: ${refStyle.parseTime.toFixed(3)}ms`);
-    
-    console.log(`\n📈 Size difference: ${((current.sizeMinified - refStyle.sizeMinified) / refStyle.sizeMinified * 100).toFixed(1)}% ${current.sizeMinified > refStyle.sizeMinified ? 'larger' : 'smaller'} (current)`);
-    console.log(`⚡ Performance: ${(current.serializeTime / refStyle.serializeTime).toFixed(1)}x slower serialize, ${(current.parseTime / refStyle.parseTime).toFixed(1)}x slower parse (current)`);
-    console.log(`\n💡 Note: Web API types use verbose __isSerializedX markers (18-22 chars each):`);
-    console.log(`   __isSerializedURL (18), __isSerializedHeaders (22), __isSerializedRequest (21), __isSerializedResponse (22)`);
-    console.log(`   These marker property names get indexed separately in current format, adding overhead.`);
+    console.log(`Indexed: ${current.sizeMinified}b | Object $lmz: ${refStyle.sizeMinified}b | Tuple $lmz: ${tupleStyle.sizeMinified}b`);
+    console.log(`Winner: ${[current, refStyle, tupleStyle].sort((a, b) => a.sizeMinified - b.sizeMinified)[0].format}`);
   });
 });
 
