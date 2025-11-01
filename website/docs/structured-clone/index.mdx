@@ -1,22 +1,21 @@
 ---
-title: "@lumenize/structured-clone"
 description: "Zero-dependency serialization with full-fidelity type support for JavaScript"
 ---
 
-# @lumenize/structured-clone
+# Lumenize Structured Clone
 
-A zero-dependency fork of `@ungap/structured-clone` with enhanced serialization for complex JavaScript types including Errors, Web API objects, and special numbers.
+A zero-dependency fork of `@ungap/structured-clone` with enhanced serialization for complex JavaScript types including cycles, Errors, Request/Response, special numbers, and more.
 
 ## Why This Package?
 
-When building RPC systems, storing data, or passing objects between contexts, you need to serialize complex JavaScript objects. JSON alone isn't enough:
+When building RPC systems, storing data, or moving data over the network, you need to serialize complex JavaScript objects. JSON alone isn't enough:
 
 - **Lost Types**: JSON loses `Date`, `Map`, `Set`, `Error` objects
-- **No Circulars**: JSON can't handle circular references
+- **No Circular or Aliased References**: JSON can't handle cyclic or aliasesed structure
 - **No Special Numbers**: JSON converts `NaN` and `Infinity` to `null`
 - **No Web API Objects**: JSON can't serialize `Request`, `Response`, `Headers`, `URL`
 
-This package solves all of these problems while maintaining a single, efficient object traversal.
+This package solves all of these problems.
 
 ## Installation
 
@@ -26,7 +25,7 @@ npm install @lumenize/structured-clone
 
 ## Supported Types
 
-While this package was originally optimized for the Cloudflare edge compute platform, **nothing in it is Cloudflare-specific**. All tests run in both Node.js and simulated Cloudflare environments, with plans to add headless browser testing. Our primary use case includes browser clients, and it runs perfectly in browser environments today.
+While this package was originally optimized for the Cloudflare edge compute platform, **nothing in it is Cloudflare-specific**. All tests run in three environments: Node.js, headless Chromium browser, and simulated Cloudflare Workers. Our primary use case includes browser clients, and the full test suite passes in all environments.
 
 **Not a Cloudflare user?** Feel free to ignore the first three columns in the comparison table below. This package is simply an enhanced fork of the excellent `@ungap/structured-clone` with better Error handling, special number support, and Web API object serialization—useful in any JavaScript environment.
 
@@ -68,8 +67,7 @@ const user = {
 const serialized = await stringify(user);
 const restored = await parse(serialized);
 
-expect(restored.name).toBe('Alice');
-// ...
+expect(restored).toEqual(user);
 ```
 
 This works with complex nested structures, arrays, and all types shown in the table above.
@@ -131,13 +129,13 @@ expect(restored.incomingRequest).toBeInstanceOf(Request);
 // ...
 ```
 
-**Note:** Request/Response bodies are consumed during serialization (streams become strings).
+**Note:** Request/Response bodies are consumed during serialization (streams become strings). You should clone the Request/Response if you need them preserved.
 
 ## Limitations
 
 - **Symbols**: Cannot be serialized (throws `TypeError`)
 - **Functions**: Converted to internal markers (preserved structure, not executable)
-- **Signed Zero**: `-0` becomes `+0` (JSON limitation)
+- **Signed Zero**: `-0` becomes `+0` (What is -0 anyway?)
 - **Streams**: `ReadableStream`/`WritableStream` not supported
 
 ## License

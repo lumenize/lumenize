@@ -14,8 +14,8 @@ echo "Setting up .dev.vars symlinks..."
 
 # Define symlinks: target_path:link_path (relative to PROJECT_ROOT)
 SYMLINKS=(
-  ".dev.vars:packages/test-endpoints/.dev.vars:../.."
-  ".dev.vars:packages/test-endpoints/test/.dev.vars:../../.."
+  ".dev.vars:tooling/test-endpoints/.dev.vars:../.."
+  ".dev.vars:tooling/test-endpoints/test/.dev.vars:../../.."
   ".dev.vars:packages/proxy-fetch/test/do/.dev.vars:../../../.."
   ".dev.vars:packages/proxy-fetch/test/queue/.dev.vars:../../../.."
   ".dev.vars:packages/proxy-fetch/test/for-docs/.dev.vars:../../../.."

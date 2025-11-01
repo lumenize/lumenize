@@ -225,7 +225,12 @@ it('demonstrates error throwing', async () => {
 **Both**: ⚠️ Loses prototype, but name can be used as a substitute for Lumenize
 */
 it('demonstrates error as value', async () => {
-  class CustomError extends Error {}
+  class CustomError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'CustomError';
+    }
+  }
   const testError = new CustomError('Test error');
 
   // ==========================================================================

@@ -277,7 +277,12 @@ it('demonstrates error throwing', async () => {
 
 ```typescript test
 it('demonstrates error as value', async () => {
-  class CustomError extends Error {}
+  class CustomError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'CustomError';
+    }
+  }
   const testError = new CustomError('Test error');
 
   // ==========================================================================

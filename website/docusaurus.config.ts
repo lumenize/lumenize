@@ -29,6 +29,45 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
 
+  // Metadata for social media previews (Discord, Twitter, etc.)
+  headTags: [
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'description',
+        content: 'De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects. Full-featured RPC, testing utilities, and more.',
+      },
+    },
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'keywords',
+        content: 'cloudflare, durable objects, workers, rpc, typescript, edge computing',
+      },
+    },
+    {
+      tagName: 'meta',
+      attributes: {
+        property: 'og:title',
+        content: 'Lumenize',
+      },
+    },
+    {
+      tagName: 'meta',
+      attributes: {
+        property: 'og:description',
+        content: 'De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects',
+      },
+    },
+    {
+      tagName: 'meta',
+      attributes: {
+        property: 'og:type',
+        content: 'website',
+      },
+    },
+  ],
+
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
   // may want to replace "en" with "zh-Hans".
@@ -185,8 +224,8 @@ const config: Config = {
   themes: ['@docusaurus/theme-mermaid'],
 
   themeConfig: {
-    // Replace with your project's social card
-    image: 'img/docusaurus-social-card.jpg',
+    // Social card for link previews (Discord, Twitter, etc.)
+    image: 'img/logo.png',
     navbar: {
       title: 'Lumenize',
       logo: {

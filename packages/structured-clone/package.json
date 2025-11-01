@@ -22,13 +22,16 @@
     "test": "vitest --run",
     "test:node": "vitest --run --project node",
     "test:workers": "vitest --run --project workers",
+    "test:browser": "vitest --run --project browser",
     "coverage": "vitest --run --coverage",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "@cloudflare/workers-types": "^4.20250110.0",
+    "@vitest/browser": "^3.2.4",
     "@vitest/coverage-istanbul": "^3.2.4",
+    "playwright": "^1.48.2",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4",
     "wrangler": "^4.38.0"

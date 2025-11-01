@@ -17,9 +17,7 @@ describe('Basic Serialization', () => {
     const serialized = await stringify(user);
     const restored = await parse(serialized);
     
-    expect(restored.name).toBe('Alice');
-    expect(restored.age).toBe(30);
-    expect(restored.active).toBe(true);
+    expect(restored).toEqual(user);
   });
 
   it('handles arrays and nested structures', async () => {

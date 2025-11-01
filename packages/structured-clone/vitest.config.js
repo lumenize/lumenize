@@ -29,6 +29,23 @@ export default defineConfig({
           },
         },
       }),
+      // Browser environment - headless browser testing
+      {
+        test: {
+          name: 'browser',
+          include: ['test/**/*.test.ts'],
+          browser: {
+            enabled: true,
+            provider: 'playwright',
+            headless: true,
+            instances: [
+              { browser: 'chromium' },
+            ],
+          },
+          globals: true,
+          testTimeout: 5000,
+        },
+      },
     ],
     coverage: {
       provider: 'istanbul',
