@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { stringify, parse } from '../src/index.js';
+import { stringify, parse, encodeRequest, encodeResponse, decodeRequest, decodeResponse } from '../src/index.js';
 
 describe('Headers Serialization', () => {
   it('handles empty Headers', async () => {
@@ -365,6 +365,128 @@ describe('Edge Cases', () => {
     
     expect(result.url).toBeInstanceOf(URL);
     expect(result.self).toBe(result);
+  });
+});
+
+describe('Standalone Encode/Decode Functions', () => {
+  it('encodeRequest/decodeRequest handles GET request', async () => {
+    const request = new Request('https://api.example.com/users', {
+      method: 'GET',
+      headers: { 'authorization': 'Bearer token123' }
+    });
+    
+    const encoded = await encodeRequest(request);
+    const decoded = decodeRequest(encoded);
+    
+    expect(decoded).toBeInstanceOf(Request);
+    expect(decoded.url).toBe('https://api.example.com/users');
+    expect(decoded.method).toBe('GET');
+    expect(decoded.headers.get('authorization')).toBe('Bearer token123');
+  });
+
+  it('encodeRequest/decodeRequest handles POST with text body', async () => {
+    const request = new Request('https://api.example.com/posts', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Test Post', content: 'Hello World' })
+    });
+    
+    const encoded = await encodeRequest(request);
+    const decoded = decodeRequest(encoded);
+    
+    expect(decoded).toBeInstanceOf(Request);
+    expect(decoded.method).toBe('POST');
+    expect(decoded.headers.get('content-type')).toBe('application/json');
+    
+    const body = await decoded.json();
+    expect(body.title).toBe('Test Post');
+    expect(body.content).toBe('Hello World');
+  });
+
+  it('encodeRequest/decodeRequest handles binary body', async () => {
+    const binaryData = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]); // "Hello"
+    const request = new Request('https://api.example.com/upload', {
+      method: 'PUT',
+      body: binaryData
+    });
+    
+    const encoded = await encodeRequest(request);
+    const decoded = decodeRequest(encoded);
+    
+    expect(decoded).toBeInstanceOf(Request);
+    const resultBuffer = await decoded.arrayBuffer();
+    const resultArray = new Uint8Array(resultBuffer);
+    expect(Array.from(resultArray)).toEqual([0x48, 0x65, 0x6c, 0x6c, 0x6f]);
+  });
+
+  it('encodeResponse/decodeResponse handles simple response', async () => {
+    const response = new Response('Hello World', {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/plain' }
+    });
+    
+    const encoded = await encodeResponse(response);
+    const decoded = decodeResponse(encoded);
+    
+    expect(decoded).toBeInstanceOf(Response);
+    expect(decoded.status).toBe(200);
+    expect(decoded.statusText).toBe('OK');
+    expect(decoded.headers.get('content-type')).toBe('text/plain');
+    
+    const text = await decoded.text();
+    expect(text).toBe('Hello World');
+  });
+
+  it('encodeResponse/decodeResponse handles JSON response', async () => {
+    const data = { users: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }] };
+    const response = new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+    
+    const encoded = await encodeResponse(response);
+    const decoded = decodeResponse(encoded);
+    
+    expect(decoded).toBeInstanceOf(Response);
+    expect(decoded.headers.get('content-type')).toBe('application/json');
+    
+    const result = await decoded.json();
+    expect(result.users).toHaveLength(2);
+    expect(result.users[0].name).toBe('Alice');
+  });
+
+  it('encodeResponse/decodeResponse handles error responses', async () => {
+    const response = new Response('Not Found', {
+      status: 404,
+      statusText: 'Not Found'
+    });
+    
+    const encoded = await encodeResponse(response);
+    const decoded = decodeResponse(encoded);
+    
+    expect(decoded).toBeInstanceOf(Response);
+    expect(decoded.status).toBe(404);
+    expect(decoded.statusText).toBe('Not Found');
+    expect(decoded.ok).toBe(false);
+  });
+
+  it('encodeResponse/decodeResponse handles binary response', async () => {
+    const binaryData = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]); // JPEG header
+    const response = new Response(binaryData, {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' }
+    });
+    
+    const encoded = await encodeResponse(response);
+    const decoded = decodeResponse(encoded);
+    
+    expect(decoded).toBeInstanceOf(Response);
+    expect(decoded.headers.get('content-type')).toBe('image/jpeg');
+    
+    const resultBuffer = await decoded.arrayBuffer();
+    const resultArray = new Uint8Array(resultBuffer);
+    expect(Array.from(resultArray)).toEqual([0xFF, 0xD8, 0xFF, 0xE0]);
   });
 });
 

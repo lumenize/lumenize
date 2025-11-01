@@ -50,6 +50,16 @@ describe('Error Serialization', () => {
     expect(restored.statusCode).toBe(500);
     expect(restored.endpoint).toBe('/api/users');
   });
+
+  it('preserves TypeError with instanceof behavior', async () => {
+    const typeError = new TypeError('Expected string, got number');
+    const restored = await parse(await stringify(typeError));
+    
+    expect(restored).toBeInstanceOf(TypeError); // ✅ Type preserved!
+    expect(restored).toBeInstanceOf(Error);     // ✅ Also an Error
+    expect(restored.name).toBe('TypeError');
+    expect(restored.message).toBe('Expected string, got number');
+  });
 });
 
 describe('Error in Data Structures', () => {

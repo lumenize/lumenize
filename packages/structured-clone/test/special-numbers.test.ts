@@ -24,27 +24,19 @@ describe('Special Numbers', () => {
   it('handles NaN in objects', async () => {
     const obj = { value: NaN, other: 42 };
     const result = await parse(await stringify(obj));
-    expect(result.value).toBeNaN();
-    expect(result.other).toBe(42);
+    expect(result).toEqual(obj);
   });
 
   it('handles Infinity in objects', async () => {
     const obj = { max: Infinity, min: -Infinity };
     const result = await parse(await stringify(obj));
-    expect(result.max).toBe(Infinity);
-    expect(result.min).toBe(-Infinity);
+    expect(result).toEqual(obj);
   });
 
   it('handles special numbers in arrays', async () => {
     const arr = [1, NaN, 2, Infinity, 3, -Infinity, 4];
     const result = await parse(await stringify(arr));
-    expect(result[0]).toBe(1);
-    expect(result[1]).toBeNaN();
-    expect(result[2]).toBe(2);
-    expect(result[3]).toBe(Infinity);
-    expect(result[4]).toBe(3);
-    expect(result[5]).toBe(-Infinity);
-    expect(result[6]).toBe(4);
+    expect(result).toEqual(arr);
   });
 
   it('handles special numbers in nested structures', async () => {
@@ -57,11 +49,7 @@ describe('Special Numbers', () => {
       values: [1, 2, NaN, Infinity]
     };
     const result = await parse(await stringify(nested));
-    expect(result.stats.avg).toBeNaN();
-    expect(result.stats.max).toBe(Infinity);
-    expect(result.stats.min).toBe(-Infinity);
-    expect(result.values[2]).toBeNaN();
-    expect(result.values[3]).toBe(Infinity);
+    expect(result).toEqual(nested);
   });
 
   it('handles special numbers as Map values', async () => {
@@ -72,32 +60,13 @@ describe('Special Numbers', () => {
       ['normal', 42]
     ]);
     const result = await parse(await stringify(map));
-    expect(result).toBeInstanceOf(Map);
-    expect(result.get('nan')).toBeNaN();
-    expect(result.get('inf')).toBe(Infinity);
-    expect(result.get('neginf')).toBe(-Infinity);
-    expect(result.get('normal')).toBe(42);
+    expect(result).toEqual(map);
   });
 
   it('handles special numbers in Set', async () => {
     const set = new Set([1, NaN, Infinity, -Infinity, 2]);
     const result = await parse(await stringify(set));
-    expect(result).toBeInstanceOf(Set);
-    expect(result.size).toBe(5);
-    // Note: NaN is special in Set - NaN === NaN in Set semantics
-    expect(result.has(1)).toBe(true);
-    expect(result.has(Infinity)).toBe(true);
-    expect(result.has(-Infinity)).toBe(true);
-    expect(result.has(2)).toBe(true);
-    // Check for NaN (tricky because NaN !== NaN)
-    let hasNaN = false;
-    for (const val of result) {
-      if (Number.isNaN(val)) {
-        hasNaN = true;
-        break;
-      }
-    }
-    expect(hasNaN).toBe(true);
+    expect(result).toEqual(set);
   });
 
   it('distinguishes between different special numbers', async () => {
@@ -108,11 +77,7 @@ describe('Special Numbers', () => {
       d: -Infinity
     };
     const result = await parse(await stringify(obj));
-    expect(result.a).toBeNaN();
-    expect(result.b).toBeNaN();
-    expect(result.c).toBe(Infinity);
-    expect(result.d).toBe(-Infinity);
-    expect(result.c).not.toBe(result.d);
+    expect(result).toEqual(obj);
   });
 
   it('handles special numbers with normal numbers', async () => {
@@ -144,9 +109,7 @@ describe('Special Numbers', () => {
     obj.self = obj;
     
     const result = await parse(await stringify(obj));
-    expect(result.value).toBeNaN();
-    expect(result.inf).toBe(Infinity);
-    expect(result.self).toBe(result);
+    expect(result).toEqual(obj);
   });
 });
 
@@ -158,8 +121,7 @@ describe('Special Numbers - Preprocess/Postprocess', () => {
     const parsed = JSON.parse(jsonString);
     const result = await postprocess(parsed);
     
-    expect(result.nan).toBeNaN();
-    expect(result.inf).toBe(Infinity);
+    expect(result).toEqual(obj);
   });
 
   it('preprocessed special numbers are JSON-safe', async () => {
@@ -181,9 +143,7 @@ describe('Special Numbers - Edge Cases', () => {
       parseResult: parseInt('not a number')
     };
     const result = await parse(await stringify(contexts));
-    expect(result.direct).toBeNaN();
-    expect(result.calculation).toBeNaN();
-    expect(result.parseResult).toBeNaN();
+    expect(result).toEqual(contexts);
   });
 
   it('does not preserve sign of zero (JSON limitation)', async () => {
@@ -199,10 +159,7 @@ describe('Special Numbers - Edge Cases', () => {
   it('handles arrays of only special numbers', async () => {
     const arr = [NaN, Infinity, -Infinity];
     const result = await parse(await stringify(arr));
-    expect(result).toHaveLength(3);
-    expect(result[0]).toBeNaN();
-    expect(result[1]).toBe(Infinity);
-    expect(result[2]).toBe(-Infinity);
+    expect(result).toEqual(arr);
   });
 });
 

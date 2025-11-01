@@ -21,7 +21,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
-- [ ] MUST document headers that routeDORequest adds
+- [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 - [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
 - [ ] Move promise pipelining from quirks to its own doc section and use our new name for it Operation Chaining and Nesting (OCAN)

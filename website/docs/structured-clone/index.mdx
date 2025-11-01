@@ -4,7 +4,7 @@ description: "Zero-dependency serialization with full-fidelity type support for 
 
 # Lumenize Structured Clone
 
-A zero-dependency fork of `@ungap/structured-clone` with enhanced serialization for complex JavaScript types including cycles, Errors, Request/Response, special numbers, and more.
+Zero-dependency serialization with full-fidelity type support for complex JavaScript types including cycles, Errors, Request/Response, special numbers, and more.
 
 ## Why This Package?
 
@@ -27,29 +27,21 @@ npm install @lumenize/structured-clone
 
 While this package was originally optimized for the Cloudflare edge compute platform, **nothing in it is Cloudflare-specific**. All tests run in three environments: Node.js, headless Chromium browser, and simulated Cloudflare Workers. Our primary use case includes browser clients, and the full test suite passes in all environments.
 
-**Not a Cloudflare user?** Feel free to ignore the first three columns in the comparison table below. This package is simply an enhanced fork of the excellent `@ungap/structured-clone` with better Error handling, special number support, and Web API object serialization—useful in any JavaScript environment.
+**Not a Cloudflare user?** Feel free to ignore the first three columns in the comparison table below. This package provides comprehensive structured cloning with better Error handling, special number support, and Web API object serialization—useful in any JavaScript environment.
 
 import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 
 <TypeSupportTable />
 
-### Key Highlights
+### Key Features
 
 - **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
 - **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects
-- **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types
-- **Circular References**: Automatically handled without errors
+- **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types (including custom Error classes!)
+- **Circular References**: Automatically handled with `$lmz` reference markers
 - **Zero Dependencies**: No external packages required
-
-### Why Fork @ungap/structured-clone?
-
-We needed several enhancements that go beyond the original:
-- **Full Error fidelity**: Stack traces, `cause` chains, custom properties, and subclass types
-- **Special numbers**: `NaN`, `Infinity`, `-Infinity` preserved (JSON converts these to `null`)
-- **Web API objects**: Native `Request`, `Response`, `Headers`, `URL` serialization
-- **Strict symbol handling**: Always throws on symbols (consistent behavior)
-- **Async API**: All methods async for Request/Response body reading
-- **Single object walk**: All enhancements integrated into one traversal for efficiency
+- **Human-Readable Format**: Tuple-based `["type", data]` format for debugging
+- **Async API**: Supports Request/Response body reading
 
 ## Basic Usage
 
@@ -107,6 +99,91 @@ expect(restored.statusCode).toBe(500);
 // ...
 ```
 
+### Error Subclass Preservation
+
+All standard JavaScript Error types are automatically preserved with correct `instanceof` behavior:
+
+**Standard Error Types (Built-in):**
+- `Error` - Base error type
+- `TypeError` - Type-related errors
+- `RangeError` - Value out of range
+- `ReferenceError` - Invalid references
+- `SyntaxError` - Syntax parsing errors  
+- `URIError` - URI encoding/decoding errors
+- `EvalError` - Eval-related errors
+- `AggregateError` - Multiple errors combined
+
+**Example:**
+```typescript @check-example packages/structured-clone/test/for-docs/errors.test.ts
+const typeError = new TypeError('Expected string, got number');
+const restored = await parse(await stringify(typeError));
+
+expect(restored).toBeInstanceOf(TypeError); // ✅ Type preserved!
+expect(restored).toBeInstanceOf(Error);     // ✅ Also an Error
+expect(restored.name).toBe('TypeError');
+expect(restored.message).toBe('Expected string, got number');
+```
+
+**How it works:**
+
+We use dynamic constructor lookup via `globalThis[error.name]`:
+1. Error is serialized with its `name` property (e.g., `"TypeError"`)
+2. During deserialization, we look up `globalThis["TypeError"]`
+3. If found, we create a new instance of that constructor
+4. If not found, we fall back to base `Error` (but preserve the `name` property)
+
+**Custom Error Classes:**
+
+Custom Error classes work too, but require **explicit global registration** since module imports are not in global scope:
+
+```typescript
+// Your custom Error class (in a module)
+export class ValidationError extends Error {
+  name = 'ValidationError';
+  constructor(message: string, public field: string) {
+    super(message);
+  }
+}
+```
+
+**To enable type preservation, register it globally:**
+
+```typescript
+// In your app initialization (before deserialization)
+import { ValidationError } from './errors.js';
+
+// Register on globalThis so deserializer can find it
+(globalThis as any).ValidationError = ValidationError;
+```
+
+**Now serialization preserves the type:**
+
+```typescript
+const error = new ValidationError('Invalid email', 'email');
+const restored = await parse(await stringify(error));
+
+console.log(restored instanceof ValidationError); // ✅ true!
+console.log(restored.field); // ✅ 'email' (custom property preserved)
+console.log(restored.name); // ✅ 'ValidationError'
+```
+
+**Without global registration:**
+
+If you don't register the class globally, deserialization falls back to base `Error` but **still preserves custom properties and the `name`**:
+
+```typescript
+// No global registration
+const error = new ValidationError('Invalid email', 'email');
+const restored = await parse(await stringify(error));
+
+console.log(restored instanceof ValidationError); // ❌ false (no type)
+console.log(restored instanceof Error); // ✅ true (fallback)
+console.log(restored.field); // ✅ 'email' (property still preserved!)
+console.log(restored.name); // ✅ 'ValidationError' (name still preserved!)
+```
+
+**Best Practice:** Register custom Error classes in your app's initialization code, before any deserialization happens. This ensures full type preservation across serialization boundaries.
+
 ### Web API Objects Example
 
 Serialize Request/Response objects for storage, queues, or RPC:
@@ -140,13 +217,13 @@ expect(restored.incomingRequest).toBeInstanceOf(Request);
 
 ## License
 
-ISC License (from @ungap/structured-clone)
-
-Lumenize extensions © 2025
+MIT License © 2025 Larry Maccherone
 
 ## Attribution
 
-Forked from [`@ungap/structured-clone`](https://github.com/ungap/structured-clone) by Andrea Giammarchi.
+Inspired by:
+- **Cap'n Web** (tuple format) - https://github.com/cloudflare/capnweb
+- **@ungap/structured-clone** (cycle detection) - https://github.com/ungap/structured-clone by Andrea Giammarchi
 
 See [ATTRIBUTIONS.md](https://github.com/lumenize/lumenize/blob/main/ATTRIBUTIONS.md) for full attribution details.
 

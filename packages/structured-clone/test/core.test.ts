@@ -1,6 +1,6 @@
 /**
  * Core functionality tests
- * Ported and adapted from @ungap/structured-clone test suite
+ * Tests structured clone with tuple-based $lmz format
  */
 
 import { describe, it, expect } from 'vitest';
@@ -42,38 +42,29 @@ describe('Special Types', () => {
   it('handles Date objects', async () => {
     const date = new Date('2025-01-30T12:00:00Z');
     const result = await parse(await stringify(date));
-    expect(result).toBeInstanceOf(Date);
-    expect(result.getTime()).toBe(date.getTime());
+    expect(result).toEqual(date);
   });
 
   it('handles RegExp objects', async () => {
     const regex = /test\d+/gi;
     const result = await parse(await stringify(regex));
-    expect(result).toBeInstanceOf(RegExp);
-    expect(result.source).toBe(regex.source);
-    expect(result.flags).toBe(regex.flags);
+    expect(result).toEqual(regex);
   });
 
   it('handles Map objects', async () => {
-    const map = new Map([
+    const map = new Map<any, any>([
       ['key1', 'value1'],
       ['key2', 42],
       [{ nested: true }, 'nested key']
     ]);
     const result = await parse(await stringify(map));
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(3);
-    expect(result.get('key1')).toBe('value1');
-    expect(result.get('key2')).toBe(42);
+    expect(result).toEqual(map);
   });
 
   it('handles Set objects', async () => {
     const set = new Set([1, 2, 3, 'four', true]);
     const result = await parse(await stringify(set));
-    expect(result).toBeInstanceOf(Set);
-    expect(result.size).toBe(5);
-    expect(result.has(1)).toBe(true);
-    expect(result.has('four')).toBe(true);
+    expect(result).toEqual(set);
   });
 
   it('handles BigInt values', async () => {
@@ -92,8 +83,8 @@ describe('Special Types', () => {
   it('handles TypeError objects', async () => {
     const error = new TypeError('Type error');
     const result = await parse(await stringify(error));
-    // Note: @ungap/structured-clone doesn't preserve Error subclass types
-    // TypeError becomes Error (limitation of original implementation)
+    // Note: Error subclass types are preserved
+    expect(result).toBeInstanceOf(TypeError);
     expect(result).toBeInstanceOf(Error);
     expect(result.message).toBe('Type error');
   });
@@ -103,29 +94,25 @@ describe('TypedArrays', () => {
   it('handles Uint8Array', async () => {
     const arr = new Uint8Array([1, 2, 3, 4, 5]);
     const result = await parse(await stringify(arr));
-    expect(result).toBeInstanceOf(Uint8Array);
-    expect(Array.from(result)).toEqual([1, 2, 3, 4, 5]);
+    expect(result).toEqual(arr);
   });
 
   it('handles Int16Array', async () => {
     const arr = new Int16Array([-100, 0, 100]);
     const result = await parse(await stringify(arr));
-    expect(result).toBeInstanceOf(Int16Array);
-    expect(Array.from(result)).toEqual([-100, 0, 100]);
+    expect(result).toEqual(arr);
   });
 
   it('handles Float32Array', async () => {
     const arr = new Float32Array([1.5, 2.7, 3.9]);
     const result = await parse(await stringify(arr));
-    expect(result).toBeInstanceOf(Float32Array);
-    expect(Array.from(result)).toEqual([1.5, 2.700000047683716, 3.9000000953674316]);
+    expect(result).toEqual(arr);
   });
 
   it('handles ArrayBuffer', async () => {
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
     const result = await parse(await stringify(buffer));
-    expect(result).toBeInstanceOf(ArrayBuffer);
-    expect(new Uint8Array(result)).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(new Uint8Array(result)).toEqual(new Uint8Array(buffer));
   });
 
   it('handles DataView', async () => {
@@ -145,6 +132,7 @@ describe('Circular References', () => {
     const result = await parse(await stringify(obj));
     expect(result.name).toBe('circular');
     expect(result.self).toBe(result);
+    expect(result).toEqual(obj);
   });
 
   it('handles self-referencing arrays', async () => {
@@ -202,14 +190,12 @@ describe('Edge Cases', () => {
 
   it('handles empty Maps', async () => {
     const result = await parse(await stringify(new Map()));
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
+    expect(result).toEqual(new Map());
   });
 
   it('handles empty Sets', async () => {
     const result = await parse(await stringify(new Set()));
-    expect(result).toBeInstanceOf(Set);
-    expect(result.size).toBe(0);
+    expect(result).toEqual(new Set());
   });
 
   it('converts functions to markers', async () => {
@@ -218,9 +204,8 @@ describe('Edge Cases', () => {
     
     expect(result.value).toBe(123);
     expect(result.func).toBeDefined();
-    expect(result.func.__lmz_Function).toBe(true);
-    expect(result.func.__operationChain).toBeDefined();
-    expect(result.func.__functionName).toBe('func');
+    expect(result.func.name).toBeDefined();
+    expect(typeof result.func.name).toBe('string');
   });
 
   it('converts functions in arrays to markers', async () => {
@@ -228,12 +213,13 @@ describe('Edge Cases', () => {
     const result = await parse(await stringify(arr));
     
     expect(result[0]).toBe(1);
-    expect(result[1].__lmz_Function).toBe(true);
-    expect(result[1].__functionName).toBe('1');
+    expect(result[1]).toBeDefined();
+    expect(result[1].name).toBeDefined();
+    expect(typeof result[1].name).toBe('string');
     expect(result[2]).toBe(3);
   });
 
-  it('handles operation chains for nested functions', async () => {
+  it('converts nested functions to markers', async () => {
     const obj = {
       nested: {
         func: () => 'test'
@@ -241,10 +227,9 @@ describe('Edge Cases', () => {
     };
     const result = await parse(await stringify(obj));
     
-    expect(result.nested.func.__lmz_Function).toBe(true);
-    expect(result.nested.func.__operationChain).toHaveLength(2);
-    expect(result.nested.func.__operationChain[0].key).toBe('nested');
-    expect(result.nested.func.__operationChain[1].key).toBe('func');
+    expect(result.nested.func).toBeDefined();
+    expect(result.nested.func.name).toBeDefined();
+    expect(typeof result.nested.func.name).toBe('string');
   });
 
   it('throws on symbols', async () => {
@@ -266,38 +251,25 @@ describe('Edge Cases', () => {
 });
 
 describe('Preprocess/Postprocess', () => {
-  it('preprocess returns object array', async () => {
-    const result = await preprocess({ a: 1, b: 2 });
-    expect(Array.isArray(result)).toBe(true);
-    expect(result.length).toBeGreaterThan(0);
+  it('preprocess/postprocess round-trip', async () => {
+    const o = { a: 1, b: 2 };
+    expect(await postprocess(await preprocess(o))).toEqual(o);
   });
 
-  it('postprocess restores from preprocessed', async () => {
+  it('round-trip with complex types', async () => {
     const original = { date: new Date(), map: new Map([['key', 'value']]) };
-    const preprocessed = await preprocess(original);
-    const restored = await postprocess(preprocessed);
-    
-    expect(restored.date).toBeInstanceOf(Date);
-    expect(restored.map).toBeInstanceOf(Map);
-    expect(restored.map.get('key')).toBe('value');
+    expect(await postprocess(await preprocess(original))).toEqual(original);
   });
 
-  it('manual JSON.stringify/parse with preprocess/postprocess', async () => {
+  it('round-trip with JSON.stringify/parse (MessagePort/BroadcastChannel)', async () => {
     const original = {
       date: new Date('2025-01-30'),
       set: new Set([1, 2, 3]),
       nested: { value: 42 }
     };
-    
-    const preprocessed = await preprocess(original);
-    const jsonString = JSON.stringify(preprocessed);
-    const parsed = JSON.parse(jsonString);
-    const restored = await postprocess(parsed);
-    
-    expect(restored.date).toBeInstanceOf(Date);
-    expect(restored.set).toBeInstanceOf(Set);
-    expect(restored.set.size).toBe(3);
-    expect(restored.nested.value).toBe(42);
+    const intermediate = await preprocess(original);
+    const transported = JSON.parse(JSON.stringify(intermediate));
+    expect(await postprocess(transported)).toEqual(original);
   });
 });
 

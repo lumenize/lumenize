@@ -263,7 +263,7 @@ describe('Error Serialization - In Data Structures', () => {
   });
 
   it('handles Error as Map value', async () => {
-    const map = new Map([
+    const map = new Map<any, any>([
       ['success', { status: 'ok' }],
       ['error', new Error('Map error')]
     ]);
@@ -310,7 +310,9 @@ describe('Error Serialization - Edge Cases', () => {
     const result: any = await parse(await stringify(error));
     
     expect(result.message).toBe('With function');
-    expect(result.handler.__lmz_Function).toBe(true);
+    expect(result.handler).toBeDefined();
+    expect(result.handler.name).toBeDefined();
+    expect(typeof result.handler.name).toBe('string');
   });
 
   it('handles Error with special numbers', async () => {
