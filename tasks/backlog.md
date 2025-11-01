@@ -12,6 +12,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Review testing approach to ensure we're testing actual serialization, not just TypeScript type compatibility
   - Audit type support table for other potentially incorrect entries (check serialization vs type annotations)
   - Improve testing to distinguish between type system support and runtime serialization support
+- [ ] Add missing alias tests for @lumenize/structured-clone
+  - Test multiple paths to same object (true aliases - obj.a and obj.b both point to same object)
+  - Test deep cycles (A→B→C→A)
+  - Test cycles in Map keys (keys can be objects)
+  - Test shared subtree aliases (two different paths leading to same subtree)
+  - Performance tests with large cyclic structures
 
 ## Documentation
 
