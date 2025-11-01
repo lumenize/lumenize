@@ -10,6 +10,7 @@ export default defineConfig({
           name: 'node',
           environment: 'node',
           include: ['test/**/*.test.ts'],
+          exclude: ['test/format-experiments.test.ts'], // Run only when explicitly requested
           globals: true,
           testTimeout: 2000,
         },

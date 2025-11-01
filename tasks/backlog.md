@@ -21,6 +21,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
+- [ ] MUST document headers that routeDORequest adds
 - [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
 - [ ] Move promise pipelining from quirks to its own doc section and use our new name for it Operation Chaining and Nesting (OCAN)

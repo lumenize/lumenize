@@ -2,19 +2,30 @@
 
 **Status**: Active  
 **Started**: 2025-11-01  
-**Context**: Migrating from indexed format to `$lmz` reference style (Cap'n Web format + cycles/aliases)
+**Updated**: 2025-01-28  
+**Context**: Migrating from indexed format to Tuple-based `$lmz` format (Cap'n Web tuples + cycle/alias support)
 
 ## Goal
 
-Migrate `@lumenize/structured-clone` from current indexed format to `$lmz` reference style format, bringing Cap'n Web's human-readable format with cycle/alias support.
+Migrate `@lumenize/structured-clone` from current indexed format to **Tuple-based `$lmz` format**, combining Cap'n Web's human-readable tuple format with full cycle and alias support.
 
 ## Decision Summary
 
-Based on experiments in `structured-clone-format-experiments-results.md`:
-- **Performance**: `$lmz` format is 2-3x faster for serialization
-- **Readability**: `$lmz` format is dramatically more human-readable
-- **Size**: Indexed format is 16-35% smaller
-- **Verdict**: Prefer performance and readability over marginal size optimization
+**Decision**: Adopt **Tuple-based `$lmz` format** after comprehensive experiments comparing 3 formats across 9 test cases.
+
+### Key Findings (from `structured-clone-format-experiments-results.md`):
+- **Performance**: Tuple `$lmz` is **75x faster serialization**, 1.8x faster parsing
+- **Readability**: Dramatically more human-readable (type names vs numeric codes)
+- **Size**: Current indexed is 11-103% smaller (avg 20-50% penalty)
+- **Special win**: Tuple `$lmz` actually **beats indexed on Web API types** (11% smaller!)
+- **Verdict**: Performance (75x!) and readability gains outweigh size penalty
+
+### Why Tuple `$lmz` Over Alternatives:
+1. **Dramatically faster**: 75x serialization speedup is game-changing
+2. **Human-readable**: Easy debugging and inspection
+3. **Best of both worlds**: Combines Cap'n Web's compact tuples with cycle support
+4. **Consistent with Cap'n Web**: Enables future interoperability
+5. **Beats Object `$lmz`**: Smaller and faster than object-based alternative
 
 ## Current State
 
@@ -50,52 +61,125 @@ Based on experiments in `structured-clone-format-experiments-results.md`:
 
 ## Target Format: **Tuple-based `$lmz`** ✅
 
+### Format Structure
+
+**Top-level wrapper**:
 ```javascript
-// Cap'n Web tuple format with $lmz references
+{
+  "root": <serialized value or reference>,
+  "objects": [<array of serialized complex objects>]
+}
+```
+
+**Primitive values** - Use Cap'n Web tuples `["type", data]`:
+```javascript
+["string", "hello"]
+["number", 42]
+["boolean", true]
+["bigint", "123456789"]
+["null"]
+["undefined"]
+
+// Special numbers
+["number", "NaN"]
+["number", "Infinity"]
+["number", "-Infinity"]
+```
+
+**Complex objects** - Stored in `objects` array, referenced by index:
+```javascript
+// Plain object
+["object", {
+  "name": ["string", "John"],
+  "age": ["number", 30]
+}]
+
+// Array
+["array", [
+  ["string", "item1"],
+  ["number", 2]
+]]
+
+// Error with full fidelity
+["error", {
+  "name": "Error",
+  "message": "Failed",
+  "stack": "Error: Failed\n  at ...",
+  "cause": ["$lmz", 1]  // Reference to another object
+}]
+
+// Map
+["map", [
+  [["string", "key1"], ["string", "val1"]],
+  [["string", "key2"], ["number", 42]]
+]]
+
+// Set
+["set", [
+  ["string", "item1"],
+  ["number", 42]
+]]
+
+// Date, RegExp, URL, Headers
+["date", "2024-01-01T00:00:00.000Z"]
+["regexp", {"source": "^\\d+$", "flags": "gi"}]
+["url", {"href": "https://example.com"}]
+["headers", [["content-type", "application/json"]]]
+
+// TypedArray
+["arraybuffer", [1, 2, 3, 4]]  // Array of bytes
+```
+
+**References** - For cycles and aliases:
+```javascript
+["$lmz", 0]  // Reference to objects[0]
+["$lmz", 5]  // Reference to objects[5]
+```
+
+### Complete Example
+
+```javascript
+// Input: Object with cycle
+const shared = { id: 999, data: "shared" };
+const obj = {
+  name: "Root",
+  shared1: shared,
+  shared2: shared,  // Alias - same object
+  tags: ["tag1", "tag2"]
+};
+obj.self = obj;  // Cycle
+
+// Output: Tuple $lmz format
 {
   "root": ["$lmz", 0],
   "objects": [
     ["object", {
-      "name": ["string", "John"],
-      "age": ["number", 30],
-      "tags": ["$lmz", 1]
+      "name": ["string", "Root"],
+      "shared1": ["$lmz", 1],
+      "shared2": ["$lmz", 1],  // Same reference - alias preserved!
+      "tags": ["$lmz", 2],
+      "self": ["$lmz", 0]  // Self-reference - cycle preserved!
+    }],
+    ["object", {
+      "id": ["number", 999],
+      "data": ["string", "shared"]
     }],
     ["array", [
-      ["string", "developer"],
-      ["string", "javascript"]
+      ["string", "tag1"],
+      ["string", "tag2"]
     ]]
   ]
 }
-
-// Error with recursive cause
-["error", {
-  "name": "Error",
-  "message": "Failed",
-  "cause": ["$lmz", "0"]  // Reference to another error
-}]
-
-// Map with aliased value
-["map", [
-  [["string", "key1"], ["string", "val1"]],
-  [["string", "key2"], ["$lmz", "0"]]  // Reference
-]]
 ```
 
-**Confirmed Characteristics** (from experiments):
-- ✅ **75x faster serialization** than current indexed format
-- ✅ **1.8x faster parsing** than current indexed format
-- ✅ Human-readable type names (vs numeric codes)
+**Key Features**:
+- ✅ **75x faster serialization** (7.4ms → 0.1ms in experiments)
+- ✅ **1.8x faster parsing** (0.127ms → 0.069ms in experiments)
+- ✅ Human-readable type names make debugging easy
 - ✅ Consistent with Cap'n Web tuple format
-- ✅ **Beats indexed format on Web API types** (11% smaller)
-- ✅ More compact than Object-based `$lmz` (tuples vs object wrappers)
-- ⚠️ 11-103% larger payloads than indexed (avg 20-50%, acceptable trade-off for performance + readability)
-
-**Why Tuple `$lmz` Over Alternatives**:
-1. **Performance is king**: 75x faster serialization is dramatic
-2. **Best balance**: Compact tuples + readable + fast
-3. **Beats Object `$lmz`**: Smaller and faster
-4. **Cap'n Web alignment**: Consistent format with Cap'n Web (aids future interop)
-5. **Special win**: Only format that beat indexed on Web API types
+- ✅ Full cycle and alias support via `["$lmz", index]` references
+- ✅ **Smaller than indexed for Web API types** (only format to beat indexed!)
+- ⚠️ 20-50% larger payloads on average (acceptable trade-off for massive performance + readability gains)
 
 ## Migration Phases
 
@@ -108,57 +192,65 @@ Based on experiments in `structured-clone-format-experiments-results.md`:
 - [x] Analyze results and make final format decision
 - [x] **Decision**: Proceed with **Tuple-based `$lmz` format**
 
-### Phase 1: Implement `$lmz` Serializer
-- [ ] Create `serialize-ref-style.ts` with:
-  - [ ] `serializeRefStyle(value: any): any` - Main serializer
-  - [ ] Uses `WeakMap<any, string>` for seen tracking
-  - [ ] Generates JSONPath-like references (`$lmz: "path.to.value"`)
-  - [ ] Handles cycles and aliases
-  - [ ] Preserves all type support (Error, Web API, special numbers, etc.)
-- [ ] Add comprehensive tests (reuse existing test suite)
-- [ ] Verify all 447 tests pass with new serializer
+### Phase 1: Extract and Refine Tuple `$lmz` Implementation
+- [ ] Extract `serializeTupleStyle()` from `test/format-experiments.test.ts` to new `src/serialize-tuple.ts`
+- [ ] Extract `parseTupleStyle()` from experiments to new `src/deserialize-tuple.ts`
+- [ ] Extract `resolveValue()` helper from experiments
+- [ ] Refine error handling and edge cases
+- [ ] Add JSDoc documentation
+- [ ] Verify implementation handles all types from experiments
 
-### Phase 2: Implement `$lmz` Deserializer
-- [ ] Create `deserialize-ref-style.ts` with:
-  - [ ] `deserializeRefStyle(data: any): any` - Main deserializer
-  - [ ] Two-pass deserialization (first pass: build objects, second pass: resolve refs)
-  - [ ] Handles `$lmz` references
-  - [ ] Preserves all type support
-- [ ] Add comprehensive tests
-- [ ] Verify all 447 tests pass with new deserializer
+### Phase 2: Integrate Tuple `$lmz` as Main Format
+- [ ] Update `src/serialize.ts`:
+  - [ ] Replace indexed format serialization with tuple serializer
+  - [ ] Keep same public API (`stringify(value)`)
+  - [ ] Remove old indexed format code
+- [ ] Update `src/deserialize.ts`:
+  - [ ] Replace indexed format deserialization with tuple deserializer
+  - [ ] Keep same public API (`parse(json)`)
+  - [ ] Remove old indexed format code
+- [ ] Update type definitions if needed
 
-### Phase 3: Integrate and Test
-- [ ] Update `serialize.ts` to use `serializeRefStyle`
-- [ ] Update `deserialize.ts` to use `deserializeRefStyle`
-- [ ] Run full test suite (447 tests)
+### Phase 3: Test and Verify
+- [ ] Run full test suite (447 tests) - all should pass with no changes
 - [ ] Verify coverage maintains 95%+
-- [ ] Performance benchmarks (compare with experiments)
+- [ ] Run format experiments again to confirm performance matches initial results
+- [ ] Check all 9 test scenarios still show expected size/performance characteristics
+- [ ] Test with real-world data structures
 
-### Phase 4: Remove Old Code
-- [ ] Delete indexed format serializer code
-- [ ] Delete indexed format deserializer code
-- [ ] Remove `Map<any, number>` seen tracking
-- [ ] Clean up any format-specific utilities
-- [ ] Update documentation
+### Phase 4: Update Type Codes and Constants
+- [ ] Remove numeric type code constants (e.g., `const OBJECT = 0`)
+- [ ] Update any remaining references to old format
+- [ ] Clean up unused utilities and helpers
+- [ ] Remove `Map<any, number>` for index tracking
 
-### Phase 5: Fix Dependent Packages
-- [ ] `@lumenize/rpc`: Update Error serialization (use `stringify()`/`parse()` instead of removed marker functions)
-- [ ] `@lumenize/proxy-fetch`: Verify Web API serialization still works
-- [ ] Any other packages using `structured-clone`
-- [ ] Run integration tests
+### Phase 5: Update Exports and Public API
+- [ ] Verify `stringify()` and `parse()` still work as expected
+- [ ] Keep `serializeWebApiObject()` and `deserializeWebApiObject()` exports (used by proxy-fetch)
+- [ ] Keep `isWebApiObject()` and `isSerializedWebApiObject()` exports
+- [ ] Remove any old format-specific exports
+- [ ] Update `src/index.ts` exports
 
-### Phase 6: Documentation and Release
-- [ ] Update README with new format details
-- [ ] Update API documentation
-- [ ] Add migration guide (if needed for external users)
-- [ ] Version bump (breaking change: 0.x.0 → 0.y.0 or 1.0.0?)
-- [ ] Publish to npm
+### Phase 6: Fix Dependent Packages
+- [ ] `@lumenize/rpc`: Verify Error serialization works (should already use `stringify()`/`parse()`)
+- [ ] `@lumenize/proxy-fetch`: Verify Web API serialization still works (uses exported functions)
+- [ ] Run integration tests for both packages
+- [ ] Fix any issues found
+
+### Phase 7: Documentation and Release
+- [ ] Update `README.md` with new format details and benefits
+- [ ] Update API documentation (if using TypeDoc)
+- [ ] Add performance comparison to docs (75x faster!)
+- [ ] Add format examples to docs
+- [ ] Update CHANGELOG with breaking changes
+- [ ] Version bump: **0.15.0 → 0.16.0** (breaking change in pre-1.0)
+- [ ] Publish to npm with clear release notes
 
 ## Implementation Notes
 
-### Type Support to Preserve
+### Type Support (Verified in Experiments ✅)
 
-All current types must work with `$lmz` format:
+All current types work with Tuple `$lmz` format (tested in experiments):
 - ✅ Primitives (string, number, boolean, null, undefined)
 - ✅ Objects and Arrays
 - ✅ Date, RegExp, Map, Set
@@ -167,24 +259,33 @@ All current types must work with `$lmz` format:
 - ✅ TypedArrays (Uint8Array, etc.)
 - ✅ Special numbers (NaN, Infinity, -Infinity)
 - ✅ Web API objects (Request, Response, Headers, URL)
-- ✅ Cycles and aliases
+- ✅ **Cycles and aliases** (via `["$lmz", index]` references)
 
-### Reference Path Generation
+### Reference Format
 
-For `$lmz` references, use simple path notation:
+Tuple `$lmz` uses **numeric indices** (simpler than path-based):
 ```javascript
-// Root-level property
-{ $lmz: "propertyName" }
-
-// Nested property
-{ $lmz: "obj.nested.property" }
-
-// Array index
-{ $lmz: "array.0" }
-
-// Map key (convert to string)
-{ $lmz: "map.key_stringified" }
+["$lmz", 0]  // Reference to objects[0]
+["$lmz", 5]  // Reference to objects[5]
 ```
+
+**Why numeric instead of path-based?**
+- Simpler implementation (already working in experiments)
+- Faster lookup (array index vs path parsing)
+- No ambiguity with special characters in keys
+- Consistent with implementation that's already 75x faster
+
+### Serialization Algorithm (Two-Pass)
+
+**Pass 1: Identify objects and assign indices**
+- Use `WeakMap<any, number>` to track seen objects
+- Assign sequential indices (0, 1, 2, ...)
+- Build `objects` array with serialized objects
+- Primitives serialized inline, objects get `["$lmz", index]` references
+
+**Pass 2: Resolve references**
+- Replace `["$lmz", index]` with actual object references
+- Build final data structure
 
 ### Backward Compatibility
 
@@ -223,19 +324,19 @@ For `$lmz` references, use simple path notation:
 **Mitigation**: Fix RPC and proxy-fetch immediately, version bump clearly indicates breaking change
 
 ### Risk: Performance regression
-**Mitigation**: Experiments show 2-3x performance improvement, but verify with real-world tests
+**Mitigation**: Experiments show **75x serialization improvement**, 1.8x parsing improvement - significant gains, but verify with real-world tests
 
 ### Risk: Bugs in cycle/alias handling
 **Mitigation**: Comprehensive test suite with 16 alias tests covering all edge cases
 
 ### Risk: Size increase impacts production
-**Mitigation**: 16-35% increase is acceptable given performance gains; monitor in production
+**Mitigation**: 20-50% average increase (11-103% range) is acceptable given 75x performance gains and readability benefits; enable gzip compression to mitigate; monitor in production
 
 ## Success Criteria
 
 - [ ] All 447 tests pass
 - [ ] Coverage ≥ 95%
-- [ ] Performance ≥ experiments (2-3x faster serialization)
+- [ ] Performance ≥ experiments (75x faster serialization, 1.8x faster parsing)
 - [ ] All type support preserved
 - [ ] RPC and proxy-fetch tests pass
 - [ ] Documentation updated
@@ -243,18 +344,31 @@ For `$lmz` references, use simple path notation:
 
 ## Timeline
 
-Estimated effort: 2-3 days
-1. Phase 1-2 (Implement): 1 day
-2. Phase 3 (Integrate): 0.5 day
-3. Phase 4 (Clean up): 0.5 day
-4. Phase 5 (Fix deps): 0.5 day
-5. Phase 6 (Docs/release): 0.5 day
+Estimated effort: **1-2 days** (faster because we have working implementation from experiments!)
+1. Phase 1 (Extract from experiments): 0.25 day
+2. Phase 2 (Integrate): 0.25 day
+3. Phase 3 (Test): 0.25 day
+4. Phase 4 (Clean up): 0.25 day
+5. Phase 5 (Update exports): 0.25 day
+6. Phase 6 (Fix deps): 0.25 day
+7. Phase 7 (Docs/release): 0.25 day
 
 ## References
 
-- Analysis: `structured-clone-format-analysis.md`
-- Experiments: `structured-clone-format-experiments.md`
-- Results: `structured-clone-format-experiments-results.md`
-- Test optimization: `archive/structured-clone-test-optimization.md`
-- Experiment code: `packages/structured-clone/test/format-experiments.test.ts`
+- **Decision**: `tasks/decisions/TUPLE_LMZFORMAT_RECOMMENDATION.md` - Executive summary
+- **Analysis**: `tasks/decisions/structured-clone-format-analysis.md` - Initial analysis
+- **Experiments Plan**: `tasks/decisions/structured-clone-format-experiments.md` - Experiment design
+- **Results**: `tasks/decisions/structured-clone-format-experiments-results.md` - Detailed results (9 test cases, 3 formats)
+- **Test optimization**: `tasks/archive/structured-clone-test-optimization.md` - Test suite prep
+- **Working code**: `packages/structured-clone/test/format-experiments.test.ts` - Tuple `$lmz` implementation to extract
+
+## Running Experiments
+
+To re-run format experiments:
+```bash
+cd packages/structured-clone
+npm test -- format-experiments --project=node
+```
+
+**Note**: Experiments are excluded from default test runs to avoid overhead.
 
