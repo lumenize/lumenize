@@ -88,3 +88,9 @@
 
 **Preferred**: `__ref` seems best balance of readability and safety.
 
+## Results
+
+See `structured-clone-format-experiments-results.md` for initial findings from Experiment 1.
+
+**Initial Key Finding**: Indexed format is 87.7% larger for simple objects, but 13.4% smaller for aliased objects (due to deduplication). The trade-off depends on how often we have aliases/cycles in real data.
+

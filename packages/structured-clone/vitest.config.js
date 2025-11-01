@@ -19,6 +19,7 @@ export default defineConfig({
         test: {
           name: 'workers',
           include: ['test/**/*.test.ts'],
+          exclude: ['test/format-experiments.test.ts'], // Performance tests need accurate Node.js timing
           globals: true,
           testTimeout: 2000,
           poolOptions: {
@@ -34,6 +35,7 @@ export default defineConfig({
         test: {
           name: 'browser',
           include: ['test/**/*.test.ts'],
+          exclude: ['test/format-experiments.test.ts'], // Performance tests need accurate Node.js timing
           browser: {
             enabled: true,
             provider: 'playwright',
