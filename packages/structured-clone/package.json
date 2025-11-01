@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/structured-clone",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "A fork of @ungap/structured-clone with Lumenize extensions for Errors, Web API objects, and special numbers",
   "type": "module",
   "main": "dist/index.js",

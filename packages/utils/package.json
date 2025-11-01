@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/utils",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "De✨light✨ful utility functions for Cloudflare Durable Objects projects",
   "type": "module",
   "main": "dist/index.js",
