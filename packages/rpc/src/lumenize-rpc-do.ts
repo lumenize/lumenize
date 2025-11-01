@@ -8,7 +8,6 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { isNestedOperationMarker } from './types';
-import { serializeError } from '@lumenize/structured-clone';
 import { stringify, parse } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
@@ -203,7 +202,7 @@ async function handleCallRequest(
       batch: [{
         id: 'parse-error',
         success: false,
-        error: serializeError(error)
+        error // stringify() will handle Error serialization
       }]
     };
     const responseBody = await stringify(batchResponse);
@@ -269,7 +268,7 @@ async function dispatchCall(
   } catch (error: any) {
     return {
       success: false,
-      error: serializeError(error)
+      error // stringify() will handle Error serialization
     };
   }
 }

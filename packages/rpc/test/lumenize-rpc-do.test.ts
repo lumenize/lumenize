@@ -4,7 +4,7 @@ import { runInDurableObject, env, SELF } from 'cloudflare:test';
 import type { RpcBatchRequest, RpcBatchResponse } from '@lumenize/rpc';
 
 // Use real structured-clone for sociable unit testing
-import { stringify, parse } from '@ungap/structured-clone/json';
+import { stringify, parse } from '@lumenize/structured-clone';
 
 /**
  * Server-side RPC Factory Tests
@@ -38,7 +38,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
 
       const request = new Request(`https://example.com/__rpc/example-do/${id.toString()}/call`, {
         method: 'POST',
-        body: stringify(rpcBatchRequest),
+        body: await stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -46,7 +46,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
       expect(response.status).toBe(200);
 
       const responseText = await response.text();
-      const data = parse(responseText) as RpcBatchResponse;
+      const data = await parse(responseText) as RpcBatchResponse;
       expect(data.batch).toHaveLength(1);
       expect(data.batch[0].success).toBe(true);
       const result = data.batch[0].result;
@@ -104,7 +104,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: stringify(rpcBatchRequest),
+        body: await stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -112,7 +112,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
       expect(response.status).toBe(500);
 
       const responseText = await response.text();
-      const data = parse(responseText) as RpcBatchResponse;
+      const data = await parse(responseText) as RpcBatchResponse;
       expect(data.batch).toHaveLength(1);
       expect(data.batch[0].success).toBe(false);
       expect(data.batch[0].error?.message).toContain('Operation chain too deep');
@@ -141,7 +141,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: stringify(rpcBatchRequest),
+        body: await stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -149,7 +149,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
       expect(response.status).toBe(500);
 
       const responseText = await response.text();
-      const data = parse(responseText) as RpcBatchResponse;
+      const data = await parse(responseText) as RpcBatchResponse;
       expect(data.batch).toHaveLength(1);
       expect(data.batch[0].success).toBe(false);
       expect(data.batch[0].error?.message).toContain('Too many arguments');

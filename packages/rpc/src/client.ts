@@ -13,7 +13,6 @@ import { isRemoteFunctionMarker, isNestedOperationMarker } from './types';
 import { HttpPostRpcTransport } from './http-post-transport';
 import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
-import { deserializeError } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 
@@ -610,9 +609,8 @@ export class RpcClient<T> {
         if (response.success) {
           queued.resolve(response.result);
         } else {
-          // Deserialize error object back to Error instance
-          const error = deserializeError(response.error);
-          queued.reject(error);
+          // parse() already reconstructed the Error instance
+          queued.reject(response.error);
         }
       }
 
