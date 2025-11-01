@@ -16,6 +16,112 @@
  */
 
 /**
+ * @internal
+ * Shared helper: Read Request body, optionally cloning first to avoid consumption
+ */
+export async function readRequestBody(request: Request, clone: boolean = false): Promise<string | null> {
+  if (!request.body || request.bodyUsed) {
+    return null;
+  }
+  
+  try {
+    if (clone) {
+      const cloned = request.clone();
+      return await cloned.text();
+    } else {
+      return await request.text();
+    }
+  } catch (e) {
+    // Body might already be consumed or not readable
+    return null;
+  }
+}
+
+/**
+ * @internal
+ * Shared helper: Read Response body, optionally cloning first to avoid consumption
+ */
+export async function readResponseBody(response: Response, clone: boolean = false): Promise<string | null> {
+  if (!response.body || response.bodyUsed) {
+    return null;
+  }
+  
+  try {
+    if (clone) {
+      const cloned = response.clone();
+      return await cloned.text();
+    } else {
+      return await response.text();
+    }
+  } catch (e) {
+    // Body might already be consumed or not readable
+    return null;
+  }
+}
+
+/**
+ * @internal
+ * Shared helper: Convert Headers to array of [string, string] pairs
+ */
+export function headersToArray(headers: Headers): [string, string][] {
+  const entries: [string, string][] = [];
+  headers.forEach((value, key) => {
+    entries.push([key, value]);
+  });
+  return entries;
+}
+
+/**
+ * @internal
+ * Shared helper: Extract Request properties for serialization
+ */
+export function extractRequestProperties(request: Request): {
+  url: string;
+  method: string;
+  redirect?: RequestRedirect;
+  integrity?: string;
+  keepalive?: boolean;
+  mode?: RequestMode;
+  credentials?: RequestCredentials;
+  cache?: RequestCache;
+  referrer?: string;
+} {
+  return {
+    url: request.url,
+    method: request.method,
+    redirect: request.redirect,
+    integrity: request.integrity,
+    keepalive: request.keepalive,
+    mode: request.mode,
+    credentials: request.credentials,
+    cache: request.cache,
+    referrer: request.referrer,
+  };
+}
+
+/**
+ * @internal
+ * Shared helper: Extract Response properties for serialization
+ */
+export function extractResponseProperties(response: Response): {
+  status: number;
+  statusText: string;
+  ok: boolean;
+  redirected: boolean;
+  type: ResponseType;
+  url: string;
+} {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    redirected: response.redirected,
+    type: response.type,
+    url: response.url,
+  };
+}
+
+/**
  * Type guard to check if an object is a marker-based serialized Web API object
  * 
  * @param obj - The object to check
@@ -49,19 +155,21 @@ export function isWebApiObject(value: any): boolean {
  * Serializes Web API objects (Request, Response, Headers, URL) to plain objects with marker flags
  * 
  * Preserves all important properties for proper reconstruction. AbortSignals cannot be serialized
- * and are set to `null`. Request/Response bodies are cloned before reading to avoid consumption.
+ * and are set to `null`. 
  * 
  * Use this when you need explicit control over serialization timing (e.g., queue storage).
  * For general Web API serialization, use `stringify()` which preserves instances via native serialization.
  * 
+ * @param value - Web API object to serialize
+ * @param cloneBody - If true, clone Request/Response before reading body to avoid consumption. Default true.
  * @example
  * ```typescript
- * // Queue storage (e.g., proxy-fetch)
+ * // Queue storage (e.g., proxy-fetch) - clones body to avoid consumption
  * const request = new Request('https://api.example.com', {
  *   method: 'POST',
  *   body: JSON.stringify({ data: 'test' })
  * });
- * const serialized = await serializeWebApiObject(request);
+ * const serialized = await serializeWebApiObject(request, true);
  * await queue.send({ request: serialized }); // Queue message
  * 
  * // Later, in consumer:
@@ -70,25 +178,21 @@ export function isWebApiObject(value: any): boolean {
  * const data = await restored.json();
  * ```
  */
-export async function serializeWebApiObject(value: any): Promise<any> {
+export async function serializeWebApiObject(value: any, cloneBody: boolean = true): Promise<any> {
   // Handle Request
   if (value instanceof Request) {
+    const props = extractRequestProperties(value);
+    const body = await readRequestBody(value, cloneBody);
+    
     const serialized: any = {
       __isSerializedRequest: true,
-      method: value.method,
-      url: value.url,
-      headers: await serializeWebApiObject(value.headers),
-      redirect: value.redirect,
-      integrity: value.integrity,
-      keepalive: value.keepalive,
+      ...props,
+      headers: await serializeWebApiObject(value.headers, cloneBody),
       signal: null, // AbortSignal can't be serialized
     };
     
-    // Clone and read body if present and not yet consumed
-    if (value.body && !value.bodyUsed) {
-      const cloned = value.clone();
-      const bodyText = await cloned.text();
-      serialized.body = bodyText;
+    if (body !== null) {
+      serialized.body = body;
       serialized.bodyType = 'text'; // For now, store as text
     }
     
@@ -97,22 +201,17 @@ export async function serializeWebApiObject(value: any): Promise<any> {
   
   // Handle Response
   if (value instanceof Response) {
+    const props = extractResponseProperties(value);
+    const body = await readResponseBody(value, cloneBody);
+    
     const serialized: any = {
       __isSerializedResponse: true,
-      status: value.status,
-      statusText: value.statusText,
-      headers: await serializeWebApiObject(value.headers),
-      ok: value.ok,
-      redirected: value.redirected,
-      type: value.type,
-      url: value.url,
+      ...props,
+      headers: await serializeWebApiObject(value.headers, cloneBody),
     };
     
-    // Clone and read body if present and not yet consumed
-    if (value.body && !value.bodyUsed) {
-      const cloned = value.clone();
-      const bodyText = await cloned.text();
-      serialized.body = bodyText;
+    if (body !== null) {
+      serialized.body = body;
       serialized.bodyType = 'text'; // For now, store as text
     }
     
@@ -121,18 +220,10 @@ export async function serializeWebApiObject(value: any): Promise<any> {
   
   // Handle Headers
   if (value instanceof Headers) {
-    const serialized: any = {
+    return {
       __isSerializedHeaders: true,
-      entries: [] as [string, string][],
+      entries: headersToArray(value),
     };
-    
-    // Convert headers to array of [key, value] pairs
-    // Headers is iterable in Workers
-    value.forEach((val, key) => {
-      serialized.entries.push([key, val]);
-    });
-    
-    return serialized;
   }
   
   // Handle URL
@@ -169,10 +260,14 @@ export function deserializeWebApiObject(value: any): any {
       redirect: value.redirect,
       integrity: value.integrity,
       keepalive: value.keepalive,
+      mode: value.mode,
+      credentials: value.credentials,
+      cache: value.cache,
+      referrer: value.referrer,
     };
     
-    // Add body if present
-    if (value.body) {
+    // Add body if present (only for methods that support it)
+    if (value.body !== null && value.body !== undefined && value.method !== 'GET' && value.method !== 'HEAD') {
       init.body = value.body;
     }
     
@@ -187,8 +282,11 @@ export function deserializeWebApiObject(value: any): any {
       headers: deserializeWebApiObject(value.headers),
     };
     
-    // Create Response with body if present
-    const body = value.body || null;
+    // 204 No Content and 205 Reset Content cannot have a body
+    // 304 Not Modified also cannot have a body
+    const cannotHaveBody = value.status === 204 || value.status === 205 || value.status === 304;
+    const body = (cannotHaveBody || value.body === null || value.body === undefined) ? null : value.body;
+    
     return new Response(body, init);
   }
   

@@ -79,17 +79,10 @@ export async function postprocess(value: any): Promise<any> {
  * Low-level serialization utilities for explicit control
  * 
  * Most users should use `stringify()`/`parse()` which handle all types automatically.
- * These marker-based utilities are for specific use cases:
- * - Protocol-level errors (RPC response.error field) - use serializeError/deserializeError
+ * These utilities are for specific use cases:
  * - Queue storage where you control timing - use serializeWebApiObject/deserializeWebApiObject
  * - DO storage where you need the marker flag
  */
-export {
-  serializeError,
-  deserializeError,
-  isSerializedError
-} from './error-serialization.js';
-
 export {
   serializeWebApiObject,
   deserializeWebApiObject,
@@ -98,7 +91,6 @@ export {
 } from './web-api-serialization.js';
 
 // Note: Internal types and utilities are NOT exported from this package.
-// If the RPC layer needs them, import directly from the source files:
+// If other packages need them, import directly from the source files:
 // - import type { OperationChain } from '@lumenize/structured-clone/src/serialize.js'
-// - import { isWebApiObject as isWebApiObjectNative } from '@lumenize/structured-clone/src/web-api-objects.js'
 

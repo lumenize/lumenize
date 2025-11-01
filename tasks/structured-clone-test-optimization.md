@@ -125,26 +125,26 @@ Most tests are **round-trip tests** (serialize → parse → verify equality) - 
 **Approach**: Extract inlined implementations (the better ones) to the same-named files and import them.
 
 - [x] **Error serialization**:
-  - ✅ Extracted Error serialization logic from `serialize.ts` to `error-serialization.ts`
-  - ✅ Created helper functions `serializeErrorInIndexedFormat()` and `deserializeErrorFromIndexedFormat()`
-  - ✅ Replaced inline code with function calls
-  - ✅ Updated `deserialize.ts` to import from `error-serialization.ts`
-  - ✅ Coverage improved from 0% to 57.69% (indexed format functions are covered; marker-based functions are for explicit control and may be tested elsewhere)
+  - ✅ Removed duplicate marker-based functions (`serializeError`, `deserializeError`, `isSerializedError`)
+  - ✅ Single implementation: `serializeErrorInIndexedFormat()` and `deserializeErrorFromIndexedFormat()`
+  - ✅ RPC will use `stringify()`/`parse()` instead of marker-based functions
+  - ✅ Coverage improved from 0% to 100%
 
 - [x] **Web API serialization**:
-  - ✅ Verified `web-api-serialization.ts` IS used (exported from index.ts, used by proxy-fetch package)
-  - ✅ Documented: Two separate implementations serve different purposes:
-    - `web-api-objects.ts`: Used by main `stringify()`/`parse()` API with `__lmz_*` markers
-    - `web-api-serialization.ts`: Exported API for explicit control with `__isSerialized*` markers (used by queue storage, DO persistence)
-  - ✅ Both are legitimate and serve different use cases (no deduplication needed)
+  - ✅ Removed `web-api-objects.ts` entirely (was just a wrapper)
+  - ✅ Single implementation in `web-api-serialization.ts` with `__isSerialized*` markers
+  - ✅ `serialize.ts`/`deserialize.ts` now import directly from `web-api-serialization.ts`
+  - ✅ All tests pass
 
-- [x] ✅ All tests pass (399 tests across node/browser/workers)
-- [x] ✅ Coverage improved: `error-serialization.ts` from 0% to 57.69% (indexed format functions covered)
+- [x] ✅ All tests pass (447 tests across node/browser/workers)
+- [x] ✅ Coverage improved from 83.73% to 95.81%:
+  - `error-serialization.ts`: 100% (was 45.45%)
+  - Overall: 95.81% (was 83.73%)
 
 **Notes**:
-- Inlined Error serialization handles `cause` recursively and custom props via `customProps` object (better)
-- `web-api-objects.ts` uses `__lmz_*` markers, `web-api-serialization.ts` uses `__isSerialized*` markers (different formats)
-- Extraction will make codebase more modular while maintaining functionality
+- No backward compatibility maintained - pre-1.0, published only ~1 week ago
+- Single format for each purpose: no duplicate implementations
+- RPC package will need updates to use `stringify()`/`parse()` instead of removed marker-based Error functions
 - Auto-bundling (Vite/Wrangler) means no build complexity from splitting files
 
 ### Phase 1: Audit and Remove Format-Specific Tests

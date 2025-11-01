@@ -11,7 +11,7 @@ import {
 } from './types.js';
 import type { SerializedRecord } from './serialize.js';
 import { isSerializedSpecialNumber, deserializeSpecialNumber } from './special-numbers.js';
-import { isSerializedWebApiObject, deserializeWebApiObject } from './web-api-objects.js';
+import { isSerializedWebApiObject, deserializeWebApiObject } from './web-api-serialization.js';
 import { deserializeErrorFromIndexedFormat } from './error-serialization.js';
 
 const env = typeof self === 'object' ? self : globalThis;

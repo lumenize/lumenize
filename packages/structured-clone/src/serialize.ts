@@ -10,14 +10,10 @@ import {
   ERROR, BIGINT, FUNCTION
 } from './types.js';
 import { isSpecialNumber, serializeSpecialNumber } from './special-numbers.js';
-import { 
-  isWebApiObject, 
-  getWebApiType,
-  serializeRequest,
-  serializeResponse,
-  serializeHeaders,
-  serializeURL
-} from './web-api-objects.js';
+import {
+  isWebApiObject,
+  serializeWebApiObject,
+} from './web-api-serialization.js';
 import { serializeErrorInIndexedFormat } from './error-serialization.js';
 
 /**
@@ -90,26 +86,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
     // Handle Web API objects (Request, Response, Headers, URL) before typeOf
     // These need async serialization for body reading
     if (isWebApiObject(value)) {
-      const webApiType = getWebApiType(value);
-      let marker: any;
-      
-      switch (webApiType) {
-        case 'Request':
-          marker = await serializeRequest(value);
-          break;
-        case 'Response':
-          marker = await serializeResponse(value);
-          break;
-        case 'Headers':
-          marker = serializeHeaders(value);
-          break;
-        case 'URL':
-          marker = serializeURL(value);
-          break;
-        default:
-          throw new Error(`Unknown Web API type: ${webApiType}`);
-      }
-      
+      const marker = await serializeWebApiObject(value, false); // No clone for indexed format
       return as([OBJECT, marker], value);
     }
 
