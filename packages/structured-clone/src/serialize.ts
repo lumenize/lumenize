@@ -18,6 +18,7 @@ import {
   serializeHeaders,
   serializeURL
 } from './web-api-objects.js';
+import { serializeErrorInIndexedFormat } from './error-serialization.js';
 
 /**
  * Operation type for building operation chains
@@ -206,55 +207,7 @@ const serializer = ($: Map<any, number>, _: any[], baseOperationChain: Operation
     }
 
     // Enhanced Error serialization with full fidelity
-    // Capture: name, message, stack, cause (recursive), and custom properties
-    // Important: Add Error record FIRST, then recursively serialize nested values
-    // (like Map/Set do) so the Error is at the correct index for deserialization
-    
-    // Use error.name for the actual error type (TypeError, RangeError, etc.)
-    // not the toString type which is always "Error"
-    const errorData: any = {
-      name: value.name || 'Error',
-      message: value.message || ''
-    };
-    
-    // Preserve stack trace if available
-    if (value.stack !== undefined) {
-      errorData.stack = value.stack;
-    }
-    
-    // Prepare customProps object (will be filled after)
-    const customProps: Record<string, number> = {};
-    errorData.customProps = customProps;
-    
-    // Add Error record FIRST
-    const index = as([TYPE, errorData], value);
-    
-    // NOW recursively serialize cause and custom properties
-    // Preserve cause (recursive - cause can be another Error)
-    if (value.cause !== undefined) {
-      errorData.cause = await pair(value.cause, [...currentChain, { type: 'get' as const, key: 'cause' }]);
-    }
-    
-    // Capture custom properties (best effort)
-    // Use getOwnPropertyNames to capture both enumerable and non-enumerable properties
-    // Standard Error properties: name, message, stack, cause
-    const allProps = Object.getOwnPropertyNames(value);
-    for (const key of allProps) {
-      if (key !== 'name' && key !== 'message' && key !== 'stack' && key !== 'cause') {
-        try {
-          customProps[key] = await pair(value[key], [...currentChain, { type: 'get' as const, key }]);
-        } catch (e) {
-          // Skip properties that can't be accessed or serialized
-        }
-      }
-    }
-    
-    // Remove customProps if empty (cleaner serialization)
-    if (Object.keys(customProps).length === 0) {
-      delete errorData.customProps;
-    }
-    
-    return index;
+    return await serializeErrorInIndexedFormat(value, pair, as, currentChain);
   };
 
   return pair;

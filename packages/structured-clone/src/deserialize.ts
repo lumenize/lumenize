@@ -12,6 +12,7 @@ import {
 import type { SerializedRecord } from './serialize.js';
 import { isSerializedSpecialNumber, deserializeSpecialNumber } from './special-numbers.js';
 import { isSerializedWebApiObject, deserializeWebApiObject } from './web-api-objects.js';
+import { deserializeErrorFromIndexedFormat } from './error-serialization.js';
 
 const env = typeof self === 'object' ? self : globalThis;
 
@@ -73,42 +74,7 @@ const deserializer = ($: Map<number, any>, _: SerializedRecord[]) => {
       }
       case ERROR: {
         // Enhanced Error deserialization with full fidelity
-        const { name, message, stack, cause, customProps } = value;
-        
-        // Create Error with proper subclass type
-        const ErrorConstructor = (env as any)[name] || Error;
-        const error = new ErrorConstructor(message || '');
-        
-        // CRITICAL: Explicitly set the name property
-        // Built-in Error constructors (TypeError, RangeError) set this automatically,
-        // but for custom error names (CustomError, ValidationError), we must set it manually
-        error.name = name;
-        
-        // Capture the error early to handle circular references
-        as(error, index);
-        
-        // Restore stack trace if explicitly provided
-        // Note: Constructor auto-generates stack, so only override if we saved one
-        if (stack !== undefined) {
-          error.stack = stack;
-        } else {
-          // If no stack was saved, delete the auto-generated one
-          delete error.stack;
-        }
-        
-        // Restore cause recursively (might be another Error)
-        if (cause !== undefined) {
-          error.cause = unpair(cause);
-        }
-        
-        // Restore custom properties
-        if (customProps) {
-          for (const key in customProps) {
-            error[key] = unpair(customProps[key]);
-          }
-        }
-        
-        return error;
+        return deserializeErrorFromIndexedFormat(value, index, unpair, as, env);
       }
       case BIGINT:
         return as(BigInt(value), index);
