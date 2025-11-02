@@ -1,9 +1,9 @@
 # Structured Clone Format Migration
 
-**Status**: Active  
+**Status**: ✅ Complete  
 **Started**: 2025-11-01  
-**Updated**: 2025-01-28  
-**Context**: Migrating from indexed format to Tuple-based `$lmz` format (Cap'n Web tuples + cycle/alias support)
+**Completed**: 2025-11-02  
+**Context**: Migrated from indexed format to Tuple-based `$lmz` format (Cap'n Web tuples + cycle/alias support)
 
 ## Goal
 
@@ -192,59 +192,60 @@ obj.self = obj;  // Cycle
 - [x] Analyze results and make final format decision
 - [x] **Decision**: Proceed with **Tuple-based `$lmz` format**
 
-### Phase 1: Extract and Refine Tuple `$lmz` Implementation
-- [ ] Extract `serializeTupleStyle()` from `test/format-experiments.test.ts` to new `src/serialize-tuple.ts`
-- [ ] Extract `parseTupleStyle()` from experiments to new `src/deserialize-tuple.ts`
-- [ ] Extract `resolveValue()` helper from experiments
-- [ ] Refine error handling and edge cases
-- [ ] Add JSDoc documentation
-- [ ] Verify implementation handles all types from experiments
+### Phase 1: Extract and Refine Tuple `$lmz` Implementation ✅
+- [x] Extract `serializeTupleStyle()` from `test/format-experiments.test.ts` to new `src/preprocess.ts`
+- [x] Extract `parseTupleStyle()` from experiments to new `src/postprocess.ts`
+- [x] Extract `resolveValue()` helper from experiments
+- [x] Refine error handling and edge cases
+- [x] Add JSDoc documentation
+- [x] Verify implementation handles all types from experiments
 
-### Phase 2: Integrate Tuple `$lmz` as Main Format
-- [ ] Update `src/serialize.ts`:
-  - [ ] Replace indexed format serialization with tuple serializer
-  - [ ] Keep same public API (`stringify(value)`)
-  - [ ] Remove old indexed format code
-- [ ] Update `src/deserialize.ts`:
-  - [ ] Replace indexed format deserialization with tuple deserializer
-  - [ ] Keep same public API (`parse(json)`)
-  - [ ] Remove old indexed format code
-- [ ] Update type definitions if needed
+### Phase 2: Integrate Tuple `$lmz` as Main Format ✅
+- [x] Update serialization:
+  - [x] Replace indexed format serialization with tuple serializer
+  - [x] Keep same public API (`stringify(value)`)
+  - [x] Remove old indexed format code
+- [x] Update deserialization:
+  - [x] Replace indexed format deserialization with tuple deserializer
+  - [x] Keep same public API (`parse(json)`)
+  - [x] Remove old indexed format code
+- [x] Update type definitions (LmzIntermediate interface)
 
-### Phase 3: Test and Verify
-- [ ] Run full test suite (447 tests) - all should pass with no changes
-- [ ] Verify coverage maintains 95%+
-- [ ] Run format experiments again to confirm performance matches initial results
-- [ ] Check all 9 test scenarios still show expected size/performance characteristics
-- [ ] Test with real-world data structures
+### Phase 3: Test and Verify ✅
+- [x] Run full test suite (480 tests) - all pass
+- [x] Verify coverage maintains 95%+
+- [x] Confirmed performance matches initial results
+- [x] All test scenarios show expected characteristics
+- [x] Test with real-world data structures
 
-### Phase 4: Update Type Codes and Constants
-- [ ] Remove numeric type code constants (e.g., `const OBJECT = 0`)
-- [ ] Update any remaining references to old format
-- [ ] Clean up unused utilities and helpers
-- [ ] Remove `Map<any, number>` for index tracking
+### Phase 4: Update Type Codes and Constants ✅
+- [x] Remove numeric type code constants (e.g., `const OBJECT = 0`)
+- [x] Update any remaining references to old format
+- [x] Clean up unused utilities and helpers
+- [x] Remove `Map<any, number>` for index tracking
 
-### Phase 5: Update Exports and Public API
+### Phase 5: Update Exports and Public API ✅
 - [x] Verify `stringify()` and `parse()` still work as expected
 - [x] Removed `serializeWebApiObject()` and `deserializeWebApiObject()` (replaced with `encodeRequest/Response` and `decodeRequest/Response`)
 - [x] Removed `isWebApiObject()` (unnecessary duplication of instanceof checks)
 - [x] Remove any old format-specific exports
 - [x] Update `src/index.ts` exports
 
-### Phase 6: Fix Dependent Packages
-- [ ] `@lumenize/rpc`: Verify Error serialization works (should already use `stringify()`/`parse()`)
-- [ ] `@lumenize/proxy-fetch`: Verify Web API serialization still works (uses exported functions)
-- [ ] Run integration tests for both packages
-- [ ] Fix any issues found
+### Phase 6: Fix Dependent Packages ✅
+- [x] `@lumenize/rpc`: Verified Error serialization works with `stringify()`/`parse()`
+- [x] `@lumenize/proxy-fetch`: Updated Web API serialization to use new encode/decode functions
+- [x] Run integration tests for both packages - all pass
+- [x] Fixed all issues found
 
-### Phase 7: Documentation and Release
-- [ ] Update `README.md` with new format details and benefits
-- [ ] Update API documentation (if using TypeDoc)
-- [ ] Add performance comparison to docs (75x faster!)
-- [ ] Add format examples to docs
-- [ ] Update CHANGELOG with breaking changes
-- [ ] Version bump: **0.15.0 → 0.16.0** (breaking change in pre-1.0)
-- [ ] Publish to npm with clear release notes
+### Phase 7: Documentation and Release ✅
+- [x] Update documentation with new format details and benefits
+- [x] Update API documentation (TypeDoc)
+- [x] Add performance benefits to docs (efficient tuple format)
+- [x] Add format examples and API tier documentation
+- [x] Update CHANGELOG with changes
+- [x] Version bump: **0.15.0 → 0.16.0**
+- [x] Publish to npm with release notes
+- [x] Deploy documentation website
 
 ## Implementation Notes
 
