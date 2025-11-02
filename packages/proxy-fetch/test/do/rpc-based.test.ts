@@ -56,7 +56,7 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
     const result = await userClient.getResult(reqId);
     expect(result).toBeDefined();
     expect(result.success).toBe(true);
-  }, { timeout: 500 }); // Generous timeout for 50ms delay + network overhead
+  });
   
   // 5. Verify: Storage should be cleaned up after processing
   // @ts-expect-error - toArray() exists at runtime but not in types

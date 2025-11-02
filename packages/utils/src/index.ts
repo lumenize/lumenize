@@ -8,14 +8,6 @@ export * from './cookie-utils';
 export * from './browser';
 export * from './websocket-shim';
 export * from './metrics';
-// Re-export from structured-clone for backwards compatibility
-// Prefer importing directly from @lumenize/structured-clone in new code
-export {
-  serializeWebApiObject,
-  deserializeWebApiObject,
-  isSerializedWebApiObject,
-  isWebApiObject
-} from '@lumenize/structured-clone';
 
 // Convenience exports
 import { routeDORequest, type RouteOptions } from './route-do-request';
