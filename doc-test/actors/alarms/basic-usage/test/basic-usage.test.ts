@@ -1,0 +1,219 @@
+// DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
+// - Block comments (/* */) become Markdown in the docs
+// - Code between block comments becomes code blocks in the docs
+// - Single-line comments (//) before the first block comment (like this one)
+//   do not show up in the generated doc
+// - Single-line comments (//) after that are included in the generated doc
+// - Use @import directives to include external files
+// - Tests must pass - they validate the documentation
+// - Keep code blocks within 80 columns to prevent horizontal scrolling
+// - Keep it brief - this is documentation, not exhaustive testing
+// - See: /tooling/doc-testing/README.md
+
+/*
+# Basic Usage
+
+The [@cloudflare/actors](https://www.npmjs.com/package/@cloudflare/actors) 
+alarms package solves a key limitation: **Cloudflare only allows one native 
+alarm per Durable Object instance**. This package uses SQL storage to manage 
+multiple scheduled tasks and ensures the single native alarm always fires for 
+the next scheduled task.
+
+This guide shows how to use the alarms package to schedule one-time, delayed, 
+and recurring (cron) tasks in your Durable Objects.
+*/
+
+/*
+## Imports
+*/
+import { it, expect, vi } from 'vitest';
+// @ts-expect-error - cloudflare:test module types not consistently exported
+import { SELF, env, runDurableObjectAlarm } from 'cloudflare:test';
+import {
+  createRpcClient,
+  createWebSocketTransport,
+  type RpcAccessible
+} from '@lumenize/rpc';
+import { getWebSocketShim } from '@lumenize/utils';
+import { AlarmDO } from '../src';
+
+/*
+## Version
+
+This test asserts the installed version and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+*/
+import actorsPackage from '../node_modules/@cloudflare/actors/package.json';
+it('detects package version', () => {
+  expect(actorsPackage.version).toBe('0.0.1-beta.6');
+});
+
+/*
+## Installation
+
+```bash npm2yarn
+npm install @cloudflare/actors
+```
+
+## Setup
+
+To use the Alarms package, your Durable Object must:
+
+1. **Extend from `Actor`** (not `DurableObject`) - The Actor base class from 
+   `@cloudflare/actors` automatically initializes the `alarms` property and 
+   provides the `setName()` method required by the alarms system
+2. **Implement the `alarm()` method** - This delegates to the Alarms instance
+
+Here's the complete Durable Object and Worker:
+
+@import {typescript} "../src/index.ts" [src/index.ts]
+
+The `alarm()` method is **required boilerplate** - Cloudflare's Durable Object 
+API requires you to implement this handler method. The Alarms class can't 
+automatically inject itself into that lifecycle hook, so you must explicitly 
+delegate to it.
+
+**Important**: The Actor base class automatically creates `this.alarms` for 
+you - you don't need to manually instantiate it.
+*/
+
+/*
+## Scheduling Alarms
+
+The Alarms package supports three types of schedules:
+
+1. **Date-based**: Execute at a specific time
+2. **Delay-based**: Execute after N seconds
+3. **Cron-based**: Recurring execution using cron expressions
+*/
+
+it('schedules multiple alarms with different types', async () => {
+  // Allows our test code to magically appear as though we are inside the DO
+  using client = createRpcClient<RpcAccessible<InstanceType<typeof AlarmDO>>>({
+    transport: createWebSocketTransport('ALARM_DO', 'multi-types', {
+      baseUrl: 'https://fake-host.com',
+      prefix: '__rpc',
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+    })
+  });
+
+  // 1. Schedule with a Date (execute at specific time)
+  const futureDate = new Date(Date.now() + 100); // 100ms from now
+  const dateSchedule = await client.alarms.schedule(
+    futureDate, 
+    'handleAlarm', 
+    { type: 'date', message: 'Executed at specific time' }
+  );
+  expect(dateSchedule.type).toBe('scheduled');
+  expect(dateSchedule.callback).toBe('handleAlarm');
+
+  // 2. Schedule with delay in seconds
+  const delaySchedule = await client.alarms.schedule(
+    0.15, // 150ms (0.15 seconds)
+    'handleAlarm', 
+    { type: 'delay', message: 'Executed after delay' }
+  );
+  expect(delaySchedule.type).toBe('delayed');
+
+  // 3. Schedule with cron expression (every minute)
+  // Note: We won't wait for cron to fire - it would take 60 seconds
+  // Cron syntax reference: https://crontab.guru
+  const cronSchedule = await client.alarms.schedule(
+    '* * * * *', 
+    'handleAlarm', 
+    { type: 'cron', message: 'Recurring task' }
+  );
+  expect(cronSchedule.type).toBe('cron');
+
+  // In test environments, alarms don't fire automatically - we need to 
+  // manually trigger them using runDurableObjectAlarm()
+  const stub = env.ALARM_DO.getByName('multi-types');
+
+  // Wait for alarms to become due, then trigger and verify
+  await vi.waitFor(async () => {
+    // Trigger any pending alarms (Alarms class auto-reschedules the next one)
+    await runDurableObjectAlarm(stub);
+    
+    // Verify both alarms actually executed
+    const executed = await client.getExecutedAlarms();
+    expect(executed.length).toBe(2);
+    expect(executed.some((msg: string) => msg.includes('date'))).toBe(true);
+    expect(executed.some((msg: string) => msg.includes('delay'))).toBe(true);
+  });
+});
+
+/*
+## Managing Scheduled Alarms
+
+You can query and cancel scheduled alarms:
+*/
+
+it('queries and cancels scheduled alarms', async () => {
+  using client = createRpcClient<RpcAccessible<InstanceType<typeof AlarmDO>>>({
+    transport: createWebSocketTransport('ALARM_DO', 'manage', {
+      baseUrl: 'https://fake-host.com',
+      prefix: '__rpc',
+      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
+    })
+  });
+
+  // Schedule several alarms
+  const schedule1 = await client.alarms.schedule(
+    10, // 10 seconds
+    'handleAlarm',
+    { task: 'task-1' }
+  );
+
+  const schedule2 = await client.alarms.schedule(
+    20, // 20 seconds
+    'handleAlarm',
+    { task: 'task-2' }
+  );
+
+  // Get all scheduled alarms
+  const allSchedules = await client.alarms.getSchedules();
+  expect(allSchedules.length).toBeGreaterThanOrEqual(2);
+
+  // Get a specific schedule by ID
+  const retrieved = await client.alarms.getSchedule(schedule1.id);
+  expect(retrieved?.payload).toEqual({ task: 'task-1' });
+
+  // Cancel a schedule
+  const cancelled = await client.alarms.cancelSchedule(schedule2.id);
+  expect(cancelled).toBe(true);
+
+  // Verify it's gone
+  const afterCancel = await client.alarms.getSchedules();
+  expect(afterCancel.some((s: any) => s.id === schedule2.id)).toBe(false);
+});
+
+/*
+## Using Without Actor Base Class
+
+While it's possible to use the Alarms package without extending Actor, it 
+requires replicating complex initialization logic (Storage wrapper, 
+blockConcurrencyWhile, setName() calls, etc.). 
+
+**Recommendation**: For now, extend Actor for the best experience. If you need 
+a different architecture, Lumenize is working on `@lumenize/alarms` that will 
+provide a more flexible approach - stay tuned!
+
+## wrangler.jsonc
+
+@import {json} "../wrangler.jsonc" [wrangler.jsonc]
+
+## Try it out
+
+To run these tests:
+
+```bash
+vitest --run
+```
+
+For coverage reports:
+
+```bash
+vitest --run --coverage
+```
+*/

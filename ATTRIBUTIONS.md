@@ -20,3 +20,12 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Author**: Cloudflare
 - **Note**: Cap'n Web uses a synchronous tuple format without cycles/aliases. We adopted the tuple approach but extended it with `["$lmz", index]` references to support cycles and aliases, and made it async to support Request/Response body reading.
 
+## Cloudflare Actors - Alarms Package
+- **Source**: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms
+- **License**: Apache-2.0 (https://github.com/cloudflare/actors/blob/main/LICENSE)
+- **Used In**: `packages/alarms/src/index.ts` (copied and adapted)
+- **Purpose**: Provides alarm scheduling system for Durable Objects with support for one-time, delayed, and cron-based recurring schedules using SQL storage.
+- **Date Added**: 2025-11-02
+- **Author**: Cloudflare
+- **Note**: Source code copied from cloudflare/actors alarms package. May be adapted to fit Lumenize patterns (e.g., mixin approach or dependency injection via `this.#svc`).
+

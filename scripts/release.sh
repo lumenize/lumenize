@@ -105,8 +105,10 @@ cd "$ROOT_DIR"
 echo "✅ Doc-tests passed"
 echo ""
 
-# Check Cap'n Web version against npm registry
+# Check external dependency versions against npm registry
 echo "ℹ️  Checking external dependency versions..."
+
+# Check Cap'n Web
 CAPNWEB_CURRENT=$(node -e "console.log(require('./node_modules/capnweb/package.json').version)" 2>/dev/null || echo "not installed")
 if [ "$CAPNWEB_CURRENT" != "not installed" ]; then
   CAPNWEB_LATEST=$(npm view capnweb version 2>/dev/null || echo "unknown")
@@ -121,6 +123,29 @@ if [ "$CAPNWEB_CURRENT" != "not installed" ]; then
     read -p "Continue with release anyway? [y/N]: " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "❌ Release cancelled"
+      ./scripts/restore-dev-mode.sh
+      exit 1
+    fi
+  fi
+fi
+
+# Check @cloudflare/actors
+ACTORS_CURRENT=$(node -e "console.log(require('./doc-test/actors/alarms/basic-usage/node_modules/@cloudflare/actors/package.json').version)" 2>/dev/null || echo "not installed")
+if [ "$ACTORS_CURRENT" != "not installed" ]; then
+  ACTORS_LATEST=$(npm view @cloudflare/actors version 2>/dev/null || echo "unknown")
+  echo "   @cloudflare/actors installed: v$ACTORS_CURRENT"
+  echo "   @cloudflare/actors latest:    v$ACTORS_LATEST"
+  
+  if [ "$ACTORS_CURRENT" != "$ACTORS_LATEST" ] && [ "$ACTORS_LATEST" != "unknown" ]; then
+    echo ""
+    echo "⚠️  WARNING: Lumenize is using @cloudflare/actors v$ACTORS_CURRENT,"
+    echo "   but the latest version on npm is v$ACTORS_LATEST."
+    echo "   Consider upgrading and updating the actors/alarms doc-test."
+    echo ""
+    read -p "Do you want to abort the release? [y/N]: " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
       echo "❌ Release cancelled"
       ./scripts/restore-dev-mode.sh
       exit 1

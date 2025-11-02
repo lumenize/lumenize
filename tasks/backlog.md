@@ -4,6 +4,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] Investigate and integrate `runDurableObjectAlarm` from `cloudflare:test` into `@lumenize/testing`
+  - Currently discovered for actors/alarms doc-test
+  - Would make testing DO alarms much easier
+  - Should be part of the testing utilities we provide
 - [ ] Show that private methods are not available over Lumenize RPC
 - [ ] Test websocket-shim throws when passed http[s] urls (requires changing matrix tests)
 - [ ] Test in production on Cloudflare (not just local with vitest)
@@ -19,6 +23,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Test shared subtree aliases (two different paths leading to same subtree)
   - Performance tests with large cyclic structures
 
+## Alarms / NADIS
+
+- [ ] Investigate @cloudflare/actors Storage wrapper source code
+  - Understand what it does to make setAlarm() integrate with native Cloudflare alarms
+  - Determine minimal code needed to replicate this functionality
+  - See `tasks/lumenize-alarms.md` for full project plan
+
 ## Documentation
 
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
@@ -26,6 +37,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
 - [ ] Move promise pipelining from quirks to its own doc section and use our new name for it Operation Chaining and Nesting (OCAN)
 - [ ] Add comprehensive security documentation (currently just a warning)
+- [ ] Upgrade actors/alarms doc-test to use @lumenize/testing instead of @lumenize/rpc
+  - Change @lumenize/testing default transport to WebSocket
+  - Ensure @lumenize/testing exports onDownstream support
+  - Update doc-test/actors/alarms/basic-usage/ to use createTestingClient
 
 ## RPC Features to Demo/Test
 

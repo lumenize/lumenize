@@ -104,6 +104,49 @@ DOs implement a form of the **Actor model** (popularized by Erlang/BEAM):
 
 **Key difference**: No supervisory control (unlike Erlang/OTP)
 
+## TypeScript Types and Env Interface
+
+### ⚠️ CRITICAL: NEVER Manually Define Env Interface
+
+**DO NOT** manually create an `Env` interface in your code:
+
+```typescript
+// ❌ WRONG - Never do this!
+export interface Env {
+  ALARM_DO: DurableObjectNamespace<AlarmDO>;
+  MY_KV: KVNamespace;
+}
+```
+
+**WHY**: `wrangler types` auto-generates `worker-configuration.d.ts` by:
+1. Reading your `wrangler.jsonc` configuration
+2. Inspecting your DO class definitions
+3. Inferring all bindings and their types
+4. Creating a complete, accurate `Env` interface
+
+**INSTEAD**: Just run `npm run types` (which calls `wrangler types`) and use the auto-generated types:
+
+```typescript
+// ✅ CORRECT - Env is auto-generated in worker-configuration.d.ts
+class MyDO extends DurableObject<Env> {
+  // TypeScript automatically finds Env from worker-configuration.d.ts
+}
+```
+
+**When to regenerate types**:
+- After changing `wrangler.jsonc` (adding/removing bindings, DOs, etc.)
+- After adding/changing DO class definitions
+- Part of your normal development workflow
+
+**In package.json**:
+```json
+{
+  "scripts": {
+    "types": "wrangler types"
+  }
+}
+```
+
 ## Best Practices
 
 1. **Always use synchronous storage APIs** (`ctx.storage.kv.*` or `ctx.storage.sql.*`)
@@ -113,4 +156,5 @@ DOs implement a form of the **Actor model** (popularized by Erlang/BEAM):
 5. **Avoid caching** unless transformation is expensive
 6. **Embrace N+1 queries** - they're fine with embedded SQLite
 7. **Use `ctx.waitUntil()`** for async cleanup/logging that doesn't affect response
+8. **NEVER manually define Env interface** - always use `wrangler types` auto-generation
 

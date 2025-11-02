@@ -1,6 +1,6 @@
 # @lumenize/structured-clone
 
-A de✨light✨ful fork of [@ungap/structured-clone](https://github.com/ungap/structured-clone) providing full-fidelity serialization of complex JavaScript types.
+De✨light✨ful serialization of complex JavaScript types.
 
 For complete documentation, visit **[https://lumenize.com/docs/structured-clone](https://lumenize.com/docs/structured-clone)**
 
@@ -16,7 +16,3 @@ For complete documentation, visit **[https://lumenize.com/docs/structured-clone]
 ```bash
 npm install @lumenize/structured-clone
 ```
-
-## License
-
-ISC (inherited from @ungap/structured-clone)
