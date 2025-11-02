@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/structured-clone",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Structured clone with full support for Errors, Web API objects (Request/Response/Headers/URL), special numbers, cycles, and aliases",
   "type": "module",
   "main": "dist/index.js",
