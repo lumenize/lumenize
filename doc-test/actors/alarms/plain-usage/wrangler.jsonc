@@ -1,0 +1,20 @@
+{
+  "name": "actors-alarms-plain-usage",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ALARM_DO",
+        "class_name": "AlarmDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AlarmDO"]
+    }
+  ]
+}
+

@@ -89,7 +89,8 @@ The Alarms package supports three types of schedules:
 */
 
 it('schedules multiple alarms with different types', async () => {
-  // Allows our test code to magically appear as though we are inside the DO
+  // You don't need this.
+  // It allows our test code to magically appear as though we are inside the DO
   using client = createRpcClient<RpcAccessible<InstanceType<typeof AlarmDO>>>({
     transport: createWebSocketTransport('ALARM_DO', 'multi-types', {
       baseUrl: 'https://fake-host.com',
@@ -150,6 +151,8 @@ You can query and cancel scheduled alarms:
 */
 
 it('queries and cancels scheduled alarms', async () => {
+  // You don't need this.
+  // It allows our test code to magically appear as though we are inside the DO
   using client = createRpcClient<RpcAccessible<InstanceType<typeof AlarmDO>>>({
     transport: createWebSocketTransport('ALARM_DO', 'manage', {
       baseUrl: 'https://fake-host.com',
@@ -191,13 +194,8 @@ it('queries and cancels scheduled alarms', async () => {
 /*
 ## Using Without Actor Base Class
 
-While it's possible to use the Alarms package without extending Actor, it 
-requires replicating complex initialization logic (Storage wrapper, 
-blockConcurrencyWhile, setName() calls, etc.). 
-
-**Recommendation**: For now, extend Actor for the best experience. If you need 
-a different architecture, Lumenize is working on `@lumenize/alarms` that will 
-provide a more flexible approach - stay tuned!
+It's possible to use the Alarms package without extending Actor. 
+See [here](/docs/actors/alarms/plain-usage) for an example.
 
 ## wrangler.jsonc
 

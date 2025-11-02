@@ -285,6 +285,13 @@ const sidebars: SidebarsConfig = {
                 docTest: 'doc-test/actors/alarms/basic-usage/test/basic-usage.test.ts'
               }
             },
+            {
+              type: 'doc',
+              id: 'actors/alarms/plain-usage',
+              customProps: {
+                docTest: 'doc-test/actors/alarms/plain-usage/test/basic-usage.test.ts'
+              }
+            },
           ],
         },
       ],

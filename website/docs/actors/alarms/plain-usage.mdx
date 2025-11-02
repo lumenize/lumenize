@@ -6,7 +6,7 @@ generated_by: doc-testing
 
 
 
-# Basic Usage
+# Plain DurableObject Usage
 
 <details>
 <summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
@@ -31,8 +31,8 @@ alarm per Durable Object instance**. This package uses SQL storage to manage
 multiple scheduled tasks and ensures the single native alarm always fires for 
 the next scheduled task.
 
-This guide shows how to use the alarms package to schedule one-time, delayed, 
-and recurring (cron) tasks in your Durable Objects.
+This guide shows how to use Alarms **without extending Actor** - just a plain 
+`DurableObject` with manual `Storage` and `Alarms` setup.
 
 ## Imports
 
@@ -80,25 +80,33 @@ it('detects package version', () => {
 npm install @cloudflare/actors
 ```
 
-## Setup
+## Setup Without Actor Base Class
 
-To use the Alarms package, your Durable Object must:
+To use the Alarms package with a plain `DurableObject`, your class must:
 
-1. **Extend from `Actor`** (not `DurableObject`) - The Actor base class from 
-   `@cloudflare/actors` automatically initializes the `alarms` property and 
-   provides the `setName()` method required by the alarms system
-2. **Implement the `alarm()` method** - This delegates to the Alarms instance
+1. **Manually create `Storage` wrapper** - Import from `@cloudflare/actors/storage`
+2. **Manually create `Alarms` instance** - Pass `ctx` and `this`
+3. **Implement the `alarm()` method** - This delegates to the Alarms instance
 
 Here's the complete Durable Object and Worker:
 
 ```typescript src/index.ts
-import { Actor } from "@cloudflare/actors";
-import { type Schedule } from "@cloudflare/actors/alarms";
+import { Storage } from "@cloudflare/actors/storage";
+import { Alarms, type Schedule } from "@cloudflare/actors/alarms";
+import { DurableObject } from "cloudflare:workers";
 import { lumenizeRpcDO } from "@lumenize/rpc";
 import { routeDORequest } from "@lumenize/utils";
 
-class _AlarmDO extends Actor<Env> {
+class _AlarmDO extends DurableObject<Env> {
+  storage: Storage;
+  alarms: Alarms<this>;
   executedAlarms: string[] = [];
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.storage = new Storage(ctx.storage);
+    this.alarms = new Alarms(ctx, this);
+  }
 
   // Required boilerplate: delegate to Alarms instance
   async alarm() {
@@ -119,7 +127,7 @@ class _AlarmDO extends Actor<Env> {
 
 // Wrap with RPC support so we can demo in doc-test.
 // You can just export the class above directly instead:
-//   `export const AlarmDO extends Actor<Env>{...}`
+//   `export const AlarmDO extends DurableObject<Env>{...}`
 export const AlarmDO = lumenizeRpcDO(_AlarmDO);
 
 export default {
@@ -141,8 +149,8 @@ API requires you to implement this handler method. The Alarms class can't
 automatically inject itself into that lifecycle hook, so you must explicitly 
 delegate to it.
 
-**Important**: The Actor base class automatically creates `this.alarms` for 
-you - you don't need to manually instantiate it.
+**Note**: Unlike extending `Actor` (which auto-creates `this.alarms`), you must 
+manually instantiate both `Storage` and `Alarms` in your constructor.
 
 ## Scheduling Alarms
 
@@ -202,6 +210,7 @@ it('schedules multiple alarms with different types', async () => {
   // Wait for alarms to become due, then trigger and verify
   await vi.waitFor(async () => {
     // Trigger any pending alarms (Alarms class auto-reschedules the next one)
+    await runDurableObjectAlarm(stub);
     await runDurableObjectAlarm(stub);
     
     // Verify both alarms actually executed
@@ -269,16 +278,11 @@ it('queries and cancels scheduled alarms', async () => {
 
 
 
-## Using Without Actor Base Class
-
-It's possible to use the Alarms package without extending Actor. 
-See [here](/docs/actors/alarms/plain-usage) for an example.
-
 ## wrangler.jsonc
 
 ```json wrangler.jsonc
 {
-  "name": "actors-alarms-basic-usage",
+  "name": "actors-alarms-plain-usage",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {

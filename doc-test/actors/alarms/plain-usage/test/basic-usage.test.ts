@@ -1,29 +1,17 @@
----
+// DOC-TEST FILE: This file generates documentation via @lumenize/doc-testing
+// - Block comments (/* */) become Markdown in the docs
+// - Code between block comments becomes code blocks in the docs
+// - Single-line comments (//) before the first block comment (like this one)
+//   do not show up in the generated doc
+// - Single-line comments (//) after that are included in the generated doc
+// - Use @import directives to include external files
+// - Tests must pass - they validate the documentation
+// - Keep code blocks within 80 columns to prevent horizontal scrolling
+// - Keep it brief - this is documentation, not exhaustive testing
+// - See: /tooling/doc-testing/README.md
 
-generated_by: doc-testing
-
----
-
-
-
-# Basic Usage
-
-<details>
-<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
-
-This documentation uses **testable code examples** to ensure accuracy and reliability:
-
-- **Guaranteed accuracy**: All examples are real, working code that runs against the actual package(s)
-- **Guaranteed latest comparisons**: Further, our release script won't allow us to release a new
-  version of Lumenize, without prompting us to update any doc-tested comparison package 
-  (e.g. Cap'n Web)
-- **Always up-to-date**: When a package changes, the tests fail and the docs must be updated
-- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
-- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
-
-Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
-
-</details>
+/*
+# Plain DurableObject Usage
 
 The [@cloudflare/actors](https://www.npmjs.com/package/@cloudflare/actors) 
 alarms package solves a key limitation: **Cloudflare only allows one native 
@@ -31,15 +19,13 @@ alarm per Durable Object instance**. This package uses SQL storage to manage
 multiple scheduled tasks and ensures the single native alarm always fires for 
 the next scheduled task.
 
-This guide shows how to use the alarms package to schedule one-time, delayed, 
-and recurring (cron) tasks in your Durable Objects.
+This guide shows how to use Alarms **without extending Actor** - just a plain 
+`DurableObject` with manual `Storage` and `Alarms` setup.
+*/
 
+/*
 ## Imports
-
-
-
-
-```typescript test
+*/
 import { it, expect, vi } from 'vitest';
 // @ts-expect-error - cloudflare:test module types not consistently exported
 import { SELF, env, runDurableObjectAlarm } from 'cloudflare:test';
@@ -50,100 +36,48 @@ import {
 } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 import { AlarmDO } from '../src';
-```
 
-
-
-
+/*
 ## Version
 
 This test asserts the installed version and our release script warns if we 
 aren't using the latest version published to npm, so this living documentation 
 should always be up to date.
-
-
-
-
-```typescript test
+*/
 import actorsPackage from '../node_modules/@cloudflare/actors/package.json';
 it('detects package version', () => {
   expect(actorsPackage.version).toBe('0.0.1-beta.6');
 });
-```
 
-
-
-
+/*
 ## Installation
 
 ```bash npm2yarn
 npm install @cloudflare/actors
 ```
 
-## Setup
+## Setup Without Actor Base Class
 
-To use the Alarms package, your Durable Object must:
+To use the Alarms package with a plain `DurableObject`, your class must:
 
-1. **Extend from `Actor`** (not `DurableObject`) - The Actor base class from 
-   `@cloudflare/actors` automatically initializes the `alarms` property and 
-   provides the `setName()` method required by the alarms system
-2. **Implement the `alarm()` method** - This delegates to the Alarms instance
+1. **Manually create `Storage` wrapper** - Import from `@cloudflare/actors/storage`
+2. **Manually create `Alarms` instance** - Pass `ctx` and `this`
+3. **Implement the `alarm()` method** - This delegates to the Alarms instance
 
 Here's the complete Durable Object and Worker:
 
-```typescript src/index.ts
-import { Actor } from "@cloudflare/actors";
-import { type Schedule } from "@cloudflare/actors/alarms";
-import { lumenizeRpcDO } from "@lumenize/rpc";
-import { routeDORequest } from "@lumenize/utils";
-
-class _AlarmDO extends Actor<Env> {
-  executedAlarms: string[] = [];
-
-  // Required boilerplate: delegate to Alarms instance
-  async alarm() {
-    await this.alarms.alarm();
-  }
-
-  // Callback for alarms - gets called when an alarm fires
-  async handleAlarm(payload: any, schedule: Schedule) {
-    const message = `Alarm ${schedule.id} fired: ${JSON.stringify(payload)}`;
-    this.executedAlarms.push(message);
-  }
-
-  // Method to get executed alarms (for testing)
-  getExecutedAlarms(): string[] {
-    return this.executedAlarms;
-  }
-}
-
-// Wrap with RPC support so we can demo in doc-test.
-// You can just export the class above directly instead:
-//   `export const AlarmDO extends Actor<Env>{...}`
-export const AlarmDO = lumenizeRpcDO(_AlarmDO);
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Route RPC requests to enable demo in doc-test
-    const response = await routeDORequest(request, env, { prefix: '__rpc' });
-    if (response) return response;
-    
-    // Fallback for non-RPC requests
-    return new Response('Alarms doc-test worker', { status: 404 });
-  },
-};
-
-
-```
+@import {typescript} "../src/index.ts" [src/index.ts]
 
 The `alarm()` method is **required boilerplate** - Cloudflare's Durable Object 
 API requires you to implement this handler method. The Alarms class can't 
 automatically inject itself into that lifecycle hook, so you must explicitly 
 delegate to it.
 
-**Important**: The Actor base class automatically creates `this.alarms` for 
-you - you don't need to manually instantiate it.
+**Note**: Unlike extending `Actor` (which auto-creates `this.alarms`), you must 
+manually instantiate both `Storage` and `Alarms` in your constructor.
+*/
 
+/*
 ## Scheduling Alarms
 
 The Alarms package supports three types of schedules:
@@ -151,11 +85,8 @@ The Alarms package supports three types of schedules:
 1. **Date-based**: Execute at a specific time
 2. **Delay-based**: Execute after N seconds
 3. **Cron-based**: Recurring execution using cron expressions
+*/
 
-
-
-
-```typescript test
 it('schedules multiple alarms with different types', async () => {
   // You don't need this.
   // It allows our test code to magically appear as though we are inside the DO
@@ -203,6 +134,7 @@ it('schedules multiple alarms with different types', async () => {
   await vi.waitFor(async () => {
     // Trigger any pending alarms (Alarms class auto-reschedules the next one)
     await runDurableObjectAlarm(stub);
+    await runDurableObjectAlarm(stub);
     
     // Verify both alarms actually executed
     const executed = await client.getExecutedAlarms();
@@ -211,19 +143,13 @@ it('schedules multiple alarms with different types', async () => {
     expect(executed.some((msg: string) => msg.includes('delay'))).toBe(true);
   });
 });
-```
 
-
-
-
+/*
 ## Managing Scheduled Alarms
 
 You can query and cancel scheduled alarms:
+*/
 
-
-
-
-```typescript test
 it('queries and cancels scheduled alarms', async () => {
   // You don't need this.
   // It allows our test code to magically appear as though we are inside the DO
@@ -264,41 +190,11 @@ it('queries and cancels scheduled alarms', async () => {
   const afterCancel = await client.alarms.getSchedules();
   expect(afterCancel.some((s: any) => s.id === schedule2.id)).toBe(false);
 });
-```
 
-
-
-
-## Using Without Actor Base Class
-
-It's possible to use the Alarms package without extending Actor. 
-See [here](/docs/actors/alarms/plain-usage) for an example.
-
+/*
 ## wrangler.jsonc
 
-```json wrangler.jsonc
-{
-  "name": "actors-alarms-basic-usage",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-09-12",
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "ALARM_DO",
-        "class_name": "AlarmDO"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["AlarmDO"]
-    }
-  ]
-}
-
-
-```
+@import {json} "../wrangler.jsonc" [wrangler.jsonc]
 
 ## Try it out
 
@@ -313,3 +209,4 @@ For coverage reports:
 ```bash
 vitest --run --coverage
 ```
+*/
