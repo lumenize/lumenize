@@ -127,30 +127,18 @@ function defaultDeencodeBody(data: any): ArrayBuffer {
 }
 
 /**
- * Encode Request to tuple-style data
+ * Encode Request object to an intermediate form that can be stringified to JSON
  * 
  * Note: This consumes the request body. If you need the original Request after encoding,
  * clone it before calling this function: `request.clone()`
  * 
- * **Why callbacks?** The optional `encodeHeaders` and `encodeBody` callbacks enable
- * cycle/alias tracking when the same Headers or body appears multiple times in your data:
+ * **Why callbacks?** Users can safely ignore the optional `encodeHeaders` and `encodeBody` 
+ * callbacks. They are used internally to enable cycle/alias tracking when this object is 
+ * embedded in another object.
  * 
- * ```typescript
- * const headers = new Headers({'Authorization': 'Bearer token'});
- * const data = {
- *   req1: new Request('https://api.com/users', { headers }),
- *   req2: new Request('https://api.com/posts', { headers }), // Same instance!
- *   sharedHeaders: headers  // After deencoding: all point to same instance
- * };
- * ```
- * 
- * The main encoder (`stringify()`) injects callbacks that track references. When called
- * standalone, defaults create inline data (no alias tracking, but simpler for one-off use).
- * 
- * @param request - Request to encode
- * @param encodeHeaders - Optional: Custom headers encoder for cycle/alias tracking
- * @param encodeBody - Optional: Custom body encoder for cycle/alias tracking
- * @returns Data object with minimal structure
+ * @param request - The Request to encode
+ * @param [encodeHeaders] - Optional callback to encode Headers (default: inline encoding)
+ * @param [encodeBody] - Optional callback to encode body (default: inline encoding)
  */
 export async function encodeRequest(
   request: Request,
@@ -182,18 +170,18 @@ export async function encodeRequest(
 }
 
 /**
- * Encode Response to tuple-style data
+ * Encode Response object to an intermediate form that can be stringified to JSON
  * 
  * Note: This consumes the response body. If you need the original Response after encoding,
  * clone it before calling this function: `response.clone()`
  * 
- * **Why callbacks?** The optional `encodeHeaders` and `encodeBody` callbacks enable
- * cycle/alias tracking. See `encodeRequest()` JSDoc for details and examples.
+ * **Why callbacks?** Users can safely ignore the optional `encodeHeaders` and `encodeBody` 
+ * callbacks. They are used internally to enable cycle/alias tracking when this object is 
+ * embedded in another object.
  * 
- * @param response - Response to encode
- * @param encodeHeaders - Optional: Custom headers encoder for cycle/alias tracking
- * @param encodeBody - Optional: Custom body encoder for cycle/alias tracking
- * @returns Data object with minimal structure
+ * @param response - The Response to encode
+ * @param [encodeHeaders] - Optional callback to encode Headers (default: inline encoding)
+ * @param [encodeBody] - Optional callback to encode body (default: inline encoding)
  */
 export async function encodeResponse(
   response: Response,
@@ -222,16 +210,15 @@ export async function encodeResponse(
 }
 
 /**
- * Deencode Request from tuple-style data
+ * Decode from an intermediate form to a Request object
  * 
- * **Why callbacks?** The optional callbacks resolve references when the data contains
- * `["$lmz", index]` markers (for cycle/alias support). When called standalone with
- * inline data, defaults handle reconstruction directly.
+ * **Why callbacks?** Users can safely ignore the optional `decodeHeaders` and `decodeBody` 
+ * callbacks. They are used internally to enable cycle/alias tracking when this object is 
+ * embedded in another object.
  * 
- * @param data - Data object
- * @param decodeHeaders - Optional: Custom headers decoder for resolving references
- * @param decodeBody - Optional: Custom body decoder for resolving references
- * @returns Reconstructed Request instance
+ * @param data - The encoded Request data
+ * @param [decodeHeaders] - Optional callback to decode Headers (default: inline decoding)
+ * @param [decodeBody] - Optional callback to decode body (default: inline decoding)
  */
 export function decodeRequest(
   data: any,
@@ -260,15 +247,15 @@ export function decodeRequest(
 }
 
 /**
- * Deencode Response from tuple-style data
+ * Decode from an intermediate form to a Response object
  * 
- * **Why callbacks?** The optional callbacks resolve references when the data contains
- * `["$lmz", index]` markers (for cycle/alias support). See `decodeRequest()` for details.
+ * **Why callbacks?** Users can safely ignore the optional `decodeHeaders` and `decodeBody` 
+ * callbacks. They are used internally to enable cycle/alias tracking when this object is 
+ * embedded in another object.
  * 
- * @param data - Data object
- * @param decodeHeaders - Optional: Custom headers decoder for resolving references
- * @param decodeBody - Optional: Custom body decoder for resolving references
- * @returns Reconstructed Response instance
+ * @param data - The encoded Response data
+ * @param [decodeHeaders] - Optional callback to decode Headers (default: inline decoding)
+ * @param [decodeBody] - Optional callback to decode body (default: inline decoding)
  */
 export function decodeResponse(
   data: any,
@@ -284,19 +271,3 @@ export function decodeResponse(
   const body = data.body !== undefined ? decodeBody(data.body) : null;
   return new Response(body, init);
 }
-
-/**
- * Type guard to check if a value is a Web API object instance
- * 
- * @param value - The value to check
- * @returns true if the value is a Request, Response, Headers, or URL instance
- */
-export function isWebApiObject(value: any): boolean {
-  return (
-    value instanceof Request ||
-    value instanceof Response ||
-    value instanceof Headers ||
-    value instanceof URL
-  );
-}
-

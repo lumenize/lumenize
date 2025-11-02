@@ -111,7 +111,7 @@ function transformStructuredCloneSidebar(items: any[]): any[] {
       if (specializedFunctions.length > 0) {
         result.push({
           type: 'category',
-          label: 'Specialized Serializers',
+          label: 'Encoders/Decoders',
           items: specializedFunctions.sort((a, b) => {
             const aLabel = a.label || '';
             const bLabel = b.label || '';

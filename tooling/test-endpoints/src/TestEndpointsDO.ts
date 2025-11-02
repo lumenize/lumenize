@@ -6,7 +6,7 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import { serializeWebApiObject } from '@lumenize/utils';
+import { encodeRequest, encodeResponse } from '@lumenize/structured-clone';
 
 interface Env {
   TEST_TOKEN: string;
@@ -203,11 +203,10 @@ export class TestEndpointsDO extends DurableObject<Env> {
     this.ctx.storage.kv.put('stats:lastTimestamp', startTime);
 
     // Store last request/response (need to clone since Response body can only be read once)
-    // RPC will auto-deserialize __isSerializedRequest back to Request when retrieved
     const responseClone = response.clone();
     
-    this.ctx.storage.kv.put('request:last', await serializeWebApiObject(request));
-    this.ctx.storage.kv.put('response:last', await serializeWebApiObject(responseClone));
+    this.ctx.storage.kv.put('request:last', await encodeRequest(request));
+    this.ctx.storage.kv.put('response:last', await encodeResponse(responseClone));
   }
 }
 

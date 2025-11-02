@@ -9,39 +9,21 @@
  * @packageDocumentation
  */
 
-import { decodeRequest, decodeResponse } from './web-api-encoding.js';
+import { decodeRequest, decodeResponse } from './web-api-encoding';
+import type { LmzIntermediate } from './preprocess';
 
 /**
- * Postprocesses a value from intermediate tuple-based $lmz format
+ * Postprocesses a value from intermediate to complex reconstructed values
  * 
- * Reconstructs complex JavaScript values (including cycles/aliases) from the plain
- * object structure {root, objects} created by preprocess().
- * 
- * Two-pass reconstruction algorithm:
- * - Pass 1: Create all complex objects and store in Map by index
- * - Pass 2: Fill objects with their properties, resolving ["$lmz", index] references
+ * Reconstructs complex JavaScript values (including cycles/aliases) from the intermediate
+ * format (`LmzIntermediate`) created by `preprocess()`.
  * 
  * This allows cycles and aliases to be properly reconstructed.
  * 
- * @param data - Intermediate format: {root: any, objects: any[]}
+ * @param data - Intermediate format from preprocess()
  * @returns Reconstructed value with cycles and aliases preserved
- * 
- * @example
- * ```typescript
- * const intermediate = {
- *   root: ["$lmz", 0],
- *   objects: [["object", {"name": ["string", "John"], "self": ["$lmz", 0]}]]
- * };
- * const obj = await postprocess(intermediate);
- * console.log(obj.name);  // "John"
- * console.log(obj.self === obj);  // true (cycle preserved)
- * 
- * // Or from JSON string:
- * const json = '{"root":["$lmz",0],"objects":[...]}';
- * const obj = await postprocess(JSON.parse(json));
- * ```
  */
-export async function postprocess(data: {root: any, objects: any[]}): Promise<any> {
+export async function postprocess(data: LmzIntermediate): Promise<any> {
   const objects = new Map<number, any>();
   
   // First pass: Create all complex objects

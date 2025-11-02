@@ -4,26 +4,30 @@
  * Combines Cap'n Web's human-readable tuple format ["type", data] with cycle and alias support
  * via ["$lmz", index] references.
  * 
- * Format structure:
- * {
- *   "root": <preprocessed value or ["$lmz", index]>,
- *   "objects": [<array of encoded complex objects>]
- * }
- * 
  * @packageDocumentation
  */
 
 import { 
-  isWebApiObject,
   encodeRequest,
   encodeResponse
-} from './web-api-encoding.js';
+} from './web-api-encoding';
 
 /**
- * Preprocesses a value to intermediate tuple-based $lmz format
+ * Intermediate format structure returned by preprocess() and consumed by postprocess()
  * 
- * Converts complex JavaScript values (including cycles/aliases) to a plain object
- * structure with {root, objects} that can be:
+ * @property root - The preprocessed root value or reference
+ * @property objects - Array of encoded complex objects
+ */
+export interface LmzIntermediate {
+  root: any;
+  objects: any[];
+}
+
+/**
+ * Preprocesses complex values to a format that can be stringified to JSON
+ * 
+ * Converts complex JavaScript values (including cycles/aliases) to an intermediate format
+ * (`LmzIntermediate`) that can be:
  * - Stringified via JSON.stringify() for transport over the wire
  * - Sent over MessagePort/BroadcastChannel (supports objects but not all Web API types)
  * - Stored in IndexedDB or other object-based storage
@@ -35,31 +39,9 @@ import {
  * Preserves cycles and aliases by tracking seen objects with WeakMap.
  * 
  * @param data - Value to preprocess
- * @returns Plain object structure: {root: any, objects: any[]}
- * 
- * @example
- * ```typescript
- * const obj = { name: "John", age: 30 };
- * obj.self = obj;  // Cycle
- * 
- * const intermediate = await preprocess(obj);
- * // {
- * //   "root": ["$lmz", 0],
- * //   "objects": [
- * //     ["object", {
- * //       "name": ["string", "John"],
- * //       "age": ["number", 30],
- * //       "self": ["$lmz", 0]
- * //     }]
- * //   ]
- * // }
- * 
- * // Can stringify, send over MessagePort, store in IndexedDB, etc.
- * const json = JSON.stringify(intermediate);
- * port.postMessage(intermediate);
- * ```
+ * @returns Intermediate format with root value and objects array
  */
-export async function preprocess(data: any): Promise<{root: any, objects: any[]}> {
+export async function preprocess(data: any): Promise<LmzIntermediate> {
   const seen = new WeakMap<any, number>();
   const objects: any[] = [];
   let nextId = 0;
@@ -166,45 +148,40 @@ export async function preprocess(data: any): Promise<{root: any, objects: any[]}
         const tuple: any = ["error", errorData];
         objects[id] = tuple;
         return ["$lmz", id];
-      } else if (isWebApiObject(value)) {
-        // Web API objects (Request, Response, Headers, URL)
-        // All go in objects array for proper alias support
-        
-        if (value instanceof Headers) {
-          // Headers - encode as array of [key, value] pairs
-          const entries: [string, string][] = [];
-          value.forEach((val: string, key: string) => {
-            entries.push([key, val]);
-          });
-          const tuple: any = ["headers", entries];
-          objects[id] = tuple;
-          return ["$lmz", id];
-        } else if (value instanceof URL) {
-          // URL - encode as object with href
-          const tuple: any = ["url", { href: value.href }];
-          objects[id] = tuple;
-          return ["$lmz", id];
-        } else if (value instanceof Request) {
-          // Request - encode with headers and body references
-          const data = await encodeRequest(
-            value,
-            async (headers) => await preprocessValue(headers),
-            async (body) => await preprocessValue(body)
-          );
-          const tuple: any = ["request", data];
-          objects[id] = tuple;
-          return ["$lmz", id];
-        } else if (value instanceof Response) {
-          // Response - encode with headers and body references
-          const data = await encodeResponse(
-            value,
-            async (headers) => await preprocessValue(headers),
-            async (body) => await preprocessValue(body)
-          );
-          const tuple: any = ["response", data];
-          objects[id] = tuple;
-          return ["$lmz", id];
-        }
+      } else if (value instanceof Headers) {
+        // Headers - encode as array of [key, value] pairs
+        const entries: [string, string][] = [];
+        value.forEach((val: string, key: string) => {
+          entries.push([key, val]);
+        });
+        const tuple: any = ["headers", entries];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value instanceof URL) {
+        // URL - encode as object with href
+        const tuple: any = ["url", { href: value.href }];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value instanceof Request) {
+        // Request - encode with headers and body references
+        const data = await encodeRequest(
+          value,
+          async (headers) => await preprocessValue(headers),
+          async (body) => await preprocessValue(body)
+        );
+        const tuple: any = ["request", data];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value instanceof Response) {
+        // Response - encode with headers and body references
+        const data = await encodeResponse(
+          value,
+          async (headers) => await preprocessValue(headers),
+          async (body) => await preprocessValue(body)
+        );
+        const tuple: any = ["response", data];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (value instanceof Boolean) {
         // Boolean wrapper object
         return ["boolean-object", value.valueOf()];

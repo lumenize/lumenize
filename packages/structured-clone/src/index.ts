@@ -19,19 +19,16 @@
  * - @ungap/structured-clone (cycle detection): https://github.com/ungap/structured-clone
  */
 
-import { preprocess } from './preprocess.js';
-import { postprocess } from './postprocess.js';
+import { preprocess } from './preprocess';
+import { postprocess } from './postprocess';
 
 /**
  * Convert value to JSON string with full type support.
  * 
- * Uses tuple-based $lmz format: ["type", data] for values, ["$lmz", index] for references.
  * Handles cycles, aliases, Date, RegExp, Map, Set, Error, BigInt, TypedArrays.
  * Web API objects (Request, Response, Headers, URL) are serialized with full fidelity.
  * 
  * This is a convenience wrapper around `preprocess()` + `JSON.stringify()`.
- * 
- * Performance: 75x faster serialization than previous indexed format.
  * 
  * Note: Async for Request/Response body reading.
  * 
@@ -82,14 +79,8 @@ export {
   encodeRequest,
   encodeResponse,
   decodeRequest,
-  decodeResponse,
-  isWebApiObject
-} from './web-api-encoding.js';
+  decodeResponse
+} from './web-api-encoding';
 
-// Note: Internal types and utilities are NOT exported from this package.
-// If other packages need them, import directly from the source files.
-// 
-// Type exports for tuple format:
-export type { } from './preprocess.js';  // No types exported yet
-export type { } from './postprocess.js';  // No types exported yet
-
+// Type exports
+export type { LmzIntermediate } from './preprocess';

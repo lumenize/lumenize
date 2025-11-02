@@ -78,3 +78,42 @@ describe('Error in Data Structures', () => {
   });
 });
 
+// Your custom Error class (in a module)
+export class ValidationError extends Error {
+  name = 'ValidationError';
+  constructor(message: string, public field: string) {
+    super(message);
+  }
+}
+
+describe('Custom Error Classes', () => {
+  it('registers custom Error globally and preserves type', async () => {
+    // In your app initialization (before deserialization)
+    // ...
+    
+    // Register on globalThis so deserializer can find it
+    (globalThis as any).ValidationError = ValidationError;
+
+    const error = new ValidationError('Invalid email', 'email');
+    const restored = await parse(await stringify(error));
+    
+    expect(restored instanceof ValidationError).toBe(true); // ✅ true!
+    expect((restored as any).field).toBe('email'); // ✅ 'email' (custom property preserved)
+    expect(restored.name).toBe('ValidationError'); // ✅ 'ValidationError'
+    
+    // Cleanup
+    delete (globalThis as any).ValidationError;
+  });
+
+  it('falls back gracefully without global registration', async () => {
+    // No global registration
+    const error = new ValidationError('Invalid email', 'email');
+    const restored = await parse(await stringify(error));
+    
+    expect(restored instanceof ValidationError).toBe(false); // ❌ false (no type)
+    expect(restored instanceof Error).toBe(true); // ✅ true (fallback)
+    expect((restored as any).field).toBe('email'); // ✅ 'email' (property still preserved!)
+    expect(restored.name).toBe('ValidationError'); // ✅ 'ValidationError' (name preserved)
+  });
+});
+

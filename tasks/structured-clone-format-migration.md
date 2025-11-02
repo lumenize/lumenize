@@ -225,11 +225,11 @@ obj.self = obj;  // Cycle
 - [ ] Remove `Map<any, number>` for index tracking
 
 ### Phase 5: Update Exports and Public API
-- [ ] Verify `stringify()` and `parse()` still work as expected
-- [ ] Keep `serializeWebApiObject()` and `deserializeWebApiObject()` exports (used by proxy-fetch)
-- [ ] Keep `isWebApiObject()` and `isSerializedWebApiObject()` exports
-- [ ] Remove any old format-specific exports
-- [ ] Update `src/index.ts` exports
+- [x] Verify `stringify()` and `parse()` still work as expected
+- [x] Removed `serializeWebApiObject()` and `deserializeWebApiObject()` (replaced with `encodeRequest/Response` and `decodeRequest/Response`)
+- [x] Removed `isWebApiObject()` (unnecessary duplication of instanceof checks)
+- [x] Remove any old format-specific exports
+- [x] Update `src/index.ts` exports
 
 ### Phase 6: Fix Dependent Packages
 - [ ] `@lumenize/rpc`: Verify Error serialization works (should already use `stringify()`/`parse()`)
