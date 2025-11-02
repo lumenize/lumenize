@@ -8,7 +8,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ProxyFetchDO } from '../../src/ProxyFetchDurableObject';
 import { proxyFetchDO } from '../../src/proxyFetch';
-import { deserializeWebApiObject } from '@lumenize/structured-clone';
+import { decodeResponse } from '@lumenize/structured-clone';
 
 // Re-export ProxyFetchDO so it's available to wrangler
 export { ProxyFetchDO };
@@ -27,7 +27,7 @@ export class TestDO extends DurableObject {
     });
     
     // Deserialize response and read body
-    const response = item.response ? await deserializeWebApiObject(item.response) : null;
+    const response = item.response ? await decodeResponse(item.response) : null;
     const body = response ? await response.json() : null;
     
     this.#successResults.set(item.reqId, { response: item.response, body });

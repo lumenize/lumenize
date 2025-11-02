@@ -1,4 +1,4 @@
-import { deserializeWebApiObject } from '@lumenize/structured-clone';
+import { decodeRequest } from '@lumenize/structured-clone';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
 import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
 
@@ -45,8 +45,8 @@ export async function proxyFetchQueueConsumer(
     let response: Response | null = null;
     
     try {
-      // Deserialize the Request object
-      const request = deserializeWebApiObject(serializedRequest);
+      // Decode the Request object
+      const request = decodeRequest(serializedRequest);
       
       console.debug('%o', {
         type: 'debug',

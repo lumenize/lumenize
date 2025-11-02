@@ -10,7 +10,7 @@ import { it, expect, vi } from 'vitest';
 import { ulidFactory } from 'ulid-workers';
 import { createTestingClient } from '@lumenize/testing';
 import { _ProxyFetchDO } from './test-worker';
-import { serializeWebApiObject } from '@lumenize/structured-clone';
+import { encodeRequest } from '@lumenize/structured-clone';
 // @ts-expect-error - cloudflare:test types not available at compile time
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
@@ -33,7 +33,7 @@ it('recovers orphaned requests from in-flight state', async () => {
       TEST_ENDPOINTS.buildUrl('/uuid'),
       { method: 'GET' }
     );
-  const serializedRequest = await serializeWebApiObject(testRequest);
+  const serializedRequest = await encodeRequest(testRequest);
   
   await proxyClient.ctx.storage.kv.put(`reqs-in-flight:${requestUlid}`, {
     reqId: 'orphaned-req-1',
@@ -86,7 +86,7 @@ it('expires old orphaned requests', async () => {
     TEST_ENDPOINTS.buildUrl('/uuid'),
     { method: 'GET' }
   );
-  const serializedExpiredRequest = await serializeWebApiObject(expiredRequest);
+  const serializedExpiredRequest = await encodeRequest(expiredRequest);
   
   // Store directly in in-flight with old ULID
   await proxyClient.ctx.storage.kv.put(`reqs-in-flight:${oldUlid}`, {

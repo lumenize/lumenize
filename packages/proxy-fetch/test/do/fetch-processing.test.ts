@@ -17,7 +17,7 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 // @ts-expect-error
 import { env } from 'cloudflare:test';
-import { serializeWebApiObject } from '@lumenize/structured-clone';
+import { encodeRequest } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 import type { ProxyFetchQueueMessage } from '../../src/types';
 
@@ -44,7 +44,7 @@ describe('ProxyFetchDO Fetch Processing', () => {
 
   test('successful fetch delivers callback to origin DO', async () => {
     const request = TEST_ENDPOINTS.createRequest('/uuid', { method: 'GET' });
-    const serializedRequest = await serializeWebApiObject(request);
+    const serializedRequest = await encodeRequest(request);
     
     const message: ProxyFetchQueueMessage = {
       reqId: 'success-req-1',
@@ -73,7 +73,7 @@ describe('ProxyFetchDO Fetch Processing', () => {
 
   test('fetch error delivers error callback to origin DO', async () => {
     const request = new Request('https://invalid-domain-that-will-fail.invalid', { method: 'GET' });
-    const serializedRequest = await serializeWebApiObject(request);
+    const serializedRequest = await encodeRequest(request);
     
     const message: ProxyFetchQueueMessage = {
       reqId: 'error-req-1',
@@ -110,7 +110,7 @@ describe('ProxyFetchDO Fetch Processing', () => {
         const req = TEST_ENDPOINTS.createRequest('/uuid', { method: 'GET' });
         return {
           reqId: 'concurrent-1',
-          request: await serializeWebApiObject(req),
+          request: await encodeRequest(req),
           doBindingName: 'TEST_DO',
           instanceId: testId,
           handlerName: 'handleSuccess',
@@ -122,7 +122,7 @@ describe('ProxyFetchDO Fetch Processing', () => {
         const req = TEST_ENDPOINTS.createRequest('/json', { method: 'GET' });
         return {
           reqId: 'concurrent-2',
-          request: await serializeWebApiObject(req),
+          request: await encodeRequest(req),
           doBindingName: 'TEST_DO',
           instanceId: testId,
           handlerName: 'handleSuccess',
@@ -134,7 +134,7 @@ describe('ProxyFetchDO Fetch Processing', () => {
         const req = TEST_ENDPOINTS.createRequest('/uuid', { method: 'GET' });
         return {
           reqId: 'concurrent-3',
-          request: await serializeWebApiObject(req),
+          request: await encodeRequest(req),
           doBindingName: 'TEST_DO',
           instanceId: testId,
           handlerName: 'handleSuccess',

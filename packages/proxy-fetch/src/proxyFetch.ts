@@ -1,4 +1,4 @@
-import { serializeWebApiObject } from '@lumenize/structured-clone';
+import { encodeRequest } from '@lumenize/structured-clone';
 import type { ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
 
 /**
@@ -79,8 +79,8 @@ export async function proxyFetchDO(
   // Convert string URL to Request if needed
   const request = typeof req === 'string' ? new Request(req) : req;
   
-  // Serialize the Request object for transmission
-  const serializedRequest = await serializeWebApiObject(request);
+  // Encode the Request object for transmission
+  const serializedRequest = await encodeRequest(request);
   
   // Create message for ProxyFetchDO
   const queueMessage: ProxyFetchQueueMessage = {
@@ -141,8 +141,8 @@ export async function proxyFetchQueue(
   // Convert string URL to Request if needed
   const request = typeof req === 'string' ? new Request(req) : req;
   
-  // Serialize the Request object for queue transmission
-  const serializedRequest = await serializeWebApiObject(request);
+  // Encode the Request object for queue transmission
+  const serializedRequest = await encodeRequest(request);
   
   // Send message to queue with all data needed for processing and callback
   const queueMessage: ProxyFetchQueueMessage = {

@@ -15,7 +15,7 @@
 import { env, createMessageBatch, createExecutionContext, getQueueResult, runInDurableObject } from 'cloudflare:test';
 import { describe, test, expect, vi } from 'vitest';
 import worker from './test-worker-and-dos';
-import { serializeWebApiObject } from '@lumenize/structured-clone';
+import { encodeRequest } from '@lumenize/structured-clone';
 import { proxyFetch } from '../../src/proxyFetch';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
@@ -81,7 +81,7 @@ describe('Proxy Fetch Integration', () => {
     const testRequest = new Request(
       TEST_ENDPOINTS.buildUrl('/json')
     );
-    const serializedRequest = await serializeWebApiObject(testRequest);
+    const serializedRequest = await encodeRequest(testRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -128,7 +128,7 @@ describe('Proxy Fetch Integration', () => {
     const testRequest = new Request(
       TEST_ENDPOINTS.buildUrl('/uuid')
     );
-    const serializedRequest = await serializeWebApiObject(testRequest);
+    const serializedRequest = await encodeRequest(testRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -156,7 +156,7 @@ describe('Proxy Fetch Integration', () => {
 
   test('fire-and-forget mode: skips error callback on fetch failure', { timeout: 5000 }, async () => {
     const testRequest = new Request('https://invalid-domain-for-fire-and-forget.invalid/');
-    const serializedRequest = await serializeWebApiObject(testRequest);
+    const serializedRequest = await encodeRequest(testRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -197,8 +197,8 @@ describe('Proxy Fetch Integration', () => {
     // Create a batch with multiple messages using real serialization
     const req1 = new Request(TEST_ENDPOINTS.buildUrl('/uuid'));
     const req2 = new Request(TEST_ENDPOINTS.buildUrl('/delay/500')); // 500ms delay
-    const serializedReq1 = await serializeWebApiObject(req1);
-    const serializedReq2 = await serializeWebApiObject(req2);
+    const serializedReq1 = await encodeRequest(req1);
+    const serializedReq2 = await encodeRequest(req2);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -260,7 +260,7 @@ describe('Proxy Fetch Integration', () => {
     
     // Create message with invalid URL using real serialization
     const errorRequest = new Request('https://this-is-not-a-valid-url-that-will-fail.invalid');
-    const serializedErrorRequest = await serializeWebApiObject(errorRequest);
+    const serializedErrorRequest = await encodeRequest(errorRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -311,7 +311,7 @@ describe('Proxy Fetch Integration', () => {
         },
       body: JSON.stringify({ test: 'data' }),
     });
-    const serializedPostRequest = await serializeWebApiObject(postRequest);
+    const serializedPostRequest = await encodeRequest(postRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -359,7 +359,7 @@ describe('Error Handling and Retries', () => {
     const timeoutRequest = new Request(
       TEST_ENDPOINTS.buildUrl('/delay/5000')
     ); // 5 second delay
-    const serializedRequest = await serializeWebApiObject(timeoutRequest);
+    const serializedRequest = await encodeRequest(timeoutRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -402,7 +402,7 @@ describe('Error Handling and Retries', () => {
     
     // Invalid URL that will fail with network error
     const errorRequest = new Request('https://invalid-domain-that-does-not-exist-123456.invalid');
-    const serializedRequest = await serializeWebApiObject(errorRequest);
+    const serializedRequest = await encodeRequest(errorRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -450,7 +450,7 @@ describe('Error Handling and Retries', () => {
     const errorRequest = new Request(
       TEST_ENDPOINTS.buildUrl('/status/500')
     );
-    const serializedRequest = await serializeWebApiObject(errorRequest);
+    const serializedRequest = await encodeRequest(errorRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -492,7 +492,7 @@ describe('Error Handling and Retries', () => {
     const errorRequest = new Request(
       TEST_ENDPOINTS.buildUrl('/status/404')
     );
-    const serializedRequest = await serializeWebApiObject(errorRequest);
+    const serializedRequest = await encodeRequest(errorRequest);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -535,7 +535,7 @@ describe('Error Handling and Retries', () => {
     const request = new Request(
       TEST_ENDPOINTS.buildUrl('/uuid')
     );
-    const serializedRequest = await serializeWebApiObject(request);
+    const serializedRequest = await encodeRequest(request);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {
@@ -580,7 +580,7 @@ describe('Error Handling and Retries', () => {
     const request = new Request(
       TEST_ENDPOINTS.buildUrl('/uuid')
     );
-    const serializedRequest = await serializeWebApiObject(request);
+    const serializedRequest = await encodeRequest(request);
     
     const batch = createMessageBatch('proxy-fetch-queue', [
       {

@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { ulidFactory, decodeTime } from 'ulid-workers';
 import type { ProxyFetchQueueMessage } from './types';
 import { MAX_REQUEST_AGE_MS, ALARM_INTERVAL_NORMAL_MS, QUEUE_PROCESS_BATCH_SIZE, isRetryable, getRetryDelay, DEFAULT_OPTIONS } from './utils';
-import { serializeWebApiObject, deserializeWebApiObject } from '@lumenize/structured-clone';
+import { encodeResponse, decodeRequest, decodeResponse } from '@lumenize/structured-clone';
 
 // Create monotonic ULID factory at module level for DO persistence
 const ulid = ulidFactory();
@@ -38,7 +38,7 @@ const ulid = ulidFactory();
  *   if (item.error) {
  *     console.error('Fetch failed:', item.error);
  *   } else {
- *     const response = deserializeWebApiObject(item.response);
+   *     const response = decodeResponse(item.response);
  *     const data = await response.json();
  *     // Process data...
  *   }
@@ -178,8 +178,8 @@ export class ProxyFetchDO extends DurableObject {
         retryCount: request.retryCount || 0,
       });
 
-      // Deserialize the request
-      const fetchRequest = deserializeWebApiObject(request.request) as Request;
+      // Decode the request
+      const fetchRequest = decodeRequest(request.request);
 
       // Set up timeout
       const controller = new AbortController();
@@ -306,7 +306,7 @@ export class ProxyFetchDO extends DurableObject {
       };
 
       if (response) {
-        handlerItem.response = await serializeWebApiObject(response);
+        handlerItem.response = await encodeResponse(response);
       }
 
       if (error) {
