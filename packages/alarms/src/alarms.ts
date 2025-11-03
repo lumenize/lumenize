@@ -106,6 +106,7 @@ export class Alarms<P extends { [key: string]: any }> {
   #parent: P;
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
+  #tableInitialized = false;
 
   constructor(
     ctx: DurableObjectState,
@@ -124,10 +125,30 @@ export class Alarms<P extends { [key: string]: any }> {
       throw new Error('Alarms requires sql injectable. Pass it in deps or use LumenizeBase.');
     }
 
-    // Initialize table and recover pending alarms
-    void ctx.blockConcurrencyWhile(async () => {
-      // Create alarms table if it doesn't exist
-      ctx.storage.sql.exec(`
+    // Try to initialize in blockConcurrencyWhile if we're in constructor phase
+    // This will fail silently if called outside constructor (lazy init case)
+    try {
+      void ctx.blockConcurrencyWhile(async () => {
+        this.#ensureTable();
+        // Execute any pending alarms and schedule the next alarm
+        await this.alarm();
+        this.#tableInitialized = true;
+      });
+    } catch (e) {
+      // Outside constructor phase - will initialize lazily on first operation
+    }
+  }
+
+  /**
+   * Ensure the alarms table exists (idempotent)
+   */
+  #ensureTable(): void {
+    if (this.#tableInitialized) {
+      return;
+    }
+
+    try {
+      this.#storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS _lumenize_alarms (
           id TEXT PRIMARY KEY NOT NULL,
           callback TEXT NOT NULL,
@@ -139,10 +160,11 @@ export class Alarms<P extends { [key: string]: any }> {
           created_at INTEGER DEFAULT (unixepoch())
         )
       `);
-
-      // Execute any pending alarms and schedule the next alarm
-      await this.alarm();
-    });
+      this.#tableInitialized = true;
+    } catch (e) {
+      // Table might already exist or error creating - log and continue
+      console.error('Error ensuring alarms table:', e);
+    }
   }
 
   /**
@@ -158,6 +180,8 @@ export class Alarms<P extends { [key: string]: any }> {
     callback: keyof P & string,
     payload?: T
   ): Promise<Schedule<T, keyof P>> {
+    this.#ensureTable();
+    
     const id = nanoid(9);
 
     if (typeof callback !== 'string') {
@@ -230,6 +254,8 @@ export class Alarms<P extends { [key: string]: any }> {
    * @returns The Schedule object or undefined if not found
    */
   async getSchedule<T = string>(id: string): Promise<Schedule<T> | undefined> {
+    this.#ensureTable();
+    
     const result = this.#sql`
       SELECT * FROM _lumenize_alarms WHERE id = ${id}
     `;
@@ -255,6 +281,8 @@ export class Alarms<P extends { [key: string]: any }> {
       end?: Date;
     };
   } = {}): Schedule<T>[] {
+    this.#ensureTable();
+    
     let query = 'SELECT * FROM _lumenize_alarms WHERE 1=1';
     const params: any[] = [];
 
@@ -292,6 +320,8 @@ export class Alarms<P extends { [key: string]: any }> {
    * @returns true if the task was cancelled, false otherwise
    */
   async cancelSchedule(id: string): Promise<boolean> {
+    this.#ensureTable();
+    
     this.#sql`DELETE FROM _lumenize_alarms WHERE id = ${id}`;
     await this.#scheduleNextAlarm();
     return true;
@@ -301,6 +331,8 @@ export class Alarms<P extends { [key: string]: any }> {
    * Alarm handler - must be called from DO's alarm() method
    */
   readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
+    this.#ensureTable();
+    
     const now = Math.floor(Date.now() / 1000);
 
     // Get all schedules that should be executed now
@@ -369,4 +401,20 @@ declare global {
     alarms: Alarms<any>;
   }
 }
+
+// Register service in global registry for LumenizeBase auto-injection
+if (!(globalThis as any).__lumenizeServiceRegistry) {
+  (globalThis as any).__lumenizeServiceRegistry = {};
+}
+(globalThis as any).__lumenizeServiceRegistry.alarms = (doInstance: any) => {
+  // Auto-inject dependencies
+  const deps: any = {};
+  
+  // Alarms needs sql - get it from doInstance.svc (will be cached by LumenizeBase)
+  if (doInstance.svc && doInstance.svc.sql) {
+    deps.sql = doInstance.svc.sql;
+  }
+  
+  return new Alarms(doInstance.ctx, doInstance, deps);
+};
 

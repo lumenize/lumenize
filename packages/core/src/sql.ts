@@ -68,3 +68,9 @@ declare global {
   }
 }
 
+// Register service in global registry for LumenizeBase auto-injection
+if (!(globalThis as any).__lumenizeServiceRegistry) {
+  (globalThis as any).__lumenizeServiceRegistry = {};
+}
+(globalThis as any).__lumenizeServiceRegistry.sql = (doInstance: any) => sql(doInstance);
+
