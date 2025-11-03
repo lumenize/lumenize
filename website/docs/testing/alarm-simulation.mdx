@@ -30,11 +30,12 @@ When you call `instrumentDOProject()`, alarm simulation is automatically enabled
 
 Write your DO with standard alarm methods:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/MyDO.ts')
 export class MyDO {
   ctx: DurableObjectState;
   env: Env;
   taskStatus: string = 'idle';
+  // ...
 
   constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
@@ -43,9 +44,11 @@ export class MyDO {
 
   // Standard Cloudflare alarm handler
   async alarm() {
+    // ...
     this.taskStatus = 'processing';
     await this.processScheduledTask();
     this.taskStatus = 'complete';
+    // ...
   }
 
   scheduleTask(delaySeconds: number) {
@@ -57,6 +60,7 @@ export class MyDO {
   async processScheduledTask() {
     // Your task logic here
   }
+  // ...
 }
 ```
 
@@ -64,7 +68,7 @@ export class MyDO {
 
 Alarms fire automatically - just wait for them:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/basic-usage.test.ts')
 import { it, expect, vi } from 'vitest';
 import { createTestingClient } from '@lumenize/testing';
 import { MyDO } from '../src';
@@ -102,7 +106,7 @@ This makes tests fast while preserving timing relationships.
 
 Configure the time scale when instrumenting your DO:
 
-```typescript
+```typescript @skip-check
 // test/test-harness.ts
 import * as sourceModule from '../src';
 import { instrumentDOProject } from '@lumenize/testing';
@@ -125,7 +129,7 @@ export default instrumented;
 
 If you need to disable alarm simulation:
 
-```typescript
+```typescript @skip-check
 const instrumented = instrumentDOProject({
   sourceModule,
   doClassNames: ['MyDO'],
@@ -156,12 +160,11 @@ The simulation matches Cloudflare's retry behavior:
 
 ### Testing Retry Behavior
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/retry-behavior.test.ts')
 it('retries failed alarms with exponential backoff', async () => {
   await using client = createTestingClient<typeof MyDO>('MY_DO', 'retry-test');
 
   // Make the alarm fail twice, then succeed
-  let attemptCount = 0;
   await client.setAlarmFailureCount(2);
 
   // Schedule alarm
@@ -184,7 +187,7 @@ it('retries failed alarms with exponential backoff', async () => {
 
 Cloudflare allows **only one alarm per Durable Object**. Setting a new alarm overwrites the previous one:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/single-alarm.test.ts')
 it('new alarm overwrites pending alarm', async () => {
   await using client = createTestingClient<typeof MyDO>('MY_DO', 'overwrite');
 
@@ -210,10 +213,12 @@ it('new alarm overwrites pending alarm', async () => {
 
 The simulation works seamlessly with `@cloudflare/actors` Alarms, which multiplexes multiple logical alarms over Cloudflare's single native alarm:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/SchedulerDO.ts')
 import { Actor } from '@cloudflare/actors';
 
 export class SchedulerDO extends Actor<Env> {
+  // ...
+  
   // Required: delegate to Actor's alarm system
   async alarm() {
     await this.alarms.alarm();
@@ -221,7 +226,7 @@ export class SchedulerDO extends Actor<Env> {
 
   // Your alarm handler
   async handleAlarm(payload: any) {
-    console.log('Alarm fired:', payload);
+    // ...
   }
 
   async scheduleMultiple() {
@@ -232,6 +237,8 @@ export class SchedulerDO extends Actor<Env> {
     
     // All three will fire automatically in tests!
   }
+  
+  // ...
 }
 ```
 
@@ -239,7 +246,7 @@ export class SchedulerDO extends Actor<Env> {
 
 For DOs using Actor Alarms, use **1x time scale** to avoid conflicts with Actor's internal scheduling logic:
 
-```typescript
+```typescript @skip-check
 // test/test-harness.ts
 import * as sourceModule from '../src';
 import { instrumentDOProject } from '@lumenize/testing';
@@ -256,8 +263,8 @@ export default instrumented;
 
 Test:
 
-```typescript
-it('handles multiple Actor alarms automatically', async () => {
+```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/actor-alarms.test.ts')
+it('handles multiple Actor alarms automatically', // ...
   await using client = createTestingClient<typeof SchedulerDO>(
     'SCHEDULER_DO',
     'multi-alarms'
@@ -281,7 +288,7 @@ it('handles multiple Actor alarms automatically', async () => {
 
 ### `instrumentDOProject` Options
 
-```typescript
+```typescript @skip-check
 interface AlarmSimulationConfig {
   /**
    * Time scale factor for alarm delays
@@ -314,7 +321,7 @@ instrumentDOProject({
 
 Your DO uses the standard Cloudflare APIs:
 
-```typescript
+```typescript @skip-check
 // Set an alarm
 this.ctx.storage.setAlarm(Date.now() + 10000); // 10 seconds
 
@@ -346,7 +353,7 @@ The simulation:
 
 Cloudflare's `runDurableObjectAlarm()` from `cloudflare:test` requires manual invocation:
 
-```typescript
+```typescript @skip-check
 // ❌ Old way - manual and verbose
 import { runDurableObjectAlarm } from 'cloudflare:test';
 
@@ -354,7 +361,7 @@ await client.scheduleTask(10);
 await runDurableObjectAlarm(doInstance); // Must manually trigger
 ```
 
-```typescript
+```typescript @skip-check
 // ✅ New way - automatic and intuitive
 await client.scheduleTask(10);
 await vi.waitFor(() => {
