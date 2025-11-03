@@ -1,5 +1,5 @@
 import type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
-import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
+import { createRpcClient, createHttpTransport, createWebSocketTransport } from '@lumenize/rpc';
 import { getWebSocketShim } from '@lumenize/utils';
 
 /**
@@ -11,7 +11,8 @@ import { getWebSocketShim } from '@lumenize/utils';
  * 
  * This is a convenience wrapper around `createRpcClient` that automatically:
  * - Imports SELF from cloudflare:test
- * - Uses WebSocket transport (persistent connection, supports downstream messaging)
+ * - Uses HTTP transport by default (fast, simple, no connection overhead)
+ * - Automatically switches to WebSocket when downstream messaging is configured
  * - Provides RPC access to DO instance internals
  * 
  * @remarks
@@ -53,6 +54,16 @@ export function createTestingClient<T>(
   doInstanceNameOrId: string,
   config?: {
     /**
+     * Transport type to use. Defaults to 'http'.
+     * - 'http': Fast, simple, no connection overhead (default)
+     * - 'websocket': Persistent connection, required for downstream messaging
+     * 
+     * @remarks
+     * Automatically switches to 'websocket' when onDownstream or onClose is provided.
+     */
+    transport?: 'http' | 'websocket';
+    
+    /**
      * Handler for downstream messages from the DO
      * 
      * **Testing Guidance**: For most tests, prefer calling methods and using `vi.waitFor()` 
@@ -63,6 +74,7 @@ export function createTestingClient<T>(
      * @remarks
      * If provided without clientId, a random clientId will be auto-generated and the 
      * WebSocket connection will be tagged with it for routing downstream messages.
+     * Automatically switches transport to 'websocket'.
      * 
      * @example
      * ```typescript
@@ -92,6 +104,9 @@ export function createTestingClient<T>(
     
     /**
      * Handler for WebSocket connection close events
+     * 
+     * @remarks
+     * Automatically switches transport to 'websocket'.
      */
     onClose?: (code: number, reason: string) => void | Promise<void>;
     
@@ -106,26 +121,44 @@ export function createTestingClient<T>(
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { SELF } = require('cloudflare:test');
   
-  // Generate clientId if onDownstream is provided but clientId is not
-  const clientId = config?.onDownstream && !config?.clientId
-    ? `test-client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    : config?.clientId;
+  // Determine which transport to use
+  // Auto-switch to WebSocket if downstream messaging or onClose is configured
+  const useWebSocket = config?.transport === 'websocket' || 
+                       config?.onDownstream !== undefined || 
+                       config?.onClose !== undefined;
   
-  // Use WebSocket transport - supports downstream messaging
-  const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
-  
-  // Call createRpcClient with WebSocket transport factory
-  return createRpcClient<T>({
-    transport: createWebSocketTransport(doBindingName, doInstanceNameOrId, {
-      WebSocketClass: getWebSocketShim(baseFetch),
-      baseUrl: 'https://fake-host.com',  // Required but not used in test environment
-      prefix: '__rpc',
-      clientId,  // Pass clientId to transport so it can tag the WebSocket connection
+  if (useWebSocket) {
+    // Generate clientId if onDownstream is provided but clientId is not
+    const clientId = config?.onDownstream && !config?.clientId
+      ? `test-client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      : config?.clientId;
+    
+    // Use WebSocket transport - supports downstream messaging
+    const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
+    
+    return createRpcClient<T>({
+      transport: createWebSocketTransport(doBindingName, doInstanceNameOrId, {
+        WebSocketClass: getWebSocketShim(baseFetch),
+        baseUrl: 'https://fake-host.com',  // Required but not used in test environment
+        prefix: '__rpc',
+        clientId,
+        onDownstream: config?.onDownstream,
+        onClose: config?.onClose,
+      }),
+      clientId,
       onDownstream: config?.onDownstream,
       onClose: config?.onClose,
-    }),
-    clientId,
-    onDownstream: config?.onDownstream,
-    onClose: config?.onClose,
-  });
+    });
+  } else {
+    // Use HTTP transport - simple, fast, no connection overhead
+    const baseFetch: typeof fetch = SELF.fetch.bind(SELF);
+    
+    return createRpcClient<T>({
+      transport: createHttpTransport(doBindingName, doInstanceNameOrId, {
+        baseUrl: 'https://fake-host.com',  // Required but not used in test environment
+        prefix: '__rpc',
+        fetch: baseFetch,
+      }),
+    });
+  }
 }

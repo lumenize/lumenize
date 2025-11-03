@@ -204,6 +204,10 @@ it('shows testing WebSocket functionality', async () => {
   // Tests ctx.setWebSocketAutoResponse w/ new connection to the same DO
   const ws2 = new WebSocket('wss://test.com/my-do/test-ws') as any;
   let autoResponseReceived = false;
+  let ws2Opened = false;
+  ws2.onopen = () => ws2Opened = true;
+  await vi.waitFor(() => expect(ws2Opened).toBe(true));
+  
   ws2.send('ar-ping');
   ws2.onmessage = async (event: any) => {
     expect(event.data).toBe('ar-pong');

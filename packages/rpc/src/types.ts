@@ -362,10 +362,11 @@ export interface RpcTransport {
   /**
    * Enable/disable keep-alive mode (required).
    * When enabled:
-   * - Uses setWebSocketAutoResponse for heartbeat (WebSocket only)
-   * - Automatically reconnects when connection drops
+   * - Automatically reconnects when connection drops (WebSocket only)
    * - Can reconnect hours/days later (browser tab sleep/wake)
    * HTTP transport implements as no-op.
+   * 
+   * Note: Does NOT send periodic pings to allow DO hibernation.
    */
   setKeepAlive(enabled: boolean): void;
 }

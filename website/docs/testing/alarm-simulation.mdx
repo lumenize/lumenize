@@ -137,6 +137,34 @@ const instrumented = instrumentDOProject({
 });
 ```
 
+## Testing Alarm Cancellation/Overwriting
+
+When testing scenarios where you **rapidly schedule multiple alarms** and expect the second to overwrite the first, use **WebSocket transport** to maintain a persistent connection:
+
+```typescript @skip-check
+// For rapid sequential alarm operations that need state persistence
+await using client = createTestingClient<typeof MyDO>('MY_DO', 'test', {
+  transport: 'websocket'
+});
+
+// First alarm scheduled
+await client.scheduleTask(10);
+
+// Second alarm immediately overwrites first (needs persistent connection)
+await client.scheduleTask(5);
+
+// Only the second alarm fires
+await vi.waitFor(async () => {
+  expect(await client.taskStatus).toBe('complete');
+});
+```
+
+**Why WebSocket?** With HTTP transport (the default), each RPC call can hit a fresh DO execution context. For rapid sequential calls, both alarms might get scheduled instead of the second overwriting the first. WebSocket maintains a persistent connection to the same DO instance.
+
+:::tip
+This pattern applies to **any test with rapid sequential state changes**, not just alarms. For most alarm tests (schedule one, wait for it to fire), HTTP transport works perfectly and is faster.
+:::
+
 ## Alarm Retry Behavior
 
 The simulation matches Cloudflare's retry behavior:
@@ -199,8 +227,10 @@ it('new alarm overwrites pending alarm', async () => {
   await client.scheduleTask(5); // 50ms in test time
   const secondAlarmTime = await client.getAlarmTime();
 
+  expect(secondAlarmTime).not.toBeNull();
+  expect(firstAlarmTime).not.toBeNull();
   expect(secondAlarmTime).not.toBe(firstAlarmTime);
-  expect(secondAlarmTime).toBeLessThan(firstAlarmTime);
+  expect(secondAlarmTime!).toBeLessThan(firstAlarmTime!);
 
   // Only the second alarm fires
   await vi.waitFor(async () => {

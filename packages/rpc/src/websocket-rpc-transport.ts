@@ -34,7 +34,6 @@ export class WebSocketRpcTransport implements RpcTransport {
     additionalProtocols?: string[];
     onClose?: (code: number, reason: string) => void | Promise<void>;
     onConnectionChange?: (connected: boolean) => void | Promise<void>;
-    heartbeatIntervalMs?: number;
   };
   #ws: WebSocket | null = null;
   #connectionPromise: Promise<void> | null = null;
@@ -44,7 +43,6 @@ export class WebSocketRpcTransport implements RpcTransport {
   #keepAliveEnabled: boolean = false;
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #reconnectAttempts: number = 0;
-  #heartbeatIntervalId?: ReturnType<typeof setInterval>;
 
   constructor(config: {
     baseUrl: string;
@@ -58,7 +56,6 @@ export class WebSocketRpcTransport implements RpcTransport {
     onDownstream?: (payload: any) => void | Promise<void>;
     onClose?: (code: number, reason: string) => void | Promise<void>;
     onConnectionChange?: (connected: boolean) => void | Promise<void>;
-    heartbeatIntervalMs?: number;
   }) {
     this.#config = config;
     // Extract message type from prefix (remove leading/trailing slashes)
@@ -88,22 +85,20 @@ export class WebSocketRpcTransport implements RpcTransport {
   /**
    * Enable/disable keep-alive mode with auto-reconnect.
    * When enabled:
-   * - Sends periodic ping messages to keep connection alive
    * - Automatically reconnects when connection drops
    * - Can reconnect hours/days later (browser tab sleep/wake)
+   * 
+   * Note: Does NOT send periodic pings to allow DO hibernation.
+   * If the connection is idle, the DO can hibernate to save resources.
    */
   setKeepAlive(enabled: boolean): void {
     this.#keepAliveEnabled = enabled;
     
     if (!enabled) {
-      // Disable keep-alive: clear timers
+      // Disable keep-alive: clear reconnect timer
       if (this.#reconnectTimeoutId) {
         clearTimeout(this.#reconnectTimeoutId);
         this.#reconnectTimeoutId = undefined;
-      }
-      if (this.#heartbeatIntervalId) {
-        clearInterval(this.#heartbeatIntervalId);
-        this.#heartbeatIntervalId = undefined;
       }
       this.#reconnectAttempts = 0;
     }
@@ -172,11 +167,6 @@ export class WebSocketRpcTransport implements RpcTransport {
         ws.removeEventListener('error', onError);
         // Reset reconnect attempts on successful connection
         this.#reconnectAttempts = 0;
-        
-        // Start heartbeat if keep-alive is enabled
-        if (this.#keepAliveEnabled) {
-          this.#startHeartbeat();
-        }
         
         // Notify connection change
         if (this.#config.onConnectionChange) {
@@ -249,12 +239,6 @@ export class WebSocketRpcTransport implements RpcTransport {
         reason: event.reason
       });
 
-      // Stop heartbeat
-      if (this.#heartbeatIntervalId) {
-        clearInterval(this.#heartbeatIntervalId);
-        this.#heartbeatIntervalId = undefined;
-      }
-
       // Reject all pending batches
       for (const [batchId, pending] of this.#pendingBatches.entries()) {
         clearTimeout(pending.timeoutId);
@@ -297,33 +281,6 @@ export class WebSocketRpcTransport implements RpcTransport {
     });
   }
 
-  /**
-   * Start heartbeat interval to keep connection alive
-   */
-  #startHeartbeat(): void {
-    // Clear any existing heartbeat
-    if (this.#heartbeatIntervalId) {
-      clearInterval(this.#heartbeatIntervalId);
-    }
-
-    // Send ping at configured interval (default 25 seconds) to keep intermediaries 
-    // from closing the connection. Most network intermediaries allow 30+ seconds of inactivity.
-    const intervalMs = this.#config.heartbeatIntervalMs ?? 25000;
-    this.#heartbeatIntervalId = setInterval(() => {
-      if (this.isConnected()) {
-        try {
-          this.#ws?.send('ping');
-        } catch (error) {
-          console.error('%o', {
-            type: 'error',
-            where: 'WebSocketRpcTransport.startHeartbeat',
-            message: 'Failed to send ping',
-            error: error instanceof Error ? error.message : String(error)
-          });
-        }
-      }
-    }, 25000); // 25 seconds
-  }
 
   /**
    * Schedule reconnection with exponential backoff

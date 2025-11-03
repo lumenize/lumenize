@@ -655,11 +655,9 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
             }
           }
           
-          // Set up server-side heartbeat using setWebSocketAutoResponse
-          // This allows the DO to auto-respond to pings without waking from hibernation
-          this.ctx.setWebSocketAutoResponse(
-            new WebSocketRequestResponsePair('ping', 'pong')
-          );
+          // Note: DOs can set up their own auto-response via this.ctx.setWebSocketAutoResponse()
+          // in their constructor if needed. We don't set one here to avoid overwriting custom
+          // auto-responses. RPC clients implement their own heartbeat via setKeepAlive().
           
           // Accept the hibernatable WebSocket connection with optional tag
           if (clientId) {

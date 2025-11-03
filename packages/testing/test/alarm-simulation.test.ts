@@ -55,7 +55,11 @@ describe('Alarm Simulation', () => {
   });
   
   it('new setAlarm overwrites pending alarm', async () => {
-    await using client = createTestingClient<TestDOType>('TEST_DO', 'overwrite-alarm');
+    // Use WebSocket transport for this test to maintain a persistent connection
+    // This ensures both scheduleAlarm() calls happen on the same DO instance without context resets
+    await using client = createTestingClient<TestDOType>('TEST_DO', 'overwrite-alarm', {
+      transport: 'websocket'
+    });
     
     // Schedule first alarm
     await client.scheduleAlarm(200, { message: 'first alarm' });

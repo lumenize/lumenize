@@ -32,7 +32,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
-- [ ] Review/edit the new docs for alarm testing. I don't think we have check-examples. I am wondering if we should use doc-testing?
+- [ ] Review/edit the new docs for alarm testing and downstream messaging.
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 - [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage

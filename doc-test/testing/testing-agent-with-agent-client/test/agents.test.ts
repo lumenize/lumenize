@@ -130,6 +130,7 @@ type AuthAgentType = RpcAccessible<InstanceType<typeof AuthAgent>>;
 
 it('shows testing two users in a chat', async () => {
   // Create RPC client with binding name and instance name
+  // HTTP transport is the default (no WebSocket interference with Agent's own WebSocket handling)
   using client = createTestingClient<ChatAgentType>('chat-agent', 'chat');
 
   // Check initial value of instance variable lastMessage
