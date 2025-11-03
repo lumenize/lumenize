@@ -16,7 +16,7 @@ export default defineWorkersProject({
       reporter: ['text', 'json', 'html'],
       include: [
         '**/src/**',
-        '**/test/test-harness.ts'
+        '**/test/test-do.ts'
       ],
       exclude: [
         '**/node_modules/**', 

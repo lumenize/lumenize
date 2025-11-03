@@ -15,7 +15,8 @@ export default defineWorkersProject({
       provider: "istanbul",
       reporter: ['text', 'json', 'html'],
       include: [
-        '**/src/**'
+        '**/src/**',
+        '**/test/test-worker-and-dos.ts'
       ],
       exclude: [
         '**/node_modules/**', 
