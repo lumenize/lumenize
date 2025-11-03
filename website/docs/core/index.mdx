@@ -1,0 +1,182 @@
+---
+title: "@lumenize/core"
+description: Core utilities for Durable Objects including SQL template literals
+---
+
+# @lumenize/core
+
+A de✨light✨ful collection of foundational utilities for building Durable Objects applications.
+
+## Features
+
+- **`sql` template literal tag**: Type-safe SQL queries with automatic parameter binding
+- **Zero dependencies**: Minimal footprint with no external dependencies
+- **Works standalone or with LumenizeBase**: Use directly or get auto-injected via NADIS
+- **Tree-shakeable**: Only import what you need
+
+## Installation
+
+```bash
+npm install @lumenize/core
+```
+
+## SQL Template Literal
+
+The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage.
+
+### Basic Usage
+
+```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts:16-28')
+class ProductDO extends DurableObject {
+  #sql = sql(this);
+
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+    // Run migrations in constructor
+    this.#sql`
+      CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        price REAL NOT NULL,
+        stock INTEGER DEFAULT 0
+      )
+    `;
+```
+
+### Template Literal Parameters
+
+Parameters are automatically bound and SQL-injection safe:
+
+```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts:30-41')
+  addProduct(id: string, name: string, price: number, stock: number = 0) {
+    this.#sql`
+      INSERT INTO products (id, name, price, stock)
+      VALUES (${id}, ${name}, ${price}, ${stock})
+    `;
+    return { id, name, price, stock };
+  }
+
+  getProduct(id: string) {
+    const rows = this.#sql`SELECT * FROM products WHERE id = ${id}`;
+    return rows[0];
+  }
+```
+
+### Complex Queries
+
+```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts:47-51')
+  getLowStockProducts(threshold: number = 10) {
+    return this.#sql`
+      SELECT id, name, stock FROM products 
+      WHERE stock < ${threshold}
+      ORDER BY stock ASC
+```
+
+The `sql` function returns an array of result rows. Each row is a plain JavaScript object with column names as keys.
+
+## Using with LumenizeBase
+
+When using `@lumenize/lumenize-base`, `sql` is automatically injected via the NADIS system:
+
+```typescript
+import '@lumenize/core';  // Registers sql in this.svc
+import { LumenizeBase } from '@lumenize/lumenize-base';
+
+class MyDO extends LumenizeBase<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Run migrations in constructor
+    this.#initTable();
+  }
+
+  #initTable() {
+    this.svc.sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+      )
+    `;
+  }
+
+  addUser(id: string, name: string) {
+    this.svc.sql`INSERT INTO users (id, name) VALUES (${id}, ${name})`;
+  }
+}
+```
+
+No need to call `sql(this)` - it's automatically available on `this.svc.sql`.
+
+See the [@lumenize/lumenize-base documentation](/docs/lumenize-base) for more details.
+
+## API Reference
+
+### `sql(doInstance)`
+
+Factory function that creates a SQL template literal tag bound to a Durable Object instance.
+
+**Parameters:**
+- `doInstance` - The Durable Object instance (typically `this`)
+
+**Returns:**
+A template literal tag function that executes SQL queries.
+
+**Example:**
+```typescript
+const query = sql(this);
+const users = query`SELECT * FROM users WHERE age > ${minAge}`;
+```
+
+## Why Use This?
+
+### Clean Syntax
+
+Compare to the raw storage API:
+
+```typescript
+// ❌ Raw SQL API - verbose
+const result = this.ctx.storage.sql.exec(
+  'SELECT * FROM users WHERE age > ?',
+  minAge
+);
+
+// ✅ sql template literal - clean and readable
+const users = this.#sql`SELECT * FROM users WHERE age > ${minAge}`;
+```
+
+### Type Safety
+
+Parameters are automatically bound, preventing SQL injection:
+
+```typescript
+const userId = "'; DROP TABLE users; --";
+// Safe - userId is properly escaped
+const user = this.#sql`SELECT * FROM users WHERE id = ${userId}`;
+```
+
+### Automatic Result Handling
+
+Results are returned as plain JavaScript arrays and objects:
+
+```typescript
+const products = this.#sql`SELECT * FROM products`;
+// => [{ id: 'p1', name: 'Widget', price: 29.99 }, ...]
+
+const count = this.#sql`SELECT COUNT(*) as total FROM products`;
+// => [{ total: 42 }]
+```
+
+## Implementation Details
+
+The `sql` template literal tag:
+1. Parses the template literal into SQL query and parameters
+2. Uses `ctx.storage.sql.exec()` to execute the query
+3. Returns results as an array of objects
+
+It's implemented as a **stateless factory function** - calling `sql(this)` returns a bound function you can use repeatedly. This pattern enables both standalone usage and automatic injection via NADIS.
+
+## See Also
+
+- [@lumenize/lumenize-base](/docs/lumenize-base) - Auto-injection via NADIS
+- [@lumenize/alarms](/docs/alarms) - Alarm scheduling (also uses NADIS)
+- [Cloudflare SQLite Storage](https://developers.cloudflare.com/durable-objects/api/storage/#sql) - Official storage API docs
+

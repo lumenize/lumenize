@@ -271,6 +271,31 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
+    // Core Lumenize Packages
+    {
+      type: 'category',
+      label: 'LumenizeBase',
+      items: [
+        'lumenize-base/index',
+      ],
+    },
+
+    {
+      type: 'category',
+      label: 'Core',
+      items: [
+        'core/index',
+      ],
+    },
+
+    {
+      type: 'category',
+      label: 'Alarms',
+      items: [
+        'alarms/index',
+      ],
+    },
+
     // Actors (Cloudflare Actors ecosystem packages)
     {
       type: 'category',
@@ -296,18 +321,6 @@ const sidebars: SidebarsConfig = {
             },
           ],
         },
-      ],
-    },
-
-    // LumenizeBase
-    {
-      type: 'category',
-      label: 'LumenizeBase',
-      items: [
-        'lumenize-base/introduction',
-        // ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
-        //   ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
-        //   : []),
       ],
     },
 

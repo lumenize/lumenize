@@ -23,9 +23,9 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 ## Cloudflare Actors - Alarms Package
 - **Source**: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms
 - **License**: Apache-2.0 (https://github.com/cloudflare/actors/blob/main/LICENSE)
-- **Used In**: `packages/alarms/src/index.ts` (copied and adapted)
+- **Used In**: `packages/alarms/src/alarms.ts` (copied and adapted)
 - **Purpose**: Provides alarm scheduling system for Durable Objects with support for one-time, delayed, and cron-based recurring schedules using SQL storage.
 - **Date Added**: 2025-11-02
 - **Author**: Cloudflare
-- **Note**: Source code copied from cloudflare/actors alarms package. May be adapted to fit Lumenize patterns (e.g., mixin approach or dependency injection via `this.#svc`).
+- **Note**: Source code adapted from cloudflare/actors alarms package with the following modifications: (1) NADIS dependency injection pattern instead of mixin approach, (2) lazy table initialization for compatibility with NADIS auto-injection, (3) removed actor-specific dependencies (setName, actorName), (4) added TypeScript generics for enhanced type safety.
 

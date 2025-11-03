@@ -424,9 +424,42 @@ This is an **environmental limitation** of the test simulation, not a functional
 
 ## Workarounds
 
-### Option 1: Test Alarm Handlers Directly via RPC
+### Option 1: Use `triggerAlarms()` (Recommended)
 
-Instead of relying on alarm timing, test your alarm callback handlers directly using the [Testing Client](/docs/testing/usage):
+If using `@lumenize/alarms`, use the built-in `triggerAlarms()` method to manually execute alarms:
+
+```typescript
+describe('Alarm Execution', () => {
+  it('executes scheduled tasks', async () => {
+    const stub = env.MY_DO.getByName('alarm-test');
+    
+    // Schedule alarms
+    await stub.scheduleTask('task1', 10);
+    await stub.scheduleTask('task2', 20);
+    
+    // Manually trigger alarms (fast-forward instead of waiting)
+    const executed = await stub.triggerAlarms(2);
+    expect(executed.length).toBe(2);
+    
+    // Verify execution
+    const results = await stub.getExecutedTasks();
+    expect(results).toHaveLength(2);
+  });
+});
+```
+
+**Benefits:**
+- ✅ No timing issues
+- ✅ Tests are fast and reliable
+- ✅ Works via RPC (no special imports)
+- ✅ Can fast-forward through future alarms
+- ✅ Tests actual scheduling and execution logic
+
+See [@lumenize/alarms Testing section](/docs/alarms#testing-alarms) for more details.
+
+### Option 2: Test Alarm Handlers Directly via RPC
+
+For plain Durable Objects or custom alarm systems, test callback handlers directly:
 
 ```typescript
 import { createTestingClient } from '@lumenize/testing';
@@ -456,7 +489,7 @@ describe('Alarm Handlers', () => {
 - ❌ Doesn't verify alarm timing
 - ❌ Can't test alarm multiplexing logic
 
-### Option 2: Use `runDurableObjectAlarm()` from `cloudflare:test`
+### Option 3: Use `runDurableObjectAlarm()` from `cloudflare:test`
 
 For comprehensive alarm testing, use Cloudflare's built-in test helper:
 
@@ -489,14 +522,6 @@ it('triggers all pending alarms', async () => {
 - ❌ Doesn't test actual timing
 - ❌ All alarms fire at once (not sequential)
 
-### Future Enhancement
-
-We're planning to add a `triggerNextAlarm()` helper to `@lumenize/alarms` that will:
-- Trigger only the next round of scheduled alarms
-- Work like `runDurableObjectAlarm()` but for multiplexed alarms
-- Enable full alarm testing without timing issues
-
-See [GitHub Issue #XXX](https://github.com/lumenize/lumenize/issues) to track progress.
 
 ## See Also
 

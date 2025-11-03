@@ -19,3 +19,21 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+NOTICE: This package contains code adapted from the @cloudflare/actors Alarms package.
+
+Original source: https://github.com/cloudflare/actors/tree/main/packages/alarms
+Copyright: Cloudflare, Inc.
+License: Apache License 2.0 (https://github.com/cloudflare/actors/blob/main/LICENSE)
+
+The adapted code is located in src/alarms.ts and has been modified to:
+- Use NADIS dependency injection pattern
+- Implement lazy table initialization
+- Remove actor-specific dependencies
+- Add TypeScript generics for enhanced type safety
+
+The original Apache 2.0 license terms apply to the portions of code derived from
+the Cloudflare Actors project. See ATTRIBUTIONS.md in the repository root for
+complete attribution details.

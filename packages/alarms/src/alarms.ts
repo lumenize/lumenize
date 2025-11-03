@@ -1,3 +1,9 @@
+// Adapted from @cloudflare/actors Alarms package
+// Source: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms
+// License: Apache-2.0 (https://github.com/cloudflare/actors/blob/main/LICENSE)
+// Modifications: Adapted for NADIS dependency injection pattern, lazy table initialization,
+// removed actor-specific dependencies, added TypeScript generics for type safety
+
 import { parseCronExpression } from 'cron-schedule';
 import { nanoid } from 'nanoid';
 import type { sql as sqlType } from '@lumenize/core';
@@ -328,19 +334,68 @@ export class Alarms<P extends { [key: string]: any }> {
   }
 
   /**
-   * Alarm handler - must be called from DO's alarm() method
+   * Manually trigger execution of the next alarm(s) in chronological order
+   * 
+   * This is useful for testing when alarm simulation timing is unreliable.
+   * Call this method over RPC to force execution of pending alarms without
+   * waiting for Cloudflare's native alarm to fire.
+   * 
+   * Triggers alarms in order by scheduled time, regardless of whether they're
+   * overdue or scheduled in the future. This enables fast-forwarding through
+   * alarm execution in tests.
+   * 
+   * @param count Number of alarms to trigger (default: all overdue, or next if none overdue)
+   * @returns Array of executed alarm IDs
+   * 
+   * @example
+   * ```typescript
+   * // In tests - trigger all overdue alarms:
+   * await stub.scheduleTask('task1', -5); // 5 seconds ago
+   * await stub.scheduleTask('task2', -3); // 3 seconds ago
+   * const executed = await stub.triggerAlarms();
+   * expect(executed.length).toBe(2);
+   * 
+   * // Trigger next alarm even if in future:
+   * await stub.scheduleTask('future', 60); // 60 seconds from now
+   * const executed = await stub.triggerAlarms(1);
+   * expect(executed.length).toBe(1);
+   * 
+   * // Trigger multiple alarms:
+   * await stub.scheduleTask('task1', 10);
+   * await stub.scheduleTask('task2', 20);
+   * await stub.scheduleTask('task3', 30);
+   * const executed = await stub.triggerAlarms(2); // Triggers first 2
+   * expect(executed.length).toBe(2);
+   * ```
    */
-  readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
+  async triggerAlarms(count?: number): Promise<string[]> {
     this.#ensureTable();
     
     const now = Math.floor(Date.now() / 1000);
+    const executedIds: string[] = [];
 
-    // Get all schedules that should be executed now
-    const result = this.#sql`
-      SELECT * FROM _lumenize_alarms WHERE time <= ${now}
-    `;
+    // If count not specified, execute all overdue alarms, or 1 if none overdue
+    if (count === undefined) {
+      const overdueResult = this.#sql`
+        SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
+      `;
+      count = overdueResult[0]?.count || 1;
+    }
 
-    for (const row of result || []) {
+    // Execute the next 'count' alarms in chronological order
+    for (let i = 0; i < count; i++) {
+      // Get the earliest scheduled alarm (regardless of time)
+      const result = this.#sql`
+        SELECT * FROM _lumenize_alarms 
+        ORDER BY time ASC 
+        LIMIT 1
+      `;
+
+      if (!result || result.length === 0) {
+        break; // No more alarms to execute
+      }
+
+      const row = result[0];
       const callback = this.#parent[row.callback];
 
       if (!callback) {
@@ -350,6 +405,7 @@ export class Alarms<P extends { [key: string]: any }> {
 
       try {
         await (callback as Function).bind(this.#parent)(JSON.parse(row.payload), row);
+        executedIds.push(row.id);
       } catch (e) {
         console.error(`error executing callback "${row.callback}"`, e);
       }
@@ -371,6 +427,24 @@ export class Alarms<P extends { [key: string]: any }> {
 
     // Schedule the next alarm
     await this.#scheduleNextAlarm();
+
+    return executedIds;
+  }
+
+  /**
+   * Alarm handler - must be called from DO's alarm() method
+   */
+  readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
+    // Execute all overdue alarms
+    const now = Math.floor(Date.now() / 1000);
+    const overdueResult = this.#sql`
+      SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
+    `;
+    const overdueCount = overdueResult[0]?.count || 0;
+    
+    if (overdueCount > 0) {
+      await this.triggerAlarms(overdueCount);
+    }
   };
 
   async #scheduleNextAlarm(): Promise<void> {

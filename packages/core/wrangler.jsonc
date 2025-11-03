@@ -7,6 +7,10 @@
       {
         "name": "TEST_DO",
         "class_name": "TestDO"
+      },
+      {
+        "name": "PRODUCT_DO",
+        "class_name": "ProductDO"
       }
     ]
   },
@@ -14,6 +18,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["TestDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ProductDO"]
     }
   ]
 }

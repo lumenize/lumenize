@@ -5,6 +5,9 @@ import '@lumenize/alarms';
 import { LumenizeBase } from '../src/lumenize-base.js';
 import type { Schedule } from '@lumenize/alarms';
 
+// Export documentation example DOs
+export { UsersDO, NotificationsDO } from './for-docs/basic-usage.test';
+
 export class TestDO extends LumenizeBase<Env> {
   executedAlarms: Array<{ payload: any; schedule: Schedule }> = [];
 

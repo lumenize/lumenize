@@ -5,6 +5,9 @@ import { sql } from '@lumenize/core';
 import { Alarms, type Schedule } from '../src/alarms.js';
 import { enableAlarmSimulation } from '@lumenize/testing';
 
+// Export TaskSchedulerDO for documentation examples
+export { TaskSchedulerDO } from './for-docs/basic-usage.test';
+
 export class AlarmDO extends DurableObject<Env> {
   #alarms: Alarms<AlarmDO>;
   #sql = sql(this);
@@ -55,6 +58,11 @@ export class AlarmDO extends DurableObject<Env> {
   // Test helper: Clear executed alarms
   async clearExecutedAlarms() {
     this.executedAlarms = [];
+  }
+
+  // Test helper: Manually trigger alarms for testing
+  async triggerAlarms(count?: number) {
+    return await this.#alarms.triggerAlarms(count);
   }
 }
 

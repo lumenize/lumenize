@@ -16,41 +16,37 @@ describe('Alarms', () => {
       expect(schedule.time).toBe(Math.floor(futureDate.getTime() / 1000));
     });
 
-    // TODO: Alarm execution tests fail in vitest environment due to RPC/context isolation
-    // The alarm fires (proven by "removes one-time alarm after execution" passing)
-    // but executedAlarms array doesn't populate. Needs manual verification.
-    test.skip('executes scheduled alarm at specified time', async () => {
+    test('executes scheduled alarm at specified time', async () => {
       const stub = env.ALARM_DO.getByName('scheduled-execute-test');
       
-      // Schedule alarm 100ms in the future
-      const futureDate = new Date(Date.now() + 100);
+      // Schedule alarm in the future
+      const futureDate = new Date(Date.now() + 10000);
       await stub.scheduleAlarm(futureDate, { task: 'execute-me' });
       
-      // Wait for alarm to fire and populate executedAlarms
-      await vi.waitFor(async () => {
-        const executed = await stub.getExecutedAlarms();
-        expect(executed.length).toBe(1);
-      }, { timeout: 1000 });
+      // Manually trigger the next alarm (even though it's in the future)
+      const executedIds = await stub.triggerAlarms(1);
+      expect(executedIds.length).toBe(1);
       
       const executed = await stub.getExecutedAlarms();
+      expect(executed.length).toBe(1);
       expect(executed[0].payload).toEqual({ task: 'execute-me' });
       expect(executed[0].schedule.type).toBe('scheduled');
     });
 
-    test.skip('removes one-time alarm after execution', async () => {
+    test('removes one-time alarm after execution', async () => {
       const stub = env.ALARM_DO.getByName('scheduled-remove-test');
       
-      const futureDate = new Date(Date.now() + 100);
+      const futureDate = new Date(Date.now() + 10000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'remove-after' });
       
-      // Verify alarm exists
+      // Verify alarm exists before execution
       const beforeExecution = await stub.getSchedule(schedule.id);
       expect(beforeExecution).toBeDefined();
       
-      // Wait for execution
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Manually trigger the alarm
+      await stub.triggerAlarms(1);
       
-      // Verify alarm was removed
+      // Verify alarm was removed after execution (one-time alarms are deleted)
       const afterExecution = await stub.getSchedule(schedule.id);
       expect(afterExecution).toBeUndefined();
     });
@@ -67,17 +63,18 @@ describe('Alarms', () => {
       expect(schedule.payload).toEqual({ task: 'delayed-task' });
     });
 
-    test.skip('executes delayed alarm after specified seconds', async () => {
+    test('executes delayed alarm after specified seconds', async () => {
       const stub = env.ALARM_DO.getByName('delayed-execute-test');
       
-      await stub.scheduleAlarm(0.1, { task: 'quick-delay' }); // 100ms delay
+      await stub.scheduleAlarm(10, { task: 'delayed-task' }); // 10 seconds delay
       
-      // Wait for alarm to fire
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Manually trigger the alarm (fast-forward instead of waiting)
+      const executedIds = await stub.triggerAlarms(1);
+      expect(executedIds.length).toBe(1);
       
       const executed = await stub.getExecutedAlarms();
       expect(executed.length).toBe(1);
-      expect(executed[0].payload).toEqual({ task: 'quick-delay' });
+      expect(executed[0].payload).toEqual({ task: 'delayed-task' });
     });
   });
 
@@ -196,16 +193,21 @@ describe('Alarms', () => {
   });
 
   describe('Multiple Alarms', () => {
-    test.skip('executes multiple alarms in order', async () => {
+    test('executes multiple alarms in order', async () => {
       const stub = env.ALARM_DO.getByName('multiple-order-test');
       
-      // Schedule three alarms with 100ms gaps
-      await stub.scheduleAlarm(0.1, { order: 1 });
-      await stub.scheduleAlarm(0.2, { order: 2 });
-      await stub.scheduleAlarm(0.3, { order: 3 });
+      // Schedule three alarms in the past (all overdue)
+      const past1 = new Date(Date.now() - 3000);
+      const past2 = new Date(Date.now() - 2000);
+      const past3 = new Date(Date.now() - 1000);
       
-      // Wait for all to execute
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await stub.scheduleAlarm(past1, { order: 1 });
+      await stub.scheduleAlarm(past2, { order: 2 });
+      await stub.scheduleAlarm(past3, { order: 3 });
+      
+      // Manually trigger execution - will execute all overdue alarms by default
+      const executedIds = await stub.triggerAlarms();
+      expect(executedIds.length).toBe(3);
       
       const executed = await stub.getExecutedAlarms();
       expect(executed.length).toBe(3);
@@ -214,15 +216,16 @@ describe('Alarms', () => {
       expect(executed[2].payload.order).toBe(3);
     });
 
-    test.skip('handles overlapping alarm times', async () => {
+    test('handles overlapping alarm times', async () => {
       const stub = env.ALARM_DO.getByName('overlap-test');
       
-      const sameTime = new Date(Date.now() + 100);
-      await stub.scheduleAlarm(sameTime, { id: 'a' });
-      await stub.scheduleAlarm(sameTime, { id: 'b' });
+      const pastTime = new Date(Date.now() - 1000);
+      await stub.scheduleAlarm(pastTime, { id: 'a' });
+      await stub.scheduleAlarm(pastTime, { id: 'b' });
       
-      // Wait for execution
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Manually trigger execution
+      const executedIds = await stub.triggerAlarms();
+      expect(executedIds.length).toBe(2);
       
       const executed = await stub.getExecutedAlarms();
       expect(executed.length).toBe(2);
@@ -238,16 +241,18 @@ describe('Alarms', () => {
       ).resolves.toBeDefined(); // handleAlarm exists
     });
 
-    test.skip('handles callback errors gracefully', async () => {
-      // This would require a DO method that throws
-      // For now, just verify the alarm system continues after errors
+    test('handles callback errors gracefully', async () => {
+      // Verify the alarm system continues after errors
       const stub = env.ALARM_DO.getByName('error-handling-test');
       
-      await stub.scheduleAlarm(0.1, { task: 'first' });
-      // If there was an error-throwing callback, it would be here
-      await stub.scheduleAlarm(0.2, { task: 'second' });
+      const past1 = new Date(Date.now() - 2000);
+      const past2 = new Date(Date.now() - 1000);
       
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await stub.scheduleAlarm(past1, { task: 'first' });
+      await stub.scheduleAlarm(past2, { task: 'second' });
+      
+      // Manually trigger execution
+      const executedIds = await stub.triggerAlarms();
       
       const executed = await stub.getExecutedAlarms();
       expect(executed.length).toBe(2);

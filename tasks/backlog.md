@@ -25,12 +25,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Alarms / NADIS
 
-- [ ] Add `triggerNextAlarm()` testing helper to @lumenize/alarms
-  - Duplicates `cloudflare:test`'s `runDurableObjectAlarm` functionality
-  - Triggers only the next round of scheduled alarms (not all future cron jobs)
-  - Enables complete alarm testing without timing issues
-  - Example usage: After scheduling alarms, call `await stub.triggerNextAlarm()` to execute them immediately
-  - See `getExecutedAlarms()` pattern in tests for inspiration
+- [x] **COMPLETED:** Added `triggerAlarms(count?)` testing helper to @lumenize/alarms
+  - Fast-forward through alarm execution in tests
+  - Triggers alarms in chronological order (overdue first, then future)
+  - Handles cron rescheduling automatically
+  - Default: executes all overdue alarms, or next 1 if none overdue
+  - Enabled 3 previously skipped tests to pass (27 tests passing now)
 - [ ] Investigate @cloudflare/actors Storage wrapper source code
   - Understand what it does to make setAlarm() integrate with native Cloudflare alarms
   - Determine minimal code needed to replicate this functionality

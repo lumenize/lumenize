@@ -1,6 +1,9 @@
 import { DurableObject } from 'cloudflare:workers';
 import { sql } from '../src/sql';
 
+// Export ProductDO for documentation examples
+export { ProductDO } from './for-docs/basic-usage.test';
+
 export class TestDO extends DurableObject<Env> {
   // Convenient convention - You can use sql(this)` ... directly just as well
   // We need `this` passed in because it's just the pattern that every Lumenize NADIS
