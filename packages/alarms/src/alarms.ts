@@ -1,0 +1,372 @@
+import { parseCronExpression } from 'cron-schedule';
+import { nanoid } from 'nanoid';
+import type { sql as sqlType } from '@lumenize/core';
+
+/**
+ * Represents a scheduled task within a Durable Object
+ * @template T Type of the payload data
+ * @template K Type of the callback
+ */
+export type Schedule<T = string, K extends keyof any = string> = {
+  /** Unique identifier for the schedule */
+  id: string;
+  /** Name of the method to be called */
+  callback: K;
+  /** Data to be passed to the callback */
+  payload: T;
+} & (
+  | {
+      /** Type of schedule for one-time execution at a specific time */
+      type: 'scheduled';
+      /** Timestamp when the task should execute */
+      time: number;
+    }
+  | {
+      /** Type of schedule for delayed execution */
+      type: 'delayed';
+      /** Timestamp when the task should execute */
+      time: number;
+      /** Number of seconds to delay execution */
+      delayInSeconds: number;
+    }
+  | {
+      /** Type of schedule for recurring execution based on cron expression */
+      type: 'cron';
+      /** Timestamp for the next execution */
+      time: number;
+      /** Cron expression defining the schedule */
+      cron: string;
+    }
+);
+
+function getNextCronTime(cron: string): Date {
+  const interval = parseCronExpression(cron);
+  return interval.getNextDate();
+}
+
+/**
+ * Alarms - Powerful alarm scheduling for Cloudflare Durable Objects
+ * 
+ * Supports one-time alarms, delayed alarms, and recurring cron schedules.
+ * All alarms are persisted to SQL storage and survive DO eviction.
+ * 
+ * @example
+ * Standalone usage:
+ * ```typescript
+ * import { Alarms } from '@lumenize/alarms';
+ * import { sql } from '@lumenize/core';
+ * import { DurableObject } from 'cloudflare:workers';
+ * 
+ * class MyDO extends DurableObject {
+ *   #alarms: Alarms;
+ *   
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env);
+ *     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
+ *   }
+ *   
+ *   // Required: delegate to Alarms
+ *   async alarm() {
+ *     await this.#alarms.alarm();
+ *   }
+ *   
+ *   async scheduleTask() {
+ *     await this.#alarms.schedule(60, 'handleTask', { data: 'example' });
+ *   }
+ *   
+ *   async handleTask(payload: any, schedule: Schedule) {
+ *     console.log('Task executed:', payload);
+ *   }
+ * }
+ * ```
+ * 
+ * @example
+ * With LumenizeBase (auto-injected):
+ * ```typescript
+ * import '@lumenize/alarms';  // Registers alarms in this.svc
+ * // You could also do this: import { Alarms } from '@lumenize/alarms';
+ * import { LumenizeBase } from '@lumenize/lumenize-base';
+ * 
+ * class MyDO extends LumenizeBase<Env> {
+ *   async alarm() {
+ *     await this.svc.alarms.alarm();
+ *   }
+ *   
+ *   async scheduleTask() {
+ *     await this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
+ *   }
+ *   
+ *   async handleTask(payload: any, schedule: Schedule) {
+ *     console.log('Task executed:', payload);
+ *   }
+ * }
+ * ```
+ */
+export class Alarms<P extends { [key: string]: any }> {
+  #parent: P;
+  #sql: ReturnType<typeof sqlType>;
+  #storage: DurableObjectStorage;
+
+  constructor(
+    ctx: DurableObjectState,
+    doInstance: P,
+    deps?: { sql?: ReturnType<typeof sqlType> }
+  ) {
+    this.#parent = doInstance;
+    this.#storage = ctx.storage;
+    
+    // Use provided sql or get from DO instance (NADIS pattern)
+    if (deps?.sql) {
+      this.#sql = deps.sql;
+    } else if ('svc' in doInstance && doInstance.svc && 'sql' in doInstance.svc) {
+      this.#sql = (doInstance.svc as any).sql;
+    } else {
+      throw new Error('Alarms requires sql injectable. Pass it in deps or use LumenizeBase.');
+    }
+
+    // Initialize table and recover pending alarms
+    void ctx.blockConcurrencyWhile(async () => {
+      // Create alarms table if it doesn't exist
+      ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS _lumenize_alarms (
+          id TEXT PRIMARY KEY NOT NULL,
+          callback TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('scheduled', 'delayed', 'cron')),
+          time INTEGER NOT NULL,
+          delayInSeconds INTEGER,
+          cron TEXT,
+          created_at INTEGER DEFAULT (unixepoch())
+        )
+      `);
+
+      // Execute any pending alarms and schedule the next alarm
+      await this.alarm();
+    });
+  }
+
+  /**
+   * Schedule a task to be executed in the future
+   * @template T Type of the payload data
+   * @param when When to execute the task (Date, seconds delay, or cron expression)
+   * @param callback Name of the method to call
+   * @param payload Data to pass to the callback
+   * @returns Schedule object representing the scheduled task
+   */
+  async schedule<T = string>(
+    when: Date | string | number,
+    callback: keyof P & string,
+    payload?: T
+  ): Promise<Schedule<T, keyof P>> {
+    const id = nanoid(9);
+
+    if (typeof callback !== 'string') {
+      throw new Error('Callback must be a string');
+    }
+
+    if (typeof this.#parent[callback] !== 'function') {
+      throw new Error(`this.#parent.${callback} is not a function`);
+    }
+
+    if (when instanceof Date) {
+      const timestamp = Math.floor(when.getTime() / 1000);
+      this.#sql`
+        INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, time)
+        VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'scheduled', ${timestamp})
+      `;
+      await this.#scheduleNextAlarm();
+      return {
+        id,
+        callback: callback as keyof P,
+        payload: payload as T,
+        time: timestamp,
+        type: 'scheduled',
+      };
+    }
+
+    if (typeof when === 'number') {
+      const time = new Date(Date.now() + when * 1000);
+      const timestamp = Math.floor(time.getTime() / 1000);
+      this.#sql`
+        INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, delayInSeconds, time)
+        VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'delayed', ${when}, ${timestamp})
+      `;
+      await this.#scheduleNextAlarm();
+      return {
+        id,
+        callback: callback as keyof P,
+        payload: payload as T,
+        delayInSeconds: when,
+        time: timestamp,
+        type: 'delayed',
+      };
+    }
+
+    if (typeof when === 'string') {
+      const nextExecutionTime = getNextCronTime(when);
+      const timestamp = Math.floor(nextExecutionTime.getTime() / 1000);
+      this.#sql`
+        INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, cron, time)
+        VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'cron', ${when}, ${timestamp})
+      `;
+      await this.#scheduleNextAlarm();
+      return {
+        id,
+        callback: callback as keyof P,
+        payload: payload as T,
+        cron: when,
+        time: timestamp,
+        type: 'cron',
+      };
+    }
+
+    throw new Error('Invalid schedule type');
+  }
+
+  /**
+   * Get a scheduled task by ID
+   * @template T Type of the payload data
+   * @param id ID of the scheduled task
+   * @returns The Schedule object or undefined if not found
+   */
+  async getSchedule<T = string>(id: string): Promise<Schedule<T> | undefined> {
+    const result = this.#sql`
+      SELECT * FROM _lumenize_alarms WHERE id = ${id}
+    `;
+
+    if (!result || result.length === 0) {
+      return undefined;
+    }
+
+    return { ...result[0], payload: JSON.parse(result[0].payload) } as Schedule<T>;
+  }
+
+  /**
+   * Get scheduled tasks matching the given criteria
+   * @template T Type of the payload data
+   * @param criteria Criteria to filter schedules
+   * @returns Array of matching Schedule objects
+   */
+  getSchedules<T = string>(criteria: {
+    id?: string;
+    type?: 'scheduled' | 'delayed' | 'cron';
+    timeRange?: {
+      start?: Date;
+      end?: Date;
+    };
+  } = {}): Schedule<T>[] {
+    let query = 'SELECT * FROM _lumenize_alarms WHERE 1=1';
+    const params: any[] = [];
+
+    if (criteria.id) {
+      query += ' AND id = ?';
+      params.push(criteria.id);
+    }
+
+    if (criteria.type) {
+      query += ' AND type = ?';
+      params.push(criteria.type);
+    }
+
+    if (criteria.timeRange) {
+      query += ' AND time >= ? AND time <= ?';
+      const start = criteria.timeRange.start || new Date(0);
+      const end = criteria.timeRange.end || new Date(999999999999999);
+      params.push(
+        Math.floor(start.getTime() / 1000),
+        Math.floor(end.getTime() / 1000)
+      );
+    }
+
+    const result = [...this.#storage.sql.exec(query, ...params)].map((row: any) => ({
+      ...row,
+      payload: JSON.parse(row.payload),
+    }));
+
+    return result as Schedule<T>[];
+  }
+
+  /**
+   * Cancel a scheduled task
+   * @param id ID of the task to cancel
+   * @returns true if the task was cancelled, false otherwise
+   */
+  async cancelSchedule(id: string): Promise<boolean> {
+    this.#sql`DELETE FROM _lumenize_alarms WHERE id = ${id}`;
+    await this.#scheduleNextAlarm();
+    return true;
+  }
+
+  /**
+   * Alarm handler - must be called from DO's alarm() method
+   */
+  readonly alarm = async (alarmInfo?: AlarmInvocationInfo): Promise<void> => {
+    const now = Math.floor(Date.now() / 1000);
+
+    // Get all schedules that should be executed now
+    const result = this.#sql`
+      SELECT * FROM _lumenize_alarms WHERE time <= ${now}
+    `;
+
+    for (const row of result || []) {
+      const callback = this.#parent[row.callback];
+
+      if (!callback) {
+        console.error(`callback ${row.callback} not found`);
+        continue;
+      }
+
+      try {
+        await (callback as Function).bind(this.#parent)(JSON.parse(row.payload), row);
+      } catch (e) {
+        console.error(`error executing callback "${row.callback}"`, e);
+      }
+
+      if (row.type === 'cron') {
+        // Update next execution time for cron schedules
+        const nextExecutionTime = getNextCronTime(row.cron);
+        const nextTimestamp = Math.floor(nextExecutionTime.getTime() / 1000);
+        this.#sql`
+          UPDATE _lumenize_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}
+        `;
+      } else {
+        // Delete one-time schedules after execution
+        this.#sql`
+          DELETE FROM _lumenize_alarms WHERE id = ${row.id}
+        `;
+      }
+    }
+
+    // Schedule the next alarm
+    await this.#scheduleNextAlarm();
+  };
+
+  async #scheduleNextAlarm(): Promise<void> {
+    // Find the next schedule that needs to be executed
+    const result = this.#sql`
+      SELECT time FROM _lumenize_alarms 
+      WHERE time > ${Math.floor(Date.now() / 1000)}
+      ORDER BY time ASC 
+      LIMIT 1
+    `;
+
+    if (!result || result.length === 0) {
+      return;
+    }
+
+    if ('time' in result[0]) {
+      const nextTime = (result[0].time as number) * 1000;
+      await this.#storage.setAlarm(nextTime);
+    }
+  }
+}
+
+// TypeScript declaration merging magic
+// This augments the global LumenizeServices interface so TypeScript knows
+// about this.svc.alarms when you import this package
+declare global {
+  interface LumenizeServices {
+    alarms: Alarms<any>;
+  }
+}
+
