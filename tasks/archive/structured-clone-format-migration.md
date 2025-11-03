@@ -243,7 +243,7 @@ obj.self = obj;  // Cycle
 - [x] Add performance benefits to docs (efficient tuple format)
 - [x] Add format examples and API tier documentation
 - [x] Update CHANGELOG with changes
-- [x] Version bump: **0.15.0 → 0.16.0**
+- [x] Version bump: **0.15.0 → 0.17.0**
 - [x] Publish to npm with release notes
 - [x] Deploy documentation website
 
