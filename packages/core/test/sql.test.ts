@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
-import { env } from 'cloudflare:test';
+import { env, type Env } from 'cloudflare:test';
 
 describe('@lumenize/core - sql', () => {
-  let stub: DurableObjectStub;
+  let stub: DurableObjectStub<Env>;
 
   beforeEach(() => {
     stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
@@ -45,7 +45,7 @@ describe('@lumenize/core - sql', () => {
       
       const users = await stub.getAllUsers();
       expect(users).toHaveLength(3);
-      expect(users.map(u => u.name)).toEqual(['Alice', 'Bob', 'Charlie']);
+      expect(users.map((u: { name: any; }) => u.name)).toEqual(['Alice', 'Bob', 'Charlie']);
     });
   });
 
@@ -66,7 +66,7 @@ describe('@lumenize/core - sql', () => {
     it('filters by range parameters', async () => {
       const users = await stub.getUsersByAgeRange(26, 32);
       expect(users).toHaveLength(2);
-      expect(users.map(u => u.name)).toEqual(['Diana', 'Alice']);
+      expect(users.map((u: { name: any; }) => u.name)).toEqual(['Diana', 'Alice']);
     });
 
     it('handles aggregate queries', async () => {

@@ -1,6 +1,4 @@
 import { DurableObject } from 'cloudflare:workers';
-// @ts-expect-error For some reason this import is not always recognized
-import { Env } from 'cloudflare:test';
 import { sql } from '../src/sql';
 
 export class TestDO extends DurableObject<Env> {

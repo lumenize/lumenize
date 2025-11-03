@@ -10,7 +10,13 @@
  * @example
  * Standalone usage:
  * ```typescript
+ * import { sql } from '@lumenize/core';
+ * import { DurableObject } from 'cloudflare:workers';
+ * 
  * class MyDO extends DurableObject {
+ *   // Convenient convention - You can use sql(this)` ... directly just as well
+ *   // We need `this` passed in because it's just the pattern that every Lumenize NADIS
+ *   // plugin requires when used stand-alone. When using LumenizeBase, this is not necessary.
  *   #sql = sql(this);
  *   
  *   async getUser(id: string) {
@@ -23,6 +29,10 @@
  * @example
  * With LumenizeBase (auto-injected):
  * ```typescript
+ * import '@lumenize/core';  // Registers sql in this.svc
+ * // You could also do this: import { sql } from '@lumenize/core';
+ * import { LumenizeBase } from '@lumenize/lumenize-base';
+ * 
  * class MyDO extends LumenizeBase<Env> {
  *   async getUser(id: string) {
  *     const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
