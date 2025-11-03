@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/docusaurus-plugin-check-examples",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "private": true,
   "description": "Docusaurus plugin to verify code examples in .mdx files match actual test code",
   "type": "module",
