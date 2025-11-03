@@ -25,14 +25,15 @@ export class _TestDO extends DurableObject {
   /**
    * Business logic that needs to call external API - uses proxyFetch() auto-detect
    */
-  async myBusinessProcess(url: string, handler?: string, options?: any): Promise<string> {
+  async myBusinessProcess(url: string, handler?: string, options?: any, proxyInstanceNameOrId?: string): Promise<string> {
     // Uses proxyFetch() which auto-detects DO vs Queue variant
     const reqId = await proxyFetch(
-      this,         // DO instance
-      url,          // URL or Request object
-      'TEST_DO',    // DO binding name
-      handler,      // Handler method name (optional for fire-and-forget)
-      options       // Options (optional)
+      this,                                      // DO instance
+      url,                                       // URL or Request object
+      'TEST_DO',                                 // DO binding name
+      handler,                                   // Handler method name (optional for fire-and-forget)
+      options,                                   // Options (optional)
+      proxyInstanceNameOrId || 'proxy-fetch-global'  // ProxyFetch DO instance name or 64-char hex ID (defaults to global)
     );
     return reqId;
   }

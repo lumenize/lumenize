@@ -47,7 +47,7 @@ export class MyDO {
 it('demonstrates server DO setup with sendDownstream', async () => {
   const messages: any[] = [];
 
-  using client = createRpcClient<MyDOType>({
+  using client = createRpcClient<typeof MyDOType>({
     transport: createWebSocketTransport('MY_DO', 'server-setup-test', {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',

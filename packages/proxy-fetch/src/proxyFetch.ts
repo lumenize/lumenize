@@ -1,4 +1,5 @@
 import { encodeRequest } from '@lumenize/structured-clone';
+import { getDOStub } from '@lumenize/utils';
 import type { ProxyFetchQueueMessage, ProxyFetchOptions } from './types';
 
 /**
@@ -34,12 +35,13 @@ export async function proxyFetch(
   req: Request | string,
   doBindingName: string,
   handler?: string,
-  options?: ProxyFetchOptions
+  options?: ProxyFetchOptions,
+  proxyInstanceNameOrId?: string
 ): Promise<string> {
   // Auto-detect which variant to use
   if (doInstance.env.PROXY_FETCH_DO) {
     // Use DO variant
-    return proxyFetchDO(doInstance, req, doBindingName, handler, options);
+    return proxyFetchDO(doInstance, req, doBindingName, handler, options, proxyInstanceNameOrId);
   } else if (doInstance.env.PROXY_FETCH_QUEUE) {
     // Use Queue variant
     return proxyFetchQueue(doInstance, req, doBindingName, handler, options);
@@ -66,7 +68,8 @@ export async function proxyFetchDO(
   req: Request | string,
   doBindingName: string,
   handler?: string,
-  options?: ProxyFetchOptions
+  options?: ProxyFetchOptions,
+  proxyInstanceNameOrId: string = 'proxy-fetch-global'
 ): Promise<string> {
   // Validate handler exists if provided
   if (handler && typeof doInstance[handler] !== 'function') {
@@ -94,15 +97,15 @@ export async function proxyFetchDO(
     options,
   };
   
-  // Get the global ProxyFetchDO instance
+  // Get the ProxyFetchDO binding
   const proxyFetchDO = doInstance.env.PROXY_FETCH_DO;
   if (!proxyFetchDO) {
     throw new Error('PROXY_FETCH_DO binding not found in env');
   }
   
-  // Use the named 'proxy-fetch-global' instance
-  const id = proxyFetchDO.idFromName('proxy-fetch-global');
-  const stub = proxyFetchDO.get(id);
+  // Get stub for the specified instance (supports both name and 64-char hex ID)
+  // Defaults to 'proxy-fetch-global' for backward compatibility
+  const stub = getDOStub(proxyFetchDO, proxyInstanceNameOrId);
   
   // Enqueue the request
   await stub.enqueue(queueMessage);

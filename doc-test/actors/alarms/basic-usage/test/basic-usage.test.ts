@@ -182,7 +182,7 @@ See [here](/docs/actors/alarms/plain-usage) for an example.
 
 ## wrangler.jsonc
 
-@import {json} "../wrangler.jsonc" [wrangler.jsonc]
+@import {json} "./wrangler.jsonc" [wrangler.jsonc]
 
 ## Try it out
 

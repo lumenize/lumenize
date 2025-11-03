@@ -36,7 +36,7 @@ it('demonstrates multiplayer collaborative features', async () => {
   const client2Updates: any[] = [];
 
   // Client 1
-  using client1 = createRpcClient<DocumentDOType>({
+  using client1 = createRpcClient<typeof DocumentDOType>({
     transport: createWebSocketTransport('DOCUMENT_DO', 'doc-123', {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',
@@ -49,7 +49,7 @@ it('demonstrates multiplayer collaborative features', async () => {
   });
 
   // Client 2
-  using client2 = createRpcClient<DocumentDOType>({
+  using client2 = createRpcClient<typeof DocumentDOType>({
     transport: createWebSocketTransport('DOCUMENT_DO', 'doc-123', {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',

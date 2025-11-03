@@ -48,7 +48,7 @@ it('demonstrates progress updates during video processing', async () => {
   const updates: any[] = [];
 
   // Client
-  using client = createRpcClient<VideoDOType>({
+  using client = createRpcClient<typeof VideoDOType>({
     transport: createWebSocketTransport('VIDEO_DO', videoId, {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',

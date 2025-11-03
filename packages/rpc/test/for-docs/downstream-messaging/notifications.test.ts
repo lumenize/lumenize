@@ -26,7 +26,7 @@ it('demonstrates real-time notifications', async () => {
   const notifications: any[] = [];
 
   // Client - Subscribe to notifications
-  using client = createRpcClient<NotificationHubType>({
+  using client = createRpcClient<typeof NotificationHubType>({
     transport: createWebSocketTransport('NOTIFICATIONS', 'global', {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',

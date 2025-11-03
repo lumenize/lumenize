@@ -13,8 +13,10 @@ it('new alarm overwrites pending alarm', async () => {
   await client.scheduleTask(5); // 50ms in test time
   const secondAlarmTime = await client.getAlarmTime();
 
+  expect(secondAlarmTime).not.toBeNull();
+  expect(firstAlarmTime).not.toBeNull();
   expect(secondAlarmTime).not.toBe(firstAlarmTime);
-  expect(secondAlarmTime).toBeLessThan(firstAlarmTime);
+  expect(secondAlarmTime!).toBeLessThan(firstAlarmTime!);
 
   // Only the second alarm fires
   await vi.waitFor(async () => {

@@ -9,8 +9,7 @@
  * 
  * This provides faster, more precise tests than setTimeout-based waiting.
  * 
- * NOTE: These tests run SEQUENTIALLY because they all share the same 
- * 'proxy-fetch-global' DO instance (by design) and inspect its internal state.
+ * Each test uses its own isolated ProxyFetchDO instance for complete independence.
  */
 import { test, expect, vi, describe } from 'vitest';
 // @ts-expect-error
@@ -19,13 +18,13 @@ import { createTestingClient } from '@lumenize/testing';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 import type { _ProxyFetchDO, _TestDO } from './test-worker';
 
-describe.sequential('RPC-Based ProxyFetch Tests', () => {
+describe('RPC-Based ProxyFetch Tests', () => {
   test('demonstrates RPC access to ProxyFetchDO internals', async () => {
-  // 1. Setup: Create RPC clients for both DOs
-  // CRITICAL: Use 'proxy-fetch-global' to match the named instance used by proxyFetch()
+  // 1. Setup: Create RPC clients for both DOs with unique instance names
+  const proxyInstanceName = 'proxy-rpc-test-1';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
-    'proxy-fetch-global'  // Must match the instance name in proxyFetch.ts!
+    proxyInstanceName
   );
   const userInstanceId = 'rpc-test-user';
   using userClient = createTestingClient<typeof _TestDO>(
@@ -39,7 +38,9 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
   // 2. Act: User calls proxyFetch with a fast endpoint with 50ms delay
   const reqId = await userClient.myBusinessProcess(
     TEST_ENDPOINTS.buildUrl('/delay/50'),
-    'handleSuccess'
+    'handleSuccess',
+    undefined,  // No special options
+    proxyInstanceName  // Use isolated proxy instance
   );
   
   expect(reqId).toBeDefined();
@@ -65,9 +66,10 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
 });
 
   test('handles multiple concurrent requests (batching)', async () => {
+  const proxyInstanceName = 'proxy-rpc-test-2';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
-    'proxy-fetch-global'
+    proxyInstanceName
   );
   const userInstanceId = 'rpc-test-batch';
   using userClient = createTestingClient<typeof _TestDO>(
@@ -84,7 +86,9 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
     calls.push(
       userClient.myBusinessProcess(
         TEST_ENDPOINTS.buildUrl('/delay/50'),
-        'handleSuccess'
+        'handleSuccess',
+        undefined,  // No special options
+        proxyInstanceName  // Use isolated proxy instance
       )
     );
   }
@@ -124,9 +128,10 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
 });
 
   test('retries failed requests with exponential backoff', async () => {
+  const proxyInstanceName = 'proxy-rpc-test-3';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
-    'proxy-fetch-global'
+    proxyInstanceName
   );
   const userInstanceId = 'rpc-test-retry';
   using userClient = createTestingClient<typeof _TestDO>(
@@ -145,7 +150,8 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
       maxRetries: 2,
       retryDelay: 100,
       retryOn5xx: true,
-    }
+    },
+    proxyInstanceName  // Use isolated proxy instance
   );
 
   // Wait for retries to complete and callback to be delivered
@@ -163,9 +169,10 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
 });
 
   test('fire-and-forget requests skip callback', async () => {
+  const proxyInstanceName = 'proxy-rpc-test-4';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
-    'proxy-fetch-global'
+    proxyInstanceName
   );
   const userInstanceId = 'rpc-test-fire-forget';
   using userClient = createTestingClient<typeof _TestDO>(
@@ -179,7 +186,9 @@ describe.sequential('RPC-Based ProxyFetch Tests', () => {
   // Request without handler - fire and forget
   const reqId = await userClient.myBusinessProcess(
     TEST_ENDPOINTS.buildUrl('/uuid'),
-    undefined  // No handler
+    undefined,  // No handler
+    undefined,  // No special options
+    proxyInstanceName  // Use isolated proxy instance
   );
 
   expect(reqId).toBeDefined();

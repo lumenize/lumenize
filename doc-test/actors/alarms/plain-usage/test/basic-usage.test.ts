@@ -176,7 +176,7 @@ it('queries and cancels scheduled alarms', async () => {
 /*
 ## wrangler.jsonc
 
-@import {json} "../wrangler.jsonc" [wrangler.jsonc]
+@import {json} "./wrangler.jsonc" [wrangler.jsonc]
 
 ## Try it out
 

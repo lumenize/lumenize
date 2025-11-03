@@ -248,7 +248,29 @@ See [here](/docs/actors/alarms/plain-usage) for an example.
 
 ## wrangler.jsonc
 
-@import {json} "../wrangler.jsonc" [wrangler.jsonc]
+```json wrangler.jsonc
+{
+  "name": "actors-alarms-basic-usage",
+  "main": "test-harness.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ALARM_DO",
+        "class_name": "AlarmDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AlarmDO"]
+    }
+  ]
+}
+
+
+```
 
 ## Try it out
 

@@ -25,23 +25,23 @@ it('demonstrates client ID targeting', async () => {
   const client1Messages: any[] = [];
   const client2Messages: any[] = [];
 
-  using client1 = createRpcClient<BroadcastDOType>({
+  using client1 = createRpcClient<typeof BroadcastDOType>({
     transport: createWebSocketTransport('BROADCAST_DO', 'room-1', {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',
       WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
       clientId: 'user-123',
-      onDownstream: (msg) => client1Messages.push(msg)
+      onDownstream: (msg) => { client1Messages.push(msg); }
     })
   });
 
-  using client2 = createRpcClient<BroadcastDOType>({
+  using client2 = createRpcClient<typeof BroadcastDOType>({
     transport: createWebSocketTransport('BROADCAST_DO', 'room-1', {
       baseUrl: 'https://fake-host.com',
       prefix: '__rpc',
       WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
       clientId: 'user-456',
-      onDownstream: (msg) => client2Messages.push(msg)
+      onDownstream: (msg) => { client2Messages.push(msg); }
     })
   });
 
