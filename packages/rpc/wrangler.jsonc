@@ -21,8 +21,28 @@
         "class_name": "PipeliningDO"
       },
       {
+        "name": "MY_DO",
+        "class_name": "MyDO"
+      },
+      {
         "name": "NOTIFICATION_DO",
         "class_name": "NotificationDO"
+      },
+      {
+        "name": "VIDEO_DO",
+        "class_name": "VideoDO"
+      },
+      {
+        "name": "NOTIFICATIONS",
+        "class_name": "NotificationHub"
+      },
+      {
+        "name": "DOCUMENT_DO",
+        "class_name": "DocumentDO"
+      },
+      {
+        "name": "BROADCAST_DO",
+        "class_name": "BroadcastDO"
       }
     ]
   },
@@ -54,7 +74,37 @@
     {
       "tag": "v5",
       "new_sqlite_classes": [
+        "MyDO"
+      ]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": [
         "NotificationDO"
+      ]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": [
+        "VideoDO"
+      ]
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": [
+        "NotificationHub"
+      ]
+    },
+    {
+      "tag": "v9",
+      "new_sqlite_classes": [
+        "DocumentDO"
+      ]
+    },
+    {
+      "tag": "v10",
+      "new_sqlite_classes": [
+        "BroadcastDO"
       ]
     }
   ]

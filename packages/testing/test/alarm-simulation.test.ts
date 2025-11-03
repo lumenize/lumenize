@@ -9,10 +9,10 @@ describe('Alarm Simulation', () => {
   it('alarms fire automatically without runDurableObjectAlarm', async () => {
     await using client = createTestingClient<TestDOType>('TEST_DO', 'auto-alarm');
     
-    // Schedule an alarm for 1000ms from now (will fire in ~10ms due to 100x speed)
-    await client.scheduleAlarm(1000, { message: 'test automatic alarm' });
+    // Schedule an alarm for 3000ms from now (will fire in ~30ms due to 100x speed)
+    await client.scheduleAlarm(3000, { message: 'test automatic alarm' });
     
-    // Check initial state (we have time since alarm is 10ms away)
+    // Check initial state (we have time since alarm is 30ms away)
     const stateBefore = await client.getAlarmState();
     expect(stateBefore.firedCount).toBe(0);
     expect(stateBefore.scheduledTime).not.toBeNull();
@@ -21,7 +21,7 @@ describe('Alarm Simulation', () => {
     await vi.waitFor(async () => {
       const state = await client.getAlarmState();
       expect(state.firedCount).toBe(1);
-    }, { timeout: 100 }); // Give it 100ms max
+    }, { timeout: 150 }); // Give it 150ms max
     
     // Verify alarm executed with correct payload
     const stateAfter = await client.getAlarmState();

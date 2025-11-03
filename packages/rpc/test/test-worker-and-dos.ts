@@ -254,11 +254,67 @@ export interface ManualRoutingDO extends Omit<typeof sharedDOMethods, 'increment
 }
 
 /**
- * NotificationDO for testing downstream messaging
- * Simulates a notification/messaging system
+ * MyDO - Simple DO for documentation examples
  */
 import { sendDownstream } from '../src/lumenize-rpc-do';
 
+class _MyDO extends DurableObject<Env> {
+  // Basic method for testing
+  ping(): string {
+    return 'pong';
+  }
+
+  async processLongTask() {
+    // Send progress updates to all connected clients
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { type: 'progress', percent: 25 });
+    }
+    
+    // ... do some work ...
+    
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { type: 'progress', percent: 50 });
+    }
+    
+    // ... more work ...
+    
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { type: 'progress', percent: 100 });
+    }
+    
+    return { status: 'complete' };
+  }
+
+  async notifyClient(clientId: string, message: any) {
+    // Send to a specific client
+    await sendDownstream(clientId, this, message);
+  }
+
+  // Send a downstream message to all clients
+  async sendUpdate(message: string): Promise<void> {
+    // Get all connected client IDs from WebSockets
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { message });
+    }
+  }
+
+  // Send to specific client
+  async sendToClient(clientId: string, message: string): Promise<void> {
+    await sendDownstream(clientId, this, { message });
+  }
+}
+
+const MyDO = lumenizeRpcDO(_MyDO);
+export { MyDO };
+
+/**
+ * NotificationDO for testing downstream messaging
+ * Simulates a notification/messaging system
+ */
 class _NotificationDO extends DurableObject<Env> {
   subscribe(clientId: string): string {
     this.ctx.storage.kv.put('subscriber', clientId);
@@ -294,6 +350,115 @@ class _NotificationDO extends DurableObject<Env> {
 
 const NotificationDO = lumenizeRpcDO(_NotificationDO);
 export { NotificationDO };
+
+/**
+ * VideoDO for testing progress updates during video processing
+ */
+class _VideoDO extends DurableObject<Env> {
+  async processVideo(videoId: string) {
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    
+    await sendDownstream(clientIds, this, { stage: 'uploading', progress: 0 });
+    
+    await this.uploadToStorage(videoId);
+    await sendDownstream(clientIds, this, { stage: 'encoding', progress: 30 });
+    
+    await this.encodeVideo(videoId);
+    await sendDownstream(clientIds, this, { stage: 'thumbnails', progress: 70 });
+    
+    await this.generateThumbnails(videoId);
+    await sendDownstream(clientIds, this, { stage: 'complete', progress: 100 });
+    
+    return { success: true };
+  }
+
+  private async uploadToStorage(videoId: string) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+
+  private async encodeVideo(videoId: string) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+
+  private async generateThumbnails(videoId: string) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+const VideoDO = lumenizeRpcDO(_VideoDO);
+export { VideoDO };
+
+/**
+ * NotificationHub for testing real-time notifications
+ */
+class _NotificationHub extends DurableObject<Env> {
+  async onUserAction(userId: string, action: string) {
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    
+    await sendDownstream(clientIds, this, {
+      userId,
+      action,
+      timestamp: Date.now()
+    });
+  }
+}
+
+const NotificationHub = lumenizeRpcDO(_NotificationHub);
+export { NotificationHub };
+
+/**
+ * DocumentDO for testing collaborative features
+ */
+class _DocumentDO extends DurableObject<Env> {
+  getConnectedClients(): string[] {
+    const connections = this.ctx.getWebSockets();
+    return [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+  }
+
+  getConnectionCount(clientId: string): number {
+    return this.ctx.getWebSockets(clientId).length;
+  }
+
+  async updateContent(clientId: string, changes: any) {
+    await this.applyChanges(changes);
+    
+    const otherClients = this.getConnectedClients().filter(id => id !== clientId);
+    for (const otherId of otherClients) {
+      await sendDownstream(otherId, this, { changes });
+    }
+  }
+
+  private async applyChanges(changes: any) {
+    this.ctx.storage.kv.put('lastChange', changes);
+  }
+}
+
+const DocumentDO = lumenizeRpcDO(_DocumentDO);
+export { DocumentDO };
+
+/**
+ * BroadcastDO for testing client ID targeting
+ */
+class _BroadcastDO extends DurableObject<Env> {
+  getConnectionCount(clientId: string): number {
+    return this.ctx.getWebSockets(clientId).length;
+  }
+
+  async broadcastToAll(message: any) {
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    await sendDownstream(clientIds, this, message);
+  }
+
+  async sendToSpecificClient(clientId: string, message: any) {
+    await sendDownstream(clientId, this, message);
+  }
+}
+
+const BroadcastDO = lumenizeRpcDO(_BroadcastDO);
+export { BroadcastDO };
 
 /**
  * Worker fetch handler that uses routeDORequest to handle RPC requests

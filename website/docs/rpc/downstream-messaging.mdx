@@ -20,22 +20,22 @@ Downstream messaging allows your Durable Objects to send messages to connected c
 
 Register handlers when creating the RPC client:
 
-```typescript
+```typescript @check-example('packages/rpc/test/for-docs/downstream-messaging/client-setup.test.ts')
 import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
 
 using client = createRpcClient<typeof MyDO>({
-  transport: createWebSocketTransport('MY_DO', 'instance-1'),
-  config: {
+  transport: createWebSocketTransport('MY_DO', 'instance-1', {
+    // ...
     clientId: 'user-123', // Optional: identify this client
     onDownstream: (message) => {
-      console.log('Received from DO:', message);
+      // ...
       // Handle real-time updates from the DO
     },
     onClose: (code, reason) => {
-      console.log(`Connection closed: ${code} - ${reason}`);
+      // ...
       // Handle disconnection
-    }
-  }
+    },
+  }),
 });
 ```
 
@@ -43,7 +43,7 @@ using client = createRpcClient<typeof MyDO>({
 
 Send messages to connected clients from within your DO:
 
-```typescript
+```typescript @check-example('packages/rpc/test/for-docs/downstream-messaging/server-setup.test.ts')
 import { sendDownstream } from '@lumenize/rpc';
 
 export class MyDO {
@@ -57,22 +57,30 @@ export class MyDO {
 
   async processLongTask() {
     // Send progress updates to all connected clients
-    sendDownstream(this.ctx, { type: 'progress', percent: 25 });
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { type: 'progress', percent: 25 });
+    }
     
     // ... do some work ...
     
-    sendDownstream(this.ctx, { type: 'progress', percent: 50 });
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { type: 'progress', percent: 50 });
+    }
     
     // ... more work ...
     
-    sendDownstream(this.ctx, { type: 'progress', percent: 100 });
+    if (clientIds.length > 0) {
+      await sendDownstream(clientIds, this, { type: 'progress', percent: 100 });
+    }
     
     return { status: 'complete' };
   }
 
   async notifyClient(clientId: string, message: any) {
     // Send to a specific client
-    sendDownstream(this.ctx, message, { clientId });
+    await sendDownstream(clientId, this, message);
   }
 }
 ```
@@ -81,31 +89,43 @@ export class MyDO {
 
 ### Progress Updates
 
-```typescript
-// Durable Object
-async processVideo(videoId: string) {
-  sendDownstream(this.ctx, { stage: 'uploading', progress: 0 });
-  
-  await this.uploadToStorage(videoId);
-  sendDownstream(this.ctx, { stage: 'encoding', progress: 30 });
-  
-  await this.encodeVideo(videoId);
-  sendDownstream(this.ctx, { stage: 'thumbnails', progress: 70 });
-  
-  await this.generateThumbnails(videoId);
-  sendDownstream(this.ctx, { stage: 'complete', progress: 100 });
-  
-  return { success: true };
-}
+**Server side** - Send progress updates during long-running operations:
 
-// Client
+```typescript @check-example('packages/rpc/test/for-docs/downstream-messaging/progress-updates.test.ts')
+// Durable Object
+class VideoDO {
+  // ...
+
+  async processVideo(videoId: string) {
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    
+    await sendDownstream(clientIds, this, { stage: 'uploading', progress: 0 });
+    
+    await this.uploadToStorage(videoId);
+    await sendDownstream(clientIds, this, { stage: 'encoding', progress: 30 });
+    
+    await this.encodeVideo(videoId);
+    await sendDownstream(clientIds, this, { stage: 'thumbnails', progress: 70 });
+    
+    await this.generateThumbnails(videoId);
+    await sendDownstream(clientIds, this, { stage: 'complete', progress: 100 });
+    
+    return { success: true };
+  }
+  // ...
+}
+```
+
+**Client side** - Receive and handle progress updates:
+
+```typescript @skip-check
 using client = createRpcClient<typeof VideoDO>({
-  transport: createWebSocketTransport('VIDEO_DO', videoId),
-  config: {
+  transport: createWebSocketTransport('VIDEO_DO', videoId, {
     onDownstream: (update) => {
       updateProgressBar(update.stage, update.progress);
     }
-  }
+  })
 });
 
 await client.processVideo(videoId);
@@ -113,35 +133,51 @@ await client.processVideo(videoId);
 
 ### Real-Time Notifications
 
-```typescript
+**Server side** - Broadcast notifications when events occur:
+
+```typescript @check-example('packages/rpc/test/for-docs/downstream-messaging/notifications.test.ts')
 // Durable Object - Notification Hub
 class NotificationHub {
+  // ...
+
   async onUserAction(userId: string, action: string) {
     // Notify all connected clients when something happens
-    sendDownstream(this.ctx, {
+    const connections = this.ctx.getWebSockets();
+    const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+    
+    await sendDownstream(clientIds, this, {
       userId,
       action,
       timestamp: Date.now()
     });
   }
 }
+```
 
-// Client - Subscribe to notifications
+**Client side** - Subscribe to and display notifications:
+
+```typescript @skip-check
 using client = createRpcClient<typeof NotificationHub>({
-  transport: createWebSocketTransport('NOTIFICATIONS', 'global'),
-  config: {
+  transport: createWebSocketTransport('NOTIFICATIONS', 'global', {
     onDownstream: (notification) => {
       showToast(`${notification.userId} performed ${notification.action}`);
     }
-  }
+  })
 });
 ```
 
 ### Multiplayer/Collaborative Features
 
-```typescript
+```typescript @check-example('packages/rpc/test/for-docs/downstream-messaging/collaborative.test.ts')
 // Durable Object - Collaborative Document
 class DocumentDO {
+  // ...
+
+  getConnectedClients(): string[] {
+    const connections = this.ctx.getWebSockets();
+    return [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+  }
+
   async updateContent(clientId: string, changes: any) {
     // Apply changes locally
     await this.applyChanges(changes);
@@ -149,9 +185,10 @@ class DocumentDO {
     // Broadcast to all OTHER clients (exclude sender)
     const otherClients = this.getConnectedClients().filter(id => id !== clientId);
     for (const otherId of otherClients) {
-      sendDownstream(this.ctx, { changes }, { clientId: otherId });
+      await sendDownstream(otherId, this, { changes });
     }
   }
+  // ...
 }
 ```
 
@@ -177,7 +214,7 @@ Send a message from a Durable Object to connected clients.
 Registered on the client when creating the RPC client.
 
 **Signature:**
-```typescript
+```typescript @skip-check
 onDownstream?: (message: any) => void
 ```
 
@@ -190,7 +227,7 @@ onDownstream?: (message: any) => void
 Registered on the client when creating the RPC client.
 
 **Signature:**
-```typescript
+```typescript @skip-check
 onClose?: (code: number, reason: string) => void
 ```
 
@@ -209,7 +246,7 @@ onClose?: (code: number, reason: string) => void
 
 Downstream messaging **only works with WebSocket transport**. HTTP transport doesn't support server-initiated messages.
 
-```typescript
+```typescript @skip-check
 // ✅ Works - WebSocket transport
 createRpcClient({
   transport: createWebSocketTransport('MY_DO', 'id'),
@@ -225,15 +262,16 @@ createRpcClient({
 
 ### Client IDs
 
-The `clientId` is optional but recommended for multi-user scenarios:
+The `clientId` is optional but recommended for multi-user scenarios. See the full working example in `client-ids.test.ts`.
 
-```typescript
-// Without clientId - can't target specific clients
-sendDownstream(ctx, message); // Broadcasts to ALL
+```typescript @skip-check
+// Without clientId - broadcast to all connected clients
+const connections = this.ctx.getWebSockets();
+const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];
+await sendDownstream(clientIds, this, message);
 
-// With clientId - can target individuals
-config: { clientId: 'user-123' }
-sendDownstream(ctx, message, { clientId: 'user-123' });
+// With clientId - target a specific client
+await sendDownstream('user-123', this, message);
 ```
 
 ### Message Serialization
