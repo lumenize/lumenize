@@ -148,12 +148,14 @@ export class MyDO extends DurableObject<Env> {
    * Handler that throws an error (for testing error handling in queue consumer)
    */
   async handleThrowingError({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
-    // Synchronous storage writes complete before the throw
-    // (synchronous storage is the recommended Cloudflare pattern with compatibility_date >= 2025-09-12)
-    this.ctx.storage.kv.put('handler-was-called', reqId);
-    this.ctx.storage.kv.put('handler-completed-at', Date.now());
+    // Use ctx.waitUntil to ensure storage writes complete even when we throw
+    // This is the correct pattern for cleanup/logging operations in error handlers
+    this.ctx.waitUntil((async () => {
+      this.ctx.storage.kv.put('handler-was-called', reqId);
+      this.ctx.storage.kv.put('handler-completed-at', Date.now());
+    })());
     
-    // Throw after storage writes are complete
+    // Throw after storage writes are queued
     throw new Error('Handler intentionally threw an error');
   }
 
