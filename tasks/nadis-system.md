@@ -12,7 +12,7 @@ Create the NADIS (Not A DI System) architecture that enables:
 This task encompasses building three foundational packages:
 - `@lumenize/core` - Universal injectables (starting with `sql`)
 - `@lumenize/alarms` - Second injectable, proves dependency pattern
-- `@lumenize/base` - LumenizeBase class with auto-injection
+- `@lumenize/lumenize-base` - LumenizeBase class with auto-injection
 
 ## Context
 
@@ -39,17 +39,12 @@ It's technically dependency injection, but we're keeping it:
 
 ```typescript
 // ✅ Use strings (RECOMMENDED)
-nadisRegistry.set('sql', sqlImplementation);
-nadisRegistry.set('alarms', alarmsImplementation);
-
-// Usage via Proxy/getter
-this.svc.sql.query('...');
+this.svc.sql`SELECT * FROM users`;
 this.svc.alarms.schedule(...);
 
 // ❌ Don't use Symbols
 export const NADIS_SQL = Symbol('nadis:sql');
-nadisRegistry.set(NADIS_SQL, sqlImplementation);
-this.svc[NADIS_SQL].query('...'); // Less ergonomic
+this.svc[NADIS_SQL]`SELECT ...`; // Less ergonomic
 ```
 
 **Rationale**:
@@ -57,24 +52,103 @@ this.svc[NADIS_SQL].query('...'); // Less ergonomic
 2. **Debuggability**: See `'sql'` in logs/debugger, not `Symbol(nadis:sql)`
 3. **Accessibility**: Strings are familiar to vibe coders (no Symbol expertise needed)
 4. **No foot-guns**: Collision risk is theoretical - we control the NADIS namespace
-5. **Type safety**: Works perfectly with TypeScript declaration merging
+5. **Type safety**: Works perfectly with TypeScript declaration merging (see below)
 
-**Implementation**:
+### Automatic Type Safety via Declaration Merging
+
+**The Magic**: Each injectable package augments a global `LumenizeServices` interface. TypeScript automatically merges all augmentations, giving full type safety without manual registration!
+
+**How it works:**
+
 ```typescript
-class LumenizeBase<Env> extends DurableObject<Env> {
-  get svc() {
-    return new Proxy({}, {
-      get: (_, key: string) => nadis(this, key)
-    });
+// @lumenize/core/src/sql.ts
+export function sql(doInstance: any) {
+  const ctx = doInstance.ctx;
+  
+  return (strings: TemplateStringsArray, ...values: any[]) => {
+    const query = strings.reduce((acc, str, i) => 
+      acc + str + (i < values.length ? "?" : ""), ""
+    );
+    return [...ctx.storage.sql.exec(query, ...values)];
+  };
+}
+
+// Augment global types - TypeScript merges this automatically
+declare global {
+  interface LumenizeServices {
+    sql: ReturnType<typeof sql>;
   }
 }
 
-// Type safety via declaration merging
-interface LumenizeServices {
-  sql: SqlService;
-  alarms: AlarmsService;
+// @lumenize/alarms/src/alarms.ts
+export class Alarms {
+  // ... implementation
+}
+
+// Each package augments the same interface
+declare global {
+  interface LumenizeServices {
+    alarms: Alarms;
+  }
+}
+
+// @lumenize/lumenize-base/src/lumenize-base.ts
+declare global {
+  interface LumenizeServices {} // Empty base - packages fill it in
+}
+
+export class LumenizeBase<Env> extends DurableObject<Env> {
+  #svcCache = new Map<string, any>();
+  
+  get svc(): LumenizeServices {
+    return new Proxy({} as LumenizeServices, {
+      get: (_, key: string) => {
+        // Check cache first
+        if (this.#svcCache.has(key)) {
+          return this.#svcCache.get(key);
+        }
+        
+        // Instantiate on first access
+        let instance: any;
+        if (key === 'sql') {
+          instance = sql(this);
+        } else if (key === 'alarms') {
+          instance = new Alarms(this);
+        }
+        // ... more services as needed
+        
+        if (!instance) {
+          throw new Error(`NADIS service '${key}' not found`);
+        }
+        
+        this.#svcCache.set(key, instance);
+        return instance;
+      }
+    });
+  }
 }
 ```
+
+**User experience:**
+```typescript
+import { Alarms } from '@lumenize/alarms'; // Types auto-merge!
+
+class MyDO extends LumenizeBase<Env> {
+  async doWork() {
+    // Full TypeScript autocomplete and type checking!
+    this.svc.sql`SELECT * FROM users WHERE id = ${userId}`;
+    this.svc.alarms.schedule(new Date(), 'myHandler', { data: 'test' });
+  }
+}
+```
+
+**Benefits**:
+- ✅ No manual type registration needed
+- ✅ Type safety automatic when you import a package
+- ✅ Lazy instantiation (services created on first access)
+- ✅ Each package declares its own types independently
+- ✅ TypeScript merges all augmentations automatically
+- ✅ IntelliSense shows all available services
 
 ### Injectable Context Access
 
@@ -95,23 +169,36 @@ new Alarms(ctx)   // Only gets ctx, needs separate params for dependencies
 
 ### Injectable Dependency Resolution
 
-**Decision**: Auto-discover from `doInstance.svc` with fallback
+**Decision**: Auto-discover from `doInstance.svc` with lazy instantiation via Proxy
 
 ```typescript
+// In Alarms class (stateful, needs dependencies)
 constructor(doInstance: any) {
-  // Try to find dependency in svc (injected context)
-  this.#sql = doInstance.svc?.sql;
+  this.#ctx = doInstance.ctx;
+  this.#doInstance = doInstance;
   
-  // Fallback: create standalone instance
-  if (!this.#sql) {
-    this.#sql = new Sql(doInstance);
+  // Lazy access: only instantiate sql if/when needed
+  // Works for both standalone and injected modes
+}
+
+get #sql() {
+  // Access via svc if available (injected mode)
+  if (this.#doInstance.svc?.sql) {
+    return this.#doInstance.svc.sql;
   }
+  
+  // Fallback: create and cache standalone instance
+  if (!this.#sqlStandalone) {
+    this.#sqlStandalone = sql(this.#doInstance);
+  }
+  return this.#sqlStandalone;
 }
 ```
 
 **Benefits**:
 - Works in LumenizeBase (finds via svc)
 - Works standalone (creates own instance)
+- Lazy instantiation (only create when needed)
 - No explicit dependency parameter needed
 
 **Alternative considered**:
@@ -122,6 +209,63 @@ new Alarms(this, { sql: mySql })
 // Pros: Clear, testable
 // Cons: More boilerplate, not "de✨light✨ful"
 ```
+
+### Factory Functions vs Classes for Injectables
+
+**Decision**: Use **factory functions for stateless injectables**, **classes for stateful ones**
+
+**Factory functions (stateless):**
+```typescript
+// @lumenize/core/src/sql.ts
+export function sql(doInstance: any) {
+  const ctx = doInstance.ctx;
+  
+  return (strings: TemplateStringsArray, ...values: any[]) => {
+    const query = strings.reduce((acc, str, i) => 
+      acc + str + (i < values.length ? "?" : ""), ""
+    );
+    return [...ctx.storage.sql.exec(query, ...values)];
+  };
+}
+
+// Usage - beautiful template literal syntax!
+this.svc.sql`SELECT * FROM users WHERE id = ${userId}`;
+```
+
+**Classes (stateful, with dependencies):**
+```typescript
+// @lumenize/alarms/src/alarms.ts
+export class Alarms {
+  #ctx: DurableObjectState;
+  #doInstance: any;
+  #sqlStandalone?: ReturnType<typeof sql>;
+  
+  constructor(doInstance: any) {
+    this.#ctx = doInstance.ctx;
+    this.#doInstance = doInstance;
+  }
+  
+  get #sql() {
+    return this.#doInstance.svc?.sql || (
+      this.#sqlStandalone ??= sql(this.#doInstance)
+    );
+  }
+  
+  schedule(when: Date, callback: string, payload?: any) {
+    // Uses this.#sql for database operations
+    this.#sql`INSERT INTO _lumenize_alarms ...`;
+  }
+}
+
+// Usage - clear method calls
+this.svc.alarms.schedule(new Date(), 'myHandler');
+```
+
+**Rationale**:
+- **Functions for pure wrappers**: Sql is just a thin wrapper around `ctx.storage.sql` - no state needed
+- **Classes for complex logic**: Alarms has state, lifecycle, dependencies
+- **Ergonomics matter**: `this.svc.sql\`...\`` is more beautiful than `this.svc.sql.exec\`...\``
+- **Testability**: Both are equally testable by mocking at the DO level
 
 ### What Goes in `svc` vs Standalone?
 
@@ -187,23 +331,27 @@ class LumenizeBase {
 ## Package Structure
 
 ```
-@lumenize/core          # Foundational injectables (sql, future: kv?)
-@lumenize/base          # LumenizeBase class with NADIS
-@lumenize/alarms        # Alarms injectable (depends on core)
-@lumenize/cache         # Future injectable
-@lumenize/[feature]     # Each feature is a separate injectable
+@lumenize/core              # Foundational injectables (sql, future: routing-think hono)
+@lumenize/lumenize-base     # LumenizeBase class with NADIS
+@lumenize/lumenize          # Future: Lumenize class (extends LumenizeBase, batteries-included)
+@lumenize/alarms            # Alarms injectable (depends on core)
+@lumenize/rpc               # Future injectable
+@lumenize/mcp               # Future injectable
+@lumenize/[feature]         # Each feature is a separate injectable
 ```
 
 ### Why This Structure?
 
 1. **Core** = universal injectables nearly every DO needs
-2. **Base** = convenience class for automatic injection
-3. **Feature packages** = optional, install as needed
+2. **LumenizeBase** = minimal base class with NADIS auto-injection
+3. **Lumenize** = future batteries-included base class (extends LumenizeBase)
+4. **Feature packages** = optional, install as needed
 
 ### License Strategy
 
 - `@lumenize/core` - **MIT** (universal utility, liberally licensed)
-- `@lumenize/base` - **BSI-1.1** (framework/platform piece)
+- `@lumenize/lumenize-base` - **MIT** (minimal base class, liberally licensed)
+- `@lumenize/lumenize` - **BSI-1.1** (future, batteries-included framework piece)
 - `@lumenize/alarms` - **MIT** (adapted from MIT-licensed Actor code)
 
 ## Implementation Plan
@@ -220,29 +368,50 @@ class LumenizeBase {
   - [ ] `README.md` with link to docs
 
 #### Sql Injectable Implementation
+
+**Factory function approach** (stateless, beautiful syntax):
+
 ```typescript
-export class Sql {
-  #ctx: DurableObjectState;
+// @lumenize/core/src/sql.ts
+/**
+ * SQL template literal tag for Durable Object storage.
+ * 
+ * @example
+ * ```typescript
+ * const users = sql(this)`SELECT * FROM users WHERE id = ${userId}`;
+ * ```
+ */
+export function sql(doInstance: any) {
+  const ctx = doInstance.ctx;
   
-  constructor(doInstance: any) {
-    this.#ctx = doInstance.ctx;
-  }
-  
-  // Template literal tag for SQL queries
-  exec(strings: TemplateStringsArray, ...values: any[]): any[] {
+  return (strings: TemplateStringsArray, ...values: any[]) => {
     const query = strings.reduce((acc, str, i) => 
       acc + str + (i < values.length ? "?" : ""), ""
     );
-    return [...this.#ctx.storage.sql.exec(query, ...values)];
+    return [...ctx.storage.sql.exec(query, ...values)];
+  };
+}
+
+// TypeScript declaration merging magic - adds to global LumenizeServices
+declare global {
+  interface LumenizeServices {
+    sql: ReturnType<typeof sql>;
   }
 }
 ```
 
+**Key features:**
+- Factory function returns template literal tag function
+- Zero state (stateless wrapper)
+- Beautiful syntax: `sql(this)\`SELECT ...\`` or `this.svc.sql\`SELECT ...\``
+- Automatic type safety via declaration merging
+
 #### Testing
-- [ ] Create minimal test DO that uses `new Sql(this)`
-- [ ] Test standalone usage works
+- [ ] Create minimal test DO that uses `sql(this)` standalone
 - [ ] Test SQL template literal syntax
 - [ ] Test query execution and results
+- [ ] Test with multiple queries
+- [ ] Verify type safety (TypeScript should catch errors)
 
 **Success Criteria**: 
 - Sql injectable works standalone
@@ -441,7 +610,26 @@ interface AlarmMetrics {
 #### Adaptation Work
 - [ ] Simplify constructor: `constructor(doInstance: any)`
   - Already takes `ctx` and `parent`! Just update signature
-  - Add auto-discovery of `sql` dependency from `doInstance.svc`
+  - Store `doInstance` for lazy sql access
+  
+- [ ] Add lazy `sql` dependency resolution
+  ```typescript
+  #doInstance: any;
+  #sqlStandalone?: ReturnType<typeof sql>;
+  
+  get #sql() {
+    // Use injected sql if available (LumenizeBase mode)
+    if (this.#doInstance.svc?.sql) {
+      return this.#doInstance.svc.sql;
+    }
+    
+    // Fallback: create standalone instance (plain DurableObject mode)
+    if (!this.#sqlStandalone) {
+      this.#sqlStandalone = sql(this.#doInstance);
+    }
+    return this.#sqlStandalone;
+  }
+  ```
   
 - [ ] Remove/simplify `actorName` feature
   - Actor uses this for multi-tenancy (multiple alarm sets per DO)
@@ -454,7 +642,16 @@ interface AlarmMetrics {
   
 - [ ] Replace Actor's Storage wrapper with `sql` injectable
   - Actor: `storage.sql\`SELECT ...\``
-  - Ours: `this.#sql.exec\`SELECT ...\``
+  - Ours: `this.#sql\`SELECT ...\`` (using lazy getter)
+  
+- [ ] Add TypeScript declaration merging
+  ```typescript
+  declare global {
+    interface LumenizeServices {
+      alarms: Alarms;
+    }
+  }
+  ```
 
 #### Testing & Validation
 - [ ] Test standalone usage: `new Alarms(this)` creates own Sql
@@ -491,34 +688,62 @@ interface AlarmMetrics {
 - Alarms are instance-level, not request-level
 - Do we need `scp.alarms` at all, or just `this.svc.alarms`?
 
-### Phase 3: @lumenize/base (LumenizeBase with auto-injection)
+### Phase 3: @lumenize/lumenize-base (LumenizeBase with auto-injection)
 **Goal**: Create convenience base class that auto-wires injectables
 
 #### Package Setup
-- [ ] Create `packages/base/` package structure
-  - [ ] `package.json` with BSI-1.1 license
+- [ ] Create `packages/lumenize-base/` package structure
+  - [ ] `package.json` with MIT license
   - [ ] Dependencies on `@lumenize/core` and `@lumenize/alarms`
   - [ ] `src/index.ts` for exports
   - [ ] `src/lumenize-base.ts` - Base class with NADIS
   - [ ] `tsconfig.json` extending root
 
 #### LumenizeBase Implementation
+
+**Lazy instantiation via Proxy** (services created on first access):
+
 ```typescript
+// @lumenize/lumenize-base/src/lumenize-base.ts
 import { DurableObject } from 'cloudflare:workers';
-import { Sql } from '@lumenize/core';
+import { sql } from '@lumenize/core';
 import { Alarms } from '@lumenize/alarms';
 
+// Empty base interface - packages augment it via declaration merging
+declare global {
+  interface LumenizeServices {}
+}
+
 export class LumenizeBase<Env = any> extends DurableObject<Env> {
-  svc: Services;
+  #svcCache = new Map<string, any>();
   
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    
-    // NADIS auto-injection
-    this.svc = {
-      sql: new Sql(this),
-      alarms: new Alarms(this),
-    };
+  get svc(): LumenizeServices {
+    return new Proxy({} as LumenizeServices, {
+      get: (_, key: string) => {
+        // Return cached instance if available
+        if (this.#svcCache.has(key)) {
+          return this.#svcCache.get(key);
+        }
+        
+        // Instantiate on first access
+        let instance: any;
+        
+        if (key === 'sql') {
+          instance = sql(this);
+        } else if (key === 'alarms') {
+          instance = new Alarms(this);
+        }
+        // ... add more services here as they're created
+        
+        if (!instance) {
+          throw new Error(`NADIS service '${key}' not found. Did you import the package?`);
+        }
+        
+        // Cache for future access
+        this.#svcCache.set(key, instance);
+        return instance;
+      }
+    });
   }
   
   // Auto-implement alarm() boilerplate
@@ -526,12 +751,14 @@ export class LumenizeBase<Env = any> extends DurableObject<Env> {
     await this.svc.alarms.alarm();
   }
 }
-
-interface Services {
-  sql: Sql;
-  alarms: Alarms;
-}
 ```
+
+**Key features:**
+- Proxy-based lazy instantiation (services only created when accessed)
+- Map cache prevents duplicate instantiation
+- Each service added as simple if-else (no complex registry needed)
+- Type safety from declaration merging (IntelliSense works!)
+- Helpful error message if service not found
 
 #### Testing & Documentation
 - [ ] Test basic usage: extend LumenizeBase
@@ -606,7 +833,9 @@ interface Services {
 - **Related**: 
   - `tasks/backlog.md` - Future injectables, "Integrate runDurableObjectAlarm into @lumenize/testing"
 
-## Notes & Learnings
+---
+
+## Notes, Learnings, & Historical Record
 
 ### 2025-11-04: Initial NADIS Design
 
@@ -614,15 +843,24 @@ interface Services {
 - Inject `this` (DO instance) not just `ctx` → gives access to ctx, env, svc
 - Auto-discover dependencies from `doInstance.svc` with fallback
 - Use string-based naming convention (not Symbols) for service keys
-- Start with manual registration, plan for plugin registry later
+- **TypeScript declaration merging**: Each package augments global `LumenizeServices` interface
+  - No manual type registration needed
+  - Types automatically merge when you import a package
+  - Full IntelliSense support
+- **Factory functions for stateless injectables** (sql), **classes for stateful ones** (alarms)
+  - `this.svc.sql\`SELECT ...\`` - beautiful template literal syntax
+  - `this.svc.alarms.schedule(...)` - clear method calls
+- **Lazy instantiation via Proxy**: Services only created on first access
+  - Map cache prevents duplicate instantiation
+  - Simple if-else in LumenizeBase (no complex registry)
 - `@lumenize/core` for universal injectables (sql)
 - `@lumenize/alarms` proves dependency pattern
-- `@lumenize/base` for auto-injection base class
+- `@lumenize/lumenize-base` for auto-injection base class (MIT licensed)
 
 **To be determined**:
-- Exact TypeScript types for `doInstance` parameter
+- Exact TypeScript types for `doInstance` parameter (currently `any`)
 - How to handle injectable lifecycle (init/cleanup)
-- Whether LumenizeBase should auto-implement alarm() boilerplate
+- Future plugin registry system (Phase 1 uses manual if-else)
 
 ### 2025-11-02: Actor Alarms Initial Investigation
 - Discovered Storage wrapper appears essential for native alarm integration
