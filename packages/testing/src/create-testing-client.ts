@@ -54,7 +54,39 @@ export function createTestingClient<T>(
   config?: {
     /**
      * Handler for downstream messages from the DO
-     * Requires clientId to be set when used
+     * 
+     * **Testing Guidance**: For most tests, prefer calling methods and using `vi.waitFor()` 
+     * to check state directly. Only use `onDownstream` when specifically testing downstream 
+     * messaging features or complex cross-DO communication patterns where the callback path 
+     * itself needs validation.
+     * 
+     * @remarks
+     * If provided without clientId, a random clientId will be auto-generated and the 
+     * WebSocket connection will be tagged with it for routing downstream messages.
+     * 
+     * @example
+     * ```typescript
+     * // ❌ Don't do this for simple tests
+     * const messages: any[] = [];
+     * await using client = createTestingClient('MY_DO', 'test', {
+     *   onDownstream: (msg) => messages.push(msg)
+     * });
+     * await vi.waitFor(() => expect(messages.length).toBe(1));
+     * 
+     * // ✅ Do this instead - clearer and more direct
+     * await using client = createTestingClient('MY_DO', 'test');
+     * await vi.waitFor(async () => {
+     *   const state = await client.getState();
+     *   expect(state.count).toBe(1);
+     * });
+     * 
+     * // ✅ Use onDownstream for cross-DO communication validation
+     * await using client = createTestingClient('USER_DO', 'user-1', {
+     *   onDownstream: (notification) => {
+     *     expect(notification.type).toBe('message_received');
+     *   }
+     * });
+     * ```
      */
     onDownstream?: (payload: any) => void | Promise<void>;
     
@@ -88,6 +120,7 @@ export function createTestingClient<T>(
       WebSocketClass: getWebSocketShim(baseFetch),
       baseUrl: 'https://fake-host.com',  // Required but not used in test environment
       prefix: '__rpc',
+      clientId,  // Pass clientId to transport so it can tag the WebSocket connection
       onDownstream: config?.onDownstream,
       onClose: config?.onClose,
     }),

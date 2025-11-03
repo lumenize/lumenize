@@ -27,19 +27,40 @@ it('recovers orphaned requests from in-flight state', async () => {
   // Create test endpoints client isolated to this test
   const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, proxyInstanceId);
 
+  // Collect callbacks via downstream messaging
+  const callbacks: any[] = [];
+  const userInstanceId = 'recovery-test-user';
+  await using userClient = createTestingClient<typeof import('./test-worker')._TestDO>(
+    'TEST_DO',
+    userInstanceId,
+    {
+      onDownstream: (message) => {
+        callbacks.push(message);
+      }
+    }
+  );
+
+  // Make a call to establish the WebSocket connection
+  await userClient.reset();
+
+  // Get the actual DO ID (hex string) from the env binding
+  const doBinding = env.TEST_DO;
+  const doId = doBinding.idFromName(userInstanceId);
+  const doIdString = doId.toString();
+
   // Manually inject a request into "in-flight" state to simulate an orphaned request
   const requestUlid = ulid();
-    const testRequest = new Request(
-      TEST_ENDPOINTS.buildUrl('/uuid'),
-      { method: 'GET' }
-    );
+  const testRequest = new Request(
+    TEST_ENDPOINTS.buildUrl('/uuid'),
+    { method: 'GET' }
+  );
   const serializedRequest = await encodeRequest(testRequest);
   
   await proxyClient.ctx.storage.kv.put(`reqs-in-flight:${requestUlid}`, {
     reqId: 'orphaned-req-1',
     request: serializedRequest,
     doBindingName: 'TEST_DO',
-    instanceId: 'test-instance',
+    instanceId: doIdString,  // Use the actual hex DO ID
     handlerName: 'handleSuccess',
     retryCount: 0,
     timestamp: Date.now(),
@@ -53,17 +74,22 @@ it('recovers orphaned requests from in-flight state', async () => {
   // Manually trigger recovery (simulates what happens in constructor after DO eviction)
   await proxyClient.triggerRecovery();
 
-  // Wait for recovery to complete - request should be moved from in-flight to queued
+  // Wait for recovery to complete - request should be moved from in-flight to queued,
+  // then processed, then callback delivered via downstream
   await vi.waitFor(async () => {
     // @ts-expect-error
     const inFlight = await proxyClient.ctx.storage.kv.list({ prefix: 'reqs-in-flight:' }).toArray();
     // @ts-expect-error
     const queued = await proxyClient.ctx.storage.kv.list({ prefix: 'reqs-queued:' }).toArray();
     
-    // Should have moved from in-flight to queued
+    // After recovery and processing completes, both should be cleaned up
     expect(inFlight).toHaveLength(0);
-    expect(queued).toHaveLength(1);
-  }, { timeout: 500 });
+    expect(queued).toHaveLength(0);
+    
+    // And callback should have been delivered
+    expect(callbacks.length).toBe(1);
+    expect(callbacks[0].reqId).toBe('orphaned-req-1');
+  }, { timeout: 2000 });
 });
 
 it('expires old orphaned requests', async () => {

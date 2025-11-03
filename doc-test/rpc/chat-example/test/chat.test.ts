@@ -224,7 +224,7 @@ it('demonstrates downstream messaging', async () => {
   await vi.waitFor(async () => {
     const roomInfo = await alice.getMessages();
     return roomInfo.length >= 0; // Just wait for connections
-  }, { timeout: 2000, interval: 100 });
+  });
 
   // Clear any join notifications
   aliceMessages.length = 0;
@@ -237,7 +237,7 @@ it('demonstrates downstream messaging', async () => {
   // This involves: postMessage → Room DO → broadcastToAll → User DOs → sendDownstream → WebSocket clients
   await vi.waitFor(() => {
     return aliceMessages.length > 0 && bobMessages.length > 0;
-  }, { timeout: 5000, interval: 200 });
+  });
 
   // Both Alice and Bob receive the message
   expect(aliceMessages.length).toBeGreaterThan(0);
@@ -273,7 +273,7 @@ it('demonstrates permission checks', async () => {
   await vi.waitFor(async () => {
     const messages = await alice.getMessages();
     return messages.length >= 0; // Just wait for connections
-  }, { timeout: 1000, interval: 50 });
+  });
 
   // Alice can post
   await alice.postMessage('Alice can post!');
@@ -315,7 +315,7 @@ it('demonstrates catchup pattern after disconnect', async () => {
     await vi.waitFor(async () => {
       const messages = await bob.getMessages();
       return messages.length >= 0;
-    }, { timeout: 1000, interval: 50 });
+    });
 
     // Alice posts some messages
     await alice.postMessage('Message 1');

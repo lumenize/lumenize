@@ -87,10 +87,8 @@ Here's the complete Durable Object and Worker:
 import { Storage } from "@cloudflare/actors/storage";
 import { Alarms, type Schedule } from "@cloudflare/actors/alarms";
 import { DurableObject } from "cloudflare:workers";
-import { lumenizeRpcDO } from "@lumenize/rpc";
-import { routeDORequest } from "@lumenize/utils";
 
-class _AlarmDO extends DurableObject<Env> {
+export class AlarmDO extends DurableObject<Env> {
   storage: Storage;
   alarms: Alarms<this>;
   executedAlarms: string[] = [];
@@ -123,21 +121,7 @@ class _AlarmDO extends DurableObject<Env> {
   }
 }
 
-// Wrap with RPC support so we can demo in doc-test.
-// You can just export the class above directly instead:
-//   `export const AlarmDO extends DurableObject<Env>{...}`
-export const AlarmDO = lumenizeRpcDO(_AlarmDO);
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Route RPC requests to enable demo in doc-test
-    const response = await routeDORequest(request, env, { prefix: '__rpc' });
-    if (response) return response;
-    
-    // Fallback for non-RPC requests
-    return new Response('Alarms doc-test worker', { status: 404 });
-  },
-};
+// No default export needed - the test harness handles everything
 
 
 ```
@@ -204,7 +188,7 @@ it('schedules multiple alarms with different types', async () => {
   await vi.waitFor(async () => {
     const executed = await client.getExecutedAlarms();
     expect(executed.length).toBeGreaterThanOrEqual(2);
-  }, { timeout: 2000 }); // 2 second timeout for 1 second max delay
+  });
 
   // Verify both alarms executed with correct payloads
   const executed = await client.getExecutedAlarms();
@@ -267,29 +251,7 @@ it('queries and cancels scheduled alarms', async () => {
 
 ## wrangler.jsonc
 
-```json wrangler.jsonc
-{
-  "name": "actors-alarms-plain-usage",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-09-12",
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "ALARM_DO",
-        "class_name": "AlarmDO"
-      }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      "new_sqlite_classes": ["AlarmDO"]
-    }
-  ]
-}
-
-
-```
+@import {json} "../wrangler.jsonc" [wrangler.jsonc]
 
 ## Try it out
 

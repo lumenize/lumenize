@@ -123,7 +123,7 @@ it('schedules multiple alarms with different types', async () => {
   await vi.waitFor(async () => {
     const executed = await client.getExecutedAlarms();
     expect(executed.length).toBeGreaterThanOrEqual(2);
-  }, { timeout: 2000 }); // 2 second timeout for 1 second max delay
+  });
 
   // Verify both alarms executed with correct payloads
   const executed = await client.getExecutedAlarms();

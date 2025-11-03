@@ -4,6 +4,7 @@ import { proxyFetch, proxyFetchQueue } from '../../src/proxyFetch';
 import type { ProxyFetchHandlerItem } from '../../src/types';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 import { instrumentDOProject } from '@lumenize/testing';
+import { sendDownstream } from '@lumenize/rpc';
 
 // Re-export the base DO classes for typing in tests
 export { _ProxyFetchDO };
@@ -44,6 +45,7 @@ export class _TestDO extends DurableObject {
     if (error) {
       console.error('Unexpected error in handleSuccess:', error);
       this.#results.set(reqId, { success: false, item: { reqId, error, retryCount, duration } });
+      await this.#broadcastToAllClients({ reqId, success: false, error, retryCount, duration });
       return;
     }
     
@@ -52,6 +54,35 @@ export class _TestDO extends DurableObject {
       success: true, 
       item: { reqId, response, retryCount, duration } 
     });
+    
+    // Also send downstream to connected RPC clients
+    await this.#broadcastToAllClients({ reqId, success: true, response, retryCount, duration });
+  }
+
+  /**
+   * Broadcast a message to all connected RPC clients
+   */
+  async #broadcastToAllClients(payload: any): Promise<void> {
+    // Get all WebSocket connections (no tag = all connections)
+    const allConnections = this.ctx.getWebSockets();
+    
+    if (allConnections.length === 0) {
+      return;
+    }
+    
+    // Get all unique client IDs from connection tags
+    const clientIds = new Set<string>();
+    for (const ws of allConnections) {
+      const tags = this.ctx.getTags(ws);
+      for (const tag of tags) {
+        clientIds.add(tag);
+      }
+    }
+    
+    // Send to each client ID
+    if (clientIds.size > 0) {
+      await sendDownstream(Array.from(clientIds), this, payload);
+    }
   }
 
   /**
@@ -63,6 +94,9 @@ export class _TestDO extends DurableObject {
       success: false, 
       item: { reqId, response, error, retryCount, duration } 
     });
+    
+    // Also send downstream to connected RPC clients
+    await this.#broadcastToAllClients({ reqId, success: false, response, error, retryCount, duration });
   }
 
   /**
