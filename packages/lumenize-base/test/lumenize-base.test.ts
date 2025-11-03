@@ -5,9 +5,8 @@ import { env } from 'cloudflare:test';
 describe('@lumenize/lumenize-base - Auto-injection', () => {
   describe('SQL Injectable', () => {
     it('auto-injects sql service', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+      const stub = env.TEST_DO.getByName('sql-inject-test');
       
-      stub.initTable();
       stub.insertUser('user1', 'Alice', 30);
       
       const user = await stub.getUserById('user1');
@@ -19,10 +18,9 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
     });
 
     it('caches sql service instance', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+      const stub = env.TEST_DO.getByName('sql-cache-test');
       
       // Access sql multiple times - should return same instance
-      stub.initTable();
       stub.insertUser('user1', 'Alice', 30);
       stub.insertUser('user2', 'Bob', 25);
       
@@ -36,7 +34,7 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
 
   describe('Alarms Injectable', () => {
     it('auto-injects alarms service', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+      const stub = env.TEST_DO.getByName('alarms-inject-test');
       
       const futureDate = new Date(Date.now() + 5000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'test-task' });
@@ -47,7 +45,7 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
     });
 
     it('alarms can access auto-injected sql dependency', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+      const stub = env.TEST_DO.getByName('alarms-sql-dep-test');
       
       // Schedule multiple alarms - they all use SQL storage
       const date1 = new Date(Date.now() + 1000);
@@ -67,7 +65,7 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
     });
 
     it('cancels scheduled alarm', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+      const stub = env.TEST_DO.getByName('alarms-cancel-test');
       
       const futureDate = new Date(Date.now() + 5000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'cancel-me' });
@@ -82,10 +80,9 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
 
   describe('Service Caching', () => {
     it('reuses cached service instances', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
+      const stub = env.TEST_DO.getByName('service-cache-test');
       
       // Use both sql and alarms multiple times
-      stub.initTable();
       stub.insertUser('user1', 'Alice', 30);
       
       const schedule1 = await stub.scheduleAlarm(new Date(Date.now() + 1000), { id: 1 });
@@ -108,10 +105,7 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
 
   describe('Integration', () => {
     it('sql and alarms work together seamlessly', async () => {
-      const stub = env.TEST_DO.get(env.TEST_DO.newUniqueId());
-      
-      // Create a table
-      stub.initTable();
+      const stub = env.TEST_DO.getByName('integration-test');
       
       // Insert a user
       stub.insertUser('user1', 'Alice', 30);

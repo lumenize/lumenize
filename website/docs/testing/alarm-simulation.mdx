@@ -5,6 +5,10 @@ description: Test Durable Object alarms without runDurableObjectAlarm
 
 # Alarm Simulation
 
+:::caution[Alpha Feature]
+Alarm simulation is currently in **alpha**. It works well for simple, direct uses of `ctx.storage.setAlarm()` but has known limitations with packages that multiplex Cloudflare's single alarm (like `@cloudflare/actors` Alarms or `@lumenize/alarms`). See [Known Limitations](#known-limitations) and [Workarounds](#workarounds) below.
+:::
+
 `@lumenize/testing` automatically simulates Cloudflare Durable Object alarms, making them **fire automatically at the right time** during tests - no need for `runDurableObjectAlarm()`.
 
 ## Overview
@@ -13,7 +17,7 @@ description: Test Durable Object alarms without runDurableObjectAlarm
 - **Transparent mocking**: Use standard `ctx.storage.setAlarm()` API - no special test-only APIs
 - **Configurable speed**: Run alarm timers 100x faster for quick tests (configurable)
 - **Full retry simulation**: Includes Cloudflare's exponential backoff retry behavior
-- **Works with multiplexed alarms**: Compatible with `@cloudflare/actors` Alarms package
+- **Simple alarm cases**: Works reliably for single alarms and sequential scheduling
 
 ## How It Works
 
@@ -398,6 +402,101 @@ await vi.waitFor(() => {
   expect(client.taskStatus).toBe('complete');
 });
 ```
+
+## Known Limitations
+
+### Multiplexed Alarm Timing Issues
+
+When using packages that multiplex Cloudflare's single alarm to handle multiple scheduled tasks (like `@cloudflare/actors` Alarms or `@lumenize/alarms`), you may encounter timing issues when scheduling many alarms in quick succession.
+
+**Why this happens:**
+- Cloudflare provides only one native alarm per Durable Object
+- Alarm packages schedule/reschedule this single alarm to handle multiple tasks
+- Simulation must track clock time to know when to fire alarms
+- With many rapid `setAlarm()` calls, timing can become unpredictable
+
+**Symptoms:**
+- Tests timeout waiting for alarms to fire
+- Alarms fire but callbacks don't execute as expected
+- Works fine with 1-3 alarms but fails with many
+
+This is an **environmental limitation** of the test simulation, not a functional issue with the alarm packages themselves.
+
+## Workarounds
+
+### Option 1: Test Alarm Handlers Directly via RPC
+
+Instead of relying on alarm timing, test your alarm callback handlers directly using the [Testing Client](/docs/testing/usage):
+
+```typescript
+import { createTestingClient } from '@lumenize/testing';
+
+describe('Alarm Handlers', () => {
+  it('handles scheduled task correctly', async () => {
+    const client = await createTestingClient(env.MY_DO.getByName('handler-test'));
+    
+    // Call your alarm handler directly via RPC
+    await client.handleAlarm({ task: 'process-data' }, mockSchedule);
+    
+    // Verify the handler worked
+    const result = await client.getTaskResult();
+    expect(result.status).toBe('completed');
+  });
+});
+```
+
+**Benefits:**
+- ✅ No timing issues
+- ✅ Tests are fast and reliable
+- ✅ Full control over handler inputs
+- ✅ Works for testing alarm callback logic
+
+**Limitations:**
+- ❌ Doesn't test the actual scheduling mechanism
+- ❌ Doesn't verify alarm timing
+- ❌ Can't test alarm multiplexing logic
+
+### Option 2: Use `runDurableObjectAlarm()` from `cloudflare:test`
+
+For comprehensive alarm testing, use Cloudflare's built-in test helper:
+
+```typescript
+import { runDurableObjectAlarm } from 'cloudflare:test';
+
+it('triggers all pending alarms', async () => {
+  const stub = env.MY_DO.getByName('alarm-test');
+  
+  // Schedule alarms
+  await stub.scheduleTask(10);
+  await stub.scheduleTask(20);
+  
+  // Manually trigger alarm execution
+  await runDurableObjectAlarm(stub);
+  
+  // Verify alarms fired
+  const executed = await stub.getExecutedAlarms();
+  expect(executed.length).toBeGreaterThan(0);
+});
+```
+
+**Benefits:**
+- ✅ Triggers all pending alarms at once
+- ✅ More reliable than timing simulation
+- ✅ Official Cloudflare testing API
+
+**Limitations:**
+- ❌ Manual invocation required
+- ❌ Doesn't test actual timing
+- ❌ All alarms fire at once (not sequential)
+
+### Future Enhancement
+
+We're planning to add a `triggerNextAlarm()` helper to `@lumenize/alarms` that will:
+- Trigger only the next round of scheduled alarms
+- Work like `runDurableObjectAlarm()` but for multiplexed alarms
+- Enable full alarm testing without timing issues
+
+See [GitHub Issue #XXX](https://github.com/lumenize/lumenize/issues) to track progress.
 
 ## See Also
 

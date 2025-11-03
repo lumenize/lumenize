@@ -2,21 +2,25 @@
 import '@lumenize/core';
 import '@lumenize/alarms';
 
-// @ts-expect-error For some reason this import is not always recognized
-import { Env } from 'cloudflare:test';
 import { LumenizeBase } from '../src/lumenize-base.js';
 import type { Schedule } from '@lumenize/alarms';
 
 export class TestDO extends LumenizeBase<Env> {
   executedAlarms: Array<{ payload: any; schedule: Schedule }> = [];
 
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Run migrations in constructor (recommended pattern)
+    this.#initTable();
+  }
+
   // Required: delegate to Alarms
   async alarm() {
     await this.svc.alarms.alarm();
   }
 
-  // Test helper: Create a table using sql
-  initTable() {
+  // Migration: Create users table
+  #initTable() {
     this.svc.sql`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
