@@ -62,6 +62,13 @@ export class TestDO extends DurableObject<Env> {
   deleteUser(id: string): void {
     this.#sql`DELETE FROM users WHERE id = ${id}`;
   }
+
+  // Test helper: Test sql() with invalid instance
+  testInvalidSqlInstance(): void {
+    // Create an invalid instance (no ctx.storage.sql)
+    const invalidInstance = { ctx: { storage: {} } };
+    sql(invalidInstance);
+  }
 }
 
 // Export default worker (required by vitest-pool-workers)

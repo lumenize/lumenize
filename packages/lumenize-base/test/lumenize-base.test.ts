@@ -125,5 +125,16 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
       expect(retrievedSchedule?.payload.userId).toBe('user1');
     });
   });
+
+  describe('Error Handling', () => {
+    it('throws helpful error when service not found', async () => {
+      const stub = env.TEST_DO.getByName('service-not-found-test');
+      
+      // Try to access a service that doesn't exist
+      await expect(
+        stub.accessNonExistentService()
+      ).rejects.toThrow(/Service 'nonExistent' not found.*import '@lumenize\/nonExistent'/);
+    });
+  });
 });
 

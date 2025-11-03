@@ -233,29 +233,34 @@ describe('Alarms', () => {
   });
 
   describe('Error Handling', () => {
-    test('throws error for invalid callback', async () => {
+    test('throws error for invalid callback function during schedule', async () => {
       const stub = env.ALARM_DO.getByName('invalid-callback-test');
       
+      // This will throw because 'notAFunction' property is not a function on the DO
       await expect(
-        stub.scheduleAlarm(new Date(Date.now() + 1000), { task: 'test' })
-      ).resolves.toBeDefined(); // handleAlarm exists
+        stub.scheduleAlarmWithBadCallback(new Date(Date.now() + 1000), { task: 'test' })
+      ).rejects.toThrow('is not a function');
     });
 
-    test('handles callback errors gracefully', async () => {
-      // Verify the alarm system continues after errors
-      const stub = env.ALARM_DO.getByName('error-handling-test');
+    test('handles callback errors during execution gracefully', async () => {
+      const stub = env.ALARM_DO.getByName('throwing-callback-test');
       
       const past1 = new Date(Date.now() - 2000);
       const past2 = new Date(Date.now() - 1000);
       
-      await stub.scheduleAlarm(past1, { task: 'first' });
-      await stub.scheduleAlarm(past2, { task: 'second' });
+      // First alarm will throw, second should still execute
+      await stub.scheduleThrowingAlarm(past1, { task: 'throws' });
+      await stub.scheduleAlarm(past2, { task: 'succeeds' });
       
-      // Manually trigger execution
+      // Trigger both - system should handle the error and continue
       const executedIds = await stub.triggerAlarms();
       
+      // Both attempted, but only second succeeded (first threw)
+      expect(executedIds.length).toBe(1); // Only the one that didn't throw
+      
       const executed = await stub.getExecutedAlarms();
-      expect(executed.length).toBe(2);
+      expect(executed.length).toBe(1); // Only successful callback recorded
+      expect(executed[0].payload.task).toBe('succeeds');
     });
   });
 });

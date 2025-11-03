@@ -134,5 +134,16 @@ describe('@lumenize/core - sql', () => {
       expect(user.name).toBe(specialName);
     });
   });
+
+  describe('Error Handling', () => {
+    it('throws error when DO instance lacks ctx.storage.sql', async () => {
+      const stub = env.TEST_DO.getByName('invalid-instance-test');
+      
+      // Try to create sql with invalid instance
+      await expect(
+        stub.testInvalidSqlInstance()
+      ).rejects.toThrow(/sql\(\) requires a Durable Object instance with ctx\.storage\.sql/);
+    });
+  });
 });
 

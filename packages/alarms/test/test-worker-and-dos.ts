@@ -50,6 +50,22 @@ export class AlarmDO extends DurableObject<Env> {
     this.executedAlarms.push({ payload, schedule });
   }
 
+  // Test helper: Schedule alarm with invalid callback (not a function)
+  async scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
+    // Force schedule with a non-function callback property
+    return await this.#alarms.schedule(when, 'notAFunction' as any, payload);
+  }
+
+  // Alarm callback that throws an error
+  async handleThrowingAlarm(payload: any, schedule: Schedule) {
+    throw new Error('Intentional error from alarm callback');
+  }
+
+  // Test helper: Schedule an alarm with a throwing callback
+  async scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
+    return await this.#alarms.schedule(when, 'handleThrowingAlarm', payload);
+  }
+
   // Test helper: Get executed alarms
   async getExecutedAlarms() {
     return this.executedAlarms;
@@ -64,6 +80,9 @@ export class AlarmDO extends DurableObject<Env> {
   async triggerAlarms(count?: number) {
     return await this.#alarms.triggerAlarms(count);
   }
+  
+  // Property to intentionally test invalid callback (not a function)
+  notAFunction = 'this is not a function';
 }
 
 // Default export for worker

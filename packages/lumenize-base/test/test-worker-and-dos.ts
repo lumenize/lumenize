@@ -71,6 +71,12 @@ export class TestDO extends LumenizeBase<Env> {
   async getExecutedAlarms() {
     return this.executedAlarms;
   }
+
+  // Test helper: Access non-existent service to trigger error
+  async accessNonExistentService() {
+    // @ts-expect-error - Intentionally accessing non-existent service
+    return this.svc.nonExistent;
+  }
 }
 
 // Default export for worker
