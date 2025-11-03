@@ -1,0 +1,253 @@
+---
+title: Downstream Messaging
+description: Send real-time messages from Durable Objects to connected clients
+---
+
+# Downstream Messaging
+
+Downstream messaging allows your Durable Objects to send messages to connected clients **without waiting for an RPC call**. This is perfect for real-time notifications, progress updates, or server-initiated events.
+
+## Overview
+
+- **Server → Client communication**: DO can send messages to connected clients at any time
+- **WebSocket only**: Requires WebSocket transport (not HTTP)
+- **Automatic handling**: Messages are delivered via the `onDownstream` callback
+- **Connection lifecycle**: Track when clients connect/disconnect with `onClose` callback
+
+## Basic Usage
+
+### Client Setup
+
+Register handlers when creating the RPC client:
+
+```typescript
+import { createRpcClient, createWebSocketTransport } from '@lumenize/rpc';
+
+using client = createRpcClient<typeof MyDO>({
+  transport: createWebSocketTransport('MY_DO', 'instance-1'),
+  config: {
+    clientId: 'user-123', // Optional: identify this client
+    onDownstream: (message) => {
+      console.log('Received from DO:', message);
+      // Handle real-time updates from the DO
+    },
+    onClose: (code, reason) => {
+      console.log(`Connection closed: ${code} - ${reason}`);
+      // Handle disconnection
+    }
+  }
+});
+```
+
+### Server (Durable Object) Setup
+
+Send messages to connected clients from within your DO:
+
+```typescript
+import { sendDownstream } from '@lumenize/rpc';
+
+export class MyDO {
+  ctx: DurableObjectState;
+  env: Env;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+
+  async processLongTask() {
+    // Send progress updates to all connected clients
+    sendDownstream(this.ctx, { type: 'progress', percent: 25 });
+    
+    // ... do some work ...
+    
+    sendDownstream(this.ctx, { type: 'progress', percent: 50 });
+    
+    // ... more work ...
+    
+    sendDownstream(this.ctx, { type: 'progress', percent: 100 });
+    
+    return { status: 'complete' };
+  }
+
+  async notifyClient(clientId: string, message: any) {
+    // Send to a specific client
+    sendDownstream(this.ctx, message, { clientId });
+  }
+}
+```
+
+## Use Cases
+
+### Progress Updates
+
+```typescript
+// Durable Object
+async processVideo(videoId: string) {
+  sendDownstream(this.ctx, { stage: 'uploading', progress: 0 });
+  
+  await this.uploadToStorage(videoId);
+  sendDownstream(this.ctx, { stage: 'encoding', progress: 30 });
+  
+  await this.encodeVideo(videoId);
+  sendDownstream(this.ctx, { stage: 'thumbnails', progress: 70 });
+  
+  await this.generateThumbnails(videoId);
+  sendDownstream(this.ctx, { stage: 'complete', progress: 100 });
+  
+  return { success: true };
+}
+
+// Client
+using client = createRpcClient<typeof VideoDO>({
+  transport: createWebSocketTransport('VIDEO_DO', videoId),
+  config: {
+    onDownstream: (update) => {
+      updateProgressBar(update.stage, update.progress);
+    }
+  }
+});
+
+await client.processVideo(videoId);
+```
+
+### Real-Time Notifications
+
+```typescript
+// Durable Object - Notification Hub
+class NotificationHub {
+  async onUserAction(userId: string, action: string) {
+    // Notify all connected clients when something happens
+    sendDownstream(this.ctx, {
+      userId,
+      action,
+      timestamp: Date.now()
+    });
+  }
+}
+
+// Client - Subscribe to notifications
+using client = createRpcClient<typeof NotificationHub>({
+  transport: createWebSocketTransport('NOTIFICATIONS', 'global'),
+  config: {
+    onDownstream: (notification) => {
+      showToast(`${notification.userId} performed ${notification.action}`);
+    }
+  }
+});
+```
+
+### Multiplayer/Collaborative Features
+
+```typescript
+// Durable Object - Collaborative Document
+class DocumentDO {
+  async updateContent(clientId: string, changes: any) {
+    // Apply changes locally
+    await this.applyChanges(changes);
+    
+    // Broadcast to all OTHER clients (exclude sender)
+    const otherClients = this.getConnectedClients().filter(id => id !== clientId);
+    for (const otherId of otherClients) {
+      sendDownstream(this.ctx, { changes }, { clientId: otherId });
+    }
+  }
+}
+```
+
+## API Details
+
+### `sendDownstream(ctx, message, options?)`
+
+Send a message from a Durable Object to connected clients.
+
+**Parameters:**
+- `ctx: DurableObjectState` - The DO's context
+- `message: any` - Any StructuredCloneable data
+- `options?: { clientId?: string }` - Optional: target a specific client
+
+**Behavior:**
+- If `clientId` is provided: sends only to that client
+- If `clientId` is omitted: sends to **all** connected clients
+- Silently ignores if client(s) not connected
+- Non-blocking: doesn't wait for delivery
+
+### `onDownstream` Callback
+
+Registered on the client when creating the RPC client.
+
+**Signature:**
+```typescript
+onDownstream?: (message: any) => void
+```
+
+**Called when:**
+- The DO sends a message via `sendDownstream()`
+- Receives the exact message sent by the DO
+
+### `onClose` Callback
+
+Registered on the client when creating the RPC client.
+
+**Signature:**
+```typescript
+onClose?: (code: number, reason: string) => void
+```
+
+**Called when:**
+- WebSocket connection closes (graceful or error)
+- Receives standard WebSocket close codes and reasons
+
+**Common close codes:**
+- `1000`: Normal closure
+- `1001`: Going away (e.g., page navigation)
+- `1006`: Abnormal closure (no close frame)
+
+## Important Notes
+
+### WebSocket Requirement
+
+Downstream messaging **only works with WebSocket transport**. HTTP transport doesn't support server-initiated messages.
+
+```typescript
+// ✅ Works - WebSocket transport
+createRpcClient({
+  transport: createWebSocketTransport('MY_DO', 'id'),
+  config: { onDownstream: (msg) => console.log(msg) }
+});
+
+// ❌ Won't work - HTTP doesn't support downstream
+createRpcClient({
+  transport: createHttpTransport('MY_DO', 'id'),
+  config: { onDownstream: (msg) => console.log(msg) } // Never called
+});
+```
+
+### Client IDs
+
+The `clientId` is optional but recommended for multi-user scenarios:
+
+```typescript
+// Without clientId - can't target specific clients
+sendDownstream(ctx, message); // Broadcasts to ALL
+
+// With clientId - can target individuals
+config: { clientId: 'user-123' }
+sendDownstream(ctx, message, { clientId: 'user-123' });
+```
+
+### Message Serialization
+
+Messages use the same serialization as RPC calls (StructuredClone):
+- Primitives, objects, arrays ✅
+- `Date`, `Map`, `Set`, `RegExp` ✅
+- Circular references ✅
+- Functions, symbols ❌
+- DOM nodes ❌
+
+## See Also
+
+- [Quick Start](/docs/rpc/quick-start) - Basic RPC usage
+- [WebSocket Transport API](/docs/rpc/api/functions/createWebSocketTransport) - Transport configuration
+- [`sendDownstream` API](/docs/rpc/api/functions/sendDownstream) - Full API reference
+

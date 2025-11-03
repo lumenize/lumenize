@@ -1,12 +1,16 @@
 {
   "name": "lumenize-testing",
-  "main": "test/test-worker-and-dos.ts",
+  "main": "test-harness.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [
       {
         "name": "TEST_DO",
         "class_name": "TestDOWithRpc"
+      },
+      {
+        "name": "ACTOR_ALARMS_DO",
+        "class_name": "ActorAlarmsDO"
       }
     ]
   },
@@ -15,6 +19,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "TestDOWithRpc"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "ActorAlarmsDO"
       ]
     }
   ]

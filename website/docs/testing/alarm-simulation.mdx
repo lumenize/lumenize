@@ -1,0 +1,370 @@
+---
+title: Alarm Simulation
+description: Test Durable Object alarms without runDurableObjectAlarm
+---
+
+# Alarm Simulation
+
+`@lumenize/testing` automatically simulates Cloudflare Durable Object alarms, making them **fire automatically at the right time** during tests - no need for `runDurableObjectAlarm()`.
+
+## Overview
+
+- **Automatic alarm execution**: Alarms fire automatically based on scheduled time
+- **Transparent mocking**: Use standard `ctx.storage.setAlarm()` API - no special test-only APIs
+- **Configurable speed**: Run alarm timers 100x faster for quick tests (configurable)
+- **Full retry simulation**: Includes Cloudflare's exponential backoff retry behavior
+- **Works with multiplexed alarms**: Compatible with `@cloudflare/actors` Alarms package
+
+## How It Works
+
+When you call `instrumentDOProject()`, alarm simulation is automatically enabled:
+
+1. **Intercepts alarm methods**: Wraps `ctx.storage.setAlarm()`, `getAlarm()`, and `deleteAlarm()`
+2. **Schedules `setTimeout()`**: Uses JavaScript `setTimeout` to trigger the `alarm()` handler
+3. **Time scaling**: Speeds up delays by 100x (e.g., 10-second alarm fires in 100ms)
+4. **Retry logic**: Automatically retries failed `alarm()` handlers with exponential backoff
+
+## Basic Usage
+
+### Define Your Durable Object
+
+Write your DO with standard alarm methods:
+
+```typescript
+export class MyDO {
+  ctx: DurableObjectState;
+  env: Env;
+  taskStatus: string = 'idle';
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+
+  // Standard Cloudflare alarm handler
+  async alarm() {
+    this.taskStatus = 'processing';
+    await this.processScheduledTask();
+    this.taskStatus = 'complete';
+  }
+
+  scheduleTask(delaySeconds: number) {
+    // Standard Cloudflare alarm API
+    const scheduledTime = Date.now() + (delaySeconds * 1000);
+    this.ctx.storage.setAlarm(scheduledTime);
+  }
+
+  async processScheduledTask() {
+    // Your task logic here
+  }
+}
+```
+
+### Write Your Test
+
+Alarms fire automatically - just wait for them:
+
+```typescript
+import { it, expect, vi } from 'vitest';
+import { createTestingClient } from '@lumenize/testing';
+import { MyDO } from '../src';
+
+it('automatically fires scheduled alarms', async () => {
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'alarm-test');
+
+  // Schedule an alarm for 10 seconds in the future
+  await client.scheduleTask(10);
+
+  // Verify alarm was scheduled
+  const state = await client.getAlarmState();
+  expect(state.scheduledTime).not.toBeNull();
+
+  // Wait for alarm to fire (100x faster = 100ms in test time)
+  await vi.waitFor(async () => {
+    const status = await client.taskStatus;
+    expect(status).toBe('complete');
+  }, { timeout: 200 }); // Give it 200ms buffer
+
+  // Verify alarm completed
+  expect(await client.taskStatus).toBe('complete');
+});
+```
+
+## Time Scaling
+
+By default, alarms run **100x faster** during tests:
+- Real alarm: 10 seconds → Test time: 100ms
+- Real alarm: 1 minute → Test time: 600ms
+
+This makes tests fast while preserving timing relationships.
+
+### Custom Time Scale
+
+Configure the time scale when instrumenting your DO:
+
+```typescript
+// test/test-harness.ts
+import * as sourceModule from '../src';
+import { instrumentDOProject } from '@lumenize/testing';
+
+const instrumented = instrumentDOProject({
+  sourceModule,
+  doClassNames: ['MyDO'],
+  simulateAlarms: {
+    timeScale: 10,  // 10x faster (instead of default 100x)
+    maxRetries: 6,  // Maximum retry attempts (default: 6)
+    debug: true     // Enable debug logging
+  }
+});
+
+export const { MyDO } = instrumented.dos;
+export default instrumented;
+```
+
+### Disable Alarm Simulation
+
+If you need to disable alarm simulation:
+
+```typescript
+const instrumented = instrumentDOProject({
+  sourceModule,
+  doClassNames: ['MyDO'],
+  simulateAlarms: false  // Disable alarm simulation
+});
+```
+
+## Alarm Retry Behavior
+
+The simulation matches Cloudflare's retry behavior:
+
+1. **If `alarm()` throws**: Automatically retries with exponential backoff
+2. **Retry delays** (Cloudflare's production delays):
+   - Retry 1: 2 seconds
+   - Retry 2: 4 seconds
+   - Retry 3: 8 seconds
+   - Retry 4: 16 seconds
+   - Retry 5: 32 seconds
+   - Retry 6: 64 seconds
+3. **In tests** (with 100x speedup):
+   - Retry 1: 20ms
+   - Retry 2: 40ms
+   - Retry 3: 80ms
+   - Retry 4: 160ms
+   - Retry 5: 320ms
+   - Retry 6: 640ms
+4. **After 6 retries**: Gives up (matches Cloudflare behavior)
+
+### Testing Retry Behavior
+
+```typescript
+it('retries failed alarms with exponential backoff', async () => {
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'retry-test');
+
+  // Make the alarm fail twice, then succeed
+  let attemptCount = 0;
+  await client.setAlarmFailureCount(2);
+
+  // Schedule alarm
+  await client.scheduleTask(1); // 1 second = 10ms in test time
+
+  // Wait for retries to complete
+  // First attempt (10ms) + Retry 1 (20ms) + Retry 2 (40ms) + buffer
+  await vi.waitFor(async () => {
+    const status = await client.taskStatus;
+    expect(status).toBe('complete');
+  }, { timeout: 150 });
+
+  // Verify it succeeded after retries
+  expect(await client.alarmRetryCount).toBe(2);
+  expect(await client.taskStatus).toBe('complete');
+});
+```
+
+## Single Alarm Limitation
+
+Cloudflare allows **only one alarm per Durable Object**. Setting a new alarm overwrites the previous one:
+
+```typescript
+it('new alarm overwrites pending alarm', async () => {
+  await using client = createTestingClient<typeof MyDO>('MY_DO', 'overwrite');
+
+  // Schedule first alarm for 10 seconds
+  await client.scheduleTask(10); // 100ms in test time
+  const firstAlarmTime = await client.getAlarmTime();
+
+  // Schedule second alarm for 5 seconds (overwrites first)
+  await client.scheduleTask(5); // 50ms in test time
+  const secondAlarmTime = await client.getAlarmTime();
+
+  expect(secondAlarmTime).not.toBe(firstAlarmTime);
+  expect(secondAlarmTime).toBeLessThan(firstAlarmTime);
+
+  // Only the second alarm fires
+  await vi.waitFor(async () => {
+    expect(await client.alarmFiredCount).toBe(1);
+  }, { timeout: 100 });
+});
+```
+
+## Multiplexed Alarms with `@cloudflare/actors`
+
+The simulation works seamlessly with `@cloudflare/actors` Alarms, which multiplexes multiple logical alarms over Cloudflare's single native alarm:
+
+```typescript
+import { Actor } from '@cloudflare/actors';
+
+export class SchedulerDO extends Actor<Env> {
+  // Required: delegate to Actor's alarm system
+  async alarm() {
+    await this.alarms.alarm();
+  }
+
+  // Your alarm handler
+  async handleAlarm(payload: any) {
+    console.log('Alarm fired:', payload);
+  }
+
+  async scheduleMultiple() {
+    // Actor Alarms lets you schedule multiple alarms
+    await this.alarms.schedule(5, 'handleAlarm', { task: 'first' });
+    await this.alarms.schedule(10, 'handleAlarm', { task: 'second' });
+    await this.alarms.schedule(15, 'handleAlarm', { task: 'third' });
+    
+    // All three will fire automatically in tests!
+  }
+}
+```
+
+### Testing with Actor Alarms
+
+For DOs using Actor Alarms, use **1x time scale** to avoid conflicts with Actor's internal scheduling logic:
+
+```typescript
+// test/test-harness.ts
+import * as sourceModule from '../src';
+import { instrumentDOProject } from '@lumenize/testing';
+
+const instrumented = instrumentDOProject({
+  sourceModule,
+  doClassNames: ['SchedulerDO'],
+  simulateAlarms: { timeScale: 1 }  // 1x speed for Actor Alarms
+});
+
+export const { SchedulerDO } = instrumented.dos;
+export default instrumented;
+```
+
+Test:
+
+```typescript
+it('handles multiple Actor alarms automatically', async () => {
+  await using client = createTestingClient<typeof SchedulerDO>(
+    'SCHEDULER_DO',
+    'multi-alarms'
+  );
+
+  // Schedule multiple alarms
+  await client.scheduleMultiple();
+
+  // Wait for all alarms to fire (1x speed = real time)
+  await vi.waitFor(async () => {
+    const firedCount = await client.getAlarmsFiredCount();
+    expect(firedCount).toBe(3);
+  }, { timeout: 20000 }); // 20 seconds for 15-second max delay
+
+  // Verify all fired
+  expect(await client.getAlarmsFiredCount()).toBe(3);
+});
+```
+
+## API Reference
+
+### `instrumentDOProject` Options
+
+```typescript
+interface AlarmSimulationConfig {
+  /**
+   * Time scale factor for alarm delays
+   * @default 100 (alarms run 100x faster)
+   * @example timeScale: 10 means 10x faster
+   */
+  timeScale?: number;
+
+  /**
+   * Maximum number of retry attempts
+   * @default 6 (matches Cloudflare)
+   */
+  maxRetries?: number;
+
+  /**
+   * Enable debug logging
+   * @default false
+   */
+  debug?: boolean;
+}
+
+instrumentDOProject({
+  sourceModule,
+  doClassNames: ['MyDO'],
+  simulateAlarms: true | false | AlarmSimulationConfig
+})
+```
+
+### Cloudflare Alarm API (Standard)
+
+Your DO uses the standard Cloudflare APIs:
+
+```typescript
+// Set an alarm
+this.ctx.storage.setAlarm(Date.now() + 10000); // 10 seconds
+
+// Get scheduled alarm time (null if none)
+const scheduledTime: number | null = this.ctx.storage.getAlarm();
+
+// Cancel scheduled alarm
+this.ctx.storage.deleteAlarm();
+
+// Alarm handler (called automatically)
+async alarm() {
+  // Your alarm logic
+}
+```
+
+## Important Notes
+
+### Clock Behavior in Durable Objects
+
+Durable Objects have a "frozen clock" where `Date.now()` doesn't advance during execution. However, `setTimeout()` still works, which is how the simulation functions.
+
+The simulation:
+- ✅ Uses `Date.now()` at `setAlarm()` time to calculate delay
+- ✅ Uses `setTimeout()` to schedule the alarm
+- ✅ Calls your `alarm()` handler at the right time
+- ✅ Supports `ctx.waitUntil()` to keep the DO context alive
+
+### Why Not Use `runDurableObjectAlarm()`?
+
+Cloudflare's `runDurableObjectAlarm()` from `cloudflare:test` requires manual invocation:
+
+```typescript
+// ❌ Old way - manual and verbose
+import { runDurableObjectAlarm } from 'cloudflare:test';
+
+await client.scheduleTask(10);
+await runDurableObjectAlarm(doInstance); // Must manually trigger
+```
+
+```typescript
+// ✅ New way - automatic and intuitive
+await client.scheduleTask(10);
+await vi.waitFor(() => {
+  expect(client.taskStatus).toBe('complete');
+});
+```
+
+## See Also
+
+- [Testing Usage](/docs/testing/usage) - General testing patterns
+- [RPC Downstream Messaging](/docs/rpc/downstream-messaging) - Real-time communication
+- [Cloudflare Alarms Documentation](https://developers.cloudflare.com/durable-objects/api/alarms/) - Official alarm API reference
+

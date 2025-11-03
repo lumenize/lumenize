@@ -166,6 +166,7 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
           }
         },
+        'testing/alarm-simulation',
         {
           type: 'doc',
           id: 'testing/agents',
@@ -199,6 +200,7 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/rpc/operation-chaining-and-nesting/test/ocan.test.ts'
           }
         },
+        'rpc/downstream-messaging',
         'rpc/security-patterns',
         'rpc/capn-web-comparison',
         {

@@ -1,5 +1,6 @@
 import { lumenizeRpcDO } from '@lumenize/rpc';
 import { routeDORequest } from '@lumenize/utils';
+import { enableAlarmSimulation, type AlarmSimulationConfig } from './alarm-simulation';
 
 /**
  * Configuration for instrumenting a DO project
@@ -22,6 +23,21 @@ export interface InstrumentDOProjectConfig {
    * @default '__rpc'
    */
   prefix?: string;
+  
+  /**
+   * Enable automatic alarm simulation for testing.
+   * 
+   * When enabled, alarms scheduled with ctx.storage.setAlarm() will fire
+   * automatically in tests without needing runDurableObjectAlarm().
+   * 
+   * Timing is sped up 100x by default (2s becomes 20ms, etc.)
+   * 
+   * Set to false to disable simulation (use manual runDurableObjectAlarm)
+   * or provide an AlarmSimulationConfig object to customize behavior.
+   * 
+   * @default true (automatic simulation enabled)
+   */
+  simulateAlarms?: boolean | AlarmSimulationConfig;
 }
 
 /**
@@ -105,7 +121,7 @@ export function instrumentDOProject(
       ? configOrSourceModule 
       : { sourceModule: configOrSourceModule };
   
-  const { sourceModule, prefix = '__rpc' } = config;
+  const { sourceModule, prefix = '__rpc', simulateAlarms = true } = config;
   let { doClassNames } = config;
   
   // Auto-detect DO classes if not provided
@@ -138,14 +154,42 @@ export function instrumentDOProject(
     }
   }
   
-  // Wrap each DO class with lumenizeRpcDO
+  // Determine alarm simulation config
+  const alarmSimConfig: AlarmSimulationConfig | false = 
+    simulateAlarms === false 
+      ? false 
+      : simulateAlarms === true 
+        ? {} // Use defaults
+        : simulateAlarms; // User-provided config
+  
+  // Wrap each DO class with alarm simulation (if enabled) and lumenizeRpcDO
   const dos: Record<string, any> = {};
   for (const className of doClassNames) {
     const OriginalClass = sourceModule[className];
     if (!OriginalClass) {
       throw new Error(`DO class '${className}' not found in source module. Available exports: ${Object.keys(sourceModule).join(', ')}`);
     }
-    dos[className] = lumenizeRpcDO(OriginalClass);
+    
+    // If alarm simulation is enabled, wrap the DO class to inject simulation
+    let WrappedClass = OriginalClass;
+    if (alarmSimConfig !== false) {
+      WrappedClass = class extends OriginalClass {
+        constructor(...args: any[]) {
+          super(...args);
+          // Enable alarm simulation after DO is constructed
+          const simConfig = typeof alarmSimConfig === 'boolean' ? {} : alarmSimConfig;
+          enableAlarmSimulation(this, simConfig);
+        }
+      };
+      
+      // Preserve the original class name for better debugging
+      Object.defineProperty(WrappedClass, 'name', { 
+        value: OriginalClass.name 
+      });
+    }
+    
+    // Wrap with RPC support
+    dos[className] = lumenizeRpcDO(WrappedClass);
   }
   
   // Get the original worker (if it exists)

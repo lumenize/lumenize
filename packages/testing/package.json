@@ -18,7 +18,7 @@
     "test": "vitest --run",
     "test:coverage": "vitest --coverage --run",
     "coverage": "COVERAGE=true vitest --run --coverage",
-    "types": "wrangler types"
+    "types": "wrangler types --config test/wrangler.jsonc"
   },
   "keywords": [
     "cloudflare",
@@ -36,6 +36,7 @@
     "access": "public"
   },
   "devDependencies": {
+    "@cloudflare/actors": "^0.0.1-beta.6",
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
