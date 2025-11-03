@@ -148,8 +148,12 @@ export class MyDO extends DurableObject<Env> {
    * Handler that throws an error (for testing error handling in queue consumer)
    */
   async handleThrowingError({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
-    // Record that we were called before throwing
+    // Synchronous storage writes complete before the throw
+    // (synchronous storage is the recommended Cloudflare pattern with compatibility_date >= 2025-09-12)
     this.ctx.storage.kv.put('handler-was-called', reqId);
+    this.ctx.storage.kv.put('handler-completed-at', Date.now());
+    
+    // Throw after storage writes are complete
     throw new Error('Handler intentionally threw an error');
   }
 
@@ -189,6 +193,13 @@ export class MyDO extends DurableObject<Env> {
    */
   async getHandlerWasCalled(): Promise<string | null> {
     return this.ctx.storage.kv.get('handler-was-called') as string | null;
+  }
+
+  /**
+   * Get handler completion timestamp for test verification
+   */
+  async getHandlerCompletedAt(): Promise<number | null> {
+    return this.ctx.storage.kv.get('handler-completed-at') as number | null;
   }
 }
 

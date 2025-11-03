@@ -571,7 +571,7 @@ describe('Error Handling and Retries', () => {
     expect(response).toBeDefined();
   });
 
-  test('acks message even when handler throws error', { timeout: 5000 }, async () => {
+  test('acks message even when handler throws error', async () => {
     const instanceId = 'throwing-handler-test';
     const stub = env.MY_DO.getByName(instanceId);
     const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
@@ -603,11 +603,16 @@ describe('Error Handling and Retries', () => {
     await worker.queue(batch, env);
     await getQueueResult(batch, ctx);
     
-    // Verify handler was called despite throwing
+    // Wait for handler completion using waitUntil-tracked timestamp
+    // ctx.waitUntil ensures the storage write completes even though the handler throws
     await vi.waitFor(async () => {
-      const wasHandlerCalled = await stub.getHandlerWasCalled();
-      expect(wasHandlerCalled).toBe('throwing-req-1');
-    }, { timeout: 3000 });
+      const completedAt = await stub.getHandlerCompletedAt();
+      expect(completedAt).not.toBeNull();
+    }, { timeout: 5000 });
+    
+    // Verify handler was called despite throwing
+    const wasHandlerCalled = await stub.getHandlerWasCalled();
+    expect(wasHandlerCalled).toBe('throwing-req-1');
     
     // Message should be acked (not retried) - user code errors aren't retryable
     // The test passing means the queue consumer continued processing
