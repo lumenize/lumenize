@@ -27,14 +27,7 @@ This guide shows how to use Alarms **without extending Actor** - just a plain
 ## Imports
 */
 import { it, expect, vi } from 'vitest';
-// @ts-expect-error - cloudflare:test module types not consistently exported
-import { SELF, env, runDurableObjectAlarm } from 'cloudflare:test';
-import {
-  createRpcClient,
-  createWebSocketTransport,
-  type RpcAccessible
-} from '@lumenize/rpc';
-import { getWebSocketShim } from '@lumenize/utils';
+import { createTestingClient, type RpcAccessible } from '@lumenize/testing';
 import { AlarmDO } from '../src';
 
 /*
@@ -88,18 +81,17 @@ The Alarms package supports three types of schedules:
 */
 
 it('schedules multiple alarms with different types', async () => {
-  // You don't need this.
-  // It allows our test code to magically appear as though we are inside the DO
-  using client = createRpcClient<RpcAccessible<InstanceType<typeof AlarmDO>>>({
-    transport: createWebSocketTransport('ALARM_DO', 'multi-types', {
-      baseUrl: 'https://fake-host.com',
-      prefix: '__rpc',
-      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-    })
-  });
+  // createTestingClient provides direct RPC access to the DO
+  await using client = createTestingClient<RpcAccessible<InstanceType<typeof AlarmDO>>>(
+    'ALARM_DO',
+    'multi-types'
+  );
+
+  // Clear any previous test data
+  await client.clearExecutedAlarms();
 
   // 1. Schedule with a Date (execute at specific time)
-  const futureDate = new Date(Date.now() + 100); // 100ms from now
+  const futureDate = new Date(Date.now() + 500); // 500ms from now
   const dateSchedule = await client.alarms.schedule(
     futureDate, 
     'handleAlarm', 
@@ -110,7 +102,7 @@ it('schedules multiple alarms with different types', async () => {
 
   // 2. Schedule with delay in seconds
   const delaySchedule = await client.alarms.schedule(
-    0.15, // 150ms (0.15 seconds)
+    1, // 1 second
     'handleAlarm', 
     { type: 'delay', message: 'Executed after delay' }
   );
@@ -126,22 +118,16 @@ it('schedules multiple alarms with different types', async () => {
   );
   expect(cronSchedule.type).toBe('cron');
 
-  // In test environments, alarms don't fire automatically - we need to 
-  // manually trigger them using runDurableObjectAlarm()
-  const stub = env.ALARM_DO.getByName('multi-types');
-
-  // Wait for alarms to become due, then trigger and verify
+  // With @lumenize/testing, alarms fire automatically! Just wait for them.
   await vi.waitFor(async () => {
-    // Trigger any pending alarms (Alarms class auto-reschedules the next one)
-    await runDurableObjectAlarm(stub);
-    await runDurableObjectAlarm(stub);
-    
-    // Verify both alarms actually executed
     const executed = await client.getExecutedAlarms();
-    expect(executed.length).toBe(2);
-    expect(executed.some((msg: string) => msg.includes('date'))).toBe(true);
-    expect(executed.some((msg: string) => msg.includes('delay'))).toBe(true);
-  });
+    expect(executed.length).toBeGreaterThanOrEqual(2);
+  }, { timeout: 2000 }); // 2 second timeout for 1 second max delay
+
+  // Verify both alarms executed with correct payloads
+  const executed = await client.getExecutedAlarms();
+  expect(executed.some((msg: string) => msg.includes('date'))).toBe(true);
+  expect(executed.some((msg: string) => msg.includes('delay'))).toBe(true);
 });
 
 /*
@@ -151,15 +137,11 @@ You can query and cancel scheduled alarms:
 */
 
 it('queries and cancels scheduled alarms', async () => {
-  // You don't need this.
-  // It allows our test code to magically appear as though we are inside the DO
-  using client = createRpcClient<RpcAccessible<InstanceType<typeof AlarmDO>>>({
-    transport: createWebSocketTransport('ALARM_DO', 'manage', {
-      baseUrl: 'https://fake-host.com',
-      prefix: '__rpc',
-      WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-    })
-  });
+  // createTestingClient provides direct RPC access to the DO
+  await using client = createTestingClient<RpcAccessible<InstanceType<typeof AlarmDO>>>(
+    'ALARM_DO',
+    'manage'
+  );
 
   // Schedule several alarms
   const schedule1 = await client.alarms.schedule(

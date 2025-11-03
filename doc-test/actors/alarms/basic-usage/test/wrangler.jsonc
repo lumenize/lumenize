@@ -1,6 +1,6 @@
 {
   "name": "actors-alarms-basic-usage",
-  "main": "src/index.ts",
+  "main": "test-harness.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [

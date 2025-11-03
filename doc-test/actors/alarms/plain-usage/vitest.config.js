@@ -7,7 +7,7 @@ export default defineWorkersProject({
       workers: {
         // Must be false to use websockets
         isolatedStorage: false,
-        wrangler: { configPath: "./wrangler.jsonc" },  
+        wrangler: { configPath: "./test/wrangler.jsonc" },  
       },
     },
     coverage: {

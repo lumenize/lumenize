@@ -12,8 +12,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.9.3",
-		"@lumenize/rpc": "^0.16.0",
-		"@lumenize/utils": "^0.16.0",
+		"@lumenize/testing": "file:../../../../packages/testing",
 		"@vitest/coverage-istanbul": "3.2.4",
 		"typescript": "^5.9.2",
 		"vitest": "3.2.4",
@@ -23,4 +22,3 @@
 		"@cloudflare/actors": "^0.0.1-beta.6"
 	}
 }
-

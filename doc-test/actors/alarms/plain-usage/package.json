@@ -1,26 +1,24 @@
 {
   "name": "actors-alarms-plain-usage",
-	"version": "0.16.0",
-	"private": true,
-	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev",
-		"start": "wrangler dev",
-		"test": "vitest --run",
-		"coverage": "vitest --run --coverage",
-		"cf-typegen": "wrangler types"
-	},
-	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.9.3",
-		"@lumenize/rpc": "^0.16.0",
-		"@lumenize/utils": "^0.16.0",
-		"@vitest/coverage-istanbul": "3.2.4",
-		"typescript": "^5.9.2",
-		"vitest": "3.2.4",
-		"wrangler": "^4.38.0"
-	},
-	"dependencies": {
-		"@cloudflare/actors": "^0.0.1-beta.6"
-	}
+  "version": "0.16.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "test": "vitest --run",
+    "coverage": "vitest --run --coverage",
+    "cf-typegen": "wrangler types"
+  },
+   "devDependencies": {
+     "@cloudflare/vitest-pool-workers": "^0.9.3",
+     "@lumenize/testing": "file:../../../../packages/testing",
+     "@vitest/coverage-istanbul": "3.2.4",
+     "typescript": "^5.9.2",
+     "vitest": "3.2.4",
+     "wrangler": "^4.38.0"
+   },
+  "dependencies": {
+    "@cloudflare/actors": "^0.0.1-beta.6"
+  }
 }
-
