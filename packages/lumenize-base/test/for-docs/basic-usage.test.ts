@@ -10,7 +10,7 @@ import { DurableObject } from 'cloudflare:workers';
 // Import packages - side-effect imports register services in NADIS
 import '@lumenize/core';
 import '@lumenize/alarms';
-import { LumenizeBase } from '../../src/lumenize-base';
+import { LumenizeBase } from '@lumenize/lumenize-base';
 import type { Schedule } from '@lumenize/alarms';
 
 // Example: Basic auto-injection

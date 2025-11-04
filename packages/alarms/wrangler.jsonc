@@ -11,6 +11,10 @@
       {
         "name": "TASK_SCHEDULER_DO",
         "class_name": "TaskSchedulerDO"
+      },
+      {
+        "name": "MY_DO",
+        "class_name": "StandalonePatternDO"
       }
     ]
   },
@@ -22,6 +26,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["TaskSchedulerDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["StandalonePatternDO"]
     }
   ]
 }

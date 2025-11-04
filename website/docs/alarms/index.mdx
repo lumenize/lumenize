@@ -1,23 +1,22 @@
 ---
-title: Alarms
 description: Powerful alarm scheduling for Cloudflare Durable Objects with cron support
 ---
 
-# Alarms
+# Usage
 
 A de✨light✨ful alarm scheduling package for Cloudflare Durable Objects. Multiplexes single native alarm to give you the appearance of many.
 
 ## Features
 
 - **Specific time**: Schedule tasks at a specific timestamp
-- **Delta from now**: Schedule tasks N seconds in the future
+- **Seconds from now**: Schedule tasks N seconds in the future
 - **Cron schedules**: Recurring tasks using cron expressions
 - **SQL persistence**: Survives DO eviction and restarts
 - **Works standalone or with LumenizeBase**: Use directly or get auto-injected via NADIS
 
 ## Installation
 
-```bash
+```bash @skip-check
 npm install @lumenize/alarms
 ```
 
@@ -26,274 +25,184 @@ npm install @lumenize/alarms
 Cloudflare provides only **one native alarm** per Durable Object. `@lumenize/alarms` multiplexes this single alarm to manage unlimited scheduled tasks.
 
 **Without @lumenize/alarms:**
-```typescript
+```typescript @skip-check
 // ❌ Only one alarm at a time
 await ctx.storage.setAlarm(Date.now() + 60000); // task1
 await ctx.storage.setAlarm(Date.now() + 30000); // overwrites task1!
 ```
 
 **With @lumenize/alarms:**
-```typescript
+```typescript @skip-check
 // ✅ Unlimited tasks with automatic multiplexing
 await alarms.schedule(60, 'handleTask1', { id: 1 });
-await alarms.schedule(30, 'handleTask2', { id: 2 });
+await alarms.schedule(new Date('2026-01-01'), 'handleTask2', { id: 2 });
 await alarms.schedule('0 0 * * *', 'dailyReport', {}); // cron!
 // All three tasks will execute at their scheduled times
 ```
 
-## Basic Usage
+## Key Methods
 
-### Setup Your Durable Object
+All method signatures and detailed examples are shown below:
 
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:11-21')
-class TaskSchedulerDO extends DurableObject {
+- **`schedule(when, callback, payload)`** - Schedule a task (seconds, Date, or cron string)
+- **`cancelSchedule(id)`** - Cancel a scheduled task
+- **`getSchedule(id)`** - Get details about a specific schedule
+- **`getSchedules(criteria?)`** - Get all schedules matching criteria
+- **`alarm()`** - Alarm handler (must be called from DO's `alarm()` method)
+- **`triggerAlarms(count?)`** - Testing helper (see [Testing Alarms](#testing-alarms))
+
+## Setup Your Durable Object
+
+### Standalone Usage
+
+Manual instantiation with explicit dependencies:
+
+```typescript @check-example('packages/alarms/test/for-docs/standalone-pattern.test.ts')
+import { Alarms, type Schedule } from '@lumenize/alarms';
+import { sql } from '@lumenize/core';
+import { DurableObject } from 'cloudflare:workers';
+
+class MyDO extends DurableObject {
   #alarms: Alarms;
-  executedTasks: Array<{ name: string; time: number }> = [];
-
+  
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    // Initialize alarms with dependencies
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
-```
-
-### Schedule Tasks
-
-#### One-time Task (Delayed)
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:23-31')
-  // Schedule a one-time task
-  async scheduleTask(taskName: string, delaySeconds: number) {
-    const schedule = await this.#alarms.schedule(
-      delaySeconds, 
-      'handleTask', 
-      { name: taskName }
-    );
-    return { scheduled: true, taskName, id: schedule.id };
-  }
-```
-
-#### Task at Specific Time
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:43-51')
-  // Schedule task at specific time
-  async scheduleAt(taskName: string, timestamp: number) {
-    const schedule = await this.#alarms.schedule(
-      new Date(timestamp), 
-      'handleTask', 
-      { name: taskName }
-    );
-    return { scheduled: true, taskName, id: schedule.id };
-  }
-```
-
-#### Recurring Task (Cron)
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:33-41')
-  // Schedule a recurring task with cron
-  async scheduleRecurringTask(taskName: string, cronExpression: string) {
-    const schedule = await this.#alarms.schedule(
-      cronExpression, 
-      'handleRecurringTask', 
-      { name: taskName }
-    );
-    return { scheduled: true, taskName, recurring: true, id: schedule.id };
-  }
-```
-
-### Handle Scheduled Tasks
-
-Define callback methods that will be invoked when alarms fire:
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:64-75')
-  // Alarm callbacks
-  handleTask(payload: any, schedule: Schedule) {
-    this.executedTasks.push({
-      name: payload.name,
-      time: Date.now(),
-    });
-  }
-
-  handleRecurringTask(payload: any, schedule: Schedule) {
-    this.executedTasks.push({
-      name: `recurring:${payload.name}`,
-      time: Date.now(),
-    });
-  }
-```
-
-### Required: Delegate alarm() to Alarms
-
-Your DO **must** call `alarms.alarm()` from its alarm handler:
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:85-88')
-  // Required: Cloudflare alarm handler
+  
+  // Required boilerplate. Delegates standard `alarm()` handler to Alarms
   async alarm() {
     await this.#alarms.alarm();
   }
-```
-
-## Managing Schedules
-
-### Cancel a Schedule
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:53-57')
-  // Cancel a scheduled task
-  async cancelTask(scheduleId: string) {
-    await this.#alarms.cancelSchedule(scheduleId);
-    return { cancelled: true, scheduleId };
+  
+  scheduleTask() {
+    this.#alarms.schedule(60, 'handleTask', { data: 'example' });
   }
-```
-
-### List Scheduled Tasks
-
-```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts:59-62')
-  // Get all scheduled tasks
-  getScheduledTasks() {
-    return this.#alarms.getSchedules();
-  }
-```
-
-## Using with LumenizeBase
-
-When using `@lumenize/lumenize-base`, `alarms` is automatically injected via the NADIS system:
-
-```typescript
-import '@lumenize/core';   // For this.svc.sql
-import '@lumenize/alarms'; // For this.svc.alarms
-import { LumenizeBase } from '@lumenize/lumenize-base';
-
-class MyDO extends LumenizeBase<Env> {
-  async alarm() {
-    await this.svc.alarms.alarm();
-  }
-
-  async scheduleTask(delaySeconds: number) {
-    // No need to initialize - auto-injected!
-    await this.svc.alarms.schedule(delaySeconds, 'handleTask', { data: 'example' });
-  }
-
+  
   handleTask(payload: any, schedule: Schedule) {
     console.log('Task executed:', payload);
   }
 }
 ```
 
-No need to manually inject dependencies - it's all handled automatically.
+### Usage with LumenizeBase (Auto-Injected)
 
-See the [@lumenize/lumenize-base documentation](/docs/lumenize-base) for more details.
+When using `@lumenize/lumenize-base`, alarms are automatically available via `this.svc`:
 
-## API Reference
+```typescript @check-example('packages/alarms/test/for-docs/lumenize-base-pattern.test.ts')
+import '@lumenize/core';    // Registers sql in this.svc
+import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
+import { LumenizeBase } from '@lumenize/lumenize-base';
 
-### Constructor
-
-```typescript
-new Alarms<ParentType>(
-  ctx: DurableObjectState,
-  parent: ParentType,
-  deps: { sql: ReturnType<typeof sql> }
-)
-```
-
-**Parameters:**
-- `ctx` - Durable Object state (provides storage and alarm APIs)
-- `parent` - The Durable Object instance (used to call callback methods)
-- `deps` - Dependencies object with `sql` template literal function
-
-### `schedule(when, callback, payload)`
-
-Schedule a task to execute at a specific time.
-
-**Parameters:**
-- `when` - **Number** (delay in seconds), **Date** (specific time), or **string** (cron expression)
-- `callback` - Name of the method to call on your DO
-- `payload` - Data to pass to the callback (optional)
-
-**Returns:** `Promise<Schedule>` - The created schedule with a unique `id`
-
-**Examples:**
-```typescript
-// Delay (seconds from now)
-const s1 = await alarms.schedule(60, 'sendEmail', { to: 'user@example.com' });
-
-// Specific time
-const future = new Date('2025-12-31T23:59:59Z');
-const s2 = await alarms.schedule(future, 'yearEndReport', {});
-
-// Cron (recurring)
-const s3 = await alarms.schedule('0 0 * * *', 'dailyCleanup', {}); // Every day at midnight
-const s4 = await alarms.schedule('*/15 * * * *', 'checkStatus', {}); // Every 15 minutes
-```
-
-### `cancelSchedule(id)`
-
-Cancel a scheduled task.
-
-**Parameters:**
-- `id` - The schedule ID (returned from `schedule()`)
-
-**Returns:** `Promise<boolean>` - `true` if cancelled
-
-### `getSchedule(id)`
-
-Get details about a specific schedule.
-
-**Parameters:**
-- `id` - The schedule ID
-
-**Returns:** `Promise<Schedule | undefined>`
-
-### `getSchedules(criteria?)`
-
-Get all schedules matching optional criteria.
-
-**Parameters:**
-- `criteria` (optional):
-  - `id` - Filter by schedule ID
-  - `type` - Filter by type: `'scheduled'`, `'delayed'`, or `'cron'`
-  - `timeRange` - Filter by time range: `{ start?: Date, end?: Date }`
-
-**Returns:** `Schedule[]`
-
-**Examples:**
-```typescript
-// All schedules
-const all = alarms.getSchedules();
-
-// Only cron schedules
-const crons = alarms.getSchedules({ type: 'cron' });
-
-// Schedules in the next hour
-const upcoming = alarms.getSchedules({
-  timeRange: {
-    start: new Date(),
-    end: new Date(Date.now() + 3600000),
-  },
-});
-```
-
-### `alarm()`
-
-The alarm handler - **must** be called from your DO's `alarm()` method.
-
-**Returns:** `Promise<void>`
-
-## Schedule Object
-
-The `Schedule` type represents a scheduled task:
-
-```typescript
-type Schedule<T = any> = {
-  id: string;          // Unique identifier
-  callback: string;    // Method name to call
-  payload: T;          // Data passed to callback
-  time: number;        // Unix timestamp (seconds)
-  type: 'scheduled' | 'delayed' | 'cron';
+class MyDO extends LumenizeBase<any> {
+  // Required boilerplate. Delegates standard `alarm()` handler to Alarms
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
   
-  // Type-specific fields
-  delayInSeconds?: number;  // For 'delayed' type
-  cron?: string;            // For 'cron' type
-};
+  scheduleTask() {
+    this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
+  }
+  
+  handleTask(payload: any, schedule: Schedule) {
+    console.log('Task executed:', payload);
+  }
+}
+```
+
+No manual initialization needed - alarms are automatically injected!
+
+See [@lumenize/lumenize-base documentation](/docs/lumenize-base) for more details on auto-injection.
+
+### Schedule Tasks
+
+#### Seconds From Now
+
+```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts')
+const schedule = this.#alarms.schedule(
+  delaySeconds,  // a number
+  'handleTask',  // handler method as string
+  { name: taskName }  // payload
+);
+```
+
+The handler receives the payload and schedule info:
+
+```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts')
+handleTask(payload: any, schedule: Schedule) {
+  console.log(payload, schedule);
+  // payload: { name: 'send-email' }
+  // schedule: { id: '...', runAt: 1699564800000, callback: 'handleTask', ... }
+// ...
+}
+```
+
+#### At a Specific Date (and time)
+
+```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts')
+const schedule = this.#alarms.schedule(
+  new Date(timestamp),  // a Date
+  'handleTask',  // handler method as string
+  { name: taskName }  // payload
+);
+```
+
+#### Recurring Task (Cron)
+
+```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts')
+const schedule = this.#alarms.schedule(
+  '0 0 * * *',  // cron expression (daily at midnight)
+  'handleRecurringTask',  // handler method as string
+  { name: taskName }  // payload
+);
+```
+
+Cron handlers are called repeatedly. See below for [cron expression examples](#cron-expression-examples).
+
+```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts')
+handleRecurringTask(payload: any, schedule: Schedule) {
+  console.log(payload, schedule);
+  // payload: { name: 'daily-report' }
+  // schedule: { id: '...', cron: '0 0 * * *', callback: 'handleRecurringTask', ... }
+// ...
+}
+```
+
+## Managing Schedules
+
+### Cancel a Schedule
+
+The `schedule()` method returns a schedule object with an `id`:
+
+```typescript @check-example('packages/alarms/test/for-docs/basic-usage.test.ts')
+const schedule = this.#alarms.schedule(/* ... */);
+
+// Later, to cancel:
+this.#alarms.cancelSchedule(schedule.id);
+```
+
+### List Scheduled Tasks
+
+```typescript @skip-check
+console.log(this.#alarms.getSchedules());
+// [
+//   { 
+//     id: 'abc123',
+//     callback: 'handleTask',
+//     payload: { name: 'send-email' },
+//     type: 'delayed',
+//     time: 1699564860,
+//     delayInSeconds: 60
+//   },
+//   {
+//     id: 'def456',
+//     callback: 'dailyReport',
+//     payload: { name: 'report' },
+//     type: 'cron',
+//     time: 1699574400,
+//     cron: '0 0 * * *'
+//   }
+// ]
 ```
 
 ## Cron Expression Examples
@@ -328,80 +237,29 @@ type Schedule<T = any> = {
 
 ### Storage Table
 
-The alarms table is automatically created:
-
-```sql
-CREATE TABLE IF NOT EXISTS _lumenize_alarms (
-  id TEXT PRIMARY KEY,
-  callback TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  type TEXT NOT NULL CHECK(type IN ('scheduled', 'delayed', 'cron')),
-  time INTEGER NOT NULL,
-  delayInSeconds INTEGER,
-  cron TEXT,
-  created_at INTEGER DEFAULT (unixepoch())
-)
-```
+The alarms table (`_lumenize_alarms`) is automatically created with columns for id, callback, payload, type, time, and optional delayInSeconds/cron fields.
 
 ### Lazy Initialization
 
-The table is created lazily on first use, not necessarily in the constructor. This ensures compatibility with the NADIS auto-injection system where services might be instantiated outside `blockConcurrencyWhile`.
+The table is created lazily on first use if it doesn't already exist, rather than in the constructor. This ensures compatibility with the NADIS auto-injection system where services might be instantiated outside `blockConcurrencyWhile`.
 
 ## Testing Alarms
 
 ### Manual Trigger for Tests
 
-When testing alarm functionality, timing simulation can be unreliable. The `triggerAlarms()` method lets you manually execute alarms without waiting:
+The `triggerAlarms(count?)` method lets you manually execute alarms for testing without waiting for real time to pass. It executes alarms chronologically and can "fast-forward" through future alarms.
 
-```typescript
-// Manually trigger execution of alarms
-await alarms.triggerAlarms(count?: number): Promise<string[]>
-```
+See [Testing Alarm Simulation](/docs/testing/alarm-simulation) for complete examples and patterns.
 
-**Behavior:**
-- **No count specified**: Executes all overdue alarms, or the next 1 if none are overdue
-- **Count specified**: Executes the next `count` alarms in chronological order, regardless of time
-- **Works with future alarms**: Can "fast-forward" to trigger alarms scheduled in the future
-- **Respects cron schedules**: Cron alarms are rescheduled after execution
+## Standing on the Shoulders of Giants
 
-**Examples:**
+The core of this implementation is based upon the Alarms functionality in the
+[`@cloudflare/actors`](https://www.npmjs.com/package/@cloudflare/actors)
+package with the following enhancements:
 
-```typescript
-// Trigger all overdue alarms (default behavior)
-await stub.scheduleTask('task1', -5); // 5 seconds ago
-await stub.scheduleTask('task2', -3); // 3 seconds ago
-const executed = await stub.triggerAlarms();
-expect(executed.length).toBe(2);
-
-// Fast-forward to trigger next alarm even if in the future
-await stub.scheduleTask('future', 60); // 60 seconds from now
-const executed = await stub.triggerAlarms(1);
-expect(executed.length).toBe(1);
-
-// Trigger multiple alarms in order
-await stub.scheduleTask('task1', 10);
-await stub.scheduleTask('task2', 20);
-await stub.scheduleTask('task3', 30);
-const executed = await stub.triggerAlarms(2); // Triggers first 2
-expect(executed.length).toBe(2);
-
-// Trigger cron alarm to test next occurrence
-await stub.scheduleCron('0 * * * *', 'hourly'); // Every hour
-const executed = await stub.triggerAlarms(1); // Executes and reschedules for next hour
-```
-
-**Why use this instead of `runDurableObjectAlarm()`?**
-- ✅ Works via RPC (no need for special test imports)
-- ✅ Can trigger specific number of alarms
-- ✅ Can fast-forward through future alarms
-- ✅ Works with multiplexed alarm systems
-
-See [Testing Alarm Simulation](/docs/testing/alarm-simulation) for more testing patterns.
-
-## See Also
-
-- [@lumenize/lumenize-base](/docs/lumenize-base) - Auto-injection via NADIS
-- [@lumenize/core](/docs/core) - SQL template literal (required dependency)
-- [Testing Alarm Simulation](/docs/testing/alarm-simulation) - How to test alarms
-- [Cloudflare Alarms Documentation](https://developers.cloudflare.com/durable-objects/api/alarms/) - Native alarm API
-
+- NADIS dependency injection - Changed from mixin approach to accepting `{ sql }` in constructor
+- Lazy table initialization - Table created if it doesn't exist on first operation (critical for NADIS auto-injection)
+- Removed actor-specific dependencies - Removed setName, actorName, etc.
+- Added TypeScript generics - Enhanced type safety with generics
+- Made API synchronous - Changed schedule(), getSchedule(), cancelSchedule(), and #scheduleNextAlarm() from async to synchronous
+- Added triggerAlarms() testing helper - Enables reliable alarm testing

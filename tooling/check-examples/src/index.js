@@ -31,7 +31,7 @@ import * as path from 'node:path';
 /**
  * Normalize TypeScript/JavaScript code for comparison:
  * Remove imports, comments, type parameters, and collapse whitespace
- * Supports // ... as a wildcard to skip intervening code
+ * Supports // ... and /* ... * / as wildcards to skip intervening code
  * @param {string} code - Code to normalize
  * @returns {string} Normalized code
  */
@@ -46,8 +46,9 @@ function normalizeCode(code) {
     // Remove generic type parameters from extends/implements (e.g., extends DurableObject<Env> → extends DurableObject)
     .replace(/extends\s+(\w+)<[^>]+>/g, 'extends $1')
     .replace(/implements\s+(\w+)<[^>]+>/g, 'implements $1')
-    // Replace // ... with a unique placeholder before removing other comments
+    // Replace wildcard patterns with unique placeholder before removing other comments
     .replace(/\/\/\s*\.\.\.\s*$/gm, '___ELLIPSIS___')
+    .replace(/\/\*\s*\.\.\.\s*\*\//g, '___ELLIPSIS___')
     // Remove single-line comments
     .replace(/\/\/.*$/gm, '')
     // Remove multi-line comments

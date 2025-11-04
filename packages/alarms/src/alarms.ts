@@ -76,11 +76,11 @@ function getNextCronTime(cron: string): Date {
  *     await this.#alarms.alarm();
  *   }
  *   
- *   async scheduleTask() {
- *     await this.#alarms.schedule(60, 'handleTask', { data: 'example' });
+ *   scheduleTask() {
+ *     this.#alarms.schedule(60, 'handleTask', { data: 'example' });
  *   }
  *   
- *   async handleTask(payload: any, schedule: Schedule) {
+ *   handleTask(payload: any, schedule: Schedule) {
  *     console.log('Task executed:', payload);
  *   }
  * }
@@ -98,11 +98,11 @@ function getNextCronTime(cron: string): Date {
  *     await this.svc.alarms.alarm();
  *   }
  *   
- *   async scheduleTask() {
- *     await this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
+ *   scheduleTask() {
+ *     this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
  *   }
  *   
- *   async handleTask(payload: any, schedule: Schedule) {
+ *   handleTask(payload: any, schedule: Schedule) {
  *     console.log('Task executed:', payload);
  *   }
  * }
@@ -181,11 +181,11 @@ export class Alarms<P extends { [key: string]: any }> {
    * @param payload Data to pass to the callback
    * @returns Schedule object representing the scheduled task
    */
-  async schedule<T = string>(
+  schedule<T = string>(
     when: Date | string | number,
     callback: keyof P & string,
     payload?: T
-  ): Promise<Schedule<T, keyof P>> {
+  ): Schedule<T, keyof P> {
     this.#ensureTable();
     
     const id = nanoid(9);
@@ -204,7 +204,7 @@ export class Alarms<P extends { [key: string]: any }> {
         INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, time)
         VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'scheduled', ${timestamp})
       `;
-      await this.#scheduleNextAlarm();
+      this.#scheduleNextAlarm();
       return {
         id,
         callback: callback as keyof P,
@@ -221,7 +221,7 @@ export class Alarms<P extends { [key: string]: any }> {
         INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, delayInSeconds, time)
         VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'delayed', ${when}, ${timestamp})
       `;
-      await this.#scheduleNextAlarm();
+      this.#scheduleNextAlarm();
       return {
         id,
         callback: callback as keyof P,
@@ -239,7 +239,7 @@ export class Alarms<P extends { [key: string]: any }> {
         INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, cron, time)
         VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'cron', ${when}, ${timestamp})
       `;
-      await this.#scheduleNextAlarm();
+      this.#scheduleNextAlarm();
       return {
         id,
         callback: callback as keyof P,
@@ -259,7 +259,7 @@ export class Alarms<P extends { [key: string]: any }> {
    * @param id ID of the scheduled task
    * @returns The Schedule object or undefined if not found
    */
-  async getSchedule<T = string>(id: string): Promise<Schedule<T> | undefined> {
+  getSchedule<T = string>(id: string): Schedule<T> | undefined {
     this.#ensureTable();
     
     const result = this.#sql`
@@ -325,11 +325,11 @@ export class Alarms<P extends { [key: string]: any }> {
    * @param id ID of the task to cancel
    * @returns true if the task was cancelled, false otherwise
    */
-  async cancelSchedule(id: string): Promise<boolean> {
+  cancelSchedule(id: string): boolean {
     this.#ensureTable();
     
     this.#sql`DELETE FROM _lumenize_alarms WHERE id = ${id}`;
-    await this.#scheduleNextAlarm();
+    this.#scheduleNextAlarm();
     return true;
   }
 
@@ -450,7 +450,7 @@ export class Alarms<P extends { [key: string]: any }> {
     }
   };
 
-  async #scheduleNextAlarm(): Promise<void> {
+  #scheduleNextAlarm(): void {
     // Find the next schedule that needs to be executed
     const result = this.#sql`
       SELECT time FROM _lumenize_alarms 
@@ -465,7 +465,7 @@ export class Alarms<P extends { [key: string]: any }> {
 
     if ('time' in result[0]) {
       const nextTime = (result[0].time as number) * 1000;
-      await this.#storage.setAlarm(nextTime);
+      this.#storage.setAlarm(nextTime);
     }
   }
 }

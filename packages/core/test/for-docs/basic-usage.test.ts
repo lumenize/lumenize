@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
-import { sql } from '../../src/sql';
+import { sql } from '@lumenize/core';
 
 // Example: Standalone usage
 class ProductDO extends DurableObject {

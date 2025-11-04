@@ -33,6 +33,8 @@ The adapted code is located in src/alarms.ts and has been modified to:
 - Implement lazy table initialization
 - Remove actor-specific dependencies
 - Add TypeScript generics for enhanced type safety
+- Make schedule/getSchedule/cancelSchedule methods synchronous (following DO best practices)
+- Add triggerAlarms() testing helper for reliable alarm testing
 
 The original Apache 2.0 license terms apply to the portions of code derived from
 the Cloudflare Actors project. See ATTRIBUTIONS.md in the repository root for

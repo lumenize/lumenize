@@ -162,7 +162,7 @@ export class MyDO extends DurableObject<Env> {
   /**
    * Trigger a proxy fetch (for HTTP endpoint testing)
    */
-  async triggerProxyFetch(urlOrRequest: string | Request, handlerName: string): Promise<string> {
+  async triggerProxyFetch(urlOrRequest: string | Request, handlerName: keyof this & string): Promise<string> {
     const reqId = await proxyFetch(this, urlOrRequest, 'MY_DO', handlerName);
     // Store reqId for live tests
     this.ctx.storage.kv.put('last-req-id', reqId);

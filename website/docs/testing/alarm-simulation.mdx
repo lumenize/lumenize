@@ -428,7 +428,7 @@ This is an **environmental limitation** of the test simulation, not a functional
 
 If using `@lumenize/alarms`, use the built-in `triggerAlarms()` method to manually execute alarms:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-workarounds.test.ts')
 describe('Alarm Execution', () => {
   it('executes scheduled tasks', async () => {
     const stub = env.MY_DO.getByName('alarm-test');
@@ -461,7 +461,7 @@ See [@lumenize/alarms Testing section](/docs/alarms#testing-alarms) for more det
 
 For plain Durable Objects or custom alarm systems, test callback handlers directly:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-workarounds.test.ts')
 import { createTestingClient } from '@lumenize/testing';
 
 describe('Alarm Handlers', () => {
@@ -493,7 +493,7 @@ describe('Alarm Handlers', () => {
 
 For comprehensive alarm testing, use Cloudflare's built-in test helper:
 
-```typescript
+```typescript @check-example('packages/testing/test/for-docs/alarm-workarounds.test.ts')
 import { runDurableObjectAlarm } from 'cloudflare:test';
 
 it('triggers all pending alarms', async () => {

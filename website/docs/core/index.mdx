@@ -16,7 +16,7 @@ A de✨light✨ful collection of foundational utilities for building Durable Obj
 
 ## Installation
 
-```bash
+```bash @skip-check
 npm install @lumenize/core
 ```
 
@@ -26,7 +26,7 @@ The `sql` template literal tag provides a clean, safe way to execute SQL queries
 
 ### Basic Usage
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts:16-28')
+```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
 class ProductDO extends DurableObject {
   #sql = sql(this);
 
@@ -47,7 +47,7 @@ class ProductDO extends DurableObject {
 
 Parameters are automatically bound and SQL-injection safe:
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts:30-41')
+```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
   addProduct(id: string, name: string, price: number, stock: number = 0) {
     this.#sql`
       INSERT INTO products (id, name, price, stock)
@@ -64,7 +64,7 @@ Parameters are automatically bound and SQL-injection safe:
 
 ### Complex Queries
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts:47-51')
+```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
   getLowStockProducts(threshold: number = 10) {
     return this.#sql`
       SELECT id, name, stock FROM products 
@@ -76,94 +76,23 @@ The `sql` function returns an array of result rows. Each row is a plain JavaScri
 
 ## Using with LumenizeBase
 
-When using `@lumenize/lumenize-base`, `sql` is automatically injected via the NADIS system:
-
-```typescript
-import '@lumenize/core';  // Registers sql in this.svc
-import { LumenizeBase } from '@lumenize/lumenize-base';
-
-class MyDO extends LumenizeBase<Env> {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    // Run migrations in constructor
-    this.#initTable();
-  }
-
-  #initTable() {
-    this.svc.sql`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL
-      )
-    `;
-  }
-
-  addUser(id: string, name: string) {
-    this.svc.sql`INSERT INTO users (id, name) VALUES (${id}, ${name})`;
-  }
-}
-```
-
-No need to call `sql(this)` - it's automatically available on `this.svc.sql`.
-
-See the [@lumenize/lumenize-base documentation](/docs/lumenize-base) for more details.
+When using `@lumenize/lumenize-base`, `sql` is automatically injected via NADIS - see [@lumenize/lumenize-base documentation](/docs/lumenize-base) for complete examples.
 
 ## API Reference
 
 ### `sql(doInstance)`
 
-Factory function that creates a SQL template literal tag bound to a Durable Object instance.
+Factory function that creates a SQL template literal tag bound to a Durable Object instance. See [Basic Usage](#basic-usage) section above for complete examples.
 
 **Parameters:**
 - `doInstance` - The Durable Object instance (typically `this`)
 
 **Returns:**
-A template literal tag function that executes SQL queries.
-
-**Example:**
-```typescript
-const query = sql(this);
-const users = query`SELECT * FROM users WHERE age > ${minAge}`;
-```
+A template literal tag function that executes SQL queries and returns an array of result rows.
 
 ## Why Use This?
 
-### Clean Syntax
-
-Compare to the raw storage API:
-
-```typescript
-// ❌ Raw SQL API - verbose
-const result = this.ctx.storage.sql.exec(
-  'SELECT * FROM users WHERE age > ?',
-  minAge
-);
-
-// ✅ sql template literal - clean and readable
-const users = this.#sql`SELECT * FROM users WHERE age > ${minAge}`;
-```
-
-### Type Safety
-
-Parameters are automatically bound, preventing SQL injection:
-
-```typescript
-const userId = "'; DROP TABLE users; --";
-// Safe - userId is properly escaped
-const user = this.#sql`SELECT * FROM users WHERE id = ${userId}`;
-```
-
-### Automatic Result Handling
-
-Results are returned as plain JavaScript arrays and objects:
-
-```typescript
-const products = this.#sql`SELECT * FROM products`;
-// => [{ id: 'p1', name: 'Widget', price: 29.99 }, ...]
-
-const count = this.#sql`SELECT COUNT(*) as total FROM products`;
-// => [{ total: 42 }]
-```
+Provides clean syntax over Cloudflare's raw storage API, automatic parameter binding for SQL injection protection, and returns results as plain JavaScript arrays/objects. See [Basic Usage](#basic-usage) for examples.
 
 ## Implementation Details
 

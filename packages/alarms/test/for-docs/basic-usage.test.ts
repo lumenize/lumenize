@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
-import { Alarms, type Schedule } from '../../src/alarms';
+import { Alarms, type Schedule } from '@lumenize/alarms';
 import { sql } from '@lumenize/core';
 
 // Example: Task scheduling DO
@@ -20,40 +20,46 @@ class TaskSchedulerDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
 
-  // Schedule a one-time task
-  async scheduleTask(taskName: string, delaySeconds: number) {
-    const schedule = await this.#alarms.schedule(
-      delaySeconds, 
-      'handleTask', 
-      { name: taskName }
+  // Schedule a task - seconds from now
+  scheduleTask(taskName: string, delaySeconds: number) {
+    const schedule = this.#alarms.schedule(
+      delaySeconds,  // a number
+      'handleTask',  // handler method as string
+      { name: taskName }  // payload
+    );
+    return { scheduled: true, taskName, id: schedule.id };
+  }
+
+  // Schedule task at specific time
+  scheduleAt(taskName: string, timestamp: number) {
+    const schedule = this.#alarms.schedule(
+      new Date(timestamp),  // a Date
+      'handleTask',  // handler method as string
+      { name: taskName }  // payload
     );
     return { scheduled: true, taskName, id: schedule.id };
   }
 
   // Schedule a recurring task with cron
-  async scheduleRecurringTask(taskName: string, cronExpression: string) {
-    const schedule = await this.#alarms.schedule(
-      cronExpression, 
-      'handleRecurringTask', 
-      { name: taskName }
+  scheduleRecurringTask(taskName: string) {
+    const schedule = this.#alarms.schedule(
+      '0 0 * * *',  // cron expression (daily at midnight)
+      'handleRecurringTask',  // handler method as string
+      { name: taskName }  // payload
     );
     return { scheduled: true, taskName, recurring: true, id: schedule.id };
   }
 
-  // Schedule task at specific time
-  async scheduleAt(taskName: string, timestamp: number) {
-    const schedule = await this.#alarms.schedule(
-      new Date(timestamp), 
-      'handleTask', 
-      { name: taskName }
-    );
-    return { scheduled: true, taskName, id: schedule.id };
-  }
-
   // Cancel a scheduled task
-  async cancelTask(scheduleId: string) {
-    await this.#alarms.cancelSchedule(scheduleId);
-    return { cancelled: true, scheduleId };
+  cancelTask(taskName: string, delaySeconds: number) {
+    const schedule = this.#alarms.schedule(
+      delaySeconds,  // a number
+      'handleTask',  // handler method as string
+      { name: taskName }  // payload
+    );
+    // Later, to cancel:
+    this.#alarms.cancelSchedule(schedule.id);
+    return { cancelled: true, scheduleId: schedule.id };
   }
 
   // Get all scheduled tasks
@@ -63,6 +69,9 @@ class TaskSchedulerDO extends DurableObject {
 
   // Alarm callbacks
   handleTask(payload: any, schedule: Schedule) {
+    console.log(payload, schedule);
+    // payload: { name: 'send-email' }
+    // schedule: { id: '...', runAt: 1699564800000, callback: 'handleTask', ... }
     this.executedTasks.push({
       name: payload.name,
       time: Date.now(),
@@ -70,6 +79,9 @@ class TaskSchedulerDO extends DurableObject {
   }
 
   handleRecurringTask(payload: any, schedule: Schedule) {
+    console.log(payload, schedule);
+    // payload: { name: 'daily-report' }
+    // schedule: { id: '...', cron: '0 0 * * *', callback: 'handleRecurringTask', ... }
     this.executedTasks.push({
       name: `recurring:${payload.name}`,
       time: Date.now(),
@@ -111,7 +123,7 @@ describe('Alarms - Basic Usage', () => {
   it('schedules recurring task with cron', async () => {
     const stub = env.TASK_SCHEDULER_DO.getByName('cron-test');
     
-    const result = await stub.scheduleRecurringTask('daily-report', '0 0 * * *');
+    const result = await stub.scheduleRecurringTask('daily-report');
     
     expect(result.scheduled).toBe(true);
     expect(result.recurring).toBe(true);
@@ -120,13 +132,12 @@ describe('Alarms - Basic Usage', () => {
   it('cancels scheduled task', async () => {
     const stub = env.TASK_SCHEDULER_DO.getByName('cancel-test');
     
-    const { id } = await stub.scheduleTask('reminder', 60);
-    const result = await stub.cancelTask(id);
+    const result = await stub.cancelTask('reminder', 60);
     
     expect(result.cancelled).toBe(true);
     
     const scheduled = await stub.getScheduledTasks();
-    expect(scheduled.find((s: any) => s.id === id)).toBeUndefined();
+    expect(scheduled.find((s: any) => s.id === result.scheduleId)).toBeUndefined();
   });
 
   it('lists all scheduled tasks', async () => {

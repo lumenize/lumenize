@@ -21,20 +21,21 @@ function generateReqId(): string {
  * 
  * **Must be called from within a Durable Object** as it uses `ctx.id`.
  * 
+ * @typeParam P - Type of the Durable Object instance (for handler method name type safety)
  * @param doInstance - The Durable Object instance (pass `this` from within DO methods)
  * @param req - Request object or URL string to fetch
  * @param doBindingName - Name of the DO binding for return routing
- * @param handler - Optional name of the handler method on the DO to call with the response. If omitted, fire-and-forget mode (no callback).
+ * @param handler - Optional name of the handler method on the DO to call with the response. If omitted, fire-and-forget mode (no callback). TypeScript will autocomplete valid method names.
  * @param options - Optional configuration for timeout, retries, etc.
  * @returns Promise that resolves with the request ID when the request is enqueued
  * @throws Error if handler is provided but doesn't exist as a method on the DO instance
  * @throws Error if neither PROXY_FETCH_DO nor PROXY_FETCH_QUEUE binding is found
  */
-export async function proxyFetch(
-  doInstance: any, // DurableObject instance with ctx and env properties
+export async function proxyFetch<P extends { [key: string]: any }>(
+  doInstance: P,
   req: Request | string,
   doBindingName: string,
-  handler?: string,
+  handler?: keyof P & string,
   options?: ProxyFetchOptions,
   proxyInstanceNameOrId?: string
 ): Promise<string> {
@@ -56,18 +57,19 @@ export async function proxyFetch(
  * This is the DO variant that uses a dedicated Durable Object for fetch processing.
  * For most use cases, prefer using the auto-detecting `proxyFetch()` function instead.
  * 
+ * @typeParam P - Type of the Durable Object instance (for handler method name type safety)
  * @param doInstance - The Durable Object instance (pass `this` from within DO methods)
  * @param req - Request object or URL string to fetch
  * @param doBindingName - Name of the DO binding for return routing
- * @param handler - Optional name of the handler method on the DO to call with the response
+ * @param handler - Optional name of the handler method on the DO to call with the response. TypeScript will autocomplete valid method names.
  * @param options - Optional configuration for timeout, retries, etc.
  * @returns Promise that resolves with the request ID when the request is enqueued
  */
-export async function proxyFetchDO(
-  doInstance: any,
+export async function proxyFetchDO<P extends { [key: string]: any }>(
+  doInstance: P,
   req: Request | string,
   doBindingName: string,
-  handler?: string,
+  handler?: keyof P & string,
   options?: ProxyFetchOptions,
   proxyInstanceNameOrId: string = 'proxy-fetch-global'
 ): Promise<string> {
@@ -119,18 +121,19 @@ export async function proxyFetchDO(
  * This is the Queue variant that uses Cloudflare Queues for message passing.
  * For most use cases, prefer using the auto-detecting `proxyFetch()` function instead.
  * 
+ * @typeParam P - Type of the Durable Object instance (for handler method name type safety)
  * @param doInstance - The Durable Object instance (pass `this` from within DO methods)
  * @param req - Request object or URL string to fetch
  * @param doBindingName - Name of the DO binding for return routing
- * @param handler - Optional name of the handler method on the DO to call with the response
+ * @param handler - Optional name of the handler method on the DO to call with the response. TypeScript will autocomplete valid method names.
  * @param options - Optional configuration for timeout, retries, etc.
  * @returns Promise that resolves with the request ID when the request is queued
  */
-export async function proxyFetchQueue(
-  doInstance: any,
+export async function proxyFetchQueue<P extends { [key: string]: any }>(
+  doInstance: P,
   req: Request | string,
   doBindingName: string,
-  handler?: string,
+  handler?: keyof P & string,
   options?: ProxyFetchOptions
 ): Promise<string> {
   // Validate handler exists if provided

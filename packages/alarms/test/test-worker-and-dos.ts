@@ -5,8 +5,10 @@ import { sql } from '@lumenize/core';
 import { Alarms, type Schedule } from '../src/alarms';
 import { enableAlarmSimulation } from '@lumenize/testing';
 
-// Export TaskSchedulerDO for documentation examples
+// Export DOs for documentation examples
 export { TaskSchedulerDO } from './for-docs/basic-usage.test';
+export { MyDO as StandalonePatternDO } from './for-docs/standalone-pattern.test';
+export { MyDO as LumenizeBasePatternDO } from './for-docs/lumenize-base-pattern.test';
 
 export class AlarmDO extends DurableObject<Env> {
   #alarms: Alarms<AlarmDO>;
@@ -26,44 +28,44 @@ export class AlarmDO extends DurableObject<Env> {
   }
 
   // Test helper: Schedule an alarm
-  async scheduleAlarm(when: Date | string | number, payload?: any) {
-    return await this.#alarms.schedule(when, 'handleAlarm', payload);
+  scheduleAlarm(when: Date | string | number, payload?: any) {
+    return this.#alarms.schedule(when, 'handleAlarm', payload);
   }
 
   // Test helper: Get a schedule by ID
-  async getSchedule(id: string) {
-    return await this.#alarms.getSchedule(id);
+  getSchedule(id: string) {
+    return this.#alarms.getSchedule(id);
   }
 
   // Test helper: Get all schedules
-  async getSchedules(criteria?: Parameters<typeof this.#alarms.getSchedules>[0]) {
+  getSchedules(criteria?: Parameters<typeof this.#alarms.getSchedules>[0]) {
     return this.#alarms.getSchedules(criteria);
   }
 
   // Test helper: Cancel a schedule
-  async cancelSchedule(id: string) {
-    return await this.#alarms.cancelSchedule(id);
+  cancelSchedule(id: string) {
+    return this.#alarms.cancelSchedule(id);
   }
 
   // Alarm callback - gets called when an alarm fires
-  async handleAlarm(payload: any, schedule: Schedule) {
+  handleAlarm(payload: any, schedule: Schedule) {
     this.executedAlarms.push({ payload, schedule });
   }
 
   // Test helper: Schedule alarm with invalid callback (not a function)
-  async scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
+  scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
     // Force schedule with a non-function callback property
-    return await this.#alarms.schedule(when, 'notAFunction' as any, payload);
+    return this.#alarms.schedule(when, 'notAFunction' as any, payload);
   }
 
   // Alarm callback that throws an error
-  async handleThrowingAlarm(payload: any, schedule: Schedule) {
+  handleThrowingAlarm(payload: any, schedule: Schedule) {
     throw new Error('Intentional error from alarm callback');
   }
 
   // Test helper: Schedule an alarm with a throwing callback
-  async scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
-    return await this.#alarms.schedule(when, 'handleThrowingAlarm', payload);
+  scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
+    return this.#alarms.schedule(when, 'handleThrowingAlarm', payload);
   }
 
   // Test helper: Get executed alarms

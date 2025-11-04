@@ -27,5 +27,4 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Purpose**: Provides alarm scheduling system for Durable Objects with support for one-time, delayed, and cron-based recurring schedules using SQL storage.
 - **Date Added**: 2025-11-02
 - **Author**: Cloudflare
-- **Note**: Source code adapted from cloudflare/actors alarms package with the following modifications: (1) NADIS dependency injection pattern instead of mixin approach, (2) lazy table initialization for compatibility with NADIS auto-injection, (3) removed actor-specific dependencies (setName, actorName), (4) added TypeScript generics for enhanced type safety.
-
+- **Note**: Source code adapted from cloudflare/actors alarms package with the following modifications: (1) NADIS dependency injection pattern instead of mixin approach, (2) lazy table initialization for compatibility with NADIS auto-injection, (3) removed actor-specific dependencies (setName, actorName), (4) added TypeScript generics for enhanced type safety, (5) made schedule/getSchedule/cancelSchedule methods synchronous, (6) added triggerAlarms() testing helper for reliable alarm testing.

@@ -25,7 +25,7 @@ export class _TestDO extends DurableObject {
   /**
    * Business logic that needs to call external API - uses proxyFetch() auto-detect
    */
-  async myBusinessProcess(url: string, handler?: string, options?: any, proxyInstanceNameOrId?: string): Promise<string> {
+  async myBusinessProcess(url: string, handler?: keyof this & string, options?: any, proxyInstanceNameOrId?: string): Promise<string> {
     // Uses proxyFetch() which auto-detects DO vs Queue variant
     const reqId = await proxyFetch(
       this,                                      // DO instance
@@ -116,7 +116,7 @@ export class _TestDO extends DurableObject {
       this,
       TEST_ENDPOINTS.buildUrl('/uuid'),
       'TEST_DO',
-      'nonExistentHandler' // This handler doesn't exist
+      'nonExistentHandler' as any // Intentionally invalid for testing runtime error handling
     );
   }
 
@@ -131,7 +131,7 @@ export class _TestDO extends DurableObject {
       this,
       TEST_ENDPOINTS.buildUrl('/uuid'),
       'TEST_DO',
-      'anotherNonExistentHandler' // This handler doesn't exist
+      'anotherNonExistentHandler' as any // Intentionally invalid for testing runtime error handling
     );
   }
 
