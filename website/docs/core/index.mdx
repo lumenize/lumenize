@@ -1,18 +1,59 @@
 ---
 title: "@lumenize/core"
-description: Core utilities for Durable Objects including SQL template literals
+description: Foundational utilities for Durable Objects - small, focused, essential
 ---
 
 # @lumenize/core
 
 A de✨light✨ful collection of foundational utilities for building Durable Objects applications.
 
-## Features
+## Philosophy
 
-- **`sql` template literal tag**: Type-safe SQL queries with automatic parameter binding
-- **Zero dependencies**: Minimal footprint with no external dependencies
-- **Works standalone or with LumenizeBase**: Use directly or get auto-injected via NADIS
-- **Tree-shakeable**: Only import what you need
+Core is home to **small, essential utilities** that provide fundamental building blocks for Durable Objects. Each utility is:
+
+- **Tiny** - Typically 10-50 lines of code
+- **Focused** - Does one thing well
+- **Zero or minimal dependencies** - Keeps your bundle small
+- **Tree-shakeable** - Import only what you need
+- **NADIS-compatible** - Works standalone or auto-injected via `LumenizeBase`
+
+### What Belongs in Core?
+
+Utilities that are:
+- ✅ Small implementation (< 50 SLOC)
+- ✅ Fundamental building blocks
+- ✅ Stateless or minimal state
+- ✅ Broadly useful across many DOs
+
+### When to Create a Separate Package
+
+Create a dedicated package when a feature:
+- ❌ Exceeds ~100 lines of code
+- ❌ Has complex state management (like Alarms with its persistence table)
+- ❌ Requires its own configuration options
+- ❌ Provides a complete subsystem
+
+**Examples of separate packages:** [`@lumenize/alarms`](/docs/alarms/), [`@lumenize/rpc`](/docs/rpc/introduction)
+
+## Available Utilities
+
+### [SQL Template Literal](/docs/core/sql)
+
+Type-safe SQL queries with automatic parameter binding. ~10 lines of code.
+
+```typescript @skip-check
+import { sql } from '@lumenize/core';
+
+class MyDO extends DurableObject {
+  #sql = sql(this);
+  
+  getUser(id: string) {
+    return this.#sql`SELECT * FROM users WHERE id = ${id}`[0];
+  }
+}
+```
+
+**[→ Full SQL Documentation](/docs/core/sql)**
 
 ## Installation
 
@@ -20,92 +61,48 @@ A de✨light✨ful collection of foundational utilities for building Durable Obj
 npm install @lumenize/core
 ```
 
-## SQL Template Literal
+## Usage Patterns
 
-The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage.
+### Standalone Usage
 
-### Basic Usage
+Import and use utilities directly in your Durable Objects:
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
+import { sql } from '@lumenize/core';
+
 class ProductDO extends DurableObject {
   #sql = sql(this);
-
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
-    // Run migrations in constructor
-    this.#sql`
-      CREATE TABLE IF NOT EXISTS products (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        price REAL NOT NULL,
-        stock INTEGER DEFAULT 0
-      )
-    `;
+  // Use directly
+}
 ```
 
-### Template Literal Parameters
+### With LumenizeBase (Auto-Injected)
 
-Parameters are automatically bound and SQL-injection safe:
+Import for side-effect registration, then access via `this.svc`:
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
-  addProduct(id: string, name: string, price: number, stock: number = 0) {
-    this.#sql`
-      INSERT INTO products (id, name, price, stock)
-      VALUES (${id}, ${name}, ${price}, ${stock})
-    `;
-    return { id, name, price, stock };
-  }
+```typescript @skip-check
+import '@lumenize/core';  // Registers utilities in NADIS
+import { LumenizeBase } from '@lumenize/lumenize-base';
 
+class ProductDO extends LumenizeBase<any> {
   getProduct(id: string) {
-    const rows = this.#sql`SELECT * FROM products WHERE id = ${id}`;
-    return rows[0];
+    return this.svc.sql`SELECT * FROM products WHERE id = ${id}`[0];
   }
+}
 ```
 
-### Complex Queries
+See [@lumenize/lumenize-base documentation](/docs/lumenize-base) for complete NADIS examples.
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
-  getLowStockProducts(threshold: number = 10) {
-    return this.#sql`
-      SELECT id, name, stock FROM products 
-      WHERE stock < ${threshold}
-      ORDER BY stock ASC
-```
+## Design Principles
 
-The `sql` function returns an array of result rows. Each row is a plain JavaScript object with column names as keys.
-
-## Using with LumenizeBase
-
-When using `@lumenize/lumenize-base`, `sql` is automatically injected via NADIS - see [@lumenize/lumenize-base documentation](/docs/lumenize-base) for complete examples.
-
-## API Reference
-
-### `sql(doInstance)`
-
-Factory function that creates a SQL template literal tag bound to a Durable Object instance. See [Basic Usage](#basic-usage) section above for complete examples.
-
-**Parameters:**
-- `doInstance` - The Durable Object instance (typically `this`)
-
-**Returns:**
-A template literal tag function that executes SQL queries and returns an array of result rows.
-
-## Why Use This?
-
-Provides clean syntax over Cloudflare's raw storage API, automatic parameter binding for SQL injection protection, and returns results as plain JavaScript arrays/objects. See [Basic Usage](#basic-usage) for examples.
-
-## Implementation Details
-
-The `sql` template literal tag:
-1. Parses the template literal into SQL query and parameters
-2. Uses `ctx.storage.sql.exec()` to execute the query
-3. Returns results as an array of objects
-
-It's implemented as a **stateless factory function** - calling `sql(this)` returns a bound function you can use repeatedly. This pattern enables both standalone usage and automatic injection via NADIS.
+1. **Minimal abstraction** - Thin wrappers that enhance, not hide, Cloudflare APIs
+2. **Zero runtime cost** - No performance penalty over raw APIs
+3. **Type-safe** - Full TypeScript support with proper inference
+4. **Composable** - Mix and match utilities as needed
 
 ## See Also
 
 - [@lumenize/lumenize-base](/docs/lumenize-base) - Auto-injection via NADIS
-- [@lumenize/alarms](/docs/alarms) - Alarm scheduling (also uses NADIS)
-- [Cloudflare SQLite Storage](https://developers.cloudflare.com/durable-objects/api/storage/#sql) - Official storage API docs
+- [@lumenize/alarms](/docs/alarms) - Alarm scheduling (uses SQL from core)
+- [Cloudflare Durable Objects](https://developers.cloudflare.com/durable-objects/) - Official docs
 

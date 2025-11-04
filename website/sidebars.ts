@@ -312,6 +312,7 @@ const sidebars: SidebarsConfig = {
       label: 'Core',
       items: [
         'core/index',
+        'core/sql',
         ...(typedocCoreSidebar && typedocCoreSidebar.length > 0
           ? [wrapInApiReference(typedocCoreSidebar, 'API Reference')]
           : []),
