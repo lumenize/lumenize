@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
-import { Alarms, type Schedule } from '../../src/alarms.js';
+import { Alarms, type Schedule } from '../../src/alarms';
 import { sql } from '@lumenize/core';
 
 // Example: Task scheduling DO

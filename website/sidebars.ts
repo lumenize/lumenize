@@ -9,6 +9,9 @@ let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
 let typedocProxyFetchSidebar: any[] = [];
 let typedocStructuredCloneSidebar: any[] = [];
+let typedocCoreSidebar: any[] = [];
+let typedocAlarmsSidebar: any[] = [];
+let typedocLumenizeBaseSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -43,6 +46,27 @@ try {
   console.log('✅ Loaded structured-clone sidebar, items:', typedocStructuredCloneSidebar?.length);
 } catch (e) {
   console.warn('⚠️  TypeDoc structured-clone sidebar not yet generated, using empty sidebar');
+}
+
+try {
+  typedocCoreSidebar = require('./docs/core/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded core sidebar, items:', typedocCoreSidebar?.length);
+} catch (e) {
+  console.warn('⚠️  TypeDoc core sidebar not yet generated, using empty sidebar');
+}
+
+try {
+  typedocAlarmsSidebar = require('./docs/alarms/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded alarms sidebar, items:', typedocAlarmsSidebar?.length);
+} catch (e) {
+  console.warn('⚠️  TypeDoc alarms sidebar not yet generated, using empty sidebar');
+}
+
+try {
+  typedocLumenizeBaseSidebar = require('./docs/lumenize-base/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded lumenize-base sidebar, items:', typedocLumenizeBaseSidebar?.length);
+} catch (e) {
+  console.warn('⚠️  TypeDoc lumenize-base sidebar not yet generated, using empty sidebar');
 }
 
 /**
@@ -277,6 +301,9 @@ const sidebars: SidebarsConfig = {
       label: 'LumenizeBase',
       items: [
         'lumenize-base/index',
+        ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
+          ? [wrapInApiReference(typedocLumenizeBaseSidebar, 'API Reference')]
+          : []),
       ],
     },
 
@@ -285,6 +312,9 @@ const sidebars: SidebarsConfig = {
       label: 'Core',
       items: [
         'core/index',
+        ...(typedocCoreSidebar && typedocCoreSidebar.length > 0
+          ? [wrapInApiReference(typedocCoreSidebar, 'API Reference')]
+          : []),
       ],
     },
 
@@ -293,6 +323,9 @@ const sidebars: SidebarsConfig = {
       label: 'Alarms',
       items: [
         'alarms/index',
+        ...(typedocAlarmsSidebar && typedocAlarmsSidebar.length > 0
+          ? [wrapInApiReference(typedocAlarmsSidebar, 'API Reference')]
+          : []),
       ],
     },
 

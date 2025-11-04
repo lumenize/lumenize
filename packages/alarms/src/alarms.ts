@@ -379,11 +379,14 @@ export class Alarms<P extends { [key: string]: any }> {
       const overdueResult = this.#sql`
         SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
       `;
-      count = overdueResult[0]?.count || 1;
+      count = overdueResult[0]?.count ?? 1;
     }
 
+    // Ensure count is a number (TypeScript narrowing)
+    const actualCount: number = Number(count);
+
     // Execute the next 'count' alarms in chronological order
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < actualCount; i++) {
       // Get the earliest scheduled alarm (regardless of time)
       const result = this.#sql`
         SELECT * FROM _lumenize_alarms 

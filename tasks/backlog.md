@@ -23,22 +23,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Test shared subtree aliases (two different paths leading to same subtree)
   - Performance tests with large cyclic structures
 
-## Alarms / NADIS
-
-- [x] **COMPLETED:** Added `triggerAlarms(count?)` testing helper to @lumenize/alarms
-  - Fast-forward through alarm execution in tests
-  - Triggers alarms in chronological order (overdue first, then future)
-  - Handles cron rescheduling automatically
-  - Default: executes all overdue alarms, or next 1 if none overdue
-  - Enabled 3 previously skipped tests to pass (27 tests passing now)
-- [ ] Investigate @cloudflare/actors Storage wrapper source code
-  - Understand what it does to make setAlarm() integrate with native Cloudflare alarms
-  - Determine minimal code needed to replicate this functionality
-  - See `tasks/lumenize-alarms.md` for full project plan
-
 ## Documentation
 
-- [ ] Review/edit the new docs for alarm testing and downstream messaging.
+- [ ] Review/edit the new docs for alarm simulation, downstream messaging, lumenize-base, alarms, and core
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 - [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
@@ -80,8 +67,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Consider scoped "where" clauses
   - Not necessarily env-var based like old debug library
 
-- [x] ~~Consider forking @ungap/structured-clone to claim zero dependencies~~ (DONE - see tasks/structured-clone-fork.md)
-
 - [ ] Investigate server-side transport pluggability for RPC
   - Currently only client-side has pluggable transports (HTTP/WebSocket)
   - Server-side is tightly coupled to Cloudflare's fetch/WebSocket handlers
@@ -101,4 +86,3 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud account over to lumenize repo
 - [ ] See `decisions/github-actions-publishing.md` for automation plans
-

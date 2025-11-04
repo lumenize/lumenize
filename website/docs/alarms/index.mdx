@@ -1,20 +1,19 @@
 ---
-title: "@lumenize/alarms"
+title: Alarms
 description: Powerful alarm scheduling for Cloudflare Durable Objects with cron support
 ---
 
-# @lumenize/alarms
+# Alarms
 
-A de✨light✨ful alarm scheduling package for Cloudflare Durable Objects. Schedule one-time tasks, delayed tasks, and recurring cron jobs - all persisted to SQL storage.
+A de✨light✨ful alarm scheduling package for Cloudflare Durable Objects. Multiplexes single native alarm to give you the appearance of many.
 
 ## Features
 
-- **One-time alarms**: Schedule tasks at a specific timestamp
-- **Delayed alarms**: Schedule tasks N seconds in the future
+- **Specific time**: Schedule tasks at a specific timestamp
+- **Delta from now**: Schedule tasks N seconds in the future
 - **Cron schedules**: Recurring tasks using cron expressions
 - **SQL persistence**: Survives DO eviction and restarts
 - **Works standalone or with LumenizeBase**: Use directly or get auto-injected via NADIS
-- **Tree-shakeable**: Only import what you need
 
 ## Installation
 
@@ -24,7 +23,7 @@ npm install @lumenize/alarms
 
 ## Why Alarms Matter
 
-Cloudflare provides only **one native alarm** per Durable Object. `@lumenize/alarms` multiplexes this single alarm to manage unlimited scheduled tasks with different timing requirements.
+Cloudflare provides only **one native alarm** per Durable Object. `@lumenize/alarms` multiplexes this single alarm to manage unlimited scheduled tasks.
 
 **Without @lumenize/alarms:**
 ```typescript

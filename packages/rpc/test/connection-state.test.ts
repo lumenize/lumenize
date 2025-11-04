@@ -91,7 +91,6 @@ describe('Connection State', () => {
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-        heartbeatIntervalMs: 200, // Fast heartbeat for testing (200ms instead of 25s)
         onDownstream: () => {
           heartbeatReceived = true;
         },
@@ -152,7 +151,6 @@ describe('Connection State', () => {
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-        heartbeatIntervalMs: 100, // Fast heartbeat
         onDownstream: () => {
           // Keep-alive enabled via onDownstream
           connectionEvents.push('downstream');

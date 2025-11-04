@@ -2,7 +2,7 @@
 import '@lumenize/core';
 import '@lumenize/alarms';
 
-import { LumenizeBase } from '../src/lumenize-base.js';
+import { LumenizeBase } from '../src/lumenize-base';
 import type { Schedule } from '@lumenize/alarms';
 
 // Export documentation example DOs

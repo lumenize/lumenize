@@ -5,5 +5,5 @@
  * persistent SQL storage.
  */
 
-export { Alarms, type Schedule } from './alarms.js';
+export { Alarms, type Schedule } from './alarms';
 

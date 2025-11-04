@@ -95,7 +95,6 @@ describe('WebSocket Edge Cases', () => {
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-        heartbeatIntervalMs: 100, // Fast heartbeat for testing
         onDownstream: () => {}, // Enable keep-alive
       })
     });
@@ -175,7 +174,6 @@ describe('WebSocket Edge Cases', () => {
         baseUrl: 'https://fake-host.com',
         prefix: '__rpc',
         WebSocketClass: getWebSocketShim(SELF.fetch.bind(SELF)),
-        heartbeatIntervalMs: 100, // Fast for testing
         onDownstream: () => {}, // Enable keep-alive
       })
     });
