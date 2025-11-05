@@ -1,17 +1,20 @@
 /**
- * Pedagogical example DO for alarm simulation docs
+ * Simple DO for alarm-simulation pedagogical examples
+ * Demonstrates native Cloudflare alarm API
  */
-export class MyDO {
+import { DurableObject } from 'cloudflare:workers';
+import type { DurableObjectState } from '@cloudflare/workers-types';
+
+export class MyDO extends DurableObject {
   ctx: DurableObjectState;
-  env: Env;
+  env: any;
   taskStatus: string = 'idle';
   alarmFiredCount: number = 0;
-  lastAlarmTime: number | null = null;
   alarmRetryCount: number = 0;
-  shouldFailCount: number = 0;
-  failuresRemaining: number = 0;
+  private failuresBeforeSuccess: number = 0;
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
     this.ctx = ctx;
     this.env = env;
   }
@@ -19,12 +22,12 @@ export class MyDO {
   // Standard Cloudflare alarm handler
   async alarm() {
     // Simulate failures for retry testing
-    if (this.failuresRemaining > 0) {
-      this.failuresRemaining--;
+    if (this.failuresBeforeSuccess > 0) {
+      this.failuresBeforeSuccess--;
       this.alarmRetryCount++;
       throw new Error('Simulated alarm failure');
     }
-
+    
     this.taskStatus = 'processing';
     await this.processScheduledTask();
     this.taskStatus = 'complete';
@@ -39,22 +42,21 @@ export class MyDO {
 
   async processScheduledTask() {
     // Your task logic here
+    await new Promise(resolve => setTimeout(resolve, 1));
   }
 
-  getAlarmState() {
-    const scheduledTime = (this.ctx.storage.getAlarm as any)() as number | null;
-    return {
-      firedCount: this.alarmFiredCount,
-      scheduledTime
-    };
+  // Test helpers
+  async getAlarmState() {
+    const scheduledTime = await this.ctx.storage.getAlarm();
+    return { scheduledTime };
   }
 
-  getAlarmTime(): number | null {
-    return (this.ctx.storage.getAlarm as any)() as number | null;
+  async getAlarmTime(): Promise<number | null> {
+    return await this.ctx.storage.getAlarm();
   }
 
   setAlarmFailureCount(count: number) {
-    this.failuresRemaining = count;
+    this.failuresBeforeSuccess = count;
     this.alarmRetryCount = 0;
   }
 }

@@ -1,0 +1,22 @@
+{
+  "name": "lumenize-testing-alarm-workarounds",
+  "main": "test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MY_DO",
+        "class_name": "AlarmTestDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "AlarmTestDO"
+      ]
+    }
+  ]
+}
+

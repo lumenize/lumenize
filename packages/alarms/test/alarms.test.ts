@@ -1,5 +1,4 @@
 import { describe, test, expect, vi } from 'vitest';
-// @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 
 describe('Alarms', () => {
@@ -100,6 +99,30 @@ describe('Alarms', () => {
       const beforeExecution = await stub.getSchedule(schedule.id);
       expect(beforeExecution).toBeDefined();
       expect(beforeExecution?.type).toBe('cron');
+    });
+
+    test('cron alarm is rescheduled after execution', async () => {
+      const stub = env.ALARM_DO.getByName('cron-reschedule-test');
+      
+      // Schedule for every minute
+      const schedule = await stub.scheduleAlarm('* * * * *', { task: 'reschedule' });
+      const originalTime = schedule.time;
+      
+      // Execute the cron alarm
+      await stub.triggerAlarms(1);
+      
+      // Verify alarm was executed
+      const executed = await stub.getExecutedAlarms();
+      expect(executed.length).toBe(1);
+      expect(executed[0].payload).toEqual({ task: 'reschedule' });
+      
+      // Verify alarm still exists (not deleted like one-time alarms)
+      const afterExecution = await stub.getSchedule(schedule.id);
+      expect(afterExecution).toBeDefined();
+      expect(afterExecution?.type).toBe('cron');
+      
+      // Verify alarm was rescheduled for next execution (>= because "every minute" might be same minute)
+      expect(afterExecution?.time).toBeGreaterThanOrEqual(originalTime);
     });
   });
 

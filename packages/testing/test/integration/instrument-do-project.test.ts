@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { instrumentDOProject } from '../src/instrument-do-project';
+import { instrumentDOProject } from '../../src/instrument-do-project';
 
 describe('instrumentDOProject', () => {
   it('auto-detects single DO class (zero config)', () => {

@@ -1,6 +1,10 @@
+/**
+ * Pedagogical test for single alarm limitation
+ * Referenced in website/docs/testing/alarm-simulation.mdx
+ */
 import { it, expect, vi } from 'vitest';
-import { createTestingClient } from '../../../src';
-import { MyDO } from './MyDO';
+import { createTestingClient } from '../../src/index';
+import { MyDO } from './test-worker-and-dos';
 
 it('new alarm overwrites pending alarm', async () => {
   await using client = createTestingClient<typeof MyDO>('MY_DO', 'overwrite');

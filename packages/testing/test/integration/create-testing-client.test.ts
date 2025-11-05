@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { createTestingClient, type RpcAccessible, Browser } from '../src/index';
-import { TestDO } from './test-do';
+import { createTestingClient, type RpcAccessible, Browser } from '../../src/index';
+import { TestDO } from './test-worker-and-dos';
 
 type TestDOType = RpcAccessible<InstanceType<typeof TestDO>>;
 

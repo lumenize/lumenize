@@ -1,8 +1,12 @@
+/**
+ * Pedagogical test for Actor Alarms
+ * Referenced in website/docs/testing/alarm-simulation.mdx
+ */
 import { it, expect, vi } from 'vitest';
-import { createTestingClient } from '../../../src';
-import { SchedulerDO } from './SchedulerDO';
+import { createTestingClient } from '../../src/index';
+import { SchedulerDO } from './test-worker-and-dos';
 
-it('handles multiple Actor alarms automatically', { timeout: 25000 }, async () => {
+it('handles multiple Actor alarms automatically', async () => {
   await using client = createTestingClient<typeof SchedulerDO>(
     'SCHEDULER_DO',
     'multi-alarms'

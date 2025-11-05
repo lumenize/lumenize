@@ -1,7 +1,11 @@
+/**
+ * DO for alarm-simulation pedagogical examples
+ * Demonstrates @cloudflare/actors Alarms package
+ */
 import { Actor } from '@cloudflare/actors';
 
-export class SchedulerDO extends Actor<Env> {
-  executedAlarms: string[] = [];
+export class SchedulerDO extends Actor<any> {
+  private alarmsFiredCount: number = 0;
   
   // Required: delegate to Actor's alarm system
   async alarm() {
@@ -10,7 +14,7 @@ export class SchedulerDO extends Actor<Env> {
 
   // Your alarm handler
   async handleAlarm(payload: any) {
-    this.executedAlarms.push(`Alarm fired: ${JSON.stringify(payload)}`);
+    this.alarmsFiredCount++;
   }
 
   async scheduleMultiple() {
@@ -23,7 +27,7 @@ export class SchedulerDO extends Actor<Env> {
   }
   
   getAlarmsFiredCount(): number {
-    return this.executedAlarms.length;
+    return this.alarmsFiredCount;
   }
 }
 

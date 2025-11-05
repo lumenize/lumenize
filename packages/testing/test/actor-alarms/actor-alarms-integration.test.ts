@@ -6,8 +6,8 @@
  * the hood, so our simulation should transparently enable automatic alarm firing.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { createTestingClient, type RpcAccessible } from '../src/index';
-import { ActorAlarmsDO } from './actor-alarms-do';
+import { createTestingClient, type RpcAccessible } from '../../src/index';
+import { ActorAlarmsDO } from './test-worker-and-dos';
 
 type ActorAlarmsDOType = RpcAccessible<InstanceType<typeof ActorAlarmsDO>>;
 

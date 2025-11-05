@@ -1,6 +1,10 @@
+/**
+ * Pedagogical test for alarm retry behavior
+ * Referenced in website/docs/testing/alarm-simulation.mdx
+ */
 import { it, expect, vi } from 'vitest';
-import { createTestingClient } from '../../../src';
-import { MyDO } from './MyDO';
+import { createTestingClient } from '../../src/index';
+import { MyDO } from './test-worker-and-dos';
 
 it('retries failed alarms with exponential backoff', async () => {
   await using client = createTestingClient<typeof MyDO>('MY_DO', 'retry-test');
