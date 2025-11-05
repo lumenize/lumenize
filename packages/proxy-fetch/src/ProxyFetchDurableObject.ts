@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ulidFactory, decodeTime } from 'ulid-workers';
+import { createDebug } from '@lumenize/debug';
 import type { ProxyFetchQueueMessage } from './types';
 import { MAX_REQUEST_AGE_MS, ALARM_INTERVAL_NORMAL_MS, QUEUE_PROCESS_BATCH_SIZE, isRetryable, getRetryDelay, DEFAULT_OPTIONS } from './utils';
 import { encodeResponse, decodeRequest, decodeResponse } from '@lumenize/structured-clone';
@@ -48,6 +49,8 @@ const ulid = ulidFactory();
  * @see {@link https://lumenize.com/docs/proxy-fetch/durable-object}
  */
 export class ProxyFetchDO extends DurableObject {
+  #log = createDebug(this)('proxy-fetch.do');
+  
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
     
@@ -125,7 +128,7 @@ export class ProxyFetchDO extends DurableObject {
         this.ctx.storage.kv.delete(key);
         this.ctx.storage.kv.put(`reqs-in-flight:${ulid}`, typedRequest);
         
-        console.log('[ProxyFetchDO] Starting fetch', {
+        this.#log.debug('Starting fetch', {
           reqId: typedRequest.reqId,
           ulid,
           url: typedRequest.request?.url,
@@ -139,7 +142,7 @@ export class ProxyFetchDO extends DurableObject {
       // Check if there are more items (queued will be an iterable, we need to check if we got QUEUE_PROCESS_BATCH_SIZE items)
       hasMore = processedCount >= QUEUE_PROCESS_BATCH_SIZE;
       
-      console.log('[ProxyFetchDO] Processed batch', {
+      this.#log.debug('Processed batch', {
         count: processedCount,
         hasMore,
       });
@@ -171,7 +174,7 @@ export class ProxyFetchDO extends DurableObject {
     let response: Response | null = null;
 
     try {
-      console.log('[ProxyFetchDO] Fetching', {
+      this.#log.debug('Fetching', {
         reqId: request.reqId,
         url: request.request?.url,
         method: request.request?.method,
@@ -192,7 +195,7 @@ export class ProxyFetchDO extends DurableObject {
         response = await fetch(fetchRequest, { signal: controller.signal });
         clearTimeout(timeoutId);
 
-        console.log('[ProxyFetchDO] Fetch complete', {
+        this.#log.info('Fetch complete', {
           reqId: request.reqId,
           status: response.status,
           statusText: response.statusText,
@@ -220,7 +223,7 @@ export class ProxyFetchDO extends DurableObject {
       // Retry - re-queue the request with incremented retry count
       const delay = getRetryDelay(retryCount, options);
       
-      console.log('[ProxyFetchDO] Retryable failure, re-queuing for retry', {
+      this.#log.warn('Retryable failure, re-queuing for retry', {
         reqId: request.reqId,
         retryCount,
         maxRetries: options.maxRetries,
@@ -241,7 +244,7 @@ export class ProxyFetchDO extends DurableObject {
       const retryUlid = ulid();
       this.ctx.storage.kv.put(`reqs-queued:${retryUlid}`, retryRequest);
       
-      console.log('[ProxyFetchDO] Re-queued for retry', {
+      this.#log.debug('Re-queued for retry', {
         reqId: request.reqId,
         newUlid: retryUlid,
         retryCount: retryCount + 1,
@@ -282,7 +285,7 @@ export class ProxyFetchDO extends DurableObject {
   ): Promise<void> {
     // If no handler specified, this is fire-and-forget
     if (!request.handlerName) {
-      console.log('[ProxyFetchDO] No handler specified, fire-and-forget', {
+      this.#log.debug('No handler specified, fire-and-forget', {
         reqId: request.reqId,
       });
       return;
@@ -318,7 +321,7 @@ export class ProxyFetchDO extends DurableObject {
       }
 
       // Call the handler
-      console.log('[ProxyFetchDO] Delivering callback', {
+      this.#log.debug('Delivering callback', {
         reqId: request.reqId,
         doBinding: request.doBindingName,
         instanceId: request.instanceId.slice(0, 16) + '...',
@@ -329,7 +332,7 @@ export class ProxyFetchDO extends DurableObject {
 
       await doInstance[request.handlerName](handlerItem);
 
-      console.log('[ProxyFetchDO] Callback delivered successfully', {
+      this.#log.info('Callback delivered successfully', {
         reqId: request.reqId,
       });
     } catch (callbackError) {
@@ -398,7 +401,7 @@ export class ProxyFetchDO extends DurableObject {
       
       if (age > MAX_REQUEST_AGE_MS) {
         // Request too old, discard
-        console.log('[ProxyFetchDO] Discarding expired request', {
+        this.#log.warn('Discarding expired request', {
           reqId: typedRequest.reqId,
           age,
           maxAge: MAX_REQUEST_AGE_MS,
@@ -407,7 +410,7 @@ export class ProxyFetchDO extends DurableObject {
         expiredCount++;
       } else {
         // Re-queue for retry
-        console.log('[ProxyFetchDO] Re-queuing orphaned request', {
+        this.#log.debug('Re-queuing orphaned request', {
           reqId: typedRequest.reqId,
           age,
         });
@@ -420,7 +423,7 @@ export class ProxyFetchDO extends DurableObject {
     }
     
     if (recoveredCount > 0 || expiredCount > 0) {
-      console.log('[ProxyFetchDO] Recovery complete', {
+      this.#log.info('Recovery complete', {
         recovered: recoveredCount,
         expired: expiredCount,
       });
