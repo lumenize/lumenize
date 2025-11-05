@@ -79,7 +79,11 @@ export {
   encodeRequest,
   encodeResponse,
   decodeRequest,
-  decodeResponse
+  decodeResponse,
+  encodeRequestSync,
+  encodeResponseSync,
+  decodeRequestSync,
+  decodeResponseSync
 } from './web-api-encoding';
 
 // Synchronous Request/Response wrappers - see request-sync.ts and response-sync.ts for full JSDoc

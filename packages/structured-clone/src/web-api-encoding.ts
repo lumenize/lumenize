@@ -271,3 +271,148 @@ export function decodeResponse(
   const body = data.body !== undefined ? decodeBody(data.body) : null;
   return new Response(body, init);
 }
+
+// ============================================================================
+// RequestSync/ResponseSync synchronous encoding functions
+// ============================================================================
+
+import type { RequestSync } from './request-sync';
+import type { ResponseSync } from './response-sync';
+
+/**
+ * Encode RequestSync to plain object for RPC/Queue transmission.
+ * 
+ * This is a synchronous alternative to encodeRequest() that works with
+ * RequestSync objects. Use this when you need to send a request over
+ * Workers RPC or Cloudflare Queues.
+ * 
+ * @param request - RequestSync instance
+ * @param [encodeHeaders] - Optional callback to encode Headers (for cycle/alias tracking)
+ * @returns Plain object suitable for RPC/Queue transmission
+ * 
+ * @example
+ * ```typescript
+ * const reqSync = new RequestSync('https://api.example.com/data', {
+ *   method: 'POST',
+ *   headers: { 'Content-Type': 'application/json' },
+ *   body: { foo: 'bar' }
+ * });
+ * 
+ * const encoded = encodeRequestSync(reqSync);
+ * // Send over RPC or Queue
+ * await stub.handleRequest(encoded);
+ * ```
+ */
+export function encodeRequestSync(
+  request: RequestSync,
+  encodeHeaders: (h: Headers) => any = defaultEncodeHeaders
+): any {
+  return {
+    url: request.url,
+    method: request.method,
+    headers: encodeHeaders(request.headers),
+    body: request.body, // Direct access to stored body
+  };
+}
+
+/**
+ * Decode plain object to RequestSync instance.
+ * 
+ * Inverse of encodeRequestSync(). Use this on the receiving end of
+ * an RPC call or Queue message to reconstruct the RequestSync object.
+ * 
+ * @param data - Encoded request data
+ * @param [decodeHeaders] - Optional callback to decode Headers (for cycle/alias tracking)
+ * @returns RequestSync instance
+ * 
+ * @example
+ * ```typescript
+ * // In your DO handler
+ * handleRequest(encoded: any) {
+ *   const reqSync = decodeRequestSync(encoded);
+ *   const data = reqSync.json(); // Synchronous!
+ * }
+ * ```
+ */
+export function decodeRequestSync(
+  data: any,
+  decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
+): RequestSync {
+  // Import dynamically to avoid circular dependency
+  const { RequestSync } = require('./request-sync');
+  return new RequestSync(data.url, {
+    method: data.method,
+    headers: decodeHeaders(data.headers),
+    body: data.body,
+  });
+}
+
+/**
+ * Encode ResponseSync to plain object for RPC/Queue transmission.
+ * 
+ * This is a synchronous alternative to encodeResponse() that works with
+ * ResponseSync objects. Use this when you need to send a response over
+ * Workers RPC or Cloudflare Queues.
+ * 
+ * @param response - ResponseSync instance
+ * @param [encodeHeaders] - Optional callback to encode Headers (for cycle/alias tracking)
+ * @returns Plain object suitable for RPC/Queue transmission
+ * 
+ * @example
+ * ```typescript
+ * const response = await fetch('https://api.example.com/data');
+ * const body = await response.json();
+ * 
+ * const respSync = new ResponseSync(body, {
+ *   status: response.status,
+ *   headers: response.headers
+ * });
+ * 
+ * const encoded = encodeResponseSync(respSync);
+ * // Send over RPC or Queue
+ * await stub.handleResponse(encoded);
+ * ```
+ */
+export function encodeResponseSync(
+  response: ResponseSync,
+  encodeHeaders: (h: Headers) => any = defaultEncodeHeaders
+): any {
+  return {
+    status: response.status,
+    statusText: response.statusText,
+    headers: encodeHeaders(response.headers),
+    body: response.body, // Direct access to stored body
+  };
+}
+
+/**
+ * Decode plain object to ResponseSync instance.
+ * 
+ * Inverse of encodeResponseSync(). Use this on the receiving end of
+ * an RPC call or Queue message to reconstruct the ResponseSync object.
+ * 
+ * @param data - Encoded response data
+ * @param [decodeHeaders] - Optional callback to decode Headers (for cycle/alias tracking)
+ * @returns ResponseSync instance
+ * 
+ * @example
+ * ```typescript
+ * // In your DO handler
+ * handleResponse(encoded: any) {
+ *   const respSync = decodeResponseSync(encoded);
+ *   const data = respSync.json(); // Synchronous!
+ * }
+ * ```
+ */
+export function decodeResponseSync(
+  data: any,
+  decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
+): ResponseSync {
+  // Import dynamically to avoid circular dependency
+  const { ResponseSync } = require('./response-sync');
+  return new ResponseSync(data.body, {
+    status: data.status,
+    statusText: data.statusText,
+    headers: decodeHeaders(data.headers),
+  });
+}
