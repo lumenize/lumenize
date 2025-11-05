@@ -24,18 +24,24 @@ import type { DebugLogger } from './types';
 let currentMatcher = createDefaultMatcher();
 
 /**
- * Create default matcher from localStorage (browser) or empty (Node.js)
+ * Create default matcher from localStorage (browser), process.env (Node.js), or empty
  */
 function createDefaultMatcher() {
+  // Browser: localStorage
   if (typeof localStorage !== 'undefined') {
     try {
       const filter = localStorage.getItem('DEBUG') || undefined;
       return createMatcher(filter);
     } catch {
       // localStorage might not be available
-      return createMatcher(undefined);
     }
   }
+  
+  // Node.js/Workers: process.env
+  if (typeof process !== 'undefined' && process.env?.DEBUG) {
+    return createMatcher(process.env.DEBUG);
+  }
+  
   return createMatcher(undefined);
 }
 
@@ -74,4 +80,31 @@ export function createDebug(namespace: string): DebugLogger {
     shouldLog: currentMatcher,
   });
 }
+
+/**
+ * Create a debug logger factory with explicit DEBUG filter
+ * 
+ * Useful in Workers contexts where you have env.DEBUG but not process.env
+ * 
+ * @param debugFilter - DEBUG filter pattern (e.g., "proxy-fetch.*")
+ * @returns Factory function for creating debug loggers
+ * 
+ * @example
+ * ```typescript
+ * // In a Worker function (not DO):
+ * const createLog = createDebugFactory(env.DEBUG);
+ * const log = createLog('proxy-fetch.queue');
+ * log.debug('processing', { reqId });
+ * ```
+ */
+export function createDebugFactory(debugFilter: string | undefined): (namespace: string) => DebugLogger {
+  const matcher = createMatcher(debugFilter);
+  return (namespace: string): DebugLogger => {
+    return new DebugLoggerImpl({
+      namespace,
+      shouldLog: matcher,
+    });
+  };
+}
+
 

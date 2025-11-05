@@ -1,4 +1,5 @@
 import { decodeRequest } from '@lumenize/structured-clone';
+import { createDebugFactory } from '@lumenize/debug/client';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
 import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
 
@@ -20,8 +21,12 @@ import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
  */
 export async function proxyFetchQueueConsumer(
   batch: MessageBatch,
-  env: { [doBindingName: string]: DurableObjectNamespace | Queue }
+  env: { [doBindingName: string]: DurableObjectNamespace | Queue; DEBUG?: string }
 ): Promise<void> {
+  // Create debug logger from environment
+  const createLog = createDebugFactory((env as any).DEBUG);
+  const log = createLog('proxy-fetch.queue');
+  
   // Process each message in the batch
   for (const message of batch.messages) {
     const queueMessage = message.body as ProxyFetchQueueMessage;
@@ -30,10 +35,7 @@ export async function proxyFetchQueueConsumer(
     // Merge user options with defaults
     const options: Required<ProxyFetchOptions> = { ...DEFAULT_OPTIONS, ...userOptions };
     
-    console.debug('%o', {
-      type: 'debug',
-      where: 'proxyFetchQueueConsumer',
-      message: 'Processing proxy fetch request',
+    log.debug('Processing proxy fetch request', {
       reqId,
       doBindingName,
       retryCount,
@@ -48,10 +50,7 @@ export async function proxyFetchQueueConsumer(
       // Decode the Request object
       const request = decodeRequest(serializedRequest);
       
-      console.debug('%o', {
-        type: 'debug',
-        where: 'proxyFetchQueueConsumer',
-        message: 'Fetching external URL',
+      log.debug('Fetching external URL', {
         reqId,
         url: request.url,
         method: request.method
@@ -66,10 +65,7 @@ export async function proxyFetchQueueConsumer(
         response = await fetch(request, { signal: controller.signal });
         clearTimeout(timeoutId);
         
-        console.debug('%o', {
-          type: 'debug',
-          where: 'proxyFetchQueueConsumer',
-          message: 'Fetch complete',
+        log.info('Fetch complete', {
           reqId,
           status: response.status,
           statusText: response.statusText
@@ -87,10 +83,7 @@ export async function proxyFetchQueueConsumer(
       if (isRetryable(fetchError, response, options) && retryCount < options.maxRetries) {
         const delay = getRetryDelay(retryCount, options);
         
-        console.debug('%o', {
-          type: 'debug',
-          where: 'proxyFetchQueueConsumer',
-          message: 'Retryable failure, will retry',
+        log.warn('Retryable failure, will retry', {
           reqId,
           retryCount,
           maxRetries: options.maxRetries,
@@ -123,10 +116,7 @@ export async function proxyFetchQueueConsumer(
       // Route back to the DO instance via Workers RPC (if handler provided)
       if (!queueMessage.handlerName) {
         // Fire-and-forget mode - no callback needed
-        console.debug('%o', {
-          type: 'debug',
-          where: 'proxyFetchQueueConsumer',
-          message: 'Fire-and-forget mode - no handler callback',
+        log.debug('Fire-and-forget mode - no handler callback', {
           reqId,
           duration
         });
@@ -142,10 +132,7 @@ export async function proxyFetchQueueConsumer(
       const doId = namespace.idFromString(instanceId);
       const stub = namespace.get(doId) as any; // Use 'any' for RPC bracket notation
       
-      console.debug('%o', {
-        type: 'debug',
-        where: 'proxyFetchQueueConsumer',
-        message: 'Routing response to DO',
+      log.debug('Routing response to DO', {
         reqId,
         instanceId: instanceId.slice(0, 16) + '...',
         duration: duration,
@@ -168,10 +155,7 @@ export async function proxyFetchQueueConsumer(
         }
         await stub[queueMessage.handlerName](handlerItem);
         
-        console.debug('%o', {
-          type: 'debug',
-          where: 'proxyFetchQueueConsumer',
-          message: 'Successfully routed response',
+        log.info('Successfully routed response', {
           reqId,
           retryCount,
           duration
@@ -206,10 +190,7 @@ export async function proxyFetchQueueConsumer(
       try {
         // Skip error callback if fire-and-forget mode
         if (!queueMessage.handlerName) {
-          console.debug('%o', {
-            type: 'debug',
-            where: 'proxyFetchQueueConsumer',
-            message: 'Fire-and-forget mode - not routing error to DO',
+          log.debug('Fire-and-forget mode - not routing error to DO', {
             reqId
           });
           message.ack();
@@ -231,10 +212,7 @@ export async function proxyFetchQueueConsumer(
         // Use bracket notation to call the handler method dynamically
         await stub[queueMessage.handlerName](handlerItem);
         
-        console.debug('%o', {
-          type: 'debug',
-          where: 'proxyFetchQueueConsumer',
-          message: 'Successfully routed error to DO',
+        log.info('Successfully routed error to DO', {
           reqId,
           retryCount,
           duration
