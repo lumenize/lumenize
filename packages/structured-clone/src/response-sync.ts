@@ -194,7 +194,12 @@ export class ResponseSync {
    * @returns Real Response object with body
    */
   toResponse(): Response {
-    return new Response(this.body, {
+    // Convert plain object bodies to JSON string for Response constructor
+    const bodyInit = (this.body && typeof this.body === 'object' && !(this.body instanceof ArrayBuffer))
+      ? JSON.stringify(this.body)
+      : this.body as BodyInit | null;
+    
+    return new Response(bodyInit, {
       status: this.status,
       statusText: this.statusText,
       headers: this.headers

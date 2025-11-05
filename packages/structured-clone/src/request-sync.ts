@@ -239,10 +239,15 @@ export class RequestSync {
    * @returns Real Request object with body
    */
   toRequest(): Request {
+    // Convert plain object bodies to JSON string for Request constructor
+    const bodyInit = (this.body && typeof this.body === 'object' && !(this.body instanceof ArrayBuffer))
+      ? JSON.stringify(this.body)
+      : this.body as BodyInit | null;
+    
     return new Request(this._request.url, {
       method: this.method,
       headers: this.headers,
-      body: this.body,
+      body: bodyInit,
       credentials: this.credentials,
       mode: this.mode,
       cache: this.cache,
