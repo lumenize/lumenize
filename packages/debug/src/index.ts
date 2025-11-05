@@ -4,14 +4,14 @@
  * Provides structured, filterable debug logging optimized for Cloudflare's JSON log dashboard.
  * Inspired by npm's `debug` package with level support (debug, info, warn).
  * 
- * Server-side (NADIC-enabled):
+ * Server-side (NADIS-enabled):
  * ```typescript
  * import '@lumenize/debug';  // Registers in this.svc
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
  * class MyDO extends LumenizeBase<Env> {
  *   myMethod() {
- *     const log = this.svc.createDebug('proxy-fetch.serialization');
+ *     const log = this.svc.debug('proxy-fetch.serialization');
  *     log.debug('processing request', { url, method });
  *     log.info('milestone reached', { step: 3 });
  *     log.warn('suspicious behavior', { retryCount: 5 });
@@ -33,7 +33,7 @@ import type { DebugLogger } from './types';
 /**
  * Create debug logger factory for a Durable Object instance
  * 
- * This function is the NADIC service entrypoint. It reads the DEBUG
+ * This function is the NADIS service entrypoint. It reads the DEBUG
  * environment variable from the DO's env and creates a factory function
  * for creating namespaced loggers.
  * 
@@ -43,15 +43,14 @@ import type { DebugLogger } from './types';
  * @example
  * Standalone usage:
  * ```typescript
- * import { createDebug } from '@lumenize/debug';
+ * import { debug } from '@lumenize/debug';
  * import { DurableObject } from 'cloudflare:workers';
  * 
  * class MyDO extends DurableObject {
- *   #createDebug = createDebug(this);
+ *   #log = debug(this)('my-namespace');
  *   
  *   myMethod() {
- *     const log = this.#createDebug('my-namespace');
- *     log.debug('message', { data });
+ *     this.#log.debug('message', { data });
  *   }
  * }
  * ```
@@ -64,13 +63,13 @@ import type { DebugLogger } from './types';
  * 
  * class MyDO extends LumenizeBase<Env> {
  *   myMethod() {
- *     const log = this.svc.createDebug('my-namespace');
+ *     const log = this.svc.debug('my-namespace');
  *     log.debug('message', { data });
  *   }
  * }
  * ```
  */
-export function createDebug(doInstance: any): (namespace: string) => DebugLogger {
+export function debug(doInstance: any): (namespace: string) => DebugLogger {
   // Get DEBUG environment variable
   // Try this.env first (LumenizeBase pattern), fallback to doInstance.env (vanilla DO)
   const env = doInstance.env || (doInstance as any).env;
@@ -93,10 +92,10 @@ export type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from './ty
 
 // TypeScript declaration merging magic
 // This augments the global LumenizeServices interface so TypeScript knows
-// about this.svc.createDebug when you import this package
+// about this.svc.debug when you import this package
 declare global {
   interface LumenizeServices {
-    createDebug: ReturnType<typeof createDebug>;
+    debug: ReturnType<typeof debug>;
   }
 }
 
@@ -104,5 +103,5 @@ declare global {
 if (!(globalThis as any).__lumenizeServiceRegistry) {
   (globalThis as any).__lumenizeServiceRegistry = {};
 }
-(globalThis as any).__lumenizeServiceRegistry.createDebug = (doInstance: any) => createDebug(doInstance);
+(globalThis as any).__lumenizeServiceRegistry.debug = (doInstance: any) => debug(doInstance);
 

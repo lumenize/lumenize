@@ -12,7 +12,6 @@
  * Each test uses its own isolated ProxyFetchDO instance for complete independence.
  */
 import { test, expect, vi, describe } from 'vitest';
-// @ts-expect-error
 import { env } from 'cloudflare:test';
 import { createTestingClient } from '@lumenize/testing';
 import { createTestEndpoints } from '@lumenize/test-endpoints';

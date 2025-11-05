@@ -1,5 +1,5 @@
 import { decodeRequest } from '@lumenize/structured-clone';
-import { createDebugFactory } from '@lumenize/debug/client';
+import { debug } from '@lumenize/debug';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
 import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
 
@@ -23,9 +23,8 @@ export async function proxyFetchQueueConsumer(
   batch: MessageBatch,
   env: Env
 ): Promise<void> {
-  // Create debug logger from environment
-  const createLog = createDebugFactory(env.DEBUG);
-  const log = createLog('proxy-fetch.queue');
+  // Create debug logger from environment (NADIS pattern)
+  const log = debug({ env })('proxy-fetch.queue');
   
   // Process each message in the batch
   for (const message of batch.messages) {
@@ -124,7 +123,7 @@ export async function proxyFetchQueueConsumer(
         continue;
       }
       
-      const namespace = env[doBindingName] as DurableObjectNamespace;
+      const namespace = (env as any)[doBindingName] as DurableObjectNamespace;
       if (!namespace) {
         throw new Error(`DO binding ${doBindingName} not found in environment`);
       }
@@ -197,7 +196,7 @@ export async function proxyFetchQueueConsumer(
           continue;
         }
         
-        const namespace = env[doBindingName] as DurableObjectNamespace;
+        const namespace = (env as any)[doBindingName] as DurableObjectNamespace;
         const doId = namespace.idFromString(instanceId);
         const stub = namespace.get(doId) as any; // Use 'any' for RPC bracket notation
         

@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ulidFactory, decodeTime } from 'ulid-workers';
-import { createDebug } from '@lumenize/debug';
+import { debug } from '@lumenize/debug';
 import type { ProxyFetchQueueMessage } from './types';
 import { MAX_REQUEST_AGE_MS, ALARM_INTERVAL_NORMAL_MS, QUEUE_PROCESS_BATCH_SIZE, isRetryable, getRetryDelay, DEFAULT_OPTIONS } from './utils';
 import { encodeResponse, decodeRequest, decodeResponse } from '@lumenize/structured-clone';
@@ -49,7 +49,7 @@ const ulid = ulidFactory();
  * @see {@link https://lumenize.com/docs/proxy-fetch/durable-object}
  */
 export class ProxyFetchDO extends DurableObject {
-  #log = createDebug(this)('proxy-fetch.do');
+  #log = debug(this)('proxy-fetch.do');
   
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);

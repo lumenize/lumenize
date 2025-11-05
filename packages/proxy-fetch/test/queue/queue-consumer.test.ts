@@ -11,7 +11,6 @@
  * Note: These are NOT true end-to-end integration tests. Real integration testing
  * of the Queue variant happens via production deployment tests.
  */
-// @ts-expect-error
 import { env, createMessageBatch, createExecutionContext, getQueueResult, runInDurableObject } from 'cloudflare:test';
 import { describe, test, expect, vi } from 'vitest';
 import worker from './test-worker-and-dos';
@@ -26,7 +25,6 @@ describe('proxyFetch() Function', () => {
     const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     
     // Call proxyFetch from within the DO - should return a reqId
-    // @ts-expect-error - cloudflare:test types not available at compile time
     await runInDurableObject(stub, async (instance) => {
       const reqId = await proxyFetch(
         instance,
@@ -44,7 +42,6 @@ describe('proxyFetch() Function', () => {
     const stub = env.MY_DO.getByName(instanceId);
     const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, instanceId);
     
-    // @ts-expect-error - cloudflare:test types not available at compile time
     await runInDurableObject(stub, async (instance) => {
       const request = new Request(
         TEST_ENDPOINTS.buildUrl('/uuid'), 
@@ -110,14 +107,14 @@ describe('Proxy Fetch Integration', () => {
     
     // Verify the response was stored in the DO
     await vi.waitFor(async () => {
-      const response = await stub.getLastResponse();
+      const response = await (stub as any).getLastResponse();
       expect(response).toBeDefined();
     }, { timeout: 3000 });
     
-    const response = await stub.getLastResponse();
+    const response = await (stub as any).getLastResponse();
     expect(response).toHaveProperty('slideshow');
     
-    const storedReqId = await stub.getLastReqId();
+    const storedReqId = await (stub as any).getLastReqId();
     expect(storedReqId).toBe(reqId);
   });
 
@@ -231,7 +228,6 @@ describe('Proxy Fetch Integration', () => {
       },
     ]);
     
-    // @ts-expect-error - cloudflare:test types not available at compile time
     await runInDurableObject(stub2, async (_instance, state) => {
       state.storage.kv.put('proxy-fetch:req-2', JSON.stringify({
         handlerName: 'handleSuccess',
@@ -247,8 +243,8 @@ describe('Proxy Fetch Integration', () => {
     
     // Verify both DOs received their responses (need longer timeout for delay/1 endpoint)
     await vi.waitFor(async () => {
-      const response1 = await stub1.getLastResponse();
-      const response2 = await stub2.getLastResponse();
+      const response1 = await (stub1 as any).getLastResponse();
+      const response2 = await (stub2 as any).getLastResponse();
       expect(response1).toBeDefined();
       expect(response2).toBeDefined();
     }, { timeout: 5000 });
@@ -286,11 +282,11 @@ describe('Proxy Fetch Integration', () => {
     
     // Verify error was delivered to DO
     await vi.waitFor(async () => {
-      const error = await stub.getLastError();
+      const error = await (stub as any).getLastError();
       expect(error).toBeDefined();
     }, { timeout: 2000 });
     
-    const error = await stub.getLastError();
+    const error = await (stub as any).getLastError();
     expect(error).toContain('internal error');
   });
 
@@ -336,11 +332,11 @@ describe('Proxy Fetch Integration', () => {
     
     // Verify response contains echoed headers (test-endpoints/post echoes headers in JSON)
     await vi.waitFor(async () => {
-      const response = await stub.getLastResponse();
+      const response = await (stub as any).getLastResponse();
       expect(response).toBeDefined();
     }, { timeout: 2000 });
     
-    const response = await stub.getLastResponse();
+    const response = await (stub as any).getLastResponse();
     expect(response).toHaveProperty('headers');
     // Headers are normalized to lowercase by Cloudflare Workers
     expect(response.headers).toHaveProperty('x-custom-header');
@@ -388,11 +384,11 @@ describe('Error Handling and Retries', () => {
     
     // Verify timeout error was delivered
     await vi.waitFor(async () => {
-      const error = await stub.getLastError();
+      const error = await (stub as any).getLastError();
       expect(error).toBeDefined();
     }, { timeout: 3000 });
     
-    const error = await stub.getLastError();
+    const error = await (stub as any).getLastError();
     expect(error).toContain('Request timeout after 500ms');
   });
 
@@ -560,14 +556,14 @@ describe('Error Handling and Retries', () => {
     
     // Verify response includes metadata
     await vi.waitFor(async () => {
-      const response = await stub.getLastResponse();
+      const response = await (stub as any).getLastResponse();
       expect(response).toBeDefined();
     }, { timeout: 3000 });
     
     // Check that retryCount and duration were passed to handler
     // Note: We'd need to update the test DO to store these values to verify
     // For now, just verify the response was delivered
-    const response = await stub.getLastResponse();
+    const response = await (stub as any).getLastResponse();
     expect(response).toBeDefined();
   });
 

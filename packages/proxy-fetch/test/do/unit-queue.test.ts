@@ -12,7 +12,6 @@
  * - integration.test.ts (high-level integration: using @lumenize/testing helpers)
  */
 import { describe, test, expect, beforeEach } from 'vitest';
-// @ts-expect-error
 import { env } from 'cloudflare:test';
 import type { ProxyFetchQueueMessage } from '../../src/types';
 import { createTestEndpoints } from '@lumenize/test-endpoints';

@@ -16,7 +16,6 @@
 import { describe, test, expect, vi } from 'vitest';
 import { createTestingClient } from '@lumenize/testing';
 import { _TestDO } from './test-worker';
-// @ts-expect-error - cloudflare:test types not available at compile time
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
