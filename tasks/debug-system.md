@@ -196,10 +196,29 @@ packages/debug/
 - `console.error()` remains unfiltered (always logs)
 - This system only handles debug/info/warn
 
+## Implementation Status
+
+**Phase 1: Build @lumenize/debug package** ✅
+- Pattern matcher with npm debug filter syntax
+- DebugLogger with level-specific caching
+- NADIC service for Durable Objects
+- Standalone client for browsers/workers
+- 31 tests passing, 97.56% branch coverage
+
+**Phase 2: Migrate @lumenize/proxy-fetch** ✅
+- Queue consumer: 9 logs migrated (proxy-fetch.queue)
+- Durable Object: 16 logs migrated (proxy-fetch.do)
+- All 33 tests passing
+
+**Phase 3: Migrate other packages** (if needed)
+- Most other packages use RPC transport which already has debug logging
+- Can migrate on-demand as packages are updated
+
 ## Next Steps
 
-1. ✅ Review and refine this doc
-2. Implement `@lumenize/debug` package
-3. Migrate `@lumenize/proxy-fetch` first (lots of debug logs already)
-4. Migrate other packages
+This tool is ready for use! To adopt in a package:
+1. Add `@lumenize/debug` dependency
+2. Import and create logger (NADIC or client pattern)
+3. Replace console.debug/log with log.debug/info/warn()
+4. Set `DEBUG=package-name.*` to enable
 
