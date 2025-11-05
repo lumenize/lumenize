@@ -82,5 +82,11 @@ export {
   decodeResponse
 } from './web-api-encoding';
 
+// Synchronous Request/Response wrappers - see request-sync.ts and response-sync.ts for full JSDoc
+export { RequestSync } from './request-sync';
+export { ResponseSync } from './response-sync';
+
 // Type exports
 export type { LmzIntermediate } from './preprocess';
+export type { SerializableBody, RequestSyncInit } from './request-sync';
+export type { SerializableBody as ResponseSerializableBody } from './response-sync';

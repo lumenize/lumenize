@@ -1,0 +1,331 @@
+import { describe, it, expect } from 'vitest';
+import { RequestSync } from '../src/request-sync';
+
+describe('RequestSync', () => {
+  describe('constructor', () => {
+    it('creates with URL string and no body', () => {
+      const req = new RequestSync('https://example.com');
+      expect(req.url).toBe('https://example.com/');
+      expect(req.method).toBe('GET');
+      expect(req.body).toBeNull();
+    });
+
+    it('creates with URL and method', () => {
+      const req = new RequestSync('https://example.com', { method: 'POST' });
+      expect(req.method).toBe('POST');
+    });
+
+    it('creates with object body', () => {
+      const body = { name: 'Alice', age: 30 };
+      const req = new RequestSync('https://api.example.com/users', {
+        method: 'POST',
+        body
+      });
+      expect(req.body).toEqual(body);
+    });
+
+    it('creates with string body', () => {
+      const body = '{"test":"data"}';
+      const req = new RequestSync('https://example.com', {
+        method: 'POST',
+        body
+      });
+      expect(req.body).toBe(body);
+    });
+
+    it('creates with ArrayBuffer body', () => {
+      const buffer = new TextEncoder().encode('Hello').buffer;
+      const req = new RequestSync('https://example.com', {
+        method: 'POST',
+        body: buffer
+      });
+      expect(req.body).toBe(buffer);
+    });
+
+    it('creates with headers', () => {
+      const req = new RequestSync('https://example.com', {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      expect(req.headers.get('Content-Type')).toBe('application/json');
+    });
+  });
+
+  describe('json()', () => {
+    it('parses string body as JSON', () => {
+      const req = new RequestSync('https://example.com', {
+        body: '{"name":"Alice","age":30}'
+      });
+      expect(req.json()).toEqual({ name: 'Alice', age: 30 });
+    });
+
+    it('returns object body as-is', () => {
+      const body = { name: 'Bob', age: 25 };
+      const req = new RequestSync('https://example.com', {
+        body
+      });
+      expect(req.json()).toEqual(body);
+    });
+
+    it('parses ArrayBuffer body as JSON', () => {
+      const buffer = new TextEncoder().encode('{"test":"data"}').buffer;
+      const req = new RequestSync('https://example.com', {
+        body: buffer
+      });
+      expect(req.json()).toEqual({ test: 'data' });
+    });
+
+    it('returns null for no body', () => {
+      const req = new RequestSync('https://example.com');
+      expect(req.json()).toBeNull();
+    });
+  });
+
+  describe('text()', () => {
+    it('returns string body as-is', () => {
+      const body = 'Hello World';
+      const req = new RequestSync('https://example.com', {
+        body
+      });
+      expect(req.text()).toBe('Hello World');
+    });
+
+    it('stringifies object body', () => {
+      const body = { test: 'data' };
+      const req = new RequestSync('https://example.com', {
+        body
+      });
+      expect(req.text()).toBe('{"test":"data"}');
+    });
+
+    it('decodes ArrayBuffer body', () => {
+      const buffer = new TextEncoder().encode('Hello').buffer;
+      const req = new RequestSync('https://example.com', {
+        body: buffer
+      });
+      expect(req.text()).toBe('Hello');
+    });
+
+    it('returns empty string for no body', () => {
+      const req = new RequestSync('https://example.com');
+      expect(req.text()).toBe('');
+    });
+  });
+
+  describe('arrayBuffer()', () => {
+    it('returns ArrayBuffer body as-is', () => {
+      const buffer = new TextEncoder().encode('Hello').buffer;
+      const req = new RequestSync('https://example.com', {
+        body: buffer
+      });
+      expect(req.arrayBuffer()).toBe(buffer);
+    });
+
+    it('encodes string body', () => {
+      const req = new RequestSync('https://example.com', {
+        body: 'Hello'
+      });
+      const buffer = req.arrayBuffer();
+      const text = new TextDecoder().decode(buffer);
+      expect(text).toBe('Hello');
+    });
+
+    it('encodes object body', () => {
+      const req = new RequestSync('https://example.com', {
+        body: { test: 'data' }
+      });
+      const buffer = req.arrayBuffer();
+      const text = new TextDecoder().decode(buffer);
+      expect(text).toBe('{"test":"data"}');
+    });
+
+    it('returns empty ArrayBuffer for no body', () => {
+      const req = new RequestSync('https://example.com');
+      const buffer = req.arrayBuffer();
+      expect(buffer.byteLength).toBe(0);
+    });
+  });
+
+  describe('blob()', () => {
+    it('returns Blob from body', () => {
+      const req = new RequestSync('https://example.com', {
+        body: 'Hello'
+      });
+      const blob = req.blob();
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.size).toBeGreaterThan(0);
+    });
+  });
+
+  describe('formData()', () => {
+    it('throws error (not supported)', () => {
+      const req = new RequestSync('https://example.com');
+      expect(() => req.formData()).toThrow('FormData not supported');
+    });
+  });
+
+  describe('metadata forwarders', () => {
+    it('forwards url', () => {
+      const req = new RequestSync('https://example.com/path');
+      expect(req.url).toBe('https://example.com/path');
+    });
+
+    it('forwards method', () => {
+      const req = new RequestSync('https://example.com', { method: 'POST' });
+      expect(req.method).toBe('POST');
+    });
+
+    it('forwards headers', () => {
+      const req = new RequestSync('https://example.com', {
+        headers: { 'X-Custom': 'value' }
+      });
+      expect(req.headers.get('X-Custom')).toBe('value');
+    });
+
+    it('forwards credentials', { skip: true }, () => {
+      // Skip: credentials not supported in Workers runtime (returns undefined)
+      const req = new RequestSync('https://example.com', {
+        credentials: 'include'
+      });
+      expect(req.credentials).toBe('include');
+    });
+
+    it('forwards mode', { skip: true }, () => {
+      // Skip: mode not supported in Workers runtime (returns undefined)
+      const req = new RequestSync('https://example.com', {
+        mode: 'cors'
+      });
+      expect(req.mode).toBe('cors');
+    });
+
+    it('forwards cache', () => {
+      const req = new RequestSync('https://example.com', {
+        cache: 'no-cache'
+      });
+      expect(req.cache).toBe('no-cache');
+    });
+
+    it('forwards redirect', () => {
+      const req = new RequestSync('https://example.com', {
+        redirect: 'follow'
+      });
+      expect(req.redirect).toBe('follow');
+    });
+
+    it('forwards referrer', { skip: true }, () => {
+      // Skip: referrer not supported in Workers runtime (returns undefined)
+      const req = new RequestSync('https://example.com', {
+        referrer: 'https://referrer.com'
+      });
+      expect(req.referrer).toBe('https://referrer.com/');
+    });
+
+    it('forwards integrity', { skip: true }, () => {
+      // Skip: integrity not supported in Workers runtime
+      const req = new RequestSync('https://example.com', {
+        integrity: 'sha256-abc123'
+      });
+      expect(req.integrity).toBe('sha256-abc123');
+    });
+
+    it('forwards keepalive', { skip: true }, () => {
+      // Skip: keepalive not supported in Workers runtime (returns false)
+      const req = new RequestSync('https://example.com', {
+        keepalive: true
+      });
+      expect(req.keepalive).toBe(true);
+    });
+  });
+
+  describe('clone()', () => {
+    it('creates a copy with same properties', () => {
+      const req = new RequestSync('https://example.com', {
+        method: 'POST',
+        body: { test: 'data' },
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const cloned = req.clone();
+      
+      expect(cloned.url).toBe(req.url);
+      expect(cloned.method).toBe(req.method);
+      expect(cloned.body).toEqual(req.body);
+      expect(cloned.headers.get('Content-Type')).toBe('application/json');
+    });
+
+    it('creates shallow copy (body is shared reference)', () => {
+      const body = { test: 'original' };
+      const req = new RequestSync('https://example.com', { body });
+      
+      const cloned = req.clone();
+      
+      // Body is a shallow copy - same reference
+      expect(cloned.body).toBe(req.body);
+      
+      // Modifying shared body affects both
+      if (typeof cloned.body === 'object' && cloned.body !== null) {
+        cloned.body.test = 'modified';
+      }
+      expect((req.body as any).test).toBe('modified');
+    });
+  });
+
+  describe('toRequest()', () => {
+    it('converts to real Request', () => {
+      const req = new RequestSync('https://example.com', {
+        method: 'POST',
+        body: { test: 'data' },
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      const realRequest = req.toRequest();
+      
+      expect(realRequest).toBeInstanceOf(Request);
+      expect(realRequest.url).toBe(req.url);
+      expect(realRequest.method).toBe('POST');
+      expect(realRequest.headers.get('Content-Type')).toBe('application/json');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('handles null body explicitly', () => {
+      const req = new RequestSync('https://example.com', {
+        body: null
+      });
+      expect(req.body).toBeNull();
+      expect(req.text()).toBe('');
+      expect(req.json()).toBeNull();
+    });
+
+    it('handles empty string body', () => {
+      const req = new RequestSync('https://example.com', {
+        body: ''
+      });
+      expect(req.text()).toBe('');
+    });
+
+    it('handles empty object body', () => {
+      const req = new RequestSync('https://example.com', {
+        body: {}
+      });
+      expect(req.json()).toEqual({});
+      expect(req.text()).toBe('{}');
+    });
+
+    it('handles special characters in body', () => {
+      const body = { message: 'Hello "World" \n\t' };
+      const req = new RequestSync('https://example.com', {
+        body
+      });
+      expect(req.json()).toEqual(body);
+    });
+
+    it('handles large body', () => {
+      const largeBody = { data: 'x'.repeat(10000) };
+      const req = new RequestSync('https://example.com', {
+        body: largeBody
+      });
+      expect(req.json()).toEqual(largeBody);
+    });
+  });
+});
+
