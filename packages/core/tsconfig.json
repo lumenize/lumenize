@@ -11,7 +11,8 @@
     "test/**/*"
   ],
   "files": [
-    "worker-configuration.d.ts"
+    "worker-configuration.d.ts",
+    "cloudflare-test-env.d.ts"
   ]
 }
 

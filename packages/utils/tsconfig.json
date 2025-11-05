@@ -9,6 +9,7 @@
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"],
   "files": [
-    "worker-configuration.d.ts"
+    "worker-configuration.d.ts",
+    "cloudflare-test-env.d.ts"
   ]
 }

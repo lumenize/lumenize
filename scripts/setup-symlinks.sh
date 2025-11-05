@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
-# Setup .dev.vars symlinks for all directories containing wrangler.jsonc
-# Auto-discovers wrangler.jsonc files and creates symlinks to root .dev.vars
+# Setup symlinks for Cloudflare Workers development
+# 1. .dev.vars - symlinked to all directories with wrangler.jsonc
+# 2. cloudflare-test-env.d.ts - symlinked to package roots with wrangler.jsonc
 
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,7 +11,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
-echo "Setting up .dev.vars symlinks..."
+echo "Setting up development symlinks..."
+echo ""
+echo "📝 .dev.vars symlinks..."
 
 # Calculate relative path from source directory to target file
 calculate_relative_path() {
@@ -61,12 +64,54 @@ create_symlink() {
   echo "  ✓ $link_path (created)"
 }
 
-# Find all wrangler.jsonc files and create symlinks in their directories
+# Find all wrangler.jsonc files and create .dev.vars symlinks in their directories
 while IFS= read -r wrangler_file; do
   wrangler_dir="$(dirname "$wrangler_file")"
   create_symlink "$wrangler_dir"
 done < <(find . -name "wrangler.jsonc" -not -path "*/node_modules/*" -not -path "*/dist/*")
 
+echo ""
+echo "📦 cloudflare-test-env.d.ts symlinks (package roots only)..."
+
+# Find package-root wrangler.jsonc files and create cloudflare-test-env.d.ts symlinks
+# Package roots are wrangler.jsonc files NOT in test/ subdirectories
+while IFS= read -r wrangler_file; do
+  wrangler_dir="$(dirname "$wrangler_file")"
+  
+  # Skip if this is the root directory
+  if [ "$wrangler_dir" = "." ]; then
+    continue
+  fi
+  
+  # Skip if this is inside a test directory
+  if [[ "$wrangler_dir" == *"/test/"* ]] || [[ "$wrangler_dir" == *"/test" ]]; then
+    continue
+  fi
+  
+  link_path="$wrangler_dir/cloudflare-test-env.d.ts"
+  relative_target=$(calculate_relative_path "$wrangler_dir" "cloudflare-test-env.d.ts")
+  
+  # Check if symlink already exists and is correct
+  if [ -L "$link_path" ]; then
+    current_target="$(readlink "$link_path")"
+    if [ "$current_target" = "$relative_target" ]; then
+      echo "  ✓ $link_path (already correct)"
+      continue
+    else
+      echo "  ⚠ $link_path (wrong target: $current_target, updating)"
+      rm "$link_path"
+    fi
+  elif [ -e "$link_path" ]; then
+    echo "  ⚠ $link_path (exists but is not a symlink, skipping)"
+    continue
+  fi
+  
+  # Create symlink
+  ln -s "$relative_target" "$link_path"
+  echo "  ✓ $link_path (created)"
+done < <(find . -name "wrangler.jsonc" -not -path "*/node_modules/*" -not -path "*/dist/*")
+
+echo ""
 echo "✅ Symlink setup complete"
 
 # Remind about .dev.vars if it doesn't exist
