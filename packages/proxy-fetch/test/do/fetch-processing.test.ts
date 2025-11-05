@@ -15,7 +15,6 @@
  * For unit tests of just the enqueue method, see unit-queue.test.ts.
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
-// @ts-expect-error
 import { env } from 'cloudflare:test';
 import { encodeRequest } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints';

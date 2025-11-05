@@ -1,0 +1,18 @@
+{
+  // Minimal wrangler.jsonc for type generation only
+  // Tests use test/do/wrangler.jsonc and test/queue/wrangler.jsonc
+  "name": "lumenize-proxy-fetch-types",
+  "main": "test/queue/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "MY_DO", "class_name": "MyDO" }
+    ]
+  },
+  "queues": {
+    "producers": [
+      { "binding": "PROXY_FETCH_QUEUE", "queue": "proxy-fetch-queue" }
+    ]
+  }
+}
+
