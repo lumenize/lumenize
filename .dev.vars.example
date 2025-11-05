@@ -11,3 +11,8 @@ TEST_TOKEN=your-test-token-here
 # For your own deployment: https://your-test-endpoints.workers.dev
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
 
+# Debug logging (see @lumenize/debug for patterns)
+# Examples: proxy-fetch.*, rpc.*, *
+# Leave empty to disable
+DEBUG=
+

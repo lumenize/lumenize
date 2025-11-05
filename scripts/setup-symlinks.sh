@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -e
 
-# Setup .dev.vars symlinks for test directories
-# This ensures fresh clones work, especially on Windows or if symlinks get deleted
+# Setup .dev.vars symlinks for all directories containing wrangler.jsonc
+# Auto-discovers wrangler.jsonc files and creates symlinks to root .dev.vars
 
 # Get script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,34 +12,43 @@ cd "$PROJECT_ROOT"
 
 echo "Setting up .dev.vars symlinks..."
 
-# Define symlinks: target_path:link_path (relative to PROJECT_ROOT)
-SYMLINKS=(
-  ".dev.vars:tooling/test-endpoints/.dev.vars:../.."
-  ".dev.vars:tooling/test-endpoints/test/.dev.vars:../../.."
-  ".dev.vars:packages/proxy-fetch/test/do/.dev.vars:../../../.."
-  ".dev.vars:packages/proxy-fetch/test/queue/.dev.vars:../../../.."
-  ".dev.vars:packages/proxy-fetch/test/for-docs/.dev.vars:../../../.."
-  ".dev.vars:packages/proxy-fetch/test/production/.dev.vars:../../../.."
-)
+# Calculate relative path from source directory to target file
+calculate_relative_path() {
+  local source_dir="$1"
+  local target_file="$2"
+  
+  # Count directory depth (number of slashes)
+  local depth=$(echo "$source_dir" | tr -cd '/' | wc -c)
+  
+  # Build ../../../ path based on depth
+  local relative=""
+  for ((i=0; i<depth; i++)); do
+    relative="../$relative"
+  done
+  
+  echo "${relative}${target_file}"
+}
 
 create_symlink() {
-  local target="$1"      # What we're pointing to (e.g., .dev.vars)
-  local link_path="$2"   # Where the symlink lives
-  local relative="$3"    # Relative path from link to target
+  local wrangler_dir="$1"
+  local link_path="$wrangler_dir/.dev.vars"
   
-  local link_dir="$(dirname "$link_path")"
+  # Skip if this is the root directory (where the actual .dev.vars lives)
+  if [ "$wrangler_dir" = "." ]; then
+    return
+  fi
   
-  # Create parent directory if needed
-  mkdir -p "$link_dir"
+  # Calculate relative path from wrangler dir to root .dev.vars
+  local relative_target=$(calculate_relative_path "$wrangler_dir" ".dev.vars")
   
   # Check if symlink already exists and is correct
   if [ -L "$link_path" ]; then
     local current_target="$(readlink "$link_path")"
-    if [ "$current_target" = "$relative/$target" ]; then
+    if [ "$current_target" = "$relative_target" ]; then
       echo "  ✓ $link_path (already correct)"
       return
     else
-      echo "  ⚠ $link_path (wrong target: $current_target)"
+      echo "  ⚠ $link_path (wrong target: $current_target, updating)"
       rm "$link_path"
     fi
   elif [ -e "$link_path" ]; then
@@ -48,14 +57,15 @@ create_symlink() {
   fi
   
   # Create symlink
-  ln -s "$relative/$target" "$link_path"
+  ln -s "$relative_target" "$link_path"
   echo "  ✓ $link_path (created)"
 }
 
-for entry in "${SYMLINKS[@]}"; do
-  IFS=':' read -r target link_path relative <<< "$entry"
-  create_symlink "$target" "$link_path" "$relative"
-done
+# Find all wrangler.jsonc files and create symlinks in their directories
+while IFS= read -r wrangler_file; do
+  wrangler_dir="$(dirname "$wrangler_file")"
+  create_symlink "$wrangler_dir"
+done < <(find . -name "wrangler.jsonc" -not -path "*/node_modules/*" -not -path "*/dist/*")
 
 echo "✅ Symlink setup complete"
 

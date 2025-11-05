@@ -21,10 +21,10 @@ import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
  */
 export async function proxyFetchQueueConsumer(
   batch: MessageBatch,
-  env: { [doBindingName: string]: DurableObjectNamespace | Queue; DEBUG?: string }
+  env: Env
 ): Promise<void> {
   // Create debug logger from environment
-  const createLog = createDebugFactory((env as any).DEBUG);
+  const createLog = createDebugFactory(env.DEBUG);
   const log = createLog('proxy-fetch.queue');
   
   // Process each message in the batch
