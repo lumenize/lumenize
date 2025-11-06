@@ -5,7 +5,7 @@ Replace scattered `console.debug()` calls with a structured, filterable debug lo
 
 ## API Design
 
-### Server-Side (NADIC-enabled)
+### Server-Side (NADIS-enabled)
 ```typescript
 // In your DO/Worker - typical usage (local const)
 class MyDO extends LumenizeBase {

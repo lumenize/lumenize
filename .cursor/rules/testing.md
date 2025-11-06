@@ -88,12 +88,6 @@ vitest --run
 vitest --run <file-pattern>
 ```
 
-### Running in Watch Mode
-
-```bash
-vitest
-```
-
 ## API Refactoring Pattern
 
 When refactoring package APIs:

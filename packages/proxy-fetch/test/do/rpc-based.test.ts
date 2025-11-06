@@ -167,7 +167,7 @@ describe('RPC-Based ProxyFetch Tests', () => {
   expect(storage).toHaveLength(0);
 });
 
-  test('fire-and-forget requests skip callback', async () => {
+test('fire-and-forget requests skip callback', async () => {
   const proxyInstanceName = 'proxy-rpc-test-4';
   using proxyClient = createTestingClient<typeof _ProxyFetchDO>(
     'PROXY_FETCH_DO',
