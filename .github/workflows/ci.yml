@@ -63,7 +63,5 @@ jobs:
   sonarcloud-analysis:
     needs: [run-packages-tests-with-coverage, run-doc-tests]
     uses: ./.github/workflows/reusable-on-success.yml
-    secrets:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    secrets: inherit
 

@@ -15,7 +15,9 @@ This repository is configured for continuous integration via GitHub Actions and 
 
 1. Create a SonarCloud account at https://sonarcloud.io
 2. Create a new project for this repository
-3. Note your **Organization Key** and **Project Key**
+3. Note:
+   - Organization key: 'lumenize'
+   - Project Key: 'lumenize_lumenize'
 4. Generate a **SonarCloud Token** (User > My Account > Security)
 
 ### 2. Update Configuration
@@ -40,6 +42,8 @@ SonarCloud analysis runs automatically on pull requests via GitHub Actions. See 
 
 **Required GitHub Secrets**:
 - `SONAR_TOKEN`: Your SonarCloud authentication token
+
+GitHub automatically provides a short-lived `GITHUB_TOKEN` to workflows, so you do **not** need to create a separate secret for it.
 
 The workflow (`ci.yml`) includes the following jobs:
 
@@ -71,7 +75,6 @@ SonarCloud is configured to read coverage from packages only (tooling, website, 
 - `node_modules/**` - Dependencies
 - `dist/**` - Build outputs
 - `coverage/**` - Coverage reports
-- `*.config.js`, `*.config.ts` - Configuration files
 
 **Note**: `tooling/` is included in source analysis (quality/security) but excluded from coverage reporting.
 
