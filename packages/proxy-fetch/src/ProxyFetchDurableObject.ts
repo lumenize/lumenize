@@ -324,7 +324,7 @@ export class ProxyFetchDO extends DurableObject {
       this.#log.debug('Delivering callback', {
         reqId: request.reqId,
         doBinding: request.doBindingName,
-        instanceId: request.instanceId.slice(0, 16) + '...',
+        instanceId: request.instanceId,
         handler: request.handlerName,
         hasResponse: !!response,
         hasError: !!error,

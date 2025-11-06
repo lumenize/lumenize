@@ -133,8 +133,8 @@ export async function proxyFetchQueueConsumer(
       
       log.debug('Routing response to DO', {
         reqId,
-        instanceId: instanceId.slice(0, 16) + '...',
-        duration: duration,
+        instanceId,
+        duration,
         handler: queueMessage.handlerName
       });
       
