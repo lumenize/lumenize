@@ -27,7 +27,7 @@
     "types": "wrangler types --config test/integration/wrangler.jsonc test/integration/worker-configuration.d.ts"
   },
   "dependencies": {
-    "@lumenize/debug": "*"
+    "@lumenize/core": "*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

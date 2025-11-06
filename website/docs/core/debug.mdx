@@ -1,11 +1,13 @@
 ---
-title: "@lumenize/debug"
+title: "Debug"
 description: "Scoped, filterable debug logging optimized for Cloudflare's JSON log dashboard"
 ---
 
-# @lumenize/debug
+# Debug
 
 A de✨light✨ful scoped debug logging system for Cloudflare Durable Objects, inspired by npm's `debug` package with level support and JSON output.
+
+Part of `@lumenize/core`.
 
 ## Features
 
@@ -18,7 +20,7 @@ A de✨light✨ful scoped debug logging system for Cloudflare Durable Objects, i
 ## Installation
 
 ```bash
-npm install @lumenize/debug
+npm install @lumenize/core
 ```
 
 ## Quick Start
@@ -26,7 +28,7 @@ npm install @lumenize/debug
 ### In Durable Objects (LumenizeBase)
 
 ```typescript
-import '@lumenize/debug';  // Registers in this.svc
+import '@lumenize/core';  // Registers in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
 
 class MyDO extends LumenizeBase<Env> {
@@ -52,7 +54,7 @@ class MyDO extends LumenizeBase<Env> {
 ### In Vanilla Durable Objects
 
 ```typescript
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 
 class MyDO extends DurableObject {
@@ -68,7 +70,7 @@ class MyDO extends DurableObject {
 ### In Workers (outside DOs)
 
 ```typescript
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 
 export default {
   async fetch(request: Request, env: Env) {

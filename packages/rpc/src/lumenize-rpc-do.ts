@@ -11,7 +11,7 @@ import { isNestedOperationMarker } from './types';
 import { stringify, parse } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 
 /**
  * Default RPC configuration

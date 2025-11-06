@@ -6,4 +6,6 @@
  */
 
 export { sql } from './sql';
+export { debug } from './debug/index';
+export type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from './debug/types';
 

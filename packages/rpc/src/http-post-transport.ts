@@ -1,6 +1,6 @@
 import type { RpcBatchRequest, RpcBatchResponse, RpcTransport } from './types';
 import { stringify, parse } from '@lumenize/structured-clone';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 
 /**
  * Utility function to remove leading and trailing slashes from a URL segment

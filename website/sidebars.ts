@@ -313,17 +313,10 @@ const sidebars: SidebarsConfig = {
       items: [
         'core/index',
         'core/sql',
+        'core/debug',
         ...(typedocCoreSidebar && typedocCoreSidebar.length > 0
           ? [wrapInApiReference(typedocCoreSidebar, 'API Reference')]
           : []),
-      ],
-    },
-
-    {
-      type: 'category',
-      label: 'Debug',
-      items: [
-        'debug/index',
       ],
     },
 

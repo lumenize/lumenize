@@ -1,5 +1,5 @@
 import { decodeRequest } from '@lumenize/structured-clone';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 import type { ProxyFetchQueueMessage, ProxyFetchHandlerItem, ProxyFetchOptions } from './types';
 import { DEFAULT_OPTIONS, isRetryable, getRetryDelay } from './utils';
 

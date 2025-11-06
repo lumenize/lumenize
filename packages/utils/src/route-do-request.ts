@@ -1,7 +1,7 @@
 import { getDOStub } from './get-do-stub';
 import { parsePathname } from './parse-pathname';
 import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 
 /**
  * Error thrown when a pathname has a valid doBindingName segment but not a 

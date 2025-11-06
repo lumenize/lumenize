@@ -1,12 +1,13 @@
 /**
- * @lumenize/debug - Scoped debug logging for Cloudflare Durable Objects
+ * Debug - Scoped debug logging for Cloudflare Durable Objects
  * 
- * Provides structured, filterable debug logging optimized for Cloudflare's JSON log dashboard.
- * Inspired by npm's `debug` package with level support (debug, info, warn).
+ * Part of @lumenize/core. Provides structured, filterable debug logging optimized 
+ * for Cloudflare's JSON log dashboard. Inspired by npm's `debug` package with 
+ * level support (debug, info, warn).
  * 
  * Server-side (NADIS-enabled):
  * ```typescript
- * import '@lumenize/debug';  // Registers in this.svc
+ * import '@lumenize/core';  // Registers in this.svc
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
  * class MyDO extends LumenizeBase<Env> {
@@ -43,7 +44,7 @@ import type { DebugLogger } from './types';
  * @example
  * Standalone usage:
  * ```typescript
- * import { debug } from '@lumenize/debug';
+ * import { debug } from '@lumenize/core';
  * import { DurableObject } from 'cloudflare:workers';
  * 
  * class MyDO extends DurableObject {
@@ -58,7 +59,7 @@ import type { DebugLogger } from './types';
  * @example
  * With LumenizeBase (auto-injected):
  * ```typescript
- * import '@lumenize/debug';
+ * import '@lumenize/core';
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
  * class MyDO extends LumenizeBase<Env> {

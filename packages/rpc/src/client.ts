@@ -15,7 +15,7 @@ import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 
 /**
  * WeakMap to track proxy objects and their operation chains.

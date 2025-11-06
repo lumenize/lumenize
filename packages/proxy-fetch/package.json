@@ -47,7 +47,7 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/debug": "^0.17.0",
+    "@lumenize/core": "*",
     "@lumenize/structured-clone": "^0.17.0",
     "@lumenize/test-endpoints": "^0.17.0",
     "@lumenize/utils": "^0.17.0",

@@ -6,7 +6,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { stringify, parse } from '@lumenize/structured-clone';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 
 /**
  * Pending batch tracking - maps batch ID to resolve/reject functions

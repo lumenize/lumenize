@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { ulidFactory, decodeTime } from 'ulid-workers';
-import { debug } from '@lumenize/debug';
+import { debug } from '@lumenize/core';
 import type { ProxyFetchQueueMessage } from './types';
 import { MAX_REQUEST_AGE_MS, ALARM_INTERVAL_NORMAL_MS, QUEUE_PROCESS_BATCH_SIZE, isRetryable, getRetryDelay, DEFAULT_OPTIONS } from './utils';
 import { encodeResponse, decodeRequest, decodeResponse } from '@lumenize/structured-clone';
