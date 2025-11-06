@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  run-packages-tests-with-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for better analysis
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests with coverage for all packages
+        run: |
+          # Run vitest with coverage for all packages in packages/ directory
+          for dir in packages/*/; do
+            if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
+              echo "Running tests with coverage for $(basename $dir)..."
+              cd "$dir"
+              npm run test -- --coverage --run || exit 1
+              cd - > /dev/null
+            fi
+          done
+
+  run-doc-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run doc-test examples (no coverage)
+        run: |
+          # Run tests for all doc-test subdirectories without coverage
+          for dir in doc-test/*/*/; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Running tests for $(basename $(dirname $dir))/$(basename $dir)..."
+              cd "$dir"
+              npm run test || exit 1
+              cd - > /dev/null
+            fi
+          done
+
+  sonarcloud-analysis:
+    needs: [run-packages-tests-with-coverage, run-doc-tests]
+    uses: ./.github/workflows/reusable-on-success.yml
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+

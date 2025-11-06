@@ -2,6 +2,11 @@
 
 Small tasks and ideas for when I have time (evening coding, etc.)
 
+## LumenizeBase NADIS modules
+
+- [ ] mcp
+- [ ] per-resource sync
+
 
 ## Testing & Quality
 
@@ -10,12 +15,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Test websocket-shim throws when passed http[s] urls (requires changing matrix tests)
 
 - [ ] Test in production on Cloudflare (not just local with vitest)
-
-- [ ] Revisit Workers RPC type support testing methodology
-  - Investigate why Headers appeared to be supported in Workers RPC when Cap'n Web analysis showed it's only a type annotation
-  - Review testing approach to ensure we're testing actual serialization, not just TypeScript type compatibility
-  - Audit type support table for other potentially incorrect entries (check serialization vs type annotations)
-  - Improve testing to distinguish between type system support and runtime serialization support
 
 - [ ] Add missing alias tests for @lumenize/structured-clone
   - Test multiple paths to same object (true aliases - obj.a and obj.b both point to same object)
@@ -28,12 +27,21 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Documentation
 
 - [ ] Review/edit the new docs for:
-  - [ ]  alarm simulation
-  - [ ]  downstream messaging
-  - [ ]  lumenize-base, alarms
+  - [ ]  lumenize-base
+  - [ ]  NADIS (plit from lumenize-base)
+  - [ ]  core
   - [ ]  debug
   - [ ]  sql
-  - [ ]  core
+  - [ ]  alarms
+  - [ ]  testing alarms (simulation and triggering)
+  - [ ]  RPC downstream messaging
+    - [ ]  Build a chat app like the vs Cap'n Web
+      - [ ]  User:
+        - authentication
+        - proxy to Room
+        - access control (alterantively in Room)
+      - [ ] Room:
+        - messages
   
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 
@@ -69,4 +77,4 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud account over to lumenize repo
-- [ ] See `decisions/github-actions-publishing.md` for automation plans
+- [ ] See `tasks/github-actions-publishing.md` for automation plans

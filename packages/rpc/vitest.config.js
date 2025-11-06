@@ -14,7 +14,7 @@ export default defineWorkersProject({
     },
     coverage: {
       provider: "istanbul",
-      reporter: ['text', 'json', 'html'],
+      reporter: ['html', 'lcov'],
       include: [
         '**/src/**',
         '**/test/test-worker-and-dos.ts'
