@@ -152,7 +152,10 @@ export class ProxyFetchDO extends DurableObject {
         await this.#scheduleAlarm();
       }
     } catch (error) {
-      console.error('[ProxyFetchDO] Queue processing error:', error);
+      console.error('Queue processing error:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       // Back off and retry
       await this.ctx.storage.setAlarm(Date.now() + 1000);
     }
@@ -209,7 +212,7 @@ export class ProxyFetchDO extends DurableObject {
       }
     } catch (error) {
       fetchError = error instanceof Error ? error : new Error(String(error));
-      console.error('[ProxyFetchDO] Fetch error', {
+      console.error('Fetch error:', {
         reqId: request.reqId,
         error: fetchError.message,
       });
@@ -338,7 +341,7 @@ export class ProxyFetchDO extends DurableObject {
     } catch (callbackError) {
       // Callback delivery failed - log and discard
       // We don't retry callback delivery to avoid infinite loops
-      console.error('[ProxyFetchDO] Callback delivery failed', {
+      console.error('Callback delivery failed:', {
         reqId: request.reqId,
         error: callbackError instanceof Error ? callbackError.message : String(callbackError),
         stack: callbackError instanceof Error ? callbackError.stack : undefined,

@@ -29,6 +29,7 @@
   "license": "MIT",
   "dependencies": {
     "@lumenize/core": "*",
+    "@lumenize/debug": "*",
     "cron-schedule": "^5.0.1",
     "nanoid": "^5.0.9"
   },
