@@ -169,8 +169,10 @@ export class Alarms<P extends { [key: string]: any }> {
       this.#tableInitialized = true;
     } catch (e) {
       // Table might already exist or error creating - log and continue
-      // TODO: Fix wrong log format - should use object: { error: e }
-      console.error('Error ensuring alarms table:', e);
+      console.error('Error ensuring alarms table', {
+        error: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : undefined
+      });
     }
   }
 
@@ -403,8 +405,10 @@ export class Alarms<P extends { [key: string]: any }> {
       const callback = this.#parent[row.callback];
 
       if (!callback) {
-        // TODO: Fix wrong log format - should use object: { callback: row.callback, message: 'not found' }
-        console.error(`callback ${row.callback} not found`);
+        console.error('Alarm callback not found', {
+          callback: row.callback,
+          id: row.id
+        });
         continue;
       }
 
@@ -412,8 +416,12 @@ export class Alarms<P extends { [key: string]: any }> {
         await (callback as Function).bind(this.#parent)(JSON.parse(row.payload), row);
         executedIds.push(row.id);
       } catch (e) {
-        // TODO: Fix wrong log format - should use object: { callback: row.callback, error: e }
-        console.error(`error executing callback "${row.callback}"`, e);
+        console.error('Error executing alarm callback', {
+          callback: row.callback,
+          id: row.id,
+          error: e instanceof Error ? e.message : String(e),
+          stack: e instanceof Error ? e.stack : undefined
+        });
       }
 
       if (row.type === 'cron') {
