@@ -1,6 +1,7 @@
 import { getDOStub } from './get-do-stub';
 import { parsePathname } from './parse-pathname';
 import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
+import { debug } from '@lumenize/debug';
 
 /**
  * Error thrown when a pathname has a valid doBindingName segment but not a 
@@ -185,6 +186,7 @@ function addCorsHeaders(response: Response, origin: string): Response {
  * @throws {MultipleBindingsFoundError} When multiple DO bindings match the doBindingName segment
  */
 export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
+  const log = debug({ env })('utils.route-do-request');
   const url = new URL(request.url);
   const pathname = url.pathname;
 
@@ -237,8 +239,18 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   if (request.method === 'OPTIONS' && requestOrigin && corsOptions !== false) {
     const response = new Response(null, { status: 204 });
     if (allowedOrigin) {
+      log.debug('CORS preflight allowed', {
+        origin: requestOrigin,
+        binding: doBindingNameSegment,
+        instance: doInstanceNameOrId
+      });
       return addCorsHeaders(response, allowedOrigin);
     }
+    log.debug('CORS preflight rejected (no headers)', {
+      origin: requestOrigin,
+      binding: doBindingNameSegment,
+      instance: doInstanceNameOrId
+    });
     // Return 204 without CORS headers - browser will see missing headers and block
     return response;
   }
@@ -248,6 +260,13 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
   // Server-side origin rejection (non-standard, but provides better security)
   // Applies to non-OPTIONS HTTP and WebSocket requests
   if (requestOrigin && corsOptions !== false && !allowedOrigin) {
+    log.warn('CORS origin rejected', {
+      origin: requestOrigin,
+      method: request.method,
+      binding: doBindingNameSegment,
+      instance: doInstanceNameOrId,
+      isWebSocket: request.headers.get("Upgrade")?.toLowerCase() === "websocket"
+    });
     // Return 403 without CORS headers for disallowed origins
     // Browser will see this as a CORS failure (network error)
     return new Response('Forbidden: Origin not allowed', { status: 403 });
@@ -260,9 +279,18 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     if (options?.onBeforeConnect) {
       const result = await options.onBeforeConnect(request, hookContext);
       if (result instanceof Response) {
+        log.debug('onBeforeConnect blocked request', {
+          binding: bindingName,
+          instance: doInstanceNameOrId,
+          status: result.status
+        });
         return allowedOrigin ? addCorsHeaders(result, allowedOrigin) : result;
       }
       if (result instanceof Request) {
+        log.debug('onBeforeConnect modified request', {
+          binding: bindingName,
+          instance: doInstanceNameOrId
+        });
         request = result;
       }
     }
@@ -270,15 +298,35 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     if (options?.onBeforeRequest) {
       const result = await options.onBeforeRequest(request, hookContext);
       if (result instanceof Response) {
+        log.debug('onBeforeRequest blocked request', {
+          binding: bindingName,
+          instance: doInstanceNameOrId,
+          method: request.method,
+          status: result.status
+        });
         return allowedOrigin ? addCorsHeaders(result, allowedOrigin) : result;
       }
       if (result instanceof Request) {
+        log.debug('onBeforeRequest modified request', {
+          binding: bindingName,
+          instance: doInstanceNameOrId,
+          method: request.method
+        });
         request = result;
       }
     }
   }
 
   const stub = getDOStub(doNamespace, doInstanceNameOrId);
+  
+  log.debug('Routing to DO', {
+    binding: bindingName,
+    instance: doInstanceNameOrId,
+    method: request.method,
+    pathname,
+    isWebSocket,
+    hasCors: !!allowedOrigin
+  });
   
   // Add routing context headers
   // These headers provide the DO with information about how it was accessed

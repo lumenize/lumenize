@@ -26,6 +26,9 @@
     "test:integration": "vitest --run --project integration",
     "types": "wrangler types --config test/integration/wrangler.jsonc test/integration/worker-configuration.d.ts"
   },
+  "dependencies": {
+    "@lumenize/debug": "*"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "@cloudflare/workers-types": "^4.20250110.0",
