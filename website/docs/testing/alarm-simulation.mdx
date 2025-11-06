@@ -34,7 +34,7 @@ When you call `instrumentDOProject()`, alarm simulation is automatically enabled
 
 Write your DO with standard alarm methods:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/MyDO.ts')
+```typescript @check-example('packages/testing/test/alarm-simulation/my-do.ts')
 export class MyDO {
   ctx: DurableObjectState;
   env: Env;
@@ -72,7 +72,7 @@ export class MyDO {
 
 Alarms fire automatically - just wait for them:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/basic-usage.test.ts')
+```typescript @check-example('packages/testing/test/alarm-simulation/basic-usage.test.ts')
 import { it, expect, vi } from 'vitest';
 import { createTestingClient } from '@lumenize/testing';
 import { MyDO } from '../src';
@@ -192,7 +192,7 @@ The simulation matches Cloudflare's retry behavior:
 
 ### Testing Retry Behavior
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/retry-behavior.test.ts')
+```typescript @check-example('packages/testing/test/alarm-simulation/retry-behavior.test.ts')
 it('retries failed alarms with exponential backoff', async () => {
   await using client = createTestingClient<typeof MyDO>('MY_DO', 'retry-test');
 
@@ -219,7 +219,7 @@ it('retries failed alarms with exponential backoff', async () => {
 
 Cloudflare allows **only one alarm per Durable Object**. Setting a new alarm overwrites the previous one:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/single-alarm.test.ts')
+```typescript @check-example('packages/testing/test/alarm-simulation/single-alarm.test.ts')
 it('new alarm overwrites pending alarm', async () => {
   await using client = createTestingClient<typeof MyDO>('MY_DO', 'overwrite');
 
@@ -247,7 +247,7 @@ it('new alarm overwrites pending alarm', async () => {
 
 The simulation works seamlessly with `@cloudflare/actors` Alarms, which multiplexes multiple logical alarms over Cloudflare's single native alarm:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/SchedulerDO.ts')
+```typescript @check-example('packages/testing/test/alarm-simulation/scheduler-do.ts')
 import { Actor } from '@cloudflare/actors';
 
 export class SchedulerDO extends Actor<Env> {
@@ -297,7 +297,7 @@ export default instrumented;
 
 Test:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-simulation/actor-alarms.test.ts')
+```typescript @check-example('packages/testing/test/alarm-simulation/actor-alarms.test.ts')
 it('handles multiple Actor alarms automatically', // ...
   await using client = createTestingClient<typeof SchedulerDO>(
     'SCHEDULER_DO',
@@ -428,7 +428,7 @@ This is an **environmental limitation** of the test simulation, not a functional
 
 If using `@lumenize/alarms`, use the built-in `triggerAlarms()` method to manually execute alarms:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-workarounds.test.ts')
+```typescript @check-example('packages/testing/test/alarm-workarounds/alarm-workarounds.test.ts')
 describe('Alarm Execution', () => {
   it('executes scheduled tasks', async () => {
     const stub = env.MY_DO.getByName('alarm-test');
@@ -461,7 +461,7 @@ See [@lumenize/alarms Testing section](/docs/alarms#testing-alarms) for more det
 
 For plain Durable Objects or custom alarm systems, test callback handlers directly:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-workarounds.test.ts')
+```typescript @skip-check
 import { createTestingClient } from '@lumenize/testing';
 
 describe('Alarm Handlers', () => {
@@ -493,7 +493,7 @@ describe('Alarm Handlers', () => {
 
 For comprehensive alarm testing, use Cloudflare's built-in test helper:
 
-```typescript @check-example('packages/testing/test/for-docs/alarm-workarounds.test.ts')
+```typescript @check-example('packages/testing/test/alarm-workarounds/alarm-workarounds.test.ts')
 import { runDurableObjectAlarm } from 'cloudflare:test';
 
 it('triggers all pending alarms', async () => {

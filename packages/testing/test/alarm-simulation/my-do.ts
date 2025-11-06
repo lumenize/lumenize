@@ -2,19 +2,17 @@
  * Simple DO for alarm-simulation pedagogical examples
  * Demonstrates native Cloudflare alarm API
  */
-import { DurableObject } from 'cloudflare:workers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 
-export class MyDO extends DurableObject {
+export class MyDO {
   ctx: DurableObjectState;
-  env: any;
+  env: Env;
   taskStatus: string = 'idle';
   alarmFiredCount: number = 0;
   alarmRetryCount: number = 0;
   private failuresBeforeSuccess: number = 0;
 
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
+  constructor(ctx: DurableObjectState, env: Env) {
     this.ctx = ctx;
     this.env = env;
   }
@@ -60,4 +58,3 @@ export class MyDO extends DurableObject {
     this.alarmRetryCount = 0;
   }
 }
-
