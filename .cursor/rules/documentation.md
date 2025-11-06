@@ -1,0 +1,143 @@
+# Documentation Standards
+
+Documentation philosophy and tooling for Lumenize.
+
+## Philosophy
+
+Documentation quality is ensured by custom Docusaurus tooling that guarantees all code examples are tested and working. The website at https://lumenize.com is the single source of truth for user-facing documentation.
+
+## Where Documentation Lives
+
+### Website Documentation (`/website/docs/`)
+
+**Always:**
+- ✅ All user-facing documentation goes here
+- ✅ Create/update `.mdx` files in `/website/docs/[package-name]/`
+- ✅ Add new files to `/website/sidebars.ts` for navigation
+- ✅ Use proper frontmatter with `title` and `description`
+- ✅ Link between pages with relative links (e.g., `[CORS Support](/docs/utils/cors-support)`)
+- ✅ Large features should be separate files linked from main docs
+
+**Never:**
+- ❌ Don't create temporary docs in package directories (`IMPLEMENTATION.md`, `FEATURE_GUIDE.md`, etc.)
+- ❌ Don't include internal communication content (testing details, compatibility matrices, progress updates)
+
+### Package README.md Files
+
+**Always keep minimal:**
+- ✅ Name, tagline with de✨light✨ful branding
+- ✅ Link to website documentation
+- ✅ Key features (bullet list)
+- ✅ Installation command
+
+**Standard structure:**
+```markdown
+# @lumenize/package-name
+
+A de✨light✨ful [one-line description].
+
+For complete documentation, visit **[https://lumenize.com/docs/package-name](https://lumenize.com/docs/package-name)**
+
+## Features
+
+- **Feature 1**: Brief description
+- **Feature 2**: Brief description
+
+## Installation
+
+\`\`\`bash
+npm install @lumenize/package-name
+\`\`\`
+```
+
+## Documentation Tooling
+
+### Two Custom Docusaurus Plugins
+
+**1. `doc-testing` - Literate Programming Plugin**
+- Write code with large block comments `/* ... */` containing markdown
+- Generates `.mdx` files in `website/docs/` folder
+- Triggered by specifying doc-test location in `website/sidebars.ts`
+- **Best for:** API documentation, tutorials embedded in source code
+
+**2. `check-examples` - Code Example Validation Plugin**
+- Scans hand-written `.mdx` files for code blocks with `@check-example` annotations
+- Each annotation includes a path to a passing test file
+- Fails the build if documentation code doesn't match test code
+- Supports `// ...` wildcards in code blocks to skip boilerplate
+- **Best for:** Hand-written guides, quickstarts, concept explanations
+
+### Running Validation
+
+```bash
+# Fast validation (recommended during development)
+cd website && npm run check-examples
+
+# Full website build (slower, includes TypeDoc and full validation)
+cd website && npm run build
+```
+
+## Code Example Validation
+
+### `@check-example` Annotations
+
+**Always:**
+```typescript
+\`\`\`typescript @check-example('packages/rpc/test/for-docs/basic-usage.test.ts')
+const client = await createRpcClient(stub);
+const result = await client.echo('Hello');
+expect(result).toBe('DO echoed: Hello');
+\`\`\`
+```
+
+**Rules:**
+- ✅ Every code example must be validated against a passing test
+- ✅ Use `// ...` or `/* ... */` to skip boilerplate
+- ✅ Import statements are automatically skipped
+
+**Never:**
+```typescript
+\`\`\`typescript @skip-check
+// Only for non-executable examples like bash commands
+npm install @lumenize/package
+\`\`\`
+```
+
+**Exception:** Only use `@skip-check` for non-executable examples (install commands, configuration snippets). Never for pedagogical code examples.
+
+**Why:** `@skip-check` creates risk of docs/code divergence. Every code example should be validated.
+
+## Documentation Workflow
+
+For the complete 4-phase documentation process, see:
+- **Command:** `/documentation-workflow` 
+- **File:** `/DOCUMENTATION-WORKFLOW.md`
+
+**Quick reference:**
+1. **Phase 1**: Narrative & Pedagogy First (use `@skip-check` temporarily)
+2. **Phase 2**: Make Examples Real (create `test/for-docs/` tests)
+3. **Phase 3**: Fast Validation Loop (`npm run check-examples`)
+4. **Phase 4**: Full Build & Polish (`npm run build`)
+
+## TypeDoc API Documentation
+
+For packages with public APIs that users will import:
+
+**Setup checklist:**
+1. Add TypeDoc plugin to `website/docusaurus.config.ts`
+2. Add TypeDoc sidebar loader to `website/sidebars.ts`
+3. Control visibility via exports in package's `src/index.ts`
+
+**Control what appears:**
+- **Primary strategy**: Only export what users should see
+- **Don't export**: Internal types, utilities, or marker types
+- **Benefits**: Clean IntelliSense + clean API docs
+- **Alternative**: Use `@internal` JSDoc tag (hides from docs but still exported)
+
+## Reference
+
+- **check-examples tool**: `/tooling/check-examples/`
+- **doc-testing tool**: `/tooling/doc-testing/`
+- **Docusaurus config**: `/website/docusaurus.config.ts`
+- **Workflow details**: `/DOCUMENTATION-WORKFLOW.md`
+
