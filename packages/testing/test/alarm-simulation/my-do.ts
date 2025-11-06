@@ -40,10 +40,9 @@ export class MyDO {
 
   async processScheduledTask() {
     // Your task logic here
-    await new Promise(resolve => setTimeout(resolve, 1));
   }
 
-  // Test helpers
+  // Test helpers below this line
   async getAlarmState() {
     const scheduledTime = await this.ctx.storage.getAlarm();
     return { scheduledTime };

@@ -500,8 +500,8 @@ it('triggers all pending alarms', async () => {
   const stub = env.MY_DO.getByName('alarm-test');
   
   // Schedule alarms
-  await stub.scheduleTask(10);
-  await stub.scheduleTask(20);
+  await stub.scheduleTask('task3', 10);
+  await stub.scheduleTask('task4', 20);
   
   // Manually trigger alarm execution
   await runDurableObjectAlarm(stub);
