@@ -70,7 +70,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'istanbul',
-      reporter: ['html', 'lcov'],
+      reporter: ['text', 'html', 'lcov'],
       include: [
         '**/src/**',
         '**/test/integration/test-worker-and-dos.ts'
