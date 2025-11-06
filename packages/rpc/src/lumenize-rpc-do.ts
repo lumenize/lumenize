@@ -11,6 +11,7 @@ import { isNestedOperationMarker } from './types';
 import { stringify, parse } from '@lumenize/structured-clone';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
+import { debug } from '@lumenize/debug';
 
 /**
  * Default RPC configuration
@@ -48,6 +49,8 @@ export async function sendDownstream(
   doInstance: any,
   payload: any
 ): Promise<void> {
+  const log = debug(doInstance)('rpc.downstream');
+  
   // Normalize to array
   const ids = Array.isArray(clientIds) ? clientIds : [clientIds];
   
@@ -68,10 +71,7 @@ export async function sendDownstream(
       try {
         ws.send(messageString);
       } catch (error) {
-        console.error('%o', {
-          type: 'error',
-          where: 'sendDownstream',
-          message: 'Failed to send downstream message',
+        log.warn('Failed to send downstream message', {
           clientId,
           error: error instanceof Error ? error.message : String(error)
         });
@@ -141,6 +141,8 @@ async function handleCallRequest(
   doInstance: any,
   config: Required<RpcConfig>
 ): Promise<Response> {
+  const log = debug(doInstance)('rpc.server');
+  
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
   }
@@ -159,10 +161,7 @@ async function handleCallRequest(
       
       // Log errors for debugging
       if (!callResult.success) {
-        console.error('%o', {
-          type: 'error',
-          where: 'handleCallRequest',
-          message: 'RPC operation execution failed',
+        log.warn('RPC operation execution failed', {
           id: item.id,
           error: callResult.error
         });
@@ -191,10 +190,7 @@ async function handleCallRequest(
     
   } catch (error: any) {
     // This catch is for request parsing errors, not RPC execution errors
-    console.error('%o', {
-      type: 'error',
-      where: 'handleCallRequest',
-      message: 'Request parsing failed',
+    log.warn('Request parsing failed', {
       error: error?.message || error
     });
     // Return a batch response with a single error
@@ -538,6 +534,8 @@ export async function handleRpcMessage(
   doInstance: any,
   config: RpcConfig = {}
 ): Promise<boolean> {
+  const log = debug(doInstance)('rpc.websocket');
+  
   // Only handle string messages
   if (typeof message !== 'string') {
     return false;
@@ -566,10 +564,7 @@ export async function handleRpcMessage(
       
       // Log errors for debugging
       if (!callResult.success) {
-        console.error('%o', {
-          type: 'error',
-          where: 'handleRpcMessage',
-          message: 'RPC operation execution failed',
+        log.warn('RPC operation execution failed', {
           id: item.id,
           error: callResult.error
         });
@@ -623,13 +618,10 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
 
   // Create enhanced class that extends the original
   class LumenizedDO extends (DOClass as T) {
+    #log = debug(this)('rpc.factory');
 
     async fetch(request: Request): Promise<Response> {
-      console.debug('%o', {
-        type: 'debug',
-        where: 'LumenizeDO in factory lumenizeRpcDO',
-        url: request.url,
-      });
+      this.#log.debug('RPC fetch handler', { url: request.url });
       
       // Check for WebSocket upgrade request
       if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {

@@ -6,6 +6,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { stringify, parse } from '@lumenize/structured-clone';
+import { debug } from '@lumenize/debug';
 
 /**
  * Pending batch tracking - maps batch ID to resolve/reject functions
@@ -43,6 +44,7 @@ export class WebSocketRpcTransport implements RpcTransport {
   #keepAliveEnabled: boolean = false;
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #reconnectAttempts: number = 0;
+  #log = debug({})('rpc.client.websocket');
 
   constructor(config: {
     baseUrl: string;
@@ -173,10 +175,7 @@ export class WebSocketRpcTransport implements RpcTransport {
           try {
             this.#config.onConnectionChange(true);
           } catch (error) {
-            console.error('%o', {
-              type: 'error',
-              where: 'WebSocketRpcTransport.onOpen',
-              message: 'Error in onConnectionChange handler',
+            this.#log.warn('Error in onConnectionChange handler', {
               error: error instanceof Error ? error.message : String(error)
             });
           }
@@ -222,19 +221,11 @@ export class WebSocketRpcTransport implements RpcTransport {
     });
 
     ws.addEventListener('error', (event) => {
-      console.error('%o', {
-        type: 'error',
-        where: 'WebSocketRpcTransport',
-        message: 'WebSocket error',
-        event
-      });
+      this.#log.warn('WebSocket error', { event });
     });
 
     ws.addEventListener('close', (event) => {
-      console.debug('%o', {
-        type: 'debug',
-        where: 'WebSocketRpcTransport',
-        message: 'WebSocket closed',
+      this.#log.debug('WebSocket closed', {
         code: event.code,
         reason: event.reason
       });
@@ -251,10 +242,7 @@ export class WebSocketRpcTransport implements RpcTransport {
         try {
           this.#config.onClose(event.code, event.reason);
         } catch (error) {
-          console.error('%o', {
-            type: 'error',
-            where: 'WebSocketRpcTransport.closeHandler',
-            message: 'Error in onClose handler',
+          this.#log.warn('Error in onClose handler', {
             error: error instanceof Error ? error.message : String(error)
           });
         }
@@ -265,10 +253,7 @@ export class WebSocketRpcTransport implements RpcTransport {
         try {
           this.#config.onConnectionChange(false);
         } catch (error) {
-          console.error('%o', {
-            type: 'error',
-            where: 'WebSocketRpcTransport.closeHandler',
-            message: 'Error in onConnectionChange handler',
+          this.#log.warn('Error in onConnectionChange handler', {
             error: error instanceof Error ? error.message : String(error)
           });
         }
@@ -295,20 +280,14 @@ export class WebSocketRpcTransport implements RpcTransport {
     const delay = Math.min(1000 * Math.pow(2, this.#reconnectAttempts), 30000);
     this.#reconnectAttempts++;
 
-    console.debug('%o', {
-      type: 'debug',
-      where: 'WebSocketRpcTransport',
-      message: 'Scheduling reconnect',
+    this.#log.debug('Scheduling reconnect', {
       delay,
       attempt: this.#reconnectAttempts
     });
 
     this.#reconnectTimeoutId = setTimeout(() => {
       this.connect().catch((error) => {
-        console.error('%o', {
-          type: 'error',
-          where: 'WebSocketRpcTransport.scheduleReconnect',
-          message: 'Reconnection failed',
+        this.#log.warn('Reconnection failed', {
           error: error instanceof Error ? error.message : String(error)
         });
         // Will trigger another reconnect via close handler
@@ -330,11 +309,7 @@ export class WebSocketRpcTransport implements RpcTransport {
         if (this.#downstreamHandler) {
           await this.#downstreamHandler(message.payload);
         } else {
-          console.warn('%o', {
-            type: 'warn',
-            where: 'WebSocketRpcTransport.handleMessage',
-            message: 'Received downstream message but no handler registered'
-          });
+          this.#log.warn('Received downstream message but no handler registered');
         }
         return;
       }
@@ -346,14 +321,14 @@ export class WebSocketRpcTransport implements RpcTransport {
         // Find the pending batch using first response ID
         const firstResponseId = messageResponse.batch[0]?.id;
         if (!firstResponseId) {
-          console.warn('Received empty batch response');
+          this.#log.warn('Received empty batch response');
           return;
         }
 
         const pending = this.#pendingBatches.get(firstResponseId);
         
         if (!pending) {
-          console.warn('Received response for unknown operation ID:', firstResponseId);
+          this.#log.warn('Received response for unknown operation ID', { id: firstResponseId });
           return;
         }
 
@@ -372,10 +347,7 @@ export class WebSocketRpcTransport implements RpcTransport {
       throw new Error(`Unknown message type: ${message.type}. Expected '${this.#messageType}' or '__downstream'`);
 
     } catch (error) {
-      console.error('%o', {
-        type: 'error',
-        where: 'WebSocketRpcTransport.handleMessage',
-        message: 'Failed to parse or handle WebSocket message',
+      this.#log.warn('Failed to parse or handle WebSocket message', {
         error: error instanceof Error ? error.message : String(error)
       });
     }

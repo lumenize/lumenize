@@ -1,5 +1,6 @@
 import type { RpcBatchRequest, RpcBatchResponse, RpcTransport } from './types';
 import { stringify, parse } from '@lumenize/structured-clone';
+import { debug } from '@lumenize/debug';
 
 /**
  * Utility function to remove leading and trailing slashes from a URL segment
@@ -22,6 +23,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     fetch: typeof fetch;
     headers: Record<string, string>;
   };
+  #log = debug({})('rpc.client.http');
 
   constructor(config: {
     baseUrl: string;
@@ -47,11 +49,7 @@ export class HttpPostRpcTransport implements RpcTransport {
 
     const url = `${baseUrl}/${prefix}/${doBindingName}/${doInstanceNameOrId}/call`;
 
-    console.debug('%o', {
-      type: 'debug',
-      where: 'HttpPostTransport.execute',
-      batch
-    });
+    this.#log.debug('Executing RPC batch', { batch });
 
     const headers = {
       'Content-Type': 'application/json',

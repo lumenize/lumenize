@@ -15,6 +15,7 @@ import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
+import { debug } from '@lumenize/debug';
 
 /**
  * WeakMap to track proxy objects and their operation chains.
@@ -324,6 +325,7 @@ export class RpcClient<T> {
   #transport: RpcTransport;
   #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
+  #log = debug({})('rpc.client');
   
   // Operations in the same tick are batched
   #executionQueue: QueuedExecution[] = [];
@@ -602,7 +604,7 @@ export class RpcClient<T> {
       for (const response of batchResponse.batch) {
         const queued = queue.find(q => q.id === response.id);
         if (!queued) {
-          console.warn('Received response for unknown operation ID:', response.id);
+          this.#log.warn('Received response for unknown operation ID', { id: response.id });
           continue;
         }
 
