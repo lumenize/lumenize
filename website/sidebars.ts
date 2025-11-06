@@ -321,6 +321,14 @@ const sidebars: SidebarsConfig = {
 
     {
       type: 'category',
+      label: 'Debug',
+      items: [
+        'debug/index',
+      ],
+    },
+
+    {
+      type: 'category',
       label: 'Alarms',
       items: [
         'alarms/index',

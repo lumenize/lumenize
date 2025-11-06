@@ -1,17 +1,16 @@
 # @lumenize/debug
 
-A de✨light✨ful scoped debug logging system for Cloudflare Durable Objects and browsers.
+A de✨light✨ful scoped debug logging system for Cloudflare Durable Objects.
 
 For complete documentation, visit **[https://lumenize.com/docs/debug](https://lumenize.com/docs/debug)**
 
 ## Features
 
-- **Namespace-based filtering**: Control which logs you see with patterns like `DEBUG=proxy-fetch.*`
-- **Level support**: debug, info, and warn levels with independent filtering
-- **Zero-cost when disabled**: Early returns prevent any computation when logging is off
-- **Cloudflare-optimized**: JSON output for queryable Cloudflare log dashboard
-- **Dual environments**: NADIC service for DOs, standalone for browsers
-- **npm debug compatibility**: Familiar filter syntax with exclusions and wildcards
+- **Namespace filtering**: Control logs with patterns like `DEBUG=proxy-fetch.*`
+- **Level support**: `debug`, `info`, and `warn` levels with independent filtering
+- **Zero-cost when disabled**: Early exit prevents computation when logging is off
+- **JSON output**: Structured logs integrate with Cloudflare's log dashboard
+- **NADIS integration**: Auto-injected into `LumenizeBase` via `this.svc.debug`
 
 ## Installation
 
@@ -21,42 +20,25 @@ npm install @lumenize/debug
 
 ## Quick Start
 
-### Server-Side (Durable Objects)
-
 ```typescript
 import '@lumenize/debug';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 
 class MyDO extends LumenizeBase<Env> {
-  myMethod() {
-    const log = this.svc.createDebug('my-app.feature');
-    log.debug('detailed info', { data });
-    log.info('milestone reached');
-    log.warn('potential issue', { retryCount });
+  async fetch(request: Request) {
+    const log = this.svc.debug('my-app.http');
+    log.debug('Processing request', { url: request.url });
+    log.info('Request completed', { status: 200 });
+    return new Response('OK');
   }
 }
 ```
 
-Set `DEBUG=my-app.*` in your `.dev.vars` or wrangler.jsonc.
+Configure via `DEBUG` environment variable in `.dev.vars`:
 
-### Client-Side (Browser)
-
-```typescript
-import { createDebug } from '@lumenize/debug/client';
-
-const log = createDebug('my-app.websocket');
-log.debug('connection opened', { id });
-log.info('authenticated');
+```bash
+DEBUG=my-app.*
 ```
-
-Set `localStorage.DEBUG = 'my-app.*'` in browser console.
-
-## Filter Syntax
-
-- `DEBUG=proxy-fetch` - Enable proxy-fetch and all children
-- `DEBUG=proxy-fetch:warn` - Only warn level
-- `DEBUG=*` - Everything
-- `DEBUG=proxy-fetch,-proxy-fetch.verbose` - Exclusions
 
 ## License
 

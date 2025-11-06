@@ -1,0 +1,350 @@
+---
+title: "@lumenize/debug"
+description: "Scoped, filterable debug logging optimized for Cloudflare's JSON log dashboard"
+---
+
+# @lumenize/debug
+
+A de✨light✨ful scoped debug logging system for Cloudflare Durable Objects, inspired by npm's `debug` package with level support and JSON output.
+
+## Features
+
+- **Namespace filtering**: Use dot-notation scopes (e.g., `proxy-fetch.serialization`) with wildcard patterns
+- **Level support**: `debug`, `info`, and `warn` levels, all filterable
+- **JSON output**: Structured logs integrate seamlessly with Cloudflare's log dashboard
+- **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
+- **NADIS integration**: Auto-injected into `LumenizeBase` via `this.svc.debug`
+
+## Installation
+
+```bash
+npm install @lumenize/debug
+```
+
+## Quick Start
+
+### In Durable Objects (LumenizeBase)
+
+```typescript
+import '@lumenize/debug';  // Registers in this.svc
+import { LumenizeBase } from '@lumenize/lumenize-base';
+
+class MyDO extends LumenizeBase<Env> {
+  async fetch(request: Request) {
+    const log = this.svc.debug('my-app.http');
+    
+    log.debug('Processing request', { 
+      url: request.url, 
+      method: request.method 
+    });
+    
+    // ... do work ...
+    
+    log.info('Request completed', { 
+      duration: performance.now() - start 
+    });
+    
+    return new Response('OK');
+  }
+}
+```
+
+### In Vanilla Durable Objects
+
+```typescript
+import { debug } from '@lumenize/debug';
+import { DurableObject } from 'cloudflare:workers';
+
+class MyDO extends DurableObject {
+  #log = debug(this)('my-namespace');
+  
+  async fetch(request: Request) {
+    this.#log.debug('Processing request', { url: request.url });
+    return new Response('OK');
+  }
+}
+```
+
+### In Workers (outside DOs)
+
+```typescript
+import { debug } from '@lumenize/debug';
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const log = debug({ env })('worker.router');
+    
+    log.debug('Routing request', { 
+      pathname: new URL(request.url).pathname 
+    });
+    
+    // Route to DO...
+    return response;
+  }
+}
+```
+
+## Configuration
+
+Control logging via the `DEBUG` environment variable (in `.dev.vars` for local development):
+
+```bash
+# Enable all levels for a namespace
+DEBUG=proxy-fetch
+
+# Enable only warn level
+DEBUG=proxy-fetch:warn
+
+# Multiple namespaces
+DEBUG=proxy-fetch,rpc.client
+
+# Wildcard patterns
+DEBUG=proxy-fetch.*
+
+# Everything
+DEBUG=*
+
+# Exclusions
+DEBUG=*,-proxy-fetch.verbose
+```
+
+### Level Filtering
+
+Each namespace can have a level filter:
+
+- `DEBUG=app` - All levels (debug, info, warn)
+- `DEBUG=app:info` - Info and warn only
+- `DEBUG=app:warn` - Warn only
+
+Default is all levels when no level specified.
+
+## Log Output Format
+
+All logs output as JSON objects to `console.debug`:
+
+```json
+{
+  "level": "debug",
+  "namespace": "proxy-fetch.queue",
+  "message": "Processing request",
+  "url": "https://api.example.com/data",
+  "method": "POST",
+  "timestamp": 1699564800000
+}
+```
+
+This format integrates with Cloudflare's log dashboard, allowing you to:
+- Query by field (e.g., `namespace:"proxy-fetch.queue"`)
+- Filter by level
+- Search message content
+- Analyze structured data
+
+## API
+
+### `debug(instance)`
+
+Creates a debug logger factory.
+
+**Parameters:**
+- `instance` - Durable Object instance (with `env`) or object with `env` property
+
+**Returns:** Factory function `(namespace: string) => DebugLogger`
+
+**Example:**
+```typescript
+const createLogger = debug(this);
+const log = createLogger('my-namespace');
+```
+
+### `DebugLogger` Interface
+
+#### `log.debug(message, data?)`
+
+Log at debug level (most verbose).
+
+```typescript
+log.debug('Parsing request body', { 
+  contentType: 'application/json',
+  size: body.length 
+});
+```
+
+#### `log.info(message, data?)`
+
+Log informational messages (milestones, events).
+
+```typescript
+log.info('Cache hit', { 
+  key: 'user:123',
+  ttl: 3600 
+});
+```
+
+#### `log.warn(message, data?)`
+
+Log warnings (expected operational issues, not errors).
+
+```typescript
+log.warn('Retry limit reached', { 
+  reqId: 'abc-123',
+  retryCount: 5 
+});
+```
+
+#### `log.enabled`
+
+Boolean flag indicating if this logger is enabled for any level.
+
+```typescript
+if (log.enabled) {
+  // Expensive computation only if logging enabled
+  const details = computeExpensiveDetails();
+  log.debug('Details', details);
+}
+```
+
+## Namespace Conventions
+
+Recommended namespace patterns:
+
+- **Package scope**: `proxy-fetch`, `rpc`, `utils`
+- **Component scope**: `proxy-fetch.queue`, `rpc.client`
+- **Feature scope**: `proxy-fetch.serialization`, `rpc.websocket`
+
+Examples from Lumenize packages:
+
+- `proxy-fetch.queue` - Queue consumer
+- `proxy-fetch.do` - Durable Object
+- `rpc.client` - RPC client
+- `rpc.server` - RPC server
+- `rpc.websocket` - WebSocket transport
+- `rpc.downstream` - Downstream messaging
+- `utils.route-do-request` - Request routing
+
+## Performance
+
+The debug system has minimal overhead:
+
+1. **Early exit**: `enabled` flag checked first - no-op if disabled
+2. **No string interpolation**: Use object format, not template literals
+3. **No object creation**: Only when actually logging
+
+```typescript
+// ✅ Good - no overhead when disabled
+log.debug('Processing', { items: items.length });
+
+// ❌ Bad - string interpolation happens even when disabled
+log.debug(`Processing ${items.length} items`);
+```
+
+## Error Logging
+
+**Important**: Don't use the debug system for critical errors. Use `console.error` directly:
+
+```typescript
+// ✅ Critical system errors - always visible
+console.error('Queue processing failed', {
+  error: e.message,
+  stack: e.stack,
+  reqId
+});
+
+// ✅ Expected operational issues - filterable
+log.warn('Retry limit reached', {
+  reqId,
+  retryCount: 5
+});
+
+// ✅ Debugging information - filterable
+log.debug('Parsed request', {
+  url,
+  method
+});
+```
+
+## Use Cases
+
+### Development
+
+Enable all logging during local development:
+
+```bash
+DEBUG=* npm run dev
+```
+
+### Testing
+
+Enable specific namespaces for failing tests:
+
+```bash
+DEBUG=proxy-fetch.queue npm test
+```
+
+### Production Debugging
+
+Add `DEBUG` to environment variables temporarily to debug production issues without code changes.
+
+### Performance Analysis
+
+Use `log.info` for timing and performance milestones:
+
+```typescript
+const log = this.svc.debug('app.performance');
+const start = performance.now();
+
+// ... do work ...
+
+log.info('Operation completed', {
+  operation: 'fetchData',
+  duration: performance.now() - start,
+  recordCount: records.length
+});
+```
+
+## TypeScript Integration
+
+The package provides full TypeScript support with NADIS auto-registration:
+
+```typescript
+// After importing '@lumenize/debug', TypeScript knows about it
+import '@lumenize/debug';
+import { LumenizeBase } from '@lumenize/lumenize-base';
+
+class MyDO extends LumenizeBase<Env> {
+  myMethod() {
+    // ✅ TypeScript autocomplete works
+    const log = this.svc.debug('my-namespace');
+    log.debug('message', { data });  // ✅ Type checked
+  }
+}
+```
+
+## Best Practices
+
+1. **Use object format**: Always pass data as second parameter object
+2. **Descriptive messages**: Make messages searchable (e.g., "CORS origin rejected", not "rejected")
+3. **Structured data**: Include relevant context (IDs, counts, flags)
+4. **Appropriate levels**: 
+   - `debug` - Everything
+   - `info` - Milestones, events
+   - `warn` - Expected issues
+5. **Namespace organization**: Use dot-notation hierarchy (package.component.feature)
+6. **Performance**: Check `log.enabled` before expensive computations
+
+## Comparison with npm's `debug`
+
+Similarities:
+- Namespace filtering with wildcards
+- Environment variable configuration
+- Zero-cost when disabled
+
+Differences:
+- **Level support**: debug, info, warn (vs. single level)
+- **JSON output**: Structured objects (vs. plain text)
+- **Cloudflare-optimized**: No colors, no TTY detection
+- **NADIS integration**: Auto-injection in LumenizeBase
+
+## License
+
+MIT
+
