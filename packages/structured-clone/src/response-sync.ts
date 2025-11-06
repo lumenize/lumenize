@@ -213,7 +213,7 @@ export class ResponseSync {
    * Use this when you have a real Response and need to convert it for serialization.
    * 
    * @param response - Real Response object
-   * @returns Promise<ResponseSync>
+   * @returns Promise\<ResponseSync\>
    * 
    * @example
    * ```typescript

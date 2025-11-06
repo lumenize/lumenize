@@ -19,7 +19,7 @@ Part of `@lumenize/core`.
 
 ## Installation
 
-```bash
+```bash @skip-check
 npm install @lumenize/core
 ```
 
@@ -27,7 +27,7 @@ npm install @lumenize/core
 
 ### In Durable Objects (LumenizeBase)
 
-```typescript
+```typescript @skip-check
 import '@lumenize/core';  // Registers in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
 
@@ -53,7 +53,7 @@ class MyDO extends LumenizeBase<Env> {
 
 ### In Vanilla Durable Objects
 
-```typescript
+```typescript @skip-check
 import { debug } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 
@@ -69,7 +69,7 @@ class MyDO extends DurableObject {
 
 ### In Workers (outside DOs)
 
-```typescript
+```typescript @skip-check
 import { debug } from '@lumenize/core';
 
 export default {
@@ -90,7 +90,7 @@ export default {
 
 Control logging via the `DEBUG` environment variable (in `.dev.vars` for local development):
 
-```bash
+```bash @skip-check
 # Enable all levels for a namespace
 DEBUG=proxy-fetch
 
@@ -124,7 +124,7 @@ Default is all levels when no level specified.
 
 All logs output as JSON objects to `console.debug`:
 
-```json
+```json @skip-check
 {
   "level": "debug",
   "namespace": "proxy-fetch.queue",
@@ -153,7 +153,7 @@ Creates a debug logger factory.
 **Returns:** Factory function `(namespace: string) => DebugLogger`
 
 **Example:**
-```typescript
+```typescript @skip-check
 const createLogger = debug(this);
 const log = createLogger('my-namespace');
 ```
@@ -164,7 +164,7 @@ const log = createLogger('my-namespace');
 
 Log at debug level (most verbose).
 
-```typescript
+```typescript @skip-check
 log.debug('Parsing request body', { 
   contentType: 'application/json',
   size: body.length 
@@ -175,7 +175,7 @@ log.debug('Parsing request body', {
 
 Log informational messages (milestones, events).
 
-```typescript
+```typescript @skip-check
 log.info('Cache hit', { 
   key: 'user:123',
   ttl: 3600 
@@ -186,7 +186,7 @@ log.info('Cache hit', {
 
 Log warnings (expected operational issues, not errors).
 
-```typescript
+```typescript @skip-check
 log.warn('Retry limit reached', { 
   reqId: 'abc-123',
   retryCount: 5 
@@ -197,7 +197,7 @@ log.warn('Retry limit reached', {
 
 Boolean flag indicating if this logger is enabled for any level.
 
-```typescript
+```typescript @skip-check
 if (log.enabled) {
   // Expensive computation only if logging enabled
   const details = computeExpensiveDetails();
@@ -231,7 +231,7 @@ The debug system has minimal overhead:
 2. **No string interpolation**: Use object format, not template literals
 3. **No object creation**: Only when actually logging
 
-```typescript
+```typescript @skip-check
 // ✅ Good - no overhead when disabled
 log.debug('Processing', { items: items.length });
 
@@ -243,7 +243,7 @@ log.debug(`Processing ${items.length} items`);
 
 **Important**: Don't use the debug system for critical errors. Use `console.error` directly:
 
-```typescript
+```typescript @skip-check
 // ✅ Critical system errors - always visible
 console.error('Queue processing failed', {
   error: e.message,
@@ -270,7 +270,7 @@ log.debug('Parsed request', {
 
 Enable all logging during local development:
 
-```bash
+```bash @skip-check
 DEBUG=* npm run dev
 ```
 
@@ -278,7 +278,7 @@ DEBUG=* npm run dev
 
 Enable specific namespaces for failing tests:
 
-```bash
+```bash @skip-check
 DEBUG=proxy-fetch.queue npm test
 ```
 
@@ -290,7 +290,7 @@ Add `DEBUG` to environment variables temporarily to debug production issues with
 
 Use `log.info` for timing and performance milestones:
 
-```typescript
+```typescript @skip-check
 const log = this.svc.debug('app.performance');
 const start = performance.now();
 
@@ -307,7 +307,7 @@ log.info('Operation completed', {
 
 The package provides full TypeScript support with NADIS auto-registration:
 
-```typescript
+```typescript @skip-check
 // After importing '@lumenize/debug', TypeScript knows about it
 import '@lumenize/debug';
 import { LumenizeBase } from '@lumenize/lumenize-base';
