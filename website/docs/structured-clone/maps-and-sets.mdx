@@ -9,7 +9,7 @@ When serializing `Map` and `Set` objects with `@lumenize/structured-clone`, it's
 ## TL;DR
 
 - ✅ **Primitive keys/values** (strings, numbers, booleans) work as expected
-- ⚠️ **Object keys/values** behavior depends on **serialization boundaries**:
+- ⚠️ **Object as Map keys or Set values** behavior depends on **serialization boundaries**:
   - ✅ **Identity preserved** within a single `stringify()`/`parse()` or RPC call
   - ❌ **Identity lost** across separate storage operations or multiple calls
 - 🔍 Best practice: **return objects and their Map/Set together** in same call/serialization
@@ -123,41 +123,7 @@ if (targetKey) {
 }
 ```
 
-### Pattern 2: Helper Function for Deep Equality
-
-For more complex key matching:
-
-```typescript
-// Helper to check if two objects match structurally
-function keysMatch(key: any, template: any): boolean {
-  if (typeof key !== 'object' || typeof template !== 'object') {
-    return key === template;
-  }
-  
-  // Check all template properties exist and match in key
-  for (const prop in template) {
-    if (key[prop] !== template[prop]) {
-      return false;
-    }
-  }
-  return true;
-}
-
-// Receiver side
-const restored = await parse(serialized);
-
-// Find key matching a template
-const targetKey = Array.from(restored.keys()).find(
-  key => keysMatch(key, { userId: 456, type: "user" })
-);
-
-if (targetKey) {
-  const value = restored.get(targetKey);
-  console.log(value);  // ✅ { name: "Bob", email: "bob@example.com" }
-}
-```
-
-### Pattern 3: Store Keys Separately
+### Pattern 2: Store Keys Separately
 
 The most reliable pattern is to **explicitly share the key objects** in your data structure:
 
@@ -186,105 +152,40 @@ console.log(restored.keyToLookup === Array.from(restored.map.keys())[0]);
 
 ## Set Behavior with Objects
 
-The same principles apply to `Set`:
-
-### Primitive Values - Work as Expected
+The same principles apply to `Set` - primitive values work as expected, while object values follow the same identity rules as Map keys:
 
 ```typescript
-const set = new Set(["apple", "banana", 123, true]);
+// Primitive values work fine
+const set = new Set(["apple", "banana", 123]);
 const restored = await parse(await stringify(set));
-
 console.log(restored.has("apple"));  // ✅ true
-console.log(restored.has(123));      // ✅ true
-```
 
-### Object Values - Search Required
-
-```typescript
-// Sender side
-const obj1 = { id: 1, name: "Alice" };
-const obj2 = { id: 2, name: "Bob" };
-const set = new Set([obj1, obj2]);
-
-const serialized = await stringify(set);
-
-// Receiver side
-const restored = await parse(serialized);
-
-// Can't check with new object
-console.log(restored.has({ id: 1, name: "Alice" }));  // ❌ false
-
-// Must search through values
-const hasAlice = Array.from(restored).some(
-  item => item.id === 1 && item.name === "Alice"
-);
-console.log(hasAlice);  // ✅ true
-
-// Or store references separately
-const data = {
-  set: new Set([obj1, obj2]),
-  aliceRef: obj1
-};
-
-const restoredData = await parse(await stringify(data));
-console.log(restoredData.set.has(restoredData.aliceRef));  // ✅ true
+// Object values: can't use new objects, must search or store reference
+const obj = { id: 1, name: "Alice" };
+const data = { set: new Set([obj]), aliceRef: obj };
+const restored = await parse(await stringify(data));
+console.log(restored.set.has(restored.aliceRef));  // ✅ true
 ```
 
 ## Aliases and Identity Preservation
 
-One powerful feature: **if the same object appears multiple times** in your data structure, it's reconstructed as the **same object reference**:
-
-### Map with Shared Keys
+If the same object appears multiple times in your data structure, it's reconstructed as the **same object reference**:
 
 ```typescript
-// Sender side
 const sharedKey = { category: "users" };
-
 const map1 = new Map([[sharedKey, "data1"]]);
 const map2 = new Map([[sharedKey, "data2"]]);
-
 const data = { map1, map2, theKey: sharedKey };
 
-const serialized = await stringify(data);
-
-// Receiver side
-const restored = await parse(serialized);
+const restored = await parse(await stringify(data));
 
 // All references point to the same reconstructed object!
 console.log(restored.map1.get(restored.theKey));  // ✅ "data1"
 console.log(restored.map2.get(restored.theKey));  // ✅ "data2"
 
-// Verify they're the same object
 const key1 = Array.from(restored.map1.keys())[0];
 const key2 = Array.from(restored.map2.keys())[0];
-console.log(key1 === key2);           // ✅ true
-console.log(key1 === restored.theKey); // ✅ true
-```
-
-### Set with Shared Values
-
-```typescript
-// Sender side
-const sharedObj = { config: { theme: "dark" } };
-
-const set1 = new Set([sharedObj]);
-const set2 = new Set([sharedObj]);
-
-const data = { set1, set2, theObj: sharedObj };
-
-const serialized = await stringify(data);
-
-// Receiver side
-const restored = await parse(serialized);
-
-// All references are the same reconstructed object
-console.log(restored.set1.has(restored.theObj));  // ✅ true
-console.log(restored.set2.has(restored.theObj));  // ✅ true
-
-// Modifying via one reference affects all
-const obj = Array.from(restored.set1)[0];
-obj.config.theme = "light";
-console.log(restored.theObj.config.theme);  // "light"
+console.log(key1 === key2 && key1 === restored.theKey);  // ✅ true
 ```
 
 ## RPC and Serialization Boundaries
@@ -353,68 +254,15 @@ This is why DO Storage shows ⚠️ for Map/Set - you can't use the original key
 
 ## Best Practices
 
-### ✅ DO: Use Primitive Keys When Possible
+**✅ DO:**
+- Use primitive keys (strings, numbers) when possible
+- Store key/value references separately in your data structure so they're returned together
+- Return Maps and their object keys together in a single RPC call or serialization
+- Search through reconstructed keys using property matching when needed
 
-```typescript
-// Good: Use user IDs as keys
-const userMap = new Map([
-  ["user123", { name: "Alice", email: "alice@example.com" }],
-  ["user456", { name: "Bob", email: "bob@example.com" }]
-]);
-```
-
-### ✅ DO: Store Key References Separately
-
-```typescript
-// Good: Explicitly share keys you'll need to look up
-const keyObj = { category: "admin", level: 5 };
-const data = {
-  permissions: new Map([[keyObj, { canEdit: true, canDelete: true }]]),
-  adminKey: keyObj  // ✅ Can use this to look up later
-};
-```
-
-### ✅ DO: Search Keys by Properties
-
-```typescript
-// Good: Find keys by searching
-const targetKey = Array.from(map.keys()).find(
-  key => key.userId === targetUserId
-);
-if (targetKey) {
-  const value = map.get(targetKey);
-}
-```
-
-### ❌ DON'T: Expect New Objects to Match
-
-```typescript
-// Bad: This won't work
-const restored = await parse(serialized);
-const value = restored.get({ userId: 123 });  // ❌ undefined!
-```
-
-### ❌ DON'T: Use Complex Objects as Keys Without a Lookup Strategy
-
-```typescript
-// Bad: No way to find the right key later
-const map = new Map();
-map.set({ complexStructure: { nested: { deep: true } } }, "value");
-// How will you find this key after deserialization? 🤔
-```
-
-## Why This Behavior is Correct
-
-This behavior **exactly matches JavaScript's native semantics**:
-
-1. **JavaScript compares objects by reference**, not structure
-2. **Serialization creates new objects** (just like cloning)
-3. **The package preserves structure and relationships**, not physical memory addresses
-
-If you need structural equality for keys, consider:
-- Using primitive keys (strings/numbers)
-- Creating a unique string representation as the key
-- Storing keys separately for explicit lookup
+**❌ DON'T:**
+- Expect new objects to match: `map.get({ userId: 123 })` won't work after deserialization
+- Use complex objects as keys without a clear lookup strategy
 
 ## Summary
 
@@ -424,5 +272,5 @@ If you need structural equality for keys, consider:
 | Object (reconstructed from serialization) | Fully reconstructed, new identity | Use the reconstructed object: `map.get(keys[0])` |
 | Object (shared in data structure) | Same identity preserved | Use the shared reference: `map.get(data.keyRef)` |
 
-Understanding these semantics ensures you can confidently use Maps and Sets with `@lumenize/structured-clone` across serialization boundaries!
+Understanding these semantics ensures you can confidently use Maps and Sets with `@lumenize/structured-clone` and `@lumenize/rpc` across serialization boundaries!
 
