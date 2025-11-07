@@ -9,8 +9,10 @@ When serializing `Map` and `Set` objects with `@lumenize/structured-clone`, it's
 ## TL;DR
 
 - ✅ **Primitive keys/values** (strings, numbers, booleans) work as expected
-- ⚠️ **Object keys/values** are fully reconstructed but have **new identity**
-- 🔍 To find object keys after deserialization, **search through the reconstructed keys**
+- ⚠️ **Object keys/values** behavior depends on **serialization boundaries**:
+  - ✅ **Identity preserved** within a single `stringify()`/`parse()` or RPC call
+  - ❌ **Identity lost** across separate storage operations or multiple calls
+- 🔍 Best practice: **return objects and their Map/Set together** in same call/serialization
 
 ## Primitive Keys - Work as Expected
 
@@ -284,6 +286,70 @@ const obj = Array.from(restored.set1)[0];
 obj.config.theme = "light";
 console.log(restored.theObj.config.theme);  // "light"
 ```
+
+## RPC and Serialization Boundaries
+
+The same identity preservation behavior applies when using **`@lumenize/rpc`**. Within a single RPC call, object identity is preserved:
+
+```typescript
+// Server-side DO
+export class MyDO extends LumenizeBase {
+  getData() {
+    const keyObj = { userId: 123 };
+    const map = new Map([[keyObj, "user data"]]);
+    
+    // Return both the map and the key in the same response
+    return {
+      map,
+      key: keyObj  // ✅ Identity preserved!
+    };
+  }
+}
+
+// Client-side
+const stub = env.MY_DO.get(id);
+const data = await stub.getData();  // Single RPC call
+
+// The key reference works because it was returned together!
+console.log(data.map.get(data.key));  // ✅ "user data"
+console.log(data.key === Array.from(data.map.keys())[0]);  // ✅ true
+```
+
+### Understanding Serialization Boundaries
+
+**Identity preserved (single boundary):**
+- ✅ Single RPC method call: `await stub.method()` returns object with map + key
+- ✅ Single `stringify()`/`parse()`: One serialization cycle
+- ✅ Native `structuredClone()`: One clone operation
+
+**Identity lost (separate boundaries):**
+- ❌ Separate RPC calls: Call 1 returns map, Call 2 returns key
+- ❌ DO Storage: `put(map)` then later `get()` and use original key
+- ❌ Separate `stringify()` calls: Serialize map and key independently
+
+```typescript
+// ❌ Won't work: Separate RPC calls
+const map = await stub.getMap();      // Call 1
+const key = await stub.getKey();      // Call 2
+console.log(map.get(key));            // ❌ undefined - different boundaries!
+
+// ✅ Will work: Single RPC call
+const data = await stub.getMapAndKey();  // One call returns both
+console.log(data.map.get(data.key));     // ✅ Works!
+```
+
+### Storage vs RPC
+
+The warning symbols (⚠️) in the [type support table](/docs/structured-clone/type-support#support-table) reflect these different boundaries:
+
+| System | Boundary | Object Identity |
+|--------|----------|----------------|
+| `@lumenize/structured-clone` | Per `stringify()`/`parse()` | ✅ Preserved |
+| `@lumenize/rpc` | Per RPC method call | ✅ Preserved |
+| Workers RPC | Per RPC method call | ✅ Preserved |
+| DO Storage | Per `put()`/`get()` operation | ❌ Lost |
+
+This is why DO Storage shows ⚠️ for Map/Set - you can't use the original key after storing and retrieving. But RPC preserves identity within a call!
 
 ## Best Practices
 
