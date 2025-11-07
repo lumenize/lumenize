@@ -412,59 +412,59 @@ async function processIncomingOperations(
  * Flattens prototype chains - makes prototype methods/properties into own properties
  * Only creates new objects when necessary (preserves identity for plain objects)
  */
-function flattenPrototypeChains(value: any, seen = new WeakMap<any, any>()): any {
+function flattenPrototypeChains(obj: any, seen = new WeakMap<any, any>()): any {
   // Primitives and null/undefined pass through
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return value;
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
   }
   
   // Handle circular references
-  if (seen.has(value)) {
-    return seen.get(value);
+  if (seen.has(obj)) {
+    return seen.get(obj);
   }
   
   // Handle built-in types that structured-clone handles (don't flatten these)
-  if (isStructuredCloneNativeType(value)) {
-    seen.set(value, value);
-    return value;
+  if (isStructuredCloneNativeType(obj)) {
+    seen.set(obj, obj);
+    return obj;
   }
   
   // Handle arrays
-  if (Array.isArray(value)) {
+  if (Array.isArray(obj)) {
     const flattened: any[] = [];
-    seen.set(value, flattened);
-    for (const item of value) {
+    seen.set(obj, flattened);
+    for (const item of obj) {
       flattened.push(flattenPrototypeChains(item, seen));
     }
     return flattened;
   }
   
   // Check if this object has a non-trivial prototype (class instance)
-  const proto = Object.getPrototypeOf(value);
+  const proto = Object.getPrototypeOf(obj);
   const hasPrototypeMethods = proto && proto !== Object.prototype && proto !== null;
   
   if (!hasPrototypeMethods) {
     // Plain object - just recurse into properties
-    seen.set(value, value);
+    seen.set(obj, obj);
     const flattened: any = {};
-    for (const [key, val] of Object.entries(value)) {
+    for (const [key, val] of Object.entries(obj)) {
       flattened[key] = flattenPrototypeChains(val, seen);
     }
     // Check if anything changed
-    const hasChanges = Object.keys(flattened).some(k => flattened[k] !== value[k]);
+    const hasChanges = Object.keys(flattened).some(k => flattened[k] !== obj[k]);
     if (!hasChanges) {
-      return value; // Preserve identity
+      return obj; // Preserve identity
     }
-    seen.set(value, flattened);
+    seen.set(obj, flattened);
     return flattened;
   }
   
   // Has prototype methods - flatten them into own properties
   const flattened: any = {};
-  seen.set(value, flattened);
+  seen.set(obj, flattened);
   
   // Copy own properties
-  for (const [key, val] of Object.entries(value)) {
+  for (const [key, val] of Object.entries(obj)) {
     flattened[key] = flattenPrototypeChains(val, seen);
   }
   
@@ -481,8 +481,17 @@ function flattenPrototypeChains(value: any, seen = new WeakMap<any, any>()): any
       // Get the value
       if ('value' in descriptor) {
         flattened[key] = flattenPrototypeChains(descriptor.value, seen);
+      } else if ('get' in descriptor && descriptor.get) {
+        // Evaluate getters - needed for __asObject() inspection
+        try {
+          const getterValue = descriptor.get.call(obj);
+          if (getterValue !== undefined) {
+            flattened[key] = flattenPrototypeChains(getterValue, seen);
+          }
+        } catch (error) {
+          // If getter throws, skip it
+        }
       }
-      // Skip getters - they could have side effects
     }
     currentProto = Object.getPrototypeOf(currentProto);
   }
