@@ -12,8 +12,8 @@
 | BigInt | ✅ | ✅ | ✅ | ✅ | |
 | Date | ✅ | ✅ | ✅ | ✅ | |
 | RegExp | ✅ | ✅ | ❌→✅ | ✅ | |
-| Map | ✅ | ✅ | ❌→✅ | ✅ | |
-| Set | ✅ | ✅ | ❌→✅ | ✅ | |
+| Map | ✅⚠️ | ✅⚠️ | ❌→✅ | ✅⚠️ | Object keys lose identity |
+| Set | ✅⚠️ | ✅⚠️ | ❌→✅ | ✅⚠️ | Object values lose identity |
 | ArrayBuffer | ✅ | ✅ | ❌→✅ | ✅ | |
 | Uint8Array | ✅ | ✅ | ✅ | ✅ | |
 | **Errors** | | | | | |
@@ -28,5 +28,8 @@
 | ReadableStream | ✅ | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
 | WritableStream | ✅ | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
 
-Note, we use ❌→✅ or ⚠️→✅ in the Cap'n Web column for certain rows because we
-have submitted a [pull request to upgrade Cap'n Web's type support](https://github.com/cloudflare/capnweb/pull/99).
+**Notes:**
+
+- We use ❌→✅ or ⚠️→✅ in the Cap'n Web column for certain rows because we have submitted a [pull request to upgrade Cap'n Web's type support](https://github.com/cloudflare/capnweb/pull/99).
+
+- **⚠️ Map/Set with Object Keys/Values:** While `Map` and `Set` are fully supported, using objects as Map keys or Set values requires special handling. After serialization/deserialization, object keys/values lose their identity and must be accessed via the reconstructed objects. See [Map and Set Behavior](/docs/structured-clone/maps-and-sets) for details and patterns.

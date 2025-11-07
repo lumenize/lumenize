@@ -1,5 +1,5 @@
 import type { RpcBatchRequest, RpcBatchResponse, RpcTransport } from './types';
-import { stringify, parse } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { debug } from '@lumenize/core';
 
 /**
@@ -56,8 +56,9 @@ export class HttpPostRpcTransport implements RpcTransport {
       ...this.#config.headers
     };
 
-    // Use stringify on the entire batch request
-    const requestBody = await stringify(batch);
+    // Serialize the entire batch request
+    const requestIntermediate = await preprocess(batch);
+    const requestBody = JSON.stringify(requestIntermediate);
 
     const response = await this.#config.fetch(url, {
       method: 'POST',
@@ -66,9 +67,12 @@ export class HttpPostRpcTransport implements RpcTransport {
       signal: AbortSignal.timeout(this.#config.timeout)
     });
 
-    // Parse the entire response using @lumenize/structured-clone
+    // Parse and postprocess the response
+    // postprocess reconstructs objects with identity preserved
+    // The client will then replace markers with proxies (without breaking identity)
     const responseText = await response.text();
-    const batchResponse: RpcBatchResponse = await parse(responseText);
+    const intermediate = JSON.parse(responseText);
+    const batchResponse: RpcBatchResponse = await postprocess(intermediate);
 
     if (!response.ok) {
       // Handle error response - if any operation failed, the server returns HTTP 500

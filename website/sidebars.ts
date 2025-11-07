@@ -273,6 +273,7 @@ const sidebars: SidebarsConfig = {
       label: 'Structured Clone',
       items: [
         'structured-clone/index',
+        'structured-clone/maps-and-sets',
         ...(typedocStructuredCloneSidebar && typedocStructuredCloneSidebar.length > 0
           ? [wrapInApiReference(typedocStructuredCloneSidebar, 'API Reference', transformStructuredCloneSidebar)]
           : []),

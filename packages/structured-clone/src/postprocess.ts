@@ -11,6 +11,32 @@
 
 import { decodeRequest, decodeResponse } from './web-api-encoding';
 import type { LmzIntermediate } from './preprocess';
+import { TRANSFORM_SKIP } from './preprocess';
+
+/**
+ * Context provided to transform hooks during postprocessing
+ */
+export interface PostprocessContext {
+  /** Map tracking all reconstructed objects by ID for alias detection */
+  objects: Map<number, any>;
+}
+
+/**
+ * Transform hook called for each value during postprocessing
+ * 
+ * @param value - The value being processed
+ * @param context - Postprocessing context with objects map
+ * @returns Transformed value, or TRANSFORM_SKIP to use default processing
+ */
+export type PostprocessTransform = (value: any, context: PostprocessContext) => any | typeof TRANSFORM_SKIP | Promise<any | typeof TRANSFORM_SKIP>;
+
+/**
+ * Options for postprocess()
+ */
+export interface PostprocessOptions {
+  /** Custom transform hook called for each value */
+  transform?: PostprocessTransform;
+}
 
 /**
  * Postprocesses a value from intermediate to complex reconstructed values
@@ -21,10 +47,12 @@ import type { LmzIntermediate } from './preprocess';
  * This allows cycles and aliases to be properly reconstructed.
  * 
  * @param data - Intermediate format from preprocess()
+ * @param options - Optional postprocessing options including custom transform hooks
  * @returns Reconstructed value with cycles and aliases preserved
  */
-export async function postprocess(data: LmzIntermediate): Promise<any> {
+export async function postprocess(data: LmzIntermediate, options?: PostprocessOptions): Promise<any> {
   const objects = new Map<number, any>();
+  const transform = options?.transform;
   
   // First pass: Create all complex objects
   // This allows us to establish references before filling in properties
@@ -154,31 +182,31 @@ export async function postprocess(data: LmzIntermediate): Promise<any> {
       if (type === 'array') {
         // Fill array with resolved values
         for (const item of value) {
-          obj.push(await resolveValue(item, objects));
+          obj.push(await resolveValue(item, objects, transform));
         }
       } else if (type === 'map') {
         // Fill Map with resolved key-value pairs
         for (const [key, val] of value) {
           obj.set(
-            await resolveValue(key, objects),
-            await resolveValue(val, objects)
+            await resolveValue(key, objects, transform),
+            await resolveValue(val, objects, transform)
           );
         }
       } else if (type === 'set') {
         // Fill Set with resolved values
         for (const item of value) {
-          obj.add(await resolveValue(item, objects));
+          obj.add(await resolveValue(item, objects, transform));
         }
       } else if (type === 'error') {
         // Error already created in first pass, now fill cause and custom properties
         if (value.cause !== undefined) {
-          obj.cause = await resolveValue(value.cause, objects);
+          obj.cause = await resolveValue(value.cause, objects, transform);
         }
         
         // Restore custom properties
         for (const key in value) {
           if (!['name', 'message', 'stack', 'cause'].includes(key)) {
-            obj[key] = await resolveValue(value[key], objects);
+            obj[key] = await resolveValue(value[key], objects, transform);
           }
         }
       } else if (type === 'headers' || type === 'url') {
@@ -194,14 +222,14 @@ export async function postprocess(data: LmzIntermediate): Promise<any> {
       } else if (type === 'object') {
         // Fill plain object with resolved properties
         for (const key in value) {
-          obj[key] = await resolveValue(value[key], objects);
+          obj[key] = await resolveValue(value[key], objects, transform);
         }
       }
     }
   }
   
   // Resolve and return root value
-  return await resolveValue(data.root, objects);
+  return await resolveValue(data.root, objects, transform);
 }
 
 /**
@@ -209,9 +237,19 @@ export async function postprocess(data: LmzIntermediate): Promise<any> {
  * 
  * @param value - Value to resolve (could be tuple, reference, or raw value)
  * @param objects - Map of reconstructed objects by index
+ * @param transform - Optional transform hook
  * @returns Resolved JavaScript value
  */
-async function resolveValue(value: any, objects: Map<number, any>): Promise<any> {
+async function resolveValue(value: any, objects: Map<number, any>, transform?: PostprocessTransform): Promise<any> {
+  // Call custom transform hook if provided
+  if (transform) {
+    const transformed = await transform(value, { objects });
+    if (transformed !== TRANSFORM_SKIP) {
+      return transformed;
+    }
+    // TRANSFORM_SKIP means continue with normal processing
+  }
+  
   // Non-tuple values pass through
   if (!value || !Array.isArray(value)) return value;
   

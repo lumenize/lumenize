@@ -50,10 +50,9 @@ export async function walkObject(
   
   // Handle arrays - recursively process items
   if (Array.isArray(obj)) {
-    // Create the processed array FIRST and add to seen map BEFORE processing children
-    // This is crucial for handling circular references correctly
+    let hasChanges = false;
     const processedArray: any[] = [];
-    seen.set(obj, processedArray);
+    seen.set(obj, processedArray); // Track for circular references
     
     for (let index = 0; index < obj.length; index++) {
       const item = obj[index];
@@ -65,19 +64,31 @@ export async function walkObject(
       // BUT: Skip recursion if shouldSkipRecursion predicate says so
       const shouldSkip = shouldSkipRecursion ? shouldSkipRecursion(item) : false;
       if (transformedItem === item && typeof item === 'object' && item !== null && !shouldSkip) {
-        processedArray[index] = await walkObject(item, transformer, { seen, shouldSkipRecursion });
+        const walked = await walkObject(item, transformer, { seen, shouldSkipRecursion });
+        processedArray[index] = walked;
+        if (walked !== item) {
+          hasChanges = true;
+        }
       } else {
         processedArray[index] = transformedItem;
+        if (transformedItem !== item) {
+          hasChanges = true;
+        }
       }
     }
     
+    // Only return new array if we made changes - preserves identity!
+    if (!hasChanges) {
+      seen.set(obj, obj); // Update seen to point to original
+      return obj;
+    }
     return processedArray;
   }
   
   // Handle plain objects - walk enumerable properties and prototype chain
-  // Create the processed object FIRST and add to seen map BEFORE processing children
+  let hasChanges = false;
   const processedObject: any = {};
-  seen.set(obj, processedObject);
+  seen.set(obj, processedObject); // Track for circular references
   
   // Process enumerable properties
   for (const [key, value] of Object.entries(obj)) {
@@ -88,9 +99,16 @@ export async function walkObject(
     // BUT: Skip recursion if shouldSkipRecursion predicate says so
     const shouldSkip = shouldSkipRecursion ? shouldSkipRecursion(value) : false;
     if (transformedValue === value && typeof value === 'object' && value !== null && !shouldSkip) {
-      processedObject[key] = await walkObject(value, transformer, { seen, shouldSkipRecursion });
+      const walked = await walkObject(value, transformer, { seen, shouldSkipRecursion });
+      processedObject[key] = walked;
+      if (walked !== value) {
+        hasChanges = true;
+      }
     } else {
       processedObject[key] = transformedValue;
+      if (transformedValue !== value) {
+        hasChanges = true;
+      }
     }
   }
   
@@ -122,14 +140,32 @@ export async function walkObject(
       
       // If transformer didn't change the value, recursively walk it
       if (transformedValue === value && typeof value === 'object' && value !== null) {
-        processedObject[key] = await walkObject(value, transformer, { seen, shouldSkipRecursion });
+        const walked = await walkObject(value, transformer, { seen, shouldSkipRecursion });
+        processedObject[key] = walked;
+        if (walked !== value) {
+          hasChanges = true;
+        }
       } else {
         processedObject[key] = transformedValue;
+        if (transformedValue !== value) {
+          hasChanges = true; // Prototype method was transformed
+        }
+      }
+      
+      // Even if not transformed, adding a prototype property is a change
+      // (We're making it an own property instead of prototype property)
+      if (value !== undefined) {
+        hasChanges = true;
       }
     }
     
     proto = Object.getPrototypeOf(proto);
   }
   
+  // Only return new object if we made changes - preserves identity!
+  if (!hasChanges) {
+    seen.set(obj, obj); // Update seen to point to original
+    return obj;
+  }
   return processedObject;
 }

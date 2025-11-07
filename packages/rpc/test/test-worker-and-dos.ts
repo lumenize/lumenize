@@ -460,6 +460,10 @@ class _BroadcastDO extends DurableObject<Env> {
 const BroadcastDO = lumenizeRpcDO(_BroadcastDO);
 export { BroadcastDO };
 
+// Re-export MapSetTestDOWithRpc from the test file
+export { MapSetTestDOWithRpc } from './map-set-identity.test';
+export { DebugDOWithRpc } from './map-set-debug.test';
+
 /**
  * Worker fetch handler that uses routeDORequest to handle RPC requests
  * and falls back to existing Worker handlers/responses for non-RPC requests

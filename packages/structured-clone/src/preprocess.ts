@@ -24,6 +24,51 @@ export interface LmzIntermediate {
 }
 
 /**
+ * Symbol returned from transform hook to indicate value should be skipped
+ * and processed normally by structured-clone
+ */
+export const TRANSFORM_SKIP = Symbol('TRANSFORM_SKIP');
+
+/**
+ * Path element in the object tree - represents a step in the traversal
+ */
+export interface PathElement {
+  type: 'get' | 'index';
+  key: string | number;
+}
+
+/**
+ * Context provided to transform hooks during preprocessing
+ */
+export interface PreprocessContext {
+  /** WeakMap tracking all seen objects for alias detection */
+  seen: WeakMap<any, number>;
+  /** Next available ID for objects */
+  nextId: number;
+  /** Array of encoded objects */
+  objects: any[];
+  /** Current path from root to this value */
+  path: PathElement[];
+}
+
+/**
+ * Transform hook called for each value during preprocessing
+ * 
+ * @param value - The value being processed
+ * @param context - Preprocessing context with seen map
+ * @returns Transformed value, or TRANSFORM_SKIP to use default processing
+ */
+export type PreprocessTransform = (value: any, context: PreprocessContext) => any | typeof TRANSFORM_SKIP | Promise<any | typeof TRANSFORM_SKIP>;
+
+/**
+ * Options for preprocess()
+ */
+export interface PreprocessOptions {
+  /** Custom transform hook called for each value */
+  transform?: PreprocessTransform;
+}
+
+/**
  * Preprocesses complex values to a format that can be stringified to JSON
  * 
  * Converts complex JavaScript values (including cycles/aliases) to an intermediate format
@@ -39,17 +84,42 @@ export interface LmzIntermediate {
  * Preserves cycles and aliases by tracking seen objects with WeakMap.
  * 
  * @param data - Value to preprocess
+ * @param options - Optional preprocessing options including custom transform hooks
  * @returns Intermediate format with root value and objects array
  */
-export async function preprocess(data: any): Promise<LmzIntermediate> {
+export async function preprocess(data: any, options?: PreprocessOptions): Promise<LmzIntermediate> {
   const seen = new WeakMap<any, number>();
   const objects: any[] = [];
   let nextId = 0;
+  const transform = options?.transform;
   
   /**
    * Recursively preprocesses a value to tuple format
+   * @param value - The value to preprocess
+   * @param path - Current path from root to this value
    */
-  async function preprocessValue(value: any): Promise<any> {
+  async function preprocessValue(value: any, path: PathElement[] = []): Promise<any> {
+    // Call custom transform hook if provided
+    if (transform) {
+      const transformed = await transform(value, { seen, nextId, objects, path });
+      if (transformed !== TRANSFORM_SKIP) {
+        // Hook handled this value, check if it needs to be tracked for aliases
+        if (transformed && typeof transformed === 'object') {
+          // If hook returns an object with __lmzId, it's managing the ID itself
+          if (transformed.__lmzId !== undefined) {
+            const id = transformed.__lmzId;
+            delete transformed.__lmzId;
+            seen.set(value, id);
+            objects[id] = transformed;
+            nextId = Math.max(nextId, id + 1);
+            return ["$lmz", id];
+          }
+        }
+        return transformed;
+      }
+      // TRANSFORM_SKIP means continue with normal processing
+    }
+    
     // Check for symbols first - these cannot be encoded
     if (typeof value === 'symbol') {
       throw new TypeError('unable to serialize symbol');
@@ -96,24 +166,27 @@ export async function preprocess(data: any): Promise<LmzIntermediate> {
       // Preprocess based on type
       if (Array.isArray(value)) {
         const items: any[] = [];
-        for (const item of value) {
-          items.push(await preprocessValue(item));
+        for (let i = 0; i < value.length; i++) {
+          items.push(await preprocessValue(value[i], [...path, { type: 'index', key: i }]));
         }
         const tuple: any = ["array", items];
         objects[id] = tuple;
         return ["$lmz", id];
       } else if (value instanceof Map) {
         const entries: any[] = [];
+        // Note: Map keys don't have a meaningful "path" since they're not accessed by property
+        // We just pass the current path without extending it
         for (const [key, val] of value) {
-          entries.push([await preprocessValue(key), await preprocessValue(val)]);
+          entries.push([await preprocessValue(key, path), await preprocessValue(val, path)]);
         }
         const tuple: any = ["map", entries];
         objects[id] = tuple;
         return ["$lmz", id];
       } else if (value instanceof Set) {
         const values: any[] = [];
+        // Similar to Map keys, Set values don't have property-based paths
         for (const item of value) {
-          values.push(await preprocessValue(item));
+          values.push(await preprocessValue(item, path));
         }
         const tuple: any = ["set", values];
         objects[id] = tuple;
@@ -131,14 +204,14 @@ export async function preprocess(data: any): Promise<LmzIntermediate> {
           message: value.message || ''
         };
         if (value.stack) errorData.stack = value.stack;
-        if (value.cause !== undefined) errorData.cause = await preprocessValue(value.cause);
+        if (value.cause !== undefined) errorData.cause = await preprocessValue(value.cause, [...path, { type: 'get', key: 'cause' }]);
         
         // Custom properties (skip standard Error properties)
         const allProps = Object.getOwnPropertyNames(value);
         for (const key of allProps) {
           if (!['name', 'message', 'stack', 'cause'].includes(key)) {
             try {
-              errorData[key] = await preprocessValue((value as any)[key]);
+              errorData[key] = await preprocessValue((value as any)[key], [...path, { type: 'get', key }]);
             } catch {
               // Skip properties that can't be preprocessed
             }
@@ -236,7 +309,7 @@ export async function preprocess(data: any): Promise<LmzIntermediate> {
       // Plain object
       const obj: any = {};
       for (const key in value) {
-        obj[key] = await preprocessValue(value[key]);
+        obj[key] = await preprocessValue(value[key], [...path, { type: 'get', key }]);
       }
       const tuple: any = ["object", obj];
       objects[id] = tuple;
@@ -247,7 +320,8 @@ export async function preprocess(data: any): Promise<LmzIntermediate> {
     return value;
   }
   
-  const root = await preprocessValue(data);
+  // Start with empty path at root
+  const root = await preprocessValue(data, []);
   return { root, objects };
 }
 

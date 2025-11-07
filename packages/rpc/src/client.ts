@@ -659,8 +659,28 @@ export class RpcClient<T> {
       return processedArray;
     }
 
+    // Handle Maps and Sets - need to walk their contents for alias tracking
+    if (obj instanceof Map) {
+      seen.set(obj, obj);
+      // Walk through entries to ensure keys/values are tracked in seen map
+      for (const [key, val] of obj) {
+        this.postprocessResult(key, baseOperations, seen);
+        this.postprocessResult(val, baseOperations, seen);
+      }
+      return obj;
+    }
+    
+    if (obj instanceof Set) {
+      seen.set(obj, obj);
+      // Walk through values to ensure they're tracked in seen map
+      for (const val of obj) {
+        this.postprocessResult(val, baseOperations, seen);
+      }
+      return obj;
+    }
+
     // Check if this is a plain object (not a built-in type like Date, Map, Error, etc.)
-    // Built-in types that structured-clone preserves (Date, Map, Set, RegExp, ArrayBuffer, 
+    // Built-in types that structured-clone preserves (Date, Set, RegExp, ArrayBuffer, 
     // TypedArrays, Error, Web API objects) should pass through unchanged - they're already properly deserialized.
     // Note: Custom Error subclasses (CustomError) become base Error instances with name='CustomError'.
     // The prototype chain cannot be preserved because the class definition isn't available across boundaries.
@@ -669,18 +689,35 @@ export class RpcClient<T> {
     const proto = Object.getPrototypeOf(obj);
     if (proto !== null && proto !== Object.prototype) {
       // Not a plain object - it's a built-in type that was preserved by structured-clone
+      // IMPORTANT: Still track in seen map for alias detection!
+      seen.set(obj, obj);
       return obj;
     }
 
     // Process plain object properties recursively
-    // Create the processed object FIRST and add to seen map BEFORE processing children
+    // Since structured-clone already handled aliases correctly, we only need to
+    // check for remote function markers. Don't create new objects unnecessarily!
+    seen.set(obj, obj);
+    
+    let hasChanges = false;
     const processed: any = {};
-    seen.set(obj, processed);
     
     for (const [key, value] of Object.entries(obj)) {
-      processed[key] = this.postprocessResult(value, baseOperations, seen);
+      const processedValue = this.postprocessResult(value, baseOperations, seen);
+      processed[key] = processedValue;
+      if (processedValue !== value) {
+        hasChanges = true;
+      }
     }
-    return processed;
+    
+    // Only return a new object if we actually made changes
+    if (hasChanges) {
+      // Update seen map to point to the new object
+      seen.set(obj, processed);
+      return processed;
+    }
+    
+    return obj;
   }
 }
 

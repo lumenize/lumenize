@@ -1,0 +1,24 @@
+{
+  "name": "map-set-object-keys-test",
+  "main": "map-set-object-keys.test.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "STORAGE_TEST_DO",
+        "class_name": "StorageTestDO"
+      },
+      {
+        "name": "RPC_TEST_DO",
+        "class_name": "RpcTestDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["StorageTestDO", "RpcTestDO"]
+    }
+  ]
+}
+

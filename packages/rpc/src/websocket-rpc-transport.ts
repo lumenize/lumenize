@@ -5,7 +5,7 @@ import type {
   RpcWebSocketMessage,
   RpcWebSocketMessageResponse
 } from './types';
-import { stringify, parse } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { debug } from '@lumenize/core';
 
 /**
@@ -300,8 +300,9 @@ export class WebSocketRpcTransport implements RpcTransport {
    */
   async #handleMessage(data: string): Promise<void> {
     try {
-      // Parse the message using @lumenize/structured-clone
-      const message = await parse(data);
+      // Parse the message through intermediate format
+      const intermediate = JSON.parse(data);
+      const message = await postprocess(intermediate);
 
       // Route based on message type
       if (message.type === '__downstream') {
@@ -388,7 +389,8 @@ export class WebSocketRpcTransport implements RpcTransport {
           batch: batch.batch
         };
 
-        const messageBody = await stringify(message);
+        const intermediate = await preprocess(message);
+        const messageBody = JSON.stringify(intermediate);
         this.#ws!.send(messageBody);
 
       } catch (error) {

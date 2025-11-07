@@ -8,7 +8,8 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { isNestedOperationMarker } from './types';
-import { stringify, parse } from '@lumenize/structured-clone';
+import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
+import { createRpcPreprocessTransform, createIncomingOperationsTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 import { debug } from '@lumenize/core';
@@ -61,7 +62,8 @@ export async function sendDownstream(
   };
 
   // Serialize the message with full type support
-  const messageString = await stringify(message);
+  const intermediate = await preprocess(message);
+  const messageString = JSON.stringify(intermediate);
 
   // Get WebSockets with matching tags
   for (const clientId of ids) {
@@ -178,7 +180,8 @@ async function handleCallRequest(
       batch: batchResults
     };
     
-    const responseBody = await stringify(batchResponse);
+    const intermediate = await preprocess(batchResponse);
+    const responseBody = JSON.stringify(intermediate);
     
     // Check if any operations failed
     const hasErrors = batchResults.some(r => !r.success);
@@ -201,7 +204,8 @@ async function handleCallRequest(
         error // stringify() will handle Error serialization
       }]
     };
-    const responseBody = await stringify(batchResponse);
+    const intermediate = await preprocess(batchResponse);
+    const responseBody = JSON.stringify(intermediate);
     return new Response(responseBody, {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
@@ -253,8 +257,17 @@ async function dispatchCall(
     // Execute operation chain
     const result = await executeOperationChain(processedOperations, doInstance);
     
-    // Replace functions with markers before serialization
-    const processedResult = await preprocessResult(result, processedOperations);
+    // Flatten prototype chains so methods become own properties
+    // (structured-clone's preprocess doesn't walk prototypes)
+    const flattenedResult = flattenPrototypeChains(result);
+    
+    // Preprocess with RPC transform to replace functions with markers during the tree walk
+    // This preserves object identity while replacing functions
+    const transform = createRpcPreprocessTransform(processedOperations);
+    const intermediate = await preprocess(flattenedResult, { transform });
+    
+    // Postprocess to reconstruct objects (with markers in place of functions)
+    const processedResult = await postprocess(intermediate);
     
     return {
       success: true,
@@ -395,114 +408,86 @@ async function processIncomingOperations(
   return processedOperations;
 }
 
-async function preprocessResult(result: any, operationChain: OperationChain, seen = new WeakMap()): Promise<any> {
-  // Handle primitives
-  if (result === null || result === undefined) {
-    return result;
+/**
+ * Flattens prototype chains - makes prototype methods/properties into own properties
+ * Only creates new objects when necessary (preserves identity for plain objects)
+ */
+function flattenPrototypeChains(value: any, seen = new WeakMap<any, any>()): any {
+  // Primitives and null/undefined pass through
+  if (value === null || value === undefined || typeof value !== 'object') {
+    return value;
   }
   
-  // Handle other primitives - structured-clone will handle them (including special numbers)
-  if (typeof result !== 'object') {
-    return result;
+  // Handle circular references
+  if (seen.has(value)) {
+    return seen.get(value);
   }
   
-  // Handle circular references - return the already-processed object
-  if (seen.has(result)) {
-    return seen.get(result);
+  // Handle built-in types that structured-clone handles (don't flatten these)
+  if (isStructuredCloneNativeType(value)) {
+    seen.set(value, value);
+    return value;
   }
   
-  // Handle built-in types that structured-clone preserves perfectly - return as-is
-  // This includes Web API objects, Dates, Maps, Sets, Errors, etc.
-  if (isStructuredCloneNativeType(result)) {
-    return result;
-  }
-  
-  // Handle arrays - recursively process items for function replacement
-  if (Array.isArray(result)) {
-    const processedArray: any[] = [];
-    seen.set(result, processedArray);
-    
-    for (let index = 0; index < result.length; index++) {
-      const item = result[index];
-      const currentChain: OperationChain = [...operationChain, { type: 'get', key: index }];
-      
-      if (typeof item === 'function') {
-        const marker: RemoteFunctionMarker = {
-          __isRemoteFunction: true,
-          __operationChain: currentChain,
-          __functionName: `[${index}]`,
-        };
-        processedArray[index] = marker;
-      } else {
-        processedArray[index] = await preprocessResult(item, currentChain, seen);
-      }
+  // Handle arrays
+  if (Array.isArray(value)) {
+    const flattened: any[] = [];
+    seen.set(value, flattened);
+    for (const item of value) {
+      flattened.push(flattenPrototypeChains(item, seen));
     }
-    
-    return processedArray;
+    return flattened;
   }
   
-  // Handle plain objects - use walkObject for enumerable properties and prototype chain
-  const processedObject: any = {};
-  seen.set(result, processedObject);
+  // Check if this object has a non-trivial prototype (class instance)
+  const proto = Object.getPrototypeOf(value);
+  const hasPrototypeMethods = proto && proto !== Object.prototype && proto !== null;
   
-  // Process enumerable properties
-  for (const [key, value] of Object.entries(result)) {
-    const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
-    
-    if (typeof value === 'function') {
-      const marker: RemoteFunctionMarker = {
-        __isRemoteFunction: true,
-        __operationChain: currentChain,
-        __functionName: key,
-      };
-      processedObject[key] = marker;
-    } else {
-      processedObject[key] = await preprocessResult(value, currentChain, seen);
+  if (!hasPrototypeMethods) {
+    // Plain object - just recurse into properties
+    seen.set(value, value);
+    const flattened: any = {};
+    for (const [key, val] of Object.entries(value)) {
+      flattened[key] = flattenPrototypeChains(val, seen);
     }
+    // Check if anything changed
+    const hasChanges = Object.keys(flattened).some(k => flattened[k] !== value[k]);
+    if (!hasChanges) {
+      return value; // Preserve identity
+    }
+    seen.set(value, flattened);
+    return flattened;
   }
   
-  // Walk prototype chain using walkObject for getters
-  let proto = Object.getPrototypeOf(result);
-  while (proto && proto !== Object.prototype && proto !== null) {
-    const descriptors = Object.getOwnPropertyDescriptors(proto);
-    
+  // Has prototype methods - flatten them into own properties
+  const flattened: any = {};
+  seen.set(value, flattened);
+  
+  // Copy own properties
+  for (const [key, val] of Object.entries(value)) {
+    flattened[key] = flattenPrototypeChains(val, seen);
+  }
+  
+  // Walk prototype chain and add methods/properties as own properties
+  let currentProto = proto;
+  while (currentProto && currentProto !== Object.prototype && currentProto !== null) {
+    const descriptors = Object.getOwnPropertyDescriptors(currentProto);
     for (const [key, descriptor] of Object.entries(descriptors)) {
-      if (key === 'constructor' || processedObject.hasOwnProperty(key)) {
+      // Skip constructor and properties already on the object
+      if (key === 'constructor' || flattened.hasOwnProperty(key)) {
         continue;
       }
       
-      const currentChain: OperationChain = [...operationChain, { type: 'get', key: key }];
-      
-      if (descriptor.value && typeof descriptor.value === 'function') {
-        const marker: RemoteFunctionMarker = {
-          __isRemoteFunction: true,
-          __operationChain: currentChain,
-          __functionName: key,
-        };
-        processedObject[key] = marker;
-      } else if (descriptor.get) {
-        try {
-          const value = descriptor.get.call(result);
-          if (typeof value === 'function') {
-            const marker: RemoteFunctionMarker = {
-              __isRemoteFunction: true,
-              __operationChain: currentChain,
-              __functionName: key,
-            };
-            processedObject[key] = marker;
-          } else if (value !== undefined && value !== null) {
-            processedObject[key] = await preprocessResult(value, currentChain, seen);
-          }
-        } catch (error) {
-          // If getter throws, just skip it
-        }
+      // Get the value
+      if ('value' in descriptor) {
+        flattened[key] = flattenPrototypeChains(descriptor.value, seen);
       }
+      // Skip getters - they could have side effects
     }
-    
-    proto = Object.getPrototypeOf(proto);
+    currentProto = Object.getPrototypeOf(currentProto);
   }
   
-  return processedObject;
+  return flattened;
 }
 
 // ============================================================================
@@ -582,7 +567,8 @@ export async function handleRpcMessage(
       batch: batchResults
     };
     
-    const responseBody = await stringify(messageResponse);
+    const intermediate = await preprocess(messageResponse);
+    const responseBody = JSON.stringify(intermediate);
     ws.send(responseBody);
 
     return true; // Message was handled as RPC

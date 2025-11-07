@@ -19,8 +19,8 @@
  * - @ungap/structured-clone (cycle detection): https://github.com/ungap/structured-clone
  */
 
-import { preprocess } from './preprocess';
-import { postprocess } from './postprocess';
+import { preprocess, type PreprocessOptions } from './preprocess';
+import { postprocess, type PostprocessOptions } from './postprocess';
 
 /**
  * Convert value to JSON string with full type support.
@@ -33,6 +33,7 @@ import { postprocess } from './postprocess';
  * Note: Async for Request/Response body reading.
  * 
  * @param value - Any serializable value
+ * @param options - Optional preprocessing options including custom transform hooks
  * @returns JSON string in tuple $lmz format
  * @throws TypeError if value contains symbols
  * 
@@ -46,8 +47,8 @@ import { postprocess } from './postprocess';
  * console.log(restored.self === restored);  // true
  * ```
  */
-export async function stringify(value: any): Promise<string> {
-  return JSON.stringify(await preprocess(value));
+export async function stringify(value: any, options?: PreprocessOptions): Promise<string> {
+  return JSON.stringify(await preprocess(value, options));
 }
 
 /**
@@ -58,6 +59,7 @@ export async function stringify(value: any): Promise<string> {
  * This is a convenience wrapper around `JSON.parse()` + `postprocess()`.
  * 
  * @param value - JSON string in tuple $lmz format
+ * @param options - Optional postprocessing options including custom transform hooks
  * @returns Restored value with all types and references preserved
  * 
  * @example
@@ -67,12 +69,13 @@ export async function stringify(value: any): Promise<string> {
  * console.log(restored.tags[0]);  // "dev"
  * ```
  */
-export async function parse(value: string): Promise<any> {
-  return await postprocess(JSON.parse(value));
+export async function parse(value: string, options?: PostprocessOptions): Promise<any> {
+  return await postprocess(JSON.parse(value), options);
 }
 
 // Intermediate format API - see preprocess.ts and postprocess.ts for full JSDoc
-export { preprocess, postprocess };
+export { preprocess, TRANSFORM_SKIP } from './preprocess';
+export { postprocess } from './postprocess';
 
 // Low-level encoding utilities - see web-api-encoding.ts for full JSDoc
 export {
@@ -91,6 +94,7 @@ export { RequestSync } from './request-sync';
 export { ResponseSync } from './response-sync';
 
 // Type exports
-export type { LmzIntermediate } from './preprocess';
+export type { LmzIntermediate, PreprocessOptions, PreprocessTransform, PreprocessContext, PathElement } from './preprocess';
+export type { PostprocessOptions, PostprocessTransform, PostprocessContext } from './postprocess';
 export type { SerializableBody, RequestSyncInit } from './request-sync';
 export type { SerializableBody as ResponseSerializableBody } from './response-sync';

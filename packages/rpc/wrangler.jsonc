@@ -43,6 +43,14 @@
       {
         "name": "BROADCAST_DO",
         "class_name": "BroadcastDO"
+      },
+      {
+        "name": "MAPSET_TEST_DO",
+        "class_name": "MapSetTestDOWithRpc"
+      },
+      {
+        "name": "DEBUG_DO",
+        "class_name": "DebugDOWithRpc"
       }
     ]
   },
@@ -105,6 +113,18 @@
       "tag": "v10",
       "new_sqlite_classes": [
         "BroadcastDO"
+      ]
+    },
+    {
+      "tag": "v11",
+      "new_sqlite_classes": [
+        "MapSetTestDOWithRpc"
+      ]
+    },
+    {
+      "tag": "v12",
+      "new_sqlite_classes": [
+        "DebugDOWithRpc"
       ]
     }
   ]
