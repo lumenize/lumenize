@@ -3,7 +3,6 @@
  * These tests are referenced in website/docs/alarms/*.mdx files
  */
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
 import { Alarms, type Schedule } from '@lumenize/alarms';

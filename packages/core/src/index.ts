@@ -5,7 +5,8 @@
  * standalone or auto-injected via LumenizeBase.
  */
 
-export { sql } from '../sql/index';
-export { debug } from '../debug/index';
-export type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from '../debug/types';
+// Re-export everything from feature modules
+// Each feature controls its own public API via its index.ts
+export * from '../sql/index';
+export * from '../debug/index';
 

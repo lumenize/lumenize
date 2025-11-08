@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createHttpTransport, createWebSocketTransport } from '../src/index';
 import { getWebSocketShim } from '@lumenize/utils';

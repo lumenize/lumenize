@@ -3,7 +3,6 @@
  */
 
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createHttpTransport, lumenizeRpcDO } from '../src/index';
 import { DurableObject } from 'cloudflare:workers';

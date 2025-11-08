@@ -47,7 +47,6 @@ npm run deploy
 
 ```typescript
 import { createTestEndpoints } from '@lumenize/test-endpoints';
-// @ts-expect-error
 import { env } from 'cloudflare:test';
 
 // Create client with unique instance name for test isolation
@@ -77,7 +76,6 @@ Use `@lumenize/testing` RPC to inspect DO internals:
 ```typescript
 import { createTestEndpoints, buildTestEndpointUrl } from '@lumenize/test-endpoints';
 import { createTestingClient } from '@lumenize/testing';
-// @ts-expect-error
 import { env } from 'cloudflare:test';
 
 const INSTANCE_NAME = 'instrumentation-test';

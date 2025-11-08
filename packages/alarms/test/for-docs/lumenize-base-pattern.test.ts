@@ -3,7 +3,6 @@
  * Referenced in website/docs/alarms/index.mdx
  */
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import '@lumenize/core';    // Registers sql in this.svc
 import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)

@@ -32,17 +32,17 @@ import { DebugLoggerImpl } from './logger';
 import type { DebugLogger } from './types';
 
 /**
- * Create debug logger factory for a Durable Object instance
+ * Create debug logger factory
  * 
  * This function is the NADIS service entrypoint. It reads the DEBUG
- * environment variable from the DO's env and creates a factory function
- * for creating namespaced loggers.
+ * environment variable and creates a factory function for creating
+ * namespaced loggers.
  * 
- * @param doInstance - The Durable Object instance (needs env.DEBUG)
+ * @param withEnv - Object with env property (DO instance, Worker context, or { env })
  * @returns Factory function for creating debug loggers
  * 
  * @example
- * Standalone usage:
+ * In Durable Objects:
  * ```typescript
  * import { debug } from '@lumenize/core';
  * import { DurableObject } from 'cloudflare:workers';
@@ -52,6 +52,20 @@ import type { DebugLogger } from './types';
  *   
  *   myMethod() {
  *     this.#log.debug('message', { data });
+ *   }
+ * }
+ * ```
+ * 
+ * @example
+ * In Workers:
+ * ```typescript
+ * import { debug } from '@lumenize/core';
+ * 
+ * export default {
+ *   async fetch(request, env, ctx) {
+ *     const log = debug({ env })('worker.router');
+ *     log.debug('Routing request', { pathname: new URL(request.url).pathname });
+ *     // ... route to DO or return response
  *   }
  * }
  * ```
@@ -70,10 +84,10 @@ import type { DebugLogger } from './types';
  * }
  * ```
  */
-export function debug(doInstance: any): (namespace: string) => DebugLogger {
+export function debug(withEnv: any): (namespace: string) => DebugLogger {
   // Get DEBUG environment variable
-  // Try this.env first (LumenizeBase pattern), fallback to doInstance.env (vanilla DO)
-  const env = doInstance.env || (doInstance as any).env;
+  // Try withEnv.env first (DO, Worker, or { env } object)
+  const env = withEnv.env || (withEnv as any).env;
   const debugFilter = env?.DEBUG || process.env?.DEBUG;
   
   // Create matcher from environment
@@ -104,5 +118,5 @@ declare global {
 if (!(globalThis as any).__lumenizeServiceRegistry) {
   (globalThis as any).__lumenizeServiceRegistry = {};
 }
-(globalThis as any).__lumenizeServiceRegistry.debug = (doInstance: any) => debug(doInstance);
+(globalThis as any).__lumenizeServiceRegistry.debug = (withEnv: any) => debug(withEnv);
 
