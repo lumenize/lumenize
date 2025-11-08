@@ -43,7 +43,7 @@ const FeatureList: FeatureItem[] = [
       <>
         90%+ test coverage. Rapid bug-fix guarantee.
         Robust docs assured in-sync with code via doc-testing.
-        Toggle logging by namespace, DO instance, etc.
+        Toggle logging scopes with environment vars.
       </>
     ),
     color: 'var(--ifm-color-primary-darker)',

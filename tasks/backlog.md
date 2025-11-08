@@ -27,16 +27,17 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Documentation
 
 - [ ] Review/edit the new docs for:
-  - [ ]  lumenize-base
-  - [ ]  NADIS (plit from lumenize-base)
-  - [ ]  core
-  - [ ]  debug
-  - [ ]  sql
-  - [ ]  alarms
-  - [ ]  testing alarms (simulation and triggering)
-  - [ ]  RPC downstream messaging
-    - [ ]  Build a chat app like the vs Cap'n Web
-      - [ ]  User:
+  - [x] maps and sets
+  - [ ] lumenize-base
+  - [ ] NADIS (plit from lumenize-base)
+  - [ ] core
+  - [ ] debug
+  - [ ] sql
+  - [ ] alarms
+  - [ ] testing alarms (simulation and triggering)
+  - [ ] RPC downstream messaging
+    - [ ] Build a chat app like the vs Cap'n Web
+      - [ ] User:
         - authentication
         - proxy to Room
         - access control (alterantively in Room)

@@ -15,7 +15,7 @@ Part of `@lumenize/core`.
 - **Level support**: `debug`, `info`, and `warn` levels, all filterable
 - **JSON output**: Structured logs integrate seamlessly with Cloudflare's log dashboard
 - **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
-- **NADIS integration**: Auto-injected into `LumenizeBase` via `this.svc.debug`
+- **NADIS integration**: Use standalone or auto-inject into `LumenizeBase` via `this.svc.debug`
 
 ## Installation
 
@@ -35,15 +35,19 @@ class MyDO extends LumenizeBase<Env> {
   async fetch(request: Request) {
     const log = this.svc.debug('my-app.http');
     
+    const url = new URL(request.url);
     log.debug('Processing request', { 
-      url: request.url, 
+      pathname: url.pathname,
       method: request.method 
     });
     
-    // ... do work ...
+    // Update counter in storage
+    const count = (this.ctx.storage.kv.get('requestCount') ?? 0) + 1;
+    this.ctx.storage.kv.set('requestCount', count);
     
     log.info('Request completed', { 
-      duration: performance.now() - start 
+      requestCount: count,
+      pathname: url.pathname
     });
     
     return new Response('OK');
@@ -107,7 +111,7 @@ DEBUG=proxy-fetch.*
 DEBUG=*
 
 # Exclusions
-DEBUG=*,-proxy-fetch.verbose
+DEBUG=*,-proxy-fetch.too-verbose
 ```
 
 ### Level Filtering
@@ -286,21 +290,44 @@ DEBUG=proxy-fetch.queue npm test
 
 Add `DEBUG` to environment variables temporarily to debug production issues without code changes.
 
-### Performance Analysis
+### State Tracking
 
-Use `log.info` for timing and performance milestones:
+Use debug logs to track state changes and data flow:
 
 ```typescript @skip-check
-const log = this.svc.debug('app.performance');
-const start = performance.now();
+import '@lumenize/core';
+import { LumenizeBase } from '@lumenize/lumenize-base';
 
-// ... do work ...
-
-log.info('Operation completed', {
-  operation: 'fetchData',
-  duration: performance.now() - start,
-  recordCount: records.length
-});
+class CounterDO extends LumenizeBase<Env> {
+  increment(delta: number) {
+    const log = this.svc.debug('counter.operations');
+    
+    const before = this.ctx.storage.kv.get('count') ?? 0;
+    const after = before + delta;
+    
+    log.debug('Incrementing counter', { 
+      before, 
+      delta, 
+      after 
+    });
+    
+    if (after > 1000) {
+      log.warn('Counter exceeds threshold', { 
+        value: after, 
+        threshold: 1000 
+      });
+    }
+    
+    this.ctx.storage.kv.set('count', after);
+    
+    log.info('Counter updated', { 
+      newValue: after,
+      isHighValue: after > 1000
+    });
+    
+    return after;
+  }
+}
 ```
 
 ## TypeScript Integration

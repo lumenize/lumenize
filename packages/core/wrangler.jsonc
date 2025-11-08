@@ -1,6 +1,6 @@
 {
   "name": "lumenize-core-test",
-  "main": "test/test-do.ts",
+  "main": "sql/test/test-do.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [
@@ -11,6 +11,10 @@
       {
         "name": "PRODUCT_DO",
         "class_name": "ProductDO"
+      },
+      {
+        "name": "DEBUG_TEST_DO",
+        "class_name": "DebugTestDO"
       }
     ]
   },
@@ -22,6 +26,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["ProductDO"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["DebugTestDO"]
     }
   ]
 }

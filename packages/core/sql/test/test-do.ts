@@ -1,8 +1,11 @@
 import { DurableObject } from 'cloudflare:workers';
-import { sql } from '../src/sql';
+import { sql } from '../index';
 
 // Export ProductDO for documentation examples
 export { ProductDO } from './for-docs/basic-usage.test';
+
+// Export DebugTestDO for debug tests
+export { DebugTestDO } from '../../debug/test/test-do';
 
 export class TestDO extends DurableObject<Env> {
   // Convenient convention - You can use sql(this)` ... directly just as well
