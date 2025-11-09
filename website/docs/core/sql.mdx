@@ -11,7 +11,7 @@ The `sql` template literal tag provides a clean, safe way to execute SQL queries
 
 ### Standalone Usage
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
+```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
 import { sql } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 
@@ -61,7 +61,7 @@ See [@lumenize/lumenize-base documentation](/docs/lumenize-base) for complete NA
 
 Parameters are automatically bound and SQL-injection safe:
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
+```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
   addProduct(id: string, name: string, price: number, stock: number = 0) {
     this.#sql`
       INSERT INTO products (id, name, price, stock)
@@ -85,7 +85,7 @@ The template literal tag:
 
 The `sql` function returns an array of result rows. Each row is a plain JavaScript object with column names as keys:
 
-```typescript @check-example('packages/core/test/for-docs/basic-usage.test.ts')
+```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
   getLowStockProducts(threshold: number = 10) {
     return this.#sql`
       SELECT id, name, stock FROM products 

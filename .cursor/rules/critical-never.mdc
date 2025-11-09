@@ -1,3 +1,8 @@
+---
+description: Critical "never do this" rules - foot-guns to avoid
+alwaysApply: true
+---
+
 # Critical "Never Do This" Rules
 
 These are the foot-guns to avoid in Lumenize development.
@@ -36,4 +41,3 @@ These are the foot-guns to avoid in Lumenize development.
 
 For detailed Durable Objects concepts, see `CLOUDFLARE_DO_GUIDE.md` at repo root.
 For general project context, see `AGENTS.md` at repo root.
-

@@ -38,7 +38,7 @@ import type { DebugLogger } from './types';
  * environment variable and creates a factory function for creating
  * namespaced loggers.
  * 
- * @param withEnv - Object with env property (DO instance, Worker context, or { env })
+ * @param withEnv - Object with env property (DO instance, Worker context, or plain object)
  * @returns Factory function for creating debug loggers
  * 
  * @example
@@ -62,8 +62,8 @@ import type { DebugLogger } from './types';
  * import { debug } from '@lumenize/core';
  * 
  * export default {
- *   async fetch(request, env, ctx) {
- *     const log = debug({ env })('worker.router');
+ *   async fetch(request, environment, ctx) {
+ *     const log = debug({ env: environment })('worker.router');
  *     log.debug('Routing request', { pathname: new URL(request.url).pathname });
  *     // ... route to DO or return response
  *   }
@@ -76,7 +76,7 @@ import type { DebugLogger } from './types';
  * import '@lumenize/core';
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
- * class MyDO extends LumenizeBase<Env> {
+ * class MyDO extends LumenizeBase {
  *   myMethod() {
  *     const log = this.svc.debug('my-namespace');
  *     log.debug('message', { data });

@@ -30,9 +30,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - [x] maps and sets
   - [ ] lumenize-base
   - [ ] NADIS (plit from lumenize-base)
-  - [ ] core
-  - [ ] debug
-  - [ ] sql
+  - [WiP: Phase 1] core
+    - [ ] debug
+    - [ ] sql
   - [ ] alarms
   - [ ] testing alarms (simulation and triggering)
   - [ ] RPC downstream messaging
@@ -67,11 +67,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   ```
 
 
-## Technical Improvements
+## MCP
 
 - [ ] Add TypeBox Value support for RPC runtime checking (both TypeBox and JSON Schema)
   - Don't make TypeBox a dependency
   - Auto-detect TypeBox spec vs JSON Schema spec
+- [ ] Implement the latest version of these interfaces:
+  - [ ] https://github.com/modelcontextprotocol/python-sdk/blob/7c639ec1a59a0f7b84776b4c1937e7654a3b6960/src/mcp/client/transport_session.py
+  - [ ] https://github.com/modelcontextprotocol/python-sdk/blob/7c639ec1a59a0f7b84776b4c1937e7654a3b6960/src/mcp/server/transport_session.py
 
 
 ## Infrastructure

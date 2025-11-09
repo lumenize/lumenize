@@ -53,7 +53,19 @@ This workflow prioritizes narrative clarity first, then validation. It maximizes
 
 **Deliverable:** All examples passing `check-examples` (output: "✅ All N code examples verified successfully!")
 
-### Phase 4: Full Build & Polish 🏗️
+### Phase 4: API Documentation (TypeDoc) 📚
+
+**Goal:** Generate and validate API reference documentation from JSDoc comments.
+
+1. **AI agent** makes 1st draft of JSDoc comments while writing the code. This has already happened by the time we start this documentation workflow.
+2. **Human** uses `npm run start` to review JSDoc as they render in website and either hand edits or asks AI agent to make change until Human is happy with how they read and look
+3. **Human** runs `npm run build` from `/website` to generate TypeDoc
+4. **AI agent** reviews generated API docs for issues
+5. **Human** approves final TypeDoc output before proceeding to Phase 5
+
+**Deliverable:** TypeDoc API reference generated without errors, clean API surface visible.
+
+### Phase 5: Full Build & Polish 🏗️
 
 **Goal:** Production-ready documentation with all validations passing.
 
@@ -65,13 +77,14 @@ This workflow prioritizes narrative clarity first, then validation. It maximizes
 6. **AI agent** verifies examples still pass (should from Phase 3)
 7. **Human** reviews final documentation on local build
 
-**Deliverable:** Website builds successfully with all tests and examples validated.
+**Deliverable:** Website builds successfully with all tests, examples, and API docs validated.
 
 ## When to Move Between Phases
 
 **Phase 1 → 2:** Wait for explicit approval on narrative structure
 **Phase 2 → 3:** Confirm tests are written and passing  
-**Phase 3 → 4:** All examples passing `check-examples`, no more narrative changes
+**Phase 3 → 4:** All examples passing `check-examples`, ready for API doc generation
+**Phase 4 → 5:** TypeDoc generated successfully, ready for final build
 
 **General Rule:** Don't skip ahead to validation before narrative is solid.
 

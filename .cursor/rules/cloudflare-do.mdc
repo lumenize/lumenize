@@ -1,3 +1,9 @@
+---
+description: Cloudflare Durable Objects patterns - avoid race conditions and data corruption
+globs:
+  - "**/*.ts"
+---
+
 # Cloudflare Durable Objects Rules
 
 Critical patterns for working with Cloudflare's Durable Objects to avoid race conditions and data corruption.
@@ -63,4 +69,3 @@ Storage operations are synchronous because SQLite is embedded - no async needed,
 ## Reference
 
 For comprehensive Durable Objects concepts and patterns, see `CLOUDFLARE_DO_GUIDE.md` at repo root.
-

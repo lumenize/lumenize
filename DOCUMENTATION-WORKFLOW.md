@@ -4,7 +4,7 @@ This document describes the phased approach for creating high-quality, validated
 
 ## Overview
 
-Documentation follows a **4-phase workflow** that prioritizes narrative clarity first, then validation. This approach maximizes efficiency by avoiding expensive build cycles during iteration and ensures documentation serves human learners, not just technical correctness.
+Documentation follows a **5-phase workflow** that prioritizes narrative clarity first, then validation. This approach maximizes efficiency by avoiding expensive build cycles during iteration and ensures documentation serves human learners, not just technical correctness.
 
 **Key Principle**: Write for humans first, validate with machines second.
 
@@ -185,7 +185,137 @@ All examples passing `npm run check-examples` (output: "✅ All N code examples 
 
 ---
 
-## Phase 4: Full Build & Polish 🏗️
+## Debugging Website Issues 🐛
+
+**Goal**: Debug rendering, TypeScript, or other website issues without expensive build cycles.
+
+### Primary Method: Development Server
+
+**Always use `npm run start` for debugging** instead of full builds:
+
+```bash
+cd /Users/larry/Projects/mcp/lumenize/website
+npm run start
+```
+
+### Why `npm run start`?
+- ✅ **Shows errors without blocking**: check-examples failures are reported but don't stop the dev server
+- ✅ **Live preview**: See rendered output immediately in browser
+- ✅ **Fast iteration**: Hot reload on file changes
+- ✅ **Cheap**: Minimal token usage, no verbose build output
+- ✅ **Real rendering**: Catches MDX/React issues that static analysis misses
+
+### When to Use Full Builds
+
+Only use `npm run build` when:
+- ✅ Debugging SSG-specific issues (static site generation errors)
+- ✅ Final validation before completion
+- ✅ Verifying production build succeeds
+
+### Debugging Workflow
+
+1. **Start dev server**: `npm run start`
+2. **Navigate to problem page**: Check rendering and console
+3. **Fix issues iteratively**: Edit files, check browser reload
+4. **Run check-examples separately** (if needed): `npm run check-examples`
+5. **Final build** (Phase 5): `npm run build`
+
+### Common Website Issues
+
+**TypeDoc JSDoc Examples:**
+- Problem: Code in `@example` tags gets evaluated by MDX
+- Solution: Remove type annotations (`: Type`) and object shorthand (`{ env }` → `{ env: environment }`)
+- Example: `async fetch(request, env, ctx)` instead of `async fetch(request: Request, env: Env)`
+
+**check-examples Errors:**
+- Problem: Test files moved during refactoring
+- Solution: Update `@check-example('path/to/test.ts')` paths in `.mdx` files
+
+**Broken Links:**
+- Problem: Links to non-existent anchors or pages
+- Solution: Use `npm run start` to see broken link warnings in dev server output
+
+---
+
+## Phase 4: API Documentation (TypeDoc) 📚
+
+**Goal**: Generate and validate API reference documentation from JSDoc comments.
+
+### What to Do:
+- ✅ Ensure JSDoc comments are complete and accurate for all exported functions/classes
+- ✅ Fix JSDoc `@example` code blocks to avoid MDX evaluation issues
+- ✅ Verify proper exports in `src/index.ts` (only expose public API)
+- ✅ Generate TypeDoc by running `npm run build` from `/website`
+- ✅ Review generated API docs at `/docs/[package]/api/`
+- ✅ Iterate on JSDoc comments until API docs are clear
+
+### What NOT to Do:
+- ❌ Don't skip this phase for packages with public APIs
+- ❌ Don't export internal types/utilities (they'll appear in docs)
+- ❌ Don't use complex type annotations in JSDoc examples
+
+### JSDoc Example Pitfalls
+
+TypeDoc generates markdown that gets processed by MDX. Avoid these issues:
+
+**Type Annotations:**
+```typescript
+// ❌ BAD: MDX tries to evaluate undefined types
+async fetch(request: Request, env: Env)
+
+// ✅ GOOD: No type annotations
+async fetch(request, env, ctx)
+```
+
+**Object Shorthand:**
+```typescript
+// ❌ BAD: MDX tries to evaluate `env` variable
+const log = debug({ env })('namespace');
+
+// ✅ GOOD: Explicit property
+const log = debug({ env: environment })('namespace');
+```
+
+**Generic Type Parameters:**
+```typescript
+// ❌ BAD: Undefined type reference
+class MyDO extends LumenizeBase<Env>
+
+// ✅ GOOD: No generic
+class MyDO extends LumenizeBase
+```
+
+### Controlling API Surface
+
+**Primary strategy - Only export what users should see:**
+```typescript
+// src/index.ts - Clean public API
+export { publicFunction } from './public-api';
+export type { PublicType } from './public-api';
+
+// Internal utilities NOT exported
+// Other packages can still import:
+// import { internal } from '@lumenize/pkg/src/internal.js'
+```
+
+**Alternative - Use @internal tag:**
+```typescript
+/**
+ * @internal
+ * Internal utility, hidden from docs
+ */
+export function internalHelper() { }
+```
+
+### Deliverable:
+- ✅ TypeDoc generates without errors
+- ✅ API docs show only public API
+- ✅ Examples in API docs render correctly
+- ✅ No "X is not defined" errors in build
+
+---
+
+## Phase 5: Full Build & Polish 🏗️
 
 **Goal**: Production-ready documentation with all validations passing.
 
@@ -232,7 +362,12 @@ All examples passing `npm run check-examples` (output: "✅ All N code examples 
 **Between Phase 3 → 4:**
 - All examples passing `check-examples`
 - No more narrative changes needed
-- Ready for final validation
+- Ready to generate API documentation
+
+**Between Phase 4 → 5:**
+- TypeDoc generated successfully
+- API docs reviewed and approved
+- Ready for final production build
 
 **General Rule**: Don't skip ahead to validation before narrative is solid. Iterating on narrative is cheap. Iterating on tests and builds is expensive.
 

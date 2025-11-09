@@ -1,6 +1,25 @@
+---
+description: Documentation standards and workflow - critical rules for doc creation
+alwaysApply: true
+---
+
 # Documentation Standards
 
 Documentation philosophy and tooling for Lumenize.
+
+## ⚠️ CRITICAL: Never Add @skip-check Without Asking
+
+**Exceptions:** 
+1. **Non-executable examples** - Bash commands, configuration snippets, install commands
+2. **Phase 1 of documentation workflow** - Temporary use during narrative drafting with explicit approval
+
+**Phase 1 Exception:** During narrative-first drafting (Phase 1), `@skip-check` can be used temporarily. However, the transition from Phase 1 → Phase 2 must be explicitly approved by the user, acknowledging that all `@skip-check` annotations will be replaced with `@check-example` annotations pointing to real tests.
+
+**Never:** Use `@skip-check` for final pedagogical code examples without validation tests.
+
+**Why:** `@skip-check` creates risk of docs/code divergence. Every code example showing functionality should be validated.
+
+**Ask First:** If you think @skip-check is needed outside these exceptions, ask the user.
 
 ## Philosophy
 
@@ -103,21 +122,18 @@ npm install @lumenize/package
 \`\`\`
 ```
 
-**Exception:** Only use `@skip-check` for non-executable examples (install commands, configuration snippets). Never for pedagogical code examples.
-
-**Why:** `@skip-check` creates risk of docs/code divergence. Every code example should be validated.
-
 ## Documentation Workflow
 
-For the complete 4-phase documentation process, see:
+For the complete 5-phase documentation process, use the command:
 - **Command:** `/documentation-workflow` 
-- **File:** `/DOCUMENTATION-WORKFLOW.md`
+- **Reference:** `/DOCUMENTATION-WORKFLOW.md`
 
 **Quick reference:**
 1. **Phase 1**: Narrative & Pedagogy First (use `@skip-check` temporarily)
 2. **Phase 2**: Make Examples Real (create `test/for-docs/` tests)
 3. **Phase 3**: Fast Validation Loop (`npm run check-examples`)
-4. **Phase 4**: Full Build & Polish (`npm run build`)
+4. **Phase 4**: API Documentation (TypeDoc for packages with public APIs)
+5. **Phase 5**: Full Build & Polish (`npm run build`)
 
 ## TypeDoc API Documentation
 
@@ -140,4 +156,3 @@ For packages with public APIs that users will import:
 - **doc-testing tool**: `/tooling/doc-testing/`
 - **Docusaurus config**: `/website/docusaurus.config.ts`
 - **Workflow details**: `/DOCUMENTATION-WORKFLOW.md`
-

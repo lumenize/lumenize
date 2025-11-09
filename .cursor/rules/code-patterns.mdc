@@ -1,3 +1,8 @@
+---
+description: Standard coding patterns and conventions for Lumenize packages
+alwaysApply: false
+---
+
 # Code Patterns
 
 Standard coding patterns and conventions for Lumenize packages.
@@ -38,7 +43,7 @@ Build happens only during publish (see `scripts/build-packages.sh`, `scripts/pre
 - `package.json` temporarily modified to point to `dist/`
 - After publish, `scripts/restore-dev-mode.sh` reverts to `src/`
 
-**See:** Publishing and Releases section in `.cursorrules` (workspace rules) for details.
+**See:** Publishing and Releases section in workspace rules for details.
 
 ## Imports
 
@@ -112,5 +117,4 @@ When copying liberally-licensed code (typically <1000 SLOC):
 
 ## Reference
 
-For comprehensive project structure and workflow details, see workspace-level rules in the root `.cursorrules` file.
-
+For comprehensive project structure and workflow details, see workspace-level rules.

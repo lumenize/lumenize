@@ -1,3 +1,11 @@
+---
+description: Testing patterns and conventions for Lumenize
+globs:
+  - "**/test/**/*.ts"
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+---
+
 # Testing Patterns
 
 Testing philosophy, patterns, and conventions for Lumenize.
@@ -118,4 +126,3 @@ When refactoring package APIs:
 
 For vitest configuration patterns, see package-level `vitest.config.js` files.
 For test organization examples, see `packages/testing/` and `packages/rpc/test/`.
-

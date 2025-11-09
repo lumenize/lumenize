@@ -6,19 +6,19 @@ This directory contains Cursor IDE configuration for the Lumenize project.
 
 ### `/rules/` - Passive Guidelines
 
-These files define coding standards, patterns, and "what to do/avoid":
+These files (`.mdc` format) define coding standards, patterns, and "what to do/avoid":
 
-- `critical-never.md` - Foot-guns to avoid (npm vs pnpm, async storage, etc.)
-- `cloudflare-do.md` - Durable Objects patterns and gotchas
-- `code-patterns.md` - TypeScript conventions, imports, package structure
-- `testing.md` - Test philosophy and patterns
-- `documentation.md` - Documentation standards and tooling
+- `critical-never.mdc` - Foot-guns to avoid (npm vs pnpm, async storage, etc.)
+- `cloudflare-do.mdc` - Durable Objects patterns and gotchas
+- `code-patterns.mdc` - TypeScript conventions, imports, package structure
+- `testing.mdc` - Test philosophy and patterns
+- `documentation.mdc` - Documentation standards and tooling
 
 **When they apply:** Cursor loads matching rules when you open/edit files.
 
 ### `/commands/` - Active Workflows
 
-These files define step-by-step processes with explicit human/AI/code collaboration:
+These files (`.md` format) define step-by-step processes with explicit human/AI/code collaboration:
 
 - `documentation-workflow.md` - 4-phase doc creation process
 - `api-refactor.md` - Safe API refactoring pattern
