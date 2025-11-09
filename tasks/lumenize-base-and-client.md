@@ -1,4 +1,4 @@
-# LumenizeClient - Bidirectional WebSocket Communication
+# LumenizeBase & LumenizeClient - Bidirectional WebSocket Communication
 
 **Status**: Planning - Ready for Review
 **Started**: 2025-11-03
@@ -7,6 +7,8 @@
 ## Goal
 
 Build a bidirectional WebSocket communication system between LumenizeBase (Durable Objects) and LumenizeClient (browser/Node.js), providing a more structured alternative to Lumenize RPC for real-time, session-based applications.
+
+This document covers enhancements to both LumenizeBase (server-side DO base class) and LumenizeClient (client-side connection class).
 
 **Key Design Principle**: Transport layer encapsulation - users work with plain objects in/out, never touching stringify/parse. The transport layer (structured-clone) handles all serialization transparently.
 
@@ -910,6 +912,44 @@ export default {
   }
 };
 ```
+
+## Future Enhancements
+
+These are features planned for after the initial release, blocked by dependencies or scoped out for v2:
+
+### Per-DO Debug Logging Override
+
+**Problem**: In production, users may need to enable debug logging for a specific problematic DO instance without:
+- Redeploying the entire Worker (slow)
+- Enabling debug for all instances (too noisy)
+
+**Solution**: Allow per-DO debug configuration via storage override `_lmz:debug`
+
+**Decisions needed**: 
+- Do we cache the override status in an instance variable or do we put it in NADIS with something like `this.svc.debug.DEBUG`?
+- What should the API from the client be?
+
+**Design Decisions**:
+- **Complete override** (not merge): Storage DEBUG replaces env.DEBUG entirely - clearer semantics
+- **Storage key**: `_lmz:debug` (consistent with other LumenizeBase internal keys)
+- **Admin-only**: Requires authentication via LumenizeClient admin API
+- **Security**: Must be behind auth system (don't implement until auth is ready)
+- **Private**: All admin functions must be JavaScript private "#..." methods in LumenizeBase so they can't be reached by RPC. Test to confirm.
+
+**Benefits**:
+- ✅ Runtime debugging without deployment
+- ✅ Per-instance granularity (debug one problematic DO)
+- ✅ Can be set/cleared via API
+
+**Blockers**:
+- 🚫 **Requires auth system** - This is an admin operation, must be secured
+- 🚫 **Requires LumenizeClient admin API** - Need admin API structure first
+
+**Priority**: Post-v1 (after auth system is implemented)
+
+**Related**:
+- See "Authentication Strategy" decision below
+- See Phase 3 for LumenizeBase lifecycle hooks where admin endpoints would live
 
 ## Design Decisions - Resolved ✅
 

@@ -93,7 +93,11 @@ export default {
 
 ## Configuration
 
-Control logging via the `DEBUG` environment variable (in `.dev.vars` for local development):
+Control logging via the `DEBUG` environment variable.
+
+### Local Development
+
+Use `.dev.vars` file in your project root:
 
 ```bash @skip-check
 # Enable all levels for a namespace
@@ -123,6 +127,32 @@ DEBUG=*,-lmz.*
 # Exclusions (enable all Lumenize except one verbose part)
 DEBUG=lmz.*,-lmz.proxy-fetch.queue
 ```
+
+### Production Deployment
+
+Set the DEBUG env var in `wrangler.jsonc` or via command line:
+
+```jsonc @skip-check
+{
+  "name": "my-worker",
+  "vars": {
+    "DEBUG": "my-app.*,lmz.utils.route-do-request"
+  }
+}
+```
+
+Or deploy with the `--var` flag:
+
+```bash @skip-check
+npx wrangler deploy --var DEBUG:"my-app.*,lmz.rpc"
+```
+
+**Important**: Changing DEBUG requires redeployment. When you deploy a new Worker version:
+- All Durable Object instances are automatically evicted
+- Constructors re-run with the new DEBUG value
+- No manual intervention needed per DO
+
+This ensures all instances immediately pick up your new debug configuration.
 
 ### Level Filtering
 

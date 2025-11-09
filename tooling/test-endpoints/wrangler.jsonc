@@ -5,11 +5,18 @@
   "observability": {
     "enabled": true
   },
+  "vars": {
+    "DEBUG": "changed-value"
+  },
   "durable_objects": {
     "bindings": [
       {
         "name": "TEST_ENDPOINTS_DO",
         "class_name": "TestEndpointsDO"
+      },
+      {
+        "name": "ENV_TEST_DO",
+        "class_name": "EnvTestDO"
       }
     ]
   },
@@ -17,6 +24,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["TestEndpointsDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["EnvTestDO"]
     }
   ]
 }

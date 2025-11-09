@@ -20,13 +20,27 @@
 
 import { routeDORequest } from '@lumenize/utils';
 import { TestEndpointsDO } from './TestEndpointsDO';
+import { EnvTestDO } from './EnvTestDO';
 
-export { TestEndpointsDO };
+export { TestEndpointsDO, EnvTestDO };
 export { createTestEndpoints, buildTestEndpointUrl } from './client';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Route all requests to TestEndpointsDO
+    const url = new URL(request.url);
+    
+    // Worker-level env test endpoint (no DO involved)
+    if (url.pathname === '/worker-env-test') {
+      return new Response(JSON.stringify({
+        debugValue: env.DEBUG || 'NOT_SET',
+        timestamp: Date.now(),
+        note: 'This is read directly from Worker env (no DO)'
+      }, null, 2), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // Route all other requests to DOs
     // URL format: /{bindingName}/{instanceName}/{endpoint}
     // bindingName is extracted from URL and matched case-insensitively against env bindings
     const response = await routeDORequest(request, env);
@@ -37,6 +51,8 @@ export default {
 };
 
 interface Env {
-  TEST_TOKEN: string;
+  TEST_TOKEN?: string;
+  DEBUG?: string;
   TEST_ENDPOINTS_DO: DurableObjectNamespace;
+  ENV_TEST_DO: DurableObjectNamespace;
 }
