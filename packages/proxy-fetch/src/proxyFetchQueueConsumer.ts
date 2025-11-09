@@ -24,7 +24,7 @@ export async function proxyFetchQueueConsumer(
   env: Env
 ): Promise<void> {
   // Create debug logger from environment (NADIS pattern)
-  const log = debug({ env })('proxy-fetch.queue');
+  const log = debug({ env })('lmz.proxy-fetch.queue');
   
   // Process each message in the batch
   for (const message of batch.messages) {

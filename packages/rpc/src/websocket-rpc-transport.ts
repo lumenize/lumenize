@@ -44,7 +44,7 @@ export class WebSocketRpcTransport implements RpcTransport {
   #keepAliveEnabled: boolean = false;
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #reconnectAttempts: number = 0;
-  #log = debug({})('rpc.client.websocket');
+  #log = debug({})('lmz.rpc.client.websocket');
 
   constructor(config: {
     baseUrl: string;

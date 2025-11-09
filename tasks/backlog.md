@@ -16,6 +16,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Test in production on Cloudflare (not just local with vitest)
 
+- [ ] Add consistent debug logging across all Lumenize packages
+  - Currently only added debug logging where we actively debugged issues
+  - Should have comprehensive logging at key points in all packages
+  - Use appropriate levels: debug (everything), info (milestones), warn (expected issues)
+  - All Lumenize internal namespaces should use `lmz.*` prefix
+
 - [ ] Add missing alias tests for @lumenize/structured-clone
   - Test multiple paths to same object (true aliases - obj.a and obj.b both point to same object)
   - Test deep cycles (A→B→C→A)

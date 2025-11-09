@@ -11,7 +11,7 @@ Part of `@lumenize/core`.
 
 ## Features
 
-- **Namespace filtering**: Use dot-notation scopes (e.g., `proxy-fetch.serialization`) with wildcard patterns
+- **Namespace filtering**: Use dot-notation scopes (e.g., `lmz.proxy-fetch.serialization`) with wildcard patterns
 - **Level support**: `debug`, `info`, and `warn` levels, all filterable
 - **JSON output**: Structured logs integrate seamlessly with Cloudflare's log dashboard
 - **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
@@ -96,22 +96,31 @@ Control logging via the `DEBUG` environment variable (in `.dev.vars` for local d
 
 ```bash @skip-check
 # Enable all levels for a namespace
-DEBUG=proxy-fetch
+DEBUG=lmz.proxy-fetch
 
 # Enable only warn level
-DEBUG=proxy-fetch:warn
+DEBUG=lmz.proxy-fetch:warn
 
 # Multiple namespaces
-DEBUG=proxy-fetch,rpc.client
+DEBUG=lmz.proxy-fetch,lmz.rpc.client
 
 # Wildcard patterns
-DEBUG=proxy-fetch.*
+DEBUG=lmz.proxy-fetch.*
 
-# Everything
+# Everything (both your app and Lumenize)
 DEBUG=*
 
-# Exclusions
-DEBUG=*,-proxy-fetch.too-verbose
+# Only your app (exclude all Lumenize internal logging)
+DEBUG=my-app.*
+
+# Your app plus specific Lumenize subsystem
+DEBUG=my-app.*,lmz.utils.route-do-request
+
+# Everything except Lumenize internals
+DEBUG=*,-lmz.*
+
+# Exclusions (enable all Lumenize except one verbose part)
+DEBUG=lmz.*,-lmz.proxy-fetch.queue
 ```
 
 ### Level Filtering
@@ -131,7 +140,7 @@ All logs output as JSON objects to `console.debug`:
 ```json @skip-check
 {
   "level": "debug",
-  "namespace": "proxy-fetch.queue",
+  "namespace": "lmz.proxy-fetch.queue",
   "message": "Processing request",
   "url": "https://api.example.com/data",
   "method": "POST",
@@ -140,7 +149,7 @@ All logs output as JSON objects to `console.debug`:
 ```
 
 This format integrates with Cloudflare's log dashboard, allowing you to:
-- Query by field (e.g., `namespace:"proxy-fetch.queue"`)
+- Query by field (e.g., `namespace:"lmz.proxy-fetch.queue"`)
 - Filter by level
 - Search message content
 - Analyze structured data
@@ -211,21 +220,53 @@ if (log.enabled) {
 
 ## Namespace Conventions
 
-Recommended namespace patterns:
+### Your Application Code
 
-- **Package scope**: `proxy-fetch`, `rpc`, `utils`
-- **Component scope**: `proxy-fetch.queue`, `rpc.client`
-- **Feature scope**: `proxy-fetch.serialization`, `rpc.websocket`
+For your own application code, use descriptive namespaces without the `lmz.` prefix:
+
+- **App scope**: `my-app`, `chat-app`, `api-service`
+- **Feature scope**: `my-app.websocket`, `my-app.auth`, `my-app.billing`
+- **Component scope**: `my-app.auth.session`, `my-app.chat.room`
+
+Examples for your app:
+
+```typescript @skip-check
+// Main app DO
+const log = this.svc.debug('my-app.main');
+
+// WebSocket handling
+const wsLog = this.svc.debug('my-app.websocket');
+
+// Authentication/authorization
+const authLog = this.svc.debug('my-app.auth');
+
+// Specific callbacks
+const onConnectLog = this.svc.debug('my-app.onBeforeConnect');
+```
+
+### Lumenize Internal Code
+
+Lumenize packages use the `lmz.` prefix to separate framework logging from your application logging:
+
+- **Package scope**: `lmz.proxy-fetch`, `lmz.rpc`, `lmz.utils`
+- **Component scope**: `lmz.proxy-fetch.queue`, `lmz.rpc.client`
+- **Feature scope**: `lmz.proxy-fetch.serialization`, `lmz.rpc.websocket`
 
 Examples from Lumenize packages:
 
-- `proxy-fetch.queue` - Queue consumer
-- `proxy-fetch.do` - Durable Object
-- `rpc.client` - RPC client
-- `rpc.server` - RPC server
-- `rpc.websocket` - WebSocket transport
-- `rpc.downstream` - Downstream messaging
-- `utils.route-do-request` - Request routing
+- `lmz.proxy-fetch.queue` - Queue consumer
+- `lmz.proxy-fetch.do` - Durable Object
+- `lmz.rpc.client` - RPC client
+- `lmz.rpc.factory` - RPC factory
+- `lmz.rpc.client.websocket` - WebSocket transport
+- `lmz.rpc.client.http` - HTTP transport
+- `lmz.utils.route-do-request` - Request routing
+
+This separation allows you to:
+- See only your logs: `DEBUG=my-app.*`
+- See only Lumenize logs: `DEBUG=lmz.*`
+- See everything: `DEBUG=*`
+- See your app + specific Lumenize subsystem: `DEBUG=my-app.*,lmz.rpc.*`
 
 ## Performance
 
@@ -270,7 +311,7 @@ log.debug('Parsed request', {
 
 ## Use Cases
 
-### Development
+### Development - See Everything
 
 Enable all logging during local development:
 
@@ -278,17 +319,90 @@ Enable all logging during local development:
 DEBUG=* npm run dev
 ```
 
-### Testing
+### Testing - Targeted Debugging
 
 Enable specific namespaces for failing tests:
 
 ```bash @skip-check
-DEBUG=proxy-fetch.queue npm test
+DEBUG=lmz.proxy-fetch.queue npm test
 ```
 
 ### Production Debugging
 
 Add `DEBUG` to environment variables temporarily to debug production issues without code changes.
+
+### Common Filtering Scenarios
+
+**Scenario 1: Only your application logging (hide all Lumenize internals)**
+
+```bash @skip-check
+# In .dev.vars or environment variables
+DEBUG=my-app.*
+```
+
+This shows only your application's debug logs, completely hiding Lumenize framework logging.
+
+**Scenario 2: Your app + specific Lumenize subsystem**
+
+```bash @skip-check
+# Debug your app and see what routeDORequest is doing
+DEBUG=my-app.*,lmz.utils.route-do-request
+```
+
+Useful when debugging routing issues - you see your app logs plus the routing details from Lumenize.
+
+**Scenario 3: Debugging authentication/connection callbacks**
+
+```typescript @skip-check
+// In your Worker code
+import { routeDORequest } from '@lumenize/utils';
+import { debug } from '@lumenize/core';
+
+export default {
+  async fetch(request: Request, env: Env) {
+    return await routeDORequest(request, env, {
+      onBeforeConnect: async (request, context) => {
+        // Create logger for your callback
+        const log = debug({ env })('my-app.onBeforeConnect');
+        
+        log.debug('WebSocket connection attempt', {
+          origin: request.headers.get('Origin'),
+          doInstance: context.doInstanceNameOrId
+        });
+        
+        // Your auth logic here
+        const token = request.headers.get('Authorization');
+        if (!token) {
+          log.warn('Connection rejected - missing auth', {
+            doInstance: context.doInstanceNameOrId
+          });
+          return new Response('Unauthorized', { status: 401 });
+        }
+        
+        log.info('Connection authorized', {
+          doInstance: context.doInstanceNameOrId
+        });
+      }
+    });
+  }
+}
+```
+
+Then enable it:
+
+```bash @skip-check
+# See your auth callback logs and routing behavior
+DEBUG=my-app.onBeforeConnect,lmz.utils.route-do-request
+```
+
+**Scenario 4: Everything except Lumenize internals**
+
+```bash @skip-check
+# Enable all logging but hide Lumenize framework noise
+DEBUG=*,-lmz.*
+```
+
+Useful when you're using multiple libraries and want to see their debug output without Lumenize cluttering the logs.
 
 ### State Tracking
 

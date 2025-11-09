@@ -49,7 +49,7 @@ const ulid = ulidFactory();
  * @see {@link https://lumenize.com/docs/proxy-fetch/durable-object}
  */
 export class ProxyFetchDO extends DurableObject {
-  #log = debug(this)('proxy-fetch.do');
+  #log = debug(this)('lmz.proxy-fetch.do');
   
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);

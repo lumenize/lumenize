@@ -8,7 +8,7 @@ import { debug } from '../index';
  * Durable Object instances.
  */
 export class DebugTestDO extends DurableObject<Env> {
-  #log = debug(this)('test.debug-do');
+  #log = debug(this)('lmz.test.debug-do');
 
   testBasicLogging() {
     this.#log.debug('Debug message', { level: 'debug' });

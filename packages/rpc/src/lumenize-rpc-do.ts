@@ -613,7 +613,7 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
 
   // Create enhanced class that extends the original
   class LumenizedDO extends (DOClass as T) {
-    #log = debug(this)('rpc.factory');
+    #log = debug(this)('lmz.rpc.factory');
 
     async fetch(request: Request): Promise<Response> {
       this.#log.debug('RPC fetch handler', { url: request.url });
