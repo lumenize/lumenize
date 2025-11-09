@@ -102,6 +102,9 @@ export class ProxyFetchDO extends DurableObject {
    * 
    * Moves items from queued to in-flight state and fires off fetch operations.
    * Schedules an alarm if more items remain in the queue.
+   * 
+   * Note: Retry delays are handled via setTimeout (not alarms), so retryAfter
+   * is ignored here - items are processed whenever #processQueue is called.
    */
   async #processQueue(): Promise<void> {
     try {
@@ -132,6 +135,7 @@ export class ProxyFetchDO extends DurableObject {
           reqId: typedRequest.reqId,
           ulid,
           url: typedRequest.request?.url,
+          retryCount: typedRequest.retryCount || 0,
         });
         
         // Fire off the fetch - don't await, let it run in background
@@ -223,24 +227,26 @@ export class ProxyFetchDO extends DurableObject {
     const retryCount = request.retryCount || 0;
 
     if (isRetryable(fetchError, response, options) && retryCount < options.maxRetries) {
-      // Retry - re-queue the request with incremented retry count
+      // Retry - re-queue the request with incremented retry count and exponential backoff
       const delay = getRetryDelay(retryCount, options);
+      const retryAfter = Date.now() + delay;
       
       this.#log.warn('Retryable failure, re-queuing for retry', {
         reqId: request.reqId,
         retryCount,
         maxRetries: options.maxRetries,
         delayMs: delay,
+        retryAfter: new Date(retryAfter).toISOString(),
       });
 
       // Delete from in-flight
       this.ctx.storage.kv.delete(`reqs-in-flight:${requestUlid}`);
 
-      // Re-queue immediately with incremented retry count
-      // The alarm will process it - we could add delay logic to the alarm if needed
-      const retryRequest = {
+      // Re-queue with incremented retry count and retryAfter timestamp for exponential backoff
+      const retryRequest: ProxyFetchQueueMessage = {
         ...request,
         retryCount: retryCount + 1,
+        retryAfter, // Set when this retry should be processed
       };
       
       // Generate new ULID for the retry
@@ -251,12 +257,19 @@ export class ProxyFetchDO extends DurableObject {
         reqId: request.reqId,
         newUlid: retryUlid,
         retryCount: retryCount + 1,
+        retryAfter: new Date(retryAfter).toISOString(),
+        delayMs: delay,
       });
 
-      // Schedule alarm to process the retry
-      // Note: For true exponential backoff delays, we could track retry time in storage
-      // and skip items in alarm() that aren't ready yet. For now, immediate retry.
-      await this.#scheduleAlarm();
+      // Use setTimeout to trigger queue processing after the exponential backoff delay.
+      // This is perfect for ProxyFetchDO since:
+      // 1. ProxyFetchDO is designed to absorb wall clock time (that's its purpose)
+      // 2. setTimeout works reliably in tests (unlike alarms which need simulation)
+      // 3. No alarm overwriting issues (can have multiple setTimeout callbacks)
+      // 4. Proven to work in ASYNC_FETCH_EXPERIMENTS.md - even without waitUntil
+      setTimeout(() => {
+        this.ctx.waitUntil(this.#processQueue());
+      }, delay);
 
       return;
     }
@@ -350,7 +363,7 @@ export class ProxyFetchDO extends DurableObject {
   }
 
   /**
-   * Schedule alarm to process queue
+   * Schedule alarm to process queue immediately (or soon)
    * 
    * Only schedules if no alarm is currently set (idempotent).
    */

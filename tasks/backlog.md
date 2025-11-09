@@ -29,6 +29,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Test shared subtree aliases (two different paths leading to same subtree)
   - Performance tests with large cyclic structures
 
+- [ ] Refactor RequestSync/ResponseSync to not use real Request/Response objects internally
+  - **Problem**: Currently uses real Request/Response objects under the covers, inheriting platform-specific quirks
+  - Workers returns `undefined` for credentials/mode/referrer, browsers return `'about:client'` for referrer
+  - Defeats the purpose of having a synchronous, platform-independent serialization API
+  - **Solution**: Store all properties as plain data, only create real Request/Response in `toRequest()`/`toResponse()` methods
+  - Would provide consistent behavior across all environments (Workers, Node, Browser)
+  - Properties would return exactly what you set, no platform surprises
+
 
 ## Documentation
 

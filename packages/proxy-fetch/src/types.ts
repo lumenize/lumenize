@@ -38,6 +38,8 @@ export interface ProxyFetchQueueMessage {
   options?: ProxyFetchOptions;
   /** Timestamp when request was initiated */
   timestamp: number;
+  /** Timestamp when this retry should be processed (for exponential backoff, DO variant only) */
+  retryAfter?: number;
 }
 
 /**

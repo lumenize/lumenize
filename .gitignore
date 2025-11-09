@@ -36,3 +36,4 @@ dist-ssr
 .vitest-cache
 coverage
 durable-objects/coverage
+__screenshots__

@@ -10,7 +10,10 @@ export default defineConfig({
           name: 'node',
           environment: 'node',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/format-experiments.test.ts'], // Run only when explicitly requested
+          exclude: [
+            'test/format-experiments.test.ts', // Run only when explicitly requested
+            'test/**/*-browser.test.ts', // Browser-only tests
+          ],
           globals: true,
           testTimeout: 2000,
         },
@@ -20,7 +23,10 @@ export default defineConfig({
         test: {
           name: 'workers',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/format-experiments.test.ts'], // Performance tests need accurate Node.js timing
+          exclude: [
+            'test/format-experiments.test.ts', // Performance tests need accurate Node.js timing
+            'test/**/*-browser.test.ts', // Browser-only tests
+          ],
           globals: true,
           testTimeout: 2000,
           poolOptions: {
@@ -35,7 +41,10 @@ export default defineConfig({
       {
         test: {
           name: 'browser',
-          include: ['test/**/*.test.ts'],
+          include: [
+            'test/**/*.test.ts',
+            'test/**/*-browser.test.ts', // Browser-specific tests (e.g., RequestSync properties)
+          ],
           exclude: ['test/format-experiments.test.ts'], // Performance tests need accurate Node.js timing
           browser: {
             enabled: true,

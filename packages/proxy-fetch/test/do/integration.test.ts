@@ -62,7 +62,8 @@ describe('ProxyFetch Integration (DO Variant)', () => {
 
     const reqId = await originClient.myBusinessProcess(
       'https://invalid-domain-that-will-fail.invalid/',
-      'handleError'
+      'handleError',
+      { maxRetries: 0 } // Disable retries - this test is about error callbacks, not retry logic
     );
 
     // Wait for error callback

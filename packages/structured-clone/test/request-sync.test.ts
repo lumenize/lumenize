@@ -181,21 +181,9 @@ describe('RequestSync', () => {
       expect(req.headers.get('X-Custom')).toBe('value');
     });
 
-    it('forwards credentials', { skip: true }, () => {
-      // Skip: credentials not supported in Workers runtime (returns undefined)
-      const req = new RequestSync('https://example.com', {
-        credentials: 'include'
-      });
-      expect(req.credentials).toBe('include');
-    });
-
-    it('forwards mode', { skip: true }, () => {
-      // Skip: mode not supported in Workers runtime (returns undefined)
-      const req = new RequestSync('https://example.com', {
-        mode: 'cors'
-      });
-      expect(req.mode).toBe('cors');
-    });
+    // Note: credentials, mode, referrer, integrity, keepalive tests moved to
+    // request-sync-browser.test.ts - these properties are not preserved in
+    // Cloudflare Workers but work correctly in browser environments.
 
     it('forwards cache', () => {
       const req = new RequestSync('https://example.com', {
@@ -209,30 +197,6 @@ describe('RequestSync', () => {
         redirect: 'follow'
       });
       expect(req.redirect).toBe('follow');
-    });
-
-    it('forwards referrer', { skip: true }, () => {
-      // Skip: referrer not supported in Workers runtime (returns undefined)
-      const req = new RequestSync('https://example.com', {
-        referrer: 'https://referrer.com'
-      });
-      expect(req.referrer).toBe('https://referrer.com/');
-    });
-
-    it('forwards integrity', { skip: true }, () => {
-      // Skip: integrity not supported in Workers runtime
-      const req = new RequestSync('https://example.com', {
-        integrity: 'sha256-abc123'
-      });
-      expect(req.integrity).toBe('sha256-abc123');
-    });
-
-    it('forwards keepalive', { skip: true }, () => {
-      // Skip: keepalive not supported in Workers runtime (returns false)
-      const req = new RequestSync('https://example.com', {
-        keepalive: true
-      });
-      expect(req.keepalive).toBe(true);
     });
   });
 
@@ -263,7 +227,7 @@ describe('RequestSync', () => {
       
       // Modifying shared body affects both
       if (typeof cloned.body === 'object' && cloned.body !== null) {
-        cloned.body.test = 'modified';
+        (cloned.body as any).test = 'modified';
       }
       expect((req.body as any).test).toBe('modified');
     });
