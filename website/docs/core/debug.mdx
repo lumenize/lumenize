@@ -12,10 +12,11 @@ Part of `@lumenize/core`.
 ## Features
 
 - **Namespace filtering**: Use dot-notation scopes (e.g., `lmz.proxy-fetch.serialization`) with wildcard patterns
-- **Level support**: `debug`, `info`, and `warn` levels, all filterable
+- **Level support**: `debug`, `info`, `warn`, and `error` levels
 - **JSON output**: Structured logs integrate seamlessly with Cloudflare's log dashboard
 - **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
 - **NADIS integration**: Use standalone or auto-inject into `LumenizeBase` via `this.svc.debug`
+- **⚠️ Error level never filtered**: `log.error()` always outputs regardless of DEBUG environment variable
 
 ## Installation
 
@@ -127,11 +128,12 @@ DEBUG=lmz.*,-lmz.proxy-fetch.queue
 
 Each namespace can have a level filter:
 
-- `DEBUG=app` - All levels (debug, info, warn)
+- `DEBUG=app` - All filterable levels (debug, info, warn)
 - `DEBUG=app:info` - Info and warn only
 - `DEBUG=app:warn` - Warn only
+- `DEBUG=app:error` - Would only enable error, but error ALWAYS outputs anyway
 
-Default is all levels when no level specified.
+**⚠️ IMPORTANT**: The `error` level is NEVER filtered and always outputs, regardless of your DEBUG configuration.
 
 ## Log Output Format
 
@@ -156,221 +158,164 @@ This format integrates with Cloudflare's log dashboard, allowing you to:
 
 ## API
 
-### `debug(instance)`
+The debug system provides a simple, type-safe logging interface:
 
-Creates a debug logger factory.
+```typescript
+// Create logger
+const log = this.svc.debug('my-app.feature');  // LumenizeBase
+const log = debug(this)('my-app.feature');     // Vanilla DO
+const log = debug({ env })('my-app.feature');  // Worker
 
-**Parameters:**
-- `instance` - Durable Object instance (with `env`) or object with `env` property
+// Log at different levels
+log.debug(message: string, data?: any);  // Most verbose
+log.info(message: string, data?: any);   // Milestones, events
+log.warn(message: string, data?: any);   // Expected operational issues
+log.error(message: string, data?: any);  // ⚠️ ALWAYS outputs - never filtered
 
-**Returns:** Factory function `(namespace: string) => DebugLogger`
-
-**Example:**
-```typescript @skip-check
-const createLogger = debug(this);
-const log = createLogger('my-namespace');
+// Check if enabled (for expensive operations)
+if (log.enabled) { /* ... */ }
 ```
 
-### `DebugLogger` Interface
-
-#### `log.debug(message, data?)`
-
-Log at debug level (most verbose).
-
-```typescript @skip-check
-log.debug('Parsing request body', { 
-  contentType: 'application/json',
-  size: body.length 
-});
-```
-
-#### `log.info(message, data?)`
-
-Log informational messages (milestones, events).
-
-```typescript @skip-check
-log.info('Cache hit', { 
-  key: 'user:123',
-  ttl: 3600 
-});
-```
-
-#### `log.warn(message, data?)`
-
-Log warnings (expected operational issues, not errors).
-
-```typescript @skip-check
-log.warn('Retry limit reached', { 
-  reqId: 'abc-123',
-  retryCount: 5 
-});
-```
-
-#### `log.enabled`
-
-Boolean flag indicating if this logger is enabled for any level.
-
-```typescript @skip-check
-if (log.enabled) {
-  // Expensive computation only if logging enabled
-  const details = computeExpensiveDetails();
-  log.debug('Details', details);
-}
-```
+See [Error Logging](#error-logging) for detailed examples of when to use each level.
 
 ## Namespace Conventions
 
-### Your Application Code
+Use dot-notation hierarchies to organize your logging:
 
-For your own application code, use descriptive namespaces without the `lmz.` prefix:
+**Your application** (no prefix):
+- `my-app.main`, `my-app.auth`, `my-app.websocket`
+- More specific: `my-app.auth.session`, `my-app.chat.room`
 
-- **App scope**: `my-app`, `chat-app`, `api-service`
-- **Feature scope**: `my-app.websocket`, `my-app.auth`, `my-app.billing`
-- **Component scope**: `my-app.auth.session`, `my-app.chat.room`
+**Lumenize internals** (`lmz.` prefix):
+- `lmz.rpc.client`, `lmz.proxy-fetch.queue`, `lmz.utils.route-do-request`
 
-Examples for your app:
-
-```typescript @skip-check
-// Main app DO
-const log = this.svc.debug('my-app.main');
-
-// WebSocket handling
-const wsLog = this.svc.debug('my-app.websocket');
-
-// Authentication/authorization
-const authLog = this.svc.debug('my-app.auth');
-
-// Specific callbacks
-const onConnectLog = this.svc.debug('my-app.onBeforeConnect');
+This separation allows targeted filtering:
+```bash
+DEBUG=my-app.*              # Only your app
+DEBUG=lmz.*                 # Only Lumenize
+DEBUG=my-app.*,lmz.rpc.*    # Your app + specific subsystem
+DEBUG=*,-lmz.*              # Everything except Lumenize
 ```
 
-### Lumenize Internal Code
-
-Lumenize packages use the `lmz.` prefix to separate framework logging from your application logging:
-
-- **Package scope**: `lmz.proxy-fetch`, `lmz.rpc`, `lmz.utils`
-- **Component scope**: `lmz.proxy-fetch.queue`, `lmz.rpc.client`
-- **Feature scope**: `lmz.proxy-fetch.serialization`, `lmz.rpc.websocket`
-
-Examples from Lumenize packages:
-
-- `lmz.proxy-fetch.queue` - Queue consumer
-- `lmz.proxy-fetch.do` - Durable Object
-- `lmz.rpc.client` - RPC client
-- `lmz.rpc.factory` - RPC factory
-- `lmz.rpc.client.websocket` - WebSocket transport
-- `lmz.rpc.client.http` - HTTP transport
-- `lmz.utils.route-do-request` - Request routing
-
-This separation allows you to:
-- See only your logs: `DEBUG=my-app.*`
-- See only Lumenize logs: `DEBUG=lmz.*`
-- See everything: `DEBUG=*`
-- See your app + specific Lumenize subsystem: `DEBUG=my-app.*,lmz.rpc.*`
-
-## Performance
-
-The debug system has minimal overhead:
-
-1. **Early exit**: `enabled` flag checked first - no-op if disabled
-2. **No string interpolation**: Use object format, not template literals
-3. **No object creation**: Only when actually logging
-
-```typescript @skip-check
-// ✅ Good - no overhead when disabled
-log.debug('Processing', { items: items.length });
-
-// ❌ Bad - string interpolation happens even when disabled
-log.debug(`Processing ${items.length} items`);
-```
 
 ## Error Logging
 
-**Important**: Don't use the debug system for critical errors. Use `console.error` directly:
+The debug system includes an `error()` level that **ALWAYS outputs, regardless of DEBUG filter**. This gives you structured JSON logging for errors while ensuring they're never accidentally hidden.
+
+### When to Use Each Level
+
+Use this decision tree to choose the right level:
+
+```
+Is this an unexpected system failure, bug, or assertion violation?
+├─ YES → Use log.error() [NEVER filtered]
+└─ NO → Is this an expected operational issue?
+    ├─ YES → Use log.warn() [filterable]
+    └─ NO → Is this a milestone or important event?
+        ├─ YES → Use log.info() [filterable]
+        └─ NO → Use log.debug() [filterable]
+```
+
+### Examples
 
 ```typescript @skip-check
-// ✅ Critical system errors - always visible
-console.error('Queue processing failed', {
-  error: e.message,
-  stack: e.stack,
-  reqId
-});
+import '@lumenize/core';
+import { LumenizeBase } from '@lumenize/lumenize-base';
 
-// ✅ Expected operational issues - filterable
-log.warn('Retry limit reached', {
-  reqId,
-  retryCount: 5
-});
-
-// ✅ Debugging information - filterable
-log.debug('Parsed request', {
-  url,
-  method
-});
+class MyDO extends LumenizeBase<Env> {
+  async fetch(request: Request) {
+    const log = this.svc.debug('my-app.main');
+    
+    // ERROR: Unexpected system failure (always logged)
+    try {
+      const stub = this.env.SOME_DO.get(this.env.SOME_DO.idFromName('test'));
+      return await stub.fetch(request);
+    } catch (e) {
+      log.error('Unexpected DO fetch failure', {
+        error: e.message,
+        stack: e.stack,
+        url: request.url
+      });
+      return new Response('Internal Server Error', { status: 500 });
+    }
+  }
+  
+  async processWithRetry(reqId: string) {
+    const log = this.svc.debug('my-app.processor');
+    let retryCount = 0;
+    
+    // WARN: Expected operational issue (filterable)
+    while (retryCount < 3) {
+      try {
+        await this.doWork();
+        return;
+      } catch (e) {
+        if (++retryCount >= 3) {
+          log.warn('Retry limit exhausted', { reqId, retryCount });
+          throw e;
+        }
+      }
+    }
+  }
+  
+  async authenticate(token: string) {
+    const log = this.svc.debug('my-app.auth');
+    
+    // WARN: Expected - users provide bad tokens
+    if (!token || !await this.validateToken(token)) {
+      log.warn('Authentication failed', { hasToken: !!token });
+      return null;
+    }
+    
+    // INFO: Milestone/event
+    log.info('User authenticated', { tokenExpiry: this.getExpiry(token) });
+    return { authenticated: true };
+  }
+  
+  processRequest(request: Request) {
+    const log = this.svc.debug('my-app.processor');
+    
+    // DEBUG: Detailed diagnostics
+    log.debug('Processing request', {
+      method: request.method,
+      contentType: request.headers.get('content-type')
+    });
+  }
+}
 ```
 
-## Use Cases
+## Common Patterns
 
-### Development - See Everything
-
-Enable all logging during local development:
-
-```bash @skip-check
-DEBUG=* npm run dev
+**Development:**
+```bash
+DEBUG=*                     # See everything
 ```
 
-### Testing - Targeted Debugging
-
-Enable specific namespaces for failing tests:
-
-```bash @skip-check
-DEBUG=lmz.proxy-fetch.queue npm test
+**Testing:**
+```bash
+DEBUG=my-app.feature        # Target specific feature
+DEBUG=lmz.rpc.*            # Debug Lumenize subsystem
 ```
 
-### Production Debugging
+**Production:**
+Add DEBUG to environment variables temporarily to debug issues without code changes.
 
-Add `DEBUG` to environment variables temporarily to debug production issues without code changes.
-
-### Common Filtering Scenarios
-
-**Scenario 1: Only your application logging (hide all Lumenize internals)**
-
-```bash @skip-check
-# In .dev.vars or environment variables
-DEBUG=my-app.*
+**Filtering scenarios:**
+```bash
+DEBUG=my-app.*                           # Only your app
+DEBUG=my-app.*,lmz.utils.route-do-request  # App + specific Lumenize component
+DEBUG=*,-lmz.*                           # Everything except Lumenize
 ```
 
-This shows only your application's debug logs, completely hiding Lumenize framework logging.
-
-**Scenario 2: Your app + specific Lumenize subsystem**
-
-```bash @skip-check
-# Debug your app and see what routeDORequest is doing
-DEBUG=my-app.*,lmz.utils.route-do-request
-```
-
-Useful when debugging routing issues - you see your app logs plus the routing details from Lumenize.
-
-**Scenario 3: Debugging authentication/connection callbacks**
-
+**Debugging callbacks:**
 ```typescript @skip-check
-// In your Worker code
-import { routeDORequest } from '@lumenize/utils';
-import { debug } from '@lumenize/core';
-
+// In Worker
 export default {
   async fetch(request: Request, env: Env) {
     return await routeDORequest(request, env, {
       onBeforeConnect: async (request, context) => {
-        // Create logger for your callback
         const log = debug({ env })('my-app.onBeforeConnect');
         
-        log.debug('WebSocket connection attempt', {
-          origin: request.headers.get('Origin'),
-          doInstance: context.doInstanceNameOrId
-        });
-        
-        // Your auth logic here
         const token = request.headers.get('Authorization');
         if (!token) {
           log.warn('Connection rejected - missing auth', {
@@ -379,100 +324,42 @@ export default {
           return new Response('Unauthorized', { status: 401 });
         }
         
-        log.info('Connection authorized', {
-          doInstance: context.doInstanceNameOrId
-        });
+        log.info('Connection authorized');
       }
     });
   }
 }
 ```
 
-Then enable it:
-
-```bash @skip-check
-# See your auth callback logs and routing behavior
-DEBUG=my-app.onBeforeConnect,lmz.utils.route-do-request
-```
-
-**Scenario 4: Everything except Lumenize internals**
-
-```bash @skip-check
-# Enable all logging but hide Lumenize framework noise
-DEBUG=*,-lmz.*
-```
-
-Useful when you're using multiple libraries and want to see their debug output without Lumenize cluttering the logs.
-
-### State Tracking
-
-Use debug logs to track state changes and data flow:
-
-```typescript @skip-check
-import '@lumenize/core';
-import { LumenizeBase } from '@lumenize/lumenize-base';
-
-class CounterDO extends LumenizeBase<Env> {
-  increment(delta: number) {
-    const log = this.svc.debug('counter.operations');
-    
-    const before = this.ctx.storage.kv.get('count') ?? 0;
-    const after = before + delta;
-    
-    log.debug('Incrementing counter', { 
-      before, 
-      delta, 
-      after 
-    });
-    
-    if (after > 1000) {
-      log.warn('Counter exceeds threshold', { 
-        value: after, 
-        threshold: 1000 
-      });
-    }
-    
-    this.ctx.storage.kv.set('count', after);
-    
-    log.info('Counter updated', { 
-      newValue: after,
-      isHighValue: after > 1000
-    });
-    
-    return after;
-  }
-}
-```
-
-## TypeScript Integration
-
-The package provides full TypeScript support with NADIS auto-registration:
-
-```typescript @skip-check
-// After importing '@lumenize/debug', TypeScript knows about it
-import '@lumenize/debug';
-import { LumenizeBase } from '@lumenize/lumenize-base';
-
-class MyDO extends LumenizeBase<Env> {
-  myMethod() {
-    // ✅ TypeScript autocomplete works
-    const log = this.svc.debug('my-namespace');
-    log.debug('message', { data });  // ✅ Type checked
-  }
-}
-```
+Then enable: `DEBUG=my-app.onBeforeConnect,lmz.utils.route-do-request`
 
 ## Best Practices
 
-1. **Use object format**: Always pass data as second parameter object
-2. **Descriptive messages**: Make messages searchable (e.g., "CORS origin rejected", not "rejected")
-3. **Structured data**: Include relevant context (IDs, counts, flags)
-4. **Appropriate levels**: 
-   - `debug` - Everything
-   - `info` - Milestones, events
-   - `warn` - Expected issues
-5. **Namespace organization**: Use dot-notation hierarchy (package.component.feature)
-6. **Performance**: Check `log.enabled` before expensive computations
+1. **Use object format** - Always pass data as second parameter (not template literals)
+   ```typescript
+   log.debug('Processing', { count: items.length });  // ✅ Zero-cost when disabled
+   log.debug(`Processing ${items.length} items`);     // ❌ String interpolation always runs
+   ```
+
+2. **Descriptive messages** - Make messages searchable: "CORS origin rejected", not "rejected"
+
+3. **Structured data** - Include relevant context: IDs, counts, flags, timestamps
+
+4. **Right level for the job**:
+   - `error` - Unexpected failures, bugs (NEVER filtered)
+   - `warn` - Expected operational issues (retry exhausted, auth failed)
+   - `info` - Milestones, events (connection established, batch complete)
+   - `debug` - Detailed diagnostics (parsing, cache lookups)
+
+5. **Namespace hierarchy** - Use dot-notation: `my-app.auth.session`, `lmz.rpc.client`
+
+6. **Performance** - Check `log.enabled` before expensive operations:
+   ```typescript
+   if (log.enabled) {
+     const expensiveData = computeExpensiveDetails();
+     log.debug('Details', expensiveData);
+   }
+   ```
 
 ## Comparison with npm's `debug`
 
@@ -482,7 +369,8 @@ Similarities:
 - Zero-cost when disabled
 
 Differences:
-- **Level support**: debug, info, warn (vs. single level)
+- **Level support**: debug, info, warn, error (vs. single level)
+- **Error level**: Never filtered - always outputs
 - **JSON output**: Structured objects (vs. plain text)
 - **Cloudflare-optimized**: No colors, no TTY detection
 - **NADIS integration**: Auto-injection in LumenizeBase

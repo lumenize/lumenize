@@ -6,7 +6,8 @@
 
 import { parseCronExpression } from 'cron-schedule';
 import { nanoid } from 'nanoid';
-import type { sql as sqlType } from '@lumenize/core';
+import { debug } from '@lumenize/core';
+import type { sql as sqlType, DebugLogger } from '@lumenize/core';
 
 /**
  * Represents a scheduled task within a Durable Object
@@ -113,6 +114,7 @@ export class Alarms<P extends { [key: string]: any }> {
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
   #tableInitialized = false;
+  #log: DebugLogger;
 
   constructor(
     ctx: DurableObjectState,
@@ -121,6 +123,7 @@ export class Alarms<P extends { [key: string]: any }> {
   ) {
     this.#parent = doInstance;
     this.#storage = ctx.storage;
+    this.#log = debug(ctx)('lmz.alarms');
     
     // Use provided sql or get from DO instance (NADIS pattern)
     if (deps?.sql) {
@@ -169,7 +172,7 @@ export class Alarms<P extends { [key: string]: any }> {
       this.#tableInitialized = true;
     } catch (e) {
       // Table might already exist or error creating - log and continue
-      console.error('Error ensuring alarms table', {
+      this.#log.error('Error ensuring alarms table', {
         error: e instanceof Error ? e.message : String(e),
         stack: e instanceof Error ? e.stack : undefined
       });
@@ -405,7 +408,7 @@ export class Alarms<P extends { [key: string]: any }> {
       const callback = this.#parent[row.callback];
 
       if (!callback) {
-        console.error('Alarm callback not found', {
+        this.#log.error('Alarm callback not found', {
           callback: row.callback,
           id: row.id
         });
@@ -416,7 +419,7 @@ export class Alarms<P extends { [key: string]: any }> {
         await (callback as Function).bind(this.#parent)(JSON.parse(row.payload), row);
         executedIds.push(row.id);
       } catch (e) {
-        console.error('Error executing alarm callback', {
+        this.#log.error('Error executing alarm callback', {
           callback: row.callback,
           id: row.id,
           error: e instanceof Error ? e.message : String(e),

@@ -14,11 +14,15 @@ interface ParsedPattern {
 
 /**
  * Level hierarchy for filtering
+ * 
+ * Note: 'error' level is included for completeness but is never actually filtered
+ * (DebugLoggerImpl.error() bypasses all filter checks)
  */
 const LEVEL_PRIORITY: Record<DebugLevel, number> = {
   'debug': 0,  // Most verbose
   'info': 1,
-  'warn': 2,   // Least verbose
+  'warn': 2,
+  'error': 3,  // Never filtered in practice
 };
 
 /**
@@ -54,7 +58,7 @@ export function parseDebugFilter(filter: string | undefined): ParsedPattern[] {
     if (colonIndex > 0) {
       pattern = cleaned.slice(0, colonIndex);
       const levelStr = cleaned.slice(colonIndex + 1);
-      if (levelStr === 'debug' || levelStr === 'info' || levelStr === 'warn') {
+      if (levelStr === 'debug' || levelStr === 'info' || levelStr === 'warn' || levelStr === 'error') {
         level = levelStr;
       }
     } else {

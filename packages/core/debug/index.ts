@@ -3,7 +3,7 @@
  * 
  * Part of @lumenize/core. Provides structured, filterable debug logging optimized 
  * for Cloudflare's JSON log dashboard. Inspired by npm's `debug` package with 
- * level support (debug, info, warn).
+ * level support (debug, info, warn, error).
  * 
  * Server-side (NADIS-enabled):
  * ```typescript
@@ -12,19 +12,22 @@
  * 
  * class MyDO extends LumenizeBase<Env> {
  *   myMethod() {
- *     const log = this.svc.debug('proxy-fetch.serialization');
+ *     const log = this.svc.debug('lmz.proxy-fetch.serialization');
  *     log.debug('processing request', { url, method });
  *     log.info('milestone reached', { step: 3 });
- *     log.warn('suspicious behavior', { retryCount: 5 });
+ *     log.warn('retry limit reached', { retryCount: 5 });
+ *     log.error('unexpected failure', { error: e.message }); // ALWAYS outputs
  *   }
  * }
  * ```
  * 
  * Configuration via environment variables:
- * - `DEBUG=proxy-fetch` - Enable all levels for proxy-fetch and children
- * - `DEBUG=proxy-fetch:warn` - Only warn level for proxy-fetch
+ * - `DEBUG=lmz.proxy-fetch` - Enable all levels for proxy-fetch and children
+ * - `DEBUG=lmz.proxy-fetch:warn` - Only warn level for proxy-fetch
  * - `DEBUG=*` - Enable everything
- * - `DEBUG=proxy-fetch,-proxy-fetch.verbose` - Exclusions
+ * - `DEBUG=lmz.proxy-fetch,-lmz.proxy-fetch.verbose` - Exclusions
+ * 
+ * IMPORTANT: error() level ALWAYS outputs, regardless of DEBUG filter.
  */
 
 import { createMatcher } from './pattern-matcher';

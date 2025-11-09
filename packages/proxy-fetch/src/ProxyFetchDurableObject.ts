@@ -37,9 +37,9 @@ const ulid = ulidFactory();
  * // Handler receives response:
  * async handleApiResponse(item: ProxyFetchHandlerItem) {
  *   if (item.error) {
- *     console.error('Fetch failed:', item.error);
+ *     this.#log.error('Fetch failed', { error: item.error });
  *   } else {
-   *     const response = decodeResponse(item.response);
+ *     const response = decodeResponse(item.response);
  *     const data = await response.json();
  *     // Process data...
  *   }
@@ -152,7 +152,7 @@ export class ProxyFetchDO extends DurableObject {
         await this.#scheduleAlarm();
       }
     } catch (error) {
-      console.error('Queue processing error:', {
+      this.#log.error('Queue processing error', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
@@ -212,7 +212,7 @@ export class ProxyFetchDO extends DurableObject {
       }
     } catch (error) {
       fetchError = error instanceof Error ? error : new Error(String(error));
-      console.error('Fetch error:', {
+      this.#log.error('Fetch error', {
         reqId: request.reqId,
         error: fetchError.message,
       });
@@ -341,7 +341,7 @@ export class ProxyFetchDO extends DurableObject {
     } catch (callbackError) {
       // Callback delivery failed - log and discard
       // We don't retry callback delivery to avoid infinite loops
-      console.error('Callback delivery failed:', {
+      this.#log.error('Callback delivery failed', {
         reqId: request.reqId,
         error: callbackError instanceof Error ? callbackError.message : String(callbackError),
         stack: callbackError instanceof Error ? callbackError.stack : undefined,

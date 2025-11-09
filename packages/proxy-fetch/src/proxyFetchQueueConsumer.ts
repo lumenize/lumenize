@@ -163,7 +163,7 @@ export async function proxyFetchQueueConsumer(
       } catch (handlerError) {
         // If the DO handler itself fails, that's a user code error
         // Log it but ack the message - we successfully delivered it
-        console.error('DO handler threw error (user code issue):', {
+        log.error('DO handler threw error (user code issue)', {
           reqId,
           error: handlerError instanceof Error ? handlerError.message : String(handlerError),
           stack: handlerError instanceof Error ? handlerError.stack : undefined
@@ -172,7 +172,7 @@ export async function proxyFetchQueueConsumer(
       }
       
     } catch (error) {
-      console.error('Error processing proxy fetch request:', {
+      log.error('Error processing proxy fetch request', {
         reqId,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
@@ -213,7 +213,7 @@ export async function proxyFetchQueueConsumer(
         message.ack();
       } catch (routingError) {
         // If we can't route the error back, log it and retry the message
-        console.error('Failed to route error back to DO:', {
+        log.error('Failed to route error back to DO', {
           reqId,
           routingError: routingError instanceof Error ? routingError.message : String(routingError),
           originalError: error instanceof Error ? error.message : String(error)
