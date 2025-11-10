@@ -6,7 +6,7 @@ globs:
 
 # Cloudflare Durable Objects Rules
 
-Critical patterns for working with Cloudflare's Durable Objects to avoid race conditions and data corruption.
+Critical patterns for working with Cloudflare's Durable Objects to produce clean code that avoids race conditions and the risk of data inconsistency.
 
 ## When
 
@@ -18,19 +18,20 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 
 ## Keep DO Methods Synchronous
 
-**Don't create `async` methods except**:
+**Don't create `async` methods except the lifecycle entrypoint methods**:
 - ✅ `fetch()` - HTTP request handler
 - ✅ `alarm()` - Scheduled task handler
 - ✅ `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers. Note, since these don't return anything, there is often no reason for them to be async, but they are allowed to be according to Cloudlfare's interface.
-- Even when creating a method whose sole purpopse is to be called by another DO via Workers RPC with something like `await this.env.MY_DO.getByName('my-instance').myMethod()` do not make `myMethod()` async. I know it sounds strange to call a non-async method with `await` but the `await` is not for the method, it's for the Workers RPC internals. Workers RPC is using a thenable Proxy which needs to teleport your call over a network so the `await` is for that network requirement.
+- Even when creating a method whose sole purpopse is to be called by another DO via Workers RPC with something like `await this.env.MY_DO.getByName('my-instance').myMethod()` do not make `myMethod()` async. I know it sounds strange to call a non-async method with `await` but the `await` is not for the method, it's for the Workers RPC internals. Workers RPC needs to "teleport" your call over a network. The `await` is for that network requirement.
 
-**Everything you usually need is synchronouse**:
-- Except for those async lifecycle entrypoint menthods, all of the other functionality you need in a Durable Object (storage, etc.) is syncronous
-- All the handlers that you write are sychronous and called from those entrypoint methods
+**Everything you usually need is synchronous**:
+- Except for those async lifecycle entrypoint methods, all of the other functionality you need in a Durable Object (storage, etc.) is syncronous
+- All the business logic handlers that you write are sychronous and called from those entrypoint methods
 
 **Never use in you synchrounous business logic handlers called by those async lifecycle methods**:
 - `setTimeout()`
 - `setInterval()`
+- You can't because the method is not async, but don't try to `await` anything.
 
 **Never ever use in a DO**:
 - `this.ctx.waitUntil()`. This is only included for consistency with the Worker's API. You never need it in a DO.
@@ -44,8 +45,8 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 - You don't need or rely upon DO input/output gate transactional behavior. For instance, when each invocation of an async lifecycle entrypoint method does zero or one storage operation.
 
 **What if you want to need to do an external fetch(), setTimeout(), or make a Workers RPC call?**:
-- If they are fire and forget, you might just be able to not await them
-- If you need a response, then use an outbox pattern with a callback handler, saving any state that handler will need in storage. Then process the outbox in the calling async lifecycle entrypoint method after your syncronous handler returns. When the response comes back, call the synchronous handler
+- If they are fire and forget, you might just be able to not `await` them
+- If you need a response, then use an outbox pattern with a callback handler, saving any state that handler will need in storage. Then process the outbox in the calling async lifecycle entrypoint method after your syncronous handler returns. When the response comes back, call the synchronous handler. This is how `@lumenize/proxy-fetch` and `@lumenize/alarms` work. They are implementing the outbox pattern.
 
 **What if I need to make an async call in the constructor to initialize the DO?**:
 - Use [`blockConcurrencyWhile()`](https://developers.cloudflare.com/durable-objects/api/state/#blockconcurrencywhile)
@@ -55,12 +56,17 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 Durable Objects can be evicted from memory at any time. Design accordingly:
 
 **Always:**
-- ✅ Fetch from storage at the start of each request/message handler
+- ✅ Fetch from storage at the start of each of your business logic handlers
 - ✅ Persist changes to storage before returning from handler
-- ✅ Minimize instance variables - only store `this.ctx`, `this.env`, or expensive transformations
+- ✅ Minimize instance variables - only store `this.ctx`, `this.env`.
+  - The big exception to this is if the in-storage representation is an expensive transformation from the in-memory representation, but then you need to take extra care in assuring memory and storage are always in sync. My sledgehammer strategy is often to wrap anything that modifies both memory and storage in a try/catch block and call `this.ctx.abort()` in the catch clause. It's usually better to modify your in-storage representation.
 
 **Never:**
 - ❌ Don't rely on in-memory state persisting between requests
+
+**Isn't storage less efficient than in-memory?**: In theory, you'd think that but in practice, the difference is usually unmeasurable because storage is running in-process and doesn't need to make a network call and it's cached.
+
+**Isn't it more expensive to use storage than memory?**: DO reads are so inexpensive that the cost difference is almost undetectable and the much more expensive writes are required at the end of every handler regardless to support DO eviction and hibernation.
 
 ## Key Concepts
 
