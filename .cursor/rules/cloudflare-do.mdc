@@ -53,8 +53,8 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 
 **Exceptions to the above**:
 - If you are designing a DO where you don't care about hibernation. For instance, 
-  ProxyFetchDO is expected to handle fetches from a large number of other DOs. It costs ~$4/
-  month to run continuously and there is only one instance.
+  ProxyFetchDO is expected to handle fetches from a large number of other DOs. It costs 
+  ~$4/month to run continuously and there is only one instance.
 - You don't need or rely upon DO input/output gate transactional behavior. For instance, when 
   each invocation of an async lifecycle entrypoint method does zero or one storage operation.
 
