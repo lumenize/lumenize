@@ -18,28 +18,35 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 
 ## Keep DO Methods Synchronous
 
-**Always synchronous** (no `async`/`await`):
-- ✅ Regular methods and handlers
-- ✅ `onStart()` lifecycle hook (if used)
-- ✅ All business logic
-
-**Must be async** (required exceptions):
+**No `async`/`await` except**:
 - ✅ `fetch()` - HTTP request handler
 - ✅ `alarm()` - Scheduled task handler
-- ✅ `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers
-- ✅ Code wrapped in `ctx.waitUntil()` - Background work
+- ✅ `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers. Note, since these don't return anything, there is often no reason for them to be async, but they can be.
 
-## Never Use These (Outside `ctx.waitUntil()`)
+**Everything you usually need is synchronouse**:
+- Except for those async lifecycle entrypoint menthods, all of the other functionality you need in a Durable Object (storage, etc.) is syncronous
+- All the handlers that you write are sychronous and called from those entrypoint methods
 
-- ❌ `setTimeout`
-- ❌ `setInterval`
+**Never use in you synchrounous business logic handlers called by those async lifecycle methods**:
+- `setTimeout()`, `setInterval()`
 
-## Why
+**Never use in a DO**:
+- `this.ctx.waitUntil()`. This is only included for consistency with the Worker's API. You never need it in a DO.
 
-`async` breaks Cloudflare's input/output gate mechanism, which leads to:
-- Race conditions between concurrent requests
-- Data corruption from overlapping writes
-- Inconsistent state across method calls
+**Why**: 
+- `async` breaks input/output gates → race conditions and risk of inconsistent state
+- DOs are billed on wall clock time not CPU time. You pay for the entire time a DO is waiting on one of those async methods to complete.
+
+**Exceptions to the above**:
+- If you are designing a DO where you don't care about hibernation. For instance, ProxyFetchDO is expected to handle fetches from a large number of other DOs. It costs ~$4/month to run continuously and there is only one instance.
+- You don't need or rely upon DO input/output gate transactional behavior. For instance, when each invocation of an async lifecycle entrypoint method does zero or one storage operation.
+
+**What if you want to need to do an external fetch(), setTimeout(), or make a Workers RPC call?**:
+- If they are fire and forget, you might just be able to not await them
+- If you need a response, then use an outbox pattern with a callback handler, saving any state that handler will need in storage. Then process the outbox in the calling async lifecycle entrypoint method after your syncronous handler returns. When the response comes back, call the synchronous handler
+
+**What if I need to make an async call in the constructor to initialize the DO?**:
+- Use [`blockConcurrencyWhile()`](https://developers.cloudflare.com/durable-objects/api/state/#blockconcurrencywhile)
 
 ## Instance Lifecycle
 
@@ -53,19 +60,45 @@ Durable Objects can be evicted from memory at any time. Design accordingly:
 **Never:**
 - ❌ Don't rely on in-memory state persisting between requests
 
-## Storage APIs
+## Key Concepts
 
-**Always use synchronous storage:**
-- ✅ `ctx.storage.kv.*` - Key-value operations
-- ✅ `ctx.storage.sql.*` - SQL operations
+Cloudflare Durable Objects are a globally-distributed, strongly-consistent coordination primitive. Understanding how they work is essential to using them correctly.
 
-**Never use legacy async API:**
-- ❌ `ctx.storage.put()`
-- ❌ `ctx.storage.get()`
-- ❌ `ctx.storage.delete()`
+### Instance Model
 
-Storage operations are synchronous because SQLite is embedded - no async needed, no performance penalty.
+- **Written as TypeScript classes** but instantiated by Cloudflare's runtime, not your code
+- **Each DO ID is globally unique** - even name-derived IDs are unique worldwide
+- **One instance per ID** - Cloudflare guarantees only one instance runs at a time globally
+- **Geolocation embedded in ID** - Initial location chosen based on jurisdiction hints or proximity to creator
 
-## Reference
+### Terminology
 
-For comprehensive Durable Objects concepts and patterns, see `CLOUDFLARE_DO_GUIDE.md` at repo root.
+- **"Durable Object" or "DO"** = Durable Object instance (specific instantiation)
+- **"DO class"** = The TypeScript class definition
+- Be explicit when possible; when in doubt, "DO" means "instance"
+
+### Storage Architecture
+
+Each DO instance has a dedicated SQLite database (up to 10GB) accessible only to that instance.
+
+**Three storage APIs** (use only the synchronous ones):
+
+1. ❌ **Legacy async KV API** - NEVER USE
+   - `this.ctx.storage.put()`, `this.ctx.storage.get()`, etc.
+   - Deprecated, exists only for migration
+   
+2. ✅ **Synchronous KV API** - USE THIS
+   - `this.ctx.storage.kv.put()`, `this.ctx.storage.kv.get()`, etc.
+   - Same methods as legacy API but synchronous
+   
+3. ✅ **Synchronous SQL API** - USE THIS
+   - `this.ctx.storage.sql.exec()`
+   - Full SQLite-flavored SQL
+
+### Why Synchronous Storage?
+
+SQLite is embedded in the same process and memory space - no network hop, no context switch. This gives fundamentally different performance characteristics:
+- **N+1 queries often just as fast** as joins (sometimes faster)
+- **No async overhead** - synchronous code is simpler and safer
+- **Automatic transactions** - all operations in a handler are atomic (unless you await an external `fetch()`, await a Workers RPC call, or use `setTimeout`/`setInterval`)
+  
