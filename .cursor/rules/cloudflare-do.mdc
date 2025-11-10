@@ -25,8 +25,8 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 - ✅ `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers. Note, 
   since these don't return anything, there is often no reason for them to be async, but they 
   are allowed to be according to Cloudlfare's interface.
-- Even when creating a method whose sole purpopse is to be called by another DO via Workers 
-  RPC with something like `await this.env.MY_DO.getByName('my-instance').myMethod()` do not 
+- Even when creating a method whose sole purpopse is to be called over Workers RPC with 
+  something like `await this.env.MY_DO.getByName('my-instance').myMethod()`, do not 
   make `myMethod()` async. I know it sounds strange to call a non-async method with `await` 
   but the `await` is not for the method, it's for the Workers RPC internals. Workers RPC 
   needs to "teleport" your call over a network. The `await` is for that network requirement.
