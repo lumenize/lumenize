@@ -193,11 +193,12 @@ test('fire-and-forget requests skip callback', async () => {
   expect(reqId).toBeDefined();
 
   // Wait for fetch to complete
+  // Longer timeout to account for test-endpoints cold start and retry delays
   await vi.waitFor(async () => {
     // @ts-expect-error - toArray() exists at runtime but not in types
     const storage = await proxyClient.ctx.storage.kv.list().toArray();
     expect(storage).toHaveLength(0);
-  }, { timeout: 500 });
+  }, { timeout: 5000 });
 
     // Verify no callback was delivered (no result stored)
     const result = await userClient.getResult(reqId);

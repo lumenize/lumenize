@@ -18,19 +18,21 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 
 ## Keep DO Methods Synchronous
 
-**No `async`/`await` except**:
+**Don't create `async` methods except**:
 - ✅ `fetch()` - HTTP request handler
 - ✅ `alarm()` - Scheduled task handler
-- ✅ `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers. Note, since these don't return anything, there is often no reason for them to be async, but they can be.
+- ✅ `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers. Note, since these don't return anything, there is often no reason for them to be async, but they are allowed to be according to Cloudlfare's interface.
+- Even when creating a method whose sole purpopse is to be called by another DO via Workers RPC with something like `await this.env.MY_DO.getByName('my-instance').myMethod()` do not make `myMethod()` async. I know it sounds strange to call a non-async method with `await` but the `await` is not for the method, it's for the Workers RPC internals. Workers RPC is using a thenable Proxy which needs to teleport your call over a network so the `await` is for that network requirement.
 
 **Everything you usually need is synchronouse**:
 - Except for those async lifecycle entrypoint menthods, all of the other functionality you need in a Durable Object (storage, etc.) is syncronous
 - All the handlers that you write are sychronous and called from those entrypoint methods
 
 **Never use in you synchrounous business logic handlers called by those async lifecycle methods**:
-- `setTimeout()`, `setInterval()`
+- `setTimeout()`
+- `setInterval()`
 
-**Never use in a DO**:
+**Never ever use in a DO**:
 - `this.ctx.waitUntil()`. This is only included for consistency with the Worker's API. You never need it in a DO.
 
 **Why**: 

@@ -41,10 +41,11 @@ describe('ProxyFetch Integration (DO Variant)', () => {
     expect(typeof reqId).toBe('string');
 
     // Wait for the request to be processed and callback delivered
+    // Longer timeout to account for test-endpoints cold start on first run
     await vi.waitFor(async () => {
       const result = await originClient.getResult(reqId);
       expect(result).toBeDefined();
-    }, { timeout: 5000 });
+    }, { timeout: 15000 });
 
     // Verify the callback was delivered with success
     const result = await originClient.getResult(reqId);
