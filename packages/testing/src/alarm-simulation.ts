@@ -106,7 +106,6 @@ export function enableAlarmSimulation(
     isRunning: false,
   };
   
-  // Store ctx for waitUntil usage
   const ctx = doInstance.ctx;
   
   // Save original methods
@@ -220,13 +219,12 @@ export function enableAlarmSimulation(
       // Future alarm - use scaled delay
       const testDelay = delay / cfg.timeScale;
       alarmState.timeoutId = setTimeout(() => {
-        // Use waitUntil to keep DO context alive while alarm executes
-        ctx.waitUntil(fireAlarm());
+        fireAlarm();
       }, testDelay);
     } else {
       // Immediate alarm (scheduled in past or at now)
       alarmState.timeoutId = setTimeout(() => {
-        ctx.waitUntil(fireAlarm());
+        fireAlarm();
       }, 0);
     }
     

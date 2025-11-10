@@ -15,12 +15,32 @@
 ## Cloudflare Durable Objects - CRITICAL
 
 **Keep DO methods synchronous** (no `async`/`await`) except:
-- `fetch()`, `alarm()`, WebSocket handlers, `ctx.waitUntil()` callbacks
+- The lifecycle entrypoint methods are async: `fetch()`, `alarm()`, and `webSocketMessage()`
+- However, all of the other functionality you need in a Durable Object (storage, etc.) is syncronous, so
+- All the handlers that you call from those entrypoint methods should be synchronous
 
-**Never use** (outside `ctx.waitUntil()`):
-- `setTimeout`, `setInterval`
+**Never use in the synchrounous handlers called by those async lifecycle methods**:
+- `setTimeout()`, `setInterval()`
 
-**Why**: `async` breaks input/output gates → race conditions
+**Never use in a DO**:
+- `this.ctx.waitUntil()`. This is only included for consistency with the Worker's API. You never need it in a DO.
+- The async DO storage KV methods: `this.ctx.storage.put()`, `.get()`, etc. Rather, use the sync equivalents: `this.ctx.storage.kv.put()`,`.kv.get()`, etc.
+
+**Why**: 
+- `async` breaks input/output gates → race conditions
+- DOs are billed on wall clock time not CPU time. You pay for the entire time a DO is waiting on one of those async methods to complete.
+
+**Exceptions to the above**:
+- If you are designing a DO where you don't care about hibernation. For instance, ProxyFetchDO is expected to handle fetches from a large number of other DOs. It costs
+- You don't need or rely upon DO input/output gate transactional behavior.
+- Each invocation of an async lifecycle does a single storage operation.
+
+**What if you want to need to do an external fetch(), setTimeout(), or make a Workers RPC call?**:
+- If they are fire and forget, don't await them
+- If you need a response, then use an outbox pattern with a callback handler, saving any state that handler will need in storage. Then process the outbox in the calling async lifecycle entrypoint method after your syncronous handler returns. When the response comes back, call the synchronous handler
+
+**What if I need to make an async call in the constructor to initialize the DO?**:
+- Use [`blockConcurrencyWhile()`](https://developers.cloudflare.com/durable-objects/api/state/#blockconcurrencywhile)
 
 **Instance lifecycle**:
 - Fetch from storage at handler start

@@ -1,8 +1,7 @@
-# LumenizeBase & LumenizeClient - Bidirectional WebSocket Communication
+# LumenizeBase & LumenizeClient
 
 **Status**: Planning - Ready for Review
 **Started**: 2025-11-03
-**Design Finalized**: 2025-11-03
 
 ## Goal
 

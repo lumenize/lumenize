@@ -148,12 +148,8 @@ export class MyDO extends DurableObject<Env> {
    * Handler that throws an error (for testing error handling in queue consumer)
    */
   async handleThrowingError({ response, error, reqId }: ProxyFetchHandlerItem): Promise<void> {
-    // Use ctx.waitUntil to ensure storage writes complete even when we throw
-    // This is the correct pattern for cleanup/logging operations in error handlers
-    this.ctx.waitUntil((async () => {
-      this.ctx.storage.kv.put('handler-was-called', reqId);
-      this.ctx.storage.kv.put('handler-completed-at', Date.now());
-    })());
+    this.ctx.storage.kv.put('handler-was-called', reqId);
+    this.ctx.storage.kv.put('handler-completed-at', Date.now());
     
     // Throw after storage writes are queued
     throw new Error('Handler intentionally threw an error');

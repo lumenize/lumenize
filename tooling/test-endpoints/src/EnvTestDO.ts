@@ -29,10 +29,9 @@ export class EnvTestDO extends DurableObject<Env> {
     
     this.#constructorTimestamp = Date.now();
     this.#debugFromConstructor = env.DEBUG || 'NOT_SET';
-    
     // Track constructor runs in storage (synchronous!)
-    ctx.blockConcurrencyWhile(() => {
-      const runs = ctx.storage.kv.get<ConstructorRun[]>('constructorRuns') ?? [];
+    ctx.blockConcurrencyWhile(async () => {
+      const runs = (await ctx.storage.kv.get<ConstructorRun[]>('constructorRuns')) ?? [];
       const runNumber = runs.length + 1;
       
       const newRun: ConstructorRun = {
@@ -156,13 +155,16 @@ export class EnvTestDO extends DurableObject<Env> {
       headers: { 'Content-Type': 'application/json' }
     });
     
-    // Schedule abort after response is sent
-    this.ctx.waitUntil((async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      this.ctx.abort();
-    })());
+    // This will log an error and may return one
+    this.ctx.abort();
+
+    // We shouldn't need waitUntil, so we removed it in the code above, but here it is in case handleReset stops working
+    // this.ctx.waitUntil((async () => {
+    //   await new Promise(resolve => setTimeout(resolve, 100));
+    //   this.ctx.abort();
+    // })());
     
-    return response;
+    return response;  // Shouldn't ever reach but here because of method signature
   }
   
   /**

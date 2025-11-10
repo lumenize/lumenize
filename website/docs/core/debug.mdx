@@ -5,7 +5,7 @@ description: "Scoped, filterable debug logging optimized for the JSON filter cap
 
 # Debug
 
-A de✨light✨ful scoped debug logging system inspired by npm's `debug` package with level support and JSON output that works perfectly with Cloudflare's observability dashboard.
+A de✨light✨ful scoped debug logging system inspired by npm's `debug` package with JSON output that works perfectly with Cloudflare's observability dashboard.
 
 Part of `@lumenize/core`.
 
@@ -13,10 +13,10 @@ Part of `@lumenize/core`.
 
 - **Namespace filtering**: Use dot-notation scopes (e.g., `lmz.proxy-fetch.serialization`) with wildcard patterns
 - **Level support**: `debug`, `info`, `warn`, and `error` levels
-- **JSON output**: Structured logs integrate seamlessly with Cloudflare's log dashboard
+- **JSON output**: Structured logs integrate seamlessly with Cloudflare's observability dashboard
 - **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
 - **NADIS integration**: Use standalone or auto-inject into `LumenizeBase` via `this.svc.debug`
-- **⚠️ Error level never filtered**: `log.error()` always outputs regardless of DEBUG environment variable
+- **⚠️ Error level never filtered**: `log.error()` always outputs regardless of filter settings
 
 ## Installation
 
@@ -32,27 +32,27 @@ npm install @lumenize/core
 import '@lumenize/core';  // Registers in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
 
-class MyDO extends LumenizeBase<Env> {
-  async fetch(request: Request) {
-    const log = this.svc.debug('my-app.http');
+class ChatRoom extends LumenizeBase<Env> {
+  // ...
+  onRequest(request: Request) {
+    const log = this.svc.debug('ChatRoom.onRequest');
     
-    const url = new URL(request.url);
     log.debug('Processing request', { 
-      pathname: url.pathname,
-      method: request.method 
+      method: request.method,
+      url: request.url,
     });
     
-    // Update counter in storage
-    const count = (this.ctx.storage.kv.get('requestCount') ?? 0) + 1;
-    this.ctx.storage.kv.set('requestCount', count);
+    // Handle the request
+    const messages = this.ctx.storage.kv.get('messages') || [];
+    const response = new Response(JSON.stringify(messages));
     
     log.info('Request completed', { 
-      requestCount: count,
-      pathname: url.pathname
+      messageCount: messages.length
     });
     
-    return new Response('OK');
+    return response;
   }
+  // ...
 }
 ```
 
@@ -63,7 +63,7 @@ import { debug } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 
 class MyDO extends DurableObject {
-  #log = debug(this)('my-namespace');
+  #log = debug(this)('MyDO');
   
   async fetch(request: Request) {
     this.#log.debug('Processing request', { url: request.url });
@@ -79,7 +79,7 @@ import { debug } from '@lumenize/core';
 
 export default {
   async fetch(request: Request, env: Env) {
-    const log = debug({ env })('worker.router');
+    const log = debug({ env })('Worker.router');
     
     log.debug('Routing request', { 
       pathname: new URL(request.url).pathname 
@@ -93,77 +93,35 @@ export default {
 
 ## Configuration
 
+### `DEBUG` Environment Variable
+
 Control logging via the `DEBUG` environment variable.
 
-### Local Development
+Set the environment variable any one of the many ways you would any other environment variable for that environment (dashboard, command line, wrangler.jsonc, .dev.vars, etc.)
 
-Use `.dev.vars` file in your project root:
+**Important**: Environment variable changes don't take effect in Cloudflare production until redeployment.
+
+### Pattern Examples
 
 ```bash @skip-check
-# Enable all levels for a namespace
-DEBUG=lmz.proxy-fetch
-
-# Enable only warn level
-DEBUG=lmz.proxy-fetch:warn
+# Single namespace, all levels
+DEBUG=ChatRoom.handleMessage
 
 # Multiple namespaces
-DEBUG=lmz.proxy-fetch,lmz.rpc.client
+DEBUG=AuthService,WebSocketManager
 
-# Wildcard patterns
-DEBUG=lmz.proxy-fetch.*
+# Wildcards
+DEBUG=ChatRoom.*
 
-# Everything (both your app and Lumenize)
-DEBUG=*
+# Level filtering: namespace + level (info and warn only)
+DEBUG=MessageProcessor:info
 
-# Only your app (exclude all Lumenize internal logging)
-DEBUG=my-app.*
+# Combined: wildcards + levels + multiple patterns
+DEBUG=ChatRoom.*:info,lmz.rpc.client:warn
 
-# Your app plus specific Lumenize subsystem
-DEBUG=my-app.*,lmz.utils.route-do-request
-
-# Everything except Lumenize internals
-DEBUG=*,-lmz.*
-
-# Exclusions (enable all Lumenize except one verbose part)
-DEBUG=lmz.*,-lmz.proxy-fetch.queue
+# Exclusions (enable all except one verbose subsystem)
+DEBUG=ChatRoom.*,-ChatRoom.verboseDebug
 ```
-
-### Production Deployment
-
-Set the DEBUG env var in `wrangler.jsonc` or via command line:
-
-```jsonc @skip-check
-{
-  "name": "my-worker",
-  "vars": {
-    "DEBUG": "my-app.*,lmz.utils.route-do-request"
-  }
-}
-```
-
-Or deploy with the `--var` flag:
-
-```bash @skip-check
-npx wrangler deploy --var DEBUG:"my-app.*,lmz.rpc"
-```
-
-**Important**: Changing DEBUG requires redeployment. When you deploy a new Worker version:
-- All Durable Object instances are automatically evicted
-- Constructors re-run with the new DEBUG value
-- No manual intervention needed per DO
-
-This ensures all instances immediately pick up your new debug configuration.
-
-### Level Filtering
-
-Each namespace can have a level filter:
-
-- `DEBUG=app` - All filterable levels (debug, info, warn)
-- `DEBUG=app:info` - Info and warn only
-- `DEBUG=app:warn` - Warn only
-- `DEBUG=app:error` - Would only enable error, but error ALWAYS outputs anyway
-
-**⚠️ IMPORTANT**: The `error` level is NEVER filtered and always outputs, regardless of your DEBUG configuration.
 
 ## Log Output Format
 
@@ -192,9 +150,9 @@ The debug system provides a simple, type-safe logging interface:
 
 ```typescript
 // Create logger
-const log = this.svc.debug('my-app.feature');  // LumenizeBase
-const log = debug(this)('my-app.feature');     // Vanilla DO
-const log = debug({ env })('my-app.feature');  // Worker
+const log = this.svc.debug('MyDO.myMethod');  // LumenizeBase
+const log = debug(this)('MyDO.myMethod');     // Vanilla DO
+const log = debug({ env })('Worker.router');  // Worker
 
 // Log at different levels
 log.debug(message: string, data?: any);  // Most verbose
@@ -206,24 +164,29 @@ log.error(message: string, data?: any);  // ⚠️ ALWAYS outputs - never filter
 if (log.enabled) { /* ... */ }
 ```
 
+**Default behavior**: All filterable logs are off by default when `DEBUG` is not set. The `enabled` flag is computed per-logger when created—it's `true` if the logger's namespace matches the `DEBUG` pattern, `false` otherwise. Note that `log.error()` always outputs regardless of the `enabled` flag.
+
 See [Error Logging](#error-logging) for detailed examples of when to use each level.
 
 ## Namespace Conventions
 
 Use dot-notation hierarchies to organize your logging:
 
-**Your application** (no prefix):
-- `my-app.main`, `my-app.auth`, `my-app.websocket`
-- More specific: `my-app.auth.session`, `my-app.chat.room`
+**Your application** - Use actual class/function names for greppability:
+- Class-level: `ChatRoom`, `AuthService`, `MessageProcessor`
+- Method-level: `ChatRoom.handleMessage`, `AuthService.authenticate`
+- Feature-level: `ChatRoom.presence`, `AuthService.tokenRefresh`
 
-**Lumenize internals** (`lmz.` prefix):
+**Why actual case?** Using the exact names from your code makes logs instantly traceable—grep for `ChatRoom.handleMessage` and find both the log statement and call sites.
+
+**Lumenize internals** (`lmz.` prefix, lowercase by convention):
 - `lmz.rpc.client`, `lmz.proxy-fetch.queue`, `lmz.utils.route-do-request`
 
 This separation allows targeted filtering:
 ```bash
-DEBUG=my-app.*              # Only your app
-DEBUG=lmz.*                 # Only Lumenize
-DEBUG=my-app.*,lmz.rpc.*    # Your app + specific subsystem
+DEBUG=ChatRoom.*            # Only ChatRoom
+DEBUG=lmz.*                 # Only Lumenize internals
+DEBUG=ChatRoom.*,lmz.rpc.*  # Your class + specific Lumenize subsystem
 DEBUG=*,-lmz.*              # Everything except Lumenize
 ```
 
@@ -253,13 +216,13 @@ import '@lumenize/core';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 
 class MyDO extends LumenizeBase<Env> {
-  async fetch(request: Request) {
-    const log = this.svc.debug('my-app.main');
+  onRequest(request: Request) {
+    const log = this.svc.debug('MyDO.onRequest');
     
     // ERROR: Unexpected system failure (always logged)
     try {
       const stub = this.env.SOME_DO.get(this.env.SOME_DO.idFromName('test'));
-      return await stub.fetch(request);
+      return stub.fetch(request);
     } catch (e) {
       log.error('Unexpected DO fetch failure', {
         error: e.message,
@@ -270,14 +233,14 @@ class MyDO extends LumenizeBase<Env> {
     }
   }
   
-  async processWithRetry(reqId: string) {
-    const log = this.svc.debug('my-app.processor');
+  processWithRetry(reqId: string) {
+    const log = this.svc.debug('MyDO.processWithRetry');
     let retryCount = 0;
     
     // WARN: Expected operational issue (filterable)
     while (retryCount < 3) {
       try {
-        await this.doWork();
+        this.doWork();
         return;
       } catch (e) {
         if (++retryCount >= 3) {
@@ -288,11 +251,11 @@ class MyDO extends LumenizeBase<Env> {
     }
   }
   
-  async authenticate(token: string) {
-    const log = this.svc.debug('my-app.auth');
+  authenticate(token: string) {
+    const log = this.svc.debug('MyDO.authenticate');
     
     // WARN: Expected - users provide bad tokens
-    if (!token || !await this.validateToken(token)) {
+    if (!token || !this.validateToken(token)) {
       log.warn('Authentication failed', { hasToken: !!token });
       return null;
     }
@@ -303,7 +266,7 @@ class MyDO extends LumenizeBase<Env> {
   }
   
   processRequest(request: Request) {
-    const log = this.svc.debug('my-app.processor');
+    const log = this.svc.debug('MyDO.processRequest');
     
     // DEBUG: Detailed diagnostics
     log.debug('Processing request', {
@@ -323,8 +286,8 @@ DEBUG=*                     # See everything
 
 **Testing:**
 ```bash
-DEBUG=my-app.feature        # Target specific feature
-DEBUG=lmz.rpc.*            # Debug Lumenize subsystem
+DEBUG=ChatRoom.handleMessage  # Target specific method
+DEBUG=lmz.rpc.*              # Debug Lumenize subsystem
 ```
 
 **Production:**
@@ -332,8 +295,8 @@ Add DEBUG to environment variables temporarily to debug issues without code chan
 
 **Filtering scenarios:**
 ```bash
-DEBUG=my-app.*                           # Only your app
-DEBUG=my-app.*,lmz.utils.route-do-request  # App + specific Lumenize component
+DEBUG=ChatRoom.*                         # Only ChatRoom class
+DEBUG=ChatRoom.*,lmz.utils.route-do-request  # ChatRoom + specific Lumenize component
 DEBUG=*,-lmz.*                           # Everything except Lumenize
 ```
 
@@ -344,7 +307,7 @@ export default {
   async fetch(request: Request, env: Env) {
     return await routeDORequest(request, env, {
       onBeforeConnect: async (request, context) => {
-        const log = debug({ env })('my-app.onBeforeConnect');
+        const log = debug({ env })('Worker.onBeforeConnect');
         
         const token = request.headers.get('Authorization');
         if (!token) {
@@ -361,7 +324,7 @@ export default {
 }
 ```
 
-Then enable: `DEBUG=my-app.onBeforeConnect,lmz.utils.route-do-request`
+Then enable: `DEBUG=Worker.onBeforeConnect,lmz.utils.route-do-request`
 
 ## Best Practices
 
@@ -381,7 +344,7 @@ Then enable: `DEBUG=my-app.onBeforeConnect,lmz.utils.route-do-request`
    - `info` - Milestones, events (connection established, batch complete)
    - `debug` - Detailed diagnostics (parsing, cache lookups)
 
-5. **Namespace hierarchy** - Use dot-notation: `my-app.auth.session`, `lmz.rpc.client`
+5. **Namespace hierarchy** - Use actual class/method names: `ChatRoom.handleMessage`, `AuthService.authenticate`
 
 6. **Performance** - Check `log.enabled` before expensive operations:
    ```typescript
