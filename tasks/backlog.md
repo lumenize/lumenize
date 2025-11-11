@@ -49,7 +49,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - [ ] lumenize-base
   - [ ] NADIS (plit from lumenize-base)
   - [WiP: Phase 1] core
-    - [ ] debug
+    - [ ] Introduction
+    - [Phase 4 complete] debug
     - [ ] sql
   - [ ] testing alarms (simulation and triggering)
   - [ ] RPC downstream messaging

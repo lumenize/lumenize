@@ -9,6 +9,8 @@ export type DebugLevel = 'debug' | 'info' | 'warn' | 'error';
 
 /**
  * Options for debug logging (reserved for future use)
+ * 
+ * @internal
  */
 export interface DebugOptions {
   // Future: color, custom fields, etc.
