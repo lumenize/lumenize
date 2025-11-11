@@ -123,7 +123,7 @@ export class Alarms<P extends { [key: string]: any }> {
   ) {
     this.#parent = doInstance;
     this.#storage = ctx.storage;
-    this.#log = debug(ctx)('lmz.alarms');
+    this.#log = debug(ctx)('lmz.alarms.Alarms');
     
     // Use provided sql or get from DO instance (NADIS pattern)
     if (deps?.sql) {

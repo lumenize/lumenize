@@ -101,23 +101,22 @@ Set the environment variable any one of the many ways you would any other enviro
 
 **Important**: Environment variable changes don't take effect in Cloudflare production until redeployment.
 
+**Off by default**: All filterable logs (not .error) are off by default when `DEBUG` is not set.
+
 ### Pattern Examples
 
 ```bash @skip-check
+# Development - see everything
+DEBUG=*
+
 # Single namespace, all levels
 DEBUG=ChatRoom.handleMessage
-
-# Multiple namespaces
-DEBUG=AuthService,WebSocketManager
 
 # Wildcards
 DEBUG=ChatRoom.*
 
-# Level filtering: namespace + level (info and warn only)
-DEBUG=MessageProcessor:info
-
 # Combined: wildcards + levels + multiple patterns
-DEBUG=ChatRoom.*:info,lmz.rpc.client:warn
+DEBUG=ChatRoom.*:info,lmz.rpc.RpcClient:warn
 
 # Exclusions (enable all except one verbose subsystem)
 DEBUG=ChatRoom.*,-ChatRoom.verboseDebug
@@ -125,21 +124,22 @@ DEBUG=ChatRoom.*,-ChatRoom.verboseDebug
 
 ## Log Output Format
 
-All logs output as JSON objects to `console.debug`:
+All logs output as pretty-printed JSON objects to `console.debug`:
 
 ```json @skip-check
 {
-  "level": "debug",
-  "namespace": "lmz.proxy-fetch.queue",
+  "type": "debug",  // Says "this is from Lumenize debug"
+  "level": "info",
+  "namespace": "lmz.proxy-fetch.proxyFetchQueueConsumer",
   "message": "Processing request",
   "url": "https://api.example.com/data",
   "method": "POST",
-  "timestamp": 1699564800000
+  "timestamp": "2025-11-09T12:34:56.789Z"
 }
 ```
 
-This format integrates with Cloudflare's log dashboard, allowing you to:
-- Query by field (e.g., `namespace:"lmz.proxy-fetch.queue"`)
+This format integrates with Cloudflare's observability dashboard, allowing you to:
+- Query by field (e.g., `namespace:"lmz.proxy-fetch.proxyFetchQueueConsumer"`)
 - Filter by level
 - Search message content
 - Analyze structured data
@@ -148,7 +148,7 @@ This format integrates with Cloudflare's log dashboard, allowing you to:
 
 The debug system provides a simple, type-safe logging interface:
 
-```typescript
+```typescript @skip-check
 // Create logger
 const log = this.svc.debug('MyDO.myMethod');  // LumenizeBase
 const log = debug(this)('MyDO.myMethod');     // Vanilla DO
@@ -159,200 +159,32 @@ log.debug(message: string, data?: any);  // Most verbose
 log.info(message: string, data?: any);   // Milestones, events
 log.warn(message: string, data?: any);   // Expected operational issues
 log.error(message: string, data?: any);  // ⚠️ ALWAYS outputs - never filtered
-
-// Check if enabled (for expensive operations)
-if (log.enabled) { /* ... */ }
 ```
 
-**Default behavior**: All filterable logs are off by default when `DEBUG` is not set. The `enabled` flag is computed per-logger when created—it's `true` if the logger's namespace matches the `DEBUG` pattern, `false` otherwise. Note that `log.error()` always outputs regardless of the `enabled` flag.
+### `enabled` Flag as Performance Guard
 
-See [Error Logging](#error-logging) for detailed examples of when to use each level.
+Check `enabled` flag before outputing expensive operations. `enabled` is computed based upon current `DEBUG` filter and the namespace for logger. So if `DEBUG=Chat.*` and you have this code:
 
-## Namespace Conventions
-
-Use dot-notation hierarchies to organize your logging:
-
-**Your application** - Use actual class/function names for greppability:
-- Class-level: `ChatRoom`, `AuthService`, `MessageProcessor`
-- Method-level: `ChatRoom.handleMessage`, `AuthService.authenticate`
-- Feature-level: `ChatRoom.presence`, `AuthService.tokenRefresh`
-
-**Why actual case?** Using the exact names from your code makes logs instantly traceable—grep for `ChatRoom.handleMessage` and find both the log statement and call sites.
-
-**Lumenize internals** (`lmz.` prefix, lowercase by convention):
-- `lmz.rpc.client`, `lmz.proxy-fetch.queue`, `lmz.utils.route-do-request`
-
-This separation allows targeted filtering:
-```bash
-DEBUG=ChatRoom.*            # Only ChatRoom
-DEBUG=lmz.*                 # Only Lumenize internals
-DEBUG=ChatRoom.*,lmz.rpc.*  # Your class + specific Lumenize subsystem
-DEBUG=*,-lmz.*              # Everything except Lumenize
-```
-
-
-## Error Logging
-
-The debug system includes an `error()` level that **ALWAYS outputs, regardless of DEBUG filter**. This gives you structured JSON logging for errors while ensuring they're never accidentally hidden.
-
-### When to Use Each Level
-
-Use this decision tree to choose the right level:
-
-```
-Is this an unexpected system failure, bug, or assertion violation?
-├─ YES → Use log.error() [NEVER filtered]
-└─ NO → Is this an expected operational issue?
-    ├─ YES → Use log.warn() [filterable]
-    └─ NO → Is this a milestone or important event?
-        ├─ YES → Use log.info() [filterable]
-        └─ NO → Use log.debug() [filterable]
-```
-
-### Examples
-
-```typescript @skip-check
-import '@lumenize/core';
-import { LumenizeBase } from '@lumenize/lumenize-base';
-
-class MyDO extends LumenizeBase<Env> {
-  onRequest(request: Request) {
-    const log = this.svc.debug('MyDO.onRequest');
-    
-    // ERROR: Unexpected system failure (always logged)
-    try {
-      const stub = this.env.SOME_DO.get(this.env.SOME_DO.idFromName('test'));
-      return stub.fetch(request);
-    } catch (e) {
-      log.error('Unexpected DO fetch failure', {
-        error: e.message,
-        stack: e.stack,
-        url: request.url
-      });
-      return new Response('Internal Server Error', { status: 500 });
-    }
-  }
-  
-  processWithRetry(reqId: string) {
-    const log = this.svc.debug('MyDO.processWithRetry');
-    let retryCount = 0;
-    
-    // WARN: Expected operational issue (filterable)
-    while (retryCount < 3) {
-      try {
-        this.doWork();
-        return;
-      } catch (e) {
-        if (++retryCount >= 3) {
-          log.warn('Retry limit exhausted', { reqId, retryCount });
-          throw e;
-        }
-      }
-    }
-  }
-  
-  authenticate(token: string) {
-    const log = this.svc.debug('MyDO.authenticate');
-    
-    // WARN: Expected - users provide bad tokens
-    if (!token || !this.validateToken(token)) {
-      log.warn('Authentication failed', { hasToken: !!token });
-      return null;
-    }
-    
-    // INFO: Milestone/event
-    log.info('User authenticated', { tokenExpiry: this.getExpiry(token) });
-    return { authenticated: true };
-  }
-  
-  processRequest(request: Request) {
-    const log = this.svc.debug('MyDO.processRequest');
-    
-    // DEBUG: Detailed diagnostics
-    log.debug('Processing request', {
-      method: request.method,
-      contentType: request.headers.get('content-type')
-    });
-  }
+```typescript
+const log = this.svc.debug('NotChat');
+if (log.enabled) {
+  const expensiveData = computeExpensiveDetails();
+  log.debug('Details', expensiveData);
 }
 ```
+`computeExpensiveDetails()` is skipped.
 
-## Common Patterns
+## Lumenize Internals
 
-**Development:**
-```bash
-DEBUG=*                     # See everything
-```
+`lmz.{package-name}.{ActualIdentifier}` convention:
+- Package names: kebab-case (npm convention) - `rpc`, `proxy-fetch`, `utils`
+- Identifiers: actual case from code - `RpcClient`, `routeDORequest`, `ProxyFetchDO`
 
-**Testing:**
-```bash
-DEBUG=ChatRoom.handleMessage  # Target specific method
-DEBUG=lmz.rpc.*              # Debug Lumenize subsystem
-```
-
-**Production:**
-Add DEBUG to environment variables temporarily to debug issues without code changes.
-
-**Filtering scenarios:**
-```bash
-DEBUG=ChatRoom.*                         # Only ChatRoom class
-DEBUG=ChatRoom.*,lmz.utils.route-do-request  # ChatRoom + specific Lumenize component
-DEBUG=*,-lmz.*                           # Everything except Lumenize
-```
-
-**Debugging callbacks:**
-```typescript @skip-check
-// In Worker
-export default {
-  async fetch(request: Request, env: Env) {
-    return await routeDORequest(request, env, {
-      onBeforeConnect: async (request, context) => {
-        const log = debug({ env })('Worker.onBeforeConnect');
-        
-        const token = request.headers.get('Authorization');
-        if (!token) {
-          log.warn('Connection rejected - missing auth', {
-            doInstance: context.doInstanceNameOrId
-          });
-          return new Response('Unauthorized', { status: 401 });
-        }
-        
-        log.info('Connection authorized');
-      }
-    });
-  }
-}
-```
-
-Then enable: `DEBUG=Worker.onBeforeConnect,lmz.utils.route-do-request`
-
-## Best Practices
-
-1. **Use object format** - Always pass data as second parameter (not template literals)
-   ```typescript
-   log.debug('Processing', { count: items.length });  // ✅ Zero-cost when disabled
-   log.debug(`Processing ${items.length} items`);     // ❌ String interpolation always runs
-   ```
-
-2. **Descriptive messages** - Make messages searchable: "CORS origin rejected", not "rejected"
-
-3. **Structured data** - Include relevant context: IDs, counts, flags, timestamps
-
-4. **Right level for the job**:
-   - `error` - Unexpected failures, bugs (NEVER filtered)
-   - `warn` - Expected operational issues (retry exhausted, auth failed)
-   - `info` - Milestones, events (connection established, batch complete)
-   - `debug` - Detailed diagnostics (parsing, cache lookups)
-
-5. **Namespace hierarchy** - Use actual class/method names: `ChatRoom.handleMessage`, `AuthService.authenticate`
-
-6. **Performance** - Check `log.enabled` before expensive operations:
-   ```typescript
-   if (log.enabled) {
-     const expensiveData = computeExpensiveDetails();
-     log.debug('Details', expensiveData);
-   }
-   ```
+Examples:
+- `lmz.rpc.RpcClient`, `lmz.rpc.WebSocketRpcTransport`
+- `lmz.proxy-fetch.ProxyFetchDO`, `lmz.proxy-fetch.proxyFetchQueueConsumer`
+- `lmz.utils.routeDORequest`
+- `lmz.alarms.Alarms`
 
 ## Comparison with npm's `debug`
 
@@ -363,12 +195,8 @@ Similarities:
 
 Differences:
 - **Level support**: debug, info, warn, error (vs. single level)
+- **Casing**: Use actual package, class, method case (vs. all lower-kabob-case)
 - **Error level**: Never filtered - always outputs
 - **JSON output**: Structured objects (vs. plain text)
 - **Cloudflare-optimized**: No colors, no TTY detection
 - **NADIS integration**: Auto-injection in LumenizeBase
-
-## License
-
-MIT
-

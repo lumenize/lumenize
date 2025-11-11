@@ -68,6 +68,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Add comprehensive security documentation (currently just a warning)
 
+- [ ] Add llms.txt support https://github.com/din0s/docusaurus-plugin-llms-txt
+
+- [ ] Add MCP server for docs
+
 
 ## RPC Features to Demo/Test
 

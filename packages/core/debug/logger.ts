@@ -18,7 +18,7 @@ export interface DebugLoggerConfig {
  * Default output function: console.debug with JSON stringified output
  */
 function defaultOutput(log: DebugLogOutput): void {
-  console.debug(JSON.stringify(log));
+  console.debug(JSON.stringify(log, null, 2));
 }
 
 /**

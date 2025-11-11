@@ -50,7 +50,7 @@ export async function sendDownstream(
   doInstance: any,
   payload: any
 ): Promise<void> {
-  const log = debug(doInstance)('rpc.downstream');
+  const log = debug(doInstance)('lmz.rpc.sendDownstream');
   
   // Normalize to array
   const ids = Array.isArray(clientIds) ? clientIds : [clientIds];
@@ -143,7 +143,7 @@ async function handleCallRequest(
   doInstance: any,
   config: Required<RpcConfig>
 ): Promise<Response> {
-  const log = debug(doInstance)('rpc.server');
+  const log = debug(doInstance)('lmz.rpc.handleCallRequest');
   
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
@@ -528,7 +528,7 @@ export async function handleRpcMessage(
   doInstance: any,
   config: RpcConfig = {}
 ): Promise<boolean> {
-  const log = debug(doInstance)('rpc.websocket');
+  const log = debug(doInstance)('lmz.rpc.handleRpcMessage');
   
   // Only handle string messages
   if (typeof message !== 'string') {
@@ -613,7 +613,7 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
 
   // Create enhanced class that extends the original
   class LumenizedDO extends (DOClass as T) {
-    #log = debug(this)('lmz.rpc.factory');
+    #log = debug(this)('lmz.rpc.lumenizeRpcDO');
 
     async fetch(request: Request): Promise<Response> {
       this.#log.debug('RPC fetch handler', { url: request.url });

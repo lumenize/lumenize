@@ -23,7 +23,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     fetch: typeof fetch;
     headers: Record<string, string>;
   };
-  #log = debug({})('lmz.rpc.client.http');
+  #log = debug({})('lmz.rpc.HttpPostRpcTransport');
 
   constructor(config: {
     baseUrl: string;

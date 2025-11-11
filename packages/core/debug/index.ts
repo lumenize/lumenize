@@ -12,7 +12,7 @@
  * 
  * class MyDO extends LumenizeBase<Env> {
  *   myMethod() {
- *     const log = this.svc.debug('lmz.proxy-fetch.serialization');
+ *     const log = this.svc.debug('lmz.proxy-fetch.ProxyFetchDO');
  *     log.debug('processing request', { url, method });
  *     log.info('milestone reached', { step: 3 });
  *     log.warn('retry limit reached', { retryCount: 5 });
