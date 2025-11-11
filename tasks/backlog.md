@@ -41,13 +41,16 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Documentation
 
 - [ ] Review/edit the new docs for:
+  - [ ] Do next because they are failing check-examples right now
+    - [ ] alarms
+    - [ ] structured-clone
+  
   - [x] maps and sets
   - [ ] lumenize-base
   - [ ] NADIS (plit from lumenize-base)
   - [WiP: Phase 1] core
     - [ ] debug
     - [ ] sql
-  - [ ] alarms
   - [ ] testing alarms (simulation and triggering)
   - [ ] RPC downstream messaging
     - [ ] Build a chat app like the vs Cap'n Web

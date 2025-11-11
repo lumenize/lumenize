@@ -65,6 +65,13 @@ This workflow prioritizes narrative clarity first, then validation. It maximizes
 
 **Deliverable:** TypeDoc API reference generated without errors, clean API surface visible.
 
+**JSDoc Best Practices:**
+- **Link to full docs, don't duplicate examples** - Use `@see [Documentation Name](/docs/package/page)` instead of lengthy `@example` blocks
+- **Markdown links work in JSDoc** - Standard markdown syntax `[text](url)` renders correctly in TypeDoc
+- **Keep JSDoc focused** - Parameter descriptions, return types, brief explanation only
+- **Hide internal types** - Use `@internal` tag for types/interfaces users shouldn't directly use (e.g., `DebugLogOutput`, `DebugLevel`)
+- **Clean API surface** - Only export what users need; internal utilities can be imported directly from source when needed
+
 ### Phase 5: Full Build & Polish 🏗️
 
 **Goal:** Production-ready documentation with all validations passing.

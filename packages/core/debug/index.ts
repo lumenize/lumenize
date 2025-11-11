@@ -44,48 +44,7 @@ import type { DebugLogger } from './types';
  * @param withEnv - Object with env property (DO instance, Worker context, or plain object)
  * @returns Factory function for creating debug loggers
  * 
- * @example
- * In Durable Objects:
- * ```typescript
- * import { debug } from '@lumenize/core';
- * import { DurableObject } from 'cloudflare:workers';
- * 
- * class MyDO extends DurableObject {
- *   #log = debug(this)('my-namespace');
- *   
- *   myMethod() {
- *     this.#log.debug('message', { data });
- *   }
- * }
- * ```
- * 
- * @example
- * In Workers:
- * ```typescript
- * import { debug } from '@lumenize/core';
- * 
- * export default {
- *   async fetch(request, environment, ctx) {
- *     const log = debug({ env: environment })('worker.router');
- *     log.debug('Routing request', { pathname: new URL(request.url).pathname });
- *     // ... route to DO or return response
- *   }
- * }
- * ```
- * 
- * @example
- * With LumenizeBase (auto-injected):
- * ```typescript
- * import '@lumenize/core';
- * import { LumenizeBase } from '@lumenize/lumenize-base';
- * 
- * class MyDO extends LumenizeBase {
- *   myMethod() {
- *     const log = this.svc.debug('my-namespace');
- *     log.debug('message', { data });
- *   }
- * }
- * ```
+ * @see [Debug Documentation](/docs/core/debug) for complete usage examples and configuration
  */
 export function debug(withEnv: any): (namespace: string) => DebugLogger {
   // Get DEBUG environment variable

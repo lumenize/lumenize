@@ -2,6 +2,8 @@
  * Debug log levels in order of verbosity (debug is most verbose)
  * 
  * Note: 'error' level is NEVER filtered - always outputs regardless of DEBUG environment variable
+ * 
+ * @internal
  */
 export type DebugLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -67,6 +69,8 @@ export interface DebugLogger {
 
 /**
  * Structured log output format for Cloudflare dashboard
+ * 
+ * @internal
  */
 export interface DebugLogOutput {
   type: 'debug';

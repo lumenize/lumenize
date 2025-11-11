@@ -15,6 +15,14 @@
       {
         "name": "DEBUG_TEST_DO",
         "class_name": "DebugTestDO"
+      },
+      {
+        "name": "CHAT_ROOM",
+        "class_name": "ChatRoom"
+      },
+      {
+        "name": "MY_DO",
+        "class_name": "MyDO"
       }
     ]
   },
@@ -30,6 +38,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["DebugTestDO"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["ChatRoom", "MyDO"]
     }
   ]
 }
