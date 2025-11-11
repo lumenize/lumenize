@@ -285,6 +285,10 @@ class MyDO extends LumenizeBase<Env> {
   async onRequest(request: Request): Promise<Response> {
     return Response.json({ status: 'ok' });
   }
+  
+  // NOTE: alarm() has a default implementation in LumenizeBase
+  // No need to override unless you need custom behavior
+  // See "Default alarm() Implementation" below
 }
 ```
 
@@ -304,6 +308,10 @@ await this.broadcastDownstream(data, exclude?);
 // 4. (Standard) HTTP response
 return await this.onRequest(request);
 ```
+
+**Default alarm() Implementation**:
+
+LumenizeBase provides a default `alarm()` implementation that automatically delegates to `@lumenize/alarms` when present. **No boilerplate needed!**
 
 **Complete Example**:
 
@@ -432,6 +440,11 @@ Add WebSocket support and lifecycle hooks to LumenizeBase.
   - [ ] onMessage(ws, message, id?) - Called on message received
   - [ ] onClose(ws, code, reason, wasClean) - Called on close
   - [ ] onRequest(request) - Called for HTTP requests
+- [ ] Implement default alarm() method
+  - [ ] Check global registry for alarms service
+  - [ ] Delegate to `this.svc.alarms.alarm()` if present
+  - [ ] Silent no-op if alarms not imported (safe)
+  - [ ] Eliminates boilerplate for @lumenize/alarms users
 - [ ] Implement four helper methods
   - [ ] send(ws, data, id?) - Send to specific connection
   - [ ] sendDownstream(clientId, data, exclude?) - Send to client(s) by tag
@@ -760,6 +773,7 @@ async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: bool
 - ✅ Parse/stringify messages (transport layer)
 - ✅ Unwrap envelope and call user hooks
 - ✅ Provide four helper methods (send, sendDownstream, broadcastDownstream)
+- ✅ Delegate alarm() to @lumenize/alarms when present (zero boilerplate)
 
 **What Subclasses Do**:
 - ✅ Implement lifecycle hooks
@@ -982,6 +996,7 @@ All open questions have been resolved through our design conversation:
 - [ ] Runtime check prevents override of fetch/webSocketMessage/webSocketClose
 - [ ] Four helper methods work: send(), sendDownstream(), broadcastDownstream(), onRequest()
 - [ ] Lifecycle hooks work: onConnect(), onMessage(), onClose()
+- [ ] Default alarm() implementation delegates to @lumenize/alarms when present
 - [ ] Transport layer encapsulation (users never call stringify/parse)
 - [ ] Unit tests with >80% branch coverage
 - [ ] Integration tests covering all major scenarios

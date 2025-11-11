@@ -74,15 +74,15 @@ Follow these synchronous-first patterns to maintain Cloudflare's consistency gua
 Durable Objects can be evicted from memory at any time. Design accordingly:
 
 **Always:**
-- ✅ Fetch from storage at the start of each of your business logic handlers
+- ✅ Retrieve from storage at the start of each of your business logic handlers
 - ✅ Persist changes to storage before returning from handler
-- ✅ Minimize instance variables - only store `this.ctx`, `this.env`.
-  - The big exception to this is if the in-storage representation is an expensive 
+- ✅ Minimize instance variables
+  - The exception to this is if the in-storage representation is an expensive 
     transformation from the in-memory representation, but then you need to take extra care in 
     assuring memory and storage are always in sync. My sledgehammer strategy is often to wrap 
     anything that modifies both memory and storage in a try/catch block and call `this.ctx.
     abort()` in the catch clause. It's usually better to modify your in-storage 
-    representation.
+    representation so no expensive transformation is needed.
 
 **Never:**
 - ❌ Don't rely on in-memory state persisting between requests

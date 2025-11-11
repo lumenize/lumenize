@@ -70,7 +70,7 @@ class MyDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
   
-  // Required boilerplate. Delegates standard `alarm()` handler to Alarms
+  // Required boilerplate. Delegates standard `alarm()` handler to Lumenize Alarms
   async alarm() {
     await this.#alarms.alarm();
   }
@@ -95,10 +95,7 @@ import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
 import { LumenizeBase } from '@lumenize/lumenize-base';
 
 class MyDO extends LumenizeBase<any> {
-  // Required boilerplate. Delegates standard `alarm()` handler to Alarms
-  async alarm() {
-    await this.svc.alarms.alarm();
-  }
+  // No boilerplate required. LumenizeBase delegates `alarm()` handler to Lumenize Alarms
   
   scheduleTask() {
     this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
