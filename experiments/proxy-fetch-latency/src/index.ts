@@ -244,14 +244,22 @@ export const FetchOrchestrator = _FetchOrchestrator;
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Try proxy-fetch execution handler first
-    const proxyFetchResponse = await handleProxyFetchExecution(request, env);
-    if (proxyFetchResponse) return proxyFetchResponse;
-    
-    // Route all other requests to OriginDO (including WebSocket upgrades)
-    const id = env.ORIGIN_DO.idFromName('latency-test');
-    const stub = env.ORIGIN_DO.get(id);
-    return stub.fetch(request);
+    try {
+      // Try proxy-fetch execution handler first
+      const proxyFetchResponse = await handleProxyFetchExecution(request, env);
+      if (proxyFetchResponse) return proxyFetchResponse;
+      
+      // Route all other requests to OriginDO (including WebSocket upgrades)
+      const id = env.ORIGIN_DO.idFromName('latency-test');
+      const stub = env.ORIGIN_DO.get(id);
+      return stub.fetch(request);
+    } catch (error) {
+      console.error('Worker error:', error);
+      return new Response(error instanceof Error ? error.message : String(error), {
+        status: 500,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+    }
   }
 }
 

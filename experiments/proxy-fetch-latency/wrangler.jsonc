@@ -15,7 +15,8 @@
     ]
   },
   "vars": {
-    "WORKER_URL": "https://proxy-fetch-latency.transformation.workers.dev"
+    "WORKER_URL": "https://proxy-fetch-latency.transformation.workers.dev",
+    "PROXY_FETCH_SECRET": "local-dev-secret-12345"
   },
   "migrations": [
     {
