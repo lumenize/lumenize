@@ -55,22 +55,22 @@ function processArgumentsForNesting(args: any[]): any[] {
  * @example
  * ```typescript
  * // Simple chaining
- * const chain = createContinuation<MyDO>()
+ * const chain = newContinuation<MyDO>()
  *   .getUserData(userId)
  *   .formatResponse();
  * 
  * // Nesting
- * const chain = createContinuation<MyDO>()
+ * const chain = newContinuation<MyDO>()
  *   .combineData(
- *     createContinuation<RemoteDO>().getUserData(userId),
- *     createContinuation<RemoteDO>().getOrgData(orgId)
+ *     newContinuation<RemoteDO>().getUserData(userId),
+ *     newContinuation<RemoteDO>().getOrgData(orgId)
  *   );
  * ```
  * 
  * @typeParam T - The target object type (for type safety)
  * @returns A proxy that builds an operation chain
  */
-export function createContinuation<T = any>(): T {
+export function newContinuation<T = any>(): T {
   return createProxyWithChain([]) as T;
 }
 

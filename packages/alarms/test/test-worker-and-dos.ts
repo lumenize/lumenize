@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-import { sql } from '@lumenize/core';
+import { sql, newContinuation } from '@lumenize/core';
 import { Alarms, type Schedule } from '../src/alarms';
 import { enableAlarmSimulation } from '@lumenize/testing';
 
@@ -11,9 +11,9 @@ export { MyDO as StandalonePatternDO } from './for-docs/standalone-pattern.test'
 export { MyDO as LumenizeBasePatternDO } from './for-docs/lumenize-base-pattern.test';
 
 export class AlarmDO extends DurableObject<Env> {
-  #alarms: Alarms<AlarmDO>;
+  #alarms: Alarms;
   #sql = sql(this);
-  executedAlarms: Array<{ payload: any; schedule: Schedule }> = [];
+  executedAlarms: Array<{ payload: any }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -27,9 +27,14 @@ export class AlarmDO extends DurableObject<Env> {
     await this.#alarms.alarm();
   }
 
+  // Helper to create continuations (like this.c() in LumenizeBase)
+  c<T = this>(): T {
+    return newContinuation<T>();
+  }
+
   // Test helper: Schedule an alarm
   scheduleAlarm(when: Date | string | number, payload?: any) {
-    return this.#alarms.schedule(when, 'handleAlarm', payload);
+    return this.#alarms.schedule(when, this.c().handleAlarm(payload));
   }
 
   // Test helper: Get a schedule by ID
@@ -48,24 +53,24 @@ export class AlarmDO extends DurableObject<Env> {
   }
 
   // Alarm callback - gets called when an alarm fires
-  handleAlarm(payload: any, schedule: Schedule) {
-    this.executedAlarms.push({ payload, schedule });
+  handleAlarm(payload: any) {
+    this.executedAlarms.push({ payload });
   }
 
   // Test helper: Schedule alarm with invalid callback (not a function)
   scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
-    // Force schedule with a non-function callback property
-    return this.#alarms.schedule(when, 'notAFunction' as any, payload);
+    // Force schedule with an invalid operation chain
+    return this.#alarms.schedule(when, this.c().notAFunction(payload));
   }
 
   // Alarm callback that throws an error
-  handleThrowingAlarm(payload: any, schedule: Schedule) {
+  handleThrowingAlarm(payload: any) {
     throw new Error('Intentional error from alarm callback');
   }
 
   // Test helper: Schedule an alarm with a throwing callback
   scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
-    return this.#alarms.schedule(when, 'handleThrowingAlarm', payload);
+    return this.#alarms.schedule(when, this.c().handleThrowingAlarm(payload));
   }
 
   // Test helper: Get executed alarms
@@ -93,4 +98,3 @@ export default {
     return new Response('OK');
   },
 };
-

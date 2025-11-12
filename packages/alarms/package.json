@@ -30,8 +30,8 @@
   "dependencies": {
     "@lumenize/core": "*",
     "@lumenize/debug": "*",
-    "cron-schedule": "^5.0.1",
-    "nanoid": "^5.0.9"
+    "@lumenize/structured-clone": "*",
+    "cron-schedule": "^5.0.1"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

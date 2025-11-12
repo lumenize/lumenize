@@ -19,7 +19,7 @@ export {
 
 // Proxy factory for building chains
 export {
-  createContinuation,
+  newContinuation,
   getOperationChain
 } from './proxy-factory.js';
 

@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
 import { Alarms, type Schedule } from '@lumenize/alarms';
-import { sql } from '@lumenize/core';
+import { sql, newContinuation } from '@lumenize/core';
 
 // Example: Task scheduling DO
 class TaskSchedulerDO extends DurableObject {
@@ -19,12 +19,16 @@ class TaskSchedulerDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
 
+  // Helper to create continuations (like this.c() in LumenizeBase)
+  c<T = this>(): T {
+    return newContinuation<T>();
+  }
+
   // Schedule a task - seconds from now
   scheduleTask(taskName: string, delaySeconds: number) {
     const schedule = this.#alarms.schedule(
       delaySeconds,  // a number
-      'handleTask',  // handler method as string
-      { name: taskName }  // payload
+      this.c().handleTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, taskName, id: schedule.id };
   }
@@ -33,8 +37,7 @@ class TaskSchedulerDO extends DurableObject {
   scheduleAt(taskName: string, timestamp: number) {
     const schedule = this.#alarms.schedule(
       new Date(timestamp),  // a Date
-      'handleTask',  // handler method as string
-      { name: taskName }  // payload
+      this.c().handleTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, taskName, id: schedule.id };
   }
@@ -43,8 +46,7 @@ class TaskSchedulerDO extends DurableObject {
   scheduleRecurringTask(taskName: string) {
     const schedule = this.#alarms.schedule(
       '0 0 * * *',  // cron expression (daily at midnight)
-      'handleRecurringTask',  // handler method as string
-      { name: taskName }  // payload
+      this.c().handleRecurringTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, taskName, recurring: true, id: schedule.id };
   }
@@ -53,8 +55,7 @@ class TaskSchedulerDO extends DurableObject {
   cancelTask(taskName: string, delaySeconds: number) {
     const schedule = this.#alarms.schedule(
       delaySeconds,  // a number
-      'handleTask',  // handler method as string
-      { name: taskName }  // payload
+      this.c().handleTask({ name: taskName })  // OCAN chain
     );
     // Later, to cancel:
     this.#alarms.cancelSchedule(schedule.id);
@@ -67,20 +68,18 @@ class TaskSchedulerDO extends DurableObject {
   }
 
   // Alarm callbacks
-  handleTask(payload: any, schedule: Schedule) {
-    console.log(payload, schedule);
+  handleTask(payload: any) {
+    console.log(payload);
     // payload: { name: 'send-email' }
-    // schedule: { id: '...', runAt: 1699564800000, callback: 'handleTask', ... }
     this.executedTasks.push({
       name: payload.name,
       time: Date.now(),
     });
   }
 
-  handleRecurringTask(payload: any, schedule: Schedule) {
-    console.log(payload, schedule);
+  handleRecurringTask(payload: any) {
+    console.log(payload);
     // payload: { name: 'daily-report' }
-    // schedule: { id: '...', cron: '0 0 * * *', callback: 'handleRecurringTask', ... }
     this.executedTasks.push({
       name: `recurring:${payload.name}`,
       time: Date.now(),
@@ -149,4 +148,3 @@ describe('Alarms - Basic Usage', () => {
     expect(scheduled.length).toBeGreaterThanOrEqual(2);
   });
 });
-

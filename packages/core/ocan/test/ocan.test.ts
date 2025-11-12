@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createContinuation, executeOperationChain, getOperationChain, validateOperationChain, isNestedOperationMarker } from '../index.js';
+import { newContinuation, executeOperationChain, getOperationChain, validateOperationChain, isNestedOperationMarker } from '../index.js';
 import type { OperationChain } from '../index.js';
 
 // Test target object with various methods
@@ -39,9 +39,9 @@ class TestObject {
 }
 
 describe('OCAN - Operation Chaining And Nesting', () => {
-  describe('createContinuation', () => {
+  describe('newContinuation', () => {
     it('should create a proxy that builds operation chains', () => {
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const chain = c.getValue();
       
       const operations = getOperationChain(chain);
@@ -52,7 +52,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     });
     
     it('should support method chaining', () => {
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const chain = c.setValue(100).getValue();
       
       const operations = getOperationChain(chain);
@@ -65,7 +65,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     });
     
     it('should support property access chaining', () => {
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const chain = c.nested.deep.method(5);
       
       const operations = getOperationChain(chain);
@@ -78,7 +78,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     });
     
     it('should support methods with multiple arguments', () => {
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const chain = c.add(10, 20);
       
       const operations = getOperationChain(chain);
@@ -91,7 +91,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
   
   describe('Nesting', () => {
     it('should detect nested continuations and convert to markers', () => {
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const nested1 = c.add(1, 2);
       const nested2 = c.multiply(3, 4);
       const chain = c.combine(nested1, nested2);
@@ -101,7 +101,9 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(operations![0]).toEqual({ type: 'get', key: 'combine' });
       expect(operations![1].type).toBe('apply');
       
-      const args = operations![1].args;
+      const applyOp = operations![1];
+      if (applyOp.type !== 'apply') throw new Error('Expected apply operation');
+      const args = applyOp.args;
       expect(args).toHaveLength(2);
       
       // Both arguments should be nested operation markers
@@ -120,18 +122,22 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     });
     
     it('should support deeply nested continuations', () => {
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const innerNested = c.multiply(2, 3);
       const middleNested = c.add(innerNested, 5);
       const chain = c.combine(middleNested, 10);
       
       const operations = getOperationChain(chain);
-      const args = operations![1].args;
+      const applyOp = operations![1];
+      if (applyOp.type !== 'apply') throw new Error('Expected apply operation');
+      const args = applyOp.args;
       
       // First arg is a nested marker with another nested marker inside
       expect(isNestedOperationMarker(args[0])).toBe(true);
       const middleChain = args[0].__operationChain;
-      expect(middleChain[1].args[0]).toMatchObject({
+      const middleApplyOp = middleChain[1];
+      if (middleApplyOp.type !== 'apply') throw new Error('Expected apply operation');
+      expect(middleApplyOp.args[0]).toMatchObject({
         __isNestedOperation: true,
         __operationChain: [
           { type: 'get', key: 'multiply' },
@@ -194,7 +200,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       const target = new TestObject();
       
       // Build operations with nested markers
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const nested1 = c.add(10, 20);
       const nested2 = c.multiply(3, 4);
       const chain = c.combine(nested1, nested2);
@@ -209,7 +215,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
     it('should resolve deeply nested operation markers', async () => {
       const target = new TestObject();
       
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const innerNested = c.multiply(2, 3);
       const middleNested = c.add(innerNested, 5);
       const chain = c.combine(middleNested, 10);
@@ -279,7 +285,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       const target = new TestObject();
       
       // Build: combine(add(5, multiply(2, 3)), add(10, 5))
-      const c = createContinuation<TestObject>();
+      const c = newContinuation<TestObject>();
       const innerMult = c.multiply(2, 3);
       const leftAdd = c.add(5, innerMult);
       const rightAdd = c.add(10, 5);

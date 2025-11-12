@@ -1,4 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
+import { newContinuation } from '@lumenize/core';
 
 /**
  * LumenizeBase - Base class for Durable Objects with NADIS auto-injection
@@ -28,11 +29,11 @@ import { DurableObject } from 'cloudflare:workers';
  *     return rows[0];
  *   }
  *   
- *   async scheduleTask() {
- *     await this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
+ *   scheduleTask() {
+ *     this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
  *   }
  *   
- *   async handleTask(payload: any) {
+ *   handleTask(payload: any) {
  *     console.log('Task executed:', payload);
  *   }
  * }
@@ -44,6 +45,34 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+  }
+
+  /**
+   * Create an OCAN (Operation Chaining And Nesting) continuation proxy
+   * 
+   * Returns a proxy that records method calls into an operation chain.
+   * Used with async strategies (alarms, call, proxyFetch) to define
+   * what to execute when the operation completes.
+   * 
+   * @template T - Type to proxy (defaults to this DO's type for chaining local methods)
+   * 
+   * @example
+   * ```typescript
+   * // Local method chaining
+   * this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
+   * 
+   * // Remote DO calls
+   * const remote = this.c<RemoteDO>().getUserData(userId);
+   * this.svc.call(REMOTE_DO, 'instance-id', remote, this.c().handleResult(remote));
+   * 
+   * // Nesting
+   * const data1 = this.c().getData(1);
+   * const data2 = this.c().getData(2);
+   * this.svc.alarms.schedule(60, this.c().combineData(data1, data2));
+   * ```
+   */
+  c<T = this>(): T {
+    return newContinuation<T>();
   }
 
   /**

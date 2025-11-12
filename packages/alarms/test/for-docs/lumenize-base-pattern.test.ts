@@ -16,10 +16,10 @@ class MyDO extends LumenizeBase<any> {
   }
   
   scheduleTask() {
-    this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
+    this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
   }
   
-  handleTask(payload: any, schedule: Schedule) {
+  handleTask(payload: any) {
     console.log('Task executed:', payload);
   }
 }
@@ -33,4 +33,3 @@ describe('Alarms LumenizeBase Pattern', () => {
     // Alarm scheduled successfully
   });
 });
-

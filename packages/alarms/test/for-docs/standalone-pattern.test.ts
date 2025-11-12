@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import { Alarms, type Schedule } from '@lumenize/alarms';
-import { sql } from '@lumenize/core';
+import { sql, newContinuation } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 
 class MyDO extends DurableObject {
@@ -17,16 +17,21 @@ class MyDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
   
+  // Helper to create continuations (like this.c() in LumenizeBase)
+  c<T = this>(): T {
+    return newContinuation<T>();
+  }
+  
   // Required boilerplate. Delegates standard `alarm()` handler to Alarms
   async alarm() {
     await this.#alarms.alarm();
   }
   
   scheduleTask() {
-    this.#alarms.schedule(60, 'handleTask', { data: 'example' });
+    this.#alarms.schedule(60, this.c().handleTask({ data: 'example' }));
   }
   
-  handleTask(payload: any, schedule: Schedule) {
+  handleTask(payload: any) {
     console.log('Task executed:', payload);
   }
 }
@@ -40,4 +45,3 @@ describe('Alarms Standalone Pattern', () => {
     // Alarm scheduled successfully
   });
 });
-
