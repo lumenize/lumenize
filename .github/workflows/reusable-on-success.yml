@@ -2,6 +2,7 @@ name: Reusable Workflow - On Success
 
 on:
   workflow_call:
+    # Note: GITHUB_TOKEN is automatically available via github.token - do not declare it here
     secrets:
       SONAR_TOKEN:
         required: true
