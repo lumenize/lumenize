@@ -2,17 +2,24 @@
  * Test Worker and DOs for proxyFetchWorker integration testing
  */
 
-import { WorkerEntrypoint } from 'cloudflare:workers';
 import '@lumenize/proxy-fetch'; // Import to register result handler
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { FetchOrchestrator as _FetchOrchestrator } from '../../src/FetchOrchestrator';
-import { proxyFetchWorker } from '../../src/proxyFetchWorker';
-import { executeFetch } from '../../src/workerFetchExecutor';
+import { proxyFetchWorker, handleProxyFetchExecution } from '../../src/index';
 import { instrumentDOProject } from '@lumenize/testing';
 import { sendDownstream } from '@lumenize/rpc';
 
 // Re-export for typing
 export { _FetchOrchestrator };
+
+interface Env {
+  FETCH_ORCHESTRATOR: DurableObjectNamespace;
+  TEST_DO: DurableObjectNamespace;
+  WORKER_URL: string;
+  PROXY_FETCH_SECRET: string;
+  TEST_TOKEN?: string;
+  TEST_ENDPOINTS_URL?: string;
+}
 
 /**
  * TestDO - Origin DO that uses proxyFetchWorker
@@ -160,22 +167,16 @@ export const FetchOrchestrator = instrumented.FetchOrchestrator;
 export const TestDO = instrumented.TestDO;
 
 /**
- * Worker export - handles fetch execution
- * 
- * Uses WorkerEntrypoint for service bindings (RPC support)
+ * Worker export - handles both routing and proxy-fetch execution
  */
-export default class extends WorkerEntrypoint<Env> {
-  async fetch(request: Request): Promise<Response> {
-    return instrumented.fetch(request, this.env);
-  }
-
-  /**
-   * RPC method for executing fetches
-   * 
-   * Called by FetchOrchestrator to execute fetches with CPU billing.
-   */
-  async executeFetch(message: any): Promise<void> {
-    return await executeFetch(message, this.env);
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Try proxy-fetch execution handler first
+    const proxyFetchResponse = await handleProxyFetchExecution(request, env);
+    if (proxyFetchResponse) return proxyFetchResponse;
+    
+    // Fall through to instrumented routing
+    return instrumented.fetch(request, env);
   }
 }
 
