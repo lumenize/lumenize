@@ -244,17 +244,25 @@ export const FetchOrchestrator = _FetchOrchestrator;
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    console.log('[Worker] Request:', url.pathname);
+    console.log('[Worker] Has PROXY_FETCH_SECRET:', !!env.PROXY_FETCH_SECRET);
+    
     try {
       // Try proxy-fetch execution handler first
       const proxyFetchResponse = await handleProxyFetchExecution(request, env);
-      if (proxyFetchResponse) return proxyFetchResponse;
+      if (proxyFetchResponse) {
+        console.log('[Worker] Handled by proxy-fetch, status:', proxyFetchResponse.status);
+        return proxyFetchResponse;
+      }
       
       // Route all other requests to OriginDO (including WebSocket upgrades)
       const id = env.ORIGIN_DO.idFromName('latency-test');
       const stub = env.ORIGIN_DO.get(id);
       return stub.fetch(request);
     } catch (error) {
-      console.error('Worker error:', error);
+      console.error('[Worker] Error:', error);
+      console.error('[Worker] Error stack:', error instanceof Error ? error.stack : 'no stack');
       return new Response(error instanceof Error ? error.message : String(error), {
         status: 500,
         headers: { 'Content-Type': 'text/plain' }
