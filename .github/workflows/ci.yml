@@ -17,10 +17,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: ''  # Disable built-in npm caching to avoid conflicts
 
       - name: Clean npm cache
         run: npm cache clean --force
+
+      - name: Explicitly install Rollup Linux binary
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu || true
 
       - name: Install dependencies
         run: npm ci
@@ -46,10 +50,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
+          cache: ''  # Disable built-in npm caching to avoid conflicts
 
       - name: Clean npm cache
         run: npm cache clean --force
+
+      - name: Explicitly install Rollup Linux binary
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu || true
 
       - name: Install dependencies
         run: npm ci
