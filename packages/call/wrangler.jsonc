@@ -1,0 +1,15 @@
+{
+  "name": "lumenize-call",
+  "main": "test/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ORIGIN_DO", "class_name": "OriginDO" },
+      { "name": "REMOTE_DO", "class_name": "RemoteDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["OriginDO", "RemoteDO"] }
+  ]
+}
+

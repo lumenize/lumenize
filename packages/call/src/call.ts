@@ -120,12 +120,14 @@ export async function call(
   const preprocessedRemote = await preprocess(remoteChain);
 
   // Get remote DO stub
-  const remoteStub = env[doBinding].get(instanceId);
+  const remoteId = env[doBinding].idFromName(instanceId);
+  const remoteStub = env[doBinding].get(remoteId);
 
   // Prepare message for remote DO
+  const originBinding = options?.originBinding || getOriginBinding(doInstance);
   const message: CallMessage = {
     originId: ctx.id.toString(),
-    originBinding: getOriginBinding(doInstance),
+    originBinding,
     operationId,
     operationChain: preprocessedRemote as OperationChain
   };

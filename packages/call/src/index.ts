@@ -38,15 +38,18 @@
 export * from './types.js';
 export { call, cancelCall } from './call.js';
 
-// Register work handler for 'call' work type
+// Import for registration
+import { call } from './call.js';
 import { callWorkHandler } from './work-handler.js';
 import { callResultHandler } from './result-handler.js';
 
+// Register work handler for 'call' work type
 if (!(globalThis as any).__lumenizeWorkHandlers) {
   (globalThis as any).__lumenizeWorkHandlers = {};
 }
 (globalThis as any).__lumenizeWorkHandlers.call = callWorkHandler;
 
+// Register result handler for 'call' work type
 if (!(globalThis as any).__lumenizeResultHandlers) {
   (globalThis as any).__lumenizeResultHandlers = {};
 }
@@ -58,6 +61,8 @@ if (!(globalThis as any).__lumenizeServiceRegistry) {
 }
 
 // Call is a function that returns a bound call with doInstance
+// Capture call function in closure
+const callFn = call;
 (globalThis as any).__lumenizeServiceRegistry.call = (doInstance: any) => {
   return (
     doBinding: string,
@@ -66,7 +71,7 @@ if (!(globalThis as any).__lumenizeServiceRegistry) {
     continuation: any,
     options?: any
   ) => {
-    return call(doInstance, doBinding, instanceId, remoteOperation, continuation, options);
+    return callFn(doInstance, doBinding, instanceId, remoteOperation, continuation, options);
   };
 };
 

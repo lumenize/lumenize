@@ -8,6 +8,12 @@ export interface CallOptions {
    * Timeout in milliseconds (default: 30000 = 30 seconds)
    */
   timeout?: number;
+  
+  /**
+   * Binding name for this DO in the environment (for callbacks)
+   * If not provided, will attempt to infer from constructor name
+   */
+  originBinding?: string;
 }
 
 /**

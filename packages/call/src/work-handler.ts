@@ -59,8 +59,8 @@ export async function callWorkHandler(
 
   // Call back to origin DO with result (Actor Model - Call 2)
   try {
-    const originStub = env[message.originBinding].idFromString(message.originId);
-    const originDO = env[message.originBinding].get(originStub);
+    const originId = env[message.originBinding].idFromString(message.originId);
+    const originDO = env[message.originBinding].get(originId);
 
     const callResult: CallResult = {
       operationId: message.operationId,
