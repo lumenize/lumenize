@@ -178,6 +178,15 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'introduction',
 
+    // Concepts
+    {
+      type: 'category',
+      label: 'Concepts',
+      items: [
+        'concepts/context-patterns',
+      ],
+    },
+
     // Testing
     {
       type: 'category',
@@ -286,10 +295,7 @@ const sidebars: SidebarsConfig = {
       label: 'Proxy Fetch',
       items: [
         'proxy-fetch/index',
-        'proxy-fetch/queue',
-        'proxy-fetch/durable-object',
-        'proxy-fetch/streaming',
-        'proxy-fetch/agents',
+        'proxy-fetch/proxy-fetch-worker',
         ...(typedocProxyFetchSidebar && typedocProxyFetchSidebar.length > 0
           ? [wrapInApiReference(typedocProxyFetchSidebar, 'API Reference')]
           : []),

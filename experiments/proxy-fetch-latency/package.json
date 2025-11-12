@@ -1,0 +1,24 @@
+{
+  "name": "proxy-fetch-latency-experiment",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production latency measurements for proxyFetchWorker",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/latency-measurements.mjs",
+    "test:scalability": "node test/scalability-test.mjs",
+    "test:scalability:prod": "TEST_URL=https://proxy-fetch-latency.transformation.workers.dev node test/scalability-test.mjs",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@lumenize/lumenize-base": "*",
+    "@lumenize/proxy-fetch": "*",
+    "@lumenize/core": "*"
+  },
+  "devDependencies": {
+    "wrangler": "^4.38.0"
+  }
+}
+

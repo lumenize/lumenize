@@ -1,0 +1,28 @@
+{
+  "name": "proxy-fetch-worker-tests",
+  "main": "test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FETCH_ORCHESTRATOR",
+        "class_name": "FetchOrchestrator"
+      },
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDO"
+      }
+    ]
+  },
+  "vars": {
+    "WORKER_URL": "http://localhost:8787",
+    "PROXY_FETCH_SECRET": "test-secret-for-local-dev"
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FetchOrchestrator", "TestDO"]
+    }
+  ]
+}
+

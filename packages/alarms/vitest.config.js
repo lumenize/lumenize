@@ -14,17 +14,14 @@ export default defineWorkersProject({
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov'],
-      include: [
-        '**/src/**',
-        '**/test/test-worker-and-dos.ts'
-      ],
+      include: ['src/**'],
       exclude: [
+        '**/test/**',
         '**/node_modules/**', 
         '**/dist/**', 
         '**/build/**', 
         '**/*.config.*',
-        '**/scratch/**',
-        '**/test/**/*.test.ts'
+        '**/scratch/**'
       ],
       skipFull: false,
       all: false,

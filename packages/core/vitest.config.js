@@ -4,7 +4,7 @@ export default defineWorkersProject({
   test: {
     testTimeout: 2000, // 2 second global timeout
     globals: true,
-    include: ['sql/test/**/*.test.ts', 'debug/test/**/*.test.ts'],
+    include: ['sql/test/**/*.test.ts', 'debug/test/**/*.test.ts', 'ocan/test/**/*.test.ts'],
     poolOptions: {
       workers: {
         isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
@@ -15,16 +15,19 @@ export default defineWorkersProject({
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov'],
       include: [
-        'sql/**/*.ts',
-        'debug/**/*.ts'
+        'sql/index.ts',
+        'debug/index.ts',
+        'debug/logger.ts',
+        'debug/pattern-matcher.ts',
+        'ocan/**/*.ts'
       ],
       exclude: [
+        '**/test/**',
         '**/node_modules/**', 
         '**/dist/**', 
         '**/build/**', 
         '**/*.config.*',
-        '**/scratch/**',
-        '**/test/**/*.test.ts'
+        '**/scratch/**'
       ],
       skipFull: false,
       all: false,

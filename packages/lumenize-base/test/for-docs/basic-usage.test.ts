@@ -71,16 +71,16 @@ class NotificationsDO extends LumenizeBase<any> {
     `;
 
     // Schedule alarm to send it
+    const payload = { id, userId, message };
     const schedule = await this.svc.alarms.schedule(
       delaySeconds,
-      'sendNotification',
-      { id, userId, message }
+      this.ctn().sendNotification(payload)
     );
 
     return { scheduled: true, id, scheduleId: schedule.id };
   }
 
-  sendNotification(payload: any, schedule: Schedule) {
+  sendNotification(schedule: Schedule, payload: any) {
     // Mark as sent in database
     this.svc.sql`
       UPDATE notifications 

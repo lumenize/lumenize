@@ -18,12 +18,13 @@
     "test": "vitest --run",
     "test:do": "vitest --run --project do",
     "test:queue": "vitest --run --project queue",
+    "test:worker": "vitest --run --project worker",
     "coverage": "vitest --run --coverage",
     "test:local-live": "node test/production/local-live.test.mjs",
     "test:production": "node test/production/production.test.mjs",
     "dev:production": "wrangler dev --config test/production/wrangler.jsonc",
     "deploy:production": "wrangler deploy --config test/production/wrangler.jsonc",
-    "types": "cd test/do && wrangler types"
+    "types": "cd test/worker && wrangler types"
   },
   "keywords": [
     "cloudflare",
@@ -48,6 +49,7 @@
   },
   "dependencies": {
     "@lumenize/core": "*",
+    "@lumenize/lumenize-base": "*",
     "@lumenize/structured-clone": "^0.17.0",
     "@lumenize/test-endpoints": "^0.17.0",
     "@lumenize/utils": "^0.17.0",

@@ -4,48 +4,18 @@ import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 export default defineConfig({
   test: {
     projects: [
-      // DO Variant tests - Workers environment
+      // Worker Variant tests - DO-Worker Hybrid
       defineWorkersProject({
         test: {
-          name: 'do',
+          name: 'worker',
           globals: true,
-          testTimeout: 10000,
-          include: ['test/do/**/*.test.ts'],
-          fileParallelism: false, // Required: tests share 'proxy-fetch-global' DO instance
+          testTimeout: 15000, // Longer for latency measurements
+          include: ['test/worker/**/*.test.ts'],
+          fileParallelism: false, // Required: tests share orchestrator singleton
           poolOptions: {
             workers: {
               isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/do/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
-      // Queue Variant tests - Workers environment
-      defineWorkersProject({
-        test: {
-          name: 'queue',
-          globals: true,
-          testTimeout: 10000,
-          include: ['test/queue/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/queue/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
-      // Documentation validation tests - minimal test to verify docs work
-      defineWorkersProject({
-        test: {
-          name: 'for-docs',
-          globals: true,
-          testTimeout: 3000,
-          include: ['test/for-docs/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/for-docs/wrangler.jsonc' },
+              wrangler: { configPath: './test/worker/wrangler.jsonc' },
             },
           },
         },

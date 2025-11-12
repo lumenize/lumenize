@@ -49,7 +49,7 @@ export class TestDO extends LumenizeBase<Env> {
 
   // Test helper: Schedule an alarm using alarms
   async scheduleAlarm(when: Date | string | number, payload?: any) {
-    return await this.svc.alarms.schedule(when, 'handleAlarm', payload);
+    return await this.svc.alarms.schedule(when, this.ctn().handleAlarm(payload));
   }
 
   // Test helper: Get a schedule by ID
@@ -62,8 +62,8 @@ export class TestDO extends LumenizeBase<Env> {
     return await this.svc.alarms.cancelSchedule(id);
   }
 
-  // Alarm callback
-  async handleAlarm(payload: any, schedule: Schedule) {
+  // Alarm callback - receives schedule as first parameter (injected by alarms)
+  async handleAlarm(schedule: Schedule, payload: any) {
     this.executedAlarms.push({ payload, schedule });
   }
 

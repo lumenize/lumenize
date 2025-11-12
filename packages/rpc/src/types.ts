@@ -1,21 +1,5 @@
-/**
- * Operation types that align with JavaScript Proxy traps
- * @internal
- */
-export type Operation = 
-  | { type: 'get', key: string | number | symbol }     // Property/element access
-  | { type: 'apply', args: any[] };                    // Function calls (deserialized, ready for execution)
-
-/**
- * Chain of operations to execute on the DO instance
- * 
- * Note: The client-side proxy uses two OperationChain instances:
- * 1. A "prefix" chain stored in cached intermediate proxies (e.g., myDO.ctx.storage)
- * 2. An "extension" chain for the current operation (e.g., .get('key'))
- * These are concatenated before sending over the wire to form the complete operation sequence.
- * @internal
- */
-export type OperationChain = Operation[];
+// Re-export OCAN types from core
+export type { Operation, OperationChain } from '@lumenize/core';
 
 /**
  * Core batched RPC request format used by all transports.
@@ -130,26 +114,19 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
   return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
 }
 
-/**
- * Internal marker for nested operations during serialization.
- * When a client passes an unawaited RPC call result as an argument to another call,
- * this marker carries the operation chain that needs to be executed server-side first.
- * The server recursively executes the nested operation and substitutes the result.
- * @internal
- */
-export interface NestedOperationMarker {
-  __isNestedOperation: true;
-  __refId?: string;  // Unique identifier for alias detection
-  __operationChain?: OperationChain;  // Optional - omitted for aliases
-}
+// Re-export nested operation marker from core
+export type { NestedOperationMarker } from '@lumenize/core';
+export { isNestedOperationMarker } from '@lumenize/core';
 
 /**
- * Type guard to check if an object is a nested operation marker.
- * Used internally by the server to identify arguments that need recursive execution.
+ * RPC-specific extension to NestedOperationMarker for batching optimization.
+ * Adds __refId for alias detection across batched operations.
  * @internal
  */
-export function isNestedOperationMarker(obj: any): obj is NestedOperationMarker {
-  return obj && typeof obj === 'object' && obj.__isNestedOperation === true;
+export interface RpcNestedOperationMarker {
+  __isNestedOperation: true;
+  __refId?: string;  // Unique identifier for alias detection (RPC batching only)
+  __operationChain?: OperationChain;  // Optional - omitted for aliases
 }
 
 // =====================================================================================

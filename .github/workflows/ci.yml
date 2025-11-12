@@ -17,10 +17,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
+          cache: ''  # Disable built-in npm caching to avoid conflicts
 
-      - name: Install dependencies
-        run: npm install
+      - name: Clean npm cache
+        run: npm cache clean --force
+
+      - name: Install dependencies (skip optional to avoid Rollup bug)
+        run: npm ci --no-optional
+
+      - name: Explicitly install Rollup Linux binary (after npm ci)
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu
 
       - name: Run tests with coverage for all packages
         run: |
@@ -29,7 +36,7 @@ jobs:
             if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
               echo "Running tests with coverage for $(basename $dir)..."
               cd "$dir"
-              npm run test -- --coverage --run || exit 1
+              npm run test -- --coverage || exit 1
               cd - > /dev/null
             fi
           done
@@ -43,10 +50,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
+          cache: ''  # Disable built-in npm caching to avoid conflicts
 
-      - name: Install dependencies
-        run: npm install
+      - name: Clean npm cache
+        run: npm cache clean --force
+
+      - name: Install dependencies (skip optional to avoid Rollup bug)
+        run: npm ci --no-optional
+
+      - name: Explicitly install Rollup Linux binary (after npm ci)
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu
 
       - name: Run doc-test examples (no coverage)
         run: |

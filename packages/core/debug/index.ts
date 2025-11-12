@@ -50,7 +50,7 @@ export function debug(withEnv: any): (namespace: string) => DebugLogger {
   // Get DEBUG environment variable
   // Try withEnv.env first (DO, Worker, or { env } object)
   const env = withEnv.env || (withEnv as any).env;
-  const debugFilter = env?.DEBUG || process.env?.DEBUG;
+  const debugFilter = env?.DEBUG || (typeof process !== 'undefined' ? process.env?.DEBUG : undefined);
   
   // Create matcher from environment
   const matcher = createMatcher(debugFilter);

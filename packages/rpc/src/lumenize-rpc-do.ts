@@ -12,7 +12,7 @@ import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
 import { createRpcPreprocessTransform, createIncomingOperationsTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug } from '@lumenize/core';
+import { debug, executeOperationChain, validateOperationChain } from '@lumenize/core';
 
 /**
  * Default RPC configuration
@@ -213,24 +213,7 @@ async function handleCallRequest(
   }
 }
 
-function validateOperationChain(operations: OperationChain, config: Required<RpcConfig>): OperationChain {
-  // Validate the operations (parse doesn't validate principle)
-  if (!Array.isArray(operations)) {
-    throw new Error('Invalid RPC request: operations must be an array');
-  }
-  
-  if (operations.length > config.maxDepth) {
-    throw new Error(`Operation chain too deep: ${operations.length} > ${config.maxDepth}`);
-  }
-  
-  for (const operation of operations) {
-    if (operation.type === 'apply' && operation.args.length > config.maxArgs) {
-      throw new Error(`Too many arguments: ${operation.args.length} > ${config.maxArgs}`);
-    }
-  }
-  
-  return operations;
-}
+// validateOperationChain is now imported from @lumenize/core
 
 /**
  * Core RPC dispatch logic - validates, executes, and processes the result.
@@ -248,13 +231,13 @@ async function dispatchCall(
   refIdCache?: Map<string, any>  // Optional cache for alias detection (shared across batch)
 ): Promise<{ success: true; result: any } | { success: false; error: any }> {
   try {
-    // Validate the operations chain
-    const validatedOperations = validateOperationChain(operations, config);
+    // Validate the operations chain using core's validator
+    validateOperationChain(operations, { maxDepth: config.maxDepth, maxArgs: config.maxArgs });
     
     // Process incoming operations to deserialize Web API objects in args
-    const processedOperations = await processIncomingOperations(validatedOperations, doInstance, refIdCache);
+    const processedOperations = await processIncomingOperations(operations, doInstance, refIdCache);
     
-    // Execute operation chain
+    // Execute operation chain using core's executor
     const result = await executeOperationChain(processedOperations, doInstance);
     
     // Flatten prototype chains so methods become own properties
@@ -282,56 +265,7 @@ async function dispatchCall(
   }
 }
 
-async function executeOperationChain(operations: OperationChain, doInstance: any): Promise<any> {
-  let current: any = doInstance; // Start from the DO instance
-  
-  for (let i = 0; i < operations.length; i++) {
-    const operation = operations[i];
-    
-    if (operation.type === 'get') {
-      // Property/element access
-      current = current[operation.key];
-    } else if (operation.type === 'apply') {
-      // Function call
-      if (typeof current !== 'function') {
-        throw new Error(`TypeError: ${String(current)} is not a function`);
-      }
-      
-      // Call the method on its parent object to preserve 'this' context.
-      // This works for both regular methods and Workers RPC stub methods.
-      const parent = findParentObject(operations.slice(0, i), doInstance);
-      const prevOp = i > 0 ? operations[i - 1] : null;
-      
-      if (prevOp?.type === 'get') {
-        // Previous operation was property access, call as method
-        const methodName = prevOp.key;
-        current = await parent[methodName](...operation.args);
-      } else {
-        // Direct function call (no property access), use apply
-        current = await current.apply(parent, operation.args);
-      }
-    }
-  }
-  
-  return current;
-}
-
-function findParentObject(operations: OperationChain, doInstance: any): any {
-  if (operations.length === 0) return doInstance;
-  
-  let parent: any = doInstance;
-  // Execute all operations except the last one to find the parent
-  for (const operation of operations.slice(0, -1)) {
-    if (operation.type === 'get') {
-      parent = parent[operation.key];
-    } else if (operation.type === 'apply') {
-      // For apply operations, we need to execute them to get the result
-      const grandParent = findParentObject(operations.slice(0, operations.indexOf(operation)), doInstance);
-      parent = parent.apply(grandParent, operation.args);
-    }
-  }
-  return parent;
-}
+// executeOperationChain is now imported from @lumenize/core
 
 /**
  * Process incoming operations to resolve pipelined operation markers.

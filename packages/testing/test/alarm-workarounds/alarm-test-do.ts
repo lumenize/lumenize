@@ -3,7 +3,7 @@
  * Demonstrates using @lumenize/alarms with triggerAlarms() for testing
  */
 import { Alarms } from '@lumenize/alarms';
-import { sql } from '@lumenize/core';
+import { sql, newContinuation } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 
@@ -24,8 +24,13 @@ export class AlarmTestDO extends DurableObject {
     await this.#alarms.alarm();
   }
 
+  // Helper to create continuations (standalone DOs don't have this.ctn())
+  ctn() {
+    return newContinuation(this);
+  }
+
   async scheduleTask(taskId: string, delaySeconds: number) {
-    await this.#alarms.schedule(delaySeconds, 'handleTask', { taskId, delaySeconds });
+    await this.#alarms.schedule(delaySeconds, this.ctn().handleTask({ taskId, delaySeconds }));
   }
 
   async handleTask(payload: { taskId: string; delaySeconds: number }) {

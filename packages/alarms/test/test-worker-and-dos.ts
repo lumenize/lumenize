@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-import { sql } from '@lumenize/core';
+import { sql, newContinuation } from '@lumenize/core';
 import { Alarms, type Schedule } from '../src/alarms';
 import { enableAlarmSimulation } from '@lumenize/testing';
 
@@ -11,9 +11,9 @@ export { MyDO as StandalonePatternDO } from './for-docs/standalone-pattern.test'
 export { MyDO as LumenizeBasePatternDO } from './for-docs/lumenize-base-pattern.test';
 
 export class AlarmDO extends DurableObject<Env> {
-  #alarms: Alarms<AlarmDO>;
+  #alarms: Alarms;
   #sql = sql(this);
-  executedAlarms: Array<{ payload: any; schedule: Schedule }> = [];
+  executedAlarms: Array<{ payload: any }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -27,9 +27,24 @@ export class AlarmDO extends DurableObject<Env> {
     await this.#alarms.alarm();
   }
 
+  // Helper to create continuations (like this.ctn() in LumenizeBase)
+  ctn<T = this>(): T {
+    return newContinuation<T>();
+  }
+
   // Test helper: Schedule an alarm
   scheduleAlarm(when: Date | string | number, payload?: any) {
-    return this.#alarms.schedule(when, 'handleAlarm', payload);
+    return this.#alarms.schedule(when, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Schedule a delayed alarm (by seconds)
+  scheduleDelayedAlarm(delayInSeconds: number, payload?: any) {
+    return this.#alarms.schedule(delayInSeconds, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Schedule a cron alarm
+  scheduleCronAlarm(cronExpression: string, payload?: any) {
+    return this.#alarms.schedule(cronExpression, this.ctn().handleAlarm(payload));
   }
 
   // Test helper: Get a schedule by ID
@@ -48,24 +63,29 @@ export class AlarmDO extends DurableObject<Env> {
   }
 
   // Alarm callback - gets called when an alarm fires
-  handleAlarm(payload: any, schedule: Schedule) {
-    this.executedAlarms.push({ payload, schedule });
+  handleAlarm(payload: any) {
+    this.executedAlarms.push({ payload });
   }
 
   // Test helper: Schedule alarm with invalid callback (not a function)
   scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
-    // Force schedule with a non-function callback property
-    return this.#alarms.schedule(when, 'notAFunction' as any, payload);
+    // Force schedule with an invalid operation chain
+    return this.#alarms.schedule(when, this.ctn().notAFunction(payload));
+  }
+
+  scheduleAlarmWithInvalidType(when: any, payload?: any) {
+    // Force schedule with an invalid when type (not Date, number, or string)
+    return this.#alarms.schedule(when, this.ctn().handleAlarm(payload));
   }
 
   // Alarm callback that throws an error
-  handleThrowingAlarm(payload: any, schedule: Schedule) {
+  handleThrowingAlarm(payload: any) {
     throw new Error('Intentional error from alarm callback');
   }
 
   // Test helper: Schedule an alarm with a throwing callback
   scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
-    return this.#alarms.schedule(when, 'handleThrowingAlarm', payload);
+    return this.#alarms.schedule(when, this.ctn().handleThrowingAlarm(payload));
   }
 
   // Test helper: Get executed alarms
@@ -82,6 +102,11 @@ export class AlarmDO extends DurableObject<Env> {
   async triggerAlarms(count?: number) {
     return await this.#alarms.triggerAlarms(count);
   }
+
+  // Test helper: Call the alarm() method (simulates Cloudflare calling it)
+  async callAlarmMethod() {
+    await this.#alarms.alarm();
+  }
   
   // Property to intentionally test invalid callback (not a function)
   notAFunction = 'this is not a function';
@@ -93,4 +118,3 @@ export default {
     return new Response('OK');
   },
 };
-

@@ -1,50 +1,14 @@
 // Adapted from @cloudflare/actors Alarms package
 // Source: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms
 // License: Apache-2.0 (https://github.com/cloudflare/actors/blob/main/LICENSE)
-// Modifications: Adapted for NADIS dependency injection pattern, lazy table initialization,
-// removed actor-specific dependencies, added TypeScript generics for type safety
+// Modifications: Complete rewrite to use OCAN (Operation Chaining And Nesting),
+// NADIS dependency injection pattern, lazy table initialization, TypeScript generics
 
 import { parseCronExpression } from 'cron-schedule';
-import { nanoid } from 'nanoid';
-import { debug } from '@lumenize/core';
-import type { sql as sqlType, DebugLogger } from '@lumenize/core';
-
-/**
- * Represents a scheduled task within a Durable Object
- * @template T Type of the payload data
- * @template K Type of the callback
- */
-export type Schedule<T = string, K extends keyof any = string> = {
-  /** Unique identifier for the schedule */
-  id: string;
-  /** Name of the method to be called */
-  callback: K;
-  /** Data to be passed to the callback */
-  payload: T;
-} & (
-  | {
-      /** Type of schedule for one-time execution at a specific time */
-      type: 'scheduled';
-      /** Timestamp when the task should execute */
-      time: number;
-    }
-  | {
-      /** Type of schedule for delayed execution */
-      type: 'delayed';
-      /** Timestamp when the task should execute */
-      time: number;
-      /** Number of seconds to delay execution */
-      delayInSeconds: number;
-    }
-  | {
-      /** Type of schedule for recurring execution based on cron expression */
-      type: 'cron';
-      /** Timestamp for the next execution */
-      time: number;
-      /** Cron expression defining the schedule */
-      cron: string;
-    }
-);
+import { debug, executeOperationChain, getOperationChain } from '@lumenize/core';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
+import type { sql as sqlType, DebugLogger, OperationChain } from '@lumenize/core';
+import type { Schedule } from './types.js';
 
 function getNextCronTime(cron: string): Date {
   const interval = parseCronExpression(cron);
@@ -56,6 +20,7 @@ function getNextCronTime(cron: string): Date {
  * 
  * Supports one-time alarms, delayed alarms, and recurring cron schedules.
  * All alarms are persisted to SQL storage and survive DO eviction.
+ * Uses OCAN (Operation Chaining And Nesting) for type-safe callbacks.
  * 
  * @example
  * Standalone usage:
@@ -78,10 +43,14 @@ function getNextCronTime(cron: string): Date {
  *   }
  *   
  *   scheduleTask() {
- *     this.#alarms.schedule(60, 'handleTask', { data: 'example' });
+ *     // Use OCAN to define what to execute
+ *     const schedule = this.#alarms.schedule(
+ *       60,  // 60 seconds from now
+ *       this.ctn().handleTask({ data: 'example' })
+ *     );
  *   }
  *   
- *   handleTask(payload: any, schedule: Schedule) {
+ *   handleTask(payload: { data: string }) {
  *     console.log('Task executed:', payload);
  *   }
  * }
@@ -91,7 +60,6 @@ function getNextCronTime(cron: string): Date {
  * With LumenizeBase (auto-injected):
  * ```typescript
  * import '@lumenize/alarms';  // Registers alarms in this.svc
- * // You could also do this: import { Alarms } from '@lumenize/alarms';
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
  * class MyDO extends LumenizeBase<Env> {
@@ -100,27 +68,32 @@ function getNextCronTime(cron: string): Date {
  *   }
  *   
  *   scheduleTask() {
- *     this.svc.alarms.schedule(60, 'handleTask', { data: 'example' });
+ *     const schedule = this.svc.alarms.schedule(
+ *       60,
+ *       this.ctn().handleTask({ data: 'example' })
+ *     );
  *   }
  *   
- *   handleTask(payload: any, schedule: Schedule) {
+ *   handleTask(payload: { data: string }) {
  *     console.log('Task executed:', payload);
  *   }
  * }
  * ```
  */
-export class Alarms<P extends { [key: string]: any }> {
-  #parent: P;
+export class Alarms {
+  #parent: any;
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
   #tableInitialized = false;
   #log: DebugLogger;
+  #ctx: DurableObjectState;
 
   constructor(
     ctx: DurableObjectState,
-    doInstance: P,
+    doInstance: any,
     deps?: { sql?: ReturnType<typeof sqlType> }
   ) {
+    this.#ctx = ctx;
     this.#parent = doInstance;
     this.#storage = ctx.storage;
     this.#log = debug(ctx)('lmz.alarms.Alarms');
@@ -158,10 +131,9 @@ export class Alarms<P extends { [key: string]: any }> {
 
     try {
       this.#storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS _lumenize_alarms (
+        CREATE TABLE IF NOT EXISTS __lmz_alarms (
           id TEXT PRIMARY KEY NOT NULL,
-          callback TEXT NOT NULL,
-          payload TEXT NOT NULL,
+          operationChain TEXT NOT NULL,
           type TEXT NOT NULL CHECK(type IN ('scheduled', 'delayed', 'cron')),
           time INTEGER NOT NULL,
           delayInSeconds INTEGER,
@@ -180,41 +152,59 @@ export class Alarms<P extends { [key: string]: any }> {
   }
 
   /**
-   * Schedule a task to be executed in the future
-   * @template T Type of the payload data
-   * @param when When to execute the task (Date, seconds delay, or cron expression)
-   * @param callback Name of the method to call
-   * @param payload Data to pass to the callback
+   * Schedule a task to be executed in the future.
+   * 
+   * @param when When to execute (Date, seconds delay, or cron expression)
+   * @param continuation OCAN chain defining what to execute
    * @returns Schedule object representing the scheduled task
+   * 
+   * @example
+   * ```typescript
+   * // Delayed execution (60 seconds from now)
+   * this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
+   * 
+   * // Scheduled at specific time
+   * this.svc.alarms.schedule(new Date('2025-12-31'), this.ctn().newYearTask());
+   * 
+   * // Recurring cron (every day at midnight)
+   * this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyTask());
+   * 
+   * // Chaining
+   * this.svc.alarms.schedule(
+   *   60,
+   *   this.ctn().processData().logSuccess().notifyUser()
+   * );
+   * 
+   * // Nesting
+   * const data1 = this.ctn().getData(1);
+   * const data2 = this.ctn().getData(2);
+   * this.svc.alarms.schedule(
+   *   60,
+   *   this.ctn().combineData(data1, data2)
+   * );
+   * ```
    */
-  schedule<T = string>(
+  async schedule(
     when: Date | string | number,
-    callback: keyof P & string,
-    payload?: T
-  ): Schedule<T, keyof P> {
+    continuation: any
+  ): Promise<Schedule> {
     this.#ensureTable();
     
-    const id = nanoid(9);
-
-    if (typeof callback !== 'string') {
-      throw new Error('Callback must be a string');
+    // Extract operation chain from the continuation proxy
+    const operationChain = getOperationChain(continuation);
+    if (!operationChain) {
+      throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
     }
 
-    if (typeof this.#parent[callback] !== 'function') {
-      throw new Error(`this.#parent.${callback} is not a function`);
-    }
+    const id = crypto.randomUUID();
 
     if (when instanceof Date) {
       const timestamp = Math.floor(when.getTime() / 1000);
-      this.#sql`
-        INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, time)
-        VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'scheduled', ${timestamp})
-      `;
+      await this.#storeSchedule(id, operationChain, 'scheduled', timestamp, { time: timestamp });
       this.#scheduleNextAlarm();
       return {
         id,
-        callback: callback as keyof P,
-        payload: payload as T,
+        operationChain,
         time: timestamp,
         type: 'scheduled',
       };
@@ -223,15 +213,11 @@ export class Alarms<P extends { [key: string]: any }> {
     if (typeof when === 'number') {
       const time = new Date(Date.now() + when * 1000);
       const timestamp = Math.floor(time.getTime() / 1000);
-      this.#sql`
-        INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, delayInSeconds, time)
-        VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'delayed', ${when}, ${timestamp})
-      `;
+      await this.#storeSchedule(id, operationChain, 'delayed', timestamp, { delayInSeconds: when });
       this.#scheduleNextAlarm();
       return {
         id,
-        callback: callback as keyof P,
-        payload: payload as T,
+        operationChain,
         delayInSeconds: when,
         time: timestamp,
         type: 'delayed',
@@ -241,15 +227,11 @@ export class Alarms<P extends { [key: string]: any }> {
     if (typeof when === 'string') {
       const nextExecutionTime = getNextCronTime(when);
       const timestamp = Math.floor(nextExecutionTime.getTime() / 1000);
-      this.#sql`
-        INSERT OR REPLACE INTO _lumenize_alarms (id, callback, payload, type, cron, time)
-        VALUES (${id}, ${callback}, ${JSON.stringify(payload)}, 'cron', ${when}, ${timestamp})
-      `;
+      await this.#storeSchedule(id, operationChain, 'cron', timestamp, { cron: when });
       this.#scheduleNextAlarm();
       return {
         id,
-        callback: callback as keyof P,
-        payload: payload as T,
+        operationChain,
         cron: when,
         time: timestamp,
         type: 'cron',
@@ -260,42 +242,75 @@ export class Alarms<P extends { [key: string]: any }> {
   }
 
   /**
+   * Store a schedule in the database
+   */
+  async #storeSchedule(
+    id: string,
+    operationChain: OperationChain,
+    type: 'scheduled' | 'delayed' | 'cron',
+    time: number,
+    extra: { delayInSeconds?: number; cron?: string; time?: number }
+  ): Promise<void> {
+    // Preprocess and serialize the operation chain
+    const preprocessed = await preprocess(operationChain);
+    const serialized = JSON.stringify(preprocessed);
+
+    if (type === 'scheduled') {
+      this.#sql`
+        INSERT OR REPLACE INTO __lmz_alarms (id, operationChain, type, time)
+        VALUES (${id}, ${serialized}, ${type}, ${time})
+      `;
+    } else if (type === 'delayed') {
+      this.#sql`
+        INSERT OR REPLACE INTO __lmz_alarms (id, operationChain, type, delayInSeconds, time)
+        VALUES (${id}, ${serialized}, ${type}, ${extra.delayInSeconds!}, ${time})
+      `;
+    } else if (type === 'cron') {
+      this.#sql`
+        INSERT OR REPLACE INTO __lmz_alarms (id, operationChain, type, cron, time)
+        VALUES (${id}, ${serialized}, ${type}, ${extra.cron!}, ${time})
+      `;
+    }
+  }
+
+  /**
    * Get a scheduled task by ID
-   * @template T Type of the payload data
    * @param id ID of the scheduled task
    * @returns The Schedule object or undefined if not found
    */
-  getSchedule<T = string>(id: string): Schedule<T> | undefined {
+  async getSchedule(id: string): Promise<Schedule | undefined> {
     this.#ensureTable();
     
     const result = this.#sql`
-      SELECT * FROM _lumenize_alarms WHERE id = ${id}
+      SELECT * FROM __lmz_alarms WHERE id = ${id}
     `;
 
     if (!result || result.length === 0) {
       return undefined;
     }
 
-    return { ...result[0], payload: JSON.parse(result[0].payload) } as Schedule<T>;
+    const row = result[0];
+    const operationChain = await postprocess(JSON.parse(row.operationChain));
+    
+    return { ...row, operationChain } as Schedule;
   }
 
   /**
    * Get scheduled tasks matching the given criteria
-   * @template T Type of the payload data
    * @param criteria Criteria to filter schedules
    * @returns Array of matching Schedule objects
    */
-  getSchedules<T = string>(criteria: {
+  async getSchedules(criteria: {
     id?: string;
     type?: 'scheduled' | 'delayed' | 'cron';
     timeRange?: {
       start?: Date;
       end?: Date;
     };
-  } = {}): Schedule<T>[] {
+  } = {}): Promise<Schedule[]> {
     this.#ensureTable();
     
-    let query = 'SELECT * FROM _lumenize_alarms WHERE 1=1';
+    let query = 'SELECT * FROM __lmz_alarms WHERE 1=1';
     const params: any[] = [];
 
     if (criteria.id) {
@@ -318,12 +333,17 @@ export class Alarms<P extends { [key: string]: any }> {
       );
     }
 
-    const result = [...this.#storage.sql.exec(query, ...params)].map((row: any) => ({
-      ...row,
-      payload: JSON.parse(row.payload),
-    }));
+    const result = [...this.#storage.sql.exec(query, ...params)];
+    
+    // Deserialize operation chains
+    const schedules = await Promise.all(
+      result.map(async (row: any) => ({
+        ...row,
+        operationChain: await postprocess(JSON.parse(row.operationChain)),
+      }))
+    );
 
-    return result as Schedule<T>[];
+    return schedules as Schedule[];
   }
 
   /**
@@ -334,13 +354,13 @@ export class Alarms<P extends { [key: string]: any }> {
   cancelSchedule(id: string): boolean {
     this.#ensureTable();
     
-    this.#sql`DELETE FROM _lumenize_alarms WHERE id = ${id}`;
+    this.#sql`DELETE FROM __lmz_alarms WHERE id = ${id}`;
     this.#scheduleNextAlarm();
     return true;
   }
 
   /**
-   * Manually trigger execution of the next alarm(s) in chronological order
+   * Manually trigger execution of the next alarm(s) in chronological order.
    * 
    * This is useful for testing when alarm simulation timing is unreliable.
    * Call this method over RPC to force execution of pending alarms without
@@ -365,13 +385,6 @@ export class Alarms<P extends { [key: string]: any }> {
    * await stub.scheduleTask('future', 60); // 60 seconds from now
    * const executed = await stub.triggerAlarms(1);
    * expect(executed.length).toBe(1);
-   * 
-   * // Trigger multiple alarms:
-   * await stub.scheduleTask('task1', 10);
-   * await stub.scheduleTask('task2', 20);
-   * await stub.scheduleTask('task3', 30);
-   * const executed = await stub.triggerAlarms(2); // Triggers first 2
-   * expect(executed.length).toBe(2);
    * ```
    */
   async triggerAlarms(count?: number): Promise<string[]> {
@@ -383,7 +396,7 @@ export class Alarms<P extends { [key: string]: any }> {
     // If count not specified, execute all overdue alarms, or 1 if none overdue
     if (count === undefined) {
       const overdueResult = this.#sql`
-        SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
+        SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}
       `;
       count = overdueResult[0]?.count ?? 1;
     }
@@ -395,7 +408,7 @@ export class Alarms<P extends { [key: string]: any }> {
     for (let i = 0; i < actualCount; i++) {
       // Get the earliest scheduled alarm (regardless of time)
       const result = this.#sql`
-        SELECT * FROM _lumenize_alarms 
+        SELECT * FROM __lmz_alarms 
         ORDER BY time ASC 
         LIMIT 1
       `;
@@ -405,22 +418,14 @@ export class Alarms<P extends { [key: string]: any }> {
       }
 
       const row = result[0];
-      const callback = this.#parent[row.callback];
-
-      if (!callback) {
-        this.#log.error('Alarm callback not found', {
-          callback: row.callback,
-          id: row.id
-        });
-        continue;
-      }
 
       try {
-        await (callback as Function).bind(this.#parent)(JSON.parse(row.payload), row);
+        // Deserialize and execute the operation chain
+        const operationChain = await postprocess(JSON.parse(row.operationChain));
+        await executeOperationChain(operationChain, this.#parent);
         executedIds.push(row.id);
       } catch (e) {
-        this.#log.error('Error executing alarm callback', {
-          callback: row.callback,
+        this.#log.error('Error executing alarm', {
           id: row.id,
           error: e instanceof Error ? e.message : String(e),
           stack: e instanceof Error ? e.stack : undefined
@@ -432,12 +437,12 @@ export class Alarms<P extends { [key: string]: any }> {
         const nextExecutionTime = getNextCronTime(row.cron);
         const nextTimestamp = Math.floor(nextExecutionTime.getTime() / 1000);
         this.#sql`
-          UPDATE _lumenize_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}
+          UPDATE __lmz_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}
         `;
       } else {
         // Delete one-time schedules after execution
         this.#sql`
-          DELETE FROM _lumenize_alarms WHERE id = ${row.id}
+          DELETE FROM __lmz_alarms WHERE id = ${row.id}
         `;
       }
     }
@@ -455,7 +460,7 @@ export class Alarms<P extends { [key: string]: any }> {
     // Execute all overdue alarms
     const now = Math.floor(Date.now() / 1000);
     const overdueResult = this.#sql`
-      SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
+      SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}
     `;
     const overdueCount = overdueResult[0]?.count || 0;
     
@@ -467,7 +472,7 @@ export class Alarms<P extends { [key: string]: any }> {
   #scheduleNextAlarm(): void {
     // Find the next schedule that needs to be executed
     const result = this.#sql`
-      SELECT time FROM _lumenize_alarms 
+      SELECT time FROM __lmz_alarms 
       WHERE time > ${Math.floor(Date.now() / 1000)}
       ORDER BY time ASC 
       LIMIT 1
@@ -489,7 +494,7 @@ export class Alarms<P extends { [key: string]: any }> {
 // about this.svc.alarms when you import this package
 declare global {
   interface LumenizeServices {
-    alarms: Alarms<any>;
+    alarms: Alarms;
   }
 }
 
@@ -508,4 +513,3 @@ if (!(globalThis as any).__lumenizeServiceRegistry) {
   
   return new Alarms(doInstance.ctx, doInstance, deps);
 };
-

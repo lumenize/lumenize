@@ -30,6 +30,7 @@
 
 /**
  * Serializable body types for ResponseSync
+ * @internal
  */
 export type SerializableBody = string | ArrayBuffer | Record<string, any> | null;
 
