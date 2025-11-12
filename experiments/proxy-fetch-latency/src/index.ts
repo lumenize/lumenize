@@ -72,7 +72,7 @@ export class OriginDO extends LumenizeBase<Env> {
         const reqId = await proxyFetchWorker(
           this,
           targetUrl,
-          this.ctn().handleFetchResultWithMetadata(this.ctn().$result, clientId, startTime),
+          this.ctn().handleFetchResultWithMetadata(clientId, startTime),
           { originBinding: 'ORIGIN_DO' }
         );
         
@@ -105,7 +105,7 @@ export class OriginDO extends LumenizeBase<Env> {
           await proxyFetchWorker(
             this,
             targetUrl,
-            this.ctn().handleBatchFetchResult(this.ctn().$result, batchId, myId),
+            this.ctn().handleBatchFetchResult(batchId, myId),
             { originBinding: 'ORIGIN_DO' }
           );
           console.log('[Batch] Dispatched fetch', { batchId, index: i, myId });

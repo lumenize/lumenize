@@ -17,11 +17,11 @@ const requestId = crypto.randomUUID();
 const startTime = Date.now();
 
 // You kick off an async operation
-await proxyFetchWorker(this, url, this.ctn().handleResult(this.ctn().$result));
+await proxyFetchWorker(this, url, this.ctn().handleResult());
 
 // ❓ How does handleResult access requestId and startTime?
 async handleResult(result: Response) {
-  // Need requestId and startTime here...
+  // Result is first parameter, but where are requestId and startTime?
 }
 ```
 
@@ -95,16 +95,16 @@ async handleRequest() {
   const requestId = crypto.randomUUID();
   const startTime = Date.now();
   
-  // Context captured in closure
+  // Context captured in closure - result injected as first parameter by convention
   await proxyFetchWorker(
     this,
     url,
-    this.ctn().handleResult(this.ctn().$result, requestId, startTime)
+    this.ctn().handleResult(requestId, startTime)
   );
 }
 
 async handleResult(result: Response, requestId: string, startTime: number) {
-  // Context available as typed parameters
+  // Result is first parameter, context follows - all fully typed
   console.log('Request', requestId, 'took', Date.now() - startTime, 'ms');
 }
 ```
@@ -136,6 +136,9 @@ this.ctn().handleResult(this.ctn().$result, requestId, startTime)
 const capturedValue = "hello";
 const fn = () => console.log(capturedValue);
 // Every JS developer already understands this
+
+// Result injection is a simple convention: always first parameter
+handler(result, ...capturedContext) // No magic, just pattern
 ```
 
 **4. Preserves DO Consistency**
@@ -204,11 +207,11 @@ class MyDO extends LumenizeBase {
   doWork(requestId: string, metrics: { startTime: number; fetchCount: number }) {
     metrics.fetchCount++;
     
-    // Context explicitly passed, fully typed
+    // Context explicitly passed, fully typed - result injected as first parameter
     await proxyFetchWorker(
       this,
       'https://api.example.com/data',
-      this.ctn().handleFetchResult(this.ctn().$result, requestId, metrics)
+      this.ctn().handleFetchResult(requestId, metrics)
     );
   }
   
@@ -256,13 +259,13 @@ function doSomething() {
 
 ### After (OCAN):
 ```typescript
-// Capture context in continuation
+// Capture context in continuation - result injected as first parameter
 await someAsyncOperation(
-  this.ctn().handleResult(this.ctn().$result, userId, sessionId)
+  this.ctn().handleResult(userId, sessionId)
 );
 
 handleResult(result: any, userId: string, sessionId: string) {
-  console.log(userId); // Typed and explicit
+  console.log(userId); // All typed and explicit
 }
 ```
 
@@ -275,11 +278,11 @@ async fetch(request: Request) {
   const reqId = crypto.randomUUID();
   const startTime = Date.now();
   
-  // Capture tracking context
+  // Capture tracking context - result injected as first parameter
   await proxyFetchWorker(
     this,
     'https://api.example.com/data',
-    this.ctn().trackRequest(this.ctn().$result, reqId, startTime)
+    this.ctn().trackRequest(reqId, startTime)
   );
   
   return new Response('Processing...');
@@ -295,13 +298,13 @@ trackRequest(result: Response | Error, reqId: string, startTime: number) {
 
 ```typescript
 async handleUserAction(userId: string, action: string) {
-  // User context flows through closure
+  // User context flows through closure - result injected as first parameter
   await call(
     this,
     this.env.SOME_DO,
     'processAction',
     [action],
-    this.ctn().onActionComplete(this.ctn().$result, userId, action)
+    this.ctn().onActionComplete(userId, action)
   );
 }
 
@@ -316,11 +319,11 @@ onActionComplete(result: any, userId: string, action: string) {
 ```typescript
 async processBatch(items: Item[]) {
   for (const item of items) {
-    // Each item's context captured independently
+    // Each item's context captured independently - result injected as first parameter
     await proxyFetchWorker(
       this,
       item.url,
-      this.ctn().handleItemResult(this.ctn().$result, item.id, item.retryCount)
+      this.ctn().handleItemResult(item.id, item.retryCount)
     );
   }
 }

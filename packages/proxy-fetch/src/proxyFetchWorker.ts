@@ -68,7 +68,7 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  *     await proxyFetchWorker(
  *       this,
  *       request,
- *       this.ctn().handleFetchResult(this.ctn().$result),
+ *       this.ctn().handleFetchResult(),
  *       {
  *         originBinding: 'MY_DO',
  *         workerUrl: 'https://my-worker.my-subdomain.workers.dev'

@@ -34,8 +34,8 @@ export class _TestDO extends LumenizeBase {
     const reqId = await proxyFetchWorker(
       this,
       url,
-      // Continuation just receives the result - will look up reqId from storage
-      this.ctn().handleFetchResult(this.ctn().$result),
+      // Continuation receives result as first parameter by convention
+      this.ctn().handleFetchResult(),
       { originBinding: 'TEST_DO' }
     );
     
