@@ -100,6 +100,20 @@ async function measureEndToEndLatency(url, iterations = 10) {
   const results = [];
   const pendingRequests = new Map();
   
+  // Helper to check if we can resolve a pending request
+  const tryResolve = (pending) => {
+    if (pending.gotEnqueued && pending.gotResult) {
+      // Both messages received - finalize and resolve
+      pending.result.enqueueTime = pending.enqueueTime;
+      results.push(pending.result);
+      
+      const totalTime = pending.result.totalTime;
+      console.log(`  ✓ Request ${results.length}: ${totalTime}ms total (${pending.enqueueTime}ms enqueue + ${totalTime - pending.enqueueTime}ms wait)`);
+      
+      pending.resolve();
+    }
+  };
+  
   // Listen for messages
   ws.onmessage = (event) => {
     console.log('  ← Received message:', event.data);
@@ -114,9 +128,7 @@ async function measureEndToEndLatency(url, iterations = 10) {
         pending.gotEnqueued = true;
         
         // Check if we can resolve (need both enqueued and result)
-        if (pending.gotResult) {
-          pending.resolve();
-        }
+        tryResolve(pending);
       }
     } else if (msg.type === 'result') {
       // Result received - look up by clientId
@@ -136,15 +148,7 @@ async function measureEndToEndLatency(url, iterations = 10) {
         pending.gotResult = true;
         
         // Check if we can resolve (need both enqueued and result)
-        if (pending.gotEnqueued) {
-          // Now we have both messages, can calculate final stats
-          pending.result.enqueueTime = pending.enqueueTime;
-          results.push(pending.result);
-          
-          console.log(`  ✓ Request ${results.length}: ${totalTime}ms total (${pending.enqueueTime}ms enqueue + ${totalTime - pending.enqueueTime}ms wait)`);
-          
-          pending.resolve();
-        }
+        tryResolve(pending);
       }
     } else if (msg.type === 'error') {
       console.error('  ❌ Error:', msg.error);
