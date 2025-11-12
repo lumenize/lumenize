@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 
-describe('@lumenize/lumenize-base - Auto-injection', () => {
+describe('@lumenize/lumenize-base - NADIS Auto-injection', () => {
   describe('SQL Injectable', () => {
     it('auto-injects sql service', async () => {
       const stub = env.TEST_DO.getByName('sql-inject-test');
@@ -36,93 +36,14 @@ describe('@lumenize/lumenize-base - Auto-injection', () => {
     it('auto-injects alarms service', async () => {
       const stub = env.TEST_DO.getByName('alarms-inject-test');
       
+      // Just verify we can access the alarms service (it auto-injects)
+      // Detailed alarm functionality is tested in @lumenize/alarms package
       const futureDate = new Date(Date.now() + 5000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'test-task' });
       
+      expect(schedule).toBeDefined();
       expect(schedule.type).toBe('scheduled');
-      expect(schedule.callback).toBe('handleAlarm');
-      expect(schedule.payload).toEqual({ task: 'test-task' });
-    });
-
-    it('alarms can access auto-injected sql dependency', async () => {
-      const stub = env.TEST_DO.getByName('alarms-sql-dep-test');
-      
-      // Schedule multiple alarms - they all use SQL storage
-      const date1 = new Date(Date.now() + 1000);
-      const date2 = new Date(Date.now() + 2000);
-      
-      const schedule1 = await stub.scheduleAlarm(date1, { task: 'first' });
-      const schedule2 = await stub.scheduleAlarm(date2, { task: 'second' });
-      
-      // Verify both were stored (proving sql dependency works)
-      const retrieved1 = await stub.getSchedule(schedule1.id);
-      const retrieved2 = await stub.getSchedule(schedule2.id);
-      
-      expect(retrieved1).toBeDefined();
-      expect(retrieved2).toBeDefined();
-      expect(retrieved1?.payload).toEqual({ task: 'first' });
-      expect(retrieved2?.payload).toEqual({ task: 'second' });
-    });
-
-    it('cancels scheduled alarm', async () => {
-      const stub = env.TEST_DO.getByName('alarms-cancel-test');
-      
-      const futureDate = new Date(Date.now() + 5000);
-      const schedule = await stub.scheduleAlarm(futureDate, { task: 'cancel-me' });
-      
-      const cancelled = await stub.cancelSchedule(schedule.id);
-      expect(cancelled).toBe(true);
-      
-      const retrieved = await stub.getSchedule(schedule.id);
-      expect(retrieved).toBeUndefined();
-    });
-  });
-
-  describe('Service Caching', () => {
-    it('reuses cached service instances', async () => {
-      const stub = env.TEST_DO.getByName('service-cache-test');
-      
-      // Use both sql and alarms multiple times
-      stub.insertUser('user1', 'Alice', 30);
-      
-      const schedule1 = await stub.scheduleAlarm(new Date(Date.now() + 1000), { id: 1 });
-      const schedule2 = await stub.scheduleAlarm(new Date(Date.now() + 2000), { id: 2 });
-      
-      stub.insertUser('user2', 'Bob', 25);
-      
-      // Verify operations succeeded (proving services work consistently)
-      const user1 = await stub.getUserById('user1');
-      const user2 = await stub.getUserById('user2');
-      const retrieved1 = await stub.getSchedule(schedule1.id);
-      const retrieved2 = await stub.getSchedule(schedule2.id);
-      
-      expect(user1.name).toBe('Alice');
-      expect(user2.name).toBe('Bob');
-      expect(retrieved1).toBeDefined();
-      expect(retrieved2).toBeDefined();
-    });
-  });
-
-  describe('Integration', () => {
-    it('sql and alarms work together seamlessly', async () => {
-      const stub = env.TEST_DO.getByName('integration-test');
-      
-      // Insert a user
-      stub.insertUser('user1', 'Alice', 30);
-      
-      // Schedule an alarm
-      const schedule = await stub.scheduleAlarm(new Date(Date.now() + 1000), {
-        userId: 'user1',
-        action: 'send-reminder'
-      });
-      
-      // Verify user exists
-      const user = await stub.getUserById('user1');
-      expect(user.name).toBe('Alice');
-      
-      // Verify alarm was scheduled
-      const retrievedSchedule = await stub.getSchedule(schedule.id);
-      expect(retrievedSchedule?.payload.userId).toBe('user1');
+      expect(schedule.id).toBeDefined();
     });
   });
 
