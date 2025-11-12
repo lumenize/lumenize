@@ -36,7 +36,7 @@ jobs:
             if [ -f "$dir/package.json" ] && [ -f "$dir/vitest.config.js" ]; then
               echo "Running tests with coverage for $(basename $dir)..."
               cd "$dir"
-              npm run test -- --coverage --run || exit 1
+              npm run test -- --coverage || exit 1
               cd - > /dev/null
             fi
           done
