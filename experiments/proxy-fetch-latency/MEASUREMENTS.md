@@ -58,15 +58,43 @@ sequenceDiagram
 
 ## Results
 
-### WebSocket Architecture - 2025-11-12
+### Local Development - 2025-11-12
+
+**Git Hash**: `972778d`
+
+**Environment:**
+- `wrangler dev` (localhost:8787)
+- Direct `executeFetch()` calls (no HTTP dispatch)
+- WebSocket hibernating API
+- Node.js 21+ native WebSocket client
+
+**Measurements (10 iterations):**
+```
+Average Breakdown:
+  Enqueue (includes network): 51.30ms
+  Total (measured): 53.00ms
+  Node.js overhead (est): 30ms
+  Actual end-to-end: 23.00ms
+  Server duration: 49.80ms (varies, external fetch time)
+```
+
+**Observations:**
+- ✅ Very fast due to local execution (no network hops)
+- ✅ Direct `executeFetch()` call bypasses HTTP dispatch
+- ✅ WebSocket eliminates polling overhead entirely
+- ⚠️ Production will be slower due to actual network latency
+
+---
+
+### Production - 2025-11-12
 
 **Git Hash**: `[pending]`
 
-**Setup:**
-- Single worker with `routeDORequest()` for WebSocket upgrades
-- Hibernating WebSocket API in OriginDO
-- Messages bypass worker after initial upgrade
-- Direct `executeFetch()` calls in test environment
+**Environment:**
+- Cloudflare Workers (deployed)
+- HTTP dispatch to `handleProxyFetchExecution`
+- WebSocket hibernating API
+- External API: test-endpoints.workers.dev
 
 **Measurements (10 iterations):**
 ```
@@ -75,13 +103,13 @@ Average Breakdown:
   Total (measured): [TBD]ms
   Node.js overhead (est): 30ms
   Actual end-to-end: [TBD]ms
-  Server duration: 0ms (clock doesn't advance during I/O)
+  Server duration: [TBD]ms
 ```
 
-**Expected results:**
-- Enqueue: 20-40ms (proxyFetchWorker call + queue dispatch)
-- Actual end-to-end: 50-100ms (total overhead for fetch architecture)
-- Much faster than polling version (~200ms improvement)
+**Expected:**
+- Enqueue: 30-60ms (network + queue dispatch)
+- Actual end-to-end: 80-150ms (realistic production latency)
+- Much faster than polling version (~150-200ms improvement)
 
 ---
 
