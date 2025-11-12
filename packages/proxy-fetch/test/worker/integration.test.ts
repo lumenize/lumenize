@@ -360,6 +360,9 @@ describe('ProxyFetchWorker Integration', () => {
     });
 
     test('successfully handles valid request', async () => {
+      const originInstanceId = 'valid-test-origin';
+      const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
+      
       const request = new Request('https://example.com/proxy-fetch-execute', {
         method: 'POST',
         headers: {
@@ -368,9 +371,9 @@ describe('ProxyFetchWorker Integration', () => {
         },
         body: JSON.stringify({
           reqId: 'test-valid-req',
-          url: 'https://httpbin.org/delay/0',
+          url: TEST_ENDPOINTS.buildUrl('/uuid'),
           originDoBinding: 'TEST_DO',
-          originInstanceId: 'valid-test-origin',
+          originInstanceId: originInstanceId,
           continuationChain: []
         }),
       });
@@ -411,26 +414,32 @@ describe('ProxyFetchWorker Integration', () => {
     });
 
     test('supports string URL input', async () => {
+      const originInstanceId = 'string-url-test';
       using originClient = createTestingClient<typeof _TestDO>(
         'TEST_DO',
-        'string-url-test'
+        originInstanceId
       );
       
+      const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
+      
       // Test with string URL instead of Request object
-      const reqId = await originClient.callProxyFetchWithStringUrl('https://httpbin.org/delay/0');
+      const reqId = await originClient.callProxyFetchWithStringUrl(TEST_ENDPOINTS.buildUrl('/uuid'));
       
       expect(reqId).toBeDefined();
       expect(typeof reqId).toBe('string');
     });
 
     test('infers originBinding when not provided', async () => {
+      const originInstanceId = 'infer-binding-test';
       using originClient = createTestingClient<typeof _TestDO>(
         'TEST_DO',
-        'infer-binding-test'
+        originInstanceId
       );
       
+      const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
+      
       // Call without explicit originBinding (will use getOriginBinding)
-      const reqId = await originClient.callProxyFetchWithoutOriginBinding('https://httpbin.org/delay/0');
+      const reqId = await originClient.callProxyFetchWithoutOriginBinding(TEST_ENDPOINTS.buildUrl('/uuid'));
       
       expect(reqId).toBeDefined();
       expect(typeof reqId).toBe('string');
