@@ -1,17 +1,23 @@
 /**
- * ProxyFetchWorker - DO-Worker Hybrid
+ * ProxyFetchWorker - DO-Worker Hybrid (Simplified Architecture)
  * 
  * Best of both worlds:
- * - Low latency (~50-100ms, no Cloudflare Queue wait)
- * - High scalability (Workers do fetches, not blocked by single DO)
+ * - Simple deployment (no service bindings, single worker)
+ * - Low latency (~100-200ms, no Cloudflare Queue wait)
+ * - High scalability (Workers do fetches via CPU-billed handler)
  * - Cost-effective (Workers use CPU billing, not wall-clock)
  * 
  * Architecture:
  * 1. Origin DO → FetchOrchestrator: Enqueue fetch with OCAN continuation
- * 2. FetchOrchestrator → Worker: Dispatch fetch
- * 3. Worker → External API: Execute fetch (CPU billing)
- * 4. Worker → Origin DO: Send result directly (no hop!)
- * 5. Worker → FetchOrchestrator: Mark complete
+ * 2. FetchOrchestrator → Worker (HTTP): Dispatch fetch to `/proxy-fetch-execute`
+ * 3. Worker Handler → External API: Execute fetch (CPU billing)
+ * 4. Worker Handler → Origin DO: Send result directly (no hop!)
+ * 5. Worker Handler → FetchOrchestrator: Mark complete
+ * 
+ * Setup:
+ * - Add `handleProxyFetchExecution` to your worker's fetch handler
+ * - Set `PROXY_FETCH_SECRET` using wrangler
+ * - Configure worker URL (options.workerUrl or env.WORKER_URL)
  */
 
 import type { DurableObject } from 'cloudflare:workers';
@@ -27,17 +33,34 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * - Returns immediately (non-blocking)
  * - Worker executes fetch and calls your continuation with result
  * 
+ * **Setup Required**:
+ * 1. Add `handleProxyFetchExecution` to your worker's fetch handler
+ * 2. Set `PROXY_FETCH_SECRET` using: `wrangler secret put PROXY_FETCH_SECRET`
+ * 3. Configure worker URL (via `options.workerUrl` or `env.WORKER_URL`)
+ * 
  * @param doInstance - The DO instance making the request
  * @param request - URL string or Request object
  * @param continuation - OCAN continuation that receives Response | Error
- * @param options - Optional configuration
+ * @param options - Optional configuration (workerUrl, originBinding, timeout, etc)
  * @returns Request ID (for correlation)
  * 
  * @example
  * ```typescript
- * import { LumenizeBase } from '@lumenize/lumenize-base';
- * import { proxyFetchWorker } from '@lumenize/proxy-fetch';
+ * // In your worker's fetch handler:
+ * import { handleProxyFetchExecution } from '@lumenize/proxy-fetch';
  * 
+ * export default {
+ *   async fetch(request: Request, env: Env): Promise<Response> {
+ *     // Handle proxy-fetch execution requests first
+ *     const proxyFetchResponse = await handleProxyFetchExecution(request, env);
+ *     if (proxyFetchResponse) return proxyFetchResponse;
+ *     
+ *     // Your routing logic...
+ *     return await routeDORequest(request, env);
+ *   }
+ * }
+ * 
+ * // In your DO:
  * class MyDO extends LumenizeBase<Env> {
  *   async fetchUserData(userId: string) {
  *     const request = new Request(`https://api.example.com/users/${userId}`);
@@ -45,8 +68,11 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  *     await proxyFetchWorker(
  *       this,
  *       request,
- *       this.ctn().handleFetchResult(this.ctn().$result), // $result is placeholder
- *       { originBinding: 'MY_DO' }
+ *       this.ctn().handleFetchResult(this.ctn().$result),
+ *       {
+ *         originBinding: 'MY_DO',
+ *         workerUrl: 'https://my-worker.my-subdomain.workers.dev'
+ *       }
  *     );
  *   }
  *   

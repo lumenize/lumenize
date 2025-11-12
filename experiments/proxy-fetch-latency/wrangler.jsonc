@@ -14,12 +14,9 @@
       }
     ]
   },
-  "services": [
-    {
-      "binding": "FETCH_WORKER",
-      "service": "proxy-fetch-latency-worker"
-    }
-  ],
+  "vars": {
+    "WORKER_URL": "https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev"
+  },
   "migrations": [
     {
       "tag": "v1",

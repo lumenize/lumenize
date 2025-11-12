@@ -13,6 +13,7 @@ export { ProxyFetchDO } from './ProxyFetchDurableObject';
 export { proxyFetchWorker } from './proxyFetchWorker';
 export { FetchOrchestrator } from './FetchOrchestrator';
 export { executeFetch, createFetchWorker, type FetchWorker } from './workerFetchExecutor';
+export { handleProxyFetchExecution, ProxyFetchAuthError, type HandleProxyFetchOptions } from './handleProxyFetchExecution';
 
 // Types
 export type { 

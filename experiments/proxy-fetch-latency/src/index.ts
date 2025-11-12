@@ -1,25 +1,22 @@
 /**
- * Production Latency Measurement for proxyFetchWorker
+ * Production Latency Measurement for proxyFetchWorker (Simplified Architecture)
  * 
  * This worker exports:
  * - OriginDO: Test DO that initiates fetches and measures latency
  * - FetchOrchestrator: Queue manager for dispatching to Workers
- * - Worker executor: CPU-billed fetch execution
+ * - Worker fetch handler: Handles both routing AND proxy-fetch execution
  */
 
-import { WorkerEntrypoint, DurableObjectState } from 'cloudflare:workers';
+import { DurableObjectState } from 'cloudflare:workers';
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import { proxyFetchWorker, FetchOrchestrator as _FetchOrchestrator, executeFetch } from '@lumenize/proxy-fetch';
+import { proxyFetchWorker, FetchOrchestrator as _FetchOrchestrator, handleProxyFetchExecution } from '@lumenize/proxy-fetch';
 import '@lumenize/proxy-fetch'; // Register result handler
 
 interface Env {
   ORIGIN_DO: DurableObjectNamespace;
   FETCH_ORCHESTRATOR: DurableObjectNamespace;
-  FETCH_WORKER: FetchWorker;
-}
-
-interface FetchWorker {
-  executeFetch(message: any): Promise<void>;
+  WORKER_URL: string;
+  PROXY_FETCH_SECRET: string;
 }
 
 /**
@@ -134,29 +131,23 @@ export class OriginDO extends LumenizeBase<Env> {
 export const FetchOrchestrator = _FetchOrchestrator;
 
 /**
- * Worker entry point - routes requests to OriginDO
+ * Worker entry point - Handles both routing AND proxy-fetch execution
  */
-export default class extends WorkerEntrypoint<Env> {
-  async fetch(request: Request): Promise<Response> {
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Try proxy-fetch execution handler first
+    const proxyFetchResponse = await handleProxyFetchExecution(request, env);
+    if (proxyFetchResponse) return proxyFetchResponse;
+    
+    // Fall through to routing
     const url = new URL(request.url);
     
     // Route all requests to the OriginDO
-    const id = this.env.ORIGIN_DO.idFromName('latency-test');
-    const stub = this.env.ORIGIN_DO.get(id);
+    const id = env.ORIGIN_DO.idFromName('latency-test');
+    const stub = env.ORIGIN_DO.get(id);
     
     // Forward request to DO's fetch handler
     return await stub.fetch(request);
-  }
-
-  /**
-   * RPC method for executing fetches (called by FetchOrchestrator)
-   * 
-   * Note: This method is not used in this worker - it's implemented
-   * in the separate worker-executor service.
-   */
-  async executeFetch(message: any): Promise<void> {
-    // This should never be called - the service binding routes to the worker executor
-    throw new Error('executeFetch should be called on the worker executor service');
   }
 }
 

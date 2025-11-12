@@ -1,17 +1,18 @@
 /**
- * FetchOrchestrator - Manages fetch queue and dispatches to Workers
+ * FetchOrchestrator - Manages fetch queue and dispatches via HTTP
  * 
  * This DO acts as a coordinator:
  * 1. Receives fetch requests from origin DOs
  * 2. Queues them in storage
- * 3. Dispatches to Workers for execution
- * 4. Workers send results DIRECTLY back to origin DOs
+ * 3. Dispatches to Workers via HTTP (authenticated)
+ * 4. Workers execute fetches and send results DIRECTLY back to origin DOs
  * 5. Receives completion notifications from Workers
  * 
  * Benefits:
- * - Low latency (no Cloudflare Queue wait)
+ * - Simple deployment (no service bindings required)
+ * - Low latency (direct HTTP dispatch, no Cloudflare Queue wait)
  * - Scalable (Workers do the fetches, not this DO)
- * - Cost-effective (Workers use CPU billing)
+ * - Cost-effective (Workers use CPU billing for fetch execution)
  */
 
 import { LumenizeBase } from '@lumenize/lumenize-base';
@@ -60,7 +61,7 @@ export class FetchOrchestrator extends LumenizeBase {
   }
 
   /**
-   * Dispatch a fetch request to a Worker
+   * Dispatch a fetch request to a Worker via HTTP
    * @internal
    */
   async #dispatchToWorker(message: FetchOrchestratorMessage): Promise<void> {
@@ -78,15 +79,44 @@ export class FetchOrchestrator extends LumenizeBase {
     };
 
     try {
-      // Call Worker via RPC
-      // The Worker is exposed via env.FETCH_WORKER service binding
-      await this.env.FETCH_WORKER.executeFetch(workerMessage);
+      // Determine worker URL
+      const workerUrl = message.options?.workerUrl || this.env.WORKER_URL;
+      if (!workerUrl) {
+        throw new Error('Worker URL not provided. Set options.workerUrl or env.WORKER_URL');
+      }
+
+      // Determine worker path
+      const workerPath = message.options?.workerPath || '/proxy-fetch-execute';
+      const url = `${workerUrl}${workerPath}`;
+
+      // Get shared secret for authentication
+      const secret = this.env.PROXY_FETCH_SECRET;
+      if (!secret) {
+        throw new Error('PROXY_FETCH_SECRET not configured. Set it using: wrangler secret put PROXY_FETCH_SECRET');
+      }
+
+      log.debug('Dispatching to Worker via HTTP', { reqId: message.reqId, url });
+
+      // Call Worker via HTTP
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Proxy-Fetch-Secret': secret
+        },
+        body: JSON.stringify(workerMessage)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Worker returned ${response.status}: ${await response.text()}`);
+      }
       
       log.debug('Dispatched to Worker', { reqId: message.reqId });
     } catch (error) {
       log.error('Failed to dispatch to Worker', {
         reqId: message.reqId,
-        error: error instanceof Error ? error.message : String(error)
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
       });
       
       // TODO: Implement retry logic or error handling
