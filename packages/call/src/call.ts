@@ -83,18 +83,14 @@ export async function call(
   });
 
   // Store pending call in origin DO storage
-  const pendingCall: PendingCall = {
-    operationId,
-    continuationChain,
-    createdAt: Date.now()
-  };
-
   // Preprocess the continuation chain for storage
   const preprocessedContinuation = await preprocess(continuationChain);
-  ctx.storage.kv.put(
-    `__call_pending:${operationId}`,
-    JSON.stringify(preprocessedContinuation)
-  );
+  
+  const pendingCall: PendingCall = {
+    operationId,
+    continuationChain: preprocessedContinuation,
+    createdAt: Date.now()
+  };
 
   // Schedule timeout alarm if timeout is set
   if (timeout > 0) {
@@ -103,18 +99,17 @@ export async function call(
     ctx.storage.setAlarm(timeoutTime);
     
     // Store timeout info
-    ctx.storage.kv.put(timeoutAlarmId, JSON.stringify({
+    ctx.storage.kv.put(timeoutAlarmId, {
       operationId,
       type: 'call_timeout'
-    }));
+    });
     
-    // Update pending call with timeout alarm ID
+    // Add timeout alarm ID to pending call
     pendingCall.timeoutAlarmId = timeoutAlarmId;
-    ctx.storage.kv.put(
-      `__call_pending:${operationId}`,
-      JSON.stringify({ ...pendingCall, continuationChain: preprocessedContinuation })
-    );
   }
+  
+  // Store pending call with preprocessed continuation
+  ctx.storage.kv.put(`__call_pending:${operationId}`, pendingCall);
 
   // Preprocess remote operation chain
   const preprocessedRemote = await preprocess(remoteChain);
@@ -199,7 +194,7 @@ export function cancelCall(doInstance: any, operationId: string): boolean {
     return false;
   }
 
-  const pending = JSON.parse(pendingData as string) as PendingCall;
+  const pending = pendingData as PendingCall;
 
   // Remove pending call
   ctx.storage.kv.delete(key);

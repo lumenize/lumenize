@@ -1,6 +1,6 @@
 import { debug, executeOperationChain } from '@lumenize/core';
 import { postprocess } from '@lumenize/structured-clone';
-import type { CallResult } from './types.js';
+import type { CallResult, PendingCall } from './types.js';
 
 /**
  * Result handler for 'call' work type
@@ -38,7 +38,7 @@ export async function callResultHandler(
     return;
   }
 
-  const pending = JSON.parse(pendingData as string);
+  const pending = pendingData as PendingCall;
 
   // Cancel timeout alarm if exists
   if (pending.timeoutAlarmId) {
