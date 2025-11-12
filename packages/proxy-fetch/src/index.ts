@@ -1,13 +1,16 @@
 /**
  * Proxy fetch for cost-effective external API calls from Durable Objects.
  * 
+ * Uses a DO-Worker hybrid architecture where a Durable Object manages the queue
+ * and Workers perform CPU-billed fetch execution.
+ * 
+ * **Note**: Previous `proxyFetchQueue` and `proxyFetchDO` variants have been removed.
+ * `proxyFetchWorker` is superior in every way: better latency, linear scalability,
+ * CPU-based billing for fetch operations, and simpler deployment. The old variants
+ * remain in git history if needed.
+ * 
  * @module @lumenize/proxy-fetch
  */
-
-// Legacy variants (Queue and DO)
-export { proxyFetch, proxyFetchQueue, proxyFetchDO } from './proxyFetch';
-export { proxyFetchQueueConsumer } from './proxyFetchQueueConsumer';
-export { ProxyFetchDO } from './ProxyFetchDurableObject';
 
 // Worker variant: DO-Worker Hybrid
 export { proxyFetchWorker } from './proxyFetchWorker';
@@ -17,9 +20,6 @@ export { handleProxyFetchExecution, ProxyFetchAuthError, type HandleProxyFetchOp
 
 // Types
 export type { 
-  ProxyFetchQueueMessage, 
-  ProxyFetchHandlerItem, 
-  ProxyFetchOptions,
   ProxyFetchWorkerOptions,
   FetchOrchestratorMessage,
   WorkerFetchMessage,

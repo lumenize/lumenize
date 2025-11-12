@@ -1,13 +1,13 @@
 ---
-description: Offload Requests to a Worker and/or a Durable Object and have it execute a handler when the fetch is done
+title: Proxy Fetch
+description: Offload external API calls to Workers with CPU-billed execution
 ---
 
 # Proxy Fetch
 
 Make external API calls from Durable Objects without paying for wall-clock time. 
-`@lumenize/proxy-fetch` offloads HTTP fetches to Workers (CPU billing) via 
-Cloudflare Queues or a shared DO, stopping the accrual of wall clock time charges while 
-waiting for responses.
+`@lumenize/proxy-fetch` uses a DO-Worker hybrid architecture where a Durable Object 
+manages the queue and Workers perform CPU-billed fetch execution.
 
 ## The Problem
 
@@ -31,72 +31,124 @@ but not zero.
 
 ## The Solution
 
-**Key Insight:** Cloudflare Workers are billed on **CPU time**, not wall clock time 
-(Proxy Fetch Queue variant)! Similarly, the wall clock charges of running one DO 24/7 to 
-serve the fetch needs of 1,000 DOs is only ~$4/month (other Proxy Fetch variants)!
+**Key Insight:** Cloudflare Workers are billed on **CPU time**, not wall clock time!
 
-By satisfying external fetches somewhere else (Worker or shared DO):
+By offloading fetch execution to Workers:
 - ✅ DO wall clock billing stops as soon as fetch is queued
-- ✅ Worker makes fetch with CPU billing or shared DO that is running 24/7
-- ✅ Response delivered back to DO via Workers RPC
+- ✅ Worker makes fetch with CPU billing
+- ✅ Response delivered back to DO via direct call
+- ✅ Linear scalability up to 2000+ concurrent fetches
 
-## How It Works
+## Architecture
 
 ```mermaid @skip-check
 sequenceDiagram
-    box rgb(240, 248, 255) Durable Object
-        participant User as My Code
-        participant ProxyFetch as proxyFetch()
-        participant Handler as myHandler()
-    end
-    participant Queue as Queue
-    box rgb(255, 250, 240) Worker
-        participant QueueConsumer as proxyFetchQueueConsumer()
-    end
+    participant Origin as Origin DO
+    participant Orch as FetchOrchestrator DO
+    participant Worker as Worker (CPU billed)
     participant API as External API
 
-    User->>ProxyFetch: proxyFetch(this, request, 'MY_DO', 'myHandler')
-    ProxyFetch->>Queue: Queue request + handler name
-    ProxyFetch-->>User: Returns reqId immediately
-    Note over User,Handler: DO wall clock billing stops (can hibernate in 10 seconds) ⚡
+    Origin->>Orch: enqueueFetch(url, continuation)
+    Orch-->>Origin: Returns reqId
+    Note over Origin: DO hibernates or processes other work
 
-    Queue->>QueueConsumer: Deliver message
-    QueueConsumer->>API: fetch(request)
-    API-->>QueueConsumer: Response
-    QueueConsumer->>Handler: RPC: myHandler(response)
-    Note over User,Handler: DO wall clock billing restarts (wakes if hibernated)
+    Orch->>Worker: HTTP dispatch
+    Worker->>API: fetch(url)
+    API-->>Worker: Response
+    Worker->>Origin: Direct call with result
+    Origin->>Origin: Execute continuation
 ```
 
-## Variants
+## Quick Start
 
-The `@lumenize/proxy-fetch` package provides four different approaches to making external API calls from Durable Objects:
+```typescript
+import { LumenizeBase } from '@lumenize/lumenize-base';
+import { proxyFetchWorker } from '@lumenize/proxy-fetch';
 
-### [Queue](/docs/proxy-fetch/queue)
-Route fetch requests through Cloudflare Queues to Workers with CPU billing. Best for 
-high-volume use cases where you can live with high latency penalty. 
-**Currently available**.
+class MyDO extends LumenizeBase<Env> {
+  async fetchUserData(userId: string) {
+    // Capture context in continuation - result injected as first parameter
+    await proxyFetchWorker(
+      this,
+      `https://api.example.com/users/${userId}`,
+      this.ctn().handleResult(userId)
+    );
+  }
+  
+  handleResult(result: Response | Error, userId: string) {
+    if (result instanceof Error) {
+      console.error('Fetch failed:', result.message);
+      return;
+    }
+    
+    console.log('Got user data:', userId, result.status);
+  }
+}
+```
 
-### [Durable Object](/docs/proxy-fetch/durable-object)
-Use a dedicated proxy DO to handle fetches. Simpler. Low latency penalty. 
-Max throughput is 1,000 DOs doing 100,000 fetches per day each steady state. 
-Divide by 10 if burst throughput is 10x mean throughput. **Currently available**.
+## Performance
 
-### [Streaming](/docs/proxy-fetch/streaming)
-Stream large responses back to your DO. **Coming soon**.
+See [Proxy Fetch Worker](/docs/proxy-fetch/proxy-fetch-worker) for detailed performance measurements:
 
-### [Agents](/docs/proxy-fetch/agents)
-Proxy SSE MCP and LLM stutter-speak responses back to DO. **Coming soon**.
+**Production (Warm):**
+- **71ms end-to-end** in production (after subtracting network overhead)
+- **57ms added latency** after subtracting the actual fetch time
+- **Linear scalability** up to 2000+ concurrent fetches
+- **Super-linear efficiency** due to batching and parallelism
 
-## Variant Comparison
+**Local Development:**
+- **23ms end-to-end** (after subtracting network overhead)
+- WebSocket-based real-time result delivery
+- No artificial bottlenecks observed
 
-| Feature | DO Variant | Queue Variant |
-|---------|-----------|---------------|
-| **Latency** | ~50-100ms | 200ms-3s (p90) |
-| **Throughput** | ~100k req/day per DO | Cloud-scale |
-| **Configuration** | ProxyFetchDO binding | Queue binding |
-| **Billing** | ~$4/month (1 DO 24/7) + 3x req count | 2x req count |
-| **Function to call** | `proxyFetch()` or `proxyFetchDO()` | `proxyFetch()` or `proxyFetchQueue()` |
+## Documentation
 
-All variants share the same API for error handling, fire-and-forget mode, and request 
-patterns. See the [Queue variant docs](/docs/proxy-fetch/queue) for complete guidance and 
-examples.
+- **[Proxy Fetch Worker](/docs/proxy-fetch/proxy-fetch-worker)** - Complete guide with setup, usage, and performance details
+- **[API Reference](/docs/proxy-fetch/api)** - TypeDoc-generated API documentation
+
+## FAQ
+
+### Q: Where did `proxyFetchQueue` and `proxyFetchDO` go?
+
+A: `proxyFetchWorker` is superior in every way, so we removed the old variants:
+
+- **Better latency**: ~70ms vs 200-3000ms (queue) or ~100ms (DO)
+- **Linear scalability**: Tested up to 2000+ concurrent fetches
+- **CPU-based billing**: Workers billed on CPU time for fetch operations
+- **Simpler deployment**: Single worker with HTTP endpoint
+
+The old variants remain in git history if needed, but we recommend migrating to `proxyFetchWorker`.
+
+### Q: Can I still use the old variants?
+
+A: No, they've been removed from the package exports. If you absolutely need them, you can access them from git history (commits before v0.18.0), but we strongly recommend using `proxyFetchWorker` instead.
+
+### Q: How do I migrate from the old variants?
+
+A: The migration is straightforward:
+
+**Before (proxyFetchQueue):**
+```typescript
+await proxyFetch(this, request, 'MY_DO', 'handleResult', { mode: 'queue' });
+```
+
+**Before (proxyFetchDO):**
+```typescript
+await proxyFetch(this, request, 'MY_DO', 'handleResult', { mode: 'do' });
+```
+
+**After (proxyFetchWorker):**
+```typescript
+await proxyFetchWorker(
+  this,
+  request,
+  this.ctn().handleResult()
+);
+```
+
+Key differences:
+1. Use continuation syntax instead of string handler names
+2. No need to specify DO binding or mode
+3. Result is first parameter (by convention), context follows
+
+See the [Proxy Fetch Worker docs](/docs/proxy-fetch/proxy-fetch-worker) for complete migration guidance.
