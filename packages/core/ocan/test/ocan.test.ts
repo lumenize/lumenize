@@ -298,5 +298,99 @@ describe('OCAN - Operation Chaining And Nesting', () => {
       expect(result).toBe(26);
     });
   });
+
+  describe('Error Handling', () => {
+    it('should throw when maxArgs is exceeded', () => {
+      const operations: OperationChain = [
+        { type: 'get', key: 'add' },
+        { type: 'apply', args: new Array(150).fill(1) } // 150 args > default 100
+      ];
+      
+      expect(() => validateOperationChain(operations)).toThrow('Too many arguments');
+    });
+
+    it('should respect custom maxArgs config', () => {
+      const operations: OperationChain = [
+        { type: 'get', key: 'add' },
+        { type: 'apply', args: [1, 2, 3] }
+      ];
+      
+      expect(() => validateOperationChain(operations, { maxArgs: 2 })).toThrow('Too many arguments');
+      expect(() => validateOperationChain(operations, { maxArgs: 5 })).not.toThrow();
+    });
+
+    it('should throw when trying to call non-function', async () => {
+      const target = new TestObject();
+      const operations: OperationChain = [
+        { type: 'get', key: 'value' }, // value is a number, not a function
+        { type: 'apply', args: [] }
+      ];
+      
+      await expect(executeOperationChain(operations, target)).rejects.toThrow('is not a function');
+    });
+
+    it('should handle circular references in nested operations', async () => {
+      const target = new TestObject();
+      
+      // Create a circular reference in arguments
+      const circularObj: any = { prop: 'value' };
+      circularObj.self = circularObj;
+      
+      const operations: OperationChain = [
+        { type: 'get', key: 'add' },
+        { type: 'apply', args: [5, 10, circularObj] }
+      ];
+      
+      // Should not throw, circular refs should be handled gracefully
+      const result = await executeOperationChain(operations, target);
+      expect(result).toBe(15); // add ignores extra args
+    });
+
+    it('should handle nested operations with arrays', async () => {
+      const target = new TestObject();
+      const c = newContinuation<TestObject>();
+      
+      const nested1 = c.add(1, 2);
+      const nested2 = c.add(3, 4);
+      
+      // Array containing nested operations
+      const chain = c.combine(nested1, nested2);
+      const operations = getOperationChain(chain)!;
+      const result = await executeOperationChain(operations, target);
+      
+      // combine(3, 7) = 10
+      expect(result).toBe(10);
+    });
+
+    it('should handle direct function calls without property access', async () => {
+      const target = (x: number) => x * 2;
+      
+      const operations: OperationChain = [
+        { type: 'apply', args: [5] }
+      ];
+      
+      const result = await executeOperationChain(operations, target);
+      expect(result).toBe(10);
+    });
+
+    it('should preserve identity when no nested markers exist', async () => {
+      const target = {
+        checkIdentity: (obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr })
+      };
+      
+      const testObj = { prop: 'value' };
+      const testArr = [1, 2, 3];
+      
+      const operations: OperationChain = [
+        { type: 'get', key: 'checkIdentity' },
+        { type: 'apply', args: [testObj, testArr] }
+      ];
+      
+      const result = await executeOperationChain(operations, target);
+      // Identity should be preserved when no markers are present
+      expect(result.sameObj).toBe(testObj);
+      expect(result.sameArr).toBe(testArr);
+    });
+  });
 });
 
