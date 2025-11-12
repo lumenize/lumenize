@@ -88,46 +88,63 @@ Average Breakdown:
 
 ### Production - 2025-11-12
 
-**Git Hash**: `[pending]`
+**Git Hash**: `87e13bd`
 
 **Environment:**
-- Cloudflare Workers (deployed)
+- Cloudflare Workers (deployed to transformation.workers.dev)
 - HTTP dispatch to `handleProxyFetchExecution`
 - WebSocket hibernating API
 - External API: test-endpoints.workers.dev
 
 **Measurements (10 iterations):**
 ```
-Average Breakdown:
-  Enqueue (includes network): [TBD]ms
-  Total (measured): [TBD]ms
+Cold Start (Request 1):
+  Total: 564ms
+  Enqueue: 531ms
+  
+Warm Performance (Requests 2-10 average):
+  Enqueue (includes network): 80ms
+  Total (measured): 101ms
   Node.js overhead (est): 30ms
-  Actual end-to-end: [TBD]ms
-  Server duration: [TBD]ms
+  Actual end-to-end: 71ms
+  Server duration: 87.80ms
 ```
 
-**Expected:**
-- Enqueue: 30-60ms (network + queue dispatch)
-- Actual end-to-end: 80-150ms (realistic production latency)
-- Much faster than polling version (~150-200ms improvement)
+**Individual Request Latencies:**
+- Request 1: 564ms (cold start - DO initialization)
+- Request 2-10: 92-107ms (warm - very consistent, 15ms variance)
+
+**Analysis:**
+- ⚠️ Cold start penalty: ~450ms (first request only)
+- ✅ **Warm latency: 71ms actual end-to-end** (101ms - 30ms Node.js)
+- ✅ Production overhead vs local: ~48ms (71ms vs 23ms)
+- ✅ HTTP dispatch working correctly (no localhost detection)
+- ✅ WebSocket eliminates polling overhead entirely
+- ✅ Very consistent warm performance (92-107ms range)
 
 ---
 
 ## Comparison: Polling vs WebSocket
 
-| Metric | HTTP Polling | WebSocket |
+| Metric | HTTP Polling | WebSocket (Production) |
 |--------|-------------|-----------|
 | Result delivery | Poll every 100ms | Push immediately |
-| End-to-end latency | ~271ms | ~70-100ms (est) |
-| Polling overhead | ~100-200ms | 0ms |
+| Warm end-to-end latency | ~271ms | **71ms** (measured) |
+| Polling overhead | ~100-200ms | **0ms** |
 | Connection setup | Per request | One-time |
+| Warm request range | ~271ms | **92-107ms** (measured) |
+| Cold start | N/A | 564ms (one-time) |
 | Real-world pattern | ❌ Never used | ✅ Production ready |
 
+**Improvement: ~200ms faster (74% reduction)**
+
 **Why WebSocket is better:**
-- ✅ No artificial polling delays
-- ✅ Matches real production usage patterns
-- ✅ True measure of DO-to-DO + Worker fetch overhead
-- ✅ ~200ms improvement vs polling
+- ✅ No artificial polling delays (saves 100-200ms)
+- ✅ Real-time result delivery (0ms wait)
+- ✅ Matches actual production DO patterns
+- ✅ **Much lower warm latency (71ms vs 271ms)**
+- ✅ More efficient (no wasted polling requests)
+- ✅ Very consistent performance (15ms variance)
 
 ---
 
