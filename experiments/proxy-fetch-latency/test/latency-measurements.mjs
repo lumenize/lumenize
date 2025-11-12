@@ -116,7 +116,6 @@ async function measureEndToEndLatency(url, iterations = 10) {
   
   // Listen for messages
   ws.onmessage = (event) => {
-    console.log('  ← Received message:', event.data);
     const msg = JSON.parse(event.data);
     
     if (msg.type === 'enqueued') {
@@ -178,7 +177,6 @@ async function measureEndToEndLatency(url, iterations = 10) {
       clientId  // Send client ID so server can echo it back
     });
     
-    console.log(`  → Sending request ${i + 1} (${clientId})...`);
     ws.send(message);
     
     // Wait for this request to complete

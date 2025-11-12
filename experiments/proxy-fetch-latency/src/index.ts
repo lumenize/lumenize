@@ -52,19 +52,15 @@ export class OriginDO extends LumenizeBase<Env> {
    * Handle WebSocket messages (hibernating API)
    */
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
-    console.log('[OriginDO] webSocketMessage called', { messageType: typeof message });
     if (typeof message !== 'string') return;
     
     try {
       const msg = JSON.parse(message);
-      console.log('[OriginDO] Received message:', msg);
       
       if (msg.type === 'start-fetch') {
         const targetUrl = msg.url;
-        const clientId = msg.clientId;  // Get client ID
+        const clientId = msg.clientId;
         const startTime = Date.now();
-        
-        console.log('[OriginDO] Starting proxyFetchWorker for', { targetUrl, clientId });
         
         // Create continuation that captures clientId and startTime
         const reqId = await proxyFetchWorker(
@@ -77,17 +73,14 @@ export class OriginDO extends LumenizeBase<Env> {
         const enqueueTime = Date.now() - startTime;
         
         // Send enqueue confirmation with clientId
-        const response = {
+        ws.send(JSON.stringify({
           type: 'enqueued',
           reqId,
-          clientId,  // Echo back client ID
+          clientId,
           enqueueTime
-        };
-        console.log('[OriginDO] Sending enqueue response:', response);
-        ws.send(JSON.stringify(response));
+        }));
       }
     } catch (error) {
-      console.error('[OriginDO] Error in webSocketMessage:', error);
       ws.send(JSON.stringify({
         type: 'error',
         error: error instanceof Error ? error.message : String(error)
@@ -147,8 +140,6 @@ export class OriginDO extends LumenizeBase<Env> {
         duration
       };
     }
-    
-    console.log('[OriginDO] Sending result:', resultData);
     
     // Broadcast to all connected WebSockets
     const sockets = this.ctx.getWebSockets();
