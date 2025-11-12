@@ -1,0 +1,496 @@
+---
+title: '@lumenize/call'
+description: DO-to-DO communication with continuations and the actor model
+---
+
+# @lumenize/call
+
+De✨light✨ful Workers RPC for Durable Objects using [continuations](/docs/core/continuations) and the actor model.
+
+**`@lumenize/call`** enables type-safe, non-blocking communication between Durable Objects with automatic result delivery via continuations.
+
+## Features
+
+- **Non-blocking** - Origin DO doesn't wait for remote execution
+- **Type-safe** - Full TypeScript support with OCAN
+- **Actor model** - Two one-way messages (request → remote, result → origin)
+- **Automatic retries** - Configurable timeout and retry logic
+- **Error handling** - Errors delivered to your continuation as `Error` objects
+- **Storage-based queue** - Predictable latency, no Cloudflare Queue overhead
+
+## Installation
+
+```bash @skip-check
+npm install @lumenize/call
+```
+
+## Quick Start
+
+```typescript @skip-check
+import { LumenizeBase } from '@lumenize/lumenize-base';
+import { call } from '@lumenize/call';
+
+// Origin DO - makes the call
+class UserDO extends LumenizeBase<Env> {
+  async fetch(request: Request): Promise<Response> {
+    // Call remote DO without blocking
+    const operationId = await this.svc.call(
+      'ANALYTICS_DO',           // DO binding name
+      'global-analytics',       // Instance ID
+      this.ctn().trackEvent('user_login', { userId: '123' }), // Remote operation
+      this.ctn().handleTrackingResult(this.ctn().$result)     // Continuation
+    );
+    
+    return new Response(`Tracking... (${operationId})`);
+  }
+  
+  // This runs when the remote DO returns
+  handleTrackingResult(result: boolean | Error) {
+    if (result instanceof Error) {
+      console.error('Tracking failed:', result);
+      return;
+    }
+    
+    console.log('Event tracked successfully:', result);
+  }
+}
+
+// Remote DO - receives the call
+class AnalyticsDO extends LumenizeBase<Env> {
+  trackEvent(eventName: string, data: any): boolean {
+    // This runs on the remote DO
+    console.log('Tracking event:', eventName, data);
+    this.ctx.storage.kv.put(`event:${Date.now()}`, { eventName, data });
+    return true;
+  }
+}
+```
+
+## How It Works
+
+The actor model ensures non-blocking execution:
+
+```
+Origin DO                  Remote DO
+   │                          │
+   ├─ call() ────────────────>│ (enqueue in storage)
+   │  returns operationId     │
+   │                          │
+   │                          ├─ process queue
+   │                          ├─ execute operation
+   │                          │
+   │<────────── result ───────┤ (via __receiveResult)
+   │                          │
+   ├─ continuation executes   │
+   │  with result             │
+```
+
+**Key points**:
+- Origin DO awaits only message delivery (fast)
+- Remote DO processes asynchronously
+- Result delivered via second message
+- Both DOs maintain consistency
+
+## Basic Usage
+
+### Making a Call
+
+```typescript @skip-check
+class OriginDO extends LumenizeBase<Env> {
+  async performCalculation() {
+    const operationId = await this.svc.call(
+      'CALCULATOR_DO',              // Binding name
+      'instance-1',                 // Instance ID  
+      this.ctn().add(5, 3),         // Remote operation
+      this.ctn().handleSum(this.ctn().$result), // Continuation
+      { 
+        timeout: 5000,              // Optional: 5 second timeout
+        originBinding: 'ORIGIN_DO'  // Optional: for callbacks
+      }
+    );
+    
+    console.log('Operation ID:', operationId);
+  }
+  
+  handleSum(result: number | Error) {
+    if (result instanceof Error) {
+      console.error('Calculation failed:', result);
+      return;
+    }
+    
+    console.log('Sum:', result); // 8
+  }
+}
+```
+
+### Receiving Calls
+
+Remote DOs automatically receive and execute calls - no special setup required:
+
+```typescript @skip-check
+class CalculatorDO extends LumenizeBase<Env> {
+  // Regular synchronous methods work
+  add(a: number, b: number): number {
+    return a + b;
+  }
+  
+  multiply(a: number, b: number): number {
+    return a * b;
+  }
+  
+  // Methods can access storage
+  saveResult(result: number) {
+    this.ctx.storage.kv.put('last-result', result);
+    return result;
+  }
+}
+```
+
+## Error Handling
+
+Errors are automatically caught and delivered to your continuation:
+
+```typescript @skip-check
+class MyDO extends LumenizeBase<Env> {
+  async riskyOperation() {
+    await this.svc.call(
+      'REMOTE_DO',
+      'instance-1',
+      this.ctn().methodThatMightFail(),
+      this.ctn().handleResult(this.ctn().$result)
+    );
+  }
+  
+  handleResult(result: any | Error) {
+    if (result instanceof Error) {
+      // Remote method threw an error
+      console.error('Remote error:', result.message);
+      
+      // Handle specific error types
+      if (result.message.includes('not found')) {
+        // Handle not found
+      }
+      
+      return;
+    }
+    
+    // Success
+    console.log('Result:', result);
+  }
+}
+```
+
+### Types of Errors
+
+- **Network errors**: Remote DO unreachable
+- **Execution errors**: Remote method threw an error
+- **Timeout errors**: Operation exceeded timeout
+- **Validation errors**: Invalid operation chain
+
+## Timeout Handling
+
+Configure timeouts to prevent hanging operations:
+
+```typescript @skip-check
+class MyDO extends LumenizeBase<Env> {
+  async callWithTimeout() {
+    await this.svc.call(
+      'SLOW_DO',
+      'instance-1',
+      this.ctn().slowOperation(),
+      this.ctn().handleResult(this.ctn().$result),
+      { timeout: 10000 } // 10 seconds
+    );
+  }
+  
+  handleResult(result: any | Error) {
+    if (result instanceof Error) {
+      if (result.message.includes('timeout')) {
+        console.error('Operation timed out');
+        // Retry, notify user, etc.
+      }
+    }
+  }
+}
+```
+
+**Default timeout**: 30 seconds
+
+## Cancellation
+
+Cancel pending operations if needed:
+
+```typescript @skip-check
+import { cancelCall } from '@lumenize/call';
+
+class MyDO extends LumenizeBase<Env> {
+  #pendingCalls = new Map<string, string>();
+  
+  async startOperation(userId: string) {
+    const operationId = await this.svc.call(
+      'WORKER_DO',
+      'instance-1',
+      this.ctn().longRunningTask(userId),
+      this.ctn().handleResult(userId, this.ctn().$result)
+    );
+    
+    this.#pendingCalls.set(userId, operationId);
+  }
+  
+  async cancelOperation(userId: string) {
+    const operationId = this.#pendingCalls.get(userId);
+    if (!operationId) return false;
+    
+    const cancelled = await cancelCall(this, operationId);
+    if (cancelled) {
+      this.#pendingCalls.delete(userId);
+      console.log('Operation cancelled:', operationId);
+    }
+    
+    return cancelled;
+  }
+}
+```
+
+:::info
+Cancellation only prevents the continuation from executing. If the remote DO already started processing, it will complete normally.
+:::
+
+## Advanced Patterns
+
+### Chaining Remote Calls
+
+```typescript @skip-check
+class WorkflowDO extends LumenizeBase<Env> {
+  async runPipeline(data: any) {
+    // Step 1: Validate
+    await this.svc.call(
+      'VALIDATOR_DO',
+      'instance-1',
+      this.ctn().validate(data),
+      this.ctn().handleValidation(data, this.ctn().$result)
+    );
+  }
+  
+  handleValidation(data: any, result: boolean | Error) {
+    if (result instanceof Error || !result) {
+      console.error('Validation failed');
+      return;
+    }
+    
+    // Step 2: Process
+    await this.svc.call(
+      'PROCESSOR_DO',
+      'instance-1',
+      this.ctn().process(data),
+      this.ctn().handleProcessing(this.ctn().$result)
+    );
+  }
+  
+  handleProcessing(result: any | Error) {
+    if (result instanceof Error) {
+      console.error('Processing failed');
+      return;
+    }
+    
+    // Step 3: Save
+    this.ctx.storage.kv.put('result', result);
+  }
+}
+```
+
+### Parallel Calls
+
+```typescript @skip-check
+class AggregatorDO extends LumenizeBase<Env> {
+  async aggregateData() {
+    // Start multiple calls in parallel
+    const [id1, id2, id3] = await Promise.all([
+      this.svc.call('SOURCE_A', 'data', this.ctn().getData(), this.ctn().handleSourceA(this.ctn().$result)),
+      this.svc.call('SOURCE_B', 'data', this.ctn().getData(), this.ctn().handleSourceB(this.ctn().$result)),
+      this.svc.call('SOURCE_C', 'data', this.ctn().getData(), this.ctn().handleSourceC(this.ctn().$result))
+    ]);
+    
+    console.log('Started:', id1, id2, id3);
+  }
+  
+  #results = new Map<string, any>();
+  
+  handleSourceA(result: any | Error) {
+    if (result instanceof Error) return;
+    this.#results.set('A', result);
+    this.#checkComplete();
+  }
+  
+  handleSourceB(result: any | Error) {
+    if (result instanceof Error) return;
+    this.#results.set('B', result);
+    this.#checkComplete();
+  }
+  
+  handleSourceC(result: any | Error) {
+    if (result instanceof Error) return;
+    this.#results.set('C', result);
+    this.#checkComplete();
+  }
+  
+  #checkComplete() {
+    if (this.#results.size === 3) {
+      console.log('All sources complete:', this.#results);
+      // Process aggregated data
+    }
+  }
+}
+```
+
+### Context Preservation
+
+```typescript @skip-check
+class SessionDO extends LumenizeBase<Env> {
+  async processRequest(userId: string, requestId: string, data: any) {
+    const timestamp = Date.now();
+    
+    await this.svc.call(
+      'PROCESSOR_DO',
+      'global',
+      this.ctn().process(data),
+      // Capture context in continuation
+      this.ctn().handleProcessed(userId, requestId, timestamp, this.ctn().$result)
+    );
+  }
+  
+  handleProcessed(userId: string, requestId: string, timestamp: number, result: any | Error) {
+    if (result instanceof Error) {
+      console.error(`Request ${requestId} failed for user ${userId}`);
+      return;
+    }
+    
+    const duration = Date.now() - timestamp;
+    console.log(`Request ${requestId} completed in ${duration}ms`);
+    
+    this.ctx.storage.kv.put(`user:${userId}:request:${requestId}`, {
+      result,
+      timestamp,
+      duration
+    });
+  }
+}
+```
+
+## Configuration
+
+### Global Configuration
+
+Configure via environment bindings:
+
+```typescript @skip-check
+interface Env {
+  ORIGIN_DO: DurableObjectNamespace;
+  REMOTE_DO: DurableObjectNamespace;
+}
+```
+
+### Per-Call Options
+
+```typescript @skip-check
+await this.svc.call(
+  'REMOTE_DO',
+  'instance-id',
+  this.ctn().remoteMethod(),
+  this.ctn().handleResult(this.ctn().$result),
+  {
+    timeout: 15000,              // Timeout in ms (default: 30000)
+    originBinding: 'ORIGIN_DO'   // Binding name for callbacks (auto-detected)
+  }
+);
+```
+
+## Best Practices
+
+### ✅ Do
+
+- Check for `Error` in all continuation handlers
+- Keep remote methods synchronous (unless wrapped in `ctx.waitUntil`)
+- Use descriptive operation IDs for debugging
+- Set reasonable timeouts
+- Handle all error cases
+- Preserve context by passing it to continuations
+
+### ❌ Don't
+
+- Don't use `async` in remote methods (breaks consistency)
+- Don't ignore errors from continuations
+- Don't call methods that don't exist on the remote DO
+- Don't pass non-serializable data (functions, symbols, etc.)
+- Don't create circular references in arguments
+
+## Comparison to Other Approaches
+
+### vs Direct RPC
+
+```typescript @skip-check
+// ❌ Direct RPC - blocks the origin DO
+const stub = env.REMOTE_DO.get(id);
+const result = await stub.someMethod(arg); // Blocks until remote completes
+this.ctx.storage.kv.put('result', result);
+
+// ✅ Call - non-blocking
+await this.svc.call(
+  'REMOTE_DO',
+  'instance-id',
+  this.ctn().someMethod(arg),
+  this.ctn().handleResult(this.ctn().$result) // Doesn't block
+);
+```
+
+### vs Cloudflare Queues
+
+- **Call**: Storage-based queue, predictable latency (~20-50ms)
+- **Queues**: Unpredictable latency (~500-2000ms), separate worker overhead
+
+### vs Alarms
+
+- **Call**: For DO-to-DO communication
+- **Alarms**: For time-based scheduling
+
+## Troubleshooting
+
+### "No handler registered for work type"
+
+Make sure you've imported `@lumenize/call`:
+
+```typescript @skip-check
+import '@lumenize/call'; // Required to register handlers
+```
+
+### "Invalid continuation"
+
+Ensure you're using `this.ctn()` to create continuations:
+
+```typescript @skip-check
+// ❌ Wrong
+this.svc.call('DO', 'id', { method: 'test' }, ...)
+
+// ✅ Correct
+this.svc.call('DO', 'id', this.ctn().test(), ...)
+```
+
+### Timeout Issues
+
+If operations frequently time out:
+
+1. Increase timeout: `{ timeout: 60000 }`
+2. Check remote DO performance
+3. Consider breaking into smaller operations
+4. Check network/region issues
+
+## API Reference
+
+See the [TypeDoc API Reference](/docs/call/api) for complete type information.
+
+## Next Steps
+
+- **[Continuations](/docs/core/continuations)** - Understanding the continuation pattern
+- **[Alarms](/docs/alarms/index)** - Time-based scheduling with continuations
+- **[Proxy Fetch](/docs/proxy-fetch/proxy-fetch-worker)** - External API calls with continuations
+
