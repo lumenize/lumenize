@@ -1,8 +1,0 @@
-# Test token for test-endpoints service
-# Must match the token configured in your test-endpoints deployment
-TEST_TOKEN=your-test-token-here
-
-# Test endpoints URL
-# Default: https://test-endpoints.transformation.workers.dev
-# For your own deployment: https://your-test-endpoints.workers.dev
-TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev

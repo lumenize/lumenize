@@ -1,5 +1,6 @@
 import { debug, getOperationChain, type OperationChain, type DebugLogger } from '@lumenize/core';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { getDOStub } from '@lumenize/utils';
 import type { CallOptions, CallMessage, PendingCall } from './types.js';
 
 /**
@@ -14,7 +15,7 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
  * 
  * @param doInstance - The calling DO instance (provides ctx for storage/alarms)
  * @param doBinding - Name of the remote DO binding in env (e.g., 'REMOTE_DO')
- * @param instanceId - ID/name of the remote DO instance
+ * @param doInstanceNameOrId - Name or ID of the remote DO instance (64-char hex = ID, else name)
  * @param remoteOperation - OCAN chain to execute on remote DO
  * @param continuation - OCAN chain for handling result (receives result | Error)
  * @param options - Optional configuration (timeout, etc.)
@@ -29,13 +30,21 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
  *     // Define remote operation
  *     const remote = this.ctn<RemoteDO>().getUserData(userId);
  *     
- *     // Call with continuation
+ *     // Call with continuation (named instance)
  *     await this.svc.call(
  *       'REMOTE_DO',           // binding name
- *       'instance-id',         // instance ID
+ *       'my-instance',         // instance name
  *       remote,                // what to execute
  *       this.ctn().handleResult(remote),  // remote = result | Error
  *       { timeout: 30000 }     // optional
+ *     );
+ *     
+ *     // Or with unique ID (64-char hex string)
+ *     await this.svc.call(
+ *       'REMOTE_DO',
+ *       '8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99',
+ *       remote,
+ *       this.ctn().handleResult(remote)
  *     );
  *   }
  *   
@@ -52,7 +61,7 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
 export async function call(
   doInstance: any,
   doBinding: string,
-  instanceId: string,
+  doInstanceNameOrId: string,
   remoteOperation: any,
   continuation: any,
   options?: CallOptions
@@ -78,7 +87,7 @@ export async function call(
   log.debug('Initiating call', {
     operationId,
     doBinding,
-    instanceId,
+    doInstanceNameOrId,
     timeout
   });
 
@@ -114,9 +123,8 @@ export async function call(
   // Preprocess remote operation chain
   const preprocessedRemote = await preprocess(remoteChain);
 
-  // Get remote DO stub
-  const remoteId = env[doBinding].idFromName(instanceId);
-  const remoteStub = env[doBinding].get(remoteId);
+  // Get remote DO stub (supports both names and IDs)
+  const remoteStub = getDOStub(env[doBinding], doInstanceNameOrId);
 
   // Prepare message for remote DO
   const originBinding = options?.originBinding || getOriginBinding(doInstance);

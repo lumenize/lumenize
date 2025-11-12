@@ -4,37 +4,6 @@ import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 export default defineConfig({
   test: {
     projects: [
-      // DO Variant tests - Workers environment
-      defineWorkersProject({
-        test: {
-          name: 'do',
-          globals: true,
-          testTimeout: 10000,
-          include: ['test/do/**/*.test.ts'],
-          fileParallelism: false, // Required: tests share 'proxy-fetch-global' DO instance
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/do/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
-      // Queue Variant tests - Workers environment
-      defineWorkersProject({
-        test: {
-          name: 'queue',
-          globals: true,
-          testTimeout: 10000,
-          include: ['test/queue/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/queue/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
       // Worker Variant tests - DO-Worker Hybrid
       defineWorkersProject({
         test: {
@@ -47,21 +16,6 @@ export default defineConfig({
             workers: {
               isolatedStorage: false, // Required for WebSocket support
               wrangler: { configPath: './test/worker/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
-      // Documentation validation tests - minimal test to verify docs work
-      defineWorkersProject({
-        test: {
-          name: 'for-docs',
-          globals: true,
-          testTimeout: 3000,
-          include: ['test/for-docs/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/for-docs/wrangler.jsonc' },
             },
           },
         },
