@@ -22,7 +22,7 @@ declare global {
  * Uses hibernating WebSocket API for real-time result delivery
  */
 export class OriginDO extends LumenizeBase<Env> {
-  #latencyMeasurements: Map<string, { startTime: number }> = new Map();
+  #latencyMeasurements: Map<string, { startTime: number; clientId?: string }> = new Map();
 
   /**
    * Handle HTTP requests to this DO
@@ -60,6 +60,7 @@ export class OriginDO extends LumenizeBase<Env> {
       
       if (msg.type === 'start-fetch') {
         const targetUrl = msg.url;
+        const clientId = msg.clientId;  // Get client ID
         const startTime = Date.now();
         
         const reqId = await proxyFetchWorker(
@@ -70,12 +71,13 @@ export class OriginDO extends LumenizeBase<Env> {
         );
         
         const enqueueTime = Date.now() - startTime;
-        this.#latencyMeasurements.set(reqId, { startTime });
+        this.#latencyMeasurements.set(reqId, { startTime, clientId });  // Store clientId
         
-        // Send enqueue confirmation
+        // Send enqueue confirmation with clientId
         ws.send(JSON.stringify({
           type: 'enqueued',
           reqId,
+          clientId,  // Echo back client ID
           enqueueTime
         }));
       }
@@ -118,12 +120,14 @@ export class OriginDO extends LumenizeBase<Env> {
     
     const measurement = this.#latencyMeasurements.get(reqId);
     const duration = measurement ? endTime - measurement.startTime : 0;
+    const clientId = measurement?.clientId;  // Get clientId from measurement
     
     let resultData: any;
     if (result instanceof Error) {
       resultData = {
         type: 'result',
         reqId,
+        clientId,  // Include clientId
         success: false,
         error: result.message,
         duration
@@ -133,6 +137,7 @@ export class OriginDO extends LumenizeBase<Env> {
       resultData = {
         type: 'result',
         reqId,
+        clientId,  // Include clientId
         success: true,
         status: result.status,
         responseLength: text.length,

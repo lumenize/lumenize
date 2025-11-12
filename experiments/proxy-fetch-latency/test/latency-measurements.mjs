@@ -105,20 +105,22 @@ async function measureEndToEndLatency(url, iterations = 10) {
     const msg = JSON.parse(event.data);
     
     if (msg.type === 'enqueued') {
-      // Enqueue confirmation
-      const pending = pendingRequests.get(msg.reqId);
+      // Enqueue confirmation - look up by clientId
+      const pending = pendingRequests.get(msg.clientId);
       if (pending) {
         pending.enqueueTime = msg.enqueueTime;
+        pending.serverReqId = msg.reqId;  // Store server's reqId
       }
     } else if (msg.type === 'result') {
-      // Result received
-      const pending = pendingRequests.get(msg.reqId);
+      // Result received - look up by clientId
+      const pending = pendingRequests.get(msg.clientId);
       if (pending) {
         const endTime = Date.now();
         const totalTime = endTime - pending.startTime;
         
         results.push({
           reqId: msg.reqId,
+          clientId: msg.clientId,
           enqueueTime: pending.enqueueTime,
           totalTime,
           serverDuration: msg.duration || 0,
@@ -137,19 +139,21 @@ async function measureEndToEndLatency(url, iterations = 10) {
   // Send requests
   for (let i = 0; i < iterations; i++) {
     const startTime = Date.now();
-    const reqId = `req-${Date.now()}-${i}`;
+    const clientId = `client-${Date.now()}-${i}`;
     
     const promise = new Promise((resolve) => {
-      pendingRequests.set(reqId, {
+      pendingRequests.set(clientId, {
         startTime,
         enqueueTime: 0,
-        resolve
+        resolve,
+        serverReqId: null  // Will be filled when we get 'enqueued' response
       });
     });
     
     ws.send(JSON.stringify({
       type: 'start-fetch',
-      url
+      url,
+      clientId  // Send client ID so server can echo it back
     }));
     
     // Wait for this request to complete
