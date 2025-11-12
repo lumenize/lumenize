@@ -1,5 +1,5 @@
 /**
- * ProxyFetch V3 - DO-Worker Hybrid
+ * ProxyFetchWorker - DO-Worker Hybrid
  * 
  * Best of both worlds:
  * - Low latency (~50-100ms, no Cloudflare Queue wait)
@@ -17,7 +17,7 @@
 import type { DurableObject } from 'cloudflare:workers';
 import { getOperationChain, debug } from '@lumenize/core';
 import { preprocess } from '@lumenize/structured-clone';
-import type { FetchOrchestratorMessage, ProxyFetchV3Options } from './types.js';
+import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.js';
 
 /**
  * Make an external fetch request using the DO-Worker hybrid approach
@@ -36,13 +36,13 @@ import type { FetchOrchestratorMessage, ProxyFetchV3Options } from './types.js';
  * @example
  * ```typescript
  * import { LumenizeBase } from '@lumenize/lumenize-base';
- * import { proxyFetchV3 } from '@lumenize/proxy-fetch';
+ * import { proxyFetchWorker } from '@lumenize/proxy-fetch';
  * 
  * class MyDO extends LumenizeBase<Env> {
  *   async fetchUserData(userId: string) {
  *     const request = new Request(`https://api.example.com/users/${userId}`);
  *     
- *     await proxyFetchV3(
+ *     await proxyFetchWorker(
  *       this,
  *       request,
  *       this.ctn().handleFetchResult(this.ctn().$result), // $result is placeholder
@@ -62,15 +62,15 @@ import type { FetchOrchestratorMessage, ProxyFetchV3Options } from './types.js';
  * }
  * ```
  */
-export async function proxyFetchV3(
+export async function proxyFetchWorker(
   doInstance: DurableObject,
   request: string | Request,
   continuation: any, // OCAN continuation
-  options?: ProxyFetchV3Options
+  options?: ProxyFetchWorkerOptions
 ): Promise<string> {
   const ctx = doInstance.ctx as DurableObjectState;
   const env = doInstance.env;
-  const log = debug(ctx)('lmz.proxyFetch.v3');
+  const log = debug(ctx)('lmz.proxyFetch.worker');
 
   // Validate continuation
   const continuationChain = getOperationChain(continuation);

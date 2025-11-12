@@ -1,5 +1,5 @@
 /**
- * Result handler for proxyFetch V3
+ * Result handler for proxyFetchWorker
  * 
  * This handler is registered with LumenizeBase's generic actor queue
  * and processes results from Worker fetch executions.
@@ -17,13 +17,13 @@ import type { FetchResult } from './types.js';
  * 
  * @internal
  */
-export async function proxyFetchV3ResultHandler(
+export async function fetchWorkerResultHandler(
   doInstance: any,
   reqId: string,
   resultData: any
 ): Promise<void> {
   const ctx = doInstance.ctx as DurableObjectState;
-  const log = debug(ctx)('lmz.proxyFetch.v3.resultHandler');
+  const log = debug(ctx)('lmz.proxyFetch.worker.resultHandler');
 
   log.debug('Processing fetch result', { reqId });
 

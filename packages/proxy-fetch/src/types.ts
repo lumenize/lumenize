@@ -59,13 +59,13 @@ export interface ProxyFetchHandlerItem {
 }
 
 /**
- * V3 (DO-Worker Hybrid) Types
+ * Worker Variant Types
  */
 
 /**
- * Options for V3 proxy fetch
+ * Options for proxyFetchWorker
  */
-export interface ProxyFetchV3Options {
+export interface ProxyFetchWorkerOptions {
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
   /** Maximum number of retry attempts (default: 3) */
@@ -88,7 +88,7 @@ export interface FetchOrchestratorMessage {
   /** Origin DO instance ID */
   originId: string;
   /** Options */
-  options?: ProxyFetchV3Options;
+  options?: ProxyFetchWorkerOptions;
   /** Timestamp when request was initiated */
   timestamp: number;
 }
@@ -109,7 +109,7 @@ export interface WorkerFetchMessage {
   /** Retry attempt number */
   retryCount: number;
   /** Options */
-  options?: ProxyFetchV3Options;
+  options?: ProxyFetchWorkerOptions;
   /** Timestamp when request was initiated */
   startTime: number;
 }

@@ -9,8 +9,8 @@ export { proxyFetch, proxyFetchQueue, proxyFetchDO } from './proxyFetch';
 export { proxyFetchQueueConsumer } from './proxyFetchQueueConsumer';
 export { ProxyFetchDO } from './ProxyFetchDurableObject';
 
-// V3: DO-Worker Hybrid
-export { proxyFetchV3 } from './proxyFetchV3';
+// Worker variant: DO-Worker Hybrid
+export { proxyFetchWorker } from './proxyFetchWorker';
 export { FetchOrchestrator } from './FetchOrchestrator';
 export { executeFetch, createFetchWorker, type FetchWorker } from './workerFetchExecutor';
 
@@ -19,16 +19,16 @@ export type {
   ProxyFetchQueueMessage, 
   ProxyFetchHandlerItem, 
   ProxyFetchOptions,
-  ProxyFetchV3Options,
+  ProxyFetchWorkerOptions,
   FetchOrchestratorMessage,
   WorkerFetchMessage,
   FetchResult
 } from './types';
 
-// Register V3 result handler with LumenizeBase
-import { proxyFetchV3ResultHandler } from './proxyFetchV3ResultHandler';
+// Register Worker result handler with LumenizeBase
+import { fetchWorkerResultHandler } from './fetchWorkerResultHandler';
 
 if (!(globalThis as any).__lumenizeResultHandlers) {
   (globalThis as any).__lumenizeResultHandlers = {};
 }
-(globalThis as any).__lumenizeResultHandlers.proxyFetch = proxyFetchV3ResultHandler;
+(globalThis as any).__lumenizeResultHandlers.proxyFetch = fetchWorkerResultHandler;
