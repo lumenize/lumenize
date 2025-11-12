@@ -14,7 +14,7 @@ import { createTestingClient } from '@lumenize/testing';
 import { _TestDO, _FetchOrchestrator } from './test-worker-and-dos';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
-import { handleProxyFetchExecution, ProxyFetchAuthError } from '../../src/index';
+import { handleProxyFetchExecution, ProxyFetchAuthError, proxyFetchWorker } from '../../src/index';
 
 describe('ProxyFetchWorker Integration', () => {
   describe('Basic Flow', () => {
@@ -382,6 +382,58 @@ describe('ProxyFetchWorker Integration', () => {
       expect(response?.status).toBe(200);
       const text = await response?.text();
       expect(text).toBe('OK');
+    });
+  });
+
+  describe('proxyFetchWorker', () => {
+    test('throws error for invalid continuation', async () => {
+      using originClient = createTestingClient<typeof _TestDO>(
+        'TEST_DO',
+        'invalid-continuation-test'
+      );
+      
+      // Try to call with non-OCAN continuation
+      await expect(
+        originClient.callProxyFetchWithInvalidContinuation('https://example.com')
+      ).rejects.toThrow('Invalid continuation: must be created with this.ctn()');
+    });
+
+    test('handles enqueue failure gracefully', async () => {
+      using originClient = createTestingClient<typeof _TestDO>(
+        'TEST_DO',
+        'enqueue-failure-test'
+      );
+      
+      // Use an env without FETCH_ORCHESTRATOR binding to trigger failure
+      await expect(
+        originClient.callProxyFetchWithBrokenEnv('https://example.com')
+      ).rejects.toThrow('Failed to enqueue fetch request');
+    });
+
+    test('supports string URL input', async () => {
+      using originClient = createTestingClient<typeof _TestDO>(
+        'TEST_DO',
+        'string-url-test'
+      );
+      
+      // Test with string URL instead of Request object
+      const reqId = await originClient.callProxyFetchWithStringUrl('https://httpbin.org/delay/0');
+      
+      expect(reqId).toBeDefined();
+      expect(typeof reqId).toBe('string');
+    });
+
+    test('infers originBinding when not provided', async () => {
+      using originClient = createTestingClient<typeof _TestDO>(
+        'TEST_DO',
+        'infer-binding-test'
+      );
+      
+      // Call without explicit originBinding (will use getOriginBinding)
+      const reqId = await originClient.callProxyFetchWithoutOriginBinding('https://httpbin.org/delay/0');
+      
+      expect(reqId).toBeDefined();
+      expect(typeof reqId).toBe('string');
     });
   });
 });

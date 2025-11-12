@@ -125,6 +125,64 @@ export class _TestDO extends LumenizeBase {
   }
 
   /**
+   * Test helper: Call proxyFetch with invalid continuation
+   */
+  async callProxyFetchWithInvalidContinuation(url: string): Promise<string> {
+    // Pass a non-OCAN continuation (just a string)
+    return await proxyFetchWorker(
+      this,
+      url,
+      'not-an-ocan-continuation' as any,
+      { originBinding: 'TEST_DO' }
+    );
+  }
+
+  /**
+   * Test helper: Call proxyFetch with broken env (no FETCH_ORCHESTRATOR)
+   */
+  async callProxyFetchWithBrokenEnv(url: string): Promise<string> {
+    // Create a broken DO instance that's missing FETCH_ORCHESTRATOR
+    const brokenInstance = {
+      ctx: this.ctx,
+      env: {}, // Empty env without FETCH_ORCHESTRATOR
+      constructor: { name: 'TestDO' }
+    };
+    
+    return await proxyFetchWorker(
+      brokenInstance as any,
+      url,
+      this.ctn().handleFetchResult(),
+      { originBinding: 'TEST_DO' }
+    );
+  }
+
+  /**
+   * Test helper: Call proxyFetch with string URL
+   */
+  async callProxyFetchWithStringUrl(url: string): Promise<string> {
+    // Pass string URL instead of Request object
+    return await proxyFetchWorker(
+      this,
+      url, // String, not Request
+      this.ctn().handleFetchResult(),
+      { originBinding: 'TEST_DO' }
+    );
+  }
+
+  /**
+   * Test helper: Call proxyFetch without originBinding
+   */
+  async callProxyFetchWithoutOriginBinding(url: string): Promise<string> {
+    // Omit originBinding to trigger getOriginBinding
+    return await proxyFetchWorker(
+      this,
+      url,
+      this.ctn().handleFetchResult()
+      // No options, so originBinding will be inferred
+    );
+  }
+
+  /**
    * Broadcast to all connected RPC clients
    */
   async #broadcastToAllClients(payload: any): Promise<void> {
