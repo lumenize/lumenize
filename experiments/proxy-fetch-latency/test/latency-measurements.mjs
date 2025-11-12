@@ -10,23 +10,56 @@
  * 
  * For production:
  *   1. Deploy: npm run deploy
- *   2. Set env: export $(cat ../../.dev.vars | xargs)
- *   3. Set TEST_URL: export TEST_URL=https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev
- *   4. Run: npm test
+ *   2. Set TEST_URL: export TEST_URL=https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev
+ *   3. Run: npm test
  * 
  * Requires Node.js 21+ for native WebSocket support.
+ * Automatically loads TEST_TOKEN and TEST_ENDPOINTS_URL from ../../.dev.vars
  */
+
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Load .dev.vars from lumenize root
+function loadDevVars() {
+  try {
+    const devVarsPath = join(__dirname, '../../../.dev.vars');
+    const content = readFileSync(devVarsPath, 'utf-8');
+    
+    content.split('\n').forEach(line => {
+      line = line.trim();
+      if (!line || line.startsWith('#')) return;
+      
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const key = match[1].trim();
+        const value = match[2].trim();
+        // Only set if not already in environment
+        if (!process.env[key]) {
+          process.env[key] = value;
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('⚠️  Could not load .dev.vars:', error.message);
+  }
+}
+
+loadDevVars();
 
 const BASE_URL = process.env.TEST_URL || 'http://localhost:8787';
 const WS_URL = BASE_URL.replace('http://', 'ws://').replace('https://', 'wss://');
 
-// Get TEST_ENDPOINTS from environment
+// Get TEST_ENDPOINTS from environment (now loaded from .dev.vars)
 const TEST_TOKEN = process.env.TEST_TOKEN;
 const TEST_ENDPOINTS_URL = process.env.TEST_ENDPOINTS_URL;
 
 if (!TEST_TOKEN || !TEST_ENDPOINTS_URL) {
   console.error('❌ TEST_TOKEN and TEST_ENDPOINTS_URL must be set');
-  console.error('Run: export $(cat ../../.dev.vars | xargs)');
+  console.error('Please add them to lumenize/.dev.vars file');
   process.exit(1);
 }
 
