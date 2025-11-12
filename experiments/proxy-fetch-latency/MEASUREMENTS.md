@@ -5,18 +5,19 @@ Production performance measurements for the `proxyFetchWorker` architecture.
 ## Performance Summary
 
 **Production (Warm):**
-- **71ms end-to-end latency** (average)
-- **92-107ms measured range** (15ms variance, very consistent)
-- **80ms average enqueue time** (includes all orchestration)
-- **564ms cold start** (first request only, ~450ms penalty)
+- **101ms measured total** (92-107ms range, 15ms variance)
+  - Enqueue phase: 80ms (orchestration & dispatch)
+  - Execution phase: 21ms (fetch & result delivery)
+- **71ms actual end-to-end** (after subtracting 30ms Node.js overhead)
+- **564ms cold start** (first request only)
 
 **Local Development:**
-- **23ms end-to-end latency** (baseline with no network)
-- **48ms production overhead** (network latency vs local)
+- **53ms measured total** (23ms actual after Node.js overhead)
+- **48ms production overhead** (71ms vs 23ms, network latency)
 
 **Key Characteristics:**
 - Real-time result delivery via WebSocket
-- Consistent warm performance (15ms variance)
+- Very consistent warm performance (15ms variance)
 - HTTP dispatch to CPU-billed Worker executors
 - DO-based queue orchestration
 
