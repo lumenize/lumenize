@@ -8,6 +8,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "node test/latency-measurements.mjs",
+    "test:scalability": "node test/scalability-test.mjs",
     "types": "wrangler types"
   },
   "dependencies": {

@@ -22,6 +22,13 @@ declare global {
  * Uses hibernating WebSocket API for real-time result delivery
  */
 export class OriginDO extends LumenizeBase<Env> {
+  // Track batch metrics for scalability testing
+  #batchMetrics: Map<string, {
+    total: number;
+    completed: number;
+    startTime: number;
+    results: Array<{ reqId: string; duration: number; success: boolean }>;
+  }> = new Map();
 
   /**
    * Handle HTTP requests to this DO
@@ -79,6 +86,42 @@ export class OriginDO extends LumenizeBase<Env> {
           clientId,
           enqueueTime
         }));
+      } else if (msg.type === 'start-batch-fetch') {
+        const batchId = msg.batchId;
+        const count = msg.count;
+        const targetUrl = msg.url;
+        const startTime = Date.now();
+        
+        // Initialize batch tracking
+        this.#batchMetrics.set(batchId, {
+          total: count,
+          completed: 0,
+          startTime,
+          results: []
+        });
+        
+        // Kick off all fetches in parallel
+        const reqIds: string[] = [];
+        for (let i = 0; i < count; i++) {
+          const reqId = await proxyFetchWorker(
+            this,
+            targetUrl,
+            this.ctn().handleBatchFetchResult(this.ctn().$result, batchId),
+            { originBinding: 'ORIGIN_DO' }
+          );
+          reqIds.push(reqId);
+        }
+        
+        const dispatchTime = Date.now() - startTime;
+        
+        // Send batch started confirmation
+        ws.send(JSON.stringify({
+          type: 'batch-started',
+          batchId,
+          count,
+          reqIds,
+          dispatchTime
+        }));
       }
     } catch (error) {
       ws.send(JSON.stringify({
@@ -100,6 +143,62 @@ export class OriginDO extends LumenizeBase<Env> {
    */
   async webSocketError(ws: WebSocket, error: unknown) {
     console.error('WebSocket error:', error);
+  }
+
+  /**
+   * Handle batch fetch result (continuation for scalability testing)
+   */
+  async handleBatchFetchResult(result: Response | Error, batchId: string) {
+    const endTime = Date.now();
+    const reqId = this.ctx.storage.kv.get('__lmz_proxyfetch_result_reqid') as string;
+    
+    const batch = this.#batchMetrics.get(batchId);
+    if (!batch) {
+      console.error('Batch not found:', batchId);
+      return;
+    }
+    
+    // Record result
+    const fetchStartTime = batch.startTime;
+    const duration = endTime - fetchStartTime;
+    batch.results.push({
+      reqId,
+      duration,
+      success: !(result instanceof Error)
+    });
+    batch.completed++;
+    
+    // Check if batch is complete
+    if (batch.completed === batch.total) {
+      const totalTime = endTime - batch.startTime;
+      
+      // Calculate statistics
+      const durations = batch.results.map(r => r.duration);
+      const avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
+      const minDuration = Math.min(...durations);
+      const maxDuration = Math.max(...durations);
+      const successCount = batch.results.filter(r => r.success).length;
+      
+      // Broadcast results
+      const sockets = this.ctx.getWebSockets();
+      for (const ws of sockets) {
+        ws.send(JSON.stringify({
+          type: 'batch-complete',
+          batchId,
+          totalTime,
+          count: batch.total,
+          successCount,
+          avgDuration,
+          minDuration,
+          maxDuration
+        }));
+      }
+      
+      // Clean up
+      this.#batchMetrics.delete(batchId);
+    }
+    
+    this.ctx.storage.kv.delete('__lmz_proxyfetch_result_reqid');
   }
 
   /**
