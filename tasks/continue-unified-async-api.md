@@ -85,7 +85,7 @@ class TaskSchedulerDO extends LumenizeBase<Env> {
   scheduleTask(taskName: string, delaySeconds: number) {
     const schedule = this.svc.alarms.schedule(
       delaySeconds,  // When to run
-      this.svc.alarms.c().handleTask({ name: taskName })  // OCAN chain
+      this.svc.c().handleTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, id: schedule.id };
   }
@@ -94,7 +94,7 @@ class TaskSchedulerDO extends LumenizeBase<Env> {
   scheduleAt(taskName: string, timestamp: number) {
     const schedule = this.svc.alarms.schedule(
       new Date(timestamp),
-      this.svc.alarms.c().handleTask({ name: taskName })
+      this.svc.c().handleTask({ name: taskName })
     );
     return { scheduled: true, id: schedule.id };
   }
@@ -103,7 +103,7 @@ class TaskSchedulerDO extends LumenizeBase<Env> {
   scheduleDaily(taskName: string) {
     const schedule = this.svc.alarms.schedule(
       '0 0 * * *',  // Cron expression
-      this.svc.alarms.c().handleDaily({ name: taskName })
+      this.svc.c().handleDaily({ name: taskName })
     );
     return { scheduled: true, recurring: true, id: schedule.id };
   }
@@ -112,7 +112,7 @@ class TaskSchedulerDO extends LumenizeBase<Env> {
   scheduleAdvanced(taskName: string) {
     const schedule = this.svc.alarms.schedule(
       60,
-      this.svc.alarms.c()
+      this.svc.c()
         .processTask({ name: taskName })
         .logSuccess()
         .notifyUser()
@@ -159,33 +159,50 @@ class MyDO extends LumenizeBase<Env> {
   
   callRemoteDO(userId: string) {
     // Define what to call on remote DO (operation chain)
-    const remote = this.svc.call.c<RemoteDO>()
+    const remote = this.svc.c<RemoteDO>()
       .getUserData(userId)
       .formatResponse();
     
-    // Execute with success/error handlers
+    // Execute with single handler (receives result OR error)
     const callId = this.svc.call(
       'REMOTE_DO',           // DO binding
       'user-session-123',    // Instance name/ID
-      remote                 // What to execute
-    )
-    .onSuccess(this.svc.call.c().handleUserData(remote, { userId }))  // remote = result
-    .onError(this.svc.call.c().handleError(remote, { userId }));      // remote = error
+      remote,                // What to execute
+      this.svc.c().handleResult(remote, { userId })  // remote: UserData | Error
+    );
     
     return { callId };
   }
 
   // Advanced: nested operations
   callWithNesting(userId: string, orgId: string) {
-    const remote = this.svc.call.c<RemoteDO>()
+    const remote = this.svc.c<RemoteDO>()
       .combineUserAndOrg(
-        this.svc.call.c<RemoteDO>().getUserData(userId),  // Nested!
-        this.svc.call.c<RemoteDO>().getOrgData(orgId)     // Nested!
+        this.svc.c<RemoteDO>().getUserData(userId),  // Nested!
+        this.svc.c<RemoteDO>().getOrgData(orgId)     // Nested!
       );
     
-    const callId = this.svc.call('REMOTE_DO', 'main', remote)
-      .onSuccess(this.svc.call.c().handleCombined(remote))
-      .onError(this.svc.call.c().handleError(remote));
+    const callId = this.svc.call(
+      'REMOTE_DO',
+      'main',
+      remote,
+      this.svc.c().handleCombined(remote)
+    );
+    
+    return { callId };
+  }
+
+  // Custom timeout
+  callWithTimeout(userId: string) {
+    const remote = this.svc.c<RemoteDO>().slowOperation(userId);
+    
+    const callId = this.svc.call(
+      'REMOTE_DO',
+      'instance',
+      remote,
+      this.svc.c().handleResult(remote, { userId }),
+      { timeout: 60 }  // 60 seconds (default is 30)
+    );
     
     return { callId };
   }
@@ -195,20 +212,27 @@ class MyDO extends LumenizeBase<Env> {
     this.svc.call.cancel(callId);
   }
 
-  // Handlers - synchronous
-  handleUserData(userData: any, context: { userId: string }) {
-    console.log('Got user data:', userData);
-    if (!userData.valid) {
+  // Handler - receives result OR error
+  handleResult(result: UserData | Error, context: { userId: string }) {
+    if (result instanceof Error) {
+      console.error('Call failed for user:', context.userId, result);
+      return;
+    }
+    
+    // Success - TypeScript knows result is UserData here
+    console.log('Got user data:', result);
+    if (!result.valid) {
       throw new Error('Invalid user data');
     }
   }
 
-  handleError(error: Error, context: { userId: string }) {
-    console.error('Call failed for user:', context.userId, error);
-  }
-
-  handleCombined(combined: any) {
-    console.log('Combined data:', combined);
+  handleCombined(result: CombinedData | Error) {
+    if (result instanceof Error) {
+      console.error('Combined call failed:', result);
+      return;
+    }
+    
+    console.log('Combined data:', result);
   }
 }
 ```
@@ -222,8 +246,8 @@ import { LumenizeBase } from '@lumenize/lumenize-base';
 class MyDO extends LumenizeBase<Env> {
   
   fetchExternalAPI(requestId: string) {
-    // Initiate fetch
-    const fetch = this.svc.proxyFetch(
+    // Single handler receives Response OR Error
+    this.svc.proxyFetch(
       new Request('https://api.example.com/data', {
         method: 'POST',
         body: JSON.stringify({ query: 'example' })
@@ -232,52 +256,51 @@ class MyDO extends LumenizeBase<Env> {
         timeout: 30000,
         maxRetries: 3,
         retryDelay: 1000
-      }
+      },
+      this.svc.c().handleResult(result, { requestId })  // result: Response | Error
     );
-    
-    // Attach handlers
-    fetch
-      .onSuccess(this.svc.proxyFetch.c().handleFetchSuccess(fetch, { requestId }))  // fetch = Response
-      .onError(this.svc.proxyFetch.c().handleFetchError(fetch, { requestId }));     // fetch = Error
-    
-    return { fetchId: fetch.id };
   }
 
   // Simpler
   fetchSimple(url: string) {
-    const fetch = this.svc.proxyFetch(new Request(url));
-    
-    fetch
-      .onSuccess(this.svc.proxyFetch.c().handleResponse(fetch))
-      .onError(this.svc.proxyFetch.c().handleError(fetch));
-    
-    return { fetchId: fetch.id };
+    this.svc.proxyFetch(
+      new Request(url),
+      {},  // Default options
+      this.svc.c().handleResponse(result)  // result: Response | Error
+    );
   }
 
-  // Cancel
-  cancelFetch(fetchId: string) {
-    this.svc.proxyFetch.cancel(fetchId);
-  }
-
-  // Handlers - synchronous
-  handleFetchSuccess(response: Response, context: { requestId: string }) {
-    console.log('Fetch succeeded:', response.status);
+  // Handler - receives Response OR Error
+  handleResult(result: Response | Error, context: { requestId: string }) {
+    if (result instanceof Error) {
+      // Network/timeout error
+      console.error('Fetch failed for request:', context.requestId, result);
+      return;
+    }
     
-    // Response is deserialized via structured-clone
-    const data = response.json();  // Synchronous!
+    // It's a Response - check HTTP status
+    if (!result.ok) {
+      console.error('HTTP error:', result.status, 'for request:', context.requestId);
+      return;
+    }
+    
+    // Success - Response is deserialized via structured-clone
+    const data = result.json();  // Synchronous!
     console.log('Data:', data, 'for request:', context.requestId);
   }
 
-  handleFetchError(error: Error, context: { requestId: string }) {
-    console.error('Fetch failed for request:', context.requestId, error);
-  }
-
-  handleResponse(response: Response) {
-    console.log('Got response:', response.status);
-  }
-
-  handleError(error: Error) {
-    console.error('Error:', error);
+  handleResponse(result: Response | Error) {
+    if (result instanceof Error) {
+      console.error('Network error:', result);
+      return;
+    }
+    
+    if (!result.ok) {
+      console.error('HTTP error:', result.status);
+      return;
+    }
+    
+    console.log('Got response:', result.status);
   }
 }
 ```
@@ -321,9 +344,9 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
 // Local DO - initiates call
 class LocalDO extends LumenizeBase<Env> {
   callRemote() {
-    const remote = this.svc.call.c<RemoteDO>().getUserData(userId);
+    const remote = this.svc.c<RemoteDO>().getUserData(userId);
     this.svc.call('REMOTE_DO', 'instance', remote)
-      .onSuccess(this.svc.call.c().handleSuccess(remote));
+      .onSuccess(this.svc.c().handleSuccess(remote));
   }
 }
 
@@ -338,36 +361,77 @@ class RemoteDO extends LumenizeBase<Env> {
 // const result = await remoteStub.__executeChain(operationChain);
 ```
 
-### 2. Remote Continuation as Placeholder
+### 2. Generic Continuation Factory
 
-The operation chain you want to execute becomes the placeholder for its result:
-
-```typescript
-// Define what to call
-const remote = this.svc.call.c<RemoteDO>().getUserData(userId);
-
-// Use it as placeholder in handlers
-this.svc.call('REMOTE_DO', 'instance', remote)
-  .onSuccess(this.svc.call.c().handleSuccess(remote))  // remote = success result
-  .onError(this.svc.call.c().handleError(remote));     // remote = error
-
-// Implementation: remote's chainId is used to look up actual result
-// when alarm fires and executes the handler
-```
-
-### 2. Success/Error Split
-
-Only one handler fires, so we reuse the same placeholder:
+The continuation factory `this.svc.c()` is a general NADIS service, not tied to any specific async strategy:
 
 ```typescript
-const remote = this.svc.call.c<RemoteDO>().riskyOperation();
-
-this.svc.call('REMOTE_DO', 'instance', remote)
-  .onSuccess(this.svc.call.c().handleSuccess(remote))  // remote populated with result
-  .onError(this.svc.call.c().handleError(remote));     // remote populated with error
+class MyDO extends LumenizeBase<Env> {
+  example() {
+    // For operations on this DO (inferred type)
+    this.svc.alarms.schedule(60, this.svc.c().handleTask());
+    
+    // For operations on remote DO (explicit type)
+    const remote = this.svc.c<RemoteDO>().getUserData(userId);
+    this.svc.call('REMOTE_DO', 'instance', remote)
+      .onSuccess(this.svc.c().handleSuccess(remote));  // Back to this DO
+  }
+}
 ```
 
-### 3. Consistent NADIS Pattern
+**Pattern**: Use `this.svc.c()` everywhere, with optional generic type when targeting remote DOs.
+
+### 3. Single Handler with Result | Error Union
+
+All async strategies use a single continuation parameter. Handlers receive the result OR error and check which:
+
+```typescript
+// Call - handler receives inferred type OR Error
+const remote = this.svc.c<RemoteDO>().getUserData(userId);
+this.svc.call('REMOTE_DO', 'instance', remote, 
+  this.svc.c().handleResult(remote, context)  // remote: UserData | Error
+);
+
+handleResult(result: UserData | Error, context: any) {
+  if (result instanceof Error) {
+    console.error('Call failed:', result);
+    return;
+  }
+  // TypeScript knows result is UserData here
+  console.log('Got data:', result);
+}
+
+// ProxyFetch - handler receives Response OR Error
+this.svc.proxyFetch(request, options,
+  this.svc.c().handleResult(result)  // result: Response | Error
+);
+
+handleResult(result: Response | Error) {
+  if (result instanceof Error) {
+    console.error('Network error:', result);
+    return;
+  }
+  if (!result.ok) {
+    console.error('HTTP error:', result.status);
+    return;
+  }
+  // Success
+  const data = result.json();
+}
+
+// Alarms - no result, just executes
+this.svc.alarms.schedule(60,
+  this.svc.c().handleTask(payload)  // Just executes
+);
+```
+
+**Benefits**:
+- ✅ Consistent API across all three packages
+- ✅ Type-safe: TypeScript infers the union type
+- ✅ Flexible: Handler decides what's an error
+- ✅ Clear pattern: Check `instanceof Error` first
+
+### 4. Consistent NADIS Pattern
 
 All three packages use the same pattern:
 
@@ -380,26 +444,94 @@ import { LumenizeBase } from '@lumenize/lumenize-base';
 class MyDO extends LumenizeBase<Env> {
   
   doAll() {
-    // Alarm - delay then callback
+    // Alarm - delay then callback (no result)
     this.svc.alarms.schedule(
       60,
-      this.svc.alarms.c().handleTimeout()
+      this.svc.c().handleTimeout()
     );
     
-    // Call - remote operation with success/error
-    const remote = this.svc.call.c<RemoteDO>().someMethod();
-    this.svc.call('REMOTE_DO', 'instance', remote)
-      .onSuccess(this.svc.call.c().handleSuccess(remote))
-      .onError(this.svc.call.c().handleError(remote));
+    // Call - remote operation (result | Error)
+    const remote = this.svc.c<RemoteDO>().someMethod();
+    this.svc.call('REMOTE_DO', 'instance', remote,
+      this.svc.c().handleResult(remote)  // remote: any | Error
+    );
     
-    // ProxyFetch - HTTP request with success/error
-    const fetch = this.svc.proxyFetch(new Request(url));
-    fetch
-      .onSuccess(this.svc.proxyFetch.c().handleResponse(fetch))
-      .onError(this.svc.proxyFetch.c().handleError(fetch));
+    // ProxyFetch - HTTP request (Response | Error)
+    this.svc.proxyFetch(new Request(url), {},
+      this.svc.c().handleResponse(result)  // result: Response | Error
+    );
+  }
+  
+  // Handlers check instanceof Error
+  handleResult(result: any | Error) {
+    if (result instanceof Error) {
+      console.error('Failed:', result);
+      return;
+    }
+    console.log('Success:', result);
+  }
+  
+  handleResponse(result: Response | Error) {
+    if (result instanceof Error) {
+      console.error('Network error:', result);
+      return;
+    }
+    if (!result.ok) {
+      console.error('HTTP error:', result.status);
+      return;
+    }
+    console.log('Success');
   }
 }
 ```
+
+### 5. Actor Model Pattern for Call
+
+The `call` strategy uses an **actor model** approach with two one-way calls rather than traditional request/response:
+
+```
+Origin DO                    Remote DO                     Origin DO (callback)
+    │                            │                              │
+    │ 1. Send message            │                              │
+    ├──────────────────────────> │                              │
+    │    { originId,             │ 2. Store in queue           │
+    │      operationId,          │    Return immediately        │
+    │      operationChain }      │                              │
+    │                            │                              │
+    │ 3. Await receipt only      │                              │
+    │    (not execution)         │                              │
+    │<───────────────────────────┤                              │
+    │                            │                              │
+    │ 4. Origin returns          │ 5. Process queue             │
+    │    (wall-clock time        │    Execute OCAN chain        │
+    │     minimized)             │    (async, in own time)      │
+    │                            │                              │
+    │                            │ 6. Send result back          │
+    │                            ├──────────────────────────────>
+    │                            │    { operationId, result }    │
+    │                            │                               │
+    │                            │                 7. Store result│
+    │                            │                    Schedule    │
+    │                            │                    immediate   │
+    │                            │                    alarm       │
+    │                            │                               │
+    │ 8. Alarm fires             │                               │
+    │    Handler executes        │                               │
+```
+
+**Benefits**:
+- ✅ **Minimal wall-clock time** on origin DO (only await message delivery)
+- ✅ **Fault tolerance** via persistent queue in storage
+- ✅ **Decoupled execution** - remote DO processes in its own time
+- ✅ **Consistent pattern** - just like WebSocket request/response with IDs
+- ✅ **Actor model principles** - true asynchronous message passing
+
+**Key Implementation Details**:
+- Origin DO sends `this.ctx.id` so remote knows who to call back
+- Remote DO stores message in `__call_queue:${operationId}` before confirming
+- Remote DO processes queue asynchronously after confirmation
+- Remote DO calls back to origin DO with result or error
+- Origin DO receives callback, schedules immediate alarm with continuation
 
 ## Rejected Alternatives
 
@@ -408,6 +540,8 @@ class MyDO extends LumenizeBase<Env> {
 **Separate operation-chain package**: Adds package sprawl. OCAN is fundamental infrastructure like `sql`, belongs in core.
 
 **Generic continue() function**: Each async strategy has different parameters (alarms need `when`, call needs `doBinding`, etc.). Package-specific APIs are cleaner.
+
+**`.onSuccess()` / `.onError()` chaining**: Simplified to single continuation parameter with `Result | Error` union. Handlers check `instanceof Error` to distinguish.
 
 ## Implementation Phases
 
@@ -421,8 +555,10 @@ class MyDO extends LumenizeBase<Env> {
   - [ ] Extract OperationProxy from RPC
   - [ ] Extract OperationChain types
   - [ ] Extract executeOperationChain()
-  - [ ] Extract operation serialization (uses structured-clone)
+  - [ ] Extract operation preprocessing/postprocessing (uses structured-clone for special types)
+  - [ ] Note: Workers RPC and Queues handle actual serialization natively
   - [ ] Add `createContinuation<T>()` factory
+  - [ ] Register `c` as NADIS service (via declaration merging)
   - [ ] Export from `core/src/index.ts`
   - [ ] Add comprehensive tests
 
@@ -457,7 +593,7 @@ class MyDO extends LumenizeBase<Env> {
   - [ ] Verify immediate alarms (delay <= 0)
 
 **Success Criteria**:
-- ✅ `this.svc.alarms.schedule(60, this.svc.alarms.c().handle())` works
+- ✅ `this.svc.alarms.schedule(60, this.svc.c().handle())` works
 - ✅ Chaining and nesting work
 - ✅ All existing tests pass (with updated OCAN syntax)
 - ✅ Test coverage >80% branch
@@ -467,11 +603,30 @@ class MyDO extends LumenizeBase<Env> {
 **Goal**: Workers RPC with OCAN and synchronous callbacks.
 
 **Steps**:
-- [ ] Update LumenizeBase with OCAN execution
-  - [ ] Add `__executeChain(chain: OperationChain)` method to LumenizeBase
-  - [ ] Import `executeOperationChain` from core
-  - [ ] Mark as `@internal` in JSDoc
-  - [ ] Test that remote DOs can execute chains
+- [ ] Update LumenizeBase with OCAN execution and call handling
+  - [ ] Add `__executeChain(chain: OperationChain)` method
+    - [ ] Import `executeOperationChain` from core
+    - [ ] Execute operations in sequence, handle nesting
+    - [ ] Return result (any type), throw on error
+    - [ ] Mark as `@internal` in JSDoc
+  - [ ] Add `__enqueueOperation(message: CallMessage)` method
+    - [ ] Message contains: `{ originId, originBinding, operationId, operationChain }`
+    - [ ] Store in storage: `__call_queue:${operationId}`
+    - [ ] Confirm receipt immediately (return void)
+    - [ ] Trigger `__processCallQueue()` asynchronously
+  - [ ] Add `__processCallQueue()` internal method
+    - [ ] Read all queued operations from storage (simple storage-based queue, NOT Cloudflare Queues)
+    - [ ] For each: execute via `__executeChain()` (try/catch)
+    - [ ] Call back to origin: `originStub.__receiveOperationResult()`
+    - [ ] Remove from queue on success
+    - [ ] Note: Storage-based queue avoids Cloudflare Queue latency and extra Worker hops
+  - [ ] Add `__receiveOperationResult(message: ResultMessage)` method
+    - [ ] Message contains: `{ operationId, result }` or `{ operationId, error }`
+    - [ ] Cancel timeout alarm (retrieve and cancel from `__call_timeout:${operationId}`)
+    - [ ] Store in storage: `__call_result:${operationId}`
+    - [ ] Retrieve continuation from storage: `__call_continuation:${operationId}`
+    - [ ] Schedule immediate alarm with continuation
+  - [ ] Test that remote DOs can execute chains and call back
 
 - [ ] Create `@lumenize/call` package
   - [ ] Package structure (src/, test/, etc.)
@@ -479,21 +634,47 @@ class MyDO extends LumenizeBase<Env> {
   - [ ] Import ocan from core
   
 - [ ] Implement call() function
-  - [ ] `call(doBinding, instance, remote)` signature
-  - [ ] Returns operation handle
-  - [ ] `.onSuccess()` and `.onError()` chaining
+  - [ ] `call(doBinding, instance, remote, continuation, options?)` signature
+  - [ ] Options: `{ timeout?: number }` (default 30 seconds)
+  - [ ] Generate operation ID: `crypto.randomUUID()`
+  - [ ] Store continuation in storage: `__call_continuation:${operationId}`
+  - [ ] Schedule timeout alarm, store alarm ID: `__call_timeout:${operationId}`
+  - [ ] Send message to remote DO (await receipt only)
+  - [ ] Returns operation ID for cancellation
+  - [ ] Single continuation parameter (no chaining)
   - [ ] Remote continuation as placeholder pattern
+  - [ ] Handler receives `InferredType | Error` union
   
-- [ ] Execute remote operations
-  - [ ] Use Workers RPC to call `remoteStub.__executeChain(operationChain)`
-  - [ ] Serialize operation chain via structured-clone
-  - [ ] On success: schedule immediate alarm with result
-  - [ ] On error: schedule immediate alarm with error
-  - [ ] Placeholder replacement in handler chains
+- [ ] Execute remote operations (Actor Model - Two One-Way Calls)
+  - [ ] Call 1: Origin → Remote (request)
+    - [ ] Send message via Workers RPC to `remoteStub.__enqueueOperation()`
+    - [ ] Message contains: `{ originId: this.ctx.id, originBinding: doBindingName, operationId, operationChain }`
+    - [ ] Preprocess operation chain via structured-clone (Workers RPC handles serialization)
+    - [ ] Only await confirmation that message was received (not execution)
+  - [ ] Remote DO receives message
+    - [ ] Store message in queue in storage (e.g., `__call_queue:${operationId}`)
+    - [ ] Confirm receipt immediately (minimize caller wall-clock time)
+    - [ ] Process queue asynchronously
+    - [ ] Execute OCAN chain via `__executeChain(operationChain)`
+    - [ ] Wrap execution in try/catch
+  - [ ] Call 2: Remote → Origin (response)
+    - [ ] Remote DO calls back to origin: `originStub.__receiveOperationResult()`
+    - [ ] Message contains: `{ operationId, result }` or `{ operationId, error: Error }`
+    - [ ] Postprocess result/error via structured-clone
+  - [ ] Origin DO receives callback
+    - [ ] Store result/error in storage
+    - [ ] Schedule immediate alarm with continuation
+    - [ ] Placeholder replacement: inject result or Error into continuation
+    - [ ] Handler receives `InferredType | Error` and checks `instanceof Error`
   
-- [ ] Cancellation support
+- [ ] Timeout and cancellation support
+  - [ ] Schedule timeout alarm when sending request (e.g., 30 seconds default)
+  - [ ] If timeout fires before result received: call continuation with timeout Error
+  - [ ] If result received before timeout: cancel timeout alarm
   - [ ] `call.cancel(callId)` function
-  - [ ] Remove pending operation from storage
+    - [ ] Remove pending operation from storage
+    - [ ] Cancel timeout alarm
+    - [ ] Note: Can't cancel remote execution (already queued/running)
   
 - [ ] Tests
   - [ ] Basic remote calls
@@ -504,9 +685,10 @@ class MyDO extends LumenizeBase<Env> {
 
 **Success Criteria**:
 - ✅ Remote DO calls with OCAN chains
-- ✅ Synchronous handlers receive results
-- ✅ Placeholder pattern works
-- ✅ Error handling via `.onError()`
+- ✅ Single continuation handler receives `Result | Error`
+- ✅ Placeholder pattern works (inferred type)
+- ✅ Handlers check `instanceof Error` to distinguish
+- ✅ TypeScript infers correct return type from operation chain
 - ✅ Test coverage >80% branch
 
 ### Phase 4: Refactor Proxy-Fetch with OCAN
@@ -516,24 +698,31 @@ class MyDO extends LumenizeBase<Env> {
 **Steps**:
 - [ ] Update proxy-fetch to use core's ocan
   - [ ] Import from core
-  - [ ] Add `.c()` factory method
-  - [ ] Change signature: `proxyFetch(request, options)` returns handle
-  - [ ] Add `.onSuccess()` and `.onError()` chaining
-  - [ ] Fetch handle as placeholder pattern
+  - [ ] Change signature: `proxyFetch(request, options, continuation)`
+  - [ ] Single continuation parameter (no chaining)
+  - [ ] Handler receives `Response | Error` union
   
 - [ ] Update execution
-  - [ ] On success: schedule immediate alarm with Response
-  - [ ] On error: schedule immediate alarm with Error
-  - [ ] Placeholder replacement
+  - [ ] Note: Current implementation uses Cloudflare Queues or dedicated DO
+  - [ ] Keep existing implementation for Phase 4 (just add OCAN support)
+  - [ ] V3 architecture (DO-based queue + Workers) will be separate task
+  - [ ] Preprocess Request via structured-clone
+  - [ ] Wrap fetch in try/catch
+  - [ ] On success (HTTP response received): postprocess Response, schedule immediate alarm
+  - [ ] On error (network/timeout): schedule immediate alarm with Error
+  - [ ] Handler checks `instanceof Error` first, then `response.ok`
   
 - [ ] Update tests
   - [ ] Migrate to OCAN syntax
-  - [ ] Test success/error handlers
+  - [ ] Test Response | Error handling
   - [ ] Verify retry logic still works
+  - [ ] Test HTTP error responses (4xx, 5xx) arrive as Response
 
 **Success Criteria**:
-- ✅ `this.svc.proxyFetch(request).onSuccess().onError()` works
-- ✅ Synchronous handlers receive Response/Error
+- ✅ `this.svc.proxyFetch(request, options, this.svc.c().handle(result))` works
+- ✅ Handlers receive `Response | Error`
+- ✅ Network errors become Error objects
+- ✅ HTTP errors (4xx, 5xx) arrive as Response objects
 - ✅ All existing functionality preserved
 - ✅ Test coverage >80% branch
 
@@ -550,12 +739,13 @@ class MyDO extends LumenizeBase<Env> {
 - [ ] Create call documentation
   - [ ] Overview and use cases
   - [ ] Basic usage examples
+  - [ ] Result | Error pattern explanation
   - [ ] Nested operations
-  - [ ] Error handling patterns
+  - [ ] TypeScript type inference examples
   
 - [ ] Update proxy-fetch documentation
   - [ ] New OCAN syntax
-  - [ ] Success/error handlers
+  - [ ] Response | Error pattern (network vs HTTP errors)
   - [ ] Migration guide
   
 - [ ] Core ocan documentation
@@ -578,7 +768,8 @@ class MyDO extends LumenizeBase<Env> {
 ```json
 {
   "dependencies": {
-    "@lumenize/structured-clone": "*"  // For OCAN serialization
+    "@lumenize/structured-clone": "*"  // For preprocessing/postprocessing special types (Request, Response, etc.)
+    // Note: Workers RPC and Queues handle actual serialization natively
   }
 }
 ```
@@ -626,11 +817,14 @@ class MyDO extends LumenizeBase<Env> {
 ### Must Have
 - [ ] RPC unchanged, @lumenize/testing works
 - [ ] OCAN in core, extracted from RPC
-- [ ] Alarms refactored with OCAN
-- [ ] Call package created with OCAN
-- [ ] Proxy-fetch refactored with OCAN
+- [ ] Generic continuation factory `this.svc.c()` registered by core
+- [ ] LumenizeBase has `__executeChain()` built-in
+- [ ] Alarms refactored with OCAN (single continuation, no result)
+- [ ] Call package created (single continuation, `InferredType | Error`)
+- [ ] Proxy-fetch refactored (single continuation, `Response | Error`)
 - [ ] All handlers synchronous (no async/await)
-- [ ] Type-safe handler names (TypeScript autocomplete)
+- [ ] Handlers check `instanceof Error` to distinguish success/failure
+- [ ] Type-safe: TypeScript autocompletes handler names and infers result types
 - [ ] Chaining and nesting work
 - [ ] Test coverage >80% branch, >90% statement
 - [ ] Documentation following documentation-workflow.md
@@ -651,9 +845,50 @@ class MyDO extends LumenizeBase<Env> {
 
 - **OCAN in core**: Fundamental infrastructure like `sql`, used everywhere
 - **OCAN in LumenizeBase**: Built-in `__executeChain()` method means any DO extending LumenizeBase can be called remotely via `this.svc.call()` without additional setup
+- **Generic continuation factory**: `this.svc.c()` is a general NADIS service registered by core, not tied to any specific async strategy
 - **NADIS everywhere**: Consistent DX across all packages
 - **Package-specific APIs**: Each strategy has parameters that make sense for it
 - **No breaking changes to RPC**: Testing package safe
+
+### Continuation Factory Registration
+
+The continuation factory is registered as a NADIS service by `@lumenize/core`:
+
+```typescript
+// packages/core/src/index.ts
+import { createContinuation } from './ocan';
+
+declare module '@lumenize/lumenize-base' {
+  interface LumenizeServices {
+    c: typeof createContinuation;  // Generic continuation factory
+  }
+}
+```
+
+This makes `this.svc.c()` available on any LumenizeBase DO without additional imports. The factory is generic and works with any DO type:
+
+```typescript
+// For operations on this DO (type inferred)
+this.svc.c().myMethod()
+
+// For operations on remote DO (type explicit)
+this.svc.c<RemoteDO>().remoteMethod()
+```
+
+### Structured-Clone Usage
+
+The `@lumenize/structured-clone` package is used for **preprocessing and postprocessing** complex objects, not for actual serialization:
+
+- **Workers RPC**: Supports structured clone natively - pass objects directly
+- **Storage-based queues**: We use storage (kv/sql) for queuing, not Cloudflare Queues
+- **Structured-clone**: Preprocesses special types (Request, Response, Map, Set, circular refs) before sending, postprocesses after receiving
+- **Why**: Platform handles serialization, structured-clone handles edge cases the platform doesn't support out of the box
+
+Example flow:
+1. Call: `preprocess(operationChain)` → Workers RPC + storage-based queue → `postprocess(operationChain)`
+2. ProxyFetch: `preprocess(Request)` → Current implementation (Cloudflare Queue or DO) → Worker → `postprocess(Response)`
+
+**Note**: We avoid Cloudflare Queues for call operations due to unpredictable latency and extra Worker hops. Instead, we use simple storage-based queues within DOs.
 
 ### Separation of Concerns
 
@@ -663,9 +898,46 @@ class MyDO extends LumenizeBase<Env> {
 - **ProxyFetch**: DO ↔ External API (offloaded to Workers for billing)
 - **LumenizeClient**: Future bidirectional WebSocket messaging (see lumenize-client.md)
 
-### Future: Proxy-Fetch V3
+### Future: Proxy-Fetch V3 (proxyFetchDOWorker)
 
-New proxy-fetch architecture using DO-based queue orchestrating Workers for fetches. Combines DO orchestration (better latency than Cloudflare Queues) with Worker execution (better scalability). Details in future `tasks/proxy-fetch-v3.md`.
+**Current Implementations**:
+- **proxyFetchDO**: DO → FetchDO → Original DO (two one-way calls, pure DO-to-DO)
+- **proxyFetchQueue**: DO → Cloudflare Queue → Worker → Original DO (queue + worker, unpredictable latency)
+
+**New V3 Architecture (proxyFetchDOWorker)**:
+```
+Original DO          FetchOrchestrator DO          Worker           Original DO (result)
+    │                        │                        │                    │
+    │ 1. Enqueue fetch       │                        │                    │
+    ├───────────────────────>│                        │                    │
+    │    (confirm receipt)   │ 2. Store in queue      │                    │
+    │<───────────────────────┤    Return immediately  │                    │
+    │                        │                        │                    │
+    │                        │ 3. Assign to Worker    │                    │
+    │                        ├───────────────────────>│                    │
+    │                        │                        │                    │
+    │                        │                        │ 4. Execute fetch   │
+    │                        │                        │    (HTTP request)  │
+    │                        │                        │                    │
+    │                        │                        │ 5. Send result     │
+    │                        │                        ├────────────────────>
+    │                        │                        │   (direct to caller)│
+    │                        │                        │                    │
+    │                        │ 6. Report completion   │                    │
+    │                        │<───────────────────────┤                    │
+    │                        │    (update queue)      │                    │
+```
+
+**Benefits**:
+- ✅ **Low latency**: FetchOrchestrator DO faster than Cloudflare Queue
+- ✅ **Direct result delivery**: Worker → Original DO (no extra hops)
+- ✅ **Scalability**: Workers handle actual fetches (billed on CPU time)
+- ✅ **Work tracking**: Orchestrator maintains queue state
+- ✅ **Two one-way call pattern**: Consistent with call architecture
+
+**Key difference from call**: Workers do the actual work, orchestrator just manages the queue.
+
+Details in future `tasks/proxy-fetch-v3.md`.
 
 ## References
 
