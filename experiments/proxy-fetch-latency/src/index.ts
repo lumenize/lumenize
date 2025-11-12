@@ -22,7 +22,6 @@ declare global {
  * Uses hibernating WebSocket API for real-time result delivery
  */
 export class OriginDO extends LumenizeBase<Env> {
-  #latencyMeasurements: Map<string, { startTime: number; clientId?: string }> = new Map();
 
   /**
    * Handle HTTP requests to this DO
@@ -67,15 +66,15 @@ export class OriginDO extends LumenizeBase<Env> {
         
         console.log('[OriginDO] Starting proxyFetchWorker for', { targetUrl, clientId });
         
+        // Create continuation that captures clientId and startTime
         const reqId = await proxyFetchWorker(
           this,
           targetUrl,
-          this.ctn().handleFetchResult(this.ctn().$result),
+          this.ctn().handleFetchResultWithMetadata(this.ctn().$result, clientId, startTime),
           { originBinding: 'ORIGIN_DO' }
         );
         
         const enqueueTime = Date.now() - startTime;
-        this.#latencyMeasurements.set(reqId, { startTime, clientId });  // Store clientId
         
         // Send enqueue confirmation with clientId
         const response = {
@@ -111,11 +110,12 @@ export class OriginDO extends LumenizeBase<Env> {
   }
 
   /**
-   * Handle fetch result (continuation)
-   * Sends result via WebSocket to all connected clients
+   * Handle fetch result with captured metadata (continuation)
+   * The clientId and startTime are captured in the closure, not looked up
    */
-  async handleFetchResult(result: Response | Error) {
+  async handleFetchResultWithMetadata(result: Response | Error, clientId: string, startTime: number) {
     const endTime = Date.now();
+    const duration = endTime - startTime;
     
     // Get reqId from temporary storage (set by result handler)
     const reqId = this.ctx.storage.kv.get('__lmz_proxyfetch_result_reqid') as string;
@@ -125,16 +125,12 @@ export class OriginDO extends LumenizeBase<Env> {
       return;
     }
     
-    const measurement = this.#latencyMeasurements.get(reqId);
-    const duration = measurement ? endTime - measurement.startTime : 0;
-    const clientId = measurement?.clientId;  // Get clientId from measurement
-    
     let resultData: any;
     if (result instanceof Error) {
       resultData = {
         type: 'result',
         reqId,
-        clientId,  // Include clientId
+        clientId,  // From captured closure
         success: false,
         error: result.message,
         duration
@@ -144,7 +140,7 @@ export class OriginDO extends LumenizeBase<Env> {
       resultData = {
         type: 'result',
         reqId,
-        clientId,  // Include clientId
+        clientId,  // From captured closure
         success: true,
         status: result.status,
         responseLength: text.length,
@@ -152,13 +148,14 @@ export class OriginDO extends LumenizeBase<Env> {
       };
     }
     
+    console.log('[OriginDO] Sending result:', resultData);
+    
     // Broadcast to all connected WebSockets
     const sockets = this.ctx.getWebSockets();
     for (const ws of sockets) {
       ws.send(JSON.stringify(resultData));
     }
     
-    this.#latencyMeasurements.delete(reqId);
     this.ctx.storage.kv.delete('__lmz_proxyfetch_result_reqid');
   }
 }
