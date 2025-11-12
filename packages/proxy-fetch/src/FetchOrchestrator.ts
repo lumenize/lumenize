@@ -18,6 +18,7 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { debug } from '@lumenize/core';
 import type { FetchOrchestratorMessage, WorkerFetchMessage } from './types.js';
+import { executeFetch } from './workerFetchExecutor.js';
 
 export class FetchOrchestrator extends LumenizeBase {
   /**
@@ -61,7 +62,11 @@ export class FetchOrchestrator extends LumenizeBase {
   }
 
   /**
-   * Dispatch a fetch request to a Worker via HTTP
+   * Dispatch a fetch request to a Worker
+   * 
+   * In production: HTTP dispatch to worker URL
+   * In test/local: Direct function call (when WORKER_URL is localhost)
+   * 
    * @internal
    */
   async #dispatchToWorker(message: FetchOrchestratorMessage): Promise<void> {
@@ -81,10 +86,16 @@ export class FetchOrchestrator extends LumenizeBase {
     try {
       // Determine worker URL
       const workerUrl = message.options?.workerUrl || this.env.WORKER_URL;
-      if (!workerUrl) {
-        throw new Error('Worker URL not provided. Set options.workerUrl or env.WORKER_URL');
+      
+      // Test/local environment: Call executeFetch directly (no HTTP server in vitest)
+      if (!workerUrl || workerUrl.includes('localhost') || workerUrl.includes('127.0.0.1')) {
+        log.debug('Dispatching to Worker (direct call - test environment)', { reqId: message.reqId });
+        await executeFetch(workerMessage, this.env);
+        log.debug('Dispatched to Worker (direct)', { reqId: message.reqId });
+        return;
       }
 
+      // Production environment: HTTP dispatch
       // Determine worker path
       const workerPath = message.options?.workerPath || '/proxy-fetch-execute';
       const url = `${workerUrl}${workerPath}`;
