@@ -44,14 +44,14 @@ function connectWebSocket() {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL);
     
-    ws.on('open', () => {
+    ws.onopen = () => {
       console.log('✓ WebSocket connected to Origin DO');
       resolve(ws);
-    });
+    };
     
-    ws.on('error', (error) => {
+    ws.onerror = (error) => {
       reject(error);
-    });
+    };
   });
 }
 
@@ -68,8 +68,8 @@ async function measureEndToEndLatency(url, iterations = 10) {
   const pendingRequests = new Map();
   
   // Listen for messages
-  ws.on('message', (data) => {
-    const msg = JSON.parse(data.toString());
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
     
     if (msg.type === 'enqueued') {
       // Enqueue confirmation
@@ -99,7 +99,7 @@ async function measureEndToEndLatency(url, iterations = 10) {
     } else if (msg.type === 'error') {
       console.error('  ❌ Error:', msg.error);
     }
-  });
+  };
   
   // Send requests
   for (let i = 0; i < iterations; i++) {
