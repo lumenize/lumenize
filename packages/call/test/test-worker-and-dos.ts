@@ -136,6 +136,99 @@ export class OriginDO extends LumenizeBase<Env> {
     }
   }
 
+  // Test: Call with delay (for cancellation testing)
+  async callRemoteWithDelay(value: string, delayMs: number): Promise<string> {
+    const remote = this.ctn<RemoteDO>().asyncOperation(value);
+    
+    // Store operation ID before calling (so we can cancel it)
+    await this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      remote,
+      this.ctn().handleDelayResult(remote),
+      { originBinding: 'ORIGIN_DO' }
+    );
+    
+    // Return operation ID for cancellation tests
+    // Get the most recent pending call key
+    const pending = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_pending:' })];
+    const lastKey = pending[pending.length - 1][0]; // [key, value] pairs
+    return lastKey.substring('__lmz_call_pending:'.length);
+  }
+
+  handleDelayResult(result: any) {
+    if (result instanceof Error) {
+      this.#results.push({ type: 'error', value: result.message });
+    } else {
+      this.#results.push({ type: 'success', value: result });
+    }
+  }
+
+  // Test: Call with explicit timeout
+  async callRemoteWithTimeout(value: string, timeout: number): Promise<string> {
+    const remote = this.ctn<RemoteDO>().asyncOperation(value);
+    
+    await this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      remote,
+      this.ctn().handleTimeoutTestResult(remote),
+      { timeout, originBinding: 'ORIGIN_DO' }
+    );
+    
+    // Return operation ID
+    const pending = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_pending:' })];
+    const lastKey = pending[pending.length - 1][0]; // [key, value] pairs
+    return lastKey.substring('__lmz_call_pending:'.length);
+  }
+
+  handleTimeoutTestResult(result: any) {
+    if (result instanceof Error) {
+      this.#results.push({ type: 'error', value: result.message });
+    } else {
+      this.#results.push({ type: 'success', value: result });
+    }
+  }
+
+  // Test: Cancel a pending call
+  async cancelPendingCall(operationId: string): Promise<boolean> {
+    // Use the cancelCall function from the call package
+    const { cancelCall } = await import('@lumenize/call');
+    return cancelCall(this, operationId);
+  }
+
+  // Test: Call with invalid remote operation (not OCAN)
+  async callWithInvalidRemoteOperation() {
+    await this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      'not-an-ocan' as any, // Invalid!
+      this.ctn().handleInvalidResult(),
+      { originBinding: 'ORIGIN_DO' }
+    );
+  }
+
+  // Test: Call with invalid continuation (not OCAN)
+  async callWithInvalidContinuation() {
+    const remote = this.ctn<RemoteDO>().add(1, 2);
+    
+    await this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      remote,
+      'not-an-ocan' as any, // Invalid!
+      { originBinding: 'ORIGIN_DO' }
+    );
+  }
+
+  handleInvalidResult(result: any) {
+    if (result instanceof Error) {
+      this.#results.push({ type: 'error', value: result.message });
+    } else {
+      this.#results.push({ type: 'success', value: result });
+    }
+  }
+
   // Test helpers
   getResults() {
     return this.#results;
