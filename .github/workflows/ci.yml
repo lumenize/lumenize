@@ -23,11 +23,11 @@ jobs:
       - name: Clean npm cache
         run: npm cache clean --force
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (skip optional to avoid Rollup bug)
+        run: npm ci --no-optional
 
       - name: Explicitly install Rollup Linux binary (after npm ci)
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu || true
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu
 
       - name: Run tests with coverage for all packages
         run: |
@@ -56,11 +56,11 @@ jobs:
       - name: Clean npm cache
         run: npm cache clean --force
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies (skip optional to avoid Rollup bug)
+        run: npm ci --no-optional
 
       - name: Explicitly install Rollup Linux binary (after npm ci)
-        run: npm install --no-save @rollup/rollup-linux-x64-gnu || true
+        run: npm install --no-save @rollup/rollup-linux-x64-gnu
 
       - name: Run doc-test examples (no coverage)
         run: |
