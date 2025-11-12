@@ -155,8 +155,9 @@ export class OriginDO extends LumenizeBase<Env> {
       return;
     }
     
-    // Track success/failure
+    // Consume Response body (required)
     if (!(result instanceof Error)) {
+      await result.text(); // Must consume the body
       batch.successCount++;
     }
     batch.completed++;
