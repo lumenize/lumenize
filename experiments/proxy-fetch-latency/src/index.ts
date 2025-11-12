@@ -100,17 +100,15 @@ export class OriginDO extends LumenizeBase<Env> {
         });
         
         // Kick off all fetches in parallel
-        const reqIds: string[] = [];
         for (let i = 0; i < count; i++) {
-          const fetchIndex = i; // Capture index
-          const reqId = await proxyFetchWorker(
+          const myId = crypto.randomUUID(); // Generate our own ID for tracking
+          await proxyFetchWorker(
             this,
             targetUrl,
-            this.ctn().handleBatchFetchResult(this.ctn().$result, batchId, fetchIndex),
+            this.ctn().handleBatchFetchResult(this.ctn().$result, batchId, myId),
             { originBinding: 'ORIGIN_DO' }
           );
-          reqIds.push(reqId);
-          console.log('[Batch] Dispatched fetch', { batchId, index: i, reqId });
+          console.log('[Batch] Dispatched fetch', { batchId, index: i, myId });
         }
         
         console.log('[Batch] All fetches dispatched', { batchId, count });
@@ -119,8 +117,7 @@ export class OriginDO extends LumenizeBase<Env> {
         ws.send(JSON.stringify({
           type: 'batch-started',
           batchId,
-          count,
-          reqIds
+          count
         }));
       }
     } catch (error) {
@@ -149,8 +146,8 @@ export class OriginDO extends LumenizeBase<Env> {
    * Handle batch fetch result (continuation for scalability testing)
    * Timing is done by Node.js client where clock works properly
    */
-  async handleBatchFetchResult(result: Response | Error, batchId: string, fetchIndex: number) {
-    console.log('[Batch] handleBatchFetchResult called', { batchId, fetchIndex });
+  async handleBatchFetchResult(result: Response | Error, batchId: string, myId: string) {
+    console.log('[Batch] handleBatchFetchResult called', { batchId, myId });
     
     const batch = this.#batchMetrics.get(batchId);
     if (!batch) {
@@ -164,7 +161,7 @@ export class OriginDO extends LumenizeBase<Env> {
     }
     batch.completed++;
     
-    console.log('[Batch] Batch status:', { batchId, fetchIndex, completed: batch.completed, total: batch.total });
+    console.log('[Batch] Batch status:', { batchId, myId, completed: batch.completed, total: batch.total });
     
     // Check if batch is complete
     if (batch.completed === batch.total) {
