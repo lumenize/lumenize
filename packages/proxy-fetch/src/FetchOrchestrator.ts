@@ -36,7 +36,7 @@ export class FetchOrchestrator extends LumenizeBase {
 
     // Store in queue
     const queueKey = `fetch_queue:${message.reqId}`;
-    this.ctx.storage.kv.put(queueKey, JSON.stringify(message));
+    this.ctx.storage.kv.put(queueKey, message);
 
     // Dispatch to Worker immediately
     // The Worker will execute the fetch and send result directly to origin DO

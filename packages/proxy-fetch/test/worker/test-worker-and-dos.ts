@@ -28,16 +28,24 @@ export class _TestDO extends LumenizeBase {
   async fetchData(url: string): Promise<string> {
     const startTime = Date.now();
     
+    // Store startTime BEFORE making the call (use temp key)
+    const tempKey = `temp_start:${Date.now()}`;
+    this.ctx.storage.kv.put(tempKey, { startTime });
+    
     const reqId = await proxyFetchWorker(
       this,
       url,
-      // Pass reqId and startTime as context through the continuation
-      this.ctn().handleFetchResult(this.ctn().$result, reqId, startTime),
+      // Continuation just receives the result - will look up reqId from storage
+      this.ctn().handleFetchResult(this.ctn().$result),
       { originBinding: 'TEST_DO' }
     );
     
-    // Store startTime for latency tracking
-    this.ctx.storage.kv.put(`latency:${reqId}`, JSON.stringify({ startTime, reqId }));
+    // Move temp data to reqId key
+    const tempData = this.ctx.storage.kv.get(tempKey);
+    if (tempData) {
+      this.ctx.storage.kv.put(`latency:${reqId}`, { startTime, reqId });
+      this.ctx.storage.kv.delete(tempKey);
+    }
     
     return reqId;
   }
@@ -45,35 +53,19 @@ export class _TestDO extends LumenizeBase {
   /**
    * Handler that receives Response | Error
    * 
-   * Note: reqId parameter will be undefined until we fix the placeholder injection
-   * For now, we'll retrieve it from storage
+   * Retrieves reqId from temporary storage (set by fetchWorkerResultHandler)
    */
-  async handleFetchResult(result: Response | Error, reqId?: string, startTimeParam?: number) {
+  async handleFetchResult(result: Response | Error) {
     const endTime = Date.now();
     
-    // If reqId not provided (placeholder injection issue), try to find it
-    if (!reqId) {
-      // TODO: Improve placeholder injection to pass reqId
-      // For now, we'll need to find the pending request
-      const keys = [...this.ctx.storage.kv.list({ prefix: 'latency:' })];
-      if (keys.length > 0) {
-        const latencyKey = keys[keys.length - 1][0]; // Get most recent
-        reqId = latencyKey.substring('latency:'.length);
-      } else {
-        reqId = `unknown-${Date.now()}`;
-      }
-    }
+    // Get reqId from temporary storage (set by fetchWorkerResultHandler)
+    const reqId = (this.ctx.storage.kv.get('__current_result_reqId') as string) || `unknown-${Date.now()}`;
     
-    // Get startTime from storage if not provided
-    let startTime = startTimeParam;
-    if (!startTime) {
-      const latencyData = this.ctx.storage.kv.get(`latency:${reqId}`);
-      if (latencyData) {
-        const parsed = JSON.parse(latencyData as string);
-        startTime = parsed.startTime;
-      } else {
-        startTime = endTime; // Fallback
-      }
+    // Get startTime from stored latency data
+    let startTime = endTime; // Fallback
+    const latencyData = this.ctx.storage.kv.get(`latency:${reqId}`) as { startTime: number; reqId: string } | undefined;
+    if (latencyData) {
+      startTime = latencyData.startTime;
     }
     
     const duration = endTime - startTime;

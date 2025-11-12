@@ -30,29 +30,16 @@ export async function fetchWorkerResultHandler(
   // Postprocess result
   const fetchResult = await postprocess(resultData) as FetchResult;
 
-  // Get the continuation chain from pending request
-  // (We don't store pending requests for V3, the continuation is in the result)
-  // Actually, we need to think about this differently...
-  
-  // For V3, the Worker already has the continuation chain and will execute it
-  // Wait, no - we want the continuation to run on the origin DO, not the Worker!
-  
-  // Let me reconsider the architecture:
-  // The continuation chain is sent to the Worker in the message
-  // The Worker sends back the result
-  // We need to store the continuation chain on the origin DO so we can execute it here
-  
-  // Store pending continuation when we make the fetch
+  // Get the continuation chain from pending request storage
   const pendingKey = `proxyFetch_pending:${reqId}`;
-  const pendingData = ctx.storage.kv.get(pendingKey);
+  const pendingData = ctx.storage.kv.get(pendingKey) as { reqId: string; continuationChain: any; timestamp: number } | undefined;
   
   if (!pendingData) {
     log.warn('No pending continuation found for result', { reqId });
     return;
   }
 
-  const pending = JSON.parse(pendingData as string);
-  const continuationChain = await postprocess(pending.continuationChain);
+  const continuationChain = await postprocess(pendingData.continuationChain);
 
   log.debug('Executing continuation', {
     reqId,
@@ -71,6 +58,10 @@ export async function fetchWorkerResultHandler(
     resultOrError = new Error('No response or error in fetch result');
   }
 
+  // Store reqId temporarily so continuation can access it
+  // This is a workaround until we have better context injection in OCAN
+  ctx.storage.kv.put('__current_result_reqId', reqId);
+
   // Execute continuation with result
   try {
     const finalChain = replacePlaceholder(continuationChain, resultOrError);
@@ -85,8 +76,9 @@ export async function fetchWorkerResultHandler(
     });
   }
 
-  // Clean up pending continuation
+  // Clean up
   ctx.storage.kv.delete(pendingKey);
+  ctx.storage.kv.delete('__current_result_reqId');
 }
 
 /**
