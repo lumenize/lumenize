@@ -1,31 +1,38 @@
 # ProxyFetch Latency Measurements
 
-This experiment measures the real-world latency of the `proxyFetchWorker` architecture.
+This experiment measures the real-world latency of the `proxyFetchWorker` architecture using **WebSocket** for real-time result delivery.
 
-## Architecture (Simplified)
+## Architecture
 
 The experiment deploys a **single** Cloudflare Worker with three components:
 
-1. **`OriginDO`** - Initiates fetches and measures latency
+1. **`OriginDO`** - Initiates fetches, measures latency, sends results via WebSocket
 2. **`FetchOrchestrator`** - Manages fetch queue
-3. **Worker fetch handler** - Handles both routing AND proxy-fetch execution (CPU-billed)
+3. **Worker fetch handler** - Routes WebSocket upgrades and handles proxy-fetch execution (CPU-billed)
 
 ### Flow Diagram
 
 ```
-Origin DO → FetchOrchestrator → Worker Handler (HTTP POST to /proxy-fetch-execute)
-                                       ↓ (executes fetch)
-                                  External API
-                                       ↓
-                              Worker Handler → Origin DO (result via RPC)
+Client (WebSocket) ↔ Origin DO
+                       ↓
+                FetchOrchestrator
+                       ↓
+               Worker Handler (executes fetch, CPU-billed)
+                       ↓
+               External API
+                       ↓
+               Worker → Origin DO (__receiveResult)
+                       ↓
+               Origin DO → Client (WebSocket push)
 ```
 
 ### Key Benefits
 
+- ✅ **Real production pattern** - WebSocket matches real-world usage (no polling)
 - ✅ **Simple deployment** - Single `wrangler deploy` command
-- ✅ **No service bindings** - Uses HTTP with shared secret authentication  
-- ✅ **CPU billing** - Fetch execution happens in worker's fetch handler (CPU-billed)
-- ✅ **Low latency** - Direct HTTP dispatch, ~100-200ms end-to-end
+- ✅ **True latency measurement** - No artificial polling overhead (~200ms improvement)
+- ✅ **CPU billing** - Fetch execution happens in worker (CPU-billed, not wall-clock)
+- ✅ **Immediate results** - WebSocket push as soon as continuation executes
 
 ## Structure
 
@@ -63,6 +70,10 @@ Replace `YOUR_SUBDOMAIN` with your actual Cloudflare subdomain.
 
 ## Running Measurements
 
+**Requirements:**
+- Node.js 21+ (for native WebSocket support)
+- `TEST_TOKEN` and `TEST_ENDPOINTS_URL` in `../../.dev.vars`
+
 ### Option 1: Production Deployment (Recommended)
 
 For real production latency measurements:
@@ -78,58 +89,74 @@ npm test
 ```
 
 This gives true production numbers with:
-- ✅ Full HTTP dispatch flow
+- ✅ WebSocket connection to real Cloudflare edge
+- ✅ Full HTTP dispatch flow for fetch execution
 - ✅ Worker fetch handler with CPU billing
-- ✅ FetchOrchestrator → Worker → Origin DO flow
 - ✅ Real network latencies
+- ✅ No polling overhead
 
 ### Option 2: Local Development
 
 For quick iteration during development:
-
-**Requirements:**
-- Node.js v22+ (for native fetch support)
 
 1. **Terminal 1** - Start the worker with wrangler:
    ```bash
    npm run dev
    ```
 
-2. **Terminal 2** - Export env vars and run tests (connects to localhost:8787):
+2. **Terminal 2** - Export env vars and run tests:
    ```bash
    export $(cat ../../.dev.vars | xargs)
    npm test
    ```
 
-**Note:** Local dev uses `http://localhost:8787` by default. Some behaviors may differ from production.
+**Note:** 
+- Connects to `ws://localhost:8787` by default
+- Uses direct `executeFetch()` calls (no HTTP in local dev)
+- Some latencies may differ from production
 
 ## What We're Measuring
 
-### 1. Enqueue Latency
+### End-to-End Latency (Primary Metric)
 
-Time from `proxyFetchWorker()` call until reqId returned:
-- **Includes**: Client → Cloudflare network latency + DO-to-DO RPC + queueing
-- **Target**: <200ms (with network overhead)
-- **Production overhead alone**: ~20-50ms within Cloudflare network
+Total time from WebSocket `start-fetch` message to `result` message:
+- **Measured**: Client timestamp start → result received
+- **Node.js overhead**: ~30ms (subtracted in results)
+- **Actual DO latency**: Measured total - 30ms
+- **Target**: 50-100ms for fast endpoints
 
-### 2. End-to-End Latency  
+**Breakdown:**
+1. WebSocket message (Client → Origin DO): ~10-15ms
+2. `proxyFetchWorker()` execution: ~20-40ms
+3. FetchOrchestrator dispatch: ~5-10ms  
+4. Worker fetch execution: (depends on external API)
+5. Result callback to Origin DO: ~10-15ms
+6. Continuation execution: ~5-10ms
+7. WebSocket push (Origin DO → Client): ~10-15ms
 
-Total time from `proxyFetchWorker()` call until continuation executes:
-- **Breakdown**: Enqueue + Worker HTTP POST + External fetch + Result callback
-- **Target**: Depends on external API, but overhead should be minimal (~100-200ms + API time)
+### What's NOT Measured
 
-### 3. What's NOT Measured
+- **WebSocket connection setup**: One-time overhead, excluded from measurements
+- **Server Duration**: Always 0ms (Workers clock doesn't advance during I/O)
+- **Node.js local network**: ~30ms estimated and subtracted
 
-- **Server Duration**: Always 0ms due to Workers clock behavior during I/O
-- **Worker execution time**: Not directly measured (included in end-to-end)
+### Why This Matters
+
+- ✅ **No artificial polling delays** (~200ms improvement vs polling)
+- ✅ **Real production pattern** (WebSocket is how you'd actually use this)
+- ✅ **True proxyFetchWorker overhead** (what you pay for the architecture)
 
 ## How It Works
 
-The experiment exposes HTTP endpoints on the OriginDO:
+The experiment uses **WebSocket** for bidirectional communication:
 
-1. **`/start-fetch?url=...`** - Initiates a fetch and returns `reqId` immediately
-2. **`/get-result?reqId=...`** - Retrieves result for a given reqId
-3. **`/clear-results`** - Clears all stored results
+1. **Client establishes WebSocket** to Origin DO (via `routeDORequest()`)
+2. **Client sends** `start-fetch` message with target URL
+3. **Origin DO calls** `proxyFetchWorker()` and sends `enqueued` confirmation
+4. **Async execution** happens in background (FetchOrchestrator → Worker → External API)
+5. **Result delivered** via `__receiveResult()` callback to Origin DO
+6. **Continuation executes** in Origin DO
+7. **Origin DO pushes** `result` message back to client via WebSocket
 
 The Node.js test client uses these endpoints to measure latency from outside the Worker environment, avoiding clock/timing issues that occur in vitest-pool-workers.
 
