@@ -127,7 +127,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    */
   async __enqueueWork(workType: string, workId: string, workData: any): Promise<void> {
     const queueKey = `__queue:${workType}:${workId}`;
-    this.ctx.storage.kv.put(queueKey, JSON.stringify(workData));
+    this.ctx.storage.kv.put(queueKey, workData);
 
     // Process queue asynchronously (after returning to caller)
     // Note: In DOs, async operations are automatically awaited
@@ -158,7 +158,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
 
     for (const [key, value] of queueItems) {
       const workId = key.substring(prefix.length);
-      const workData = JSON.parse(value as string);
+      const workData = value;
 
       // Get handler for this work type
       const registry = (globalThis as any).__lumenizeWorkHandlers;
@@ -213,7 +213,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   async __receiveResult(workType: string, workId: string, resultData: any): Promise<void> {
     // Store result
     const resultKey = `__result:${workType}:${workId}`;
-    this.ctx.storage.kv.put(resultKey, JSON.stringify(resultData));
+    this.ctx.storage.kv.put(resultKey, resultData);
 
     // Get result handler for this work type
     const registry = (globalThis as any).__lumenizeResultHandlers;
