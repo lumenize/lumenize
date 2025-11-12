@@ -14,12 +14,6 @@
       }
     ]
   },
-  "services": [
-    {
-      "binding": "FETCH_WORKER",
-      "service": "proxy-fetch-latency/worker-executor"
-    }
-  ],
   "migrations": [
     {
       "tag": "v1",
