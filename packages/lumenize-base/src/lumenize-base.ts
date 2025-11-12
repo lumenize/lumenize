@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { newContinuation } from '@lumenize/core';
+import { newContinuation, executeOperationChain, type OperationChain } from '@lumenize/core';
 
 /**
  * LumenizeBase - Base class for Durable Objects with NADIS auto-injection
@@ -74,6 +74,33 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   ctn<T = this>(): T {
     return newContinuation<T>();
   }
+
+  /**
+   * Execute an OCAN (Operation Chaining And Nesting) operation chain on this DO.
+   * 
+   * This method enables remote DOs to call methods on this DO via @lumenize/call.
+   * Any DO extending LumenizeBase can receive remote calls without additional setup.
+   * 
+   * @internal This is called by @lumenize/call, not meant for direct use
+   * @param chain - The operation chain to execute
+   * @returns The result of executing the operation chain
+   * 
+   * @example
+   * ```typescript
+   * // Remote DO sends this chain:
+   * const remote = this.ctn<MyDO>().getUserData(userId);
+   * 
+   * // This DO receives and executes it:
+   * const result = await this.__executeChain(remote);
+   * // Equivalent to: this.getUserData(userId)
+   * ```
+   */
+  async __executeChain(chain: OperationChain): Promise<any> {
+    return await executeOperationChain(chain, this);
+  }
+
+  // Note: __enqueueOperation, __processCallQueue, __receiveOperationResult, and
+  // __handleCallAlarms are added dynamically by @lumenize/call when imported
 
   /**
    * Access NADIS services via this.svc.*
