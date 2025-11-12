@@ -9,4 +9,5 @@
 // Each feature controls its own public API via its index.ts
 export * from '../sql/index';
 export * from '../debug/index';
+export * from '../ocan/index';
 
