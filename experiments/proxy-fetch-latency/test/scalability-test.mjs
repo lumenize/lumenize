@@ -82,28 +82,24 @@ async function runBatchTest(ws, count) {
   return new Promise((resolve, reject) => {
     const batchId = `batch-${Date.now()}-${count}`;
     const clientStartTime = Date.now();
-    let dispatchTime = 0;
+    let dispatchConfirmed = false;
     
     const onMessage = (event) => {
       const msg = JSON.parse(event.data);
       
       if (msg.type === 'batch-started' && msg.batchId === batchId) {
-        dispatchTime = msg.dispatchTime;
+        dispatchConfirmed = true;
+        const dispatchTime = Date.now() - clientStartTime;
         console.log(`  ✓ Dispatched ${count} fetches in ${dispatchTime}ms`);
       } else if (msg.type === 'batch-complete' && msg.batchId === batchId) {
-        const clientTotalTime = Date.now() - clientStartTime;
+        const totalTime = Date.now() - clientStartTime;
         
         // Remove listener
         ws.removeEventListener('message', onMessage);
         
         resolve({
           count,
-          dispatchTime,
-          totalTime: msg.totalTime,
-          clientTotalTime,
-          avgDuration: msg.avgDuration,
-          minDuration: msg.minDuration,
-          maxDuration: msg.maxDuration,
+          totalTime,
           successCount: msg.successCount
         });
       } else if (msg.type === 'error') {
@@ -165,9 +161,7 @@ async function main() {
       const result = await runBatchTest(ws, size);
       results.push(result);
       
-      console.log(`  ✓ Complete: ${result.totalTime}ms total`);
-      console.log(`  → Avg per fetch: ${Math.round(result.avgDuration)}ms`);
-      console.log(`  → Range: ${result.minDuration}ms - ${result.maxDuration}ms`);
+      console.log(`  ✓ Complete: ${result.totalTime}ms total (measured by client)`);
       console.log(`  → Success: ${result.successCount}/${result.count}\n`);
       
       // Analyze scaling if we have baseline
@@ -206,8 +200,8 @@ async function main() {
   console.log('✅ Scalability test complete!\n');
   console.log('Summary:');
   results.forEach(r => {
-    const avgMs = Math.round(r.avgDuration);
-    console.log(`  ${r.count} concurrent: ${r.totalTime}ms total, ${avgMs}ms avg`);
+    const perFetch = Math.round(r.totalTime / r.count);
+    console.log(`  ${r.count} concurrent: ${r.totalTime}ms total (~${perFetch}ms per fetch if linear)`);
   });
 }
 

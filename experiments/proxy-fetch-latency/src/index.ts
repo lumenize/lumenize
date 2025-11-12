@@ -26,8 +26,7 @@ export class OriginDO extends LumenizeBase<Env> {
   #batchMetrics: Map<string, {
     total: number;
     completed: number;
-    startTime: number;
-    results: Array<{ reqId: string; duration: number; success: boolean }>;
+    successCount: number;
   }> = new Map();
 
   /**
@@ -90,37 +89,38 @@ export class OriginDO extends LumenizeBase<Env> {
         const batchId = msg.batchId;
         const count = msg.count;
         const targetUrl = msg.url;
-        const startTime = Date.now();
         
-        // Initialize batch tracking
+        console.log('[Batch] Starting batch', { batchId, count });
+        
+        // Initialize batch tracking (DO only tracks completion, not time)
         this.#batchMetrics.set(batchId, {
           total: count,
           completed: 0,
-          startTime,
-          results: []
+          successCount: 0
         });
         
         // Kick off all fetches in parallel
         const reqIds: string[] = [];
         for (let i = 0; i < count; i++) {
+          const fetchIndex = i; // Capture index
           const reqId = await proxyFetchWorker(
             this,
             targetUrl,
-            this.ctn().handleBatchFetchResult(this.ctn().$result, batchId),
+            this.ctn().handleBatchFetchResult(this.ctn().$result, batchId, fetchIndex),
             { originBinding: 'ORIGIN_DO' }
           );
           reqIds.push(reqId);
+          console.log('[Batch] Dispatched fetch', { batchId, index: i, reqId });
         }
         
-        const dispatchTime = Date.now() - startTime;
+        console.log('[Batch] All fetches dispatched', { batchId, count });
         
-        // Send batch started confirmation
+        // Send batch started confirmation (timing done by client)
         ws.send(JSON.stringify({
           type: 'batch-started',
           batchId,
           count,
-          reqIds,
-          dispatchTime
+          reqIds
         }));
       }
     } catch (error) {
@@ -147,58 +147,44 @@ export class OriginDO extends LumenizeBase<Env> {
 
   /**
    * Handle batch fetch result (continuation for scalability testing)
+   * Timing is done by Node.js client where clock works properly
    */
-  async handleBatchFetchResult(result: Response | Error, batchId: string) {
-    const endTime = Date.now();
-    const reqId = this.ctx.storage.kv.get('__lmz_proxyfetch_result_reqid') as string;
+  async handleBatchFetchResult(result: Response | Error, batchId: string, fetchIndex: number) {
+    console.log('[Batch] handleBatchFetchResult called', { batchId, fetchIndex });
     
     const batch = this.#batchMetrics.get(batchId);
     if (!batch) {
-      console.error('Batch not found:', batchId);
+      console.error('[Batch] Batch not found:', batchId);
       return;
     }
     
-    // Record result
-    const fetchStartTime = batch.startTime;
-    const duration = endTime - fetchStartTime;
-    batch.results.push({
-      reqId,
-      duration,
-      success: !(result instanceof Error)
-    });
+    // Track success/failure
+    if (!(result instanceof Error)) {
+      batch.successCount++;
+    }
     batch.completed++;
+    
+    console.log('[Batch] Batch status:', { batchId, fetchIndex, completed: batch.completed, total: batch.total });
     
     // Check if batch is complete
     if (batch.completed === batch.total) {
-      const totalTime = endTime - batch.startTime;
+      console.log('[Batch] All fetches complete', { batchId, successCount: batch.successCount });
       
-      // Calculate statistics
-      const durations = batch.results.map(r => r.duration);
-      const avgDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
-      const minDuration = Math.min(...durations);
-      const maxDuration = Math.max(...durations);
-      const successCount = batch.results.filter(r => r.success).length;
-      
-      // Broadcast results
+      // Broadcast completion (client measures total time)
       const sockets = this.ctx.getWebSockets();
       for (const ws of sockets) {
         ws.send(JSON.stringify({
           type: 'batch-complete',
           batchId,
-          totalTime,
           count: batch.total,
-          successCount,
-          avgDuration,
-          minDuration,
-          maxDuration
+          successCount: batch.successCount
         }));
       }
       
       // Clean up
       this.#batchMetrics.delete(batchId);
+      console.log('[Batch] Batch complete, cleaned up:', { batchId });
     }
-    
-    this.ctx.storage.kv.delete('__lmz_proxyfetch_result_reqid');
   }
 
   /**
