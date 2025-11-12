@@ -40,19 +40,17 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
-- [ ] Review/edit the new docs for:
-  - [ ] Do next because they are failing check-examples right now
-    - [ ] alarms
-    - [ ] structured-clone
-  
+- [ ] Review/edit the new docs for through Phase 4:
+  - [x] structured-clone
   - [x] maps and sets
   - [ ] lumenize-base
   - [ ] NADIS (plit from lumenize-base)
   - [WiP: Phase 1] core
     - [ ] Introduction
-    - [Phase 4 complete] debug
+    - [x] debug
     - [ ] sql
   - [ ] testing alarms (simulation and triggering)
+  - [ ] alarms
   - [ ] RPC downstream messaging
     - [ ] Build a chat app like the vs Cap'n Web
       - [ ] User:
@@ -61,6 +59,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
         - access control (alterantively in Room)
       - [ ] Room:
         - messages
+- [ ]
   
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 

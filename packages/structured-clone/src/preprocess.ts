@@ -17,6 +17,7 @@ import {
  * 
  * @property root - The preprocessed root value or reference
  * @property objects - Array of encoded complex objects
+ * @internal
  */
 export interface LmzIntermediate {
   root: any;
@@ -26,11 +27,13 @@ export interface LmzIntermediate {
 /**
  * Symbol returned from transform hook to indicate value should be skipped
  * and processed normally by structured-clone
+ * @internal
  */
 export const TRANSFORM_SKIP = Symbol('TRANSFORM_SKIP');
 
 /**
  * Path element in the object tree - represents a step in the traversal
+ * @internal
  */
 export interface PathElement {
   type: 'get' | 'index';
@@ -39,6 +42,7 @@ export interface PathElement {
 
 /**
  * Context provided to transform hooks during preprocessing
+ * @internal
  */
 export interface PreprocessContext {
   /** WeakMap tracking all seen objects for alias detection */
@@ -57,11 +61,13 @@ export interface PreprocessContext {
  * @param value - The value being processed
  * @param context - Preprocessing context with seen map
  * @returns Transformed value, or TRANSFORM_SKIP to use default processing
+ * @internal
  */
 export type PreprocessTransform = (value: any, context: PreprocessContext) => any | typeof TRANSFORM_SKIP | Promise<any | typeof TRANSFORM_SKIP>;
 
 /**
  * Options for preprocess()
+ * @internal
  */
 export interface PreprocessOptions {
   /** Custom transform hook called for each value */

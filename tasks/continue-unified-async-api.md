@@ -1,304 +1,671 @@
-# Continue - Unified Async API for Durable Objects
+# Unified Async API for Durable Objects with OCAN
 
 **Status**: Planning - Ready for Review
 **Created**: 2025-11-11
+**Updated**: 2025-11-12
 
 ## Objective
 
-Build a unified API for offloading async work from Durable Objects while preserving transactional consistency through synchronous callbacks. The `continue()` API allows DOs to initiate async operations (alarms, Workers RPC calls, external fetches) and resume execution via synchronous handlers, maintaining DO consistency guarantees while optimizing for Cloudflare's billing model.
+Unify async operations in Durable Objects using OCAN (Operation Chaining and Nesting) instead of string-based handlers. Replace string method names with type-safe operation chains across all async packages (alarms, Workers RPC, proxy-fetch), providing consistency, type safety, and powerful chaining/nesting capabilities.
 
-**Core Principle**: All async work returns immediately (synchronous), executes elsewhere, then invokes a synchronous callback handler with results and user-provided context.
+**Core Principle**: All async work returns immediately (synchronous), executes elsewhere, then invokes a synchronous callback handler. Handlers are described via OCAN chains, not strings.
 
 ## Background
 
 ### The Problem
 
-Durable Objects have unique consistency guarantees when operations are synchronous, but real-world applications need async operations:
-- **Workers RPC calls** - Require `await` even for remote synchronous methods
-- **External API calls** - Network I/O is expensive on DO wall-clock billing  
-- **Delayed tasks** - Need scheduling without keeping DO in memory
-- **Cross-DO communication** - Need async boundaries
+Current async packages use string-based handlers:
+- `alarms.schedule(60, 'handleTask', payload)` - No type safety, no chaining
+- Workers RPC requires `await` even for remote synchronous methods
+- External API calls are expensive on DO wall-clock billing
 
 ### Key Insight from Cloudflare
 
-Per [Cloudflare's DurableObjectState documentation](https://developers.cloudflare.com/durable-objects/api/state/#waituntil), `ctx.waitUntil()` does nothing in DOs - it only exists for API consistency with Workers. DOs automatically wait for ongoing work.
+Per [Cloudflare's DurableObjectState documentation](https://developers.cloudflare.com/durable-objects/api/state/#waituntil), `ctx.waitUntil()` does nothing in DOs. DOs automatically wait for ongoing work.
 
 ### Critical Constraint
 
 **@lumenize/testing is already shipped** and being used by many people. It's a thin wrapper on `@lumenize/rpc`. We cannot break it.
 
-## Chosen Approach: Extract OCAN from RPC
+## Chosen Approach: OCAN in Core, NADIS Everywhere
 
 **Architecture**:
 
 ```
-@lumenize/operation-chain (NEW - extracted from RPC)
-├── OperationProxy: Proxy-based operation builder
-├── OperationChain: Operation sequence representation  
-├── executeOperationChain(): Server-side execution
-└── Types: Operation, OperationChain, etc.
+@lumenize/core (ENHANCED)
+├── sql: SQL query builder (existing)
+├── debug: Debugging utilities (existing)
+└── ocan: OCAN infrastructure (NEW)
+    ├── OperationProxy: Proxy-based operation builder
+    ├── OperationChain: Operation sequence representation
+    ├── executeOperationChain(): Server-side execution
+    └── createContinuation<T>(): Factory for typed proxies
 
 @lumenize/rpc (UNCHANGED - backward compatible)
-├── Uses @lumenize/operation-chain
+├── Uses core's ocan
 ├── All existing APIs work unchanged
 ├── Downstream messaging preserved
 └── @lumenize/testing continues to work!
 
-@lumenize/continue (NEW)
-├── Uses @lumenize/operation-chain
-├── Continuation class (Proxy-based, like RPC client)
-├── continue() function for DO-internal async
-└── Strategies: alarm, workers-rpc, proxy-fetch
+@lumenize/alarms (REFACTORED)
+├── Uses core's ocan
+├── schedule(when, continuation) - NOT schedule(when, handler, payload)
+└── NADIS: this.svc.alarms
+
+@lumenize/call (NEW - Workers RPC)
+├── Uses core's ocan
+├── call(doBinding, instance, remote).onSuccess().onError()
+└── NADIS: this.svc.call
+
+@lumenize/proxy-fetch (REFACTORED)
+├── Uses core's ocan
+├── proxyFetch(request, options).onSuccess().onError()
+└── NADIS: this.svc.proxyFetch
 ```
 
 **Key Benefits**:
 - ✅ No breaking changes to RPC or @lumenize/testing
-- ✅ Unified OCAN mental model across RPC and Continue
+- ✅ Unified OCAN mental model across all async operations
 - ✅ Type-safe, refactoring-safe (no string method names)
-- ✅ Battle-tested infrastructure (RPC's Proxy system)
-- ✅ Downstream messaging stays in RPC where it fits naturally
+- ✅ Powerful chaining and nesting (like RPC)
+- ✅ NADIS pattern everywhere (consistent DX)
+- ✅ OCAN in core (fundamental infrastructure, like sql)
 
-### Example Usage
+## Example Usage
+
+### @lumenize/alarms - Delayed Execution
 
 ```typescript
-// === RPC: UNCHANGED ===
-using client = createRpcClient<typeof MyDO>({ transport: ... });
-const result = await client.someMethod(arg1, arg2);
+import '@lumenize/alarms';
+import { LumenizeBase } from '@lumenize/lumenize-base';
 
-// Downstream messaging still works
-await stub.sendDownstream(clientId, { type: 'notification', data: ... });
-
-// === CONTINUE: NEW ===
-
-// Alarm strategy - delayed/scheduled callbacks
-const c = new Continuation<typeof this>();
-this.continue(
-  c.handleTimeout(taskId, attemptNumber),
-  { strategy: 'alarm', delay: 60 }
-);
-
-// Workers RPC strategy - DO→DO method calls with result injection
-const c = new Continuation<typeof RemoteDO>();
-this.continue(
-  c.handleSuccess(c.$result, context),  // $result injected on completion
-  c.handleError(c.$error, context),     // $error injected on failure
-  { 
-    strategy: 'workers-rpc',
-    doBinding: 'REMOTE_DO',
-    instance: 'remote-instance',
-    method: () => c.someRemoteMethod(args)
+class TaskSchedulerDO extends LumenizeBase<Env> {
+  
+  // Schedule a delayed task
+  scheduleTask(taskName: string, delaySeconds: number) {
+    const schedule = this.svc.alarms.schedule(
+      delaySeconds,  // When to run
+      this.svc.alarms.c().handleTask({ name: taskName })  // OCAN chain
+    );
+    return { scheduled: true, id: schedule.id };
   }
-);
 
-// Proxy-fetch strategy - external API calls
-const c = new Continuation<typeof this>();
-this.continue(
-  c.handleFetchResult(c.$result, requestId),
-  c.handleError(c.$error, requestId),
-  { 
-    strategy: 'proxy-fetch',
-    request: new Request('https://api.example.com/data')
+  // Schedule at specific time
+  scheduleAt(taskName: string, timestamp: number) {
+    const schedule = this.svc.alarms.schedule(
+      new Date(timestamp),
+      this.svc.alarms.c().handleTask({ name: taskName })
+    );
+    return { scheduled: true, id: schedule.id };
   }
-);
 
-// Chaining works (just like RPC!)
-this.continue(
-  c.processResult().logSuccess().notifyUser(),
-  { strategy: 'alarm', delay: 0 }
-);
+  // Schedule recurring with cron
+  scheduleDaily(taskName: string) {
+    const schedule = this.svc.alarms.schedule(
+      '0 0 * * *',  // Cron expression
+      this.svc.alarms.c().handleDaily({ name: taskName })
+    );
+    return { scheduled: true, recurring: true, id: schedule.id };
+  }
 
-// Nesting works (just like RPC!)
-this.continue(
-  c.combineResults(c.getValue('a'), c.getValue('b')),
-  { strategy: 'alarm', delay: 0 }
-);
+  // Advanced: chaining
+  scheduleAdvanced(taskName: string) {
+    const schedule = this.svc.alarms.schedule(
+      60,
+      this.svc.alarms.c()
+        .processTask({ name: taskName })
+        .logSuccess()
+        .notifyUser()
+    );
+    return { scheduled: true, id: schedule.id };
+  }
+
+  // Cancel
+  cancelTask(scheduleId: string) {
+    this.svc.alarms.cancelSchedule(scheduleId);
+  }
+
+  // Handlers - synchronous
+  handleTask(payload: { name: string }) {
+    console.log('Executing task:', payload.name);
+  }
+
+  handleDaily(payload: { name: string }) {
+    console.log('Daily task:', payload.name);
+  }
+
+  processTask(payload: { name: string }): string {
+    console.log('Processing:', payload.name);
+    return payload.name;
+  }
+
+  logSuccess() {
+    console.log('Success!');
+  }
+
+  notifyUser() {
+    console.log('User notified');
+  }
+}
 ```
 
-### Result Injection Pattern
-
-For strategies that produce async results (workers-rpc, proxy-fetch):
+### @lumenize/call - Workers RPC
 
 ```typescript
-class Continuation<T> {
-  // Special markers replaced when operation chain executes
-  get $result() { return { __isInjectedResult: true }; }
-  get $error() { return { __isInjectedError: true }; }
+import '@lumenize/call';
+import { LumenizeBase } from '@lumenize/lumenize-base';
+
+class MyDO extends LumenizeBase<Env> {
+  
+  callRemoteDO(userId: string) {
+    // Define what to call on remote DO (operation chain)
+    const remote = this.svc.call.c<RemoteDO>()
+      .getUserData(userId)
+      .formatResponse();
+    
+    // Execute with success/error handlers
+    const callId = this.svc.call(
+      'REMOTE_DO',           // DO binding
+      'user-session-123',    // Instance name/ID
+      remote                 // What to execute
+    )
+    .onSuccess(this.svc.call.c().handleUserData(remote, { userId }))  // remote = result
+    .onError(this.svc.call.c().handleError(remote, { userId }));      // remote = error
+    
+    return { callId };
+  }
+
+  // Advanced: nested operations
+  callWithNesting(userId: string, orgId: string) {
+    const remote = this.svc.call.c<RemoteDO>()
+      .combineUserAndOrg(
+        this.svc.call.c<RemoteDO>().getUserData(userId),  // Nested!
+        this.svc.call.c<RemoteDO>().getOrgData(orgId)     // Nested!
+      );
+    
+    const callId = this.svc.call('REMOTE_DO', 'main', remote)
+      .onSuccess(this.svc.call.c().handleCombined(remote))
+      .onError(this.svc.call.c().handleError(remote));
+    
+    return { callId };
+  }
+
+  // Cancel
+  cancelCall(callId: string) {
+    this.svc.call.cancel(callId);
+  }
+
+  // Handlers - synchronous
+  handleUserData(userData: any, context: { userId: string }) {
+    console.log('Got user data:', userData);
+    if (!userData.valid) {
+      throw new Error('Invalid user data');
+    }
+  }
+
+  handleError(error: Error, context: { userId: string }) {
+    console.error('Call failed for user:', context.userId, error);
+  }
+
+  handleCombined(combined: any) {
+    console.log('Combined data:', combined);
+  }
+}
+```
+
+### @lumenize/proxy-fetch - External API Calls
+
+```typescript
+import '@lumenize/proxy-fetch';
+import { LumenizeBase } from '@lumenize/lumenize-base';
+
+class MyDO extends LumenizeBase<Env> {
+  
+  fetchExternalAPI(requestId: string) {
+    // Initiate fetch
+    const fetch = this.svc.proxyFetch(
+      new Request('https://api.example.com/data', {
+        method: 'POST',
+        body: JSON.stringify({ query: 'example' })
+      }),
+      {
+        timeout: 30000,
+        maxRetries: 3,
+        retryDelay: 1000
+      }
+    );
+    
+    // Attach handlers
+    fetch
+      .onSuccess(this.svc.proxyFetch.c().handleFetchSuccess(fetch, { requestId }))  // fetch = Response
+      .onError(this.svc.proxyFetch.c().handleFetchError(fetch, { requestId }));     // fetch = Error
+    
+    return { fetchId: fetch.id };
+  }
+
+  // Simpler
+  fetchSimple(url: string) {
+    const fetch = this.svc.proxyFetch(new Request(url));
+    
+    fetch
+      .onSuccess(this.svc.proxyFetch.c().handleResponse(fetch))
+      .onError(this.svc.proxyFetch.c().handleError(fetch));
+    
+    return { fetchId: fetch.id };
+  }
+
+  // Cancel
+  cancelFetch(fetchId: string) {
+    this.svc.proxyFetch.cancel(fetchId);
+  }
+
+  // Handlers - synchronous
+  handleFetchSuccess(response: Response, context: { requestId: string }) {
+    console.log('Fetch succeeded:', response.status);
+    
+    // Response is deserialized via structured-clone
+    const data = response.json();  // Synchronous!
+    console.log('Data:', data, 'for request:', context.requestId);
+  }
+
+  handleFetchError(error: Error, context: { requestId: string }) {
+    console.error('Fetch failed for request:', context.requestId, error);
+  }
+
+  handleResponse(response: Response) {
+    console.log('Got response:', response.status);
+  }
+
+  handleError(error: Error) {
+    console.error('Error:', error);
+  }
+}
+```
+
+## Key Design Patterns
+
+### 1. OCAN Execution Built into LumenizeBase
+
+LumenizeBase provides built-in OCAN execution capability via an internal `__executeChain()` method. This allows any DO extending LumenizeBase to be called via `this.svc.call()` without additional setup.
+
+```typescript
+// packages/lumenize-base/src/lumenize-base.ts
+import { executeOperationChain, type OperationChain } from '@lumenize/core';
+
+export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
+  // ... NADIS proxy code ...
+
+  /**
+   * Internal: Execute an OCAN chain against this DO
+   * 
+   * Used by @lumenize/call to invoke methods on remote DOs.
+   * You should not call this directly - it's invoked automatically
+   * via Workers RPC when using this.svc.call().
+   * 
+   * @internal
+   */
+  async __executeChain(chain: OperationChain): Promise<any> {
+    return executeOperationChain(this, chain);
+  }
+}
+```
+
+**Benefits**:
+- ✅ Zero config - Any LumenizeBase DO can be called remotely
+- ✅ No forgotten imports - It just works
+- ✅ Consistent - All LumenizeBase DOs have same capabilities
+- ✅ Clean UX - Extend LumenizeBase, get everything
+
+**Usage**:
+```typescript
+// Local DO - initiates call
+class LocalDO extends LumenizeBase<Env> {
+  callRemote() {
+    const remote = this.svc.call.c<RemoteDO>().getUserData(userId);
+    this.svc.call('REMOTE_DO', 'instance', remote)
+      .onSuccess(this.svc.call.c().handleSuccess(remote));
+  }
 }
 
-// User code - markers in operation chain
-this.continue(
-  c.handleResult(c.$result, requestId),  // $result replaced with actual value
-  { strategy: 'workers-rpc', work: ... }
-);
+// Remote DO - just extends LumenizeBase!
+class RemoteDO extends LumenizeBase<Env> {
+  getUserData(userId: string) {
+    return { name: 'Alice', id: userId };  // Regular method
+  }
+}
 
-// Handler receives actual result - completely synchronous!
-handleResult(result: any, requestId: string) {
-  // result is the value from async work
-  // No await needed!
+// call() implementation uses Workers RPC:
+// const result = await remoteStub.__executeChain(operationChain);
+```
+
+### 2. Remote Continuation as Placeholder
+
+The operation chain you want to execute becomes the placeholder for its result:
+
+```typescript
+// Define what to call
+const remote = this.svc.call.c<RemoteDO>().getUserData(userId);
+
+// Use it as placeholder in handlers
+this.svc.call('REMOTE_DO', 'instance', remote)
+  .onSuccess(this.svc.call.c().handleSuccess(remote))  // remote = success result
+  .onError(this.svc.call.c().handleError(remote));     // remote = error
+
+// Implementation: remote's chainId is used to look up actual result
+// when alarm fires and executes the handler
+```
+
+### 2. Success/Error Split
+
+Only one handler fires, so we reuse the same placeholder:
+
+```typescript
+const remote = this.svc.call.c<RemoteDO>().riskyOperation();
+
+this.svc.call('REMOTE_DO', 'instance', remote)
+  .onSuccess(this.svc.call.c().handleSuccess(remote))  // remote populated with result
+  .onError(this.svc.call.c().handleError(remote));     // remote populated with error
+```
+
+### 3. Consistent NADIS Pattern
+
+All three packages use the same pattern:
+
+```typescript
+import '@lumenize/alarms';
+import '@lumenize/call';
+import '@lumenize/proxy-fetch';
+import { LumenizeBase } from '@lumenize/lumenize-base';
+
+class MyDO extends LumenizeBase<Env> {
+  
+  doAll() {
+    // Alarm - delay then callback
+    this.svc.alarms.schedule(
+      60,
+      this.svc.alarms.c().handleTimeout()
+    );
+    
+    // Call - remote operation with success/error
+    const remote = this.svc.call.c<RemoteDO>().someMethod();
+    this.svc.call('REMOTE_DO', 'instance', remote)
+      .onSuccess(this.svc.call.c().handleSuccess(remote))
+      .onError(this.svc.call.c().handleError(remote));
+    
+    // ProxyFetch - HTTP request with success/error
+    const fetch = this.svc.proxyFetch(new Request(url));
+    fetch
+      .onSuccess(this.svc.proxyFetch.c().handleResponse(fetch))
+      .onError(this.svc.proxyFetch.c().handleError(fetch));
+  }
 }
 ```
 
 ## Rejected Alternatives
 
-**String-based handlers**: `continue('handler', payload, config)` - Simpler but loses type safety, refactoring safety, and powerful chaining/nesting capabilities of OCAN.
+**String-based handlers**: `schedule('handler', payload)` - Simpler but loses type safety, refactoring safety, and powerful chaining/nesting.
 
-**Rename RPC to Continue**: Would break @lumenize/testing which is already shipped and in use. Extraction is safer.
+**Separate operation-chain package**: Adds package sprawl. OCAN is fundamental infrastructure like `sql`, belongs in core.
+
+**Generic continue() function**: Each async strategy has different parameters (alarms need `when`, call needs `doBinding`, etc.). Package-specific APIs are cleaner.
 
 ## Implementation Phases
 
-### Phase 1: Extract OCAN Core
+### Phase 1: Add OCAN to Core
 
-**Goal**: Create `@lumenize/operation-chain` package without breaking RPC.
+**Goal**: Extract OCAN from RPC, add to core without breaking anything.
 
 **Steps**:
-- [ ] Create `@lumenize/operation-chain` package
+- [ ] Add OCAN infrastructure to `@lumenize/core`
+  - [ ] Create `src/ocan/` directory
   - [ ] Extract OperationProxy from RPC
-  - [ ] Extract OperationChain types  
+  - [ ] Extract OperationChain types
   - [ ] Extract executeOperationChain()
   - [ ] Extract operation serialization (uses structured-clone)
+  - [ ] Add `createContinuation<T>()` factory
+  - [ ] Export from `core/src/index.ts`
   - [ ] Add comprehensive tests
 
-- [ ] Refactor RPC to use operation-chain
-  - [ ] Import from @lumenize/operation-chain
+- [ ] Refactor RPC to use core's ocan
+  - [ ] Import from `@lumenize/core`
   - [ ] NO API changes - purely internal refactor
-  - [ ] Run full RPC test suite (verify no regressions)
+  - [ ] Run full RPC test suite
   - [ ] Verify @lumenize/testing still works
 
 **Success Criteria**:
 - ✅ RPC API unchanged, all tests pass
 - ✅ @lumenize/testing works unchanged
-- ✅ operation-chain package has >80% branch coverage
+- ✅ Core OCAN has >80% branch coverage
 
-### Phase 2: Create Continue Package with Alarm Strategy
+### Phase 2: Refactor Alarms with OCAN
 
-**Goal**: Implement Continue with alarm strategy (immediate, delayed, cron).
+**Goal**: Replace string handlers with OCAN chains.
 
 **Steps**:
-- [ ] Create `@lumenize/continue` package structure
-- [ ] Implement Continuation class (uses operation-chain)
-- [ ] Implement continue() function
-- [ ] Add result injection system ($result, $error markers)
-- [ ] Integrate alarm strategy from current alarms code
-  - [ ] Immediate alarms (delay <= 0)
-  - [ ] Delayed alarms (seconds)
-  - [ ] Cron alarms (recurring)
-  - [ ] Store operation chains in SQL
-  - [ ] Execute via alarm() lifecycle
-- [ ] Success/error handler split support
-- [ ] Type-safe handler validation
+- [ ] Update Alarms to use core's ocan
+  - [ ] Import `createContinuation` from core
+  - [ ] Add `.c()` factory method to Alarms class
+  - [ ] Change `schedule()` signature: `schedule(when, continuation)`
+  - [ ] Store operation chains in SQL (already handles via structured-clone)
+  - [ ] Execute chains when alarm fires
+  - [ ] Switch from nanoid to `crypto.randomUUID()`
+  - [ ] Keep cron-schedule dependency
+
+- [ ] Update tests
+  - [ ] Migrate from string handlers to OCAN
+  - [ ] Test chaining and nesting
+  - [ ] Verify immediate alarms (delay <= 0)
 
 **Success Criteria**:
-- ✅ `continue(c.handler(), { strategy: 'alarm', delay: 60 })` works
-- ✅ Immediate alarms (delay: 0) execute on next event loop
-- ✅ Handlers are synchronous (no async/await)
-- ✅ Type safety: TypeScript autocompletes handler names
-- ✅ Test coverage >80% branch, >90% statement
+- ✅ `this.svc.alarms.schedule(60, this.svc.alarms.c().handle())` works
+- ✅ Chaining and nesting work
+- ✅ All existing tests pass (with updated OCAN syntax)
+- ✅ Test coverage >80% branch
 
-### Phase 3: Workers RPC Strategy
+### Phase 3: Create @lumenize/call
 
-**Goal**: Enable DO→DO method calls with synchronous callbacks.
+**Goal**: Workers RPC with OCAN and synchronous callbacks.
 
 **Steps**:
-- [ ] Implement workers-rpc strategy handler
-- [ ] Execute work() function via Workers RPC
-- [ ] On completion: schedule immediate alarm with result
-- [ ] On error: schedule immediate alarm with error
-- [ ] Result injection ($result, $error replacement)
-- [ ] Timeout handling
+- [ ] Update LumenizeBase with OCAN execution
+  - [ ] Add `__executeChain(chain: OperationChain)` method to LumenizeBase
+  - [ ] Import `executeOperationChain` from core
+  - [ ] Mark as `@internal` in JSDoc
+  - [ ] Test that remote DOs can execute chains
+
+- [ ] Create `@lumenize/call` package
+  - [ ] Package structure (src/, test/, etc.)
+  - [ ] NADIS registration
+  - [ ] Import ocan from core
+  
+- [ ] Implement call() function
+  - [ ] `call(doBinding, instance, remote)` signature
+  - [ ] Returns operation handle
+  - [ ] `.onSuccess()` and `.onError()` chaining
+  - [ ] Remote continuation as placeholder pattern
+  
+- [ ] Execute remote operations
+  - [ ] Use Workers RPC to call `remoteStub.__executeChain(operationChain)`
+  - [ ] Serialize operation chain via structured-clone
+  - [ ] On success: schedule immediate alarm with result
+  - [ ] On error: schedule immediate alarm with error
+  - [ ] Placeholder replacement in handler chains
+  
+- [ ] Cancellation support
+  - [ ] `call.cancel(callId)` function
+  - [ ] Remove pending operation from storage
+  
+- [ ] Tests
+  - [ ] Basic remote calls
+  - [ ] Success/error handling
+  - [ ] Nested operations
+  - [ ] Timeout handling
+  - [ ] Cancellation
 
 **Success Criteria**:
-- ✅ DO can call remote DO method via continue()
-- ✅ Result delivered to synchronous handler
-- ✅ Errors properly serialized and delivered
-- ✅ Timeout kills long-running RPC
+- ✅ Remote DO calls with OCAN chains
+- ✅ Synchronous handlers receive results
+- ✅ Placeholder pattern works
+- ✅ Error handling via `.onError()`
+- ✅ Test coverage >80% branch
 
-### Phase 4: Proxy-Fetch Strategy
+### Phase 4: Refactor Proxy-Fetch with OCAN
 
-**Goal**: External API calls with synchronous callbacks.
+**Goal**: External API calls with OCAN and synchronous callbacks.
 
 **Steps**:
-- [ ] Implement proxy-fetch strategy handler
-- [ ] Integrate with proxy-fetch infrastructure (or create new)
-- [ ] Result injection on completion
-- [ ] Error handling
-- [ ] Timeout/retry configuration
+- [ ] Update proxy-fetch to use core's ocan
+  - [ ] Import from core
+  - [ ] Add `.c()` factory method
+  - [ ] Change signature: `proxyFetch(request, options)` returns handle
+  - [ ] Add `.onSuccess()` and `.onError()` chaining
+  - [ ] Fetch handle as placeholder pattern
+  
+- [ ] Update execution
+  - [ ] On success: schedule immediate alarm with Response
+  - [ ] On error: schedule immediate alarm with Error
+  - [ ] Placeholder replacement
+  
+- [ ] Update tests
+  - [ ] Migrate to OCAN syntax
+  - [ ] Test success/error handlers
+  - [ ] Verify retry logic still works
 
 **Success Criteria**:
-- ✅ External API calls via continue()
-- ✅ Response delivered to synchronous handler
-- ✅ Errors/timeouts handled properly
+- ✅ `this.svc.proxyFetch(request).onSuccess().onError()` works
+- ✅ Synchronous handlers receive Response/Error
+- ✅ All existing functionality preserved
+- ✅ Test coverage >80% branch
 
-### Phase 5: Documentation & Polish
+### Phase 5: Documentation
 
-**Goal**: Comprehensive documentation following documentation-workflow.md.
+**Goal**: Comprehensive documentation for all three packages.
 
 **Steps**:
-- [ ] Create `website/docs/continue/index.mdx`
-  - [ ] Philosophy: synchronous handlers + async offloading
-  - [ ] Core concepts: Continuation, strategies, result injection
-  - [ ] Comparison with RPC (when to use each)
-- [ ] Create strategy-specific docs
-  - [ ] Alarm strategy examples
-  - [ ] Workers RPC strategy examples
-  - [ ] Proxy-fetch strategy examples
-- [ ] Create doc-test examples in `test/for-docs/`
+- [ ] Update alarms documentation
+  - [ ] Replace string examples with OCAN
+  - [ ] Show chaining and nesting
+  - [ ] Migration guide from old API
+  
+- [ ] Create call documentation
+  - [ ] Overview and use cases
+  - [ ] Basic usage examples
+  - [ ] Nested operations
+  - [ ] Error handling patterns
+  
+- [ ] Update proxy-fetch documentation
+  - [ ] New OCAN syntax
+  - [ ] Success/error handlers
+  - [ ] Migration guide
+  
+- [ ] Core ocan documentation
+  - [ ] What is OCAN
+  - [ ] How it works
+  - [ ] Used by: alarms, call, proxy-fetch, rpc
+  
+- [ ] Create doc-test examples
 - [ ] Add TypeDoc API documentation
-- [ ] Migration guide from old alarms package (if needed)
 
 **Success Criteria**:
 - ✅ Documentation following documentation-workflow.md
-- ✅ Examples validated via check-examples plugin
+- ✅ Examples validated via check-examples
 - ✅ TypeDoc API reference generated
-- ✅ Clear comparison with RPC package
+- ✅ Migration guides for breaking changes
 
-## Open Questions
+## Package Dependencies
 
-1. **Operation-Chain Package Scope**: What gets extracted? Just Proxy/execution, or broader?
-2. **Batching**: Should Continue support batching like RPC does? (Likely: No, YAGNI)
-3. **Continuation Factory**: `new Continuation<typeof this>()` vs `this.continuation()`?
-4. **Storage Format**: ✅ Solved - structured-clone handles everything
-5. **Proxy-Fetch V3**: Will need new architecture (DO-based queue + Workers). See future task document.
+### @lumenize/core
+```json
+{
+  "dependencies": {
+    "@lumenize/structured-clone": "*"  // For OCAN serialization
+  }
+}
+```
+
+### @lumenize/lumenize-base
+```json
+{
+  "dependencies": {
+    "@lumenize/core": "*"  // For OCAN execution (__executeChain) and NADIS
+  }
+}
+```
+
+### @lumenize/alarms
+```json
+{
+  "dependencies": {
+    "@lumenize/core": "*",           // For sql + ocan
+    "cron-schedule": "^5.0.1"        // For cron parsing (keep)
+    // Remove nanoid - use crypto.randomUUID()
+  }
+}
+```
+
+### @lumenize/call (NEW)
+```json
+{
+  "dependencies": {
+    "@lumenize/core": "*"  // For ocan
+  }
+}
+```
+
+### @lumenize/proxy-fetch
+```json
+{
+  "dependencies": {
+    "@lumenize/core": "*"  // For ocan
+  }
+}
+```
 
 ## Success Criteria
 
 ### Must Have
 - [ ] RPC unchanged, @lumenize/testing works
-- [ ] operation-chain extracted without breaking RPC
-- [ ] Continue with alarm strategy works end-to-end
-- [ ] Workers RPC strategy successfully calls remote DOs
+- [ ] OCAN in core, extracted from RPC
+- [ ] Alarms refactored with OCAN
+- [ ] Call package created with OCAN
+- [ ] Proxy-fetch refactored with OCAN
 - [ ] All handlers synchronous (no async/await)
-- [ ] Result injection ($result, $error) works
-- [ ] Payload flows correctly through strategies
 - [ ] Type-safe handler names (TypeScript autocomplete)
+- [ ] Chaining and nesting work
 - [ ] Test coverage >80% branch, >90% statement
 - [ ] Documentation following documentation-workflow.md
 - [ ] Examples validated via check-examples
 
 ### Nice to Have
-- [ ] Proxy-fetch strategy (can be later phase)
 - [ ] Custom strategy plugin system
 - [ ] Observability/debugging hooks
 - [ ] Performance benchmarks
 
 ### Won't Have (Yet)
-- ❌ Batching support (YAGNI for Continue use cases)
-- ❌ RPC as a Continue strategy (separate concerns: RPC for browser↔DO, Continue for DO-internal)
+- ❌ Batching support (YAGNI for these use cases)
+- ❌ Proxy-Fetch V3 architecture (separate task)
 
 ## Notes
 
 ### Why This Approach
 
-Extraction preserves @lumenize/testing compatibility while enabling powerful OCAN-based Continue API. The shared operation-chain infrastructure means we're building on proven code, not reinventing.
+- **OCAN in core**: Fundamental infrastructure like `sql`, used everywhere
+- **OCAN in LumenizeBase**: Built-in `__executeChain()` method means any DO extending LumenizeBase can be called remotely via `this.svc.call()` without additional setup
+- **NADIS everywhere**: Consistent DX across all packages
+- **Package-specific APIs**: Each strategy has parameters that make sense for it
+- **No breaking changes to RPC**: Testing package safe
 
 ### Separation of Concerns
 
 - **RPC**: Browser ↔ DO communication (method calls + downstream messaging)
-- **Continue**: DO-internal async operations (alarms, Workers RPC, proxy-fetch)  
+- **Alarms**: Delayed/scheduled callbacks
+- **Call**: DO ↔ DO communication (Workers RPC)
+- **ProxyFetch**: DO ↔ External API (offloaded to Workers for billing)
 - **LumenizeClient**: Future bidirectional WebSocket messaging (see lumenize-client.md)
 
 ### Future: Proxy-Fetch V3
 
-New proxy-fetch architecture using DO-based queue orchestrating Workers for fetches. Combines DO orchestration (better latency than Cloudflare Queues) with Worker execution (better scalability than current DO variant). The `proxy-fetch` strategy in continue() will use this. Details in future `tasks/proxy-fetch-v3.md`.
+New proxy-fetch architecture using DO-based queue orchestrating Workers for fetches. Combines DO orchestration (better latency than Cloudflare Queues) with Worker execution (better scalability). Details in future `tasks/proxy-fetch-v3.md`.
 
 ## References
 
@@ -312,9 +679,9 @@ New proxy-fetch architecture using DO-based queue orchestrating Workers for fetc
 
 ### Existing Code to Reference
 - `packages/rpc/` - OCAN implementation to extract
-- `packages/alarms/src/alarms.ts` - Current alarms (integrate into Continue)
-- `packages/proxy-fetch/` - Proxy-fetch patterns
+- `packages/alarms/src/alarms.ts` - Current alarms to refactor
+- `packages/proxy-fetch/` - Current proxy-fetch to refactor
 
 ---
 
-**Status**: Ready for review. Once approved, begin with Phase 1 (extract OCAN core).
+**Status**: Ready for review. Design is solid, ready to implement when approved.

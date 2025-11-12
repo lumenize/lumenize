@@ -2,20 +2,9 @@
 description: "Zero-dependency serialization with full-fidelity type support for JavaScript"
 ---
 
-# Lumenize Structured Clone
+# Introduction
 
 Zero-dependency serialization with full-fidelity type support for complex JavaScript types including cycles, Errors, Request/Response, special numbers, and more.
-
-## Why This Package?
-
-When building RPC systems, storing data, or moving data over the network, you need to serialize complex JavaScript objects. JSON alone isn't enough:
-
-- **Lost Types**: JSON loses `Date`, `Map`, `Set`, `Error` objects
-- **No Circular or Aliased References**: JSON can't handle cyclic or aliasesed structure
-- **No Special Numbers**: JSON converts `NaN` and `Infinity` to `null`
-- **No Web API Objects**: JSON can't serialize `Request`, `Response`, `Headers`, `URL`
-
-This package solves all of these problems.
 
 ## Installation
 
@@ -27,7 +16,7 @@ npm install @lumenize/structured-clone
 
 While this package was originally optimized for the Cloudflare edge compute platform, **nothing in it is Cloudflare-specific**. All tests run in three environments: Node.js, headless Chromium browser, and simulated Cloudflare Workers. Our primary use case includes browser clients, and the full test suite passes in all environments.
 
-**Not a Cloudflare user?** Feel free to ignore the first three columns in the comparison table below. This package provides comprehensive structured cloning with better Error handling, special number support, and Web API object serialization—useful in any JavaScript environment.
+**Not a Cloudflare user?** Feel free to ignore the first three columns in the comparison table below.
 
 import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 
@@ -40,7 +29,6 @@ import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 - **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types (including custom Error classes!)
 - **Circular References**: Automatically handled with `$lmz` reference markers
 - **Zero Dependencies**: No external packages required
-- **Human-Readable Format**: Tuple-based `["type", data]` format for debugging
 - **Async API**: Supports Request/Response body reading
 
 ## Basic Usage
@@ -170,19 +158,6 @@ expect(restored.name).toBe('ValidationError'); // ✅ 'ValidationError'
 
 If you don't register the class globally, deserialization falls back to base `Error` but **still preserves custom properties and the `name`**:
 
-```typescript @check-example packages/structured-clone/test/for-docs/errors.test.ts
-// No global registration
-const error = new ValidationError('Invalid email', 'email');
-const restored = await parse(await stringify(error));
-
-expect(restored instanceof ValidationError).toBe(false); // ❌ false (no type)
-expect(restored instanceof Error).toBe(true); // ✅ true (fallback)
-expect((restored as any).field).toBe('email'); // ✅ 'email' (property still preserved!)
-expect(restored.name).toBe('ValidationError'); // ✅ 'ValidationError' (name preserved)
-```
-
-**Best Practice:** Register custom Error classes in your app's initialization code, before any deserialization happens. This ensures full type preservation across serialization boundaries.
-
 ### Web API Objects Example
 
 Serialize Request/Response objects for storage, queues, or RPC:
@@ -220,18 +195,16 @@ const jsonString = await stringify(complexObject);  // Returns JSON string
 const restored = await parse(jsonString);           // Reconstructs from JSON string
 ```
 
-**Use for:** HTTP requests/responses, file storage, logging
-
 ### Tier 2: `preprocess()` / `postprocess()` - Intermediate Format
 
-For scenarios where you want the structured object format without JSON stringification:
+For scenarios where you want a simple object format without stringification:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/api-tiers.test.ts
 const intermediate = await preprocess(complexObject);  // Returns { root, objects }
 const restored = await postprocess(intermediate);      // Reconstructs from object
 ```
 
-**Use for:** `MessagePort`, `BroadcastChannel`, `IndexedDB`, or when you need custom JSON handling
+**Use for:** `MessagePort`, `BroadcastChannel`, BJSON, Cloudflare: Workers RPC, Durable Object KV Storage, Queues, etc.
 
 ### Tier 3: `encode*()` / `decode*()` - Type-Specific Encoding
 
@@ -251,7 +224,7 @@ const decoded = decodeRequest(encoded);        // Reconstructed Request
 // Store Request in DO storage
 const encodedRequest = await encodeRequest(request);
 ctx.storage.kv.put('my-request', { 
-  timestamp: Date.now(),
+  timestamp: new Date(),  // DO storage KV supports Date, but not Request
   request: encodedRequest  // Plain object, storage handles serialization
 });
 
@@ -262,10 +235,7 @@ const restoredRequest = decodeRequest(stored.request);
 
 ### Performance
 
-The tuple-based `$lmz` format is designed for efficiency:
-- **Fast serialization** - optimized two-pass algorithm with cycle detection
-- **Fast parsing** - efficient reconstruction of complex structures
-- **Human-readable** format for debugging: `["type", data]` with `["$lmz", ref]` for cycles/aliases
+Binary formats are generally smaller, but this implementation is generally faster at serialization for similar type support. We're particularly proud of our optimized one-pass algorithm for alias and cycle detection.
 
 ## Limitations
 
@@ -274,10 +244,6 @@ The tuple-based `$lmz` format is designed for efficiency:
 - **Signed Zero**: `-0` becomes `+0` (What is -0 anyway?)
 - **Streams**: `ReadableStream`/`WritableStream` not supported
 
-## License
-
-MIT License © 2025 Larry Maccherone
-
 ## Attribution
 
 Inspired by:
@@ -285,4 +251,3 @@ Inspired by:
 - **@ungap/structured-clone** (cycle detection) - https://github.com/ungap/structured-clone by Andrea Giammarchi
 
 See [ATTRIBUTIONS.md](https://github.com/lumenize/lumenize/blob/main/ATTRIBUTIONS.md) for full attribution details.
-

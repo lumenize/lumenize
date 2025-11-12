@@ -28,11 +28,13 @@
 
 /**
  * Serializable body types for RequestSync
+ * @internal
  */
 export type SerializableBody = string | ArrayBuffer | Record<string, any> | null;
 
 /**
  * Extended RequestInit that accepts serializable body
+ * @internal
  */
 export interface RequestSyncInit extends Omit<RequestInit, 'body'> {
   body?: SerializableBody;

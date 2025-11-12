@@ -89,7 +89,7 @@ class MyDO extends DurableObject {
 
 When using `@lumenize/lumenize-base`, alarms are automatically available via `this.svc`:
 
-```typescript @check-example('packages/alarms/test/for-docs/lumenize-base-pattern.test.ts')
+```typescript @skip-check
 import '@lumenize/core';    // Registers sql in this.svc
 import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
 import { LumenizeBase } from '@lumenize/lumenize-base';

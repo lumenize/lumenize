@@ -15,6 +15,7 @@ import { TRANSFORM_SKIP } from './preprocess';
 
 /**
  * Context provided to transform hooks during postprocessing
+ * @internal
  */
 export interface PostprocessContext {
   /** Map tracking all reconstructed objects by ID for alias detection */
@@ -27,11 +28,13 @@ export interface PostprocessContext {
  * @param value - The value being processed
  * @param context - Postprocessing context with objects map
  * @returns Transformed value, or TRANSFORM_SKIP to use default processing
+ * @internal
  */
 export type PostprocessTransform = (value: any, context: PostprocessContext) => any | typeof TRANSFORM_SKIP | Promise<any | typeof TRANSFORM_SKIP>;
 
 /**
  * Options for postprocess()
+ * @internal
  */
 export interface PostprocessOptions {
   /** Custom transform hook called for each value */
