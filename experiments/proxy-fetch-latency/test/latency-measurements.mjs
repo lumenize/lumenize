@@ -28,7 +28,7 @@ async function measureEnqueueLatency(url, iterations = 10) {
   
   for (let i = 0; i < iterations; i++) {
     const start = Date.now();
-    const response = await fetch(`${BASE_URL}/test-fetch?url=${encodeURIComponent(url)}`);
+    const response = await fetch(`${BASE_URL}/start-fetch?url=${encodeURIComponent(url)}`);
     const enqueueTime = Date.now() - start;
     
     if (!response.ok) {
@@ -76,7 +76,7 @@ async function measureEndToEndLatency(url, iterations = 5) {
   for (let i = 0; i < iterations; i++) {
     // Start fetch
     const enqueueStart = Date.now();
-    const response = await fetch(`${BASE_URL}/test-fetch?url=${encodeURIComponent(url)}`);
+    const response = await fetch(`${BASE_URL}/start-fetch?url=${encodeURIComponent(url)}`);
     const enqueueTime = Date.now() - enqueueStart;
     
     if (!response.ok) {
