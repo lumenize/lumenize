@@ -29,16 +29,19 @@ export class OriginDO extends LumenizeBase<Env> {
    * Handle HTTP requests to this DO
    */
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    
     // WebSocket upgrade
     if (request.headers.get('Upgrade') === 'websocket') {
-      const pair = new WebSocketPair();
-      this.ctx.acceptWebSocket(pair[0]);
+      // Create WebSocket pair: [client, server]
+      const webSocketPair = new WebSocketPair();
+      const [client, server] = Object.values(webSocketPair);
       
+      // Accept the server end (Durable Object side)
+      this.ctx.acceptWebSocket(server);
+      
+      // Return the client end (caller side)
       return new Response(null, {
         status: 101,
-        webSocket: pair[1]
+        webSocket: client
       });
     }
     
