@@ -7,7 +7,7 @@
  * - Worker executor: CPU-billed fetch execution
  */
 
-import { WorkerEntrypoint, DurableObjectState, Request, Response } from 'cloudflare:workers';
+import { WorkerEntrypoint, DurableObjectState } from 'cloudflare:workers';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { proxyFetchWorker, FetchOrchestrator as _FetchOrchestrator, executeFetch } from '@lumenize/proxy-fetch';
 import '@lumenize/proxy-fetch'; // Register result handler
