@@ -22,17 +22,26 @@ This experiment measures the real-world latency characteristics of the new `prox
 
 ### Option 1: Production Deployment (Recommended)
 
-For real production latency measurements:
+For real production latency measurements with full Worker architecture:
 
 ```bash
-# Deploy to Cloudflare
+# Deploy both workers (main + worker executor)
 npm run deploy
 
+# This deploys:
+# 1. proxy-fetch-latency (main worker with DOs)
+# 2. proxy-fetch-latency-worker (fetch executor, CPU-billed)
+
 # Run measurements against production
-TEST_URL=https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev npm test
+export $(cat ../../.dev.vars | xargs)
+export TEST_URL=https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev
+npm test
 ```
 
-This gives true production numbers with service bindings fully functional.
+This gives true production numbers with:
+- ✅ Service bindings fully functional
+- ✅ Worker executor with CPU billing
+- ✅ FetchOrchestrator → Worker → Origin DO flow
 
 ### Option 2: Local Development
 

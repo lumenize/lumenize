@@ -1,0 +1,20 @@
+{
+  "name": "proxy-fetch-latency-worker",
+  "main": "src/worker-executor.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ORIGIN_DO",
+        "class_name": "OriginDO",
+        "script_name": "proxy-fetch-latency"
+      },
+      {
+        "name": "FETCH_ORCHESTRATOR",
+        "class_name": "FetchOrchestrator",
+        "script_name": "proxy-fetch-latency"
+      }
+    ]
+  }
+}
+

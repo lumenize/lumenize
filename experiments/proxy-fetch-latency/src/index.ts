@@ -9,12 +9,17 @@
 
 import { WorkerEntrypoint, DurableObjectState } from 'cloudflare:workers';
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import { proxyFetchWorker, FetchOrchestrator as _FetchOrchestrator } from '@lumenize/proxy-fetch';
+import { proxyFetchWorker, FetchOrchestrator as _FetchOrchestrator, executeFetch } from '@lumenize/proxy-fetch';
 import '@lumenize/proxy-fetch'; // Register result handler
 
 interface Env {
   ORIGIN_DO: DurableObjectNamespace;
   FETCH_ORCHESTRATOR: DurableObjectNamespace;
+  FETCH_WORKER: FetchWorker;
+}
+
+interface FetchWorker {
+  executeFetch(message: any): Promise<void>;
 }
 
 /**
@@ -130,10 +135,6 @@ export const FetchOrchestrator = _FetchOrchestrator;
 
 /**
  * Worker entry point - routes requests to OriginDO
- * 
- * Note: For this measurement experiment, we use the proxyFetchDO variant
- * (FetchOrchestrator does fetch directly) instead of proxyFetchWorker
- * to avoid needing separate Worker service binding deployment.
  */
 export default class extends WorkerEntrypoint<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -145,6 +146,17 @@ export default class extends WorkerEntrypoint<Env> {
     
     // Forward request to DO's fetch handler
     return await stub.fetch(request);
+  }
+
+  /**
+   * RPC method for executing fetches (called by FetchOrchestrator)
+   * 
+   * Note: This method is not used in this worker - it's implemented
+   * in the separate worker-executor service.
+   */
+  async executeFetch(message: any): Promise<void> {
+    // This should never be called - the service binding routes to the worker executor
+    throw new Error('executeFetch should be called on the worker executor service');
   }
 }
 
