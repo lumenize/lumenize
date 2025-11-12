@@ -19,6 +19,15 @@ interface Env {
  */
 export default class extends WorkerEntrypoint<Env> {
   /**
+   * HTTP fetch handler (required but not used - this worker is called via RPC)
+   */
+  async fetch(request: Request): Promise<Response> {
+    return new Response('Worker Executor (called via RPC only)', {
+      headers: { 'Content-Type': 'text/plain' }
+    });
+  }
+
+  /**
    * RPC method called by FetchOrchestrator
    * Executes the fetch and sends result directly to origin DO
    */
