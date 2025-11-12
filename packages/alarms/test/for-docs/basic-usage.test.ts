@@ -19,8 +19,8 @@ class TaskSchedulerDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
 
-  // Helper to create continuations (like this.c() in LumenizeBase)
-  c<T = this>(): T {
+  // Helper to create continuations (like this.ctn() in LumenizeBase)
+  ctn<T = this>(): T {
     return newContinuation<T>();
   }
 
@@ -28,7 +28,7 @@ class TaskSchedulerDO extends DurableObject {
   scheduleTask(taskName: string, delaySeconds: number) {
     const schedule = this.#alarms.schedule(
       delaySeconds,  // a number
-      this.c().handleTask({ name: taskName })  // OCAN chain
+      this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, taskName, id: schedule.id };
   }
@@ -37,7 +37,7 @@ class TaskSchedulerDO extends DurableObject {
   scheduleAt(taskName: string, timestamp: number) {
     const schedule = this.#alarms.schedule(
       new Date(timestamp),  // a Date
-      this.c().handleTask({ name: taskName })  // OCAN chain
+      this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, taskName, id: schedule.id };
   }
@@ -46,7 +46,7 @@ class TaskSchedulerDO extends DurableObject {
   scheduleRecurringTask(taskName: string) {
     const schedule = this.#alarms.schedule(
       '0 0 * * *',  // cron expression (daily at midnight)
-      this.c().handleRecurringTask({ name: taskName })  // OCAN chain
+      this.ctn().handleRecurringTask({ name: taskName })  // OCAN chain
     );
     return { scheduled: true, taskName, recurring: true, id: schedule.id };
   }
@@ -55,7 +55,7 @@ class TaskSchedulerDO extends DurableObject {
   cancelTask(taskName: string, delaySeconds: number) {
     const schedule = this.#alarms.schedule(
       delaySeconds,  // a number
-      this.c().handleTask({ name: taskName })  // OCAN chain
+      this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
     // Later, to cancel:
     this.#alarms.cancelSchedule(schedule.id);

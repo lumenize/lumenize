@@ -27,14 +27,14 @@ export class AlarmDO extends DurableObject<Env> {
     await this.#alarms.alarm();
   }
 
-  // Helper to create continuations (like this.c() in LumenizeBase)
-  c<T = this>(): T {
+  // Helper to create continuations (like this.ctn() in LumenizeBase)
+  ctn<T = this>(): T {
     return newContinuation<T>();
   }
 
   // Test helper: Schedule an alarm
   scheduleAlarm(when: Date | string | number, payload?: any) {
-    return this.#alarms.schedule(when, this.c().handleAlarm(payload));
+    return this.#alarms.schedule(when, this.ctn().handleAlarm(payload));
   }
 
   // Test helper: Get a schedule by ID
@@ -60,7 +60,7 @@ export class AlarmDO extends DurableObject<Env> {
   // Test helper: Schedule alarm with invalid callback (not a function)
   scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
     // Force schedule with an invalid operation chain
-    return this.#alarms.schedule(when, this.c().notAFunction(payload));
+    return this.#alarms.schedule(when, this.ctn().notAFunction(payload));
   }
 
   // Alarm callback that throws an error
@@ -70,7 +70,7 @@ export class AlarmDO extends DurableObject<Env> {
 
   // Test helper: Schedule an alarm with a throwing callback
   scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
-    return this.#alarms.schedule(when, this.c().handleThrowingAlarm(payload));
+    return this.#alarms.schedule(when, this.ctn().handleThrowingAlarm(payload));
   }
 
   // Test helper: Get executed alarms

@@ -30,7 +30,7 @@ import { newContinuation } from '@lumenize/core';
  *   }
  *   
  *   scheduleTask() {
- *     this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
+ *     this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
  *   }
  *   
  *   handleTask(payload: any) {
@@ -59,19 +59,19 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * @example
    * ```typescript
    * // Local method chaining
-   * this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
+   * this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
    * 
    * // Remote DO calls
-   * const remote = this.c<RemoteDO>().getUserData(userId);
-   * this.svc.call(REMOTE_DO, 'instance-id', remote, this.c().handleResult(remote));
+   * const remote = this.ctn<RemoteDO>().getUserData(userId);
+   * this.svc.call(REMOTE_DO, 'instance-id', remote, this.ctn().handleResult(remote));
    * 
    * // Nesting
-   * const data1 = this.c().getData(1);
-   * const data2 = this.c().getData(2);
-   * this.svc.alarms.schedule(60, this.c().combineData(data1, data2));
+   * const data1 = this.ctn().getData(1);
+   * const data2 = this.ctn().getData(2);
+   * this.svc.alarms.schedule(60, this.ctn().combineData(data1, data2));
    * ```
    */
-  c<T = this>(): T {
+  ctn<T = this>(): T {
     return newContinuation<T>();
   }
 

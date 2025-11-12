@@ -17,8 +17,8 @@ class MyDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
   
-  // Helper to create continuations (like this.c() in LumenizeBase)
-  c<T = this>(): T {
+  // Helper to create continuations (like this.ctn() in LumenizeBase)
+  ctn<T = this>(): T {
     return newContinuation<T>();
   }
   
@@ -28,7 +28,7 @@ class MyDO extends DurableObject {
   }
   
   scheduleTask() {
-    this.#alarms.schedule(60, this.c().handleTask({ data: 'example' }));
+    this.#alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
   }
   
   handleTask(payload: any) {

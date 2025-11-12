@@ -16,7 +16,7 @@ class MyDO extends LumenizeBase<any> {
   }
   
   scheduleTask() {
-    this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
+    this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
   }
   
   handleTask(payload: any) {

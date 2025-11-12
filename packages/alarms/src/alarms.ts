@@ -46,7 +46,7 @@ function getNextCronTime(cron: string): Date {
  *     // Use OCAN to define what to execute
  *     const schedule = this.#alarms.schedule(
  *       60,  // 60 seconds from now
- *       this.c().handleTask({ data: 'example' })
+ *       this.ctn().handleTask({ data: 'example' })
  *     );
  *   }
  *   
@@ -70,7 +70,7 @@ function getNextCronTime(cron: string): Date {
  *   scheduleTask() {
  *     const schedule = this.svc.alarms.schedule(
  *       60,
- *       this.c().handleTask({ data: 'example' })
+ *       this.ctn().handleTask({ data: 'example' })
  *     );
  *   }
  *   
@@ -161,26 +161,26 @@ export class Alarms {
    * @example
    * ```typescript
    * // Delayed execution (60 seconds from now)
-   * this.svc.alarms.schedule(60, this.c().handleTask({ data: 'example' }));
+   * this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
    * 
    * // Scheduled at specific time
-   * this.svc.alarms.schedule(new Date('2025-12-31'), this.c().newYearTask());
+   * this.svc.alarms.schedule(new Date('2025-12-31'), this.ctn().newYearTask());
    * 
    * // Recurring cron (every day at midnight)
-   * this.svc.alarms.schedule('0 0 * * *', this.c().dailyTask());
+   * this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyTask());
    * 
    * // Chaining
    * this.svc.alarms.schedule(
    *   60,
-   *   this.c().processData().logSuccess().notifyUser()
+   *   this.ctn().processData().logSuccess().notifyUser()
    * );
    * 
    * // Nesting
-   * const data1 = this.c().getData(1);
-   * const data2 = this.c().getData(2);
+   * const data1 = this.ctn().getData(1);
+   * const data2 = this.ctn().getData(2);
    * this.svc.alarms.schedule(
    *   60,
-   *   this.c().combineData(data1, data2)
+   *   this.ctn().combineData(data1, data2)
    * );
    * ```
    */
@@ -193,7 +193,7 @@ export class Alarms {
     // Extract operation chain from the continuation proxy
     const operationChain = getOperationChain(continuation);
     if (!operationChain) {
-      throw new Error('Invalid continuation: must be created with newContinuation() or this.c()');
+      throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
     }
 
     const id = crypto.randomUUID();
