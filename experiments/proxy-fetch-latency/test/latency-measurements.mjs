@@ -8,13 +8,24 @@
  *   Terminal 2: npm test
  */
 
-const BASE_URL = 'http://localhost:8787';
+const BASE_URL = process.env.TEST_URL || 'http://localhost:8787';
+
+// Get TEST_ENDPOINTS from environment
+// Set these before running: export $(cat ../../.dev.vars | xargs)
+const TEST_TOKEN = process.env.TEST_TOKEN;
+const TEST_ENDPOINTS_URL = process.env.TEST_ENDPOINTS_URL;
+
+if (!TEST_TOKEN || !TEST_ENDPOINTS_URL) {
+  console.error('❌ TEST_TOKEN and TEST_ENDPOINTS_URL must be set');
+  console.error('Run: export $(cat ../../.dev.vars | xargs)');
+  process.exit(1);
+}
 
 // Test endpoint that returns quickly (for measuring overhead)
-const FAST_ENDPOINT = 'https://httpbin.org/uuid';
+const FAST_ENDPOINT = `${TEST_ENDPOINTS_URL}/latency-test/uuid?token=${TEST_TOKEN}`;
 
 // Test endpoint with artificial delay (for measuring end-to-end)
-const DELAYED_ENDPOINT = 'https://httpbin.org/delay/1'; // 1 second delay
+const DELAYED_ENDPOINT = `${TEST_ENDPOINTS_URL}/latency-test/delay/1000?token=${TEST_TOKEN}`; // 1 second delay
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));

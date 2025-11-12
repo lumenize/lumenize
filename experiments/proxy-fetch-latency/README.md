@@ -20,7 +20,23 @@ This experiment measures the real-world latency characteristics of the new `prox
 
 ## Running Measurements
 
-**Two-process setup to get accurate timing:**
+### Option 1: Production Deployment (Recommended)
+
+For real production latency measurements:
+
+```bash
+# Deploy to Cloudflare
+npm run deploy
+
+# Run measurements against production
+TEST_URL=https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev npm test
+```
+
+This gives true production numbers with service bindings fully functional.
+
+### Option 2: Local Development
+
+**Note:** Service bindings require more complex local setup. For simple enqueue measurements:
 
 **Requirements:**
 - Node.js v22+ (for native fetch support)
@@ -30,10 +46,13 @@ This experiment measures the real-world latency characteristics of the new `prox
    npm run dev
    ```
 
-2. **Terminal 2** - Run the latency tests (connects to localhost:8787):
+2. **Terminal 2** - Export env vars and run tests (connects to localhost:8787):
    ```bash
+   export $(cat ../../.dev.vars | xargs)
    npm test
    ```
+
+**Limitation:** End-to-end tests may fail in local dev due to service binding not being connected. Deploy to production for full measurements.
 
 The tests run in Node.js and connect to the wrangler dev server over HTTP, giving accurate latency measurements without test environment overhead.
 
