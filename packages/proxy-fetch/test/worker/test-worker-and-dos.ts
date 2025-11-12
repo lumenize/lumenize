@@ -12,15 +12,6 @@ import { sendDownstream } from '@lumenize/rpc';
 // Re-export for typing
 export { _FetchOrchestrator };
 
-interface Env {
-  FETCH_ORCHESTRATOR: DurableObjectNamespace;
-  TEST_DO: DurableObjectNamespace;
-  WORKER_URL: string;
-  PROXY_FETCH_SECRET: string;
-  TEST_TOKEN?: string;
-  TEST_ENDPOINTS_URL?: string;
-}
-
 /**
  * TestDO - Origin DO that uses proxyFetchWorker
  * 

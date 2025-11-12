@@ -12,13 +12,6 @@ import { LumenizeBase } from '@lumenize/lumenize-base';
 import { proxyFetchWorker, FetchOrchestrator as _FetchOrchestrator, handleProxyFetchExecution } from '@lumenize/proxy-fetch';
 import '@lumenize/proxy-fetch'; // Register result handler
 
-interface Env {
-  ORIGIN_DO: DurableObjectNamespace;
-  FETCH_ORCHESTRATOR: DurableObjectNamespace;
-  WORKER_URL: string;
-  PROXY_FETCH_SECRET: string;
-}
-
 /**
  * Origin DO - Initiates fetches and measures latency
  */
