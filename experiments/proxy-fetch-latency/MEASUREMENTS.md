@@ -8,18 +8,8 @@ Production performance measurements for the `proxyFetchWorker` architecture.
 - **101ms measured total** (92-107ms range, 15ms variance)
   - Enqueue phase: 80ms (orchestration & dispatch)
   - Execution phase: 21ms (fetch & result delivery)
-- **71ms actual end-to-end** (after subtracting 30ms Node.js overhead)
-- **564ms cold start** (first request only)
-
-**Local Development:**
-- **53ms measured total** (23ms actual after Node.js overhead)
-- **48ms production overhead** (71ms vs 23ms, network latency)
-
-**Key Characteristics:**
-- Real-time result delivery via WebSocket
-- Very consistent warm performance (15ms variance)
-- HTTP dispatch to CPU-billed Worker executors
-- DO-based queue orchestration
+- **71ms actual end-to-end** (after subtracting 30ms round trip between local Node.js and Cloud)
+- **51ms added latency** (after subtracting actual fetch call)
 
 ---
 
@@ -140,37 +130,6 @@ Warm Performance (Requests 2-10 average):
 - Production overhead vs local: ~48ms (71ms vs 23ms local)
 - Very consistent: 92-107ms range (15ms variance)
 - HTTP dispatch to Worker executor working as designed
-
----
-
-## How to Run Measurements
-
-### Local Development
-```bash
-# Terminal 1: Start dev server
-npm run dev
-
-# Terminal 2: Set env vars and run measurements
-export $(cat ../../.dev.vars | xargs)
-npm test
-```
-
-### Production Deployment
-```bash
-# 1. Deploy worker
-npm run deploy
-
-# 2. Set environment variables
-export $(cat ../../.dev.vars | xargs)
-export TEST_URL=https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev
-
-# 3. Run measurements
-npm test
-```
-
-**Requirements:**
-- Node.js 21+ (for native WebSocket support)
-- `TEST_TOKEN` and `TEST_ENDPOINTS_URL` in `.dev.vars`
 
 ---
 
