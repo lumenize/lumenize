@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@lumenize/core": "*",
+    "@lumenize/lumenize-base": "*",
     "@lumenize/structured-clone": "^0.17.0",
     "@lumenize/test-endpoints": "^0.17.0",
     "@lumenize/utils": "^0.17.0",

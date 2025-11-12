@@ -57,3 +57,76 @@ export interface ProxyFetchHandlerItem {
   /** Total duration in milliseconds from initial request to completion */
   duration?: number;
 }
+
+/**
+ * V3 (DO-Worker Hybrid) Types
+ */
+
+/**
+ * Options for V3 proxy fetch
+ */
+export interface ProxyFetchV3Options {
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number;
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number;
+  /** Binding name for origin DO (for callbacks) */
+  originBinding?: string;
+}
+
+/**
+ * Message sent from origin DO to FetchOrchestrator
+ * @internal
+ */
+export interface FetchOrchestratorMessage {
+  /** Unique request ID */
+  reqId: string;
+  /** Serialized Request object */
+  request: any; // Serialized via structured-clone
+  /** Origin DO binding name */
+  originBinding: string;
+  /** Origin DO instance ID */
+  originId: string;
+  /** Options */
+  options?: ProxyFetchV3Options;
+  /** Timestamp when request was initiated */
+  timestamp: number;
+}
+
+/**
+ * Message sent from FetchOrchestrator to Worker
+ * @internal
+ */
+export interface WorkerFetchMessage {
+  /** Unique request ID */
+  reqId: string;
+  /** Serialized Request object */
+  request: any;
+  /** Origin DO binding name (for direct callback) */
+  originBinding: string;
+  /** Origin DO instance ID (for direct callback) */
+  originId: string;
+  /** Retry attempt number */
+  retryCount: number;
+  /** Options */
+  options?: ProxyFetchV3Options;
+  /** Timestamp when request was initiated */
+  startTime: number;
+}
+
+/**
+ * Result message sent from Worker back to origin DO
+ * @internal
+ */
+export interface FetchResult {
+  /** Unique request ID */
+  reqId: string;
+  /** Serialized Response (if successful) */
+  response?: any;
+  /** Error (if failed) */
+  error?: Error;
+  /** Retry attempt number */
+  retryCount: number;
+  /** Duration in milliseconds */
+  duration: number;
+}
