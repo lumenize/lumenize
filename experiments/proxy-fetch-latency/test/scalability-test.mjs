@@ -118,11 +118,11 @@ async function runBatchTest(ws, count) {
       url: TARGET_URL
     }));
     
-    // Timeout after 60s
+    // Timeout after 120s (for large batches)
     setTimeout(() => {
       ws.removeEventListener('message', onMessage);
       reject(new Error(`Timeout waiting for batch ${batchId}`));
-    }, 60000);
+    }, 120000);
   });
 }
 
@@ -152,7 +152,7 @@ async function main() {
   const results = [];
   
   // Test sequence
-  const testSizes = [10, 100];
+  const testSizes = [10, 100, 1000, 2000];
   
   for (const size of testSizes) {
     console.log(`📊 Testing ${size} concurrent fetches...`);
@@ -175,15 +175,6 @@ async function main() {
         console.log(`    Ratio: ${scaling.ratio}x`);
         console.log(`    Difference: ${scaling.percentDiff}`);
         console.log(`    Status: ${scaling.isLinear ? '✅ LINEAR' : '⚠️  NON-LINEAR'}\n`);
-        
-        // Decide whether to continue
-        if (scaling.isLinear && size < 1000) {
-          console.log(`  → Scaling looks good, will try ${size * 10} next\n`);
-          testSizes.push(size * 10);
-        } else if (!scaling.isLinear) {
-          console.log(`  → Found scaling limit around ${size} concurrent\n`);
-          // Could add more granular tests here to zero in on exact limit
-        }
       }
       
       // Small delay between tests
