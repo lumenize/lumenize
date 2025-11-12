@@ -127,20 +127,29 @@ async function resolveNestedOperations(
   // First pass: check if there are any nested markers at all
   let hasNestedMarkers = false;
   
-  function checkForMarkers(value: any): boolean {
+  function checkForMarkers(value: any, seen = new WeakSet()): boolean {
     if (isNestedOperationMarker(value)) {
       return true;
     }
+    
+    // Handle circular references - if we've seen this object, skip it
+    if (value && typeof value === 'object') {
+      if (seen.has(value)) {
+        return false;
+      }
+      seen.add(value);
+    }
+    
     if (Array.isArray(value)) {
-      return value.some(checkForMarkers);
+      return value.some(v => checkForMarkers(v, seen));
     }
     if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
-      return Object.values(value).some(checkForMarkers);
+      return Object.values(value).some(v => checkForMarkers(v, seen));
     }
     return false;
   }
   
-  hasNestedMarkers = args.some(checkForMarkers);
+  hasNestedMarkers = args.some(v => checkForMarkers(v));
   
   // If no nested markers, return args as-is to preserve identity
   if (!hasNestedMarkers) {
