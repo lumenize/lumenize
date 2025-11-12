@@ -15,7 +15,8 @@
     ]
   },
   "vars": {
-    "WORKER_URL": "https://proxy-fetch-latency.YOUR_SUBDOMAIN.workers.dev"
+    "WORKER_URL": "http://localhost:8787",
+    "PROXY_FETCH_SECRET": "local-dev-secret-not-for-production"
   },
   "migrations": [
     {
