@@ -13,6 +13,8 @@ export default defineWorkersProject({
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'json', 'html'],
+      include: ['src/**'],
+      exclude: ['**/test/**', '**/node_modules/**', '**/dist/**'],
       skipFull: false,
       all: false,
     },

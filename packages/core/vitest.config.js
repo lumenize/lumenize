@@ -15,17 +15,19 @@ export default defineWorkersProject({
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov'],
       include: [
-        'sql/**/*.ts',
-        'debug/**/*.ts',
+        'sql/index.ts',
+        'debug/index.ts',
+        'debug/logger.ts',
+        'debug/pattern-matcher.ts',
         'ocan/**/*.ts'
       ],
       exclude: [
+        '**/test/**',
         '**/node_modules/**', 
         '**/dist/**', 
         '**/build/**', 
         '**/*.config.*',
-        '**/scratch/**',
-        '**/test/**/*.test.ts'
+        '**/scratch/**'
       ],
       skipFull: false,
       all: false,

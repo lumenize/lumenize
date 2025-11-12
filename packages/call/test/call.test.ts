@@ -253,5 +253,57 @@ describe('Call - DO-to-DO Communication', () => {
       expect(results[0].value).toHaveProperty('email');
     });
   });
+
+  describe('Call Cancellation', () => {
+    test('cancelCall removes pending operation', async () => {
+      const origin = env.ORIGIN_DO.getByName('cancel-test');
+      
+      await origin.clearResults();
+      
+      // Start a call
+      const operationId = await origin.callRemoteWithDelay('task-1', 5000);
+      
+      // Cancel it immediately
+      const cancelled = await origin.cancelPendingCall(operationId);
+      expect(cancelled).toBe(true);
+      
+      // Try to cancel again - should return false
+      const cancelledAgain = await origin.cancelPendingCall(operationId);
+      expect(cancelledAgain).toBe(false);
+    });
+
+    test('cancelCall with timeout alarm removes alarm data', async () => {
+      const origin = env.ORIGIN_DO.getByName('cancel-timeout-test');
+      
+      await origin.clearResults();
+      
+      // Start a call with explicit timeout
+      const operationId = await origin.callRemoteWithTimeout('task-1', 30000);
+      
+      // Cancel it
+      const cancelled = await origin.cancelPendingCall(operationId);
+      expect(cancelled).toBe(true);
+    });
+  });
+
+  describe('Error Handling - Invalid Inputs', () => {
+    test('rejects invalid remote operation (not OCAN)', async () => {
+      const origin = env.ORIGIN_DO.getByName('invalid-remote-test');
+      
+      // Try to call with non-OCAN operation
+      await expect(
+        origin.callWithInvalidRemoteOperation()
+      ).rejects.toThrow('Invalid remoteOperation: must be created with newContinuation() or this.ctn()');
+    });
+
+    test('rejects invalid continuation (not OCAN)', async () => {
+      const origin = env.ORIGIN_DO.getByName('invalid-continuation-test');
+      
+      // Try to call with non-OCAN continuation
+      await expect(
+        origin.callWithInvalidContinuation()
+      ).rejects.toThrow('Invalid continuation: must be created with newContinuation() or this.ctn()');
+    });
+  });
 });
 
