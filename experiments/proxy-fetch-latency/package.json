@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node test/latency-measurements.mjs"
+    "test": "node test/latency-measurements.mjs",
+    "types": "wrangler types"
   },
   "dependencies": {
     "@lumenize/lumenize-base": "*",

@@ -24,7 +24,7 @@
     "test:production": "node test/production/production.test.mjs",
     "dev:production": "wrangler dev --config test/production/wrangler.jsonc",
     "deploy:production": "wrangler deploy --config test/production/wrangler.jsonc",
-    "types": "cd test/do && wrangler types"
+    "types": "cd test/worker && wrangler types"
   },
   "keywords": [
     "cloudflare",
