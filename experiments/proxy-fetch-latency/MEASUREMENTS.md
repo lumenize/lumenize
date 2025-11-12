@@ -53,18 +53,20 @@ sequenceDiagram
 Testing concurrent fetch handling to find scalability limits:
 
 **Local Development:**
-- **10 concurrent**: 404ms total (~40ms per fetch)
-- **100 concurrent**: 2730ms total (~27ms per fetch, **68% of linear time**)
-- **1000 concurrent**: 28176ms total (~28ms per fetch, **70% of linear time**)
+- **10 concurrent**: 420ms total (~42ms per fetch)
+- **100 concurrent**: 3168ms total (~32ms per fetch, **75% of linear time**)
+- **1000 concurrent**: 30087ms total (~30ms per fetch, **72% of linear time**)
+- **2000 concurrent**: 57678ms total (~29ms per fetch, **69% of linear time**)
 
 **Scaling Analysis:**
-- ✅ **Linear scaling maintained** up to 1000 concurrent fetches
+- ✅ **Linear scaling maintained** up to **2000 concurrent fetches**
 - **Super-linear efficiency** (sub-linear time ratios) due to:
   - HTTP connection reuse across batches
   - Efficient DO queue processing at scale
   - Worker parallelism
-- No observed bottleneck at 1000 concurrent
-- Average per-fetch overhead improves with batch size
+- **Per-fetch overhead improves with scale**: 42ms → 32ms → 30ms → 29ms
+- No observed bottleneck at 2000 concurrent
+- System can likely scale beyond 2000 with same efficiency
 
 **Key Characteristics:**
 - DO-based queue handles high concurrency without degradation
