@@ -229,6 +229,52 @@ export class OriginDO extends LumenizeBase<Env> {
     }
   }
 
+  // Test: Call a non-existent DO binding  
+  async callNonExistentDO(value: string) {
+    const remote = this.ctn<RemoteDO>().asyncOperation(value);
+    
+    // Use a non-existent binding name
+    await this.svc.call(
+      'NON_EXISTENT_BINDING',
+      'test-instance',
+      remote,
+      this.ctn().handleResult(remote),
+      { originBinding: 'ORIGIN_DO' }
+    );
+  }
+
+  // Test: Call with a continuation that throws
+  async callRemoteWithThrowingContinuation(value: string) {
+    const remote = this.ctn<RemoteDO>().asyncOperation(value);
+    
+    await this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      remote,
+      this.ctn().handleThrowingResult(remote),
+      { originBinding: 'ORIGIN_DO' }
+    );
+  }
+
+  handleThrowingResult(result: any) {
+    // This handler intentionally throws to test error handling
+    throw new Error('Intentional error in continuation handler');
+  }
+
+  // Test: Call without originBinding (will trigger getOriginBinding)
+  async callWithoutOriginBinding(value: string) {
+    const remote = this.ctn<RemoteDO>().asyncOperation(value);
+    
+    // Omit originBinding to trigger getOriginBinding function
+    await this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      remote,
+      this.ctn().handleResult(remote)
+      // No options, so originBinding will be inferred
+    );
+  }
+
   // Test helpers
   getResults() {
     return this.#results;
