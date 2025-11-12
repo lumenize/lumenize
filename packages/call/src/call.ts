@@ -94,7 +94,7 @@ export async function call(
 
   // Schedule timeout alarm if timeout is set
   if (timeout > 0) {
-    const timeoutAlarmId = `__call_timeout:${operationId}`;
+    const timeoutAlarmId = `__lmz_call_timeout:${operationId}`;
     const timeoutTime = Date.now() + timeout;
     ctx.storage.setAlarm(timeoutTime);
     
@@ -109,7 +109,7 @@ export async function call(
   }
   
   // Store pending call with preprocessed continuation
-  ctx.storage.kv.put(`__call_pending:${operationId}`, pendingCall);
+  ctx.storage.kv.put(`__lmz_call_pending:${operationId}`, pendingCall);
 
   // Preprocess remote operation chain
   const preprocessedRemote = await preprocess(remoteChain);
@@ -137,7 +137,7 @@ export async function call(
     log.debug('Operation enqueued on remote DO', { operationId });
   } catch (error) {
     // Failed to deliver message - clean up and throw
-    ctx.storage.kv.delete(`__call_pending:${operationId}`);
+    ctx.storage.kv.delete(`__lmz_call_pending:${operationId}`);
     if (pendingCall.timeoutAlarmId) {
       ctx.storage.kv.delete(pendingCall.timeoutAlarmId);
     }
@@ -186,7 +186,7 @@ export function cancelCall(doInstance: any, operationId: string): boolean {
   const ctx = doInstance.ctx as DurableObjectState;
   const log = debug(ctx)('lmz.call.cancelCall');
 
-  const key = `__call_pending:${operationId}`;
+  const key = `__lmz_call_pending:${operationId}`;
   const pendingData = ctx.storage.kv.get(key);
   
   if (!pendingData) {

@@ -87,7 +87,7 @@ export class OriginDO extends LumenizeBase<Env> {
     const endTime = Date.now();
     
     // Get reqId from temporary storage (set by result handler)
-    const reqId = this.ctx.storage.kv.get('__current_result_reqId') as string;
+    const reqId = this.ctx.storage.kv.get('__lmz_proxyfetch_result_reqid') as string;
     
     if (!reqId) {
       console.error('No reqId found in storage');
@@ -114,7 +114,7 @@ export class OriginDO extends LumenizeBase<Env> {
     }
     
     this.#latencyMeasurements.delete(reqId);
-    this.ctx.storage.kv.delete('__current_result_reqId');
+    this.ctx.storage.kv.delete('__lmz_proxyfetch_result_reqid');
   }
 }
 

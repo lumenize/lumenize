@@ -58,7 +58,7 @@ export class _TestDO extends LumenizeBase {
     const endTime = Date.now();
     
     // Get reqId from temporary storage (set by fetchWorkerResultHandler)
-    const reqId = (this.ctx.storage.kv.get('__current_result_reqId') as string) || `unknown-${Date.now()}`;
+    const reqId = (this.ctx.storage.kv.get('__lmz_proxyfetch_result_reqid') as string) || `unknown-${Date.now()}`;
     
     // Get startTime from stored latency data
     let startTime = endTime; // Fallback

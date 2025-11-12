@@ -557,7 +557,7 @@ See [Testing Alarm Simulation](/docs/testing/alarm-simulation) for complete exam
 
 ## How It Works
 
-1. **Persistence**: All schedules stored in SQL table `_lumenize_alarms`
+1. **Persistence**: All schedules stored in SQL table `__lmz_alarms`
 2. **Multiplexing**: Cloudflare's single native alarm set to the next due task
 3. **Execution**: When alarm fires, all overdue tasks execute via OCAN
 4. **Cron handling**: After cron task executes, automatically rescheduled for next occurrence
@@ -565,7 +565,7 @@ See [Testing Alarm Simulation](/docs/testing/alarm-simulation) for complete exam
 
 ### Storage Table
 
-The alarms table (`_lumenize_alarms`) is automatically created with:
+The alarms table (`__lmz_alarms`) is automatically created with:
 - `id` - Unique schedule ID
 - `operationChain` - Serialized OCAN chain
 - `type` - 'delayed', 'timestamp', or 'cron'

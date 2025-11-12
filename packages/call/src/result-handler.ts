@@ -30,7 +30,7 @@ export async function callResultHandler(
   });
 
   // Retrieve pending call to get continuation chain
-  const pendingKey = `__call_pending:${operationId}`;
+  const pendingKey = `__lmz_call_pending:${operationId}`;
   const pendingData = ctx.storage.kv.get(pendingKey);
 
   if (!pendingData) {

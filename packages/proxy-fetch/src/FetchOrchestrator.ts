@@ -36,7 +36,7 @@ export class FetchOrchestrator extends LumenizeBase {
     });
 
     // Store in queue
-    const queueKey = `fetch_queue:${message.reqId}`;
+    const queueKey = `__lmz_fetch_queue:${message.reqId}`;
     this.ctx.storage.kv.put(queueKey, message);
 
     // Dispatch to Worker immediately
@@ -56,7 +56,7 @@ export class FetchOrchestrator extends LumenizeBase {
     log.debug('Marking fetch complete', { reqId });
 
     // Remove from queue
-    const queueKey = `fetch_queue:${reqId}`;
+    const queueKey = `__lmz_fetch_queue:${reqId}`;
     this.ctx.storage.kv.delete(queueKey);
   }
 
@@ -128,10 +128,10 @@ export class FetchOrchestrator extends LumenizeBase {
    * Get queue statistics (for monitoring/debugging)
    */
   async getQueueStats(): Promise<{ pendingCount: number; items: string[] }> {
-    const items = [...this.ctx.storage.kv.list({ prefix: 'fetch_queue:' })];
+    const items = [...this.ctx.storage.kv.list({ prefix: '__lmz_fetch_queue:' })];
     return {
       pendingCount: items.length,
-      items: items.map(([key]) => key.substring('fetch_queue:'.length))
+      items: items.map(([key]) => key.substring('__lmz_fetch_queue:'.length))
     };
   }
 }

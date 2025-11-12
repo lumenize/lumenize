@@ -131,7 +131,7 @@ export class Alarms {
 
     try {
       this.#storage.sql.exec(`
-        CREATE TABLE IF NOT EXISTS _lumenize_alarms (
+        CREATE TABLE IF NOT EXISTS __lmz_alarms (
           id TEXT PRIMARY KEY NOT NULL,
           operationChain TEXT NOT NULL,
           type TEXT NOT NULL CHECK(type IN ('scheduled', 'delayed', 'cron')),
@@ -257,17 +257,17 @@ export class Alarms {
 
     if (type === 'scheduled') {
       this.#sql`
-        INSERT OR REPLACE INTO _lumenize_alarms (id, operationChain, type, time)
+        INSERT OR REPLACE INTO __lmz_alarms (id, operationChain, type, time)
         VALUES (${id}, ${serialized}, ${type}, ${time})
       `;
     } else if (type === 'delayed') {
       this.#sql`
-        INSERT OR REPLACE INTO _lumenize_alarms (id, operationChain, type, delayInSeconds, time)
+        INSERT OR REPLACE INTO __lmz_alarms (id, operationChain, type, delayInSeconds, time)
         VALUES (${id}, ${serialized}, ${type}, ${extra.delayInSeconds!}, ${time})
       `;
     } else if (type === 'cron') {
       this.#sql`
-        INSERT OR REPLACE INTO _lumenize_alarms (id, operationChain, type, cron, time)
+        INSERT OR REPLACE INTO __lmz_alarms (id, operationChain, type, cron, time)
         VALUES (${id}, ${serialized}, ${type}, ${extra.cron!}, ${time})
       `;
     }
@@ -282,7 +282,7 @@ export class Alarms {
     this.#ensureTable();
     
     const result = this.#sql`
-      SELECT * FROM _lumenize_alarms WHERE id = ${id}
+      SELECT * FROM __lmz_alarms WHERE id = ${id}
     `;
 
     if (!result || result.length === 0) {
@@ -310,7 +310,7 @@ export class Alarms {
   } = {}): Promise<Schedule[]> {
     this.#ensureTable();
     
-    let query = 'SELECT * FROM _lumenize_alarms WHERE 1=1';
+    let query = 'SELECT * FROM __lmz_alarms WHERE 1=1';
     const params: any[] = [];
 
     if (criteria.id) {
@@ -354,7 +354,7 @@ export class Alarms {
   cancelSchedule(id: string): boolean {
     this.#ensureTable();
     
-    this.#sql`DELETE FROM _lumenize_alarms WHERE id = ${id}`;
+    this.#sql`DELETE FROM __lmz_alarms WHERE id = ${id}`;
     this.#scheduleNextAlarm();
     return true;
   }
@@ -396,7 +396,7 @@ export class Alarms {
     // If count not specified, execute all overdue alarms, or 1 if none overdue
     if (count === undefined) {
       const overdueResult = this.#sql`
-        SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
+        SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}
       `;
       count = overdueResult[0]?.count ?? 1;
     }
@@ -408,7 +408,7 @@ export class Alarms {
     for (let i = 0; i < actualCount; i++) {
       // Get the earliest scheduled alarm (regardless of time)
       const result = this.#sql`
-        SELECT * FROM _lumenize_alarms 
+        SELECT * FROM __lmz_alarms 
         ORDER BY time ASC 
         LIMIT 1
       `;
@@ -437,12 +437,12 @@ export class Alarms {
         const nextExecutionTime = getNextCronTime(row.cron);
         const nextTimestamp = Math.floor(nextExecutionTime.getTime() / 1000);
         this.#sql`
-          UPDATE _lumenize_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}
+          UPDATE __lmz_alarms SET time = ${nextTimestamp} WHERE id = ${row.id}
         `;
       } else {
         // Delete one-time schedules after execution
         this.#sql`
-          DELETE FROM _lumenize_alarms WHERE id = ${row.id}
+          DELETE FROM __lmz_alarms WHERE id = ${row.id}
         `;
       }
     }
@@ -460,7 +460,7 @@ export class Alarms {
     // Execute all overdue alarms
     const now = Math.floor(Date.now() / 1000);
     const overdueResult = this.#sql`
-      SELECT COUNT(*) as count FROM _lumenize_alarms WHERE time <= ${now}
+      SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}
     `;
     const overdueCount = overdueResult[0]?.count || 0;
     
@@ -472,7 +472,7 @@ export class Alarms {
   #scheduleNextAlarm(): void {
     // Find the next schedule that needs to be executed
     const result = this.#sql`
-      SELECT time FROM _lumenize_alarms 
+      SELECT time FROM __lmz_alarms 
       WHERE time > ${Math.floor(Date.now() / 1000)}
       ORDER BY time ASC 
       LIMIT 1

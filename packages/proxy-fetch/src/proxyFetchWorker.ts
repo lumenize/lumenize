@@ -125,7 +125,7 @@ export async function proxyFetchWorker(
 
   // Store pending continuation in origin DO storage
   // This will be retrieved when the result comes back
-  const pendingKey = `proxyFetch_pending:${reqId}`;
+  const pendingKey = `__lmz_proxyfetch_pending:${reqId}`;
   ctx.storage.kv.put(pendingKey, {
     reqId,
     continuationChain: preprocessedContinuation,

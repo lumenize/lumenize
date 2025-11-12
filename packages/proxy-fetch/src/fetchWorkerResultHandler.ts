@@ -31,7 +31,7 @@ export async function fetchWorkerResultHandler(
   const fetchResult = await postprocess(resultData) as FetchResult;
 
   // Get the continuation chain from pending request storage
-  const pendingKey = `proxyFetch_pending:${reqId}`;
+  const pendingKey = `__lmz_proxyfetch_pending:${reqId}`;
   const pendingData = ctx.storage.kv.get(pendingKey) as { reqId: string; continuationChain: any; timestamp: number } | undefined;
   
   if (!pendingData) {
@@ -60,7 +60,7 @@ export async function fetchWorkerResultHandler(
 
   // Store reqId temporarily so continuation can access it
   // This is a workaround until we have better context injection in OCAN
-  ctx.storage.kv.put('__current_result_reqId', reqId);
+  ctx.storage.kv.put('__lmz_proxyfetch_result_reqid', reqId);
 
   // Execute continuation with result
   try {
@@ -78,7 +78,7 @@ export async function fetchWorkerResultHandler(
 
   // Clean up
   ctx.storage.kv.delete(pendingKey);
-  ctx.storage.kv.delete('__current_result_reqId');
+  ctx.storage.kv.delete('__lmz_proxyfetch_result_reqid');
 }
 
 /**

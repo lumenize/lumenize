@@ -227,14 +227,14 @@ console.log(this.#alarms.getSchedules());
 
 ### How It Works
 
-1. **Persistence**: All schedules are stored in a SQL table `_lumenize_alarms`
+1. **Persistence**: All schedules are stored in a SQL table `__lmz_alarms`
 2. **Multiplexing**: The package intelligently sets Cloudflare's single native alarm to the next due task
 3. **Execution**: When the alarm fires, all overdue tasks execute and the next alarm is scheduled
 4. **Cron handling**: After a cron task executes, it's automatically rescheduled for its next occurrence
 
 ### Storage Table
 
-The alarms table (`_lumenize_alarms`) is automatically created with columns for id, callback, payload, type, time, and optional delayInSeconds/cron fields.
+The alarms table (`__lmz_alarms`) is automatically created with columns for id, callback, payload, type, time, and optional delayInSeconds/cron fields.
 
 ### Lazy Initialization
 
