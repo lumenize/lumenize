@@ -178,6 +178,15 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'introduction',
 
+    // Concepts
+    {
+      type: 'category',
+      label: 'Concepts',
+      items: [
+        'concepts/context-patterns',
+      ],
+    },
+
     // Testing
     {
       type: 'category',
