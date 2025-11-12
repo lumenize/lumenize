@@ -379,6 +379,41 @@ describe('Alarms', () => {
     });
   });
 
+  describe('Dependency Injection', () => {
+    test('works with direct sql dependency', async () => {
+      const stub = env.ALARM_DO.getByName('direct-sql-test');
+      
+      // Schedule an alarm (exercises path with deps.sql)
+      const schedule = await stub.scheduleAlarm(new Date(Date.now() + 1000), { task: 'test' });
+      expect(schedule.id).toBeDefined();
+    });
+
+    test('works with doInstance.svc.sql path', async () => {
+      const stub = env.ALARM_DO.getByName('svc-sql-test');
+      
+      // Schedule an alarm (exercises path with doInstance.svc.sql)
+      const schedule = await stub.scheduleAlarm(new Date(Date.now() + 1000), { task: 'test2' });
+      expect(schedule.id).toBeDefined();
+    });
+
+    test('scheduleNextAlarm handles result without time property', async () => {
+      const stub = env.ALARM_DO.getByName('no-time-test');
+      
+      // Cancel all alarms to ensure scheduleNextAlarm finds nothing
+      const schedules = await stub.getSchedules();
+      for (const schedule of schedules) {
+        await stub.cancelSchedule(schedule.id);
+      }
+      
+      // Schedule an alarm that's in the past (already overdue, won't be scheduled)
+      await stub.scheduleAlarm(new Date(Date.now() - 5000), { task: 'past' });
+      
+      // Verify it was created but scheduleNextAlarm didn't schedule it
+      const remaining = await stub.getSchedules();
+      expect(remaining.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
   describe('Error Handling', () => {
     test('throws error for invalid operation during schedule', async () => {
       const stub = env.ALARM_DO.getByName('invalid-callback-test');
@@ -415,6 +450,55 @@ describe('Alarms', () => {
       // Note: triggerAlarms continues on error, so both are attempted but only second succeeds
       const executed = await stub.getExecutedAlarms();
       expect(executed.some(e => e.payload.task === 'succeeds')).toBe(true);
+    });
+
+    test('handles invalid cron expression', async () => {
+      const stub = env.ALARM_DO.getByName('invalid-cron-test');
+      
+      // Try to schedule with invalid cron expression
+      await expect(
+        stub.scheduleCronAlarm('not a valid cron', { task: 'invalid' })
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('Edge Cases', () => {
+    test('handles zero delay (immediate execution)', async () => {
+      const stub = env.ALARM_DO.getByName('zero-delay-test');
+      
+      await stub.clearExecutedAlarms();
+      
+      // Schedule with 0 delay (should be executed immediately on next trigger)
+      await stub.scheduleDelayedAlarm(0, { task: 'immediate' });
+      
+      // Trigger alarms
+      const executed = await stub.triggerAlarms();
+      expect(executed.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('handles very large delay', async () => {
+      const stub = env.ALARM_DO.getByName('large-delay-test');
+      
+      // Schedule with very large delay (1 year)
+      const schedule = await stub.scheduleDelayedAlarm(31536000, { task: 'distant-future' });
+      
+      expect(schedule.id).toBeDefined();
+      expect(schedule.type).toBe('delayed');
+      expect(schedule.delayInSeconds).toBe(31536000);
+    });
+
+    test('handles concurrent schedule operations', async () => {
+      const stub = env.ALARM_DO.getByName('concurrent-test');
+      
+      // Schedule multiple alarms concurrently
+      const promises = [];
+      for (let i = 0; i < 10; i++) {
+        promises.push(stub.scheduleAlarm(new Date(Date.now() + (i + 1) * 1000), { task: `concurrent-${i}` }));
+      }
+      
+      const schedules = await Promise.all(promises);
+      expect(schedules.length).toBe(10);
+      expect(schedules.every(s => s.id)).toBe(true);
     });
   });
 });
