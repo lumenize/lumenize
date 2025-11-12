@@ -13,7 +13,6 @@
   "dependencies": {
     "@lumenize/lumenize-base": "*",
     "@lumenize/proxy-fetch": "*",
-    "@lumenize/utils": "*",
     "@lumenize/core": "*"
   },
   "devDependencies": {
