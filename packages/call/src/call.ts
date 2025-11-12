@@ -122,7 +122,7 @@ export async function call(
   // Get remote DO stub
   const remoteStub = env[doBinding].get(instanceId);
 
-  // Send message to remote DO (Call 1: Origin → Remote)
+  // Prepare message for remote DO
   const message: CallMessage = {
     originId: ctx.id.toString(),
     originBinding: getOriginBinding(doInstance),
@@ -130,9 +130,13 @@ export async function call(
     operationChain: preprocessedRemote as OperationChain
   };
 
+  // Preprocess message for transmission
+  const preprocessedMessage = await preprocess(message);
+
   try {
-    // Only await receipt confirmation (not execution)
-    await remoteStub.__enqueueOperation(message);
+    // Send message to remote DO (Call 1: Origin → Remote)
+    // Only await receipt confirmation (not execution) - actor model
+    await remoteStub.__enqueueWork('call', operationId, preprocessedMessage);
     log.debug('Operation enqueued on remote DO', { operationId });
   } catch (error) {
     // Failed to deliver message - clean up and throw

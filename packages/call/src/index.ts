@@ -4,7 +4,7 @@
  * Enables remote method calls between Durable Objects using:
  * - OCAN (Operation Chaining And Nesting) for type-safe method chains
  * - Actor model with two one-way calls (minimize wall-clock time)
- * - Storage-based queues for fault tolerance
+ * - Generic work queue infrastructure in LumenizeBase
  * - Single continuation handler receives `Result | Error`
  * 
  * @example
@@ -37,53 +37,35 @@
 
 export * from './types.js';
 export { call, cancelCall } from './call.js';
-export {
-  __enqueueOperation,
-  __processCallQueue,
-  __receiveOperationResult,
-  __handleCallAlarms
-} from './receivers.js';
 
-// Monkey-patch LumenizeBase with receiver methods
-// This happens when @lumenize/call is imported
-const patchLumenizeBase = () => {
-  try {
-    // Dynamic import to avoid circular dependencies
-    import('@lumenize/lumenize-base').then(({ LumenizeBase }) => {
-      if (LumenizeBase && LumenizeBase.prototype) {
-        import('./receivers.js').then((receivers) => {
-          LumenizeBase.prototype.__enqueueOperation = receivers.__enqueueOperation;
-          LumenizeBase.prototype.__processCallQueue = receivers.__processCallQueue;
-          LumenizeBase.prototype.__receiveOperationResult = receivers.__receiveOperationResult;
-          LumenizeBase.prototype.__handleCallAlarms = receivers.__handleCallAlarms;
-        });
-      }
-    }).catch(() => {
-      // LumenizeBase not available - that's okay for standalone pattern
-    });
-  } catch (e) {
-    // Ignore errors - might be in standalone mode
-  }
-};
+// Register work handler for 'call' work type
+import { callWorkHandler } from './work-handler.js';
+import { callResultHandler } from './result-handler.js';
 
-// Run patching
-patchLumenizeBase();
+if (!(globalThis as any).__lumenizeWorkHandlers) {
+  (globalThis as any).__lumenizeWorkHandlers = {};
+}
+(globalThis as any).__lumenizeWorkHandlers.call = callWorkHandler;
+
+if (!(globalThis as any).__lumenizeResultHandlers) {
+  (globalThis as any).__lumenizeResultHandlers = {};
+}
+(globalThis as any).__lumenizeResultHandlers.call = callResultHandler;
 
 // Register call as a NADIS service
 if (!(globalThis as any).__lumenizeServiceRegistry) {
   (globalThis as any).__lumenizeServiceRegistry = {};
 }
 
-// Call is a stateless function that takes parameters
+// Call is a function that returns a bound call with doInstance
 (globalThis as any).__lumenizeServiceRegistry.call = (doInstance: any) => {
-  return async (
+  return (
     doBinding: string,
     instanceId: string,
     remoteOperation: any,
     continuation: any,
     options?: any
   ) => {
-    const { call } = await import('./call.js');
     return call(doInstance, doBinding, instanceId, remoteOperation, continuation, options);
   };
 };
