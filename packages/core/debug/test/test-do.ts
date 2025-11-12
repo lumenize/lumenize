@@ -1,5 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { debug } from '../index';
+import { parseDebugFilter, shouldLog } from '../pattern-matcher';
+import type { DebugLevel } from '../types';
 
 /**
  * Test DO for debug functionality
@@ -35,6 +37,19 @@ export class DebugTestDO extends DurableObject<Env> {
     this.#log.info('Processing request', data);
     
     return { processed: true };
+  }
+
+  /**
+   * Test pattern matching directly
+   * @param namespace - Namespace to test
+   * @param filter - DEBUG filter string
+   * @param level - Log level to test
+   * @returns Whether the namespace+level should log
+   */
+  testNamespaceMatch(namespace: string, filter: string, level: DebugLevel) {
+    const patterns = parseDebugFilter(filter);
+    const result = shouldLog(namespace, level, patterns);
+    return { shouldLog: result };
   }
 }
 
