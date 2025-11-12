@@ -14,6 +14,7 @@ import { createTestingClient } from '@lumenize/testing';
 import { _TestDO, _FetchOrchestrator } from './test-worker-and-dos';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
+import { handleProxyFetchExecution, ProxyFetchAuthError } from '../../src/index';
 
 describe('ProxyFetchWorker Integration', () => {
   describe('Basic Flow', () => {
@@ -234,6 +235,153 @@ describe('ProxyFetchWorker Integration', () => {
 
       const result = await originClient.getResult(reqId);
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('handleProxyFetchExecution', () => {
+    test('returns undefined for non-matching path', async () => {
+      const request = new Request('https://example.com/other-path', {
+        method: 'POST',
+      });
+      
+      const response = await handleProxyFetchExecution(request, env);
+      expect(response).toBeUndefined();
+    });
+
+    test('throws ProxyFetchAuthError when secret not configured', async () => {
+      const request = new Request('https://example.com/proxy-fetch-execute', {
+        method: 'POST',
+        headers: {
+          'X-Proxy-Fetch-Secret': 'some-secret'
+        },
+      });
+      
+      // Create env without PROXY_FETCH_SECRET
+      const envWithoutSecret = { ...env };
+      delete envWithoutSecret.PROXY_FETCH_SECRET;
+      
+      await expect(
+        handleProxyFetchExecution(request, envWithoutSecret)
+      ).rejects.toThrow(ProxyFetchAuthError);
+      
+      await expect(
+        handleProxyFetchExecution(request, envWithoutSecret)
+      ).rejects.toThrow('PROXY_FETCH_SECRET not configured');
+    });
+
+    test('throws ProxyFetchAuthError when secret is missing', async () => {
+      const request = new Request('https://example.com/proxy-fetch-execute', {
+        method: 'POST',
+        // No X-Proxy-Fetch-Secret header
+      });
+      
+      await expect(
+        handleProxyFetchExecution(request, env)
+      ).rejects.toThrow(ProxyFetchAuthError);
+      
+      await expect(
+        handleProxyFetchExecution(request, env)
+      ).rejects.toThrow('Invalid or missing X-Proxy-Fetch-Secret header');
+    });
+
+    test('throws ProxyFetchAuthError when secret is invalid', async () => {
+      const request = new Request('https://example.com/proxy-fetch-execute', {
+        method: 'POST',
+        headers: {
+          'X-Proxy-Fetch-Secret': 'wrong-secret'
+        },
+      });
+      
+      await expect(
+        handleProxyFetchExecution(request, env)
+      ).rejects.toThrow(ProxyFetchAuthError);
+    });
+
+    test('returns 400 for invalid JSON body', async () => {
+      const request = new Request('https://example.com/proxy-fetch-execute', {
+        method: 'POST',
+        headers: {
+          'X-Proxy-Fetch-Secret': env.PROXY_FETCH_SECRET,
+          'Content-Type': 'application/json'
+        },
+        body: 'not valid json{',
+      });
+      
+      const response = await handleProxyFetchExecution(request, env);
+      expect(response).toBeDefined();
+      expect(response?.status).toBe(400);
+      const text = await response?.text();
+      expect(text).toBe('Invalid JSON body');
+    });
+
+    test('uses custom path option', async () => {
+      const request = new Request('https://example.com/custom-fetch', {
+        method: 'POST',
+      });
+      
+      // Should match custom path and attempt auth (will fail without secret)
+      await expect(
+        handleProxyFetchExecution(request, env, { path: '/custom-fetch' })
+      ).rejects.toThrow(ProxyFetchAuthError);
+    });
+
+    test('uses custom secretEnvVar option', async () => {
+      const request = new Request('https://example.com/proxy-fetch-execute', {
+        method: 'POST',
+        headers: {
+          'X-Proxy-Fetch-Secret': 'test-custom-secret'
+        },
+      });
+      
+      const customEnv = {
+        ...env,
+        CUSTOM_SECRET: 'test-custom-secret'
+      };
+      delete customEnv.PROXY_FETCH_SECRET;
+      
+      // Should look for CUSTOM_SECRET instead of PROXY_FETCH_SECRET
+      // Will fail at JSON parsing since we have valid auth but no body
+      const response = await handleProxyFetchExecution(request, customEnv, {
+        secretEnvVar: 'CUSTOM_SECRET'
+      });
+      
+      expect(response).toBeDefined();
+      expect(response?.status).toBe(400); // Invalid JSON body
+    });
+
+    test('ProxyFetchAuthError has correct properties', () => {
+      const error = new ProxyFetchAuthError('Test message');
+      
+      expect(error.message).toBe('Test message');
+      expect(error.name).toBe('ProxyFetchAuthError');
+      expect(error.code).toBe('PROXY_FETCH_AUTH_ERROR');
+      expect(error.httpErrorCode).toBe(401);
+      expect(error instanceof Error).toBe(true);
+    });
+
+    test('successfully handles valid request', async () => {
+      const request = new Request('https://example.com/proxy-fetch-execute', {
+        method: 'POST',
+        headers: {
+          'X-Proxy-Fetch-Secret': env.PROXY_FETCH_SECRET,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          reqId: 'test-valid-req',
+          url: 'https://httpbin.org/delay/0',
+          originDoBinding: 'TEST_DO',
+          originInstanceId: 'valid-test-origin',
+          continuationChain: []
+        }),
+      });
+      
+      const response = await handleProxyFetchExecution(request, env);
+      
+      // Should return 200 for successful execution
+      expect(response).toBeDefined();
+      expect(response?.status).toBe(200);
+      const text = await response?.text();
+      expect(text).toBe('OK');
     });
   });
 });
