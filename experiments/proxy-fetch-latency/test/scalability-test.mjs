@@ -20,7 +20,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Load .dev.vars from root
 function loadDevVars() {
   try {
-    const devVarsPath = join(__dirname, '../../.dev.vars');
+    const devVarsPath = join(__dirname, '../../../.dev.vars');
     const content = readFileSync(devVarsPath, 'utf-8');
     content.split('\n').forEach(line => {
       line = line.trim();
