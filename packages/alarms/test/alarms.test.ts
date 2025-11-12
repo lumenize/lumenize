@@ -216,6 +216,67 @@ describe('Alarms', () => {
       expect(filtered.length).toBeGreaterThanOrEqual(2);
       expect(filtered.every((s: { time: number; }) => s.time <= Math.floor((now + 6000) / 1000))).toBe(true);
     });
+
+    test('filters schedules by id', async () => {
+      const stub = env.ALARM_DO.getByName('filter-id-test');
+      
+      const schedule1 = await stub.scheduleAlarm(new Date(Date.now() + 1000), { task: 'first' });
+      const schedule2 = await stub.scheduleAlarm(new Date(Date.now() + 2000), { task: 'second' });
+      
+      // Filter by specific ID
+      const filtered = await stub.getSchedules({ id: schedule1.id });
+      
+      expect(filtered.length).toBe(1);
+      expect(filtered[0].id).toBe(schedule1.id);
+    });
+
+    test('returns empty array when no schedules match filters', async () => {
+      const stub = env.ALARM_DO.getByName('filter-empty-test');
+      
+      await stub.scheduleAlarm(new Date(Date.now() + 1000), { task: 'test' });
+      
+      // Filter with non-existent ID
+      const filtered = await stub.getSchedules({ id: 'non-existent' });
+      
+      expect(filtered.length).toBe(0);
+    });
+
+    test('combines multiple filters (type + timeRange)', async () => {
+      const stub = env.ALARM_DO.getByName('combined-filter-test');
+      
+      const now = Date.now();
+      await stub.scheduleAlarm(new Date(now + 1000), { task: 'scheduled-early' });
+      await stub.scheduleAlarm(new Date(now + 5000), { task: 'scheduled-late' });
+      await stub.scheduleDelayedAlarm(3, { task: 'delayed-middle' });
+      await stub.scheduleCronAlarm('*/5 * * * *', { task: 'cron' });
+      
+      // Filter by type and time range
+      const filtered = await stub.getSchedules({
+        type: 'scheduled',
+        timeRange: {
+          start: new Date(now),
+          end: new Date(now + 3000),
+        },
+      });
+      
+      expect(filtered.every((s: { type: string; }) => s.type === 'scheduled')).toBe(true);
+      expect(filtered.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('handles immediate execution (negative delay)', async () => {
+      const stub = env.ALARM_DO.getByName('negative-delay-test');
+      
+      // Schedule with negative delay (in the past)
+      await stub.scheduleDelayedAlarm(-5, { task: 'already-overdue' });
+      
+      // Should be in overdue schedules
+      const schedules = await stub.getSchedules();
+      expect(schedules.length).toBeGreaterThanOrEqual(1);
+      
+      // Trigger and verify execution
+      const executed = await stub.triggerAlarms();
+      expect(executed.length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   describe('Multiple Alarms', () => {
@@ -256,6 +317,66 @@ describe('Alarms', () => {
       const executed = await stub.getExecutedAlarms();
       expect(executed.length).toBe(2);
     });
+
+    test('triggerAlarms returns empty array when no alarms exist', async () => {
+      const stub = env.ALARM_DO.getByName('no-alarms-test');
+      
+      // No alarms scheduled - should return empty array
+      const executedIds = await stub.triggerAlarms();
+      expect(executedIds.length).toBe(0);
+    });
+
+    test('triggerAlarms with explicit count respects limit', async () => {
+      const stub = env.ALARM_DO.getByName('count-limit-test');
+      
+      // Schedule 3 alarms in the past
+      await stub.scheduleAlarm(new Date(Date.now() - 3000), { order: 1 });
+      await stub.scheduleAlarm(new Date(Date.now() - 2000), { order: 2 });
+      await stub.scheduleAlarm(new Date(Date.now() - 1000), { order: 3 });
+      
+      // Trigger only 2 alarms
+      const executedIds = await stub.triggerAlarms(2);
+      expect(executedIds.length).toBe(2);
+      
+      // Third alarm should still be in schedule
+      const remaining = await stub.getSchedules();
+      expect(remaining.length).toBe(1);
+    });
+  });
+
+  describe('Native Alarm Integration', () => {
+    test('alarm() method executes overdue alarms', async () => {
+      const stub = env.ALARM_DO.getByName('native-alarm-test');
+      
+      // Schedule alarms in the past
+      await stub.scheduleAlarm(new Date(Date.now() - 2000), { task: 'overdue1' });
+      await stub.scheduleAlarm(new Date(Date.now() - 1000), { task: 'overdue2' });
+      
+      // Call the alarm() method directly (simulates Cloudflare calling it)
+      await stub.callAlarmMethod();
+      
+      // Both alarms should have been executed
+      const executed = await stub.getExecutedAlarms();
+      expect(executed.length).toBe(2);
+    });
+
+    test('alarm() method does nothing when no overdue alarms', async () => {
+      const stub = env.ALARM_DO.getByName('native-alarm-no-overdue-test');
+      
+      // Schedule alarm in the future
+      await stub.scheduleAlarm(new Date(Date.now() + 10000), { task: 'future' });
+      
+      // Call the alarm() method
+      await stub.callAlarmMethod();
+      
+      // No alarms should have been executed
+      const executed = await stub.getExecutedAlarms();
+      expect(executed.length).toBe(0);
+      
+      // Alarm should still be scheduled
+      const remaining = await stub.getSchedules();
+      expect(remaining.length).toBe(1);
+    });
   });
 
   describe('Error Handling', () => {
@@ -266,6 +387,15 @@ describe('Alarms', () => {
       await expect(
         stub.scheduleAlarmWithBadCallback(new Date(Date.now() + 1000), { task: 'test' })
       ).rejects.toThrow();
+    });
+
+    test('throws error for invalid schedule type', async () => {
+      const stub = env.ALARM_DO.getByName('invalid-type-test');
+      
+      // Pass invalid type (not Date, number, or string)
+      await expect(
+        stub.scheduleAlarmWithInvalidType({ not: 'valid' }, { task: 'test' })
+      ).rejects.toThrow('Invalid schedule type');
     });
 
     test('handles callback errors during execution gracefully', async () => {

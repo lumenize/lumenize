@@ -37,6 +37,16 @@ export class AlarmDO extends DurableObject<Env> {
     return this.#alarms.schedule(when, this.ctn().handleAlarm(payload));
   }
 
+  // Test helper: Schedule a delayed alarm (by seconds)
+  scheduleDelayedAlarm(delayInSeconds: number, payload?: any) {
+    return this.#alarms.schedule(delayInSeconds, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Schedule a cron alarm
+  scheduleCronAlarm(cronExpression: string, payload?: any) {
+    return this.#alarms.schedule(cronExpression, this.ctn().handleAlarm(payload));
+  }
+
   // Test helper: Get a schedule by ID
   getSchedule(id: string) {
     return this.#alarms.getSchedule(id);
@@ -63,6 +73,11 @@ export class AlarmDO extends DurableObject<Env> {
     return this.#alarms.schedule(when, this.ctn().notAFunction(payload));
   }
 
+  scheduleAlarmWithInvalidType(when: any, payload?: any) {
+    // Force schedule with an invalid when type (not Date, number, or string)
+    return this.#alarms.schedule(when, this.ctn().handleAlarm(payload));
+  }
+
   // Alarm callback that throws an error
   handleThrowingAlarm(payload: any) {
     throw new Error('Intentional error from alarm callback');
@@ -86,6 +101,11 @@ export class AlarmDO extends DurableObject<Env> {
   // Test helper: Manually trigger alarms for testing
   async triggerAlarms(count?: number) {
     return await this.#alarms.triggerAlarms(count);
+  }
+
+  // Test helper: Call the alarm() method (simulates Cloudflare calling it)
+  async callAlarmMethod() {
+    await this.#alarms.alarm();
   }
   
   // Property to intentionally test invalid callback (not a function)
