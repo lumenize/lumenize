@@ -1,6 +1,26 @@
 # ProxyFetchWorker Latency Measurements
 
-Production latency measurements for the `proxyFetchWorker` architecture using WebSocket for real-time result delivery.
+Production performance measurements for the `proxyFetchWorker` architecture.
+
+## Performance Summary
+
+**Production (Warm):**
+- **71ms end-to-end latency** (average)
+- **92-107ms measured range** (15ms variance, very consistent)
+- **80ms average enqueue time** (includes all orchestration)
+- **564ms cold start** (first request only, ~450ms penalty)
+
+**Local Development:**
+- **23ms end-to-end latency** (baseline with no network)
+- **48ms production overhead** (network latency vs local)
+
+**Key Characteristics:**
+- Real-time result delivery via WebSocket
+- Consistent warm performance (15ms variance)
+- HTTP dispatch to CPU-billed Worker executors
+- DO-based queue orchestration
+
+---
 
 ## Architecture Flow
 
@@ -37,8 +57,8 @@ sequenceDiagram
 **Key Points:**
 - **WebSocket connection** is established once and reused (bypasses Worker after upgrade)
 - **Enqueue latency**: Time from `start-fetch` message to `enqueued` confirmation
-- **End-to-end latency**: Time from `start-fetch` to `result` message
-- **No polling overhead**: Results delivered immediately via WebSocket push
+- **End-to-end latency**: Time from `start-fetch` to `result` message (includes external fetch)
+- **Results delivered immediately** via WebSocket push
 - **Node.js overhead**: ~30ms for network round-trip to/from client (subtracted in results)
 
 ## Measurement Methodology
@@ -81,7 +101,6 @@ Average Breakdown:
 **Observations:**
 - ✅ Very fast due to local execution (no network hops)
 - ✅ Direct `executeFetch()` call bypasses HTTP dispatch
-- ✅ WebSocket eliminates polling overhead entirely
 - ⚠️ Production will be slower due to actual network latency
 
 ---
@@ -114,37 +133,12 @@ Warm Performance (Requests 2-10 average):
 - Request 1: 564ms (cold start - DO initialization)
 - Request 2-10: 92-107ms (warm - very consistent, 15ms variance)
 
-**Analysis:**
-- ⚠️ Cold start penalty: ~450ms (first request only)
-- ✅ **Warm latency: 71ms actual end-to-end** (101ms - 30ms Node.js)
-- ✅ Production overhead vs local: ~48ms (71ms vs 23ms)
-- ✅ HTTP dispatch working correctly (no localhost detection)
-- ✅ WebSocket eliminates polling overhead entirely
-- ✅ Very consistent warm performance (92-107ms range)
-
----
-
-## Comparison: Polling vs WebSocket
-
-| Metric | HTTP Polling | WebSocket (Production) |
-|--------|-------------|-----------|
-| Result delivery | Poll every 100ms | Push immediately |
-| Warm end-to-end latency | ~271ms | **71ms** (measured) |
-| Polling overhead | ~100-200ms | **0ms** |
-| Connection setup | Per request | One-time |
-| Warm request range | ~271ms | **92-107ms** (measured) |
-| Cold start | N/A | 564ms (one-time) |
-| Real-world pattern | ❌ Never used | ✅ Production ready |
-
-**Improvement: ~200ms faster (74% reduction)**
-
-**Why WebSocket is better:**
-- ✅ No artificial polling delays (saves 100-200ms)
-- ✅ Real-time result delivery (0ms wait)
-- ✅ Matches actual production DO patterns
-- ✅ **Much lower warm latency (71ms vs 271ms)**
-- ✅ More efficient (no wasted polling requests)
-- ✅ Very consistent performance (15ms variance)
+**Performance Characteristics:**
+- Cold start: ~450ms (first request only)
+- **Warm latency: 71ms end-to-end** (average, 101ms measured - 30ms Node.js overhead)
+- Production overhead vs local: ~48ms (71ms vs 23ms local)
+- Very consistent: 92-107ms range (15ms variance)
+- HTTP dispatch to Worker executor working as designed
 
 ---
 
@@ -184,19 +178,20 @@ npm test
 **Included in measurement:**
 1. WebSocket message send (Client → Origin DO)
 2. `proxyFetchWorker()` execution in Origin DO
-3. Message to FetchOrchestrator
-4. Dispatch to Worker (or direct call in test)
-5. Worker fetch to test-endpoints
+3. Message to FetchOrchestrator DO
+4. HTTP dispatch to Worker executor (production) or direct call (local)
+5. Worker fetch to external endpoint (test-endpoints.workers.dev)
 6. Result delivery to Origin DO (`__receiveResult`)
 7. Continuation execution in Origin DO
 8. WebSocket message receive (Origin DO → Client)
 
 **Excluded from measurement:**
-- WebSocket connection establishment (one-time setup)
-- Test-endpoints processing time (they respond instantly)
-- Node.js network overhead (subtracted: ~30ms)
+- WebSocket connection establishment (one-time setup, not counted)
+- Test-endpoints processing time (responds instantly with UUID)
+- Node.js network overhead (estimated ~30ms, subtracted from results)
 
-**What we learn:**
-- True overhead of the proxyFetchWorker architecture
-- Cost of DO → Orchestrator → Worker → Origin flow
-- Real-world latency for CPU-billed fetch pattern
+**Architecture overhead breakdown:**
+- **DO → Orchestrator → Worker → DO flow**: ~71ms in production (warm)
+- **HTTP dispatch overhead**: Included in measurements (production only)
+- **Network latency**: ~48ms production overhead vs local execution
+- **Cold start penalty**: ~450ms (first request only)
