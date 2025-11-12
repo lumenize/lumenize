@@ -35,6 +35,22 @@ export default defineConfig({
           },
         },
       }),
+      // Worker Variant tests - DO-Worker Hybrid
+      defineWorkersProject({
+        test: {
+          name: 'worker',
+          globals: true,
+          testTimeout: 15000, // Longer for latency measurements
+          include: ['test/worker/**/*.test.ts'],
+          fileParallelism: false, // Required: tests share orchestrator singleton
+          poolOptions: {
+            workers: {
+              isolatedStorage: false, // Required for WebSocket support
+              wrangler: { configPath: './test/worker/wrangler.jsonc' },
+            },
+          },
+        },
+      }),
       // Documentation validation tests - minimal test to verify docs work
       defineWorkersProject({
         test: {

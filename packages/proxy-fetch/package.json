@@ -18,6 +18,7 @@
     "test": "vitest --run",
     "test:do": "vitest --run --project do",
     "test:queue": "vitest --run --project queue",
+    "test:worker": "vitest --run --project worker",
     "coverage": "vitest --run --coverage",
     "test:local-live": "node test/production/local-live.test.mjs",
     "test:production": "node test/production/production.test.mjs",

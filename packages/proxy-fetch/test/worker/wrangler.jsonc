@@ -1,0 +1,30 @@
+{
+  "name": "proxy-fetch-worker-tests",
+  "main": "test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FETCH_ORCHESTRATOR",
+        "class_name": "FetchOrchestrator"
+      },
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDO"
+      }
+    ]
+  },
+  "services": [
+    {
+      "binding": "FETCH_WORKER",
+      "service": "proxy-fetch-worker-tests"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FetchOrchestrator", "TestDO"]
+    }
+  ]
+}
+
