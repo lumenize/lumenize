@@ -111,6 +111,12 @@ async function measureEndToEndLatency(url, iterations = 10) {
       if (pending) {
         pending.enqueueTime = msg.enqueueTime;
         pending.serverReqId = msg.reqId;  // Store server's reqId
+        pending.gotEnqueued = true;
+        
+        // Check if we can resolve (need both enqueued and result)
+        if (pending.gotResult) {
+          pending.resolve();
+        }
       }
     } else if (msg.type === 'result') {
       // Result received - look up by clientId
@@ -119,18 +125,26 @@ async function measureEndToEndLatency(url, iterations = 10) {
         const endTime = Date.now();
         const totalTime = endTime - pending.startTime;
         
-        results.push({
+        // Store result data
+        pending.result = {
           reqId: msg.reqId,
           clientId: msg.clientId,
-          enqueueTime: pending.enqueueTime,
           totalTime,
           serverDuration: msg.duration || 0,
           success: msg.success
-        });
+        };
+        pending.gotResult = true;
         
-        console.log(`  ✓ Request ${results.length}: ${totalTime}ms total (${pending.enqueueTime}ms enqueue + ${totalTime - pending.enqueueTime}ms wait)`);
-        
-        pending.resolve();
+        // Check if we can resolve (need both enqueued and result)
+        if (pending.gotEnqueued) {
+          // Now we have both messages, can calculate final stats
+          pending.result.enqueueTime = pending.enqueueTime;
+          results.push(pending.result);
+          
+          console.log(`  ✓ Request ${results.length}: ${totalTime}ms total (${pending.enqueueTime}ms enqueue + ${totalTime - pending.enqueueTime}ms wait)`);
+          
+          pending.resolve();
+        }
       }
     } else if (msg.type === 'error') {
       console.error('  ❌ Error:', msg.error);
@@ -147,7 +161,10 @@ async function measureEndToEndLatency(url, iterations = 10) {
         startTime,
         enqueueTime: 0,
         resolve,
-        serverReqId: null  // Will be filled when we get 'enqueued' response
+        serverReqId: null,  // Will be filled when we get 'enqueued' response
+        gotEnqueued: false,  // Track if we received 'enqueued' message
+        gotResult: false,    // Track if we received 'result' message
+        result: null         // Store result data until both messages arrive
       });
     });
     
