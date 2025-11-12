@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "npm run deploy:main && npm run deploy:worker",
+    "deploy": "npm run deploy:worker && npm run deploy:main",
     "deploy:main": "wrangler deploy",
     "deploy:worker": "wrangler deploy --config wrangler-worker.jsonc",
     "test": "node test/latency-measurements.mjs"
