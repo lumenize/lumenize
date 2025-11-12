@@ -2,6 +2,49 @@
 
 This file contains production latency measurements for the `proxyFetchWorker` variant.
 
+## Architecture Flow
+
+The latency measurement follows this complete path:
+
+```mermaid
+sequenceDiagram
+    participant Client as Node.js Test Client
+    participant Worker as Worker fetch()
+    participant Origin as OriginDO
+    participant Orch as FetchOrchestrator DO
+    participant WExec as Worker handleProxyFetchExecution
+    participant TestEP as test-endpoints.workers.dev
+    
+    Note over Client,TestEP: Enqueue Phase (measured)
+    Client->>Worker: HTTP POST /start-fetch
+    Worker->>Origin: Route to OriginDO
+    Origin->>Origin: proxyFetchWorker()
+    Origin->>Orch: enqueueFetch()
+    Orch->>Orch: Store in queue
+    Orch->>WExec: HTTP POST /proxy-fetch-execute
+    Note over Orch,WExec: (or direct call in test env)
+    Origin-->>Client: Return reqId
+    Note over Client,TestEP: (Enqueue complete)
+    
+    Note over Client,TestEP: Execution Phase (async)
+    WExec->>TestEP: fetch(url)
+    TestEP-->>WExec: Response
+    WExec->>Origin: __receiveResult()
+    Origin->>Origin: Execute continuation
+    
+    Note over Client,TestEP: Result Retrieval
+    Client->>Worker: HTTP GET /get-result?reqId=...
+    Worker->>Origin: Route to OriginDO
+    Origin-->>Worker: Result data
+    Worker-->>Client: JSON response
+```
+
+**Key Latency Points:**
+1. **Enqueue Latency**: Client → Worker → Origin → Orchestrator → Worker dispatch → Client (steps 1-8)
+2. **Execution Latency**: Worker fetch → test-endpoints → response (steps 10-11)
+3. **Callback Latency**: Worker → Origin DO continuation (steps 12-13)
+4. **End-to-End**: Complete cycle from start-fetch to get-result
+
 ## Measurement Methodology
 
 - **Environment**: wrangler dev (localhost:8787)
