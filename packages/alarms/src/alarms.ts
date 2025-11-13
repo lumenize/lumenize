@@ -7,8 +7,12 @@
 import { parseCronExpression } from 'cron-schedule';
 import { debug, executeOperationChain, getOperationChain } from '@lumenize/core';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { ulidFactory } from 'ulid-workers';
 import type { sql as sqlType, DebugLogger, OperationChain } from '@lumenize/core';
 import type { Schedule } from './types.js';
+
+// Create monotonic ULID generator for FIFO ordering
+const ulid = ulidFactory({ monotonic: true });
 
 function getNextCronTime(cron: string): Date {
   const interval = parseCronExpression(cron);
@@ -154,6 +158,9 @@ export class Alarms {
   /**
    * Schedule a task to be executed in the future.
    * 
+   * **Synchronous:** Returns immediately after queuing. Uses blockConcurrencyWhile
+   * internally for async preprocessing, ensuring safety without blocking user code.
+   * 
    * @param when When to execute (Date, seconds delay, or cron expression)
    * @param continuation OCAN chain defining what to execute
    * @returns Schedule object representing the scheduled task
@@ -184,10 +191,10 @@ export class Alarms {
    * );
    * ```
    */
-  async schedule(
+  schedule(
     when: Date | string | number,
     continuation: any
-  ): Promise<Schedule> {
+  ): Schedule {
     this.#ensureTable();
     
     // Extract operation chain from the continuation proxy
@@ -196,12 +203,17 @@ export class Alarms {
       throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
     }
 
-    const id = crypto.randomUUID();
+    const id = ulid();  // Monotonic ULID for FIFO ordering
 
     if (when instanceof Date) {
       const timestamp = Math.floor(when.getTime() / 1000);
-      await this.#storeSchedule(id, operationChain, 'scheduled', timestamp, { time: timestamp });
-      this.#scheduleNextAlarm();
+      
+      // Store asynchronously (fast preprocess, doesn't block return)
+      this.#ctx.blockConcurrencyWhile(async () => {
+        await this.#storeSchedule(id, operationChain, 'scheduled', timestamp, { time: timestamp });
+        this.#scheduleNextAlarm();  // Inside block to avoid alarm scheduler conflicts
+      });
+      
       return {
         id,
         operationChain,
@@ -213,8 +225,13 @@ export class Alarms {
     if (typeof when === 'number') {
       const time = new Date(Date.now() + when * 1000);
       const timestamp = Math.floor(time.getTime() / 1000);
-      await this.#storeSchedule(id, operationChain, 'delayed', timestamp, { delayInSeconds: when });
-      this.#scheduleNextAlarm();
+      
+      // Store asynchronously (fast preprocess, doesn't block return)
+      this.#ctx.blockConcurrencyWhile(async () => {
+        await this.#storeSchedule(id, operationChain, 'delayed', timestamp, { delayInSeconds: when });
+        this.#scheduleNextAlarm();  // Inside block to avoid alarm scheduler conflicts
+      });
+      
       return {
         id,
         operationChain,
@@ -227,8 +244,13 @@ export class Alarms {
     if (typeof when === 'string') {
       const nextExecutionTime = getNextCronTime(when);
       const timestamp = Math.floor(nextExecutionTime.getTime() / 1000);
-      await this.#storeSchedule(id, operationChain, 'cron', timestamp, { cron: when });
-      this.#scheduleNextAlarm();
+      
+      // Store asynchronously (fast preprocess, doesn't block return)
+      this.#ctx.blockConcurrencyWhile(async () => {
+        await this.#storeSchedule(id, operationChain, 'cron', timestamp, { cron: when });
+        this.#scheduleNextAlarm();  // Inside block to avoid alarm scheduler conflicts
+      });
+      
       return {
         id,
         operationChain,
@@ -354,8 +376,12 @@ export class Alarms {
   cancelSchedule(id: string): boolean {
     this.#ensureTable();
     
-    this.#sql`DELETE FROM __lmz_alarms WHERE id = ${id}`;
-    this.#scheduleNextAlarm();
+    // Use blockConcurrencyWhile for consistency with schedule()
+    this.#ctx.blockConcurrencyWhile(async () => {
+      this.#sql`DELETE FROM __lmz_alarms WHERE id = ${id}`;
+      this.#scheduleNextAlarm();
+    });
+    
     return true;
   }
 
@@ -407,9 +433,10 @@ export class Alarms {
     // Execute the next 'count' alarms in chronological order
     for (let i = 0; i < actualCount; i++) {
       // Get the earliest scheduled alarm (regardless of time)
+      // Use ULID id for FIFO ordering within same timestamp
       const result = this.#sql`
         SELECT * FROM __lmz_alarms 
-        ORDER BY time ASC 
+        ORDER BY time ASC, id ASC 
         LIMIT 1
       `;
 
@@ -471,10 +498,11 @@ export class Alarms {
 
   #scheduleNextAlarm(): void {
     // Find the next schedule that needs to be executed
+    // Use ULID id for FIFO ordering within same timestamp
     const result = this.#sql`
       SELECT time FROM __lmz_alarms 
       WHERE time > ${Math.floor(Date.now() / 1000)}
-      ORDER BY time ASC 
+      ORDER BY time ASC, id ASC 
       LIMIT 1
     `;
 

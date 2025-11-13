@@ -31,7 +31,8 @@
     "@lumenize/core": "*",
     "@lumenize/debug": "*",
     "@lumenize/structured-clone": "*",
-    "cron-schedule": "^5.0.1"
+    "cron-schedule": "^5.0.1",
+    "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
@@ -45,4 +46,3 @@
     "vitest": "3.2.4"
   }
 }
-
