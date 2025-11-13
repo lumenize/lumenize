@@ -1,3 +1,5 @@
+import { isDurableObjectId } from './is-durable-object-id';
+
 /**
  * Create a Durable Object stub from a namespace and instance identifier.
  * 
@@ -18,10 +20,7 @@
  * ```
  */
 export function getDOStub(doNamespace: any, doInstanceNameOrId: string): any {
-  // Check if this is a unique ID (exactly 64 hex characters) or a named instance
-  const isUniqueId = /^[a-f0-9]{64}$/.test(doInstanceNameOrId);
-
-  if (isUniqueId) {
+  if (isDurableObjectId(doInstanceNameOrId)) {
     // Unique ID: convert to DurableObjectId and get stub
     const id = doNamespace.idFromString(doInstanceNameOrId);
     return doNamespace.get(id);

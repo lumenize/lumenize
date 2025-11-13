@@ -77,6 +77,30 @@ export class TestDO extends LumenizeBase<Env> {
     // @ts-expect-error - Intentionally accessing non-existent service
     return this.svc.nonExistent;
   }
+
+  // Test helpers for __lmzInit()
+  async testLmzInit(options?: { doBindingName?: string; doInstanceNameOrId?: string }) {
+    await this.__lmzInit(options);
+  }
+
+  async getStoredBindingName() {
+    return this.ctx.storage.kv.get('__lmz_do_binding_name');
+  }
+
+  async getStoredInstanceName() {
+    return this.ctx.storage.kv.get('__lmz_do_instance_name');
+  }
+
+  async clearStoredMetadata() {
+    this.ctx.storage.kv.delete('__lmz_do_binding_name');
+    this.ctx.storage.kv.delete('__lmz_do_instance_name');
+  }
+
+  // Test helper for fetch() with custom headers
+  async testFetch(headers: Record<string, string> = {}) {
+    const request = new Request('https://example.com', { headers });
+    return await this.fetch(request);
+  }
 }
 
 // Default export for worker

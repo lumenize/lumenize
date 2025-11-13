@@ -5,7 +5,7 @@
  * and processes results from Worker fetch executions.
  */
 
-import { debug, executeOperationChain } from '@lumenize/core';
+import { debug, executeOperationChain, replaceNestedOperationMarkers } from '@lumenize/core';
 import { postprocess } from '@lumenize/structured-clone';
 import type { FetchResult } from './types.js';
 
@@ -64,7 +64,8 @@ export async function fetchWorkerResultHandler(
 
   // Execute continuation with result
   try {
-    const finalChain = replacePlaceholder(continuationChain, resultOrError);
+    // Replace placeholder with actual result using shared utility
+    const finalChain = replaceNestedOperationMarkers(continuationChain, resultOrError);
     await executeOperationChain(finalChain, doInstance);
     
     log.debug('Continuation executed successfully', { reqId });
@@ -79,23 +80,5 @@ export async function fetchWorkerResultHandler(
   // Clean up
   ctx.storage.kv.delete(pendingKey);
   ctx.storage.kv.delete('__lmz_proxyfetch_result_reqid');
-}
-
-/**
- * Replace placeholder in continuation chain with actual result
- * @internal
- */
-function replacePlaceholder(chain: any[], resultOrError: any): any[] {
-  // The placeholder is typically the last apply operation's first argument
-  return chain.map((op, i) => {
-    if (op.type === 'apply' && i === chain.length - 1) {
-      // Replace first arg with result
-      return {
-        ...op,
-        args: [resultOrError, ...op.args.slice(1)]
-      };
-    }
-    return op;
-  });
 }
 

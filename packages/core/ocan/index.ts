@@ -26,6 +26,7 @@ export {
 // Execution
 export {
   executeOperationChain,
-  validateOperationChain
+  validateOperationChain,
+  replaceNestedOperationMarkers
 } from './execute.js';
 

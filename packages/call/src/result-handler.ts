@@ -1,4 +1,4 @@
-import { debug, executeOperationChain } from '@lumenize/core';
+import { debug, executeOperationChain, replaceNestedOperationMarkers } from '@lumenize/core';
 import { postprocess } from '@lumenize/structured-clone';
 import type { CallResult, PendingCall } from './types.js';
 
@@ -52,8 +52,8 @@ export async function callResultHandler(
   try {
     const resultOrError = callResult.error || callResult.result;
     
-    // Replace placeholder with actual result
-    const finalChain = replacePlaceholder(continuationChain, resultOrError);
+    // Replace placeholder with actual result using shared utility
+    const finalChain = replaceNestedOperationMarkers(continuationChain, resultOrError);
     
     await executeOperationChain(finalChain, doInstance);
     log.debug('Continuation executed', { operationId });
@@ -67,24 +67,5 @@ export async function callResultHandler(
 
   // Clean up pending call
   ctx.storage.kv.delete(pendingKey);
-}
-
-/**
- * Replace placeholder in continuation chain with actual result
- * @internal
- */
-function replacePlaceholder(chain: any[], resultOrError: any): any[] {
-  // The placeholder is the remote operation itself
-  // We inject the result as the first argument of the last apply operation
-  return chain.map((op, i) => {
-    if (op.type === 'apply' && i === chain.length - 1) {
-      // Replace first arg with result
-      return {
-        ...op,
-        args: [resultOrError, ...op.args.slice(1)]
-      };
-    }
-    return op;
-  });
 }
 

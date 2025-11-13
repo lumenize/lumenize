@@ -1,6 +1,7 @@
 // Export all utility functions
 export * from './get-do-namespace-from-path-segment';
 export * from './get-do-stub';
+export * from './is-durable-object-id';
 export * from './parse-pathname';
 export * from './websocket-utils';
 export * from './route-do-request';

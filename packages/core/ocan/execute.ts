@@ -228,3 +228,78 @@ function findParentObject(operations: OperationChain, target: any): any {
   return parent;
 }
 
+/**
+ * Replace nested operation markers in a continuation chain with an actual result value.
+ * 
+ * This is used by actor-model systems (@lumenize/call, @lumenize/proxy-fetch) where
+ * a continuation handler needs to receive the result of an async operation.
+ * 
+ * Supports two patterns:
+ * 1. **Nested markers**: Explicit nested operation as argument (e.g., @lumenize/call)
+ * 2. **First-argument convention**: Result injected as first argument if no markers (e.g., @lumenize/proxy-fetch)
+ * 
+ * @param chain - The continuation operation chain (typically stored in pending state)
+ * @param resultValue - The actual result value to inject
+ * @returns A new operation chain with markers replaced by the result
+ * 
+ * @example
+ * Nested marker pattern (@lumenize/call):
+ * ```typescript
+ * const remote = this.ctn<RemoteDO>().getData();
+ * const handler = this.ctn().ctx.storage.kv.put('cache', remote);
+ * await this.svc.call('REMOTE_DO', 'id', remote, handler);
+ * 
+ * // Handler chain: [get:ctx, get:storage, get:kv, apply:['cache', NestedMarker]]
+ * const finalChain = replaceNestedOperationMarkers(handler, actualData);
+ * // Result: [get:ctx, get:storage, get:kv, apply:['cache', actualData]]
+ * ```
+ * 
+ * @example
+ * First-argument convention (@lumenize/proxy-fetch):
+ * ```typescript
+ * const handler = this.ctn().handleResponse();
+ * await proxyFetchWorker(this, url, handler);
+ * 
+ * // Handler chain: [get:handleResponse, apply:[]]
+ * const finalChain = replaceNestedOperationMarkers(handler, response);
+ * // Result: [get:handleResponse, apply:[response]]
+ * ```
+ */
+export function replaceNestedOperationMarkers(
+  chain: OperationChain,
+  resultValue: any
+): OperationChain {
+  return chain.map((op, i) => {
+    if (op.type === 'apply' && i === chain.length - 1) {
+      // Only process the last apply operation (the actual handler call)
+      
+      // Check if any arguments contain nested operation markers
+      let hasNestedMarker = false;
+      const args = op.args.map((arg: any) => {
+        if (isNestedOperationMarker(arg)) {
+          hasNestedMarker = true;
+          // Replace this marker with the actual result
+          return resultValue;
+        }
+        return arg;
+      });
+      
+      // If no nested markers found, use first-argument convention
+      // (result is injected as first argument)
+      if (!hasNestedMarker) {
+        return {
+          ...op,
+          args: [resultValue, ...op.args]
+        };
+      }
+      
+      // Nested markers were replaced
+      return {
+        ...op,
+        args
+      };
+    }
+    return op;
+  });
+}
+

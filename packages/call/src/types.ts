@@ -8,12 +8,6 @@ export interface CallOptions {
    * Timeout in milliseconds (default: 30000 = 30 seconds)
    */
   timeout?: number;
-  
-  /**
-   * Binding name for this DO in the environment (for callbacks)
-   * If not provided, will attempt to infer from constructor name
-   */
-  originBinding?: string;
 }
 
 /**
@@ -25,6 +19,12 @@ export interface CallMessage {
   originId: string;
   /** Name of the origin DO binding in env */
   originBinding: string;
+  /** Name or ID of the origin DO instance (may be undefined if not set) */
+  originInstanceNameOrId?: string;
+  /** Name of the target (remote) DO binding in env */
+  targetBinding: string;
+  /** Name or ID of the target (remote) DO instance */
+  targetInstanceNameOrId: string;
   /** Unique ID for this operation */
   operationId: string;
   /** Operation chain to execute on remote DO */

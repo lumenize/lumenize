@@ -5,7 +5,11 @@ describe('Call - DO-to-DO Communication', () => {
   describe('Basic Remote Calls', () => {
     test('calls remote method and receives result', async () => {
       const origin = env.ORIGIN_DO.getByName('basic-call-test');
+      await origin.initializeBinding('ORIGIN_DO');
       const remote = env.REMOTE_DO.getByName('remote-instance');
+
+      // Initialize binding name
+      await origin.initializeBinding('ORIGIN_DO');
 
       // Clear any previous state
       await origin.clearResults();
@@ -36,7 +40,10 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('calls remote math operation', async () => {
       const origin = env.ORIGIN_DO.getByName('math-call-test');
+      await origin.initializeBinding('ORIGIN_DO');
       const remote = env.REMOTE_DO.getByName('remote-instance');
+
+      await origin.initializeBinding('ORIGIN_DO');
 
       await origin.clearResults();
       await remote.clearExecutedOperations();
@@ -62,6 +69,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('handles multiple sequential calls', async () => {
       const origin = env.ORIGIN_DO.getByName('multi-call-test');
+      await origin.initializeBinding('ORIGIN_DO');
       const remote = env.REMOTE_DO.getByName('remote-instance');
 
       await origin.clearResults();
@@ -91,6 +99,7 @@ describe('Call - DO-to-DO Communication', () => {
   describe('Error Handling', () => {
     test('handles remote errors correctly', async () => {
       const origin = env.ORIGIN_DO.getByName('error-call-test');
+      await origin.initializeBinding('ORIGIN_DO');
       const remote = env.REMOTE_DO.getByName('remote-instance');
 
       await origin.clearResults();
@@ -116,6 +125,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('continuation receives Error instance', async () => {
       const origin = env.ORIGIN_DO.getByName('error-instance-test');
+      await origin.initializeBinding('ORIGIN_DO');
       await origin.clearResults();
 
       await origin.callRemoteThrowError('Should be Error instance');
@@ -130,6 +140,7 @@ describe('Call - DO-to-DO Communication', () => {
   describe('Actor Model Behavior', () => {
     test('call returns immediately without waiting for execution', async () => {
       const origin = env.ORIGIN_DO.getByName('actor-model-test');
+      await origin.initializeBinding('ORIGIN_DO');
       await origin.clearResults();
 
       const startTime = Date.now();
@@ -151,6 +162,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('work queue processes items asynchronously', async () => {
       const origin = env.ORIGIN_DO.getByName('queue-test');
+      await origin.initializeBinding('ORIGIN_DO');
       const remote = env.REMOTE_DO.getByName('remote-instance');
 
       // Clear state from any previous tests
@@ -187,6 +199,7 @@ describe('Call - DO-to-DO Communication', () => {
   describe('Timeout Handling', () => {
     test('handles timeout for slow operations', async () => {
       const origin = env.ORIGIN_DO.getByName('timeout-test');
+      await origin.initializeBinding('ORIGIN_DO');
       await origin.clearResults();
 
       // Call with very short timeout (should timeout)
@@ -206,6 +219,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('successful call before timeout', async () => {
       const origin = env.ORIGIN_DO.getByName('no-timeout-test');
+      await origin.initializeBinding('ORIGIN_DO');
       await origin.clearResults();
 
       // Call with generous timeout (should succeed)
@@ -223,6 +237,7 @@ describe('Call - DO-to-DO Communication', () => {
   describe('OCAN Integration', () => {
     test('type-safe operation chains', async () => {
       const origin = env.ORIGIN_DO.getByName('ocan-test');
+      await origin.initializeBinding('ORIGIN_DO');
       const remote = env.REMOTE_DO.getByName('remote-instance');
 
       await origin.clearResults();
@@ -241,6 +256,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('continuation receives typed result', async () => {
       const origin = env.ORIGIN_DO.getByName('typed-result-test');
+      await origin.initializeBinding('ORIGIN_DO');
       await origin.clearResults();
 
       await origin.callRemoteGetUserData('typed-user');
@@ -257,6 +273,7 @@ describe('Call - DO-to-DO Communication', () => {
   describe('Call Cancellation', () => {
     test('cancelCall removes pending operation', async () => {
       const origin = env.ORIGIN_DO.getByName('cancel-test');
+      await origin.initializeBinding('ORIGIN_DO');
       
       await origin.clearResults();
       
@@ -274,6 +291,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('cancelCall with timeout alarm removes alarm data', async () => {
       const origin = env.ORIGIN_DO.getByName('cancel-timeout-test');
+      await origin.initializeBinding('ORIGIN_DO');
       
       await origin.clearResults();
       
@@ -289,6 +307,7 @@ describe('Call - DO-to-DO Communication', () => {
   describe('Error Handling - Invalid Inputs', () => {
     test('rejects invalid remote operation (not OCAN)', async () => {
       const origin = env.ORIGIN_DO.getByName('invalid-remote-test');
+      await origin.initializeBinding('ORIGIN_DO');
       
       // Try to call with non-OCAN operation
       await expect(
@@ -298,6 +317,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('rejects invalid continuation (not OCAN)', async () => {
       const origin = env.ORIGIN_DO.getByName('invalid-continuation-test');
+      await origin.initializeBinding('ORIGIN_DO');
       
       // Try to call with non-OCAN continuation
       await expect(
@@ -307,6 +327,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('handles remote DO call failure', async () => {
       const origin = env.ORIGIN_DO.getByName('call-failure-test');
+      await origin.initializeBinding('ORIGIN_DO');
       
       await origin.clearResults();
       
@@ -318,6 +339,7 @@ describe('Call - DO-to-DO Communication', () => {
 
     test('handles callback errors gracefully', async () => {
       const origin = env.ORIGIN_DO.getByName('callback-error-test');
+      await origin.initializeBinding('ORIGIN_DO');
       
       await origin.clearResults();
       
@@ -330,18 +352,16 @@ describe('Call - DO-to-DO Communication', () => {
       expect(true).toBe(true);
     });
 
-    test('infers originBinding when not provided', async () => {
-      const origin = env.ORIGIN_DO.getByName('infer-binding-test');
+    test('throws when binding name not initialized', async () => {
+      const origin = env.ORIGIN_DO.getByName('no-init-test');
       
+      // Don't initialize the binding name (that's what we're testing)
       await origin.clearResults();
       
-      // Call without explicit originBinding (will trigger getOriginBinding)
-      // This tests the fallback logic in getOriginBinding function
-      await origin.callWithoutOriginBinding('test-value');
-      
-      // The call should complete without throwing
-      // Whether it succeeds or not, we're testing the code path was exercised
-      expect(true).toBe(true);
+      // Call without initialization should throw
+      await expect(
+        origin.callWithoutInit('test-value')
+      ).rejects.toThrow(/Cannot use call\(\) from a DO that doesn't know its own binding name/);
     });
   });
 });

@@ -48,6 +48,85 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   }
 
   /**
+   * Default fetch handler that auto-initializes DO metadata from headers
+   * 
+   * This handler automatically reads `x-lumenize-do-binding-name` and
+   * `x-lumenize-do-instance-name-or-id` headers (set by routeDORequest)
+   * and stores them for use by services like @lumenize/call.
+   * 
+   * Subclasses should call `super.fetch(request)` at the start of their
+   * fetch handler to enable auto-initialization:
+   * 
+   * @param request - The incoming HTTP request
+   * @returns HTTP 501 Not Implemented (subclasses should override)
+   * 
+   * @example
+   * ```typescript
+   * class MyDO extends LumenizeBase<Env> {
+   *   async fetch(request: Request) {
+   *     // Auto-initialize from headers
+   *     await super.fetch(request);
+   *     
+   *     // Handle request
+   *     return new Response('Hello');
+   *   }
+   * }
+   * ```
+   */
+  async fetch(request: Request): Promise<Response> {
+    try {
+      await this.__initFromHeaders(request.headers);
+    } catch (error) {
+      // Initialization errors indicate misconfiguration
+      const message = error instanceof Error ? error.message : String(error);
+      return new Response(message, { status: 500 });
+    }
+
+    // Default: not implemented
+    // Subclasses should override fetch() and call super.fetch() for auto-init
+    return new Response('Not Implemented', { status: 501 });
+  }
+
+  /**
+   * Initialize DO metadata from request headers
+   * 
+   * Reads `x-lumenize-do-binding-name` and `x-lumenize-do-instance-name-or-id`
+   * headers and calls `__lmzInit()` if present. These headers are automatically
+   * set by `routeDORequest` in @lumenize/utils.
+   * 
+   * This is called automatically by the default `fetch()` handler. If you
+   * override `fetch()` and don't call `super.fetch()`, you can call this
+   * method directly:
+   * 
+   * @param headers - HTTP headers from the request
+   * 
+   * @example
+   * ```typescript
+   * class MyDO extends LumenizeBase<Env> {
+   *   async fetch(request: Request) {
+   *     // Manual initialization (alternative to super.fetch())
+   *     await this.__initFromHeaders(request.headers);
+   *     
+   *     // Handle request
+   *     return new Response('Hello');
+   *   }
+   * }
+   * ```
+   */
+  async __initFromHeaders(headers: Headers): Promise<void> {
+    const doBindingName = headers.get('x-lumenize-do-binding-name');
+    const doInstanceNameOrId = headers.get('x-lumenize-do-instance-name-or-id');
+
+    // Only call init if at least one header is present
+    if (doBindingName || doInstanceNameOrId) {
+      await this.__lmzInit({
+        doBindingName: doBindingName || undefined,
+        doInstanceNameOrId: doInstanceNameOrId || undefined
+      });
+    }
+  }
+
+  /**
    * Create an OCAN (Operation Chaining And Nesting) continuation proxy
    * 
    * Returns a proxy that records method calls into an operation chain.
@@ -240,6 +319,95 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
         stack: error instanceof Error ? error.stack : undefined
       });
       // Note: Result stays in storage for retry or manual cleanup
+    }
+  }
+
+  /**
+   * Initialize DO metadata (binding name and instance name)
+   * 
+   * This method stores the DO's binding name and instance name in storage
+   * for later use by services like @lumenize/call. Only names are stored;
+   * IDs are always available via this.ctx.id.
+   * 
+   * This is typically called automatically when using:
+   * - routeDORequest() - extracts from headers
+   * - svc.call() - includes in envelope
+   * 
+   * But can be called manually if needed:
+   * 
+   * @param options - Optional initialization data
+   * @param options.doBindingName - The binding name for this DO (e.g., 'USER_DO')
+   * @param options.doInstanceNameOrId - The instance name or ID for this DO
+   * 
+   * @throws {Error} If provided values don't match stored values or this.ctx.id
+   * 
+   * @example
+   * ```typescript
+   * class MyDO extends LumenizeBase<Env> {
+   *   async init(userId: string) {
+   *     await this.__lmzInit({ 
+   *       doBindingName: 'USER_DO',
+   *       doInstanceNameOrId: userId 
+   *     });
+   *   }
+   * }
+   * ```
+   */
+  async __lmzInit(options?: {
+    doBindingName?: string;
+    doInstanceNameOrId?: string;
+  }): Promise<void> {
+    const { doBindingName, doInstanceNameOrId } = options || {};
+
+    // Verify and store binding name if provided
+    if (doBindingName !== undefined) {
+      const storedBindingName = this.ctx.storage.kv.get('__lmz_do_binding_name');
+      
+      if (storedBindingName !== undefined) {
+        // Verify it matches
+        if (storedBindingName !== doBindingName) {
+          throw new Error(
+            `DO binding name mismatch: stored '${storedBindingName}' but received '${doBindingName}'. ` +
+            `A DO instance cannot change its binding name.`
+          );
+        }
+      } else {
+        // Store it
+        this.ctx.storage.kv.put('__lmz_do_binding_name', doBindingName);
+      }
+    }
+
+    // Verify and store instance name if provided (IDs are not stored, always use this.ctx.id)
+    if (doInstanceNameOrId !== undefined) {
+      // Check if this is an ID or a name
+      const isId = (await import('@lumenize/utils')).isDurableObjectId(doInstanceNameOrId);
+      
+      if (isId) {
+        // Verify the ID matches this.ctx.id
+        if (this.ctx.id.toString() !== doInstanceNameOrId) {
+          throw new Error(
+            `DO instance ID mismatch: this.ctx.id is '${this.ctx.id}' but received '${doInstanceNameOrId}'. ` +
+            `A DO instance cannot change its ID.`
+          );
+        }
+        // Don't store IDs - they're always available via this.ctx.id
+      } else {
+        // It's a name - verify and store it
+        const storedInstanceName = this.ctx.storage.kv.get('__lmz_do_instance_name');
+        
+        if (storedInstanceName !== undefined) {
+          // Verify it matches
+          if (storedInstanceName !== doInstanceNameOrId) {
+            throw new Error(
+              `DO instance name mismatch: stored '${storedInstanceName}' but received '${doInstanceNameOrId}'. ` +
+              `A DO instance cannot change its name.`
+            );
+          }
+        } else {
+          // Store the name
+          this.ctx.storage.kv.put('__lmz_do_instance_name', doInstanceNameOrId);
+        }
+      }
     }
   }
 

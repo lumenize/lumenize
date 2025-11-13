@@ -26,7 +26,10 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
  * class MyDO extends LumenizeBase<Env> {
- *   async doSomething() {
+ *   async fetch(request: Request) {
+ *     // Auto-initialize binding info from headers
+ *     await super.fetch(request);
+ *     
  *     // Define remote operation
  *     const remote = this.ctn<RemoteDO>().getUserData(userId);
  *     
@@ -39,13 +42,7 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
  *       { timeout: 30000 }     // optional
  *     );
  *     
- *     // Or with unique ID (64-char hex string)
- *     await this.svc.call(
- *       'REMOTE_DO',
- *       '8aa7a69131efa8902661702e701295f168aa5806045ec15d01a2f465bd5f3b99',
- *       remote,
- *       this.ctn().handleResult(remote)
- *     );
+ *     return new Response('OK');
  *   }
  *   
  *   handleResult(result: any | Error) {
@@ -126,11 +123,25 @@ export async function call(
   // Get remote DO stub (supports both names and IDs)
   const remoteStub = getDOStub(env[doBinding], doInstanceNameOrId);
 
+  // Get origin binding name from storage
+  const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  
+  if (!originBinding) {
+    throw new Error(
+      `Cannot use call() from a DO that doesn't know its own binding name. ` +
+      `Call __lmzInit({ doBindingName }) first.`
+    );
+  }
+
   // Prepare message for remote DO
-  const originBinding = options?.originBinding || getOriginBinding(doInstance);
+  // Note: originId always uses ctx.id (fast, no storage lookup)
+  // originInstanceNameOrId is optional and only used for debugging
   const message: CallMessage = {
     originId: ctx.id.toString(),
     originBinding,
+    originInstanceNameOrId: undefined, // Always use originId (ctx.id) for return address
+    targetBinding: doBinding,
+    targetInstanceNameOrId: doInstanceNameOrId,
     operationId,
     operationChain: preprocessedRemote as OperationChain
   };
@@ -151,33 +162,6 @@ export async function call(
     }
     throw new Error(`Failed to send call to remote DO: ${error instanceof Error ? error.message : String(error)}`);
   }
-}
-
-/**
- * Get the binding name for this DO in the environment
- * @internal
- */
-function getOriginBinding(doInstance: any): string {
-  // Try to get from constructor name as fallback
-  const constructorName = doInstance.constructor.name;
-  
-  // For LumenizeBase DOs, try to infer from env
-  const env = doInstance.env;
-  if (env) {
-    for (const [key, value] of Object.entries(env)) {
-      if (value && typeof value === 'object' && 'idFromName' in value) {
-        // This looks like a DO binding
-        // Check if it matches our instance type
-        if (value.constructor?.name === constructorName) {
-          return key;
-        }
-      }
-    }
-  }
-  
-  // Fallback: Use constructor name
-  // User may need to configure this explicitly in production
-  return constructorName.replace(/DO$/, '_DO').toUpperCase();
 }
 
 /**

@@ -25,8 +25,27 @@ export async function callWorkHandler(
   log.debug('Processing call operation', {
     operationId: message.operationId,
     originId: message.originId,
-    originBinding: message.originBinding
+    originBinding: message.originBinding,
+    targetBinding: message.targetBinding,
+    targetInstanceNameOrId: message.targetInstanceNameOrId
   });
+
+  // Initialize this DO with its binding info from the call envelope
+  // The origin knows which binding and instance it called, so we use that
+  try {
+    await doInstance.__lmzInit({ 
+      doBindingName: message.targetBinding,
+      doInstanceNameOrId: message.targetInstanceNameOrId
+    });
+  } catch (initError) {
+    // Log but don't fail - initialization errors are usually mismatches
+    // which are already logged, and we want the operation to proceed
+    log.warn('Failed to initialize target DO metadata', {
+      operationId: message.operationId,
+      targetBinding: message.targetBinding,
+      error: initError instanceof Error ? initError.message : String(initError)
+    });
+  }
 
   let result: any;
   let error: Error | undefined;

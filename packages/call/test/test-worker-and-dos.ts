@@ -60,8 +60,7 @@ export class OriginDO extends LumenizeBase<Env> {
       'REMOTE_DO',
       'remote-instance',
       remote,
-      this.ctn().handleUserDataResult(remote),
-      { originBinding: 'ORIGIN_DO' }
+      this.ctn().handleUserDataResult(remote)
     );
   }
 
@@ -82,7 +81,6 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       this.ctn().handleMathResult(remote),
-      { originBinding: 'ORIGIN_DO' }
     );
   }
 
@@ -103,7 +101,6 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       this.ctn().handleErrorResult(remote),
-      { originBinding: 'ORIGIN_DO' }
     );
   }
 
@@ -124,7 +121,7 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       this.ctn().handleTimeoutResult(remote),
-      { timeout, originBinding: 'ORIGIN_DO' }
+      { timeout }
     );
   }
 
@@ -146,7 +143,6 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       this.ctn().handleDelayResult(remote),
-      { originBinding: 'ORIGIN_DO' }
     );
     
     // Return operation ID for cancellation tests
@@ -173,7 +169,7 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       this.ctn().handleTimeoutTestResult(remote),
-      { timeout, originBinding: 'ORIGIN_DO' }
+      { timeout }
     );
     
     // Return operation ID
@@ -203,8 +199,7 @@ export class OriginDO extends LumenizeBase<Env> {
       'REMOTE_DO',
       'remote-instance',
       'not-an-ocan' as any, // Invalid!
-      this.ctn().handleInvalidResult(),
-      { originBinding: 'ORIGIN_DO' }
+      this.ctn().handleInvalidResult('never used'),
     );
   }
 
@@ -217,7 +212,6 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       'not-an-ocan' as any, // Invalid!
-      { originBinding: 'ORIGIN_DO' }
     );
   }
 
@@ -239,7 +233,6 @@ export class OriginDO extends LumenizeBase<Env> {
       'test-instance',
       remote,
       this.ctn().handleResult(remote),
-      { originBinding: 'ORIGIN_DO' }
     );
   }
 
@@ -252,7 +245,6 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-instance',
       remote,
       this.ctn().handleThrowingResult(remote),
-      { originBinding: 'ORIGIN_DO' }
     );
   }
 
@@ -261,18 +253,26 @@ export class OriginDO extends LumenizeBase<Env> {
     throw new Error('Intentional error in continuation handler');
   }
 
-  // Test: Call without originBinding (will trigger getOriginBinding)
-  async callWithoutOriginBinding(value: string) {
+  // Test: Call without explicit init (should throw)
+  async callWithoutInit(value: string) {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
-    // Omit originBinding to trigger getOriginBinding function
+    // This will throw because binding name is not initialized
     await this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
       this.ctn().handleResult(remote)
-      // No options, so originBinding will be inferred
     );
+  }
+
+  // Generic result handler
+  handleResult(result: any) {
+    if (result instanceof Error) {
+      this.#results.push({ type: 'error', value: result.message });
+    } else {
+      this.#results.push({ type: 'success', value: result });
+    }
   }
 
   // Test helpers
@@ -282,6 +282,13 @@ export class OriginDO extends LumenizeBase<Env> {
 
   clearResults() {
     this.#results = [];
+  }
+
+  async initializeBinding(bindingName: string, instanceNameOrId?: string) {
+    await this.__lmzInit({ 
+      doBindingName: bindingName,
+      doInstanceNameOrId: instanceNameOrId || this.ctx.id.toString()
+    });
   }
 
   waitForResults(count: number, maxWait = 2000): Promise<void> {
