@@ -16,8 +16,6 @@
   ],
   "scripts": {
     "test": "vitest --run",
-    "test:do": "vitest --run --project do",
-    "test:queue": "vitest --run --project queue",
     "test:worker": "vitest --run --project worker",
     "coverage": "vitest --run --coverage",
     "test:local-live": "node test/production/local-live.test.mjs",
@@ -52,8 +50,7 @@
     "@lumenize/lumenize-base": "*",
     "@lumenize/structured-clone": "^0.17.0",
     "@lumenize/test-endpoints": "^0.17.0",
-    "@lumenize/utils": "^0.17.0",
-    "ulid-workers": "^2.1.0"
+    "@lumenize/utils": "^0.17.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
