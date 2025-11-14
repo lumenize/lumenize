@@ -1,9 +1,9 @@
 ---
-title: '@lumenize/alarms'
+title: 'Alarms'
 description: Powerful alarm scheduling for Cloudflare Durable Objects with continuations and cron support
 ---
 
-# @lumenize/alarms
+# Lumenize Alarms
 
 De✨light✨ful alarm scheduling for Cloudflare Durable Objects using [continuations](/docs/core/continuations). Multiplexes single native alarm to give you unlimited scheduled tasks.
 
@@ -13,7 +13,6 @@ De✨light✨ful alarm scheduling for Cloudflare Durable Objects using [continua
 - **Multiple schedules** - Specific time, seconds from now, or cron expressions
 - **SQL persistence** - Survives DO eviction and restarts
 - **Auto-injection** - Works standalone or auto-injected via NADIS with LumenizeBase
-- **Immediate execution** - Support for `delay <= 0` to trigger alarms ASAP
 - **Testing support** - Manual alarm triggering for tests
 
 ## Installation
@@ -106,9 +105,9 @@ class MyDO extends LumenizeBase<Env> {
 
 Manual instantiation with explicit dependencies:
 
-```typescript @skip-check
+```typescript @check-example('packages/alarms/test/for-docs/standalone-pattern.test.ts')
 import { Alarms, type Schedule } from '@lumenize/alarms';
-import { sql } from '@lumenize/core';
+import { sql, newContinuation } from '@lumenize/core';
 import { DurableObject } from 'cloudflare:workers';
 
 class MyDO extends DurableObject {
@@ -119,24 +118,22 @@ class MyDO extends DurableObject {
     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
   }
   
-  // Required: Delegate to alarms.alarm()
+  // Helper to create continuations (like this.ctn() in LumenizeBase)
+  ctn<T = this>(): T {
+    return newContinuation<T>();
+  }
+  
+  // Required boilerplate. Delegates standard `alarm()` handler to Alarms
   async alarm() {
     await this.#alarms.alarm();
   }
   
-  async scheduleTask(userId: string, data: any) {
-    // Use newContinuation() if not using LumenizeBase
-    const continuation = newContinuation<MyDO>();
-    
-    await this.#alarms.schedule(
-      60,
-      continuation.processUserData(userId, data)
-    );
+  scheduleTask() {
+    this.#alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
   }
   
-  processUserData(userId: string, data: any) {
-    console.log('Processing data for user:', userId);
-    this.ctx.storage.kv.put(`user:${userId}:data`, data);
+  handleTask(payload: any) {
+    console.log('Task executed:', payload);
   }
 }
 ```
@@ -148,16 +145,10 @@ class MyDO extends DurableObject {
 Schedule a task to run after a delay:
 
 ```typescript @skip-check
-// Simple delay
+// Schedule task for 60 seconds from now
 await this.svc.alarms.schedule(
   60,  // 60 seconds
   this.ctn().handleTask({ name: 'send-email' })
-);
-
-// Immediate execution (delay <= 0)
-await this.svc.alarms.schedule(
-  0,  // Execute ASAP
-  this.ctn().processQueue()
 );
 ```
 
