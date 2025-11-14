@@ -1,10 +1,55 @@
 # Durable Queuing System for LumenizeBase
 
-**Status**: Blocked - Needs API clarity first
+**Status**: ✅ COMPLETED (Alternative Implementation)
 **Started**: 2025-11-13
-**Blocked By**: Need to understand call system API (`$result` markers, continuation signatures)
+**Completed**: 2025-11-14
+**Resolution**: Implemented via synchronous svc.call() with 0-second alarms instead of generic queue system
 
-## Goal
+## Completion Summary (Nov 14, 2025)
+
+**What We Built Instead:**
+
+Rather than a generic queue system in LumenizeBase, we achieved all goals via:
+
+1. **✅ Synchronous svc.call()** - Returns `void`, callable from non-async methods
+   - Stores call data in `__lmz_call_data:{callId}` (durable)
+   - Schedules 0-second alarm for async work
+   - `__processCallQueue` handler retrieves data and performs RPC
+
+2. **✅ FIFO Ordering** - ULID-based alarm IDs
+   - `ulid-workers` provides monotonic IDs even with frozen Cloudflare clock
+   - SQL queries: `ORDER BY time ASC, id ASC`
+
+3. **✅ Crash Recovery** - Persistent storage survives DO evictions
+   - Call data stored in KV before alarm scheduled
+   - Alarms package uses SQL for alarm persistence
+   - Constructor recovery via alarms.triggerAlarms()
+
+4. **✅ Synchronous schedule()** - Made `alarms.schedule()` synchronous
+   - Uses `ctx.blockConcurrencyWhile` for short async operations
+   - Preprocesses operation chains within block
+   - Schedules native alarm within block for consistency
+
+5. **✅ Eliminated originBinding** - Added `__lmzInit()` to LumenizeBase
+   - Stores `__lmz_do_binding_name` in KV (auto-init from headers or explicit)
+   - Call system reads binding from storage (fail-fast if missing)
+   - Target binding/instance passed in call envelope
+
+6. **✅ Centralized OCAN result injection** - `replaceNestedOperationMarkers()`
+   - Shared utility in `@lumenize/core/ocan`
+   - Handles both explicit markers (`$result`) and first-argument convention
+   - Supports property chain access in continuations
+
+**Why This Approach:**
+- Avoids generic abstraction that might not fit all use cases
+- Leverages existing alarms package (proven, tested)
+- Natural API: `this.svc.call(...)` - no await needed
+- Pattern is reusable: any NADIS service can follow same model
+- Test Results: call (26/28 ✅), alarms (62/62 ✅), proxy-fetch (20/20 ✅)
+
+**Next:** Apply same pattern to proxy-fetch (see `tasks/proxy-fetch-unification.md`)
+
+## Original Goal (For Reference)
 
 Extract crash-safe queuing patterns from old proxy-fetch into a reusable system in LumenizeBase/core that provides:
 - **FIFO ordering guarantees** (ULID-based for both inbound and outbound queues)
@@ -50,43 +95,48 @@ Extract crash-safe queuing patterns from old proxy-fetch into a reusable system 
 - Should live in LumenizeBase for access to `ctx.storage` and lifecycle
 - **Never await remote work** - only await receipt confirmation (actor model)
 
-## Phase 0: Understand Call System API (PREREQUISITE)
+## Phase 0: Understand Call System API (PREREQUISITE) ✅ COMPLETED
 
 **Goal:** Clarify how `$result` markers work and continuation signatures before hardening
 
-**Blocked**: Cannot proceed with hardening until we understand the API
+**Status:** ✅ COMPLETED - Full understanding achieved
 
-### Questions to Resolve
+### Questions Resolved
 
-- [ ] **0.1**: How do `$result` markers work?
-  - Docs show `this.ctn().$result` but how does it know which result?
-  - Multiple calls in flight - how to distinguish?
-  - Is this the right pattern or do docs need correction?
+- [x] **0.1**: How do `$result` markers work?
+  - **Answer:** Each call stores its own continuation with operationId
+  - Multiple calls tracked separately in `__lmz_call_pending:{operationId}`
+  - Result matched by operationId, not by marker itself
+  - Three valid syntaxes: extracted vars (recommended), inline `$result`, inline variable ref
 
-- [ ] **0.2**: What is the signature of `executeOperationChain`?
-  - Where do error parameters go?
-  - How to call continuation with Error vs. success?
-  - Verify pattern for both proxy-fetch and call system
+- [x] **0.2**: What is the signature of `executeOperationChain`?
+  - **Answer:** `executeOperationChain(chain, doInstance)` - errors handled within chain
+  - `replaceNestedOperationMarkers(chain, resultOrError)` injects result/error
+  - Handler receives error OR result (not both parameters)
+  - Works for both proxy-fetch and call system
 
-- [ ] **0.3**: Review call system implementation
-  - How are results routed back to caller?
-  - How are continuations stored and retrieved?
-  - What's the actual flow end-to-end?
+- [x] **0.3**: Review call system implementation
+  - **Answer:** Full flow documented in `packages/call/test/for-docs/test-dos.ts`
+  - Results routed via `__enqueueWork('call', operationId, callResult)`
+  - Continuations stored in `__lmz_call_pending:{operationId}`
+  - Now uses 0-second alarms for async boundary
 
-- [ ] **0.4**: Test current call system
-  - Does it work as documented?
-  - What happens with errors?
-  - What happens with timeouts?
+- [x] **0.4**: Test current call system
+  - **Answer:** Yes! 26/28 tests passing (2 skipped for cancellation)
+  - Errors handled correctly via continuation
+  - Timeouts work via call system timeout mechanism
+  - Property chains work: `this.ctn().ctx.storage.kv.get(...)`
 
-### Success Criteria
-- Complete understanding of continuation/marker API
-- Verified implementation matches documentation (or docs corrected)
-- Clear pattern for error handling in continuations
-- Confidence to proceed with hardening
+### Success Criteria ✅
+- ✅ Complete understanding of continuation/marker API
+- ✅ Implementation verified and improved (made synchronous!)
+- ✅ Clear pattern for error handling in continuations
+- ✅ Confidence achieved - proceeded with implementation
 
 ### Notes
 - **User feedback**: "I think we should put this work aside and focus on the API first"
-- **Decision**: Pivot to API understanding before continuing with hardening task
+- **Decision**: Pivoted to API understanding - led to complete rewrite as synchronous system
+- **Outcome**: Better than originally planned - synchronous, durable, FIFO-ordered
 
 ---
 
