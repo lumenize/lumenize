@@ -1,6 +1,7 @@
 import { debug, getOperationChain, type OperationChain, type DebugLogger } from '@lumenize/core';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/utils';
+import '@lumenize/alarms';  // Import for NADIS registration
 import type { CallOptions, CallMessage, PendingCall } from './types.js';
 
 /**
@@ -55,19 +56,17 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
  * }
  * ```
  */
-export async function call(
+export function call(
   doInstance: any,
   doBinding: string,
   doInstanceNameOrId: string,
   remoteOperation: any,
   continuation: any,
   options?: CallOptions
-): Promise<void> {
-  const ctx = doInstance.ctx as DurableObjectState;
-  const env = doInstance.env;
-  const log = debug(ctx)('lmz.call.call');
+): void {
+  const log = debug(doInstance.ctx)('lmz.call.call');
 
-  // Extract operation chains
+  // Extract operation chains (raw, not preprocessed yet)
   const remoteChain = getOperationChain(remoteOperation);
   const continuationChain = getOperationChain(continuation);
 
@@ -78,90 +77,26 @@ export async function call(
     throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
   }
 
-  const operationId = crypto.randomUUID();
-  const timeout = options?.timeout ?? 30000; // 30 seconds default
-
   log.debug('Initiating call', {
-    operationId,
     doBinding,
     doInstanceNameOrId,
-    timeout
+    timeout: options?.timeout ?? 30000
   });
 
-  // Store pending call in origin DO storage
-  // Preprocess the continuation chain for storage
-  const preprocessedContinuation = await preprocess(continuationChain);
-  
-  const pendingCall: PendingCall = {
-    operationId,
-    continuationChain: preprocessedContinuation,
-    createdAt: Date.now()
-  };
+  // Schedule immediate alarm (0 seconds) to process async work
+  // Pass raw operation chains - alarms will preprocess/postprocess them automatically
+  doInstance.svc.alarms.schedule(
+    0,  // Execute immediately (but after this method returns)
+    doInstance.ctn().__processCallQueue(
+      remoteChain,
+      continuationChain,
+      doBinding,
+      doInstanceNameOrId,
+      options
+    )
+  );
 
-  // Schedule timeout alarm if timeout is set
-  if (timeout > 0) {
-    const timeoutAlarmId = `__lmz_call_timeout:${operationId}`;
-    const timeoutTime = Date.now() + timeout;
-    ctx.storage.setAlarm(timeoutTime);
-    
-    // Store timeout info
-    ctx.storage.kv.put(timeoutAlarmId, {
-      operationId,
-      type: 'call_timeout'
-    });
-    
-    // Add timeout alarm ID to pending call
-    pendingCall.timeoutAlarmId = timeoutAlarmId;
-  }
-  
-  // Store pending call with preprocessed continuation
-  ctx.storage.kv.put(`__lmz_call_pending:${operationId}`, pendingCall);
-
-  // Preprocess remote operation chain
-  const preprocessedRemote = await preprocess(remoteChain);
-
-  // Get remote DO stub (supports both names and IDs)
-  const remoteStub = getDOStub(env[doBinding], doInstanceNameOrId);
-
-  // Get origin binding name from storage
-  const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
-  
-  if (!originBinding) {
-    throw new Error(
-      `Cannot use call() from a DO that doesn't know its own binding name. ` +
-      `Call __lmzInit({ doBindingName }) first.`
-    );
-  }
-
-  // Prepare message for remote DO
-  // Note: originId always uses ctx.id (fast, no storage lookup)
-  // originInstanceNameOrId is optional and only used for debugging
-  const message: CallMessage = {
-    originId: ctx.id.toString(),
-    originBinding,
-    originInstanceNameOrId: undefined, // Always use originId (ctx.id) for return address
-    targetBinding: doBinding,
-    targetInstanceNameOrId: doInstanceNameOrId,
-    operationId,
-    operationChain: preprocessedRemote as OperationChain
-  };
-
-  // Preprocess message for transmission
-  const preprocessedMessage = await preprocess(message);
-
-  try {
-    // Send message to remote DO (Call 1: Origin → Remote)
-    // Only await receipt confirmation (not execution) - actor model
-    await remoteStub.__enqueueWork('call', operationId, preprocessedMessage);
-    log.debug('Operation enqueued on remote DO', { operationId });
-  } catch (error) {
-    // Failed to deliver message - clean up and throw
-    ctx.storage.kv.delete(`__lmz_call_pending:${operationId}`);
-    if (pendingCall.timeoutAlarmId) {
-      ctx.storage.kv.delete(pendingCall.timeoutAlarmId);
-    }
-    throw new Error(`Failed to send call to remote DO: ${error instanceof Error ? error.message : String(error)}`);
-  }
+  log.debug('Call queued via alarms');
 }
 
 /**

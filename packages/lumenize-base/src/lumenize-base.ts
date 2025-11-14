@@ -323,6 +323,34 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   }
 
   /**
+   * Process a queued call operation (internal handler for @lumenize/call)
+   * 
+   * This method is called by alarms.schedule(0, ...) from call() to process
+   * async operations (preprocessing and RPC) without blocking the caller.
+   * 
+   * The chains are passed as parameters and are already preprocessed by alarms.
+   * 
+   * @param remoteChain - Operation chain to execute on remote DO (preprocessed)
+   * @param continuationChain - Operation chain for handling result (preprocessed)
+   * @param doBinding - Target DO binding name
+   * @param doInstanceNameOrId - Target DO instance name or ID
+   * @param options - Call options (timeout, etc.)
+   * 
+   * @internal Called by @lumenize/call via alarms
+   */
+  async __processCallQueue(
+    remoteChain: any,
+    continuationChain: any,
+    doBinding: string,
+    doInstanceNameOrId: string,
+    options?: any
+  ): Promise<void> {
+    // Implemented by @lumenize/call - this is just a placeholder
+    // The actual implementation is registered as a work handler
+    throw new Error('__processCallQueue called but @lumenize/call is not imported');
+  }
+
+  /**
    * Initialize DO metadata (binding name and instance name)
    * 
    * This method stores the DO's binding name and instance name in storage
@@ -486,6 +514,9 @@ if (!(globalThis as any).__lumenizeWorkHandlers) {
 if (!(globalThis as any).__lumenizeResultHandlers) {
   (globalThis as any).__lumenizeResultHandlers = {};
 }
+
+// Expose LumenizeBase prototype for method overrides (e.g., __processCallQueue)
+(globalThis as any).__LumenizeBasePrototype = LumenizeBase.prototype;
 
 // Re-export the global LumenizeServices interface for convenience
 export type { LumenizeServices } from './types';

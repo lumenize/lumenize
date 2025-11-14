@@ -42,6 +42,10 @@ export { call, cancelCall } from './call.js';
 import { call } from './call.js';
 import { callWorkHandler } from './work-handler.js';
 import { callResultHandler } from './result-handler.js';
+import { installCallQueueHandler } from './call-queue-handler.js';
+
+// Install __processCallQueue handler into LumenizeBase
+installCallQueueHandler();
 
 // Register work handler for 'call' work type
 if (!(globalThis as any).__lumenizeWorkHandlers) {
@@ -84,6 +88,6 @@ declare global {
       remoteOperation: any,
       continuation: any,
       options?: { timeout?: number }
-    ) => Promise<void>;
+    ) => void;  // Synchronous! Returns immediately, processes via alarms
   }
 }

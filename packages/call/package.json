@@ -27,6 +27,7 @@
   ],
   "license": "MIT",
   "dependencies": {
+    "@lumenize/alarms": "*",
     "@lumenize/core": "*",
     "@lumenize/structured-clone": "*"
   },

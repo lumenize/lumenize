@@ -468,12 +468,17 @@ describe('Alarms', () => {
       
       await stub.clearExecutedAlarms();
       
-      // Schedule with 0 delay (should be executed immediately on next trigger)
+      // Schedule with 0 delay - executes IMMEDIATELY during schedule(), not during triggerAlarms()
       await stub.scheduleDelayedAlarm(0, { task: 'immediate' });
       
-      // Trigger alarms
-      const executed = await stub.triggerAlarms();
+      // Verify it was executed immediately
+      const executed = await stub.getExecutedAlarms();
       expect(executed.length).toBeGreaterThanOrEqual(1);
+      expect(executed[0].payload.task).toBe('immediate');
+      
+      // Verify it was cleaned up from storage (nothing left to trigger)
+      const remaining = await stub.triggerAlarms();
+      expect(remaining.length).toBe(0);
     });
 
     test('handles very large delay', async () => {
