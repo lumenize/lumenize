@@ -147,22 +147,29 @@ export class OriginDO extends LumenizeBase<Env> {
   }
 
   // Test: Call with delay (for cancellation testing)
+  // Note: Returns the callId (stored immediately), NOT operationId (created when alarm fires)
   async callRemoteWithDelay(value: string, delayMs: number): Promise<string> {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
-    // Store operation ID before calling (so we can cancel it)
-    await this.svc.call(
+    // Call returns void (synchronous), stores data and schedules alarm
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
       this.ctn().handleDelayResult(remote),
     );
     
-    // Return operation ID for cancellation tests
-    // Get the most recent pending call key
-    const pending = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_pending:' })];
-    const lastKey = pending[pending.length - 1][0]; // [key, value] pairs
-    return lastKey.substring('__lmz_call_pending:'.length);
+    // Return the callId (for immediate cancellation before alarm fires)
+    // Don't trigger alarms here - let the test decide when
+    const callData = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_data:' })];
+    if (callData.length === 0) {
+      throw new Error('No call data found after call()');
+    }
+    const callId = callData[callData.length - 1][0].substring('__lmz_call_data:'.length);
+    
+    // Store mapping for cancellation (since tests expect to cancel by ID)
+    // For now, just return the callId - tests will need to trigger alarms to get operationId
+    return callId;
   }
 
   handleDelayResult(result: any) {
@@ -177,7 +184,8 @@ export class OriginDO extends LumenizeBase<Env> {
   async callRemoteWithTimeout(value: string, timeout: number): Promise<string> {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
-    await this.svc.call(
+    // Call returns void (synchronous)
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -185,8 +193,14 @@ export class OriginDO extends LumenizeBase<Env> {
       { timeout }
     );
     
+    // Trigger alarms to process the call and create the operationId
+    await this.triggerAlarms();
+    
     // Return operation ID
     const pending = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_pending:' })];
+    if (pending.length === 0) {
+      throw new Error('No pending calls found after triggering alarms');
+    }
     const lastKey = pending[pending.length - 1][0]; // [key, value] pairs
     return lastKey.substring('__lmz_call_pending:'.length);
   }

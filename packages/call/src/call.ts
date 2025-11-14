@@ -83,11 +83,21 @@ export function call(
     timeout: options?.timeout ?? 30000
   });
 
+  // Validate that the DO knows its own binding name (fail fast!)
+  const ctx = doInstance.ctx as DurableObjectState;
+  const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  
+  if (!originBinding) {
+    throw new Error(
+      `Cannot use call() from a DO that doesn't know its own binding name. ` +
+      `Call __lmzInit({ doBindingName }) first.`
+    );
+  }
+
   // Generate unique ID for this call
   const callId = crypto.randomUUID();
 
   // Store call data in KV (for crash recovery and to avoid passing complex data through OCAN)
-  const ctx = doInstance.ctx as DurableObjectState;
   ctx.storage.kv.put(`__lmz_call_data:${callId}`, {
     remoteChain,
     continuationChain,
