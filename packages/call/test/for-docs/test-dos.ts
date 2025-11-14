@@ -188,5 +188,13 @@ export class OriginDO extends LumenizeBase<Env> {
       doInstanceNameOrId: instanceNameOrId || this.ctx.id.toString()
     });
   }
+
+  // Manual alarm trigger for testing (bypasses native alarm system)
+  async triggerAlarms() {
+    if (this.svc?.alarms?.triggerAlarms) {
+      return await this.svc.alarms.triggerAlarms();
+    }
+    return [];
+  }
 }
 

@@ -36,41 +36,55 @@ export function installCallQueueHandler() {
 /**
  * Process a queued call operation
  * 
- * Called by alarms - chains arrive already postprocessed by alarms' execution.
+ * Called by alarms with a callId. Retrieves call data from storage,
+ * processes it, and sends to remote DO.
  * 
  * @param doInstance - The DO instance (bound as 'this')
- * @param remoteChain - Remote operation chain (already postprocessed by alarms)
- * @param continuationChain - Continuation chain (already postprocessed by alarms)
- * @param doBinding - Target DO binding name
- * @param doInstanceNameOrId - Target DO instance name or ID
- * @param options - Call options (timeout, etc.)
+ * @param callId - Unique identifier for this call (stored in __lmz_call_data:{callId})
  * 
  * @internal
  */
 async function processCallQueue(
   this: any,  // 'this' is the DO instance
-  remoteChain: OperationChain,
-  continuationChain: OperationChain,
-  doBinding: string,
-  doInstanceNameOrId: string,
-  options?: CallOptions
+  callId: string
 ): Promise<void> {
   const doInstance = this;
   const ctx = doInstance.ctx as DurableObjectState;
   const env = doInstance.env;
   const log = debug(ctx)('lmz.call.processCallQueue');
 
+  log.debug('Processing queued call', { callId });
+
+  // Retrieve call data from storage
+  const callData = ctx.storage.kv.get(`__lmz_call_data:${callId}`) as {
+    remoteChain: OperationChain;
+    continuationChain: OperationChain;
+    doBinding: string;
+    doInstanceNameOrId: string;
+    options?: CallOptions;
+  } | undefined;
+
+  if (!callData) {
+    log.error('Call data not found in storage', { callId });
+    throw new Error(`Call data not found for callId: ${callId}`);
+  }
+
+  // Clean up the call data now that we've retrieved it
+  ctx.storage.kv.delete(`__lmz_call_data:${callId}`);
+
+  const { remoteChain, continuationChain, doBinding, doInstanceNameOrId, options } = callData;
+
   const operationId = crypto.randomUUID();
   const timeout = options?.timeout ?? 30000; // 30 seconds default
 
-  log.debug('Processing queued call', {
+  log.debug('Call data retrieved', {
     operationId,
     doBinding,
     doInstanceNameOrId,
     timeout
   });
 
-  // Chains are already postprocessed by alarms - preprocess them for storage
+  // Preprocess chains for storage and transmission
   const preprocessedContinuation = await preprocess(continuationChain);
 
   // Store pending call with preprocessed continuation

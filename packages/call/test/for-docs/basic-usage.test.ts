@@ -17,6 +17,9 @@ it('shows basic remote call with result handler', async () => {
 
   await origin.exampleBasicCall('user-123');
 
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
+
   await vi.waitFor(async () => {
     const results = await origin.getResults();
     expect(results.length).toBeGreaterThan(0);
@@ -40,6 +43,9 @@ it('shows inline variable reference syntax', async () => {
 
   await origin.exampleBasicCall2('user-456');
 
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
+
   await vi.waitFor(async () => {
     const results = await origin.getResults();
     expect(results.length).toBeGreaterThan(0);
@@ -59,6 +65,9 @@ it('shows inline $result marker syntax', async () => {
   await origin.initializeBinding('ORIGIN_DO');
 
   await origin.exampleBasicCall3('user-789');
+
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
 
   await vi.waitFor(async () => {
     const results = await origin.getResults();
@@ -80,6 +89,9 @@ it('handles remote errors gracefully', async () => {
 
   await origin.exampleErrorHandling('Test error message');
 
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
+
   await vi.waitFor(async () => {
     const results = await origin.getResults();
     expect(results.length).toBeGreaterThan(0);
@@ -100,6 +112,9 @@ it('shows timeout configuration', async () => {
 
   await origin.exampleWithTimeout(10, 5000);
 
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
+
   await vi.waitFor(async () => {
     const results = await origin.getResults();
     expect(results.length).toBeGreaterThan(0);
@@ -118,8 +133,13 @@ it('handles multiple sequential calls', async () => {
   await origin.initializeBinding('ORIGIN_DO');
 
   await origin.exampleBasicCall('user-1');
+  await origin.triggerAlarms();  // Trigger first call's alarm
+  
   await origin.exampleBasicCall('user-2');
+  await origin.triggerAlarms();  // Trigger second call's alarm
+  
   await origin.exampleBasicCall('user-3');
+  await origin.triggerAlarms();  // Trigger third call's alarm
 
   await vi.waitFor(async () => {
     const results = await origin.getResults();
@@ -140,6 +160,9 @@ it('confirms $result pattern works', async () => {
 
   await origin.exampleMathOperation(5, 3);
 
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
+
   await vi.waitFor(async () => {
     const results = await origin.getResults();
     expect(results.length).toBeGreaterThan(0);
@@ -159,6 +182,9 @@ it('demonstrates non-blocking actor model', async () => {
   await origin.initializeBinding('ORIGIN_DO');
 
   await origin.exampleWithTimeout(100, 30000);
+
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
 
   await vi.waitFor(async () => {
     const results = await origin.getResults();
@@ -188,6 +214,9 @@ it('accesses remote storage directly via property chains', async () => {
 
   // Fetch the remote's instance name via storage access
   await origin.exampleStorageAccess('remote-storage-test');
+
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
 
   // Wait for the result to arrive
   await vi.waitFor(async () => {
@@ -221,6 +250,9 @@ it('uses property chains for both remote operation and handler', async () => {
 
   // Fetch and store using only property chains (no handler methods!)
   await origin.exampleStorageAccessDirect('remote-storage-test-2');
+
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
 
   // Wait for the operation to complete
   await vi.waitFor(async () => {

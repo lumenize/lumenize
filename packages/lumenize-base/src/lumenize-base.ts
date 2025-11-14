@@ -344,25 +344,17 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * This method is called by alarms.schedule(0, ...) from call() to process
    * async operations (preprocessing and RPC) without blocking the caller.
    * 
-   * The chains are passed as parameters and are already preprocessed by alarms.
+   * The call data is retrieved from storage using the callId to avoid
+   * passing complex operation chains through OCAN.
    * 
-   * @param remoteChain - Operation chain to execute on remote DO (preprocessed)
-   * @param continuationChain - Operation chain for handling result (preprocessed)
-   * @param doBinding - Target DO binding name
-   * @param doInstanceNameOrId - Target DO instance name or ID
-   * @param options - Call options (timeout, etc.)
+   * @param callId - Unique identifier for this call (stored in __lmz_call_data:{callId})
    * 
    * @internal Called by @lumenize/call via alarms
    */
   async __processCallQueue(
-    remoteChain: any,
-    continuationChain: any,
-    doBinding: string,
-    doInstanceNameOrId: string,
-    options?: any
+    callId: string
   ): Promise<void> {
     // Implemented by @lumenize/call - this is just a placeholder
-    // The actual implementation is registered as a work handler
     throw new Error('__processCallQueue called but @lumenize/call is not imported');
   }
 

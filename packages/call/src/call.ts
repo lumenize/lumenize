@@ -83,20 +83,27 @@ export function call(
     timeout: options?.timeout ?? 30000
   });
 
+  // Generate unique ID for this call
+  const callId = crypto.randomUUID();
+
+  // Store call data in KV (for crash recovery and to avoid passing complex data through OCAN)
+  const ctx = doInstance.ctx as DurableObjectState;
+  ctx.storage.kv.put(`__lmz_call_data:${callId}`, {
+    remoteChain,
+    continuationChain,
+    doBinding,
+    doInstanceNameOrId,
+    options
+  });
+
   // Schedule immediate alarm (0 seconds) to process async work
-  // Pass raw operation chains - alarms will preprocess/postprocess them automatically
+  // Only pass the simple callId through OCAN (not complex chains!)
   doInstance.svc.alarms.schedule(
     0,  // Execute immediately (but after this method returns)
-    doInstance.ctn().__processCallQueue(
-      remoteChain,
-      continuationChain,
-      doBinding,
-      doInstanceNameOrId,
-      options
-    )
+    doInstance.ctn().__processCallQueue(callId)
   );
 
-  log.debug('Call queued via alarms');
+  log.debug('Call queued via alarms', { callId });
 }
 
 /**

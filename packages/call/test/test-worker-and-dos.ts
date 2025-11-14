@@ -304,8 +304,20 @@ export class OriginDO extends LumenizeBase<Env> {
     });
   }
 
-  waitForResults(count: number, maxWait = 2000): Promise<void> {
+  // Manual alarm trigger for testing (bypasses native alarm system)
+  async triggerAlarms() {
+    if (this.svc?.alarms?.triggerAlarms) {
+      return await this.svc.alarms.triggerAlarms();
+    }
+    return [];
+  }
+
+  async waitForResults(count: number, maxWait = 2000): Promise<void> {
     const startTime = Date.now();
+    
+    // Trigger alarms first (processes any queued 0-second alarms)
+    await this.triggerAlarms();
+    
     return new Promise((resolve, reject) => {
       const checkResults = () => {
         if (this.#results.length >= count) {
