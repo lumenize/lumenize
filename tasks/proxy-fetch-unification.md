@@ -1,5 +1,35 @@
 # Proxy-Fetch Unification - Use svc.call() Architecture
 
+## Today's Context (Nov 14, 2025)
+
+**Major Accomplishments - Synchronous svc.call():**
+- ✅ Made `svc.call()` synchronous (returns `void`) - callable from non-async DO methods
+- ✅ Eliminated `originBinding` parameter via `__lmzInit()` in LumenizeBase
+- ✅ Implemented 0-second alarm-based async boundary (FIFO ordered with ULIDs)
+- ✅ Centralized OCAN result injection in `@lumenize/core` (`replaceNestedOperationMarkers`)
+- ✅ Made `alarms.schedule()` synchronous using `blockConcurrencyWhile`
+- ✅ Added manual `triggerAlarms()` for reliable testing
+- ✅ All tests passing: call (26/28), alarms (62/62), proxy-fetch (20/20)
+
+**Key Implementation Details:**
+```typescript
+// svc.call() is now synchronous!
+this.svc.call('REMOTE_DO', 'instance-1', remoteOp, handlerCtn);  // No await!
+
+// Under the hood:
+// 1. Stores call data in KV: __lmz_call_data:{callId}
+// 2. Schedules 0-second alarm (synchronous via blockConcurrencyWhile)
+// 3. Returns immediately (void)
+// 4. Alarm fires → __processCallQueue retrieves data → async work begins
+// 5. FIFO ordering via ULIDs in alarm IDs
+```
+
+**Foundation Complete for Proxy-Fetch:**
+- Pattern proven: synchronous operation → 0-second alarm → async work
+- `replaceNestedOperationMarkers()` handles both explicit markers and first-argument convention
+- Property chain access works: `this.ctn().ctx.storage.kv.get(...)`
+- Binding auto-storage eliminates manual parameter passing
+
 ## Goal
 
 Unify `@lumenize/proxy-fetch` with the `@lumenize/call` architecture, making FetchOrchestrator "just another actor" that uses `svc.call()` under the hood. Maintain a thin wrapper with domain-specific defaults for developer experience.
@@ -196,17 +226,36 @@ await proxyFetchWorker(this, url, handler, {
 - `packages/proxy-fetch/src/FetchOrchestrator.ts`
 - `packages/proxy-fetch/src/fetchWorkerResultHandler.ts`
 
+**Critical Architecture Detail - Worker Callback Flow:**
+
+```
+1. Origin DO: svc.call('FETCH_ORCHESTRATOR', ...) → Returns void immediately
+2. FetchOrchestrator: Receives request, acknowledges, stores nothing (call system has continuation)
+3. FetchOrchestrator → Worker: Hands off fetch (non-blocking, preserves CPU billing)
+4. Worker: Performs fetch (CPU-billed, not wall-clock!)
+5. Worker → Origin DO: Calls back DIRECTLY (bypasses FetchOrchestrator for latency)
+6. Origin DO: Uses reqId to match with pending call, executes continuation
+```
+
+**Why this matters:**
+- FetchOrchestrator is a DO (wall-clock billing) - doesn't await fetch
+- Worker is CPU-billed - can await fetch without cost penalty
+- Direct Worker→Origin callback avoids extra hop (57ms average latency)
+- Call system still handles continuation, timeout, and error cases
+
 **Tasks:**
 1. Results now flow through call system (CallResult messages)
-2. Worker still sends results to origin DO directly (optimization)
+2. Worker still sends results to origin DO directly (optimization preserved)
 3. FetchOrchestrator marks completion in its tracking
 4. Verify timeout handling works via call system
 5. Test result handler integration with new flow
+6. Ensure Worker has origin DO binding + instance info to callback directly
 
 **Acceptance criteria:**
 - Results delivered correctly via call system
 - Timeouts handled by call system
 - Worker optimization (direct origin callback) still works
+- FetchOrchestrator doesn't block on external fetch (wall-clock optimization)
 - All 20 integration tests pass
 
 ### Phase 5: Enhanced Continuation Support
