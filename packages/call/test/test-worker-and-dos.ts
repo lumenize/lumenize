@@ -1,5 +1,5 @@
-import '@lumenize/call';
 import { LumenizeBase } from '@lumenize/lumenize-base';
+import '@lumenize/call';  // Import AFTER LumenizeBase so handler can be installed
 import { enableAlarmSimulation } from '@lumenize/testing';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
