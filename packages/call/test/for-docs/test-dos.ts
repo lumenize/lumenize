@@ -1,5 +1,6 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import '@lumenize/call';  // Auto-registers call service via NADIS
+import { enableAlarmSimulation } from '@lumenize/testing';
 
 export interface Env {
   ORIGIN_DO: DurableObjectNamespace<OriginDO>;
@@ -11,6 +12,12 @@ export interface Env {
  */
 export class RemoteDO extends LumenizeBase<Env> {
   #executedOperations: string[] = [];
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Enable alarm simulation for call's 0-second alarms
+    enableAlarmSimulation(this, { timeScale: 100 });
+  }
 
   getUserData(userId: string) {
     this.#executedOperations.push('getUserData');
@@ -55,6 +62,12 @@ export class RemoteDO extends LumenizeBase<Env> {
  */
 export class OriginDO extends LumenizeBase<Env> {
   #results: Array<{ type: 'success' | 'error'; value: any }> = [];
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Enable alarm simulation for call's 0-second alarms
+    enableAlarmSimulation(this, { timeScale: 100 });
+  }
 
   // Example: Basic remote call (3-line extracted format - RECOMMENDED)
   async exampleBasicCall(userId: string) {

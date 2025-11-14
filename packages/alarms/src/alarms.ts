@@ -226,50 +226,8 @@ export class Alarms {
       const time = new Date(Date.now() + when * 1000);
       const timestamp = Math.floor(time.getTime() / 1000);
       
-      // Special handling for 0-second delays (immediate execution)
-      // Store first for crash recovery, then execute immediately
-      if (when === 0) {
-        // 1. Store first (crash-safe)
-        this.#ctx.blockConcurrencyWhile(async () => {
-          await this.#storeSchedule(id, operationChain, 'delayed', timestamp, { delayInSeconds: 0 });
-        });
-        
-        // 2. Execute immediately (also crash-safe)
-        this.#ctx.blockConcurrencyWhile(async () => {
-          try {
-            // Retrieve stored chain (already preprocessed)
-            const result = this.#sql`
-              SELECT operationChain FROM __lmz_alarms WHERE id = ${id}
-            `;
-            
-            if (result && result.length > 0) {
-              const storedChain = await postprocess(JSON.parse(result[0].operationChain));
-              await executeOperationChain(storedChain, this.#parent);
-              
-              // 3. Clean up after successful execution
-              this.#sql`DELETE FROM __lmz_alarms WHERE id = ${id}`;
-            }
-          } catch (error) {
-            // Leave in storage for recovery on next constructor!
-            this.#log.error('0-second alarm execution failed, will retry on recovery', {
-              id,
-              error: error instanceof Error ? error.message : String(error),
-              stack: error instanceof Error ? error.stack : undefined
-            });
-          }
-        });
-        
-        // No need to schedule native alarm for 0-second delays
-        return {
-          id,
-          operationChain,
-          delayInSeconds: 0,
-          time: timestamp,
-          type: 'delayed',
-        };
-      }
-      
-      // Normal path: Store and schedule alarm for future execution
+      // Store and schedule alarm (synchronously via blockConcurrencyWhile)
+      // The async boundary is when the native alarm fires, not here
       this.#ctx.blockConcurrencyWhile(async () => {
         await this.#storeSchedule(id, operationChain, 'delayed', timestamp, { delayInSeconds: when });
         this.#scheduleNextAlarm();  // Inside block to avoid alarm scheduler conflicts

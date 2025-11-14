@@ -88,6 +88,22 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   }
 
   /**
+   * Default alarm handler that delegates to @lumenize/alarms service
+   * 
+   * If @lumenize/alarms is installed, this delegates to its alarm() handler.
+   * Otherwise, this is a no-op.
+   * 
+   * Subclasses that need custom alarm handling should call `super.alarm()` first
+   * to ensure alarms service alarms are processed.
+   */
+  async alarm(): Promise<void> {
+    // Delegate to alarms service if installed
+    if (this.svc && typeof this.svc.alarms?.alarm === 'function') {
+      await this.svc.alarms.alarm();
+    }
+  }
+
+  /**
    * Initialize DO metadata from request headers
    * 
    * Reads `x-lumenize-do-binding-name` and `x-lumenize-do-instance-name-or-id`

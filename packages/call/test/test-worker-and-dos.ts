@@ -1,5 +1,6 @@
 import '@lumenize/call';
 import { LumenizeBase } from '@lumenize/lumenize-base';
+import { enableAlarmSimulation } from '@lumenize/testing';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
 
@@ -10,6 +11,12 @@ import { Env } from 'cloudflare:test';
  */
 export class RemoteDO extends LumenizeBase<Env> {
   #executedOperations: Array<{ method: string; args: any[] }> = [];
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Enable alarm simulation for call's 0-second alarms
+    enableAlarmSimulation(this, { timeScale: 100 });
+  }
 
   // Test methods that can be called remotely
   getUserData(userId: string) {
@@ -51,6 +58,12 @@ export class RemoteDO extends LumenizeBase<Env> {
  */
 export class OriginDO extends LumenizeBase<Env> {
   #results: Array<{ type: 'success' | 'error'; value: any }> = [];
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Enable alarm simulation for call's 0-second alarms
+    enableAlarmSimulation(this, { timeScale: 100 });
+  }
 
   // Test: Call remote method with continuation
   async callRemoteGetUserData(userId: string) {
