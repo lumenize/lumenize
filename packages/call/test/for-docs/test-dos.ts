@@ -1,6 +1,5 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import '@lumenize/call';  // Auto-registers call service via NADIS
-import { enableAlarmSimulation } from '@lumenize/testing';
 import type { Unprotected } from '@lumenize/core';
 
 export interface Env {
@@ -13,12 +12,6 @@ export interface Env {
  */
 export class RemoteDO extends LumenizeBase<Env> {
   #executedOperations: string[] = [];
-
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    // Enable alarm simulation for call's 0-second alarms
-    enableAlarmSimulation(this, { timeScale: 100 });
-  }
 
   getUserData(userId: string) {
     this.#executedOperations.push('getUserData');
@@ -63,12 +56,6 @@ export class RemoteDO extends LumenizeBase<Env> {
  */
 export class OriginDO extends LumenizeBase<Env> {
   #results: Array<{ type: 'success' | 'error'; value: any; userId?: string }> = [];
-
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    // Enable alarm simulation for call's 0-second alarms
-    enableAlarmSimulation(this, { timeScale: 100 });
-  }
 
   // Example: Basic remote call (3-line extracted format - RECOMMENDED)
   async exampleBasicCall(userId: string) {
@@ -181,14 +168,6 @@ export class OriginDO extends LumenizeBase<Env> {
       doBindingName: bindingName,
       doInstanceNameOrId: instanceNameOrId || this.ctx.id.toString()
     });
-  }
-
-  // Manual alarm trigger for testing (bypasses native alarm system)
-  async triggerAlarms() {
-    if (this.svc?.alarms?.triggerAlarms) {
-      return await this.svc.alarms.triggerAlarms();
-    }
-    return [];
   }
 }
 

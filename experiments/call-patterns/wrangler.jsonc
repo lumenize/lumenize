@@ -1,0 +1,15 @@
+{
+  "name": "call-patterns",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "CONTROLLER", "class_name": "PatternController" },
+      { "name": "REMOTE_DO", "class_name": "RemoteDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PatternController", "RemoteDO"] }
+  ]
+}
+

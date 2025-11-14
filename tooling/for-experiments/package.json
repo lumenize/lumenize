@@ -1,0 +1,26 @@
+{
+  "name": "@lumenize/for-experiments",
+  "version": "0.1.0",
+  "description": "Reusable tooling for production experiments",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "test": "echo 'No tests for tooling'"
+  },
+  "keywords": [
+    "experiments",
+    "cloudflare",
+    "durable-objects"
+  ],
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.js",
+    "./controller": "./src/controller.js",
+    "./node-client": "./src/node-client.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
+

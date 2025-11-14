@@ -97,7 +97,7 @@ export function call(
   // Generate unique ID for this call
   const callId = crypto.randomUUID();
 
-  // Store call data in KV (for crash recovery and to avoid passing complex data through OCAN)
+  // Store call data synchronously (for crash recovery and to avoid passing complex data through OCAN)
   ctx.storage.kv.put(`__lmz_call_data:${callId}`, {
     remoteChain,
     continuationChain,
@@ -106,14 +106,15 @@ export function call(
     options
   });
 
-  // Schedule immediate alarm (0 seconds) to process async work
-  // Only pass the simple callId through OCAN (not complex chains!)
-  doInstance.svc.alarms.schedule(
-    0,  // Execute immediately (but after this method returns)
-    doInstance.ctn().__processCallQueue(callId)
-  );
-
-  log.debug('Call queued via alarms', { callId });
+  // Queue processing with async boundary to ensure storage write is visible
+  // Use blockConcurrencyWhile to create the boundary without blocking caller
+  ctx.blockConcurrencyWhile(async () => {
+    // Direct async call (fire and forget, output gates provide consistency)
+    // This approach is faster and more reliable than alarm-based scheduling
+    // See: experiments/call-alarm-delay/EXPERIMENT_RESULTS.md
+    log.debug('Call queued via direct async', { callId });
+    doInstance.__processCallQueue(callId);
+  });
 }
 
 /**

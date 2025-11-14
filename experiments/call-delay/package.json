@@ -1,0 +1,19 @@
+{
+  "name": "call-delay-experiment",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node test/delay-measurements.mjs"
+  },
+  "dependencies": {
+    "@lumenize/for-experiments": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "wrangler": "^4.38.0"
+  }
+}
+

@@ -1,6 +1,5 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import '@lumenize/call';  // Import AFTER LumenizeBase so handler can be installed
-import { enableAlarmSimulation } from '@lumenize/testing';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
 
@@ -14,8 +13,6 @@ export class RemoteDO extends LumenizeBase<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // Enable alarm simulation for call's 0-second alarms
-    enableAlarmSimulation(this, { timeScale: 100 });
   }
 
   // Test methods that can be called remotely
@@ -68,8 +65,6 @@ export class OriginDO extends LumenizeBase<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // Enable alarm simulation for call's 0-second alarms
-    enableAlarmSimulation(this, { timeScale: 100 });
   }
 
   // Test: Call remote method with continuation
@@ -386,9 +381,8 @@ export class OriginDO extends LumenizeBase<Env> {
   async waitForResults(count: number, maxWait = 2000): Promise<void> {
     const startTime = Date.now();
     
-    // Trigger alarms first (processes any queued 0-second alarms)
-    await this.triggerAlarms();
-    
+    // V4 pattern: blockConcurrencyWhile completes before call() returns
+    // Results should already be available, just poll for them
     return new Promise((resolve, reject) => {
       const checkResults = () => {
         if (this.#results.length >= count) {

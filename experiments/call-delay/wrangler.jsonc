@@ -1,0 +1,16 @@
+{
+  "name": "call-delay",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "CONTROLLER", "class_name": "CallDelayController" },
+      { "name": "REMOTE_DO", "class_name": "RemoteDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["OriginDO", "RemoteDO"] },
+    { "tag": "v2", "renamed_classes": [{ "from": "OriginDO", "to": "CallDelayController" }] }
+  ]
+}
+

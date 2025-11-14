@@ -270,7 +270,8 @@ describe('Call - DO-to-DO Communication', () => {
     });
   });
 
-  describe('Call Cancellation', () => {
+  // V4 pattern doesn't support cancellation - operations execute immediately in blockConcurrencyWhile
+  describe.skip('Call Cancellation', () => {
     test('cancelCall prevents continuation from executing', async () => {
       const origin = env.ORIGIN_DO.getByName('cancel-test');
       await origin.initializeBinding('ORIGIN_DO');

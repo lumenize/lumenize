@@ -36,28 +36,14 @@
  */
 
 export * from './types.js';
-export { call, cancelCall } from './call.js';
+export { call, cancelCall } from './call-v4.js';
 
 // Import for registration
-import { call } from './call.js';
-import { callWorkHandler } from './work-handler.js';
-import { callResultHandler } from './result-handler.js';
-import { installCallQueueHandler } from './call-queue-handler.js';
+import { call } from './call-v4.js';
+import { installExecuteOperationHandler } from './execute-operation-handler.js';
 
-// Install __processCallQueue handler into LumenizeBase
-installCallQueueHandler();
-
-// Register work handler for 'call' work type
-if (!(globalThis as any).__lumenizeWorkHandlers) {
-  (globalThis as any).__lumenizeWorkHandlers = {};
-}
-(globalThis as any).__lumenizeWorkHandlers.call = callWorkHandler;
-
-// Register result handler for 'call' work type
-if (!(globalThis as any).__lumenizeResultHandlers) {
-  (globalThis as any).__lumenizeResultHandlers = {};
-}
-(globalThis as any).__lumenizeResultHandlers.call = callResultHandler;
+// Install __executeOperation handler into LumenizeBase
+installExecuteOperationHandler();
 
 // Register call as a NADIS service
 if (!(globalThis as any).__lumenizeServiceRegistry) {
