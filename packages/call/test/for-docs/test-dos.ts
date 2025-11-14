@@ -73,13 +73,13 @@ export class OriginDO extends LumenizeBase<Env> {
   async exampleBasicCall(userId: string) {
     const userData = this.ctn<RemoteDO>().getUserData(userId);  // Remote operation
     const handlerCtn = this.ctn().handleUserDataResult(userData);  // Local handler
-    await this.svc.call('REMOTE_DO', 'remote-1', userData, handlerCtn);
+    this.svc.call('REMOTE_DO', 'remote-1', userData, handlerCtn);
   }
 
   // Example: Inline with variable reference (alternative syntax)
   async exampleBasicCall2(userId: string) {
     const userData = this.ctn<RemoteDO>().getUserData(userId);
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-1',
       userData,
@@ -89,7 +89,7 @@ export class OriginDO extends LumenizeBase<Env> {
 
   // Example: Inline with $result marker (alternative syntax)
   async exampleBasicCall3(userId: string) {
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-1',
       this.ctn<RemoteDO>().getUserData(userId),
@@ -102,21 +102,21 @@ export class OriginDO extends LumenizeBase<Env> {
   async exampleErrorHandling(message: string) {
     const errorOp = this.ctn<RemoteDO>().throwError(message);
     const handlerCtn = this.ctn().handleUserDataResult(errorOp);
-    await this.svc.call('REMOTE_DO', 'remote-1', errorOp, handlerCtn);
+    this.svc.call('REMOTE_DO', 'remote-1', errorOp, handlerCtn);
   }
 
   // Example: Using timeout option
   async exampleWithTimeout(delayMs: number, timeoutMs: number) {
     const slowOp = this.ctn<RemoteDO>().slowOperation(delayMs);
     const handlerCtn = this.ctn().handleUserDataResult(slowOp);
-    await this.svc.call('REMOTE_DO', 'remote-1', slowOp, handlerCtn, { timeout: timeoutMs });
+    this.svc.call('REMOTE_DO', 'remote-1', slowOp, handlerCtn, { timeout: timeoutMs });
   }
 
   // Example: Math operation with typed handler
   async exampleMathOperation(a: number, b: number) {
     const mathOp = this.ctn<RemoteDO>().add(a, b);
     const handlerCtn = this.ctn().handleMathResult(mathOp);
-    await this.svc.call('REMOTE_DO', 'remote-1', mathOp, handlerCtn);
+    this.svc.call('REMOTE_DO', 'remote-1', mathOp, handlerCtn);
   }
 
   // Example: Direct storage access on remote DO
@@ -124,7 +124,7 @@ export class OriginDO extends LumenizeBase<Env> {
     // Fetch storage value from remote DO
     const remoteStorageOp = this.ctn<RemoteDO>().ctx.storage.kv.get('__lmz_do_instance_name');
     const handlerCtn = this.ctn().handleRemoteStorageValue(remoteStorageOp);
-    await this.svc.call('REMOTE_DO', remoteInstanceId, remoteStorageOp, handlerCtn);
+    this.svc.call('REMOTE_DO', remoteInstanceId, remoteStorageOp, handlerCtn);
   }
 
   // Example: Direct storage access in BOTH remote operation AND handler
@@ -133,7 +133,7 @@ export class OriginDO extends LumenizeBase<Env> {
     const remoteStorageOp = this.ctn<RemoteDO>().ctx.storage.kv.get('__lmz_do_instance_name');
     // Store it directly via property chain (no handler method!)
     const handlerCtn = this.ctn().ctx.storage.kv.put('__lmz_fetched_remote_name_direct', remoteStorageOp);
-    await this.svc.call('REMOTE_DO', remoteInstanceId, remoteStorageOp, handlerCtn);
+    this.svc.call('REMOTE_DO', remoteInstanceId, remoteStorageOp, handlerCtn);
   }
 
   // Continuation handlers - called when results arrive

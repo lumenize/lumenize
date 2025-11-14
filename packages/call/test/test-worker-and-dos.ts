@@ -69,7 +69,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async callRemoteGetUserData(userId: string) {
     const remote = this.ctn<RemoteDO>().getUserData(userId);
     
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -89,7 +89,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async callRemoteAdd(a: number, b: number) {
     const remote = this.ctn<RemoteDO>().add(a, b);
     
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -109,7 +109,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async callRemoteThrowError(message: string) {
     const remote = this.ctn<RemoteDO>().throwError(message);
     
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -129,7 +129,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async callWithTimeout(value: string, timeout: number) {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -222,7 +222,7 @@ export class OriginDO extends LumenizeBase<Env> {
 
   // Test: Call with invalid remote operation (not OCAN)
   async callWithInvalidRemoteOperation() {
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       'not-an-ocan' as any, // Invalid!
@@ -234,7 +234,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async callWithInvalidContinuation() {
     const remote = this.ctn<RemoteDO>().add(1, 2);
     
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -255,7 +255,7 @@ export class OriginDO extends LumenizeBase<Env> {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
     // Use a non-existent binding name
-    await this.svc.call(
+    this.svc.call(
       'NON_EXISTENT_BINDING',
       'test-instance',
       remote,
@@ -267,7 +267,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async callRemoteWithThrowingContinuation(value: string) {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
@@ -285,7 +285,7 @@ export class OriginDO extends LumenizeBase<Env> {
     const remote = this.ctn<RemoteDO>().asyncOperation(value);
     
     // This will throw because binding name is not initialized
-    await this.svc.call(
+    this.svc.call(
       'REMOTE_DO',
       'remote-instance',
       remote,
