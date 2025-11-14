@@ -174,6 +174,31 @@ it('confirms $result pattern works', async () => {
 });
 
 /*
+Nested operations - operations as arguments to other operations
+*/
+it('handles nested operations (add(add(1,10), add(100,1000)) = 1111)', async () => {
+  using origin = createTestingClient<OriginDOType>('ORIGIN_DO', 'origin-5b');
+
+  await origin.initializeBinding('ORIGIN_DO');
+
+  // Call with nested operations: add(add(1,10), add(100,1000))
+  // Should execute: add(11, 1100) = 1111
+  await origin.exampleNestedOperations();
+
+  // Manually trigger alarms to process the 0-second call alarm
+  await origin.triggerAlarms();
+
+  await vi.waitFor(async () => {
+    const results = await origin.getResults();
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  const results = await origin.getResults();
+  expect(results[0].type).toBe('success');
+  expect(results[0].value).toBe(1111);
+});
+
+/*
 Actor model - non-blocking behavior
 */
 it('demonstrates non-blocking actor model', async () => {
@@ -196,46 +221,7 @@ it('demonstrates non-blocking actor model', async () => {
 });
 
 /*
-Direct storage access - accessing remote DO's storage via OCAN property chains
-*/
-it('accesses remote storage directly via property chains', async () => {
-  using origin = createTestingClient<OriginDOType>('ORIGIN_DO', 'origin-7');
-  using remote = createTestingClient<RemoteDOType>('REMOTE_DO', 'remote-storage-test');
-
-  // Initialize both DOs
-  await origin.initializeBinding('ORIGIN_DO');
-  await remote.__lmzInit({ 
-    doBindingName: 'REMOTE_DO',
-    doInstanceNameOrId: 'my-remote-instance'
-  });
-
-  // Clear origin results
-  await origin.clearResults();
-
-  // Fetch the remote's instance name via storage access
-  await origin.exampleStorageAccess('remote-storage-test');
-
-  // Manually trigger alarms to process the 0-second call alarm
-  await origin.triggerAlarms();
-
-  // Wait for the result to arrive
-  await vi.waitFor(async () => {
-    const results = await origin.getResults();
-    expect(results.length).toBeGreaterThan(0);
-  });
-
-  // Verify the result
-  const results = await origin.getResults();
-  expect(results[0].type).toBe('success');
-  expect(results[0].value).toBe('my-remote-instance');
-
-  // Verify it was stored locally under a different key
-  const fetchedName = await origin.getFetchedRemoteName();
-  expect(fetchedName).toBe('my-remote-instance');
-});
-
-/*
-Direct storage access in BOTH operations - no handler methods needed!
+Direct storage access in for both remote operation and handler
 */
 it('uses property chains for both remote operation and handler', async () => {
   using origin = createTestingClient<OriginDOType>('ORIGIN_DO', 'origin-8');

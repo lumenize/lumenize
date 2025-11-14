@@ -44,22 +44,19 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - [x] structured-clone
   - [x] maps and sets
   - [ ] lumenize-base
-  - [ ] NADIS (plit from lumenize-base)
+    - [ ] Closer to true Actor model with outgoing and incomming queues
+    - [ ] How the graph of DO instances is self-organizing. Each instance called gets it's binding and instance name from the caller. Mention the headers here and document them in routeDORequest
+    - [ ] this.svc and NADIS (split from lumenize-base)
+    - [ ] this.ctn()
   - [WiP: Phase 1] core
     - [ ] Introduction
     - [x] debug
     - [ ] sql
   - [ ] testing alarms (simulation and triggering)
   - [ ] alarms
-  - [ ] RPC downstream messaging
-    - [ ] Build a chat app like the vs Cap'n Web
-      - [ ] User:
-        - authentication
-        - proxy to Room
-        - access control (alterantively in Room)
-      - [ ] Room:
-        - messages
-- [ ]
+  - [ ] call
+    - [ ] What it does not do that Workers RPC does. No passing functions or stubs because they hold the DO in wall clock billing time as long as they are held by the other end, can break without a clear way to recover from, and leave resources dangling. No awaiting-that also incurs wall clock billing and can't be used from non-async methods. Rather, it's done with two one-way Workers RPC calls. This is how we can efficiently use it for proxy-fetch where the fetch could be seconds of continuous billing.
+    - [ ] What it does that Workers RPC does not. Operation chaining and nesting (OCAN). Abitrarily complex operations where the result of one in the input of another... all in a single round trip. Continue to always support cycles and aliases.
   
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 

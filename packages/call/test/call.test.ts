@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 
 describe('Call - DO-to-DO Communication', () => {
@@ -271,45 +271,89 @@ describe('Call - DO-to-DO Communication', () => {
   });
 
   describe('Call Cancellation', () => {
-    // NOTE: These tests are skipped because with synchronous call() and 0-second alarms,
-    // the call completes too fast to test cancellation. The cancellation implementation
-    // DOES work (result-handler checks for pending call and skips if cancelled), but
-    // testing it requires infrastructure we don't have (e.g., pausing alarm processing).
-    // Cancellation is useful in production for:
-    // - Preventing handler execution when user navigates away
-    // - Cleaning up timeout alarms
-    // - Managing long-running operations
-    
-    test.skip('cancelCall removes pending operation', async () => {
+    test('cancelCall prevents continuation from executing', async () => {
       const origin = env.ORIGIN_DO.getByName('cancel-test');
       await origin.initializeBinding('ORIGIN_DO');
       
       await origin.clearResults();
       
-      // Start a call
-      const operationId = await origin.callRemoteWithDelay('task-1', 5000);
+      // Start a call to remote method with 200ms delay (returns callId, alarm not triggered yet)
+      await origin.callRemoteWithDelay('delayed-task', 200);
       
-      // Cancel it immediately
+      // Trigger alarm and get the operationId (call is sent, pending call stored)
+      const operationId = await origin.triggerAlarmsAndGetOperationId();
+      
+      // Explicitly verify pending call exists using vi.waitFor
+      await vi.waitFor(async () => {
+        const hasPendingCall = await origin.hasPendingCall(operationId);
+        expect(hasPendingCall).toBe(true);
+      }, { timeout: 100 });
+      
+      // Cancel it before result returns (200ms delay gives us time)
       const cancelled = await origin.cancelPendingCall(operationId);
       expect(cancelled).toBe(true);
       
-      // Try to cancel again - should return false
+      // Wait longer than the delay to ensure result would have arrived if not cancelled
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Verify no results were stored (continuation never executed)
+      const results = await origin.getResults();
+      expect(results).toHaveLength(0);
+      
+      // Try to cancel again - should return false (already cancelled)
       const cancelledAgain = await origin.cancelPendingCall(operationId);
       expect(cancelledAgain).toBe(false);
     });
 
-    test.skip('cancelCall with timeout alarm removes alarm data', async () => {
+    test('cancelCall with timeout alarm removes alarm data', async () => {
       const origin = env.ORIGIN_DO.getByName('cancel-timeout-test');
       await origin.initializeBinding('ORIGIN_DO');
       
       await origin.clearResults();
       
-      // Start a call with explicit timeout
-      const operationId = await origin.callRemoteWithTimeout('task-1', 30000);
+      // Start a call with 200ms delay and explicit timeout
+      await origin.callRemoteWithTimeoutAndDelay('task-1', 30000, 200);
       
-      // Cancel it
+      // Trigger alarm and get operationId
+      const operationId = await origin.triggerAlarmsAndGetOperationId();
+      
+      // Explicitly verify pending call exists with timeout alarm
+      await vi.waitFor(async () => {
+        const hasPendingCall = await origin.hasPendingCall(operationId);
+        expect(hasPendingCall).toBe(true);
+      }, { timeout: 100 });
+      
+      // Cancel it (should also clean up timeout alarm)
       const cancelled = await origin.cancelPendingCall(operationId);
       expect(cancelled).toBe(true);
+      
+      // Wait for the delay
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Verify no results
+      const results = await origin.getResults();
+      expect(results).toHaveLength(0);
+    });
+
+    test('non-cancelled calls complete normally', async () => {
+      const origin = env.ORIGIN_DO.getByName('no-cancel-test');
+      await origin.initializeBinding('ORIGIN_DO');
+      
+      await origin.clearResults();
+      
+      // Start a call without cancelling (returns callId)
+      await origin.callRemoteWithDelay('normal-task', 100);
+      
+      // Trigger alarm to send the call
+      await origin.triggerAlarmsAndGetOperationId();
+      
+      // Wait for it to complete
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Should have result
+      const results = await origin.getResults();
+      expect(results).toHaveLength(1);
+      expect(results[0].type).toBe('success');
     });
   });
 

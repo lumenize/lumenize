@@ -387,31 +387,39 @@ export class Alarms {
   }
 
   /**
-   * Manually trigger execution of the next alarm(s) in chronological order.
+   * Execute pending alarms immediately.
    * 
-   * This is useful for testing when alarm simulation timing is unreliable.
-   * Call this method over RPC to force execution of pending alarms without
-   * waiting for Cloudflare's native alarm to fire.
+   * **Core execution logic**: This method is used internally by the `alarm()` handler
+   * to execute alarms when Cloudflare's native alarm fires. It's also exposed publicly
+   * so tests can trigger alarms manually without waiting for native alarm timing.
    * 
-   * Triggers alarms in order by scheduled time, regardless of whether they're
-   * overdue or scheduled in the future. This enables fast-forwarding through
-   * alarm execution in tests.
+   * **Key behavior**:
+   * - `schedule()` is synchronous and NEVER calls `triggerAlarms()` - it only stores to SQL
+   * - Even 0-second delays don't execute inline - they go through native alarm queue
+   * - Production: `alarm()` calls `triggerAlarms(overdueCount)` - executes only overdue alarms
+   * - Testing: Call `triggerAlarms(count)` manually to fast-forward through pending alarms
    * 
-   * @param count Number of alarms to trigger (default: all overdue, or next if none overdue)
+   * @param count Number of alarms to execute (default: all overdue, or 1 if none overdue)
    * @returns Array of executed alarm IDs
    * 
    * @example
+   * Production (automatic via native alarm):
    * ```typescript
-   * // In tests - trigger all overdue alarms:
-   * await stub.scheduleTask('task1', -5); // 5 seconds ago
-   * await stub.scheduleTask('task2', -3); // 3 seconds ago
-   * const executed = await stub.triggerAlarms();
-   * expect(executed.length).toBe(2);
+   * // schedule() stores to SQL, sets native alarm, returns immediately
+   * this.#alarms.schedule(0, this.ctn().handleTask(data));
+   * // ... execution happens later when native alarm fires ...
+   * ```
    * 
-   * // Trigger next alarm even if in future:
-   * await stub.scheduleTask('future', 60); // 60 seconds from now
-   * const executed = await stub.triggerAlarms(1);
-   * expect(executed.length).toBe(1);
+   * @example
+   * Testing (manual fast-forward):
+   * ```typescript
+   * // Schedule alarms
+   * await stub.scheduleTask('task1', 10);
+   * await stub.scheduleTask('task2', 20);
+   * 
+   * // Manually trigger (bypasses Cloudflare timing)
+   * const executed = await stub.triggerAlarms(2);
+   * expect(executed.length).toBe(2);
    * ```
    */
   async triggerAlarms(count?: number): Promise<string[]> {

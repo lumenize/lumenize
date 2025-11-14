@@ -5,19 +5,28 @@ description: Test Durable Object alarms without runDurableObjectAlarm
 
 # Alarm Simulation
 
-:::caution[Alpha Feature]
-Alarm simulation is currently in **alpha**. It works well for simple, direct uses of `ctx.storage.setAlarm()` but has known limitations with packages that multiplex Cloudflare's single alarm (like `@cloudflare/actors` Alarms or `@lumenize/alarms`). See [Known Limitations](#known-limitations) and [Workarounds](#workarounds) below.
-:::
+:::danger[Deprecated - Not Maintained]
+Alarm simulation is **deprecated and will not be maintained going forward**. 
 
-`@lumenize/testing` automatically simulates Cloudflare Durable Object alarms, making them **fire automatically at the right time** during tests - no need for `runDurableObjectAlarm()`.
+**For `@lumenize/alarms`**: Use [`triggerAlarms()`](/docs/alarms#testing-alarms) instead - it's more reliable, deterministic, and tests the actual production code path.
+
+**For 3rd party alarm systems** (like `@cloudflare/actors` Alarms): This feature remains available for testing external alarm multiplexing systems that you cannot control, but it is unreliable due to timing simulation limitations and may not work correctly.
+
+**For plain Cloudflare alarms**: Use Cloudflare's `runDurableObjectAlarm()` from `cloudflare:test` or test alarm handlers directly via RPC.
+:::
 
 ## Overview
 
-- **Automatic alarm execution**: Alarms fire automatically based on scheduled time
-- **Transparent mocking**: Use standard `ctx.storage.setAlarm()` API - no special test-only APIs
-- **Configurable speed**: Run alarm timers 100x faster for quick tests (configurable)
-- **Full retry simulation**: Includes Cloudflare's exponential backoff retry behavior
-- **Simple alarm cases**: Works reliably for single alarms and sequential scheduling
+**Why deprecated**: Alarm simulation attempts to fake time passing using `setTimeout()`, which is fundamentally unreliable in test environments. It adds complexity and timing issues without providing value over direct execution methods like `triggerAlarms()`.
+
+**Current purpose**: Testing 3rd party alarm multiplexing systems (like Actor Alarms) where you don't control the alarm execution logic.
+
+**Original features** (not recommended):
+- Automatic alarm execution based on scheduled time
+- Transparent mocking of `ctx.storage.setAlarm()` API
+- Configurable speed (100x faster)
+- Full retry simulation with exponential backoff
+- Works for simple single-alarm cases
 
 ## How It Works
 
@@ -425,18 +434,20 @@ This is an **environmental limitation** of the test simulation, not a functional
 
 ### Option 1: Use `triggerAlarms()` (Recommended)
 
-If using `@lumenize/alarms`, use the built-in `triggerAlarms()` method to manually execute alarms:
+If using `@lumenize/alarms`, use the built-in `triggerAlarms()` method to manually execute alarms.
+
+**Why this is needed**: `schedule()` is synchronous and only stores to SQL - it never executes inline. Even 0-second delays go through Cloudflare's native alarm queue. Tests need to call `triggerAlarms()` to bypass the native timing and execute alarms immediately.
 
 ```typescript @check-example('packages/testing/test/alarm-workarounds/alarm-workarounds.test.ts')
 describe('Alarm Execution', () => {
   it('executes scheduled tasks', async () => {
     const stub = env.MY_DO.getByName('alarm-test');
     
-    // Schedule alarms
+    // Schedule alarms (synchronous, stores to SQL only)
     await stub.scheduleTask('task1', 10);
     await stub.scheduleTask('task2', 20);
     
-    // Manually trigger alarms (fast-forward instead of waiting)
+    // Manually trigger (core execution logic, bypasses native alarm timing)
     const executed = await stub.triggerAlarms(2);
     expect(executed.length).toBe(2);
     
@@ -447,12 +458,18 @@ describe('Alarm Execution', () => {
 });
 ```
 
+**What `triggerAlarms()` does**:
+- Core execution logic used internally by production `alarm()` handler
+- Production: `alarm()` fires → calls `triggerAlarms(overdueCount)` → executes only overdue alarms
+- Testing: Call manually to fast-forward through alarms without waiting
+
 **Benefits:**
-- ✅ No timing issues
+- ✅ No timing issues - deterministic execution
 - ✅ Tests are fast and reliable
 - ✅ Works via RPC (no special imports)
 - ✅ Can fast-forward through future alarms
 - ✅ Tests actual scheduling and execution logic
+- ✅ Uses same code path as production
 
 See [@lumenize/alarms Testing section](/docs/alarms#testing-alarms) for more details.
 

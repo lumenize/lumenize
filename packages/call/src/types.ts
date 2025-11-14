@@ -27,8 +27,8 @@ export interface CallMessage {
   targetInstanceNameOrId: string;
   /** Unique ID for this operation */
   operationId: string;
-  /** Operation chain to execute on remote DO */
-  operationChain: OperationChain;
+  /** Operation chain to execute on remote DO (preprocessed for transmission) */
+  operationChain: any;  // LmzIntermediate from preprocess()
 }
 
 /**
@@ -51,8 +51,8 @@ export interface CallResult {
 export interface PendingCall {
   /** Unique ID for this operation */
   operationId: string;
-  /** Operation chain for the continuation handler */
-  continuationChain: OperationChain;
+  /** Operation chain for the continuation handler (preprocessed for storage) */
+  continuationChain: any;  // LmzIntermediate from preprocess()
   /** Timeout alarm ID (if timeout is set) */
   timeoutAlarmId?: string;
   /** Timestamp when call was initiated */

@@ -5,5 +5,6 @@
  * persistent SQL storage.
  */
 
-export { Alarms, type Schedule } from './alarms';
+export { Alarms } from './alarms';
+export type { Schedule } from './types';
 

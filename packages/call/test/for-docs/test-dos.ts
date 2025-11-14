@@ -1,6 +1,7 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import '@lumenize/call';  // Auto-registers call service via NADIS
 import { enableAlarmSimulation } from '@lumenize/testing';
+import type { Unprotected } from '@lumenize/core';
 
 export interface Env {
   ORIGIN_DO: DurableObjectNamespace<OriginDO>;
@@ -61,7 +62,7 @@ export class RemoteDO extends LumenizeBase<Env> {
  * These example methods show the full call system API in action.
  */
 export class OriginDO extends LumenizeBase<Env> {
-  #results: Array<{ type: 'success' | 'error'; value: any }> = [];
+  #results: Array<{ type: 'success' | 'error'; value: any; userId?: string }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -72,7 +73,7 @@ export class OriginDO extends LumenizeBase<Env> {
   // Example: Basic remote call (3-line extracted format - RECOMMENDED)
   async exampleBasicCall(userId: string) {
     const userData = this.ctn<RemoteDO>().getUserData(userId);  // Remote operation
-    const handlerCtn = this.ctn().handleUserDataResult(userData);  // Local handler
+    const handlerCtn = this.ctn().handleUserDataResult(userData, userId);  // Local handler with extra context
     this.svc.call('REMOTE_DO', 'remote-1', userData, handlerCtn);
   }
 
@@ -83,7 +84,7 @@ export class OriginDO extends LumenizeBase<Env> {
       'REMOTE_DO',
       'remote-1',
       userData,
-      this.ctn().handleUserDataResult(userData)
+      this.ctn().handleUserDataResult(userData, userId)  // Handlers can accept multiple params
     );
   }
 
@@ -94,21 +95,21 @@ export class OriginDO extends LumenizeBase<Env> {
       'remote-1',
       this.ctn<RemoteDO>().getUserData(userId),
       // @ts-expect-error - $result is a special marker added by the continuation proxy
-      this.ctn().handleUserDataResult(this.ctn().$result)
+      this.ctn().handleUserDataResult(this.ctn().$result, userId)  // Pass additional context
     );
   }
 
   // Example: Calling a method that throws
   async exampleErrorHandling(message: string) {
     const errorOp = this.ctn<RemoteDO>().throwError(message);
-    const handlerCtn = this.ctn().handleUserDataResult(errorOp);
+    const handlerCtn = this.ctn().handleUserDataResult(errorOp, 'error-user');
     this.svc.call('REMOTE_DO', 'remote-1', errorOp, handlerCtn);
   }
 
   // Example: Using timeout option
   async exampleWithTimeout(delayMs: number, timeoutMs: number) {
     const slowOp = this.ctn<RemoteDO>().slowOperation(delayMs);
-    const handlerCtn = this.ctn().handleUserDataResult(slowOp);
+    const handlerCtn = this.ctn().handleUserDataResult(slowOp, 'timeout-user');
     this.svc.call('REMOTE_DO', 'remote-1', slowOp, handlerCtn, { timeout: timeoutMs });
   }
 
@@ -119,18 +120,20 @@ export class OriginDO extends LumenizeBase<Env> {
     this.svc.call('REMOTE_DO', 'remote-1', mathOp, handlerCtn);
   }
 
-  // Example: Direct storage access on remote DO
-  async exampleStorageAccess(remoteInstanceId: string) {
-    // Fetch storage value from remote DO
-    const remoteStorageOp = this.ctn<RemoteDO>().ctx.storage.kv.get('__lmz_do_instance_name');
-    const handlerCtn = this.ctn().handleRemoteStorageValue(remoteStorageOp);
-    this.svc.call('REMOTE_DO', remoteInstanceId, remoteStorageOp, handlerCtn);
+  // Example: Nested operations execute in one round trip
+  async exampleNestedOperations() {
+    const op1 = this.ctn<RemoteDO>().add(1, 10);
+    const op2 = this.ctn<RemoteDO>().add(100, 1000);
+    const finalOp = this.ctn<RemoteDO>().add(op1, op2);
+    const handlerCtn = this.ctn().handleMathResult(finalOp);
+    this.svc.call('REMOTE_DO', 'remote-1', finalOp, handlerCtn);
   }
 
   // Example: Direct storage access in BOTH remote operation AND handler
   async exampleStorageAccessDirect(remoteInstanceId: string) {
     // Fetch storage value from remote DO
-    const remoteStorageOp = this.ctn<RemoteDO>().ctx.storage.kv.get('__lmz_do_instance_name');
+    // Unprotected prevents typescript from complaining but you know ctx is protected
+    const remoteStorageOp = this.ctn<Unprotected<RemoteDO>>().ctx.storage.kv.get('__lmz_do_instance_name');
     // Store it directly via property chain (no handler method!)
     const handlerCtn = this.ctn().ctx.storage.kv.put('__lmz_fetched_remote_name_direct', remoteStorageOp);
     this.svc.call('REMOTE_DO', remoteInstanceId, remoteStorageOp, handlerCtn);
@@ -138,11 +141,12 @@ export class OriginDO extends LumenizeBase<Env> {
 
   // Continuation handlers - called when results arrive
 
-  handleUserDataResult(result: any) {
+  handleUserDataResult(result: any, userId: string) {
+    // Handlers can accept multiple parameters - not just the result!
     if (result instanceof Error) {
-      this.#results.push({ type: 'error', value: result.message });
+      this.#results.push({ type: 'error', value: result.message, userId });
     } else {
-      this.#results.push({ type: 'success', value: result });
+      this.#results.push({ type: 'success', value: result, userId });
     }
   }
 
@@ -151,16 +155,6 @@ export class OriginDO extends LumenizeBase<Env> {
       this.#results.push({ type: 'error', value: result.message });
     } else {
       this.#results.push({ type: 'success', value: result });
-    }
-  }
-
-  handleRemoteStorageValue(value: any) {
-    if (value instanceof Error) {
-      this.#results.push({ type: 'error', value: value.message });
-    } else {
-      // Store the remote's instance name locally under a different key
-      this.ctx.storage.kv.put('__lmz_fetched_remote_name', value);
-      this.#results.push({ type: 'success', value });
     }
   }
 

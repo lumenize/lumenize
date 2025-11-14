@@ -36,6 +36,13 @@ export class RemoteDO extends LumenizeBase<Env> {
     return `processed: ${value}`;
   }
 
+  async delayedOperation(value: string, delayMs: number) {
+    this.#executedOperations.push({ method: 'delayedOperation', args: [value, delayMs] });
+    // Simulate async work with configurable delay
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    return `processed: ${value}`;
+  }
+
   throwError(message: string) {
     this.#executedOperations.push({ method: 'throwError', args: [message] });
     throw new Error(message);
@@ -147,9 +154,9 @@ export class OriginDO extends LumenizeBase<Env> {
   }
 
   // Test: Call with delay (for cancellation testing)
-  // Note: Returns the callId (stored immediately), NOT operationId (created when alarm fires)
+  // Returns callId - tests must call triggerAlarmsAndGetOperationId() to get operationId
   async callRemoteWithDelay(value: string, delayMs: number): Promise<string> {
-    const remote = this.ctn<RemoteDO>().asyncOperation(value);
+    const remote = this.ctn<RemoteDO>().delayedOperation(value, delayMs);
     
     // Call returns void (synchronous), stores data and schedules alarm
     this.svc.call(
@@ -159,17 +166,13 @@ export class OriginDO extends LumenizeBase<Env> {
       this.ctn().handleDelayResult(remote),
     );
     
-    // Return the callId (for immediate cancellation before alarm fires)
-    // Don't trigger alarms here - let the test decide when
+    // Return the callId (NOT operationId - that's created when alarm fires)
     const callData = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_data:' })];
     if (callData.length === 0) {
       throw new Error('No call data found after call()');
     }
-    const callId = callData[callData.length - 1][0].substring('__lmz_call_data:'.length);
-    
-    // Store mapping for cancellation (since tests expect to cancel by ID)
-    // For now, just return the callId - tests will need to trigger alarms to get operationId
-    return callId;
+    const lastKey = callData[callData.length - 1][0];
+    return lastKey.substring('__lmz_call_data:'.length);
   }
 
   handleDelayResult(result: any) {
@@ -178,6 +181,53 @@ export class OriginDO extends LumenizeBase<Env> {
     } else {
       this.#results.push({ type: 'success', value: result });
     }
+  }
+
+  // Test: Call with timeout and delay (for cancellation testing with timeout)
+  // Returns callId - tests must call triggerAlarmsAndGetOperationId() to get operationId  
+  async callRemoteWithTimeoutAndDelay(value: string, timeout: number, delayMs: number): Promise<string> {
+    const remote = this.ctn<RemoteDO>().delayedOperation(value, delayMs);
+    
+    this.svc.call(
+      'REMOTE_DO',
+      'remote-instance',
+      remote,
+      this.ctn().handleTimeoutDelayResult(remote),
+      { timeout }
+    );
+    
+    // Return callId
+    const callData = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_data:' })];
+    if (callData.length === 0) {
+      throw new Error('No call data found after call()');
+    }
+    const lastKey = callData[callData.length - 1][0];
+    return lastKey.substring('__lmz_call_data:'.length);
+  }
+
+  handleTimeoutDelayResult(result: any) {
+    if (result instanceof Error) {
+      this.#results.push({ type: 'error', value: result.message });
+    } else {
+      this.#results.push({ type: 'success', value: result });
+    }
+  }
+
+  // Helper: Trigger alarms and return the operationId for the latest pending call
+  async triggerAlarmsAndGetOperationId(): Promise<string> {
+    // Trigger alarms to process the call queue
+    await this.triggerAlarms();
+    
+    // Give it a moment for the alarm to process
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
+    // Return operation ID from pending calls
+    const pending = [...this.ctx.storage.kv.list({ prefix: '__lmz_call_pending:' })];
+    if (pending.length === 0) {
+      throw new Error('No pending calls found after triggering alarms');
+    }
+    const lastKey = pending[pending.length - 1][0];
+    return lastKey.substring('__lmz_call_pending:'.length);
   }
 
   // Test: Call with explicit timeout
@@ -218,6 +268,13 @@ export class OriginDO extends LumenizeBase<Env> {
     // Use the cancelCall function from the call package
     const { cancelCall } = await import('@lumenize/call');
     return cancelCall(this, operationId);
+  }
+
+  // Test: Check if a pending call exists
+  async hasPendingCall(operationId: string): Promise<boolean> {
+    const key = `__lmz_call_pending:${operationId}`;
+    const pendingData = this.ctx.storage.kv.get(key);
+    return pendingData !== undefined;
   }
 
   // Test: Call with invalid remote operation (not OCAN)

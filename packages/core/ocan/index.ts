@@ -10,7 +10,8 @@ export type {
   Operation,
   OperationChain,
   NestedOperationMarker,
-  OcanConfig
+  OcanConfig,
+  Unprotected
 } from './types.js';
 
 export {
