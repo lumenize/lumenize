@@ -1,23 +1,23 @@
 /**
- * ProxyFetchWorker - DO-Worker Hybrid (Simplified Architecture)
+ * ProxyFetchWorker - DO-Worker Hybrid (RPC-Based Architecture)
  * 
  * Best of both worlds:
- * - Simple deployment (no service bindings, single worker)
+ * - Type-safe RPC (service bindings, strongly typed)
  * - Low latency (~100-200ms, no Cloudflare Queue wait)
- * - High scalability (Workers do fetches via CPU-billed handler)
+ * - High scalability (Workers do fetches via CPU-billed execution)
  * - Cost-effective (Workers use CPU billing, not wall-clock)
+ * - No auth required (service bindings are account-scoped)
  * 
  * Architecture:
  * 1. Origin DO → FetchOrchestrator: Enqueue fetch with OCAN continuation
- * 2. FetchOrchestrator → Worker (HTTP): Dispatch fetch to `/proxy-fetch-execute`
- * 3. Worker Handler → External API: Execute fetch (CPU billing)
- * 4. Worker Handler → Origin DO: Send result directly (no hop!)
- * 5. Worker Handler → FetchOrchestrator: Mark complete
+ * 2. FetchOrchestrator → Worker (RPC): Dispatch via FetchExecutorEntrypoint
+ * 3. Worker Entrypoint → External API: Execute fetch (CPU billing)
+ * 4. Worker Entrypoint → Origin DO: Send result directly (no hop!)
+ * 5. Worker Entrypoint → FetchOrchestrator: Mark complete
  * 
  * Setup:
- * - Add `handleProxyFetchExecution` to your worker's fetch handler
- * - Set `PROXY_FETCH_SECRET` using wrangler
- * - Configure worker URL (options.workerUrl or env.WORKER_URL)
+ * - Export `FetchExecutorEntrypoint` from your worker
+ * - Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
  */
 
 import type { DurableObject } from 'cloudflare:workers';
@@ -31,33 +31,30 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * This function:
  * - Sends request to FetchOrchestrator DO
  * - Returns immediately (non-blocking)
- * - Worker executes fetch and calls your continuation with result
+ * - Worker executes fetch via RPC and calls your continuation with result
  * 
  * **Setup Required**:
- * 1. Add `handleProxyFetchExecution` to your worker's fetch handler
- * 2. Set `PROXY_FETCH_SECRET` using: `wrangler secret put PROXY_FETCH_SECRET`
- * 3. Configure worker URL (via `options.workerUrl` or `env.WORKER_URL`)
+ * 1. Export `FetchExecutorEntrypoint` from your worker
+ * 2. Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
  * 
  * @param doInstance - The DO instance making the request
  * @param request - URL string or Request object
  * @param continuation - OCAN continuation that receives Response | Error
- * @param options - Optional configuration (workerUrl, originBinding, timeout, etc)
+ * @param options - Optional configuration (executorBinding, originBinding, timeout, etc)
  * @returns Request ID (for correlation)
  * 
  * @example
  * ```typescript
- * // In your worker's fetch handler:
- * import { handleProxyFetchExecution } from '@lumenize/proxy-fetch';
+ * // In your worker:
+ * export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
  * 
- * export default {
- *   async fetch(request: Request, env: Env): Promise<Response> {
- *     // Handle proxy-fetch execution requests first
- *     const proxyFetchResponse = await handleProxyFetchExecution(request, env);
- *     if (proxyFetchResponse) return proxyFetchResponse;
- *     
- *     // Your routing logic...
- *     return await routeDORequest(request, env);
- *   }
+ * // In wrangler.jsonc:
+ * {
+ *   "services": [{
+ *     "binding": "FETCH_EXECUTOR",
+ *     "service": "my-worker",
+ *     "entrypoint": "FetchExecutorEntrypoint"
+ *   }]
  * }
  * 
  * // In your DO:

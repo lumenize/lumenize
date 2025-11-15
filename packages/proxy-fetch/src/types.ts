@@ -72,26 +72,12 @@ export interface ProxyFetchWorkerOptions {
   maxRetries?: number;
   /** Binding name for origin DO (for callbacks) */
   originBinding?: string;
-  /**
-   * Worker URL for executing fetches (CPU-billed).
-   * If not provided, uses request.url origin or env.WORKER_URL
-   * @example 'https://my-worker.my-subdomain.workers.dev'
-   */
-  workerUrl?: string;
-  /**
-   * Path on the worker for proxy-fetch execution handler
-   * @default '/proxy-fetch-execute'
-   */
-  workerPath?: string;
-  /**
-   * Environment variable name containing the shared secret
-   * @default 'PROXY_FETCH_SECRET'
-   */
-  secretEnvVar?: string;
-  /** Binding name for FetchOrchestrator DO */
+  /** Binding name for FetchOrchestrator DO (default: 'FETCH_ORCHESTRATOR') */
   orchestratorBinding?: string;
   /** Instance name for FetchOrchestrator DO (default: 'singleton') */
   orchestratorInstanceName?: string;
+  /** Binding name for FetchExecutor service (default: 'FETCH_EXECUTOR') */
+  executorBinding?: string;
 }
 
 /**

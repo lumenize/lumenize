@@ -12,11 +12,11 @@
  * @module @lumenize/proxy-fetch
  */
 
-// Worker variant: DO-Worker Hybrid
+// Worker variant: DO-Worker Hybrid (RPC-based)
 export { proxyFetchWorker } from './proxyFetchWorker';
 export { FetchOrchestrator } from './FetchOrchestrator';
+export { FetchExecutorEntrypoint } from './FetchExecutorEntrypoint';
 export { executeFetch, createFetchWorker, type FetchWorker } from './workerFetchExecutor';
-export { handleProxyFetchExecution, ProxyFetchAuthError, type HandleProxyFetchOptions } from './handleProxyFetchExecution';
 
 // Types
 export type { 

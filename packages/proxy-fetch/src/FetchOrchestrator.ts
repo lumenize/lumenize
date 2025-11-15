@@ -1,16 +1,17 @@
 /**
- * FetchOrchestrator - Manages fetch queue and dispatches via HTTP
+ * FetchOrchestrator - Manages fetch queue and dispatches via RPC
  * 
  * This DO acts as a coordinator:
  * 1. Receives fetch requests from origin DOs
  * 2. Queues them in storage
- * 3. Dispatches to Workers via HTTP (authenticated)
+ * 3. Dispatches to Workers via RPC (service binding)
  * 4. Workers execute fetches and send results DIRECTLY back to origin DOs
  * 5. Receives completion notifications from Workers
  * 
  * Benefits:
- * - Simple deployment (no service bindings required)
- * - Low latency (direct HTTP dispatch, no Cloudflare Queue wait)
+ * - Type-safe (RPC methods are strongly typed)
+ * - No auth required (service bindings are account-scoped)
+ * - Low latency (direct RPC dispatch)
  * - Scalable (Workers do the fetches, not this DO)
  * - Cost-effective (Workers use CPU billing for fetch execution)
  */
@@ -18,7 +19,6 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { debug } from '@lumenize/core';
 import type { FetchOrchestratorMessage, WorkerFetchMessage } from './types.js';
-import { executeFetch } from './workerFetchExecutor.js';
 
 export class FetchOrchestrator extends LumenizeBase {
   /**
@@ -62,10 +62,10 @@ export class FetchOrchestrator extends LumenizeBase {
   }
 
   /**
-   * Dispatch a fetch request to a Worker
+   * Dispatch a fetch request to a Worker via RPC
    * 
-   * In production: HTTP dispatch to worker URL
-   * In test/local: Direct function call (when WORKER_URL is localhost)
+   * Uses a service binding to invoke FetchExecutorEntrypoint in a Worker context,
+   * which uses CPU billing instead of DO wall-clock billing.
    * 
    * @internal
    */
@@ -84,44 +84,28 @@ export class FetchOrchestrator extends LumenizeBase {
     };
 
     try {
-      // Determine worker URL
-      const workerUrl = message.options?.workerUrl || this.env.WORKER_URL;
+      // Get the fetch executor entrypoint (via service binding)
+      const executorBinding = message.options?.executorBinding || 'FETCH_EXECUTOR';
+      const executor = this.env[executorBinding];
       
-      // Test/local environment: Call executeFetch directly (no HTTP server in vitest)
-      if (!workerUrl || workerUrl.includes('localhost') || workerUrl.includes('127.0.0.1')) {
-        log.debug('Dispatching to Worker (direct call - test environment)', { reqId: message.reqId });
-        await executeFetch(workerMessage, this.env);
-        log.debug('Dispatched to Worker (direct)', { reqId: message.reqId });
-        return;
+      if (!executor) {
+        throw new Error(
+          `Fetch executor binding '${executorBinding}' not found. ` +
+          `Add a service binding in wrangler.jsonc:\n` +
+          `{\n` +
+          `  "services": [{\n` +
+          `    "binding": "${executorBinding}",\n` +
+          `    "service": "your-worker",\n` +
+          `    "entrypoint": "FetchExecutorEntrypoint"\n` +
+          `  }]\n` +
+          `}`
+        );
       }
 
-      // Production environment: HTTP dispatch
-      // Determine worker path
-      const workerPath = message.options?.workerPath || '/proxy-fetch-execute';
-      const url = `${workerUrl}${workerPath}`;
+      log.debug('Dispatching to Worker via RPC', { reqId: message.reqId, executorBinding });
 
-      // Get shared secret for authentication
-      const secretEnvVar = message.options?.secretEnvVar || 'PROXY_FETCH_SECRET';
-      const secret = this.env[secretEnvVar];
-      if (!secret) {
-        throw new Error(`${secretEnvVar} not configured. Set it using: wrangler secret put ${secretEnvVar}`);
-      }
-
-      log.debug('Dispatching to Worker via HTTP', { reqId: message.reqId, url });
-
-      // Call Worker via HTTP
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Proxy-Fetch-Secret': secret
-        },
-        body: JSON.stringify(workerMessage)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Worker returned ${response.status}: ${await response.text()}`);
-      }
+      // Call Worker via RPC (service binding)
+      await executor.executeFetch(workerMessage);
       
       log.debug('Dispatched to Worker', { reqId: message.reqId });
     } catch (error) {

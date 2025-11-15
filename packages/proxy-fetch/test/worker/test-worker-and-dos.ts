@@ -4,13 +4,14 @@
 
 import '@lumenize/proxy-fetch'; // Import to register result handler
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import { FetchOrchestrator as _FetchOrchestrator } from '../../src/FetchOrchestrator';
-import { proxyFetchWorker, handleProxyFetchExecution } from '../../src/index';
+import { FetchOrchestrator as _FetchOrchestrator, FetchExecutorEntrypoint } from '../../src/index';
+import { proxyFetchWorker } from '../../src/index';
 import { instrumentDOProject } from '@lumenize/testing';
 import { sendDownstream } from '@lumenize/rpc';
 
 // Re-export for typing
 export { _FetchOrchestrator };
+export { FetchExecutorEntrypoint };
 
 /**
  * TestDO - Origin DO that uses proxyFetchWorker
@@ -70,7 +71,6 @@ export class _TestDO extends LumenizeBase {
     const duration = endTime - startTime;
     
     if (result instanceof Error) {
-      console.error(`[${reqId}] Fetch failed:`, result.message);
       this.#results.set(reqId, {
         success: false,
         error: result,
@@ -79,7 +79,6 @@ export class _TestDO extends LumenizeBase {
       
       await this.#broadcastToAllClients({ reqId, success: false, error: result.message, duration });
     } else {
-      console.log(`[${reqId}] Fetch succeeded:`, result.status);
       
       // Read response body for storage
       const responseText = await result.text();
@@ -100,6 +99,31 @@ export class _TestDO extends LumenizeBase {
     
     // Clean up latency tracking
     this.ctx.storage.kv.delete(`latency:${reqId}`);
+  }
+
+  /**
+   * Test helper: Fetch with custom options (for testing error cases)
+   */
+  async fetchDataWithOptions(url: string, options: any): Promise<string> {
+    const startTime = Date.now();
+    const tempKey = `latency:temp:${startTime}`;
+    this.ctx.storage.kv.put(tempKey, { startTime });
+    
+    const reqId = await proxyFetchWorker(
+      this,
+      url,
+      this.ctn().handleFetchResult(),
+      options
+    );
+    
+    // Move temp data to reqId key
+    const tempData = this.ctx.storage.kv.get(tempKey);
+    if (tempData) {
+      this.ctx.storage.kv.put(`latency:${reqId}`, { startTime, reqId });
+      this.ctx.storage.kv.delete(tempKey);
+    }
+    
+    return reqId;
   }
 
   /**
@@ -208,17 +232,20 @@ export class _TestDO extends LumenizeBase {
     };
     
     const preprocessed = await (await import('@lumenize/structured-clone')).preprocess(fakeResult);
-    await fetchWorkerResultHandler(reqId, preprocessed, this);
+    await fetchWorkerResultHandler(this, reqId, preprocessed);
   }
 
   /**
    * Test helper: Simulate malformed fetch result
    */
-  async simulateMalformedResult(reqId: string): Promise<void> {
+  async simulateMalformedResult(): Promise<string> {
     // Import dependencies
     const { getOperationChain } = await import('@lumenize/core');
     const { preprocess } = await import('@lumenize/structured-clone');
     const { fetchWorkerResultHandler } = await import('../../src/fetchWorkerResultHandler');
+    
+    // Generate a unique reqId
+    const reqId = `malformed-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     
     // Store a pending continuation
     const pendingKey = `__lmz_proxyfetch_pending:${reqId}`;
@@ -244,7 +271,9 @@ export class _TestDO extends LumenizeBase {
     const preprocessedResult = await preprocess(malformedResult);
     
     // Call the handler (it will create an Error for malformed result)
-    await fetchWorkerResultHandler(reqId, preprocessedResult, this);
+    await fetchWorkerResultHandler(this, reqId, preprocessedResult);
+    
+    return reqId;
   }
 
   /**
@@ -302,15 +331,10 @@ export const FetchOrchestrator = instrumented.FetchOrchestrator;
 export const TestDO = instrumented.TestDO;
 
 /**
- * Worker export - handles both routing and proxy-fetch execution
+ * Worker export - uses instrumented routing
  */
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Try proxy-fetch execution handler first
-    const proxyFetchResponse = await handleProxyFetchExecution(request, env);
-    if (proxyFetchResponse) return proxyFetchResponse;
-    
-    // Fall through to instrumented routing
     return instrumented.fetch(request, env);
   }
 }

@@ -14,10 +14,13 @@
       }
     ]
   },
-  "vars": {
-    "WORKER_URL": "http://localhost:8787",
-    "PROXY_FETCH_SECRET": "test-secret-for-local-dev"
-  },
+  "services": [
+    {
+      "binding": "FETCH_EXECUTOR",
+      "service": "proxy-fetch-worker-tests",
+      "entrypoint": "FetchExecutorEntrypoint"
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",

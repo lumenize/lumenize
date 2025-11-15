@@ -1,14 +1,15 @@
 /**
  * Worker Fetch Executor - Executes fetches using CPU billing
  * 
- * This function runs in your Worker's fetch handler (via `handleProxyFetchExecution`):
- * 1. Receives fetch request from FetchOrchestrator (HTTP POST)
+ * This function runs via RPC (FetchExecutorEntrypoint):
+ * 1. Receives fetch request from FetchOrchestrator (RPC call)
  * 2. Executes the fetch (CPU billing, not wall-clock)
  * 3. Sends result DIRECTLY to origin DO (no hop through orchestrator!)
  * 4. Notifies orchestrator of completion
  * 
  * Benefits:
- * - Simple deployment (no service bindings)
+ * - Type-safe RPC (service bindings)
+ * - No auth required (account-scoped)
  * - CPU billing for fetch wait time (not wall-clock)
  * - Direct result delivery (lower latency)
  * - Scales automatically with Worker pool
@@ -23,8 +24,7 @@ const DEFAULT_TIMEOUT = 30000; // 30 seconds
 /**
  * Execute a fetch request
  * 
- * This is called by `handleProxyFetchExecution` when the Worker receives
- * an HTTP POST from FetchOrchestrator.
+ * This is called by `FetchExecutorEntrypoint` when invoked via RPC from FetchOrchestrator.
  * 
  * @param message - The fetch request message
  * @param env - Worker environment (must contain DO bindings for result delivery)

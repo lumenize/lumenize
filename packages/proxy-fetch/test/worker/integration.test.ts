@@ -14,7 +14,7 @@ import { createTestingClient } from '@lumenize/testing';
 import { _TestDO, _FetchOrchestrator } from './test-worker-and-dos';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
-import { handleProxyFetchExecution, ProxyFetchAuthError, proxyFetchWorker } from '../../src/index';
+import { proxyFetchWorker } from '../../src/index';
 
 describe('ProxyFetchWorker Integration', () => {
   describe('Basic Flow', () => {
@@ -133,19 +133,10 @@ describe('ProxyFetchWorker Integration', () => {
       const minLatency = Math.min(...durations);
       const maxLatency = Math.max(...durations);
 
-      console.log('ProxyFetchWorker Latency Statistics:');
-      console.log(`  Average: ${avgLatency.toFixed(2)}ms`);
-      console.log(`  Min: ${minLatency}ms`);
-      console.log(`  Max: ${maxLatency}ms`);
-      console.log(`  All: ${durations.join(', ')}ms`);
-
       // Assertions
       // Note: avgLatency may be 0 in test environment due to clock behavior during I/O
       expect(avgLatency).toBeGreaterThanOrEqual(0);
       expect(avgLatency).toBeLessThan(5000); // Should be much faster than queue variant
-      
-      // Log for comparison
-      console.log('✅ Target latency: 50-200ms (excluding external API time)');
     });
 
     test('comparison: multiple parallel requests', async () => {
@@ -168,8 +159,6 @@ describe('ProxyFetchWorker Integration', () => {
       const reqIds = await Promise.all(reqIdPromises);
       const queueTime = Date.now() - startTime;
 
-      console.log(`Queued 10 requests in ${queueTime}ms`);
-
       // Wait for all to complete
       await vi.waitFor(async () => {
         for (const reqId of reqIds) {
@@ -179,8 +168,6 @@ describe('ProxyFetchWorker Integration', () => {
       }, { timeout: 30000 });
 
       const totalTime = Date.now() - startTime;
-      console.log(`All 10 requests completed in ${totalTime}ms`);
-      console.log(`Average time per request: ${(totalTime / 10).toFixed(2)}ms`);
 
       // Verify all succeeded
       for (const reqId of reqIds) {
@@ -201,8 +188,33 @@ describe('ProxyFetchWorker Integration', () => {
       const initialStats = await orchestratorClient.getQueueStats();
       expect(initialStats).toBeDefined();
       expect(initialStats.pendingCount).toBeGreaterThanOrEqual(0);
+    });
 
-      console.log('FetchOrchestrator queue stats:', initialStats);
+    test('handles missing executor binding gracefully', async () => {
+      const originInstanceId = 'missing-binding-test';
+      const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
+      
+      using originClient = createTestingClient<typeof _TestDO>(
+        'TEST_DO',
+        originInstanceId
+      );
+
+      await originClient.__lmzInit({ doBindingName: 'TEST_DO' });
+
+      // Try to fetch with invalid executor binding (should log error but not throw)
+      const reqId = await originClient.fetchDataWithOptions(
+        TEST_ENDPOINTS.buildUrl('/uuid'),
+        { executorBinding: 'NONEXISTENT_BINDING', originBinding: 'TEST_DO' }
+      );
+
+      // Wait a bit for error to be logged
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // The request should be queued but won't complete (executor not found)
+      // Just verify we can still call methods on origin DO (not crashed)
+      const result = await originClient.getResult(reqId);
+      // Result won't exist because executor was never called
+      expect(result).toBeUndefined();
     });
   });
 
@@ -221,8 +233,6 @@ describe('ProxyFetchWorker Integration', () => {
       const reqId = await originClient.fetchData(TEST_ENDPOINTS.buildUrl('/uuid'));
       const queueDuration = Date.now() - queueStart;
 
-      console.log(`Request queued in ${queueDuration}ms`);
-
       // Queue should be fast
       // Note: Test environment has RPC overhead, production would be faster
       expect(queueDuration).toBeLessThan(1000); // 1 second is generous for test environment
@@ -235,156 +245,6 @@ describe('ProxyFetchWorker Integration', () => {
 
       const result = await originClient.getResult(reqId);
       expect(result.success).toBe(true);
-    });
-  });
-
-  describe('handleProxyFetchExecution', () => {
-    test('returns undefined for non-matching path', async () => {
-      const request = new Request('https://example.com/other-path', {
-        method: 'POST',
-      });
-      
-      const response = await handleProxyFetchExecution(request, env);
-      expect(response).toBeUndefined();
-    });
-
-    test('throws ProxyFetchAuthError when secret not configured', async () => {
-      const request = new Request('https://example.com/proxy-fetch-execute', {
-        method: 'POST',
-        headers: {
-          'X-Proxy-Fetch-Secret': 'some-secret'
-        },
-      });
-      
-      // Create env without PROXY_FETCH_SECRET
-      const envWithoutSecret = { ...env };
-      delete envWithoutSecret.PROXY_FETCH_SECRET;
-      
-      await expect(
-        handleProxyFetchExecution(request, envWithoutSecret)
-      ).rejects.toThrow(ProxyFetchAuthError);
-      
-      await expect(
-        handleProxyFetchExecution(request, envWithoutSecret)
-      ).rejects.toThrow('PROXY_FETCH_SECRET not configured');
-    });
-
-    test('throws ProxyFetchAuthError when secret is missing', async () => {
-      const request = new Request('https://example.com/proxy-fetch-execute', {
-        method: 'POST',
-        // No X-Proxy-Fetch-Secret header
-      });
-      
-      await expect(
-        handleProxyFetchExecution(request, env)
-      ).rejects.toThrow(ProxyFetchAuthError);
-      
-      await expect(
-        handleProxyFetchExecution(request, env)
-      ).rejects.toThrow('Invalid or missing X-Proxy-Fetch-Secret header');
-    });
-
-    test('throws ProxyFetchAuthError when secret is invalid', async () => {
-      const request = new Request('https://example.com/proxy-fetch-execute', {
-        method: 'POST',
-        headers: {
-          'X-Proxy-Fetch-Secret': 'wrong-secret'
-        },
-      });
-      
-      await expect(
-        handleProxyFetchExecution(request, env)
-      ).rejects.toThrow(ProxyFetchAuthError);
-    });
-
-    test('returns 400 for invalid JSON body', async () => {
-      const request = new Request('https://example.com/proxy-fetch-execute', {
-        method: 'POST',
-        headers: {
-          'X-Proxy-Fetch-Secret': env.PROXY_FETCH_SECRET,
-          'Content-Type': 'application/json'
-        },
-        body: 'not valid json{',
-      });
-      
-      const response = await handleProxyFetchExecution(request, env);
-      expect(response).toBeDefined();
-      expect(response?.status).toBe(400);
-      const text = await response?.text();
-      expect(text).toBe('Invalid JSON body');
-    });
-
-    test('uses custom path option', async () => {
-      const request = new Request('https://example.com/custom-fetch', {
-        method: 'POST',
-      });
-      
-      // Should match custom path and attempt auth (will fail without secret)
-      await expect(
-        handleProxyFetchExecution(request, env, { path: '/custom-fetch' })
-      ).rejects.toThrow(ProxyFetchAuthError);
-    });
-
-    test('uses custom secretEnvVar option', async () => {
-      const request = new Request('https://example.com/proxy-fetch-execute', {
-        method: 'POST',
-        headers: {
-          'X-Proxy-Fetch-Secret': 'test-custom-secret'
-        },
-      });
-      
-      const customEnv = {
-        ...env,
-        CUSTOM_SECRET: 'test-custom-secret'
-      };
-      delete customEnv.PROXY_FETCH_SECRET;
-      
-      // Should look for CUSTOM_SECRET instead of PROXY_FETCH_SECRET
-      // Will fail at JSON parsing since we have valid auth but no body
-      const response = await handleProxyFetchExecution(request, customEnv, {
-        secretEnvVar: 'CUSTOM_SECRET'
-      });
-      
-      expect(response).toBeDefined();
-      expect(response?.status).toBe(400); // Invalid JSON body
-    });
-
-    test('ProxyFetchAuthError has correct properties', () => {
-      const error = new ProxyFetchAuthError('Test message');
-      
-      expect(error.message).toBe('Test message');
-      expect(error.name).toBe('ProxyFetchAuthError');
-      expect(error.code).toBe('PROXY_FETCH_AUTH_ERROR');
-      expect(error.httpErrorCode).toBe(401);
-      expect(error instanceof Error).toBe(true);
-    });
-
-    test('successfully handles valid request', async () => {
-      const originInstanceId = 'valid-test-origin';
-      const TEST_ENDPOINTS = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, originInstanceId);
-      
-      const request = new Request('https://example.com/proxy-fetch-execute', {
-        method: 'POST',
-        headers: {
-          'X-Proxy-Fetch-Secret': env.PROXY_FETCH_SECRET,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          reqId: 'test-valid-req',
-          url: TEST_ENDPOINTS.buildUrl('/uuid'),
-          originDoBinding: 'TEST_DO',
-          originInstanceId: originInstanceId,
-          continuationChain: []
-        }),
-      });
-      
-      const response = await handleProxyFetchExecution(request, env);
-      
-      // Should return 200 for successful execution
-      expect(response).toBeDefined();
-      expect(response?.status).toBe(200);
-      const text = await response?.text();
-      expect(text).toBe('OK');
     });
   });
 
@@ -472,10 +332,26 @@ describe('ProxyFetchWorker Integration', () => {
     // by logging a warning and returning early. This is defensive code that's unlikely
     // to be hit in practice, as continuations are only deleted when results arrive.
 
-    // Malformed result test is too invasive (requires mocking internal handler)
-    // The code path is covered by the error handling in fetchWorkerResultHandler
-    // which creates an Error when neither response nor error is present.
-    // This is tested implicitly by all other tests working correctly.
+    test('handles malformed fetch result gracefully', async () => {
+      const originInstanceId = 'malformed-result-test';
+      using originClient = createTestingClient<typeof _TestDO>(
+        'TEST_DO',
+        originInstanceId
+      );
+
+      await originClient.__lmzInit({ doBindingName: 'TEST_DO' });
+
+      // Simulate a malformed result (neither response nor error)
+      const reqId = await originClient.simulateMalformedResult();
+      
+      // Should handle gracefully (creates Error for malformed result)
+      const result = await originClient.getResult(reqId);
+      expect(result).toBeDefined();
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error?.message).toContain('No response or error in fetch result');
+      }
+    });
 
     test('handles continuation execution failure gracefully', async () => {
       const originInstanceId = 'continuation-failure-test';
