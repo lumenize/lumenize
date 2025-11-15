@@ -2,6 +2,18 @@
 
 This document describes the phased approach for creating high-quality, validated documentation for Lumenize utilities and features.
 
+## Integration with Task Management
+
+**For new features using the docs-first workflow** (see `/task-management` command):
+- Start this workflow **before implementation** to design the API from the user's perspective
+- The task file will point to the MDX you create here as the design document
+- Complete Phases 1-3 of this workflow, get maintainer approval, then begin implementation
+- After implementation, complete Phases 4-5
+
+**For features already implemented** (implementation-first workflow):
+- Start at Phase 1 with working code to reference
+- All phases apply as documented below
+
 ## Overview
 
 Documentation follows a **5-phase workflow** that prioritizes narrative clarity first, then validation. This approach maximizes efficiency by avoiding expensive build cycles during iteration and ensures documentation serves human learners, not just technical correctness.

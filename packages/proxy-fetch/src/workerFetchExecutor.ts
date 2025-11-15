@@ -1,16 +1,17 @@
 /**
  * Worker Fetch Executor - Executes fetches using CPU billing
  * 
- * This function runs via RPC (FetchExecutorEntrypoint):
- * 1. Receives fetch request from FetchOrchestrator (RPC call)
- * 2. Executes the fetch (CPU billing, not wall-clock)
- * 3. Sends result DIRECTLY to origin DO (no hop through orchestrator!)
- * 4. Notifies orchestrator of completion
+ * This function runs via ctx.waitUntil() in FetchExecutorEntrypoint:
+ * 1. FetchOrchestrator calls executeFetch() via RPC (quick ack, returns immediately)
+ * 2. This function executes in background (CPU billing, not wall-clock)
+ * 3. Executes the external fetch (could be seconds)
+ * 4. Sends result DIRECTLY to origin DO (no hop through orchestrator!)
+ * 5. Notifies orchestrator of completion
  * 
  * Benefits:
- * - Type-safe RPC (service bindings)
- * - No auth required (account-scoped)
- * - CPU billing for fetch wait time (not wall-clock)
+ * - FetchOrchestrator stops billing immediately (quick RPC round-trip)
+ * - Fetch executes in Worker context (CPU billing only)
+ * - No wall-clock billing during external fetch wait time
  * - Direct result delivery (lower latency)
  * - Scales automatically with Worker pool
  */

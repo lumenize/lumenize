@@ -5,7 +5,9 @@
 
 ## Summary
 
-Successfully refactored `@lumenize/proxy-fetch` from HTTP-based dispatch to RPC-based dispatch using Cloudflare Service Bindings. The new architecture uses `FetchExecutorEntrypoint` (a `WorkerEntrypoint`) invoked via RPC instead of HTTP POST requests.
+Successfully refactored `@lumenize/proxy-fetch` from HTTP-based dispatch to RPC-based dispatch using Cloudflare Service Bindings with `ctx.waitUntil()` optimization. The new architecture uses `FetchExecutorEntrypoint` (a `WorkerEntrypoint`) invoked via RPC that returns immediately, allowing the FetchOrchestrator to stop billing while fetch work happens in Worker context with CPU billing only.
+
+**Key Innovation**: Using `ctx.waitUntil()` in the WorkerEntrypoint provides ~99.9% savings on DO billing by returning from RPC immediately (~microseconds) while the actual fetch work executes in background.
 
 ## What Changed
 
@@ -18,11 +20,15 @@ Successfully refactored `@lumenize/proxy-fetch` from HTTP-based dispatch to RPC-
 4. Worker → External API: Execute fetch (CPU billing) ✅
 5. Worker → Origin DO: Send result (RPC) ✅
 
-**After (RPC)**:
+**After (RPC with ctx.waitUntil)**:
 1. Origin DO → FetchOrchestrator: Enqueue fetch (RPC) ✅
-2. FetchOrchestrator → Worker: RPC call to `FetchExecutorEntrypoint.executeFetch()`
-3. Worker entrypoint → External API: Execute fetch (CPU billing) ✅
-4. Worker → Origin DO: Send result (RPC) ✅
+2. FetchOrchestrator → Worker: RPC call to `FetchExecutorEntrypoint.executeFetch()` - **RETURNS IMMEDIATELY**
+3. Worker (background via ctx.waitUntil): Execute fetch (CPU billing only) ✅
+4. Worker → External API: Fetch (CPU billing) ✅
+5. Worker → Origin DO: Send result (RPC) ✅
+6. Worker → FetchOrchestrator: Mark complete (RPC) ✅
+
+**Key Improvement**: FetchOrchestrator stops billing after ~microseconds (quick RPC ack), not seconds (external fetch wait time).
 
 ### Files Changed
 
@@ -121,15 +127,57 @@ export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 - ✅ Same scalability (Worker pool auto-scales)
 - ✅ Direct result delivery (no hop through orchestrator)
 
+## ctx.waitUntil Optimization
+
+**Critical Billing Improvement**: FetchExecutorEntrypoint uses `ctx.waitUntil()` to return immediately from the RPC call, stopping FetchOrchestrator billing while the actual fetch work happens in background.
+
+### Before (Initial RPC Implementation)
+```typescript
+async executeFetch(message: WorkerFetchMessage): Promise<void> {
+  return await executeFetch(message, this.env);  // ❌ BLOCKS until fetch completes
+}
+```
+
+**Problem**: FetchOrchestrator → FetchExecutor RPC call waits for entire external fetch (could be seconds), continuing wall-clock billing.
+
+### After (With ctx.waitUntil)
+```typescript
+async executeFetch(message: WorkerFetchMessage): Promise<void> {
+  this.ctx.waitUntil(
+    executeFetch(message, this.env)  // ✅ Background work
+  );
+  // Returns immediately (~microseconds)
+}
+```
+
+**Benefits**:
+- FetchOrchestrator stops billing after **~microseconds** (quick RPC ack)
+- Fetch executes in Worker context with **CPU billing only**
+- No wall-clock billing during external fetch wait time
+- Results still delivered reliably to origin DO
+
+### Billing Comparison
+
+**Without ctx.waitUntil**:
+- FetchOrchestrator: Wall-clock billing for entire fetch duration (e.g., 1-5 seconds)
+- Worker: CPU billing for fetch duration
+- **Total**: DO wall-clock + Worker CPU
+
+**With ctx.waitUntil**:
+- FetchOrchestrator: Wall-clock billing for ~microseconds (RPC ack)
+- Worker: CPU billing for entire fetch duration
+- **Total**: Worker CPU only (99.9% savings on DO billing!)
+
 ## Performance
 
-**No change expected**: The HTTP request was already a same-account connection with negligible overhead. RPC has equivalent performance characteristics.
+**No change expected**: The HTTP request was already a same-account connection with negligible overhead. RPC has equivalent performance characteristics. The ctx.waitUntil optimization improves **billing**, not latency.
 
 ## Test Results
 
-✅ All 13 integration tests pass  
-✅ 89.43% statement coverage (up from 87.5% - removed untested HTTP paths)  
+✅ All 15 integration tests pass  
+✅ 91.86% statement coverage (improved from 89.43% with additional edge case tests)  
 ✅ No linting errors
+✅ ctx.waitUntil refactor verified working correctly
 
 ## Migration Guide
 

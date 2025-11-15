@@ -247,12 +247,44 @@ If no limits found:
 - `tooling/for-experiments/` - Experiment framework
 - `packages/proxy-fetch/` - Package under test
 
+## Prerequisites
+
+Before running stress tests, we need to implement **robust retry and timeout logic**:
+
+1. **Idempotent result handler** in Origin DO (`__receiveResult`)
+   - Track processed reqIds to prevent duplicate processing
+   - Log duplicates as errors (race condition detection)
+   
+2. **Delivery confirmation** in Executor
+   - `markDelivered(reqId)` - successful delivery to Origin
+   - `markDeliveryFailed(reqId, error)` - failed delivery (retry)
+   
+3. **Alarm-based monitoring** in Orchestrator
+   - Track delivery timeouts
+   - Retry failed deliveries with exponential backoff
+   - Send timeout error to Origin after max retries exhausted
+   
+4. **Documentation** of failure modes
+   - See `website/docs/proxy-fetch/architecture-and-failure-modes.mdx`
+   - Critical: Timeout doesn't mean fetch didn't execute!
+
+**Note**: Stress testing will reveal edge cases in this retry logic (race conditions, timeouts under load, etc.).
+
 ## Timeline
 
-**Tomorrow**:
+**Phase 1: Implement Retry Logic**:
+1. Add idempotency to `__receiveResult` in LumenizeBase
+2. Update Executor to report delivery status
+3. Add alarm-based monitoring to Orchestrator
+4. Write tests for race conditions
+5. Document in MDX (✅ Done)
+
+**Phase 2: Stress Testing**:
 1. Create experiment structure
 2. Implement controller and client
 3. Run experiments locally
 4. Analyze results
 5. Document findings
+
+**Estimated**: 1-2 days for Phase 1, 4-6 hours for Phase 2
 

@@ -4,16 +4,17 @@
  * This DO acts as a coordinator:
  * 1. Receives fetch requests from origin DOs
  * 2. Queues them in storage
- * 3. Dispatches to Workers via RPC (service binding)
- * 4. Workers execute fetches and send results DIRECTLY back to origin DOs
- * 5. Receives completion notifications from Workers
+ * 3. Dispatches to Workers via RPC (service binding) - QUICK RETURN
+ * 4. Workers execute fetches in background (CPU billing, no wall-clock)
+ * 5. Workers send results DIRECTLY back to origin DOs
+ * 6. Receives completion notifications from Workers
  * 
  * Benefits:
  * - Type-safe (RPC methods are strongly typed)
  * - No auth required (service bindings are account-scoped)
- * - Low latency (direct RPC dispatch)
+ * - Minimal DO billing (dispatch returns immediately via ctx.waitUntil)
  * - Scalable (Workers do the fetches, not this DO)
- * - Cost-effective (Workers use CPU billing for fetch execution)
+ * - Cost-effective (Workers use CPU billing, not wall-clock billing)
  */
 
 import { LumenizeBase } from '@lumenize/lumenize-base';

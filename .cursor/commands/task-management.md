@@ -1,119 +1,147 @@
-# Task Management Command
+# Task Management
 
-Manage project tasks using the tasks/ directory system.
+Manage project tasks using two complementary workflows: docs-first for user-facing features, implementation-first for internal work.
 
 ## Usage
 
-`/task-management <action> <task-name>`
+`/task-management` or `/task-management <action> <task-name>`
 
-Actions: `create`, `update`, `complete`
+## Two Workflows
 
-## Description
+### Docs-First (Preferred for User-Facing Features)
 
-Lumenize uses task files in the `tasks/` directory to track work. This command helps manage those task files following project conventions.
+**When**: New features, API design, or changes affecting user-facing behavior.
 
-## Task Types
+**Why**: Perfecting the API from the user's perspective before code prevents costly late-stage refactoring.
 
-### Small Tasks (`tasks/backlog.md`)
-- Standalone tasks
-- Can be completed in one session
-- No multiple phases
+**Process**:
+1. Create task file pointing to MDX location
+2. **Draft user-facing documentation first** (`website/docs/[package]/[feature].mdx`)
+3. **Iterate on docs until API is perfect** (maintainer reviews/approves)
+4. Update task file with implementation phases (focus on goals, not detailed steps)
+5. Implement following the finalized API spec
+6. Create validation tests (`test/for-docs/`)
+7. Replace `@skip-check` with `@check-example` (see `/documentation-workflow`)
+8. Archive when complete
 
-### Multi-Phase Projects (`tasks/[project-name].md`)
-- Complex projects with phases and steps
-- Detailed plans and design decisions
-- Multiple work sessions
+**Key**: The MDX documentation **dominates** the task file. Task file contains implementation phases with goals and success criteria, not detailed step-by-step instructions.
 
-### Decisions (`tasks/decisions/`)
-- Research findings
-- Technical decisions
-- Architecture choices
+### Implementation-First (For Internal Work)
 
-### Completed (`tasks/archive/`)
-- Finished projects
-- Kept for reference
+**When**: Refactoring, performance improvements, bug fixes, internal tooling, or changes that don't affect user-facing API.
 
-## Steps
+**Why**: These don't require upfront API design since they either don't change the API or the "API" is internal tooling.
 
-### Creating a New Task
+**Process**:
+1. Determine if small task (backlog) or multi-phase project
+2. Create/update task file with phases and goals
+3. Implement changes
+4. Update task file as work progresses
+5. Update/create documentation after implementation (if needed)
+6. Archive when complete
 
-1. **Human** describes the task or project
-2. **AI agent** determines if it's a small task or multi-phase project
-3. **AI agent** creates appropriate file:
-   - Small task: Add to `tasks/backlog.md`
-   - Multi-phase: Create `tasks/[project-name].md` with phases
-4. **AI agent** structures the task file with:
-   - Clear objective/goal
-   - Phases (if multi-phase)
-   - Steps within each phase
-   - Success criteria
-5. **Human** reviews and approves the task plan
+## Task Structure
 
-### Updating an Existing Task
+### Docs-First Task File
 
-1. **Human** identifies task to update and explains changes
-2. **AI agent** reads current task file
-3. **AI agent** proposes updates based on learnings or progress
-4. **Human** reviews proposed changes
-5. **AI agent** updates the task file
-6. **Human** confirms updates
+```markdown
+# [Project Name]
 
-### Completing a Task
+**Status**: Design Complete | In Progress | Complete
+**Design Document**: `/website/docs/[package]/[feature].mdx`
 
-1. **Human** confirms task is complete
-2. **AI agent** reviews task file to ensure all items are done
-3. **AI agent** moves file to `tasks/archive/[project-name].md`
-4. **AI agent** adds completion date and final notes
-5. **Human** confirms archival
+## Goal
+[One sentence - what capability are we adding?]
 
-## Task File Template
+## Design Principles (See MDX for Details)
+1. [Key principle 1]
+2. [Key principle 2]
 
-### Multi-Phase Project Template
+## Prerequisites
+- ✅ Design documented in MDX
+- ✅ API finalized with maintainer
+
+## Implementation Phases
+
+### Phase 1: [Name]
+**Goal**: [What this achieves]
+
+**Success Criteria**:
+- ✅ [Criterion 1]
+- ✅ [Criterion 2]
+
+### Phase 2: [Name]
+...
+```
+
+### Implementation-First Task File
 
 ```markdown
 # [Project Name]
 
 ## Objective
-Brief description of what we're building and why.
+[Brief description]
 
-## Phase 1: [Phase Name]
-**Goal:** What this phase achieves
+## Phase 1: [Name]
+**Goal**: [What this achieves]
 
-### Steps
-- [ ] Step 1
-- [ ] Step 2
-- [ ] Step 3
+**Success Criteria**:
+- [What indicates completion]
 
-### Success Criteria
-- What indicates this phase is complete
-
-## Phase 2: [Phase Name]
+## Phase 2: [Name]
 ...
 
 ## Notes
 - Design decisions
 - Trade-offs
-- Learnings
 ```
 
-## Always
+## Key Principles
 
-- ✅ Create task files for multi-phase projects
-- ✅ Update task files when plans change based on learnings
-- ✅ Ask "Ready to proceed with [next step/phase]?" after completing each step
-- ✅ Archive completed projects
-- ✅ Link to related docs (e.g., `/DOCUMENTATION-WORKFLOW.md`)
+**Focus on Goals, Not Steps**:
+- Each phase defines **what** it achieves (goal) and **how we know it's done** (success criteria)
+- Don't pre-define detailed steps - they emerge during implementation
+- Iterate on task file as learnings emerge
 
-## Never
+**Docs-First API Approval**:
+- Wait for explicit maintainer approval on API design before implementing
+- MDX dominates - if conflict between task file and MDX, MDX wins
+- Implementation details go in task file, user-facing API goes in MDX
 
-- ❌ Don't skip task planning for complex projects
-- ❌ Don't let task files become stale
-- ❌ Don't delete completed tasks (archive them)
+**Phase Gates**:
+- Ask "Ready to proceed with [next phase]?" after completing each phase
+- Update task file when plans change based on learnings
+- Archive completed tasks (don't delete)
+
+## Task Types
+
+- **Small tasks**: Add to `tasks/backlog.md` (including small docs work)
+- **Multi-phase projects**: Create `tasks/[project-name].md`
+- **Decisions**: Document in `tasks/decisions/`
+- **Completed**: Move to `tasks/archive/`
+
+## Choosing the Right Workflow
+
+**Use Docs-First When**:
+- ✅ Designing new user-facing API
+- ✅ Adding major features to packages
+- ✅ Creating new public methods/services
+- ✅ Changing existing user-facing behavior
+
+**Use Implementation-First When**:
+- ✅ Refactoring internal code (no API changes)
+- ✅ Performance optimizations
+- ✅ Bug fixes (preserving API)
+- ✅ Internal tooling/scripts
+- ✅ Test infrastructure
+
+**When in doubt**: Ask "Will this change how a developer uses this package?" If yes → Docs-First.
 
 ## Reference
 
+- **Documentation workflow**: `/documentation-workflow` command
+- **Full workflow doc**: `/DOCUMENTATION-WORKFLOW.md`
 - **Task directory**: `/tasks/`
 - **Backlog**: `/tasks/backlog.md`
-- **Template**: `/tasks/README.md`
-- **Workflow guidelines**: Root `.cursorrules` file
+- **Example docs-first**: `tasks/proxy-fetch-timeout-and-idempotency.md`
 

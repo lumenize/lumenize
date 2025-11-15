@@ -5,15 +5,19 @@
  * - Type-safe RPC (service bindings, strongly typed)
  * - Low latency (~100-200ms, no Cloudflare Queue wait)
  * - High scalability (Workers do fetches via CPU-billed execution)
- * - Cost-effective (Workers use CPU billing, not wall-clock)
+ * - Cost-effective (minimal DO billing, Workers use CPU billing)
  * - No auth required (service bindings are account-scoped)
  * 
- * Architecture:
+ * Architecture (Optimized for CPU Billing):
  * 1. Origin DO → FetchOrchestrator: Enqueue fetch with OCAN continuation
- * 2. FetchOrchestrator → Worker (RPC): Dispatch via FetchExecutorEntrypoint
- * 3. Worker Entrypoint → External API: Execute fetch (CPU billing)
- * 4. Worker Entrypoint → Origin DO: Send result directly (no hop!)
- * 5. Worker Entrypoint → FetchOrchestrator: Mark complete
+ * 2. FetchOrchestrator → Worker (RPC): Quick dispatch, returns immediately
+ * 3. Worker (ctx.waitUntil): Execute fetch in background (CPU billing only)
+ * 4. Worker → External API: Fetch (could be seconds, CPU-billed)
+ * 5. Worker → Origin DO: Send result directly (no hop!)
+ * 6. Worker → FetchOrchestrator: Mark complete
+ * 
+ * Key Insight: FetchOrchestrator stops billing after quick RPC ack (~microseconds).
+ * The actual fetch work happens in Worker context with CPU billing.
  * 
  * Setup:
  * - Export `FetchExecutorEntrypoint` from your worker

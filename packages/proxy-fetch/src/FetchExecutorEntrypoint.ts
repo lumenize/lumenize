@@ -29,13 +29,25 @@ export class FetchExecutorEntrypoint extends WorkerEntrypoint {
   /**
    * Execute an external fetch request
    * 
-   * Called by FetchOrchestrator via RPC. Executes the fetch using CPU billing
-   * and sends the result directly back to the origin DO.
+   * Called by FetchOrchestrator via RPC. Returns immediately (stopping DO billing),
+   * then executes the fetch in background using CPU billing.
+   * 
+   * Flow:
+   * 1. Quick RPC acknowledgment (microseconds)
+   * 2. FetchOrchestrator stops billing
+   * 3. Fetch executes in background (CPU billing)
+   * 4. Result sent to origin DO via RPC
+   * 5. Orchestrator notified of completion
    * 
    * @param message - Fetch message containing request and callback info
    */
   async executeFetch(message: WorkerFetchMessage): Promise<void> {
-    return await executeFetch(message, this.env);
+    // Quick acknowledgment - return immediately to stop DO wall-clock billing
+    this.ctx.waitUntil(
+      executeFetch(message, this.env)
+    );
+    
+    // Return immediately - FetchOrchestrator continues without blocking
   }
 }
 
