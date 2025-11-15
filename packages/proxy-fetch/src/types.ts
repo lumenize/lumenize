@@ -83,6 +83,15 @@ export interface ProxyFetchWorkerOptions {
    * @default '/proxy-fetch-execute'
    */
   workerPath?: string;
+  /**
+   * Environment variable name containing the shared secret
+   * @default 'PROXY_FETCH_SECRET'
+   */
+  secretEnvVar?: string;
+  /** Binding name for FetchOrchestrator DO */
+  orchestratorBinding?: string;
+  /** Instance name for FetchOrchestrator DO (default: 'singleton') */
+  orchestratorInstanceName?: string;
 }
 
 /**

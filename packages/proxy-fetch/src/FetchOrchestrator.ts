@@ -101,9 +101,10 @@ export class FetchOrchestrator extends LumenizeBase {
       const url = `${workerUrl}${workerPath}`;
 
       // Get shared secret for authentication
-      const secret = this.env.PROXY_FETCH_SECRET;
+      const secretEnvVar = message.options?.secretEnvVar || 'PROXY_FETCH_SECRET';
+      const secret = this.env[secretEnvVar];
       if (!secret) {
-        throw new Error('PROXY_FETCH_SECRET not configured. Set it using: wrangler secret put PROXY_FETCH_SECRET');
+        throw new Error(`${secretEnvVar} not configured. Set it using: wrangler secret put ${secretEnvVar}`);
       }
 
       log.debug('Dispatching to Worker via HTTP', { reqId: message.reqId, url });

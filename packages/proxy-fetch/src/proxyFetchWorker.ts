@@ -146,8 +146,16 @@ export async function proxyFetchWorker(
 
   // Send to FetchOrchestrator
   try {
-    const orchestratorId = env.FETCH_ORCHESTRATOR.idFromName('singleton');
-    const orchestrator = env.FETCH_ORCHESTRATOR.get(orchestratorId);
+    const orchestratorBinding = options?.orchestratorBinding || 'FETCH_ORCHESTRATOR';
+    const orchestratorInstanceName = options?.orchestratorInstanceName || 'singleton';
+    
+    const orchestratorNamespace = env[orchestratorBinding];
+    if (!orchestratorNamespace) {
+      throw new Error(`FetchOrchestrator binding '${orchestratorBinding}' not found in env`);
+    }
+    
+    const orchestratorId = orchestratorNamespace.idFromName(orchestratorInstanceName);
+    const orchestrator = orchestratorNamespace.get(orchestratorId);
     
     await orchestrator.enqueueFetch(message);
     

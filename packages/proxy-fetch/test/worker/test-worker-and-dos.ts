@@ -183,6 +183,92 @@ export class _TestDO extends LumenizeBase {
   }
 
   /**
+   * Test helper: Delete pending continuation for a request
+   */
+  async deletePendingContinuation(reqId: string): Promise<void> {
+    const pendingKey = `__lmz_proxyfetch_pending:${reqId}`;
+    this.ctx.storage.kv.delete(pendingKey);
+  }
+
+  /**
+   * Test helper: Simulate result with missing pending continuation
+   */
+  async simulateMissingContinuation(reqId: string): Promise<void> {
+    // Import the result handler
+    const { fetchWorkerResultHandler } = await import('../../src/fetchWorkerResultHandler');
+    
+    // DON'T store a pending continuation - that's the point of this test
+    
+    // Send a valid result (but there's no pending continuation to execute)
+    const fakeResult = {
+      reqId,
+      response: {}, // Fake Response object
+      retryCount: 0,
+      duration: 0
+    };
+    
+    const preprocessed = await (await import('@lumenize/structured-clone')).preprocess(fakeResult);
+    await fetchWorkerResultHandler(reqId, preprocessed, this);
+  }
+
+  /**
+   * Test helper: Simulate malformed fetch result
+   */
+  async simulateMalformedResult(reqId: string): Promise<void> {
+    // Import dependencies
+    const { getOperationChain } = await import('@lumenize/core');
+    const { preprocess } = await import('@lumenize/structured-clone');
+    const { fetchWorkerResultHandler } = await import('../../src/fetchWorkerResultHandler');
+    
+    // Store a pending continuation
+    const pendingKey = `__lmz_proxyfetch_pending:${reqId}`;
+    const continuation = this.ctn().handleFetchResult();
+    const continuationChain = getOperationChain(continuation);
+    const preprocessed = await preprocess(continuationChain);
+    
+    this.ctx.storage.kv.put(pendingKey, {
+      reqId,
+      continuationChain: preprocessed,
+      timestamp: Date.now()
+    });
+    
+    // Send malformed result (missing both response and error)
+    const malformedResult = {
+      reqId,
+      // No response field
+      // No error field  
+      retryCount: 0,
+      duration: 0
+    };
+    
+    const preprocessedResult = await preprocess(malformedResult);
+    
+    // Call the handler (it will create an Error for malformed result)
+    await fetchWorkerResultHandler(reqId, preprocessedResult, this);
+  }
+
+  /**
+   * Test helper: Make a fetch with a throwing handler
+   */
+  async fetchDataWithThrowingHandler(url: string): Promise<string> {
+    const reqId = await proxyFetchWorker(
+      this,
+      url,
+      this.ctn().throwingHandler(),
+      { originBinding: 'TEST_DO' }
+    );
+    
+    return reqId;
+  }
+
+  /**
+   * Handler that always throws (for testing error handling)
+   */
+  throwingHandler(_result: Response | Error): void {
+    throw new Error('Intentional test error in continuation handler');
+  }
+
+  /**
    * Broadcast to all connected RPC clients
    */
   async #broadcastToAllClients(payload: any): Promise<void> {
