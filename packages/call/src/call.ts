@@ -1,25 +1,14 @@
-import { debug, getOperationChain, type OperationChain, type DebugLogger } from '@lumenize/core';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { getDOStub } from '@lumenize/utils';
-import '@lumenize/alarms';  // Import for NADIS registration
-import type { CallOptions, CallMessage, PendingCall } from './types.js';
-
 /**
- * Call - Type-safe DO-to-DO communication using Workers RPC
+ * Call - Type-safe DO-to-DO communication (V4 Pattern)
  * 
- * Implements an actor model with two one-way calls:
- * 1. Origin → Remote: Send operation (await receipt only)
- * 2. Remote → Origin: Send result (via callback)
+ * Simple, reliable implementation based on blockConcurrencyWhile pattern
+ * proven in experiments/call-patterns.
  * 
- * This minimizes wall-clock time on the origin DO while ensuring fault
- * tolerance via persistent storage-based queues.
- * 
- * @param doInstance - The calling DO instance (provides ctx for storage/alarms)
- * @param doBinding - Name of the remote DO binding in env (e.g., 'REMOTE_DO')
- * @param doInstanceNameOrId - Name or ID of the remote DO instance (64-char hex = ID, else name)
- * @param remoteOperation - OCAN chain to execute on remote DO
- * @param continuation - OCAN chain for handling result (receives result | Error)
- * @param options - Optional configuration (timeout, etc.)
+ * Features:
+ * - Synchronous API (returns immediately)
+ * - Error handling (Error objects substituted into continuation)
+ * - Nested operation composition (proven working)
+ * - No alarms, no work queues, no crash recovery complexity
  * 
  * @example
  * ```typescript
@@ -27,34 +16,51 @@ import type { CallOptions, CallMessage, PendingCall } from './types.js';
  * import { LumenizeBase } from '@lumenize/lumenize-base';
  * 
  * class MyDO extends LumenizeBase<Env> {
- *   async fetch(request: Request) {
- *     // Auto-initialize binding info from headers
- *     await super.fetch(request);
- *     
- *     // Define remote operation
+ *   async doSomething() {
  *     const remote = this.ctn<RemoteDO>().getUserData(userId);
  *     
- *     // Call with continuation (named instance)
- *     await this.svc.call(
- *       'REMOTE_DO',           // binding name
- *       'my-instance',         // instance name
- *       remote,                // what to execute
- *       this.ctn().handleResult(remote),  // remote = result | Error
- *       { timeout: 30000 }     // optional
+ *     this.svc.call(
+ *       'REMOTE_DO',
+ *       'instance-id',
+ *       remote,
+ *       this.ctn().handleResult(remote)  // remote: UserData | Error
  *     );
  *     
- *     return new Response('OK');
+ *     // Returns immediately! Handler called when result arrives
  *   }
  *   
- *   handleResult(result: any | Error) {
+ *   handleResult(result: UserData | Error) {
  *     if (result instanceof Error) {
- *       console.error('Call failed:', result);
+ *       console.error('Failed:', result);
  *       return;
  *     }
- *     console.log('Got result:', result);
+ *     console.log('Success:', result);
  *   }
  * }
  * ```
+ */
+
+import { 
+  debug, 
+  getOperationChain, 
+  executeOperationChain,
+  replaceNestedOperationMarkers,
+  type OperationChain,
+  type DebugLogger 
+} from '@lumenize/core';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { getDOStub } from '@lumenize/utils';
+import type { CallOptions } from './types.js';
+
+/**
+ * Call - Type-safe DO-to-DO communication using blockConcurrencyWhile pattern
+ * 
+ * @param doInstance - The calling DO instance (provides ctx)
+ * @param doBinding - Name of the remote DO binding in env (e.g., 'REMOTE_DO')
+ * @param doInstanceNameOrId - Name or ID of the remote DO instance
+ * @param remoteOperation - OCAN chain to execute on remote DO
+ * @param continuation - OCAN chain for handling result (receives result | Error)
+ * @param options - Optional configuration (timeout, etc.)
  */
 export function call(
   doInstance: any,
@@ -64,27 +70,22 @@ export function call(
   continuation: any,
   options?: CallOptions
 ): void {
-  const log = debug(doInstance.ctx)('lmz.call.call');
+  const ctx = doInstance.ctx as DurableObjectState;
+  const env = doInstance.env;
+  const log = debug(ctx)('lmz.call');
 
-  // Extract operation chains (raw, not preprocessed yet)
+  // Extract operation chains
   const remoteChain = getOperationChain(remoteOperation);
-  const continuationChain = getOperationChain(continuation);
+  const handlerChain = getOperationChain(continuation);
 
   if (!remoteChain) {
     throw new Error('Invalid remoteOperation: must be created with newContinuation() or this.ctn()');
   }
-  if (!continuationChain) {
+  if (!handlerChain) {
     throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
   }
 
-  log.debug('Initiating call', {
-    doBinding,
-    doInstanceNameOrId,
-    timeout: options?.timeout ?? 30000
-  });
-
   // Validate that the DO knows its own binding name (fail fast!)
-  const ctx = doInstance.ctx as DurableObjectState;
   const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
   
   if (!originBinding) {
@@ -94,62 +95,69 @@ export function call(
     );
   }
 
-  // Generate unique ID for this call
-  const callId = crypto.randomUUID();
-
-  // Store call data synchronously (for crash recovery and to avoid passing complex data through OCAN)
-  ctx.storage.kv.put(`__lmz_call_data:${callId}`, {
-    remoteChain,
-    continuationChain,
+  log.debug('Initiating call', {
     doBinding,
     doInstanceNameOrId,
-    options
+    timeout: options?.timeout ?? 30000
   });
 
-  // Queue processing with async boundary to ensure storage write is visible
-  // Use blockConcurrencyWhile to create the boundary without blocking caller
+  // Use blockConcurrencyWhile to perform async work without blocking caller
+  // This is the V4 pattern proven in experiments/call-patterns
   ctx.blockConcurrencyWhile(async () => {
-    // Direct async call (fire and forget, output gates provide consistency)
-    // This approach is faster and more reliable than alarm-based scheduling
-    // See: experiments/call-alarm-delay/EXPERIMENT_RESULTS.md
-    log.debug('Call queued via direct async', { callId });
-    doInstance.__processCallQueue(callId);
+    try {
+      // Get remote DO stub
+      const remoteStub = getDOStub(env[doBinding], doInstanceNameOrId) as any;
+
+      // Preprocess remote chain for transmission
+      const preprocessed = await preprocess(remoteChain);
+      
+      // Execute on remote DO (__executeOperation handles postprocessing)
+      const result = await remoteStub.__executeOperation(preprocessed);
+      
+      log.debug('Remote operation completed', { doBinding, doInstanceNameOrId });
+      
+      // Replace placeholder in handler chain with actual result
+      const finalChain = replaceNestedOperationMarkers(handlerChain, result);
+      
+      // Execute handler continuation locally
+      await executeOperationChain(finalChain, doInstance);
+      
+      log.debug('Handler continuation executed', { doBinding, doInstanceNameOrId });
+      
+    } catch (error) {
+      log.error('Call failed', { 
+        doBinding, 
+        doInstanceNameOrId, 
+        error: error instanceof Error ? error.message : String(error) 
+      });
+      
+      // Replace placeholder in handler chain with Error
+      const errorToInject = error instanceof Error ? error : new Error(String(error));
+      const finalChain = replaceNestedOperationMarkers(handlerChain, errorToInject);
+      
+      // Execute handler continuation with error
+      await executeOperationChain(finalChain, doInstance);
+    }
   });
+  
+  // Returns immediately! blockConcurrencyWhile processes async work in background
+  log.debug('Call initiated (returns immediately)', { doBinding, doInstanceNameOrId });
 }
 
 /**
  * Cancel a pending call
  * 
- * Note: This only cancels the local continuation and timeout.
- * The remote DO may have already started executing the operation.
+ * Note: With the V4 pattern, calls cannot be cancelled once initiated
+ * since they execute immediately within blockConcurrencyWhile.
+ * This function exists for API compatibility but is a no-op.
  * 
  * @param doInstance - The calling DO instance
  * @param operationId - ID of the operation to cancel
- * @returns true if cancelled, false if not found
+ * @returns false (always, since cancellation is not supported)
  */
 export function cancelCall(doInstance: any, operationId: string): boolean {
-  const ctx = doInstance.ctx as DurableObjectState;
-  const log = debug(ctx)('lmz.call.cancelCall');
-
-  const key = `__lmz_call_pending:${operationId}`;
-  const pendingData = ctx.storage.kv.get(key);
-  
-  if (!pendingData) {
-    log.debug('Operation not found', { operationId });
-    return false;
-  }
-
-  const pending = pendingData as PendingCall;
-
-  // Remove pending call
-  ctx.storage.kv.delete(key);
-
-  // Remove timeout alarm if exists
-  if (pending.timeoutAlarmId) {
-    ctx.storage.kv.delete(pending.timeoutAlarmId);
-  }
-
-  log.debug('Call cancelled', { operationId });
-  return true;
+  const log = debug(doInstance.ctx)('lmz.call.cancelCall');
+  log.debug('Call cancellation not supported with V4 pattern', { operationId });
+  return false;
 }
 

@@ -3,9 +3,9 @@
  * 
  * Enables remote method calls between Durable Objects using:
  * - OCAN (Operation Chaining And Nesting) for type-safe method chains
- * - Actor model with two one-way calls (minimize wall-clock time)
- * - Generic work queue infrastructure in LumenizeBase
+ * - Synchronous API via blockConcurrencyWhile pattern
  * - Single continuation handler receives `Result | Error`
+ * - Proven performance equivalent to raw Workers RPC
  * 
  * @example
  * ```typescript
@@ -16,12 +16,14 @@
  *   async doSomething() {
  *     const remote = this.ctn<RemoteDO>().getUserData(userId);
  *     
- *     await this.svc.call(
+ *     this.svc.call(
  *       'REMOTE_DO',
  *       'instance-id',
  *       remote,
  *       this.ctn().handleResult(remote)  // remote: UserData | Error
  *     );
+ *     
+ *     // Returns immediately! Handler called when result arrives
  *   }
  *   
  *   handleResult(result: UserData | Error) {
@@ -36,10 +38,10 @@
  */
 
 export * from './types.js';
-export { call, cancelCall } from './call-v4.js';
+export { call, cancelCall } from './call.js';
 
 // Import for registration
-import { call } from './call-v4.js';
+import { call } from './call.js';
 import { installExecuteOperationHandler } from './execute-operation-handler.js';
 
 // Install __executeOperation handler into LumenizeBase
@@ -74,6 +76,6 @@ declare global {
       remoteOperation: any,
       continuation: any,
       options?: { timeout?: number }
-    ) => void;  // Synchronous! Returns immediately, processes via alarms
+    ) => void;  // Synchronous! Returns immediately, processes via blockConcurrencyWhile
   }
 }
