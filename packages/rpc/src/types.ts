@@ -114,9 +114,9 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
   return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
 }
 
-// Re-export nested operation marker from core
-export type { NestedOperationMarker } from '@lumenize/core';
-export { isNestedOperationMarker } from '@lumenize/core';
+// Re-export nested operation marker from lumenize-base (OCAN)
+export type { NestedOperationMarker } from '@lumenize/lumenize-base';
+export { isNestedOperationMarker } from '@lumenize/lumenize-base';
 
 /**
  * RPC-specific extension to NestedOperationMarker for batching optimization.

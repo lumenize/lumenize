@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
-import { newContinuation, executeOperationChain, type OperationChain } from '@lumenize/core';
+import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
+import { postprocess } from '@lumenize/structured-clone';
 
 /**
  * LumenizeBase - Base class for Durable Objects with NADIS auto-injection
@@ -290,51 +291,92 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * Receive a result from queued work (Actor Model - Return Message)
    * 
    * This is called by remote DOs to send results back to the origin DO.
-   * The result is stored and a result handler is invoked to process it.
+   * The result is deserialized, injected into the stored continuation, and executed.
    * 
-   * @param workType - Type of work that produced this result
-   * @param workId - ID of the work item
-   * @param resultData - Result data (preprocessed by sender)
+   * **Idempotency**: This method prevents duplicate result processing (race conditions).
+   * If the same result arrives multiple times (e.g., Executor succeeds + Orchestrator
+   * times out), only the first result is processed. Subsequent duplicates are logged
+   * as errors and ignored.
+   * 
+   * **OCAN Integration**: Uses @lumenize/core's operation chain machinery to:
+   * - Deserialize the stored continuation and result (via postprocess)
+   * - Inject the result into the continuation (via replaceNestedOperationMarkers)
+   * - Execute the continuation (via executeOperationChain)
+   * 
+   * Used by @lumenize/call, @lumenize/proxy-fetch, and other async actor-model packages.
+   * 
+   * @param workType - Type of work that produced this result (e.g., 'call', 'proxyFetch')
+   * @param workId - ID of the work item (e.g., operationId, reqId)
+   * @param preprocessedResult - Result data (preprocessed by sender via preprocess())
    * 
    * @example
    * ```typescript
-   * // Remote DO sends result back after processing work
-   * await originDO.__receiveResult('call', operationId, {
-   *   result: userData,
-   *   error: null
-   * });
+   * // Executor sends result back after external fetch completes
+   * await originDO.__receiveResult('proxyFetch', reqId, 
+   *   await preprocess({ response: responseSync })
+   * );
+   * 
+   * // Origin DO executes stored continuation:
+   * // this.handleResult({ userId: '123' }, responseSync)
    * ```
    */
-  async __receiveResult(workType: string, workId: string, resultData: any): Promise<void> {
-    // Store result
-    const resultKey = `__lmz_result:${workType}:${workId}`;
-    this.ctx.storage.kv.put(resultKey, resultData);
+  async __receiveResult(workType: string, workId: string, preprocessedResult: any): Promise<void> {
+    const log = (globalThis as any).__lumenizeDebug?.(this.ctx)?.('lmz.base.__receiveResult');
 
-    // Get result handler for this work type
-    const registry = (globalThis as any).__lumenizeResultHandlers;
-    const handler = registry?.[workType];
-
-    if (!handler) {
-      const log = (globalThis as any).__lumenizeDebug?.(this.ctx)?.('lmz.base.__receiveResult');
-      log?.warn?.('No result handler registered for work type', { workType, workId });
+    // 1. Idempotency check - prevent duplicate result processing
+    const processedKey = `__lmz_result_processed:${workType}:${workId}`;
+    const alreadyProcessed = this.ctx.storage.kv.get(processedKey);
+    
+    if (alreadyProcessed !== undefined) {
+      log?.error?.('Duplicate result received - race condition detected', {
+        workId,
+        workType,
+        firstProcessedAt: alreadyProcessed,
+        duplicateNote: 'Race between successful delivery and timeout (expected in rare cases)'
+      });
+      return; // Ignore duplicate
+    }
+    
+    // Mark as processed BEFORE executing continuation (prevents race)
+    this.ctx.storage.kv.put(processedKey, Date.now());
+    
+    // 2. Get stored continuation
+    const pendingKey = `__lmz_${workType}_pending:${workId}`;
+    const pendingData = this.ctx.storage.kv.get(pendingKey);
+    
+    if (!pendingData) {
+      log?.warn?.('No pending continuation found', { workId, workType });
       return;
     }
-
+    
     try {
-      // Call the result handler
-      await handler(this, workId, resultData);
-
-      // Remove result after successful processing
-      this.ctx.storage.kv.delete(resultKey);
+      // 3. Deserialize continuation and result (REUSE: structured-clone)
+      const continuation = await postprocess(pendingData.continuation);
+      const result = await postprocess(preprocessedResult);
+      
+      // 4. Inject result into continuation (REUSE: OCAN)
+      const chainWithResult = replaceNestedOperationMarkers(continuation, result);
+      
+      // 5. Execute continuation (REUSE: OCAN)
+      await executeOperationChain(chainWithResult, this);
+      
+      // 6. Clean up pending continuation
+      this.ctx.storage.kv.delete(pendingKey);
+      
+      // Clean up processed marker after 5 minutes (prevents storage bloat)
+      setTimeout(() => {
+        this.ctx.storage.kv.delete(processedKey);
+      }, 5 * 60 * 1000);
+      
     } catch (error) {
-      const log = (globalThis as any).__lumenizeDebug?.(this.ctx)?.('lmz.base.__receiveResult');
-      log?.error?.('Result handler failed', {
-        workType,
+      log?.error?.('Continuation execution failed', {
         workId,
+        workType,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       });
-      // Note: Result stays in storage for retry or manual cleanup
+      // Note: Pending continuation stays in storage for manual investigation
+      // Processed marker stays to prevent re-execution
     }
   }
 

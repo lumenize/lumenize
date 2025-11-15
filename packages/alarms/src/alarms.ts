@@ -5,10 +5,10 @@
 // NADIS dependency injection pattern, lazy table initialization, TypeScript generics
 
 import { parseCronExpression } from 'cron-schedule';
-import { debug, executeOperationChain, getOperationChain } from '@lumenize/core';
+import { debug, type sql as sqlType, type DebugLogger } from '@lumenize/core';
+import { executeOperationChain, getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { ulidFactory } from 'ulid-workers';
-import type { sql as sqlType, DebugLogger, OperationChain } from '@lumenize/core';
 import type { Schedule } from './types.js';
 
 // Create monotonic ULID generator for FIFO ordering

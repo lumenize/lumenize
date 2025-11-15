@@ -7,7 +7,7 @@
  * Required for call() to work - remote DOs call this method to execute operations.
  */
 
-import type { OperationChain } from '@lumenize/core';
+import type { OperationChain } from '@lumenize/lumenize-base';
 import { postprocess } from '@lumenize/structured-clone';
 
 /**

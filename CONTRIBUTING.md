@@ -31,6 +31,17 @@ Thank you for your interest in contributing to Lumenize! This document provides 
 
 ## Development Workflow
 
+### AI-Assisted Development
+
+Lumenize is designed for AI-assisted development using [Cursor](https://cursor.com) or similar AI pair programming tools. The repository includes structured rules and commands to guide AI assistants:
+
+- **`.cursor/rules/`** - Project rules for coding standards, patterns, and workflows
+- **`.cursor/commands/`** - Reusable workflow commands:
+  - `/task-management` - Choose docs-first vs implementation-first workflow
+  - `/documentation-workflow` - 5-phase validated documentation process
+
+**Key Principle:** For user-facing features, use the **docs-first workflow** - design the API in documentation before writing code. See `.cursor/commands/task-management.md` for details.
+
 ### Project Structure
 
 This is an npm workspaces monorepo with three publishable packages:

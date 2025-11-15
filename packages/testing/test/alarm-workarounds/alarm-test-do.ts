@@ -3,7 +3,8 @@
  * Demonstrates using @lumenize/alarms with triggerAlarms() for testing
  */
 import { Alarms } from '@lumenize/alarms';
-import { sql, newContinuation } from '@lumenize/core';
+import { sql } from '@lumenize/core';
+import { newContinuation } from '@lumenize/lumenize-base';
 import { DurableObject } from 'cloudflare:workers';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 

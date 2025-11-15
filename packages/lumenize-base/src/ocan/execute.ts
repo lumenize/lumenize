@@ -235,15 +235,15 @@ function findParentObject(operations: OperationChain, target: any): any {
  * a continuation handler needs to receive the result of an async operation.
  * 
  * Supports two patterns:
- * 1. **Nested markers**: Explicit nested operation as argument (e.g., @lumenize/call)
- * 2. **First-argument convention**: Result injected as first argument if no markers (e.g., @lumenize/proxy-fetch)
+ * 1. **Nested markers**: Explicit nested operation as argument (explicit `$result` placement)
+ * 2. **Last-argument convention**: Result injected as last argument if no markers (implicit)
  * 
  * @param chain - The continuation operation chain (typically stored in pending state)
  * @param resultValue - The actual result value to inject
  * @returns A new operation chain with markers replaced by the result
  * 
  * @example
- * Nested marker pattern (@lumenize/call):
+ * Explicit marker pattern:
  * ```typescript
  * const remote = this.ctn<RemoteDO>().getData();
  * const handler = this.ctn().ctx.storage.kv.put('cache', remote);
@@ -255,14 +255,14 @@ function findParentObject(operations: OperationChain, target: any): any {
  * ```
  * 
  * @example
- * First-argument convention (@lumenize/proxy-fetch):
+ * Implicit last-argument convention:
  * ```typescript
- * const handler = this.ctn().handleResponse();
- * await proxyFetchWorker(this, url, handler);
+ * const handler = this.ctn().handleResponse({ userId: '123' });
+ * await proxyFetch(this, url, handler);
  * 
- * // Handler chain: [get:handleResponse, apply:[]]
+ * // Handler chain: [get:handleResponse, apply:[{ userId: '123' }]]
  * const finalChain = replaceNestedOperationMarkers(handler, response);
- * // Result: [get:handleResponse, apply:[response]]
+ * // Result: [get:handleResponse, apply:[{ userId: '123' }, response]]
  * ```
  */
 export function replaceNestedOperationMarkers(
@@ -284,12 +284,12 @@ export function replaceNestedOperationMarkers(
         return arg;
       });
       
-      // If no nested markers found, use first-argument convention
-      // (result is injected as first argument)
+      // If no nested markers found, use last-argument convention
+      // (result is injected as last argument)
       if (!hasNestedMarker) {
         return {
           ...op,
-          args: [resultValue, ...op.args]
+          args: [...op.args, resultValue]
         };
       }
       

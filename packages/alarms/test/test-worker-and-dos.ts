@@ -1,7 +1,8 @@
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-import { sql, newContinuation } from '@lumenize/core';
+import { sql } from '@lumenize/core';
+import { newContinuation } from '@lumenize/lumenize-base';
 import { Alarms, type Schedule } from '../src/alarms';
 import { enableAlarmSimulation } from '@lumenize/testing';
 

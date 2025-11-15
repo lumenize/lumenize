@@ -40,14 +40,13 @@
  * ```
  */
 
+import { debug, type DebugLogger } from '@lumenize/core';
 import { 
-  debug, 
   getOperationChain, 
   executeOperationChain,
   replaceNestedOperationMarkers,
-  type OperationChain,
-  type DebugLogger 
-} from '@lumenize/core';
+  type OperationChain
+} from '@lumenize/lumenize-base';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/utils';
 import type { CallOptions } from './types.js';

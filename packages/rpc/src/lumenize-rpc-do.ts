@@ -12,7 +12,8 @@ import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
 import { createRpcPreprocessTransform, createIncomingOperationsTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug, executeOperationChain, validateOperationChain } from '@lumenize/core';
+import { debug } from '@lumenize/core';
+import { executeOperationChain, validateOperationChain } from '@lumenize/lumenize-base';
 
 /**
  * Default RPC configuration
@@ -213,7 +214,7 @@ async function handleCallRequest(
   }
 }
 
-// validateOperationChain is now imported from @lumenize/core
+// validateOperationChain is now imported from @lumenize/lumenize-base
 
 /**
  * Core RPC dispatch logic - validates, executes, and processes the result.

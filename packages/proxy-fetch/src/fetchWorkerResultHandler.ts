@@ -5,7 +5,8 @@
  * and processes results from Worker fetch executions.
  */
 
-import { debug, executeOperationChain, replaceNestedOperationMarkers } from '@lumenize/core';
+import { debug } from '@lumenize/core';
+import { executeOperationChain, replaceNestedOperationMarkers } from '@lumenize/lumenize-base';
 import { postprocess } from '@lumenize/structured-clone';
 import type { FetchResult } from './types.js';
 

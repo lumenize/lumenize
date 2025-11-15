@@ -25,7 +25,8 @@
  */
 
 import type { DurableObject } from 'cloudflare:workers';
-import { getOperationChain, debug } from '@lumenize/core';
+import { debug } from '@lumenize/core';
+import { getOperationChain } from '@lumenize/lumenize-base';
 import { preprocess } from '@lumenize/structured-clone';
 import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.js';
 

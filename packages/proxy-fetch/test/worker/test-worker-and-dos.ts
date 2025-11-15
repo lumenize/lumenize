@@ -240,7 +240,7 @@ export class _TestDO extends LumenizeBase {
    */
   async simulateMalformedResult(): Promise<string> {
     // Import dependencies
-    const { getOperationChain } = await import('@lumenize/core');
+    const { getOperationChain } = await import('@lumenize/lumenize-base');
     const { preprocess } = await import('@lumenize/structured-clone');
     const { fetchWorkerResultHandler } = await import('../../src/fetchWorkerResultHandler');
     

@@ -1,0 +1,54 @@
+---
+description: Choosing the right workflow for new work (docs-first vs implementation-first)
+alwaysApply: true
+---
+
+# Workflow Selection
+
+When starting new work, choose the appropriate workflow based on what's being changed.
+
+## Decision Rule
+
+**Ask: "Will this change how a developer uses this package?"**
+
+- ✅ **If YES** → Use `/task-management` with **docs-first workflow**
+- ✅ **If NO** → Use `/task-management` with **implementation-first workflow**
+
+## Docs-First (For User-Facing Changes)
+
+**When:**
+- Designing new user-facing API
+- Adding major features to packages
+- Creating new public methods/services
+- Changing existing user-facing behavior
+
+**Process:**
+1. Use `/task-management` command
+2. Draft user-facing documentation first (`website/docs/[package]/[feature].mdx`)
+3. Iterate on docs until API is perfect (maintainer reviews/approves)
+4. Update task file with implementation phases
+5. Implement following the finalized API spec
+6. Use `/documentation-workflow` for validation (Phases 2-5)
+
+**Key:** The MDX documentation dominates. Get the API right from the user's perspective before writing any code.
+
+## Implementation-First (For Internal Changes)
+
+**When:**
+- Refactoring internal code (no API changes)
+- Performance optimizations
+- Bug fixes (preserving API)
+- Internal tooling/scripts
+- Test infrastructure
+
+**Process:**
+1. Use `/task-management` command
+2. Create task file with phases and goals
+3. Implement changes
+4. Update/create documentation after (if needed)
+
+## Reference
+
+- **Task management**: `/task-management` command
+- **Documentation workflow**: `/documentation-workflow` command
+- **Full workflow doc**: `/DOCUMENTATION-WORKFLOW.md`

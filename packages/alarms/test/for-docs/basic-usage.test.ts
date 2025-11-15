@@ -6,7 +6,8 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
 import { Alarms, type Schedule } from '@lumenize/alarms';
-import { sql, newContinuation } from '@lumenize/core';
+import { sql } from '@lumenize/core';
+import { newContinuation } from '@lumenize/lumenize-base';
 
 // Example: Task scheduling DO
 class TaskSchedulerDO extends DurableObject {

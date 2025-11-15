@@ -4,7 +4,7 @@ export default defineWorkersProject({
   test: {
     testTimeout: 2000, // 2 second global timeout
     globals: true,
-    include: ['test/**/*.test.ts'],
+    include: ['test/**/*.test.ts', 'src/ocan/test/**/*.test.ts'],
     poolOptions: {
       workers: {
         isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
@@ -15,8 +15,9 @@ export default defineWorkersProject({
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov'],
       include: [
-        '**/src/**',
-        '**/test/test-worker-and-dos.ts'
+        'src/lumenize-base.ts',
+        'src/ocan/**/*.ts',
+        'test/test-worker-and-dos.ts'
       ],
       exclude: [
         '**/node_modules/**', 

@@ -1,4 +1,4 @@
-import type { OperationChain } from '@lumenize/core';
+import type { OperationChain } from '@lumenize/lumenize-base';
 
 /**
  * Options for call operations

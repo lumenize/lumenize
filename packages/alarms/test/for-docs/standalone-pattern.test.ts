@@ -6,7 +6,8 @@ import { describe, it, expect } from 'vitest';
 // @ts-expect-error - cloudflare:test module types
 import { env } from 'cloudflare:test';
 import { Alarms, type Schedule } from '@lumenize/alarms';
-import { sql, newContinuation } from '@lumenize/core';
+import { sql } from '@lumenize/core';
+import { newContinuation } from '@lumenize/lumenize-base';
 import { DurableObject } from 'cloudflare:workers';
 
 class MyDO extends DurableObject {
