@@ -9,8 +9,12 @@
 
 import { 
   encodeRequest,
-  encodeResponse
+  encodeResponse,
+  encodeRequestSync,
+  encodeResponseSync
 } from './web-api-encoding';
+import type { RequestSync } from './request-sync';
+import type { ResponseSync } from './response-sync';
 
 /**
  * Intermediate format structure returned by preprocess() and consumed by postprocess()
@@ -168,7 +172,6 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
       // Assign ID and track this object
       const id = nextId++;
       seen.set(value, id);
-      
       // Preprocess based on type
       if (Array.isArray(value)) {
         const items: any[] = [];
@@ -239,6 +242,24 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
       } else if (value instanceof URL) {
         // URL - encode as object with href
         const tuple: any = ["url", { href: value.href }];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value.constructor?.name === 'RequestSync') {
+        // RequestSync - encode with headers references
+        const data = await encodeRequestSync(
+          value as RequestSync,
+          async (headers) => await preprocessValue(headers)
+        );
+        const tuple: any = ["request-sync", data];
+        objects[id] = tuple;
+        return ["$lmz", id];
+      } else if (value.constructor?.name === 'ResponseSync') {
+        // ResponseSync - encode with headers references
+        const data = await encodeResponseSync(
+          value as ResponseSync,
+          async (headers) => await preprocessValue(headers)
+        );
+        const tuple: any = ["response-sync", data];
         objects[id] = tuple;
         return ["$lmz", id];
       } else if (value instanceof Request) {

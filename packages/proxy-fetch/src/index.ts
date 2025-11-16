@@ -4,16 +4,13 @@
  * Uses a DO-Worker hybrid architecture where a Durable Object manages the queue
  * and Workers perform CPU-billed fetch execution.
  * 
- * **Note**: Previous `proxyFetchQueue` and `proxyFetchDO` variants have been removed.
- * `proxyFetchWorker` is superior in every way: better latency, linear scalability,
- * CPU-based billing for fetch operations, and simpler deployment. The old variants
- * remain in git history if needed.
- * 
  * @module @lumenize/proxy-fetch
  */
 
-// Worker variant: DO-Worker Hybrid (RPC-based)
-export { proxyFetchWorker } from './proxyFetchWorker';
+// Main API
+export { proxyFetch } from './proxyFetch';
+
+// Infrastructure components
 export { FetchOrchestrator } from './FetchOrchestrator';
 export { FetchExecutorEntrypoint } from './FetchExecutorEntrypoint';
 export { executeFetch, createFetchWorker, type FetchWorker } from './workerFetchExecutor';
@@ -33,3 +30,66 @@ if (!(globalThis as any).__lumenizeResultHandlers) {
   (globalThis as any).__lumenizeResultHandlers = {};
 }
 (globalThis as any).__lumenizeResultHandlers.proxyFetch = fetchWorkerResultHandler;
+
+// Register as NADIS service
+import { proxyFetch } from './proxyFetch';
+import type { ProxyFetchWorkerOptions } from './types';
+
+if (!(globalThis as any).__lumenizeServiceRegistry) {
+  (globalThis as any).__lumenizeServiceRegistry = {};
+}
+
+// Capture proxyFetch function in closure
+const proxyFetchFn = proxyFetch;
+(globalThis as any).__lumenizeServiceRegistry.proxyFetch = (doInstance: any) => {
+  return (
+    request: Request | string,
+    continuation: any,
+    options?: ProxyFetchWorkerOptions
+  ) => {
+    return proxyFetchFn(doInstance, request, continuation, options);
+  };
+};
+
+// TypeScript declaration merging for NADIS
+declare global {
+  interface LumenizeServices {
+    /**
+     * Make an external fetch request with continuation-based callback
+     * 
+     * Returns immediately with request ID. Result arrives later via continuation.
+     * 
+     * @param request - URL string or Request object
+     * @param continuation - OCAN continuation that receives ResponseSync | Error
+     * @param options - Optional configuration (timeout, executorBinding, etc)
+     * @returns Request ID (for logging/debugging)
+     * 
+     * @example
+     * ```typescript
+     * class MyDO extends LumenizeBase {
+     *   fetchUserData(userId: string) {
+     *     const reqId = this.svc.proxyFetch(
+     *       `https://api.example.com/users/${userId}`,
+     *       this.ctn().handleResult({ userId })
+     *     );
+     *     // Returns immediately, result arrives later
+     *   }
+     *   
+     *   handleResult(context: { userId: string }, result: ResponseSync | Error) {
+     *     if (result instanceof Error) {
+     *       console.error('Fetch failed:', result);
+     *     } else {
+     *       const data = result.json(); // Synchronous!
+     *       console.log('User data:', data);
+     *     }
+     *   }
+     * }
+     * ```
+     */
+    proxyFetch(
+      request: Request | string,
+      continuation: any,
+      options?: ProxyFetchWorkerOptions
+    ): Promise<string>;
+  }
+}

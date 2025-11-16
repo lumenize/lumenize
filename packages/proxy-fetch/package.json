@@ -17,6 +17,7 @@
   "scripts": {
     "test": "vitest --run",
     "test:worker": "vitest --run --project worker",
+    "test:live": "vitest --run --project live-integration",
     "coverage": "vitest --run --coverage",
     "types": "cd test/worker && wrangler types"
   },

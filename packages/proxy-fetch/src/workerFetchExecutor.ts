@@ -17,8 +17,9 @@
  */
 
 import { debug } from '@lumenize/core';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
-import type { WorkerFetchMessage, FetchResult } from './types.js';
+import { preprocess, postprocess, ResponseSync } from '@lumenize/structured-clone';
+import { replaceNestedOperationMarkers } from '@lumenize/lumenize-base';
+import type { WorkerFetchMessage } from './types.js';
 
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
@@ -43,8 +44,7 @@ export async function executeFetch(
   });
 
   const startTime = Date.now();
-  let response: Response | undefined;
-  let error: Error | undefined;
+  let result: ResponseSync | Error;
 
   try {
     // Deserialize Request object
@@ -56,12 +56,15 @@ export async function executeFetch(
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
     try {
-      response = await fetch(request, { signal: controller.signal });
+      const response = await fetch(request, { signal: controller.signal });
       clearTimeout(timeoutId);
+      
+      // Convert Response to ResponseSync (synchronous body access)
+      result = await ResponseSync.fromResponse(response);
       
       log.debug('Fetch completed', {
         reqId: message.reqId,
-        status: response.status,
+        status: result.status,
         duration: Date.now() - startTime
       });
     } catch (fetchError) {
@@ -69,36 +72,47 @@ export async function executeFetch(
       throw fetchError;
     }
   } catch (e) {
-    error = e instanceof Error ? e : new Error(String(e));
+    result = e instanceof Error ? e : new Error(String(e));
     log.error('Fetch failed', {
       reqId: message.reqId,
-      error: error.message,
+      error: result.message,
       duration: Date.now() - startTime
     });
   }
 
-  // Prepare result
-  const result: FetchResult = {
+  // Send result to origin DO using operation chain pattern
+  log.debug('Sending result to origin DO', { 
     reqId: message.reqId,
-    response: response ? await preprocess(response) : undefined,
-    error,
-    retryCount: message.retryCount,
-    duration: Date.now() - startTime
-  };
-
-  // Send result DIRECTLY to origin DO (no hop through orchestrator!)
+    resultType: result instanceof Error ? 'Error' : 'ResponseSync'
+  });
+  
   try {
     const originId = env[message.originBinding].idFromString(message.originId);
     const originDO = env[message.originBinding].get(originId);
     
-    // Preprocess result for transmission
-    const preprocessedResult = await preprocess(result);
+    log.debug('Postprocessing continuation', {
+      reqId: message.reqId,
+      continuationType: typeof message.continuation
+    });
     
-    // Use the generic actor queue's __receiveResult method
-    // The origin DO will retrieve the stored continuation and execute it
-    await originDO.__receiveResult('proxyFetch', message.reqId, preprocessedResult);
+    // Postprocess the continuation (deserialize it)
+    const continuation = await postprocess(message.continuation);
     
-    log.debug('Result sent to origin DO', { reqId: message.reqId });
+    // Inject RAW result into continuation placeholder (not preprocessed!)
+    const filledChain = await replaceNestedOperationMarkers(continuation, result);
+    
+    // Preprocess the filled chain for transmission via Workers RPC (one time only)
+    const preprocessedChain = await preprocess(filledChain);
+    
+    log.debug('Calling __executeOperation on origin DO', { 
+      reqId: message.reqId,
+      chainPreview: JSON.stringify(preprocessedChain, null, 2).substring(0, 500)
+    });
+    
+    // Send to origin DO (__executeOperation handles postprocessing)
+    await originDO.__executeOperation(preprocessedChain);
+    
+    log.debug('Result sent to origin DO successfully', { reqId: message.reqId });
   } catch (callbackError) {
     log.error('Failed to send result to origin DO', {
       reqId: message.reqId,
@@ -110,7 +124,7 @@ export async function executeFetch(
   try {
     const orchestratorId = env.FETCH_ORCHESTRATOR.idFromName('singleton');
     const orchestrator = env.FETCH_ORCHESTRATOR.get(orchestratorId);
-    await orchestrator.markComplete(message.reqId);
+    await orchestrator.reportDelivery(message.reqId, true);
     
     log.debug('Notified orchestrator of completion', { reqId: message.reqId });
   } catch (notifyError) {

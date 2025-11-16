@@ -9,7 +9,12 @@
  * @packageDocumentation
  */
 
-import { decodeRequest, decodeResponse } from './web-api-encoding';
+import { 
+  decodeRequest, 
+  decodeResponse,
+  decodeRequestSync,
+  decodeResponseSync
+} from './web-api-encoding';
 import type { LmzIntermediate } from './preprocess';
 import { TRANSFORM_SKIP } from './preprocess';
 
@@ -109,8 +114,8 @@ export async function postprocess(data: LmzIntermediate, options?: PostprocessOp
       } else if (type === 'function') {
         // Function markers are just plain objects, create empty object
         objects.set(i, {});
-      } else if (type === 'request' || type === 'response') {
-        // Request/Response will be reconstructed in second pass
+      } else if (type === 'request' || type === 'response' || type === 'request-sync' || type === 'response-sync') {
+        // Request/Response/RequestSync/ResponseSync will be reconstructed in second pass
         // Store placeholder for now
         objects.set(i, null);
       } else if (type === 'object') {
@@ -169,6 +174,32 @@ export async function postprocess(data: LmzIntermediate, options?: PostprocessOp
           }
         );
         objects.set(i, reconstructed);
+      } else if (type === 'request-sync') {
+        // Decode RequestSync, resolving header references
+        const reconstructed = await decodeRequestSync(
+          value,
+          (headerRef) => {
+            // headerRef is ["$lmz", index], look it up directly
+            if (Array.isArray(headerRef) && headerRef[0] === '$lmz') {
+              return objects.get(headerRef[1]) as Headers;
+            }
+            return headerRef;
+          }
+        );
+        objects.set(i, reconstructed);
+      } else if (type === 'response-sync') {
+        // Decode ResponseSync, resolving header references
+        const reconstructed = await decodeResponseSync(
+          value,
+          (headerRef) => {
+            // headerRef is ["$lmz", index], look it up directly
+            if (Array.isArray(headerRef) && headerRef[0] === '$lmz') {
+              return objects.get(headerRef[1]) as Headers;
+            }
+            return headerRef;
+          }
+        );
+        objects.set(i, reconstructed);
       }
     }
   }
@@ -220,7 +251,7 @@ export async function postprocess(data: LmzIntermediate, options?: PostprocessOp
         for (const key in value) {
           funcMarker[key] = value[key];
         }
-      } else if (type === 'request' || type === 'response') {
+      } else if (type === 'request' || type === 'response' || type === 'request-sync' || type === 'response-sync') {
         // Already handled in sub-pass 2a above
       } else if (type === 'object') {
         // Fill plain object with resolved properties

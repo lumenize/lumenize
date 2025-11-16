@@ -1,0 +1,5 @@
+# Wrangler generated files
+.wrangler/
+.mf/
+worker-configuration.d.ts
+

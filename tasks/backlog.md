@@ -2,6 +2,16 @@
 
 Small tasks and ideas for when I have time (evening coding, etc.)
 
+## Immediate work backlog
+
+- [ ] Make the new call use debug not console.error
+- [ ] Is proxy-fetch/src/utils.ts still used?
+- [ ] Make pattern for registering callback executor the same for call and proxy-fetch
+- [ ] Assuming we can stay in vitest-pool-workers (alarms seem to work), refactor the proxy-fetch tests.
+- [ ] Also fix any comments that say to use `wrangler dev`
+- [ ] Delete all this step crap from the live-integration tests. It's stupid to change the numbers when you want to change the test order. Maybe delete the two tests that prove the testing framework works and alarms work. I would have just built a single test and kept adding to it incrementally, trying it with everything I added.
+- [x] Refactor call to document infrastructure pattern (operation chain + __executeOperation). Now refactoring proxy-fetch to use this pattern.
+
 ## LumenizeBase NADIS modules
 
 - [ ] mcp
@@ -73,9 +83,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Add MCP server for docs
 
 
-## RPC Features to Demo/Test
+## Future bigger things
 
-- [ ] Maybe we need a way to secure the DO access over RPC so it can't change storage, or maybe we just need examples that show it not being accessible. Maybe you move this.ctx to this.#ctx and this.env to this.#env. Extending from DurableObject makes those public, but it's JavaScript so you can dynamically do whatever you want in the constructor.
+- [ ] RPC. Maybe we need a way to secure the DO access over RPC so it can't change storage, or maybe we just need examples that show it not being accessible. Maybe you move this.ctx to this.#ctx and this.env to this.#env. Extending from DurableObject makes those public, but it's JavaScript so you can dynamically do whatever you want in the constructor.
 
 - [ ] Authentication patterns
   ```ts
@@ -83,6 +93,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   let user = api.authenticate(cookie);
   let notifications = await user.getNotifications();
   ```
+
+- [ ] Consider creating a two hop version of proxy-fetch that moves the timeout functionality served by the Orchestrator to the origin DO. It would create a dependency on alarms though. Right now, we use the single native alarm in the Orchestrator.
 
 
 ## MCP

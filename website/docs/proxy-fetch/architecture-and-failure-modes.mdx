@@ -36,7 +36,7 @@ This document provides detailed flow diagrams for all scenarios in `@lumenize/pr
 
 Your handlers are **synchronous** (no `async`), so they can't do `await response.json()`. `ResponseSync` provides **synchronous body access methods** because the body has already been read:
 
-```typescript
+```typescript @skip-check
 // ❌ This won't work - handlers are sync!
 handleResult(result: ResponseSync | Error) {
   if (!(result instanceof Error)) {
@@ -66,7 +66,7 @@ handleResult(result: ResponseSync | Error) {
 
 ## Basic Usage
 
-```typescript
+```typescript @skip-check
 import '@lumenize/proxy-fetch';  // Registers as NADIS service
 
 class MyDO extends LumenizeBase {
@@ -112,7 +112,7 @@ The default is for the result to be implicitly added as the last parameter, but 
 covered if you prefer a more explicit way to know where in the call signature the result 
 will be delivered:
 
-```typescript
+```typescript @skip-check
 const reqId = this.svc.proxyFetch(  // No `await`
   `https://api.example.com/users/${userId}`,
   this.ctn().handleResult(this.ctn().$result)
@@ -126,7 +126,7 @@ the handler to have some extra context/data when it later receives the result.
 
 You can do this with the last-parameter convention:
 
-```typescript
+```typescript @skip-check
 const reqId = this.svc.proxyFetch(  // No `await`
   `https://api.example.com/users/${userId}`,
   this.ctn().handleResult({ userId }, /* result */)
@@ -137,7 +137,7 @@ Or with the explicit $result marker syntax. The nice thing about the marker synt
 this case is that you can put the result into any parameter slot you wish. So here the
 result is the first parameter instead of the implicit last:
 
-```typescript
+```typescript @skip-check
 const reqId = this.svc.proxyFetch(  // No `await`
   `https://api.example.com/users/${userId}`,
   this.ctn().handleResult(this.ctn().$result, { userId })
@@ -148,7 +148,7 @@ const reqId = this.svc.proxyFetch(  // No `await`
 
 You can customize the behavior by passing options:
 
-```typescript
+```typescript @skip-check
 const reqId = this.svc.proxyFetch(
   'https://api.example.com/users',
   this.ctn().handleResult(/* result */),
@@ -172,7 +172,7 @@ particular fetch.
 
 Since MyDO decides retry behavior, here's a fully-functional example:
 
-```typescript
+```typescript @skip-check
 class MyDO extends LumenizeBase {
   fetchUserWithRetry(userId: string, maxRetries = 3) {
     // Store retry metadata
@@ -238,7 +238,7 @@ class MyDO extends LumenizeBase {
 
 ## Happy Path
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO (DO)
     participant Orch as FetchOrchestrator (DO)
@@ -270,7 +270,7 @@ Blocking Time: microseconds
 
 ### Scenario 1: Network Error (Executor Detects)
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO DO
     participant Orch as FetchOrchestrator (DO)
@@ -293,7 +293,7 @@ sequenceDiagram
 
 ### Scenario 2: HTTP Error (5xx, 4xx)
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO DO
     participant Orch as FetchOrchestrator (DO)
@@ -316,7 +316,7 @@ sequenceDiagram
 
 ### Scenario 3: Fetch Timeout (AbortController)
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO (DO)
     participant Orch as FetchOrchestrator (DO)
@@ -339,7 +339,7 @@ sequenceDiagram
 
 ### Scenario 4: Delivery Timeout
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO (DO)
     participant Orch as FetchOrchestrator (DO)
@@ -364,7 +364,7 @@ sequenceDiagram
 ```
 
 **Critical**: The timeout error message indicates ambiguity:
-```typescript
+```typescript @skip-check
 new Error(
   `Fetch delivery timeout: Unable to confirm result delivery. ` +
   `WARNING: The external fetch may have fully/partially executed and ` +
@@ -391,7 +391,7 @@ The FetchOrchestrator timeout is 10 seconds beyond the fetch timeout
 However, we wanted you to be aware of the risk, no matter how slim, and how the system 
 will behave if this improbability occurs.
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO (DO)
     participant Orch as FetchOrchestrator (DO)
@@ -413,7 +413,7 @@ sequenceDiagram
 
 ### Race 2: Timeout, then ResponseSync
 
-```mermaid
+```mermaid @skip-check
 sequenceDiagram
     participant MyDO as MyDO (DO)
     participant Orch as FetchOrchestrator (DO)

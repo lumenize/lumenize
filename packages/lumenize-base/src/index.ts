@@ -6,6 +6,7 @@
  */
 
 export { LumenizeBase } from './lumenize-base';
+export type { Continuation } from './lumenize-base';
 
 // Re-export the global LumenizeServices interface type
 // (actual interface is built via declaration merging in each NADIS package)

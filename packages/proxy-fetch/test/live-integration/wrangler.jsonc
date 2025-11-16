@@ -1,0 +1,28 @@
+{
+  "name": "proxy-fetch-live-integration-test",
+  "main": "./test-harness.ts",
+  "compatibility_date": "2025-09-12",
+  
+  "services": [
+    {
+      "binding": "FETCH_EXECUTOR",
+      "service": "proxy-fetch-live-integration-test",
+      "entrypoint": "FetchExecutorEntrypoint"
+    }
+  ],
+  
+  "durable_objects": {
+    "bindings": [
+      { "name": "TEST_DO", "class_name": "TestDO" },
+      { "name": "FETCH_ORCHESTRATOR", "class_name": "FetchOrchestrator" }
+    ]
+  },
+  
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TestDO", "FetchOrchestrator"]
+    }
+  ]
+}
+

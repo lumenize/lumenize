@@ -11,6 +11,9 @@ export { DebugTestDO } from '../../debug/test/test-do';
 export { ChatRoom } from '../../debug/test/for-docs/quick-start-lumenize-base.test';
 export { MyDO } from '../../debug/test/for-docs/quick-start-vanilla-do.test';
 
+// Export ReceiverDO for call-raw tests
+export { ReceiverDO } from '../../call-raw/test/call-raw.test';
+
 export class TestDO extends DurableObject<Env> {
   // Convenient convention - You can use sql(this)` ... directly just as well
   // We need `this` passed in because it's just the pattern that every Lumenize NADIS

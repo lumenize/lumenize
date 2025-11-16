@@ -1,154 +1,365 @@
 ---
-title: Proxy Fetch
-description: Offload external API calls to Workers with CPU-billed execution
+title: ProxyFetch
+description: Cost-effective external API calls from Durable Objects using continuation-based callbacks
 ---
 
-# Proxy Fetch
+# ProxyFetch
 
-Make external API calls from Durable Objects without paying for wall-clock time. 
-`@lumenize/proxy-fetch` uses a DO-Worker hybrid architecture where a Durable Object 
-manages the queue and Workers perform CPU-billed fetch execution.
+A de✨light✨ful way to make external API calls from Durable Objects without blocking or accumulating wall-clock billing.
 
-## The Problem
-
-Durable Objects are billed on **wall clock time**, not CPU time. When a DO makes an external `fetch()` call:
-- DO wall clock billing continues during the fetch (awaiting external response)
-- For slow external APIs (100ms-5s response times), costs add up quickly
-
-**Example Cost Scenario:**
-```
-100,000 fetches/day × 200ms avg = 20,000 seconds/day per instance
-Over 30 days => 600,000 seconds => 167 hours/month wall clock time per instance
-1,000 instances => 167,000 hours/month
-@ ~$0.006 per hour
-======================================================================
-~$1000/month waiting on external APIs
-```
-
-Note: The above cost calculations do not take into account the additional requests
-charges incurred when using `@lumenize/proxy-fetch`. Those are smaller in comparison, 
-but not zero.
-
-## The Solution
-
-**Key Insight:** Cloudflare Workers are billed on **CPU time**, not wall clock time!
-
-By offloading fetch execution to Workers:
-- ✅ DO wall clock billing stops as soon as fetch is queued
-- ✅ Worker makes fetch with CPU billing
-- ✅ Response delivered back to DO via direct call
-- ✅ Linear scalability up to 2000+ concurrent fetches
-
-## Architecture
-
-```mermaid @skip-check
-sequenceDiagram
-    participant Origin as Origin DO
-    participant Orch as FetchOrchestrator DO
-    participant Worker as Worker (CPU billed)
-    participant API as External API
-
-    Origin->>Orch: enqueueFetch(url, continuation)
-    Orch-->>Origin: Returns reqId
-    Note over Origin: DO hibernates or processes other work
-
-    Orch->>Worker: HTTP dispatch
-    Worker->>API: fetch(url)
-    API-->>Worker: Response
-    Worker->>Origin: Direct call with result
-    Origin->>Origin: Execute continuation
-```
+**Key Benefits:**
+- ✅ **Fire-and-forget** - Returns immediately, result arrives via continuation
+- ✅ **Cost-effective** - CPU billing for fetches, minimal DO billing
+- ✅ **Type-safe** - Full TypeScript support with OCAN continuations
+- ✅ **Timeout monitoring** - Automatic timeout detection with clear error messages
+- ✅ **Idempotent** - Race conditions handled automatically
 
 ## Quick Start
 
-```typescript
-import { LumenizeBase } from '@lumenize/lumenize-base';
-import { proxyFetchWorker } from '@lumenize/proxy-fetch';
+```typescript @skip-check
+import '@lumenize/proxy-fetch';  // Registers as NADIS service
 
-class MyDO extends LumenizeBase<Env> {
-  async fetchUserData(userId: string) {
-    // Capture context in continuation - result injected as first parameter
-    await proxyFetchWorker(
-      this,
+class MyDO extends LumenizeBase {
+  fetchUserData(userId: string) {
+    // Fire and forget - result comes to handler later
+    const reqId = this.svc.proxyFetch(
       `https://api.example.com/users/${userId}`,
-      this.ctn().handleResult(userId)
+      this.ctn().handleResult()  // Result implicitly passed as last parameter
     );
+    
+    // Returns immediately with reqId (for logging/debugging)
+    return reqId;
   }
   
-  handleResult(result: Response | Error, userId: string) {
+  handleResult(result: ResponseSync | Error) {
     if (result instanceof Error) {
-      console.error('Fetch failed:', result.message);
-      return;
+      console.error('Fetch failed:', result);
+    } else {
+      // ResponseSync provides synchronous body access
+      const data = result.json(); // No await needed!
+      console.log('User data:', data);
     }
-    
-    console.log('Got user data:', userId, result.status);
   }
 }
 ```
 
-## Performance
+## Setup
 
-See [Proxy Fetch Worker](/docs/proxy-fetch/proxy-fetch-worker) for detailed performance measurements:
+1. **Export `FetchExecutorEntrypoint`** from your worker:
 
-**Production (Warm):**
-- **71ms end-to-end** in production (after subtracting network overhead)
-- **57ms added latency** after subtracting the actual fetch time
-- **Linear scalability** up to 2000+ concurrent fetches
-- **Super-linear efficiency** due to batching and parallelism
-
-**Local Development:**
-- **23ms end-to-end** (after subtracting network overhead)
-- WebSocket-based real-time result delivery
-- No artificial bottlenecks observed
-
-## Documentation
-
-- **[Proxy Fetch Worker](/docs/proxy-fetch/proxy-fetch-worker)** - Complete guide with setup, usage, and performance details
-- **[API Reference](/docs/proxy-fetch/api)** - TypeDoc-generated API documentation
-
-## FAQ
-
-### Q: Where did `proxyFetchQueue` and `proxyFetchDO` go?
-
-A: `proxyFetchWorker` is superior in every way, so we removed the old variants:
-
-- **Better latency**: ~70ms vs 200-3000ms (queue) or ~100ms (DO)
-- **Linear scalability**: Tested up to 2000+ concurrent fetches
-- **CPU-based billing**: Workers billed on CPU time for fetch operations
-- **Simpler deployment**: Single worker with HTTP endpoint
-
-The old variants remain in git history if needed, but we recommend migrating to `proxyFetchWorker`.
-
-### Q: Can I still use the old variants?
-
-A: No, they've been removed from the package exports. If you absolutely need them, you can access them from git history (commits before v0.18.0), but we strongly recommend using `proxyFetchWorker` instead.
-
-### Q: How do I migrate from the old variants?
-
-A: The migration is straightforward:
-
-**Before (proxyFetchQueue):**
-```typescript
-await proxyFetch(this, request, 'MY_DO', 'handleResult', { mode: 'queue' });
+```typescript @skip-check
+// src/index.ts
+export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 ```
 
-**Before (proxyFetchDO):**
-```typescript
-await proxyFetch(this, request, 'MY_DO', 'handleResult', { mode: 'do' });
+2. **Add service binding** in `wrangler.jsonc`:
+
+```jsonc @skip-check
+{
+  "services": [{
+    "binding": "FETCH_EXECUTOR",
+    "service": "my-worker",
+    "entrypoint": "FetchExecutorEntrypoint"
+  }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "FETCH_ORCHESTRATOR", "class_name": "FetchOrchestrator" }
+    ]
+  }
+}
 ```
 
-**After (proxyFetchWorker):**
-```typescript
-await proxyFetchWorker(
-  this,
-  request,
-  this.ctn().handleResult()
+3. **Import** to register:
+
+```typescript @skip-check
+import '@lumenize/proxy-fetch';
+```
+
+That's it! Now use `this.svc.proxyFetch()` in any DO extending `LumenizeBase`.
+
+## Basic Usage
+
+### Simple GET Request
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  fetchWeather(city: string) {
+    this.svc.proxyFetch(
+      `https://api.weather.com/forecast?city=${city}`,
+      this.ctn().handleWeather()
+    );
+  }
+  
+  handleWeather(result: ResponseSync | Error) {
+    if (result instanceof Error) {
+      console.error('Weather fetch failed:', result);
+    } else {
+      const forecast = result.json();
+      console.log('Forecast:', forecast);
+    }
+  }
+}
+```
+
+### POST with Request Object
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  createOrder(orderData: any) {
+    const request = new Request('https://api.example.com/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    
+    this.svc.proxyFetch(
+      request,
+      this.ctn().handleOrderCreated()
+    );
+  }
+  
+  handleOrderCreated(result: ResponseSync | Error) {
+    if (result instanceof Error) {
+      console.error('Order creation failed:', result);
+    } else if (!result.ok) {
+      console.error('HTTP error:', result.status, result.text());
+    } else {
+      const order = result.json();
+      console.log('Order created:', order.id);
+    }
+  }
+}
+```
+
+## API Reference
+
+### `this.svc.proxyFetch(request, continuation, options?)`
+
+**Parameters:**
+- `request`: `string | Request` - URL or Request object
+- `continuation`: OCAN continuation created with `this.ctn().handlerMethod()`
+- `options?`: Optional configuration
+
+**Returns:** `Promise<string>` - Request ID (for logging/debugging)
+
+**Options:**
+```typescript @skip-check
+interface ProxyFetchWorkerOptions {
+  /** Request timeout in milliseconds (default: 30000) */
+  timeout?: number;
+  
+  /** Binding name for FetchOrchestrator DO (default: 'FETCH_ORCHESTRATOR') */
+  orchestratorBinding?: string;
+  
+  /** Instance name for FetchOrchestrator DO (default: 'singleton') */
+  orchestratorInstanceName?: string;
+  
+  /** Binding name for FetchExecutor service (default: 'FETCH_EXECUTOR') */
+  executorBinding?: string;
+}
+```
+
+### Handler Signature
+
+Your handler receives **either** a `ResponseSync` or `Error`:
+
+```typescript @skip-check
+handleResult(result: ResponseSync | Error) {
+  if (result instanceof Error) {
+    // Network error, timeout, or parsing error
+  } else {
+    // Success (HTTP 2xx) or HTTP error (4xx, 5xx)
+    // Check result.ok or result.status
+  }
+}
+```
+
+### ResponseSync Methods
+
+Since handlers are **synchronous**, `ResponseSync` provides synchronous body access:
+
+```typescript @skip-check
+result.json()        // → any (parsed JSON, no await)
+result.text()        // → string (no await)
+result.arrayBuffer() // → ArrayBuffer (no await)
+result.ok            // → boolean (2xx status)
+result.status        // → number (HTTP status code)
+result.statusText    // → string
+result.headers       // → Headers
+```
+
+## Advanced Usage
+
+### Alternative Syntax (Explicit `$result` Marker)
+
+If you prefer explicit parameter placement:
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  fetchUserData(userId: string) {
+    this.svc.proxyFetch(
+      `https://api.example.com/users/${userId}`,
+      this.ctn().handleResult(userId, this.ctn().$result)
+    );
+  }
+  
+  handleResult(userId: string, result: ResponseSync | Error) {
+    console.log(`Result for user ${userId}:`, result);
+  }
+}
+```
+
+### Providing Context to Handler
+
+Pass context as regular parameters (result is last):
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  fetchUserData(userId: string, requestedBy: string) {
+    this.svc.proxyFetch(
+      `https://api.example.com/users/${userId}`,
+      this.ctn().handleResult({ userId, requestedBy })
+    );
+  }
+  
+  handleResult(context: { userId: string, requestedBy: string }, result: ResponseSync | Error) {
+    if (result instanceof Error) {
+      console.error(`Fetch failed for user ${context.userId} (requested by ${context.requestedBy})`);
+    } else {
+      const data = result.json();
+      console.log(`User ${context.userId} data:`, data);
+    }
+  }
+}
+```
+
+### Custom Timeout
+
+```typescript @skip-check
+this.svc.proxyFetch(
+  'https://slow-api.example.com/data',
+  this.ctn().handleResult(),
+  { timeout: 60000 } // 60 seconds
 );
 ```
 
-Key differences:
-1. Use continuation syntax instead of string handler names
-2. No need to specify DO binding or mode
-3. Result is first parameter (by convention), context follows
+## Retry Logic
 
-See the [Proxy Fetch Worker docs](/docs/proxy-fetch/proxy-fetch-worker) for complete migration guidance.
+The **Origin DO decides retry strategy**. The Orchestrator only monitors timeouts - it never retries.
+
+### Sequential Retry Pattern
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  fetchWithRetry(url: string, attempt: number = 1) {
+    this.svc.proxyFetch(
+      url,
+      this.ctn().handleFetchResult(url, attempt)
+    );
+  }
+  
+  handleFetchResult(url: string, attempt: number, result: ResponseSync | Error) {
+    const maxAttempts = 3;
+    
+    if (result instanceof Error) {
+      // Network error or timeout
+      if (attempt < maxAttempts) {
+        console.log(`Attempt ${attempt} failed, retrying...`);
+        this.fetchWithRetry(url, attempt + 1);
+      } else {
+        console.error(`All ${maxAttempts} attempts failed:`, result);
+      }
+    } else if (!result.ok && result.status >= 500) {
+      // Server error - retry
+      if (attempt < maxAttempts) {
+        console.log(`Server error ${result.status}, retrying...`);
+        this.fetchWithRetry(url, attempt + 1);
+      } else {
+        console.error(`Server error after ${maxAttempts} attempts`);
+      }
+    } else {
+      // Success or client error (4xx) - don't retry
+      const data = result.json();
+      console.log('Success:', data);
+    }
+  }
+}
+```
+
+### Conditional Retry (Business Logic)
+
+```typescript @skip-check
+class PaymentDO extends LumenizeBase {
+  processPayment(paymentId: string) {
+    this.svc.proxyFetch(
+      `https://payments.example.com/charge/${paymentId}`,
+      this.ctn().handlePaymentResult(paymentId)
+    );
+  }
+  
+  handlePaymentResult(paymentId: string, result: ResponseSync | Error) {
+    if (result instanceof Error) {
+      if (result.message.includes('delivery timeout')) {
+        // ⚠️ CRITICAL: Timeout is ambiguous!
+        // Payment may have succeeded. Check payment system state.
+        console.warn('Timeout - checking payment system...');
+        this.verifyPaymentStatus(paymentId);
+      } else {
+        // Network/parsing error - safe to retry
+        console.error('Payment API unreachable, retrying...');
+        this.processPayment(paymentId);
+      }
+    } else if (result.status === 409) {
+      // Idempotency key conflict - already processed
+      console.log('Payment already processed');
+    } else if (result.status >= 500) {
+      // Server error - retry
+      this.processPayment(paymentId);
+    } else {
+      // Success or client error
+      const payment = result.json();
+      console.log('Payment result:', payment);
+    }
+  }
+}
+```
+
+## Timeout Behavior
+
+- **User timeout** (`options.timeout`): Controls fetch execution (AbortController)
+- **Orchestrator timeout**: Automatically adds 10s buffer (5s polling + 5s network)
+- **Timeout error message**: "Fetch timeout - external fetch may have partially succeeded"
+
+**Important:** If you receive a timeout error for a non-idempotent operation, **check the external system** before retrying!
+
+## Error Categories
+
+| Error Source | Type | Meaning |
+|--------------|------|---------|
+| Executor | `Error` (network) | API unreachable (DNS, connection refused) |
+| Executor | `Error` (abort) | Fetch exceeded timeout (AbortController) |
+| Executor | `Error` (parsing) | ResponseSync deserialization failed |
+| **Orchestrator** | **`Error` (timeout)** | ⚠️ **Ambiguous - may have succeeded!** |
+| Executor | `ResponseSync` (ok) | HTTP 2xx success |
+| Executor | `ResponseSync` (!ok) | HTTP 4xx/5xx error |
+
+**Key distinction:** Only Orchestrator timeout is ambiguous. All Executor errors mean the fetch definitely failed/completed.
+
+## Architecture
+
+For detailed architecture diagrams, failure scenarios, and race condition handling, see:
+
+👉 **[Architecture & Failure Modes](/docs/proxy-fetch/architecture-and-failure-modes)**
+
+**High-level flow:**
+1. Origin DO → Orchestrator: Enqueue fetch + store continuation
+2. Orchestrator → Executor: Dispatch via RPC (returns immediately)
+3. Executor → External API: Perform fetch (CPU billing)
+4. Executor → Origin DO: Deliver result via `__receiveResult()`
+5. Origin DO: Execute continuation with result
+
+**Key design:**
+- ✅ Orchestrator stops billing after quick RPC dispatch
+- ✅ Executor uses CPU billing for external fetch
+- ✅ Timeout monitoring via native alarm (5s polling)
+- ✅ Idempotent result handling (first wins, duplicates logged)

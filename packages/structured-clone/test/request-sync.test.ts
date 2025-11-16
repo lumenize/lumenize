@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { RequestSync } from '../src/request-sync';
+import { stringify, parse } from '../src/index';
 
 describe('RequestSync', () => {
   describe('constructor', () => {
@@ -289,6 +290,109 @@ describe('RequestSync', () => {
         body: largeBody
       });
       expect(req.json()).toEqual(largeBody);
+    });
+  });
+
+  describe('Round-trip Serialization', () => {
+    it('handles simple RequestSync round-trip', async () => {
+      const requestSync = new RequestSync('https://example.com');
+      const result = await parse(await stringify(requestSync));
+      
+      expect(result).toBeInstanceOf(RequestSync);
+      expect(result.url).toBe('https://example.com/');
+      expect(result.method).toBe('GET');
+    });
+
+    it('handles RequestSync with method round-trip', async () => {
+      const requestSync = new RequestSync('https://api.example.com/users', {
+        method: 'POST'
+      });
+      const result = await parse(await stringify(requestSync));
+      
+      expect(result).toBeInstanceOf(RequestSync);
+      expect(result.url).toBe('https://api.example.com/users');
+      expect(result.method).toBe('POST');
+    });
+
+    it('handles RequestSync with JSON body round-trip', async () => {
+      const body = { username: 'alice', email: 'alice@example.com' };
+      const requestSync = new RequestSync('https://api.example.com/users', {
+        method: 'POST',
+        body: body
+      });
+      const result = await parse(await stringify(requestSync));
+      
+      expect(result).toBeInstanceOf(RequestSync);
+      expect(result.method).toBe('POST');
+      expect(result.json()).toEqual(body);
+    });
+
+    it('handles RequestSync with headers round-trip', async () => {
+      const requestSync = new RequestSync('https://api.example.com', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer token123',
+          'X-Custom-Header': 'custom-value'
+        }
+      });
+      const result = await parse(await stringify(requestSync));
+      
+      expect(result).toBeInstanceOf(RequestSync);
+      expect(result.headers.get('Content-Type')).toBe('application/json');
+      expect(result.headers.get('Authorization')).toBe('Bearer token123');
+      expect(result.headers.get('X-Custom-Header')).toBe('custom-value');
+    });
+
+    it('handles RequestSync with string body round-trip', async () => {
+      const requestSync = new RequestSync('https://api.example.com/data', {
+        method: 'POST',
+        body: 'plain text data'
+      });
+      const result = await parse(await stringify(requestSync));
+      
+      expect(result).toBeInstanceOf(RequestSync);
+      expect(result.text()).toBe('plain text data');
+    });
+
+    it('handles RequestSync with ArrayBuffer body round-trip', async () => {
+      const buffer = new TextEncoder().encode('Binary data').buffer;
+      const requestSync = new RequestSync('https://api.example.com/upload', {
+        method: 'POST',
+        body: buffer
+      });
+      const result = await parse(await stringify(requestSync));
+      
+      expect(result).toBeInstanceOf(RequestSync);
+      expect(result.arrayBuffer()).toEqual(buffer);
+    });
+
+    it('handles RequestSync in arrays round-trip', async () => {
+      const requests = [
+        new RequestSync('https://api.example.com/users'),
+        new RequestSync('https://api.example.com/posts', { method: 'POST' })
+      ];
+      const result = await parse(await stringify(requests));
+      
+      expect(result).toHaveLength(2);
+      expect(result[0]).toBeInstanceOf(RequestSync);
+      expect(result[0].url).toBe('https://api.example.com/users');
+      expect(result[1]).toBeInstanceOf(RequestSync);
+      expect(result[1].method).toBe('POST');
+    });
+
+    it('handles RequestSync in nested objects round-trip', async () => {
+      const obj = {
+        request: new RequestSync('https://api.example.com', {
+          method: 'POST',
+          body: { data: 'test' }
+        }),
+        metadata: { timestamp: Date.now() }
+      };
+      const result = await parse(await stringify(obj));
+      
+      expect(result.request).toBeInstanceOf(RequestSync);
+      expect(result.request.method).toBe('POST');
+      expect(result.request.json()).toEqual({ data: 'test' });
     });
   });
 });

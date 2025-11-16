@@ -20,6 +20,22 @@ export default defineConfig({
           },
         },
       }),
+      
+      // Live Integration tests - requires wrangler dev running
+      defineWorkersProject({
+        test: {
+          name: 'live-integration',
+          globals: true,
+          testTimeout: 30000, // Longer timeout for wrangler dev interaction
+          include: ['test/live-integration/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              isolatedStorage: false, // Required for WebSocket support
+              wrangler: { configPath: './test/live-integration/wrangler.jsonc' },
+            },
+          },
+        },
+      }),
     ],
     coverage: {
       provider: 'istanbul',

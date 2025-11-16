@@ -10,6 +10,46 @@
  * - Nested operation composition (proven working)
  * - No alarms, no work queues, no crash recovery complexity
  * 
+ * ## Two RPC Layers
+ * 
+ * ### Layer 1: Infrastructure Pattern (operation chain + __executeOperation)
+ * 
+ * For infrastructure code (proxy-fetch, alarms, queues) that needs RPC with serialization:
+ * 
+ * ```typescript
+ * import { newContinuation } from '@lumenize/lumenize-base';
+ * import { preprocess } from '@lumenize/structured-clone';
+ * 
+ * // Build operation chain with RAW data (not preprocessed!)
+ * const chain = newContinuation<TargetDO>().handleResult(responseData);
+ * 
+ * // Preprocess the entire chain (one time only)
+ * const preprocessedChain = await preprocess(chain);
+ * 
+ * // Send to remote DO (__executeOperation handles postprocessing)
+ * await targetDO.__executeOperation(preprocessedChain);
+ * ```
+ * 
+ * **CRITICAL**: Never preprocess data before putting it in chain! Only preprocess the chain itself.
+ * 
+ * ❌ **WRONG** (double preprocessing):
+ * ```typescript
+ * const preprocessedData = await preprocess(data);  // First preprocess
+ * const chain = continuation.handleResult(preprocessedData);
+ * await preprocess(chain);  // Second preprocess - BUG!
+ * ```
+ * 
+ * ✅ **CORRECT** (single preprocessing):
+ * ```typescript
+ * const chain = continuation.handleResult(data);  // Raw data in chain
+ * const preprocessedChain = await preprocess(chain);  // Preprocess chain once
+ * await targetDO.__executeOperation(preprocessedChain);
+ * ```
+ * 
+ * ### Layer 2: Application Pattern (this.svc.call)
+ * 
+ * For application DO↔DO calls with blockConcurrencyWhile:
+ * 
  * @example
  * ```typescript
  * import '@lumenize/call';

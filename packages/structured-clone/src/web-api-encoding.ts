@@ -303,14 +303,14 @@ import type { ResponseSync } from './response-sync';
  * await stub.handleRequest(encoded);
  * ```
  */
-export function encodeRequestSync(
+export async function encodeRequestSync(
   request: RequestSync,
   encodeHeaders: (h: Headers) => any = defaultEncodeHeaders
-): any {
+): Promise<any> {
   return {
     url: request.url,
     method: request.method,
-    headers: encodeHeaders(request.headers),
+    headers: await encodeHeaders(request.headers),
     body: request.body, // Direct access to stored body
   };
 }
@@ -334,13 +334,13 @@ export function encodeRequestSync(
  * }
  * ```
  */
-export function decodeRequestSync(
+export async function decodeRequestSync(
   data: any,
   decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
-): RequestSync {
+): Promise<RequestSync> {
   // Import dynamically to avoid circular dependency
-  const { RequestSync } = require('./request-sync');
-  return new RequestSync(data.url, {
+  const { RequestSync: RequestSyncClass } = await import('./request-sync.js');
+  return new RequestSyncClass(data.url, {
     method: data.method,
     headers: decodeHeaders(data.headers),
     body: data.body,
@@ -373,14 +373,14 @@ export function decodeRequestSync(
  * await stub.handleResponse(encoded);
  * ```
  */
-export function encodeResponseSync(
+export async function encodeResponseSync(
   response: ResponseSync,
   encodeHeaders: (h: Headers) => any = defaultEncodeHeaders
-): any {
+): Promise<any> {
   return {
     status: response.status,
     statusText: response.statusText,
-    headers: encodeHeaders(response.headers),
+    headers: await encodeHeaders(response.headers),
     body: response.body, // Direct access to stored body
   };
 }
@@ -404,13 +404,13 @@ export function encodeResponseSync(
  * }
  * ```
  */
-export function decodeResponseSync(
+export async function decodeResponseSync(
   data: any,
   decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
-): ResponseSync {
+): Promise<ResponseSync> {
   // Import dynamically to avoid circular dependency
-  const { ResponseSync } = require('./response-sync');
-  return new ResponseSync(data.body, {
+  const { ResponseSync: ResponseSyncClass } = await import('./response-sync.js');
+  return new ResponseSyncClass(data.body, {
     status: data.status,
     statusText: data.statusText,
     headers: decodeHeaders(data.headers),

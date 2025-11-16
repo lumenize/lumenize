@@ -89,6 +89,8 @@ export interface FetchOrchestratorMessage {
   reqId: string;
   /** Serialized Request object */
   request: any; // Serialized via structured-clone
+  /** OCAN continuation (serialized via structured-clone) */
+  continuation: any;
   /** Origin DO binding name */
   originBinding: string;
   /** Origin DO instance ID */
@@ -108,6 +110,8 @@ export interface WorkerFetchMessage {
   reqId: string;
   /** Serialized Request object */
   request: any;
+  /** OCAN continuation (serialized via structured-clone) */
+  continuation: any;
   /** Origin DO binding name (for direct callback) */
   originBinding: string;
   /** Origin DO instance ID (for direct callback) */
@@ -118,6 +122,10 @@ export interface WorkerFetchMessage {
   options?: ProxyFetchWorkerOptions;
   /** Timestamp when request was initiated */
   startTime: number;
+  /** Timeout for external fetch (AbortController timeout) */
+  fetchTimeout: number;
+  /** Timestamp when orchestrator will send timeout error */
+  timeoutAt: number;
 }
 
 /**

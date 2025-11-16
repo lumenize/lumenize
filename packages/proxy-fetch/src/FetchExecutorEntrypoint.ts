@@ -36,12 +36,13 @@ export class FetchExecutorEntrypoint extends WorkerEntrypoint {
    * 1. Quick RPC acknowledgment (microseconds)
    * 2. FetchOrchestrator stops billing
    * 3. Fetch executes in background (CPU billing)
-   * 4. Result sent to origin DO via RPC
-   * 5. Orchestrator notified of completion
+   * 4. Result delivered to origin DO via __receiveResult()
+   * 5. Delivery status reported to orchestrator (for monitoring/queue cleanup)
    * 
    * @param message - Fetch message containing request and callback info
    */
   async executeFetch(message: WorkerFetchMessage): Promise<void> {
+    
     // Quick acknowledgment - return immediately to stop DO wall-clock billing
     this.ctx.waitUntil(
       executeFetch(message, this.env)

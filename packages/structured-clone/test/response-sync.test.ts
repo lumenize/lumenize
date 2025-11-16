@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ResponseSync } from '../src/response-sync';
+import { stringify, parse } from '../src/index';
 
 describe('ResponseSync', () => {
   describe('constructor', () => {
@@ -358,6 +359,95 @@ describe('ResponseSync', () => {
       expect(converted.status).toBe(original.status);
       expect(converted.statusText).toBe(original.statusText);
       expect(converted.json()).toEqual({ message: 'Test' });
+    });
+  });
+
+  describe('Round-trip Serialization', () => {
+    it('handles simple ResponseSync round-trip', async () => {
+      const responseSync = new ResponseSync('Hello World');
+      const result = await parse(await stringify(responseSync));
+      
+      expect(result).toBeInstanceOf(ResponseSync);
+      expect(result.text()).toBe('Hello World');
+      expect(result.status).toBe(200);
+    });
+
+    it('handles ResponseSync with status round-trip', async () => {
+      const responseSync = new ResponseSync('Not Found', { 
+        status: 404, 
+        statusText: 'Not Found' 
+      });
+      const result = await parse(await stringify(responseSync));
+      
+      expect(result).toBeInstanceOf(ResponseSync);
+      expect(result.status).toBe(404);
+      expect(result.statusText).toBe('Not Found');
+      expect(result.text()).toBe('Not Found');
+    });
+
+    it('handles ResponseSync with JSON body round-trip', async () => {
+      const body = { message: 'Success', data: [1, 2, 3] };
+      const responseSync = new ResponseSync(body, {
+        status: 201,
+        statusText: 'Created'
+      });
+      const result = await parse(await stringify(responseSync));
+      
+      expect(result).toBeInstanceOf(ResponseSync);
+      expect(result.status).toBe(201);
+      expect(result.statusText).toBe('Created');
+      expect(result.json()).toEqual(body);
+    });
+
+    it('handles ResponseSync with headers round-trip', async () => {
+      const responseSync = new ResponseSync('test', {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'max-age=3600',
+          'X-Custom-Header': 'custom-value'
+        }
+      });
+      const result = await parse(await stringify(responseSync));
+      
+      expect(result).toBeInstanceOf(ResponseSync);
+      expect(result.headers.get('Content-Type')).toBe('application/json');
+      expect(result.headers.get('Cache-Control')).toBe('max-age=3600');
+      expect(result.headers.get('X-Custom-Header')).toBe('custom-value');
+    });
+
+    it('handles ResponseSync with ArrayBuffer body round-trip', async () => {
+      const buffer = new TextEncoder().encode('Binary data').buffer;
+      const responseSync = new ResponseSync(buffer);
+      const result = await parse(await stringify(responseSync));
+      
+      expect(result).toBeInstanceOf(ResponseSync);
+      expect(result.arrayBuffer()).toEqual(buffer);
+    });
+
+    it('handles ResponseSync in arrays round-trip', async () => {
+      const responses = [
+        new ResponseSync('First', { status: 200 }),
+        new ResponseSync('Second', { status: 201 })
+      ];
+      const result = await parse(await stringify(responses));
+      
+      expect(result).toHaveLength(2);
+      expect(result[0]).toBeInstanceOf(ResponseSync);
+      expect(result[0].text()).toBe('First');
+      expect(result[1]).toBeInstanceOf(ResponseSync);
+      expect(result[1].text()).toBe('Second');
+    });
+
+    it('handles ResponseSync in nested objects round-trip', async () => {
+      const obj = {
+        response: new ResponseSync({ success: true }),
+        metadata: { timestamp: Date.now() }
+      };
+      const result = await parse(await stringify(obj));
+      
+      expect(result.response).toBeInstanceOf(ResponseSync);
+      expect(result.response.json()).toEqual({ success: true });
     });
   });
 });

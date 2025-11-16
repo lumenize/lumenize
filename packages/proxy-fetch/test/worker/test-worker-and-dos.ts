@@ -1,11 +1,11 @@
 /**
- * Test Worker and DOs for proxyFetchWorker integration testing
+ * Test Worker and DOs for proxyFetch integration testing
  */
 
 import '@lumenize/proxy-fetch'; // Import to register result handler
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { FetchOrchestrator as _FetchOrchestrator, FetchExecutorEntrypoint } from '../../src/index';
-import { proxyFetchWorker } from '../../src/index';
+import { proxyFetch } from '../../src/index';
 import { instrumentDOProject } from '@lumenize/testing';
 import { sendDownstream } from '@lumenize/rpc';
 
@@ -14,7 +14,7 @@ export { _FetchOrchestrator };
 export { FetchExecutorEntrypoint };
 
 /**
- * TestDO - Origin DO that uses proxyFetchWorker
+ * TestDO - Origin DO that uses proxyFetch
  * 
  * Uses LumenizeBase and OCAN continuations like modern Lumenize patterns.
  */
@@ -23,7 +23,7 @@ export class _TestDO extends LumenizeBase {
   #latencyMeasurements: Array<{ reqId: string; startTime: number; endTime: number; duration: number }> = [];
 
   /**
-   * Make a fetch request using proxyFetchWorker
+   * Make a fetch request using proxyFetch
    */
   async fetchData(url: string): Promise<string> {
     const startTime = Date.now();
@@ -32,7 +32,7 @@ export class _TestDO extends LumenizeBase {
     const tempKey = `temp_start:${Date.now()}`;
     this.ctx.storage.kv.put(tempKey, { startTime });
     
-    const reqId = await proxyFetchWorker(
+    const reqId = await proxyFetch(
       this,
       url,
       // Continuation receives result as first parameter by convention
@@ -109,7 +109,7 @@ export class _TestDO extends LumenizeBase {
     const tempKey = `latency:temp:${startTime}`;
     this.ctx.storage.kv.put(tempKey, { startTime });
     
-    const reqId = await proxyFetchWorker(
+    const reqId = await proxyFetch(
       this,
       url,
       this.ctn().handleFetchResult(),
@@ -153,7 +153,7 @@ export class _TestDO extends LumenizeBase {
    */
   async callProxyFetchWithInvalidContinuation(url: string): Promise<string> {
     // Pass a non-OCAN continuation (just a string)
-    return await proxyFetchWorker(
+    return await proxyFetch(
       this,
       url,
       'not-an-ocan-continuation' as any,
@@ -172,7 +172,7 @@ export class _TestDO extends LumenizeBase {
       constructor: { name: 'TestDO' }
     };
     
-    return await proxyFetchWorker(
+    return await proxyFetch(
       brokenInstance as any,
       url,
       this.ctn().handleFetchResult(),
@@ -185,7 +185,7 @@ export class _TestDO extends LumenizeBase {
    */
   async callProxyFetchWithStringUrl(url: string): Promise<string> {
     // Pass string URL instead of Request object
-    return await proxyFetchWorker(
+    return await proxyFetch(
       this,
       url, // String, not Request
       this.ctn().handleFetchResult(),
@@ -198,7 +198,7 @@ export class _TestDO extends LumenizeBase {
    */
   async callProxyFetchWithoutOriginBinding(url: string): Promise<string> {
     // Omit originBinding to trigger getOriginBinding
-    return await proxyFetchWorker(
+    return await proxyFetch(
       this,
       url,
       this.ctn().handleFetchResult()
@@ -280,7 +280,7 @@ export class _TestDO extends LumenizeBase {
    * Test helper: Make a fetch with a throwing handler
    */
   async fetchDataWithThrowingHandler(url: string): Promise<string> {
-    const reqId = await proxyFetchWorker(
+    const reqId = await proxyFetch(
       this,
       url,
       this.ctn().throwingHandler(),

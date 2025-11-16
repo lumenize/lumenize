@@ -295,7 +295,7 @@ const sidebars: SidebarsConfig = {
       label: 'Proxy Fetch',
       items: [
         'proxy-fetch/index',
-        'proxy-fetch/proxy-fetch-worker',
+        'proxy-fetch/architecture-and-failure-modes',
         ...(typedocProxyFetchSidebar && typedocProxyFetchSidebar.length > 0
           ? [wrapInApiReference(typedocProxyFetchSidebar, 'API Reference')]
           : []),

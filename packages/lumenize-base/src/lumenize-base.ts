@@ -3,6 +3,13 @@ import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, 
 import { postprocess } from '@lumenize/structured-clone';
 
 /**
+ * Continuation type with $result marker for explicit result placement.
+ * $result is typed as `any` because it's a placeholder that gets replaced
+ * at runtime with the actual result (which can be any type).
+ */
+export type Continuation<T> = T & { $result: any };
+
+/**
  * LumenizeBase - Base class for Durable Objects with NADIS auto-injection
  * 
  * Provides automatic dependency injection for NADIS services via `this.svc.*`
@@ -167,8 +174,8 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * this.svc.alarms.schedule(60, this.ctn().combineData(data1, data2));
    * ```
    */
-  ctn<T = this>(): T {
-    return newContinuation<T>();
+  ctn<T = this>(): Continuation<T> {
+    return newContinuation<T>() as Continuation<T>;
   }
 
   /**

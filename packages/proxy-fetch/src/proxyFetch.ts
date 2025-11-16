@@ -1,5 +1,5 @@
 /**
- * ProxyFetchWorker - DO-Worker Hybrid (RPC-Based Architecture)
+ * ProxyFetch - DO-Worker Hybrid (RPC-Based Architecture)
  * 
  * Best of both worlds:
  * - Type-safe RPC (service bindings, strongly typed)
@@ -67,7 +67,7 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  *   async fetchUserData(userId: string) {
  *     const request = new Request(`https://api.example.com/users/${userId}`);
  *     
- *     await proxyFetchWorker(
+ *     const reqId = proxyFetch(
  *       this,
  *       request,
  *       this.ctn().handleFetchResult(),
@@ -90,7 +90,7 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * }
  * ```
  */
-export async function proxyFetchWorker(
+export async function proxyFetch(
   doInstance: DurableObject,
   request: string | Request,
   continuation: any, // OCAN continuation
@@ -98,7 +98,9 @@ export async function proxyFetchWorker(
 ): Promise<string> {
   const ctx = doInstance.ctx as DurableObjectState;
   const env = doInstance.env;
-  const log = debug(ctx)('lmz.proxyFetch.worker');
+  const log = debug(ctx)('lmz.proxyFetch');
+  
+  log.debug('proxyFetch called', { requestType: typeof request });
 
   // Validate continuation
   const continuationChain = getOperationChain(continuation);
@@ -125,21 +127,12 @@ export async function proxyFetchWorker(
   const preprocessedRequest = await preprocess(requestObj);
   const preprocessedContinuation = await preprocess(continuationChain);
 
-  // Store pending continuation in origin DO storage
-  // This will be retrieved when the result comes back
-  const pendingKey = `__lmz_proxyfetch_pending:${reqId}`;
-  ctx.storage.kv.put(pendingKey, {
-    reqId,
-    continuationChain: preprocessedContinuation,
-    timestamp: Date.now()
-  });
-
   // Prepare message for FetchOrchestrator
-  // Note: We don't send the continuation to the orchestrator/worker
-  // It stays stored locally and is executed when the result returns
+  // Continuation travels through the pipeline (no storage at origin)
   const message: FetchOrchestratorMessage = {
     reqId,
     request: preprocessedRequest,
+    continuation: preprocessedContinuation,
     originBinding,
     originId: ctx.id.toString(),
     options,
@@ -151,6 +144,12 @@ export async function proxyFetchWorker(
     const orchestratorBinding = options?.orchestratorBinding || 'FETCH_ORCHESTRATOR';
     const orchestratorInstanceName = options?.orchestratorInstanceName || 'singleton';
     
+    log.debug('Looking for orchestrator binding', { 
+      orchestratorBinding, 
+      orchestratorInstanceName,
+      availableBindings: Object.keys(env)
+    });
+    
     const orchestratorNamespace = env[orchestratorBinding];
     if (!orchestratorNamespace) {
       throw new Error(`FetchOrchestrator binding '${orchestratorBinding}' not found in env`);
@@ -159,17 +158,17 @@ export async function proxyFetchWorker(
     const orchestratorId = orchestratorNamespace.idFromName(orchestratorInstanceName);
     const orchestrator = orchestratorNamespace.get(orchestratorId);
     
+    log.debug('Calling orchestrator.enqueueFetch', { reqId });
     await orchestrator.enqueueFetch(message);
     
     log.debug('Request enqueued', { reqId });
   } catch (error) {
     log.error('Failed to enqueue request', {
       reqId,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
     });
     
-    // Clean up pending on failure
-    ctx.storage.kv.delete(pendingKey);
     throw new Error(`Failed to enqueue fetch request: ${error}`);
   }
 

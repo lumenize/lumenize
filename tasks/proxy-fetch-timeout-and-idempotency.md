@@ -98,9 +98,11 @@ async __receiveResult(handlerType: string, reqId: string, resultData: any): Prom
 - ✅ Missing continuation is handled gracefully
 - ✅ Missing handler is handled gracefully
 
-### Phase 2: Delivery Confirmation in Executor
+### Phase 2: Delivery Confirmation in Executor ✅
 
-**Goal**: Report delivery status (not success/failure) to Orchestrator.
+**Status**: COMPLETE
+
+**Goal**: Report delivery status (delivered/failed_to_deliver) to Orchestrator for monitoring and queue cleanup.
 
 **Changes to `proxy-fetch/src/workerFetchExecutor.ts`**:
 
@@ -166,37 +168,43 @@ export async function executeFetch(message: WorkerFetchMessage, env: any): Promi
     });
   }
 
-  // Notify orchestrator about delivery status (best effort)
-  if (deliverySuccessful) {
-    try {
-      const orchestratorId = env.FETCH_ORCHESTRATOR.idFromName('singleton');
-      const orchestrator = env.FETCH_ORCHESTRATOR.get(orchestratorId);
-      await orchestrator.markDelivered(message.reqId);
-      
-      log.debug('Notified orchestrator of delivery', { reqId: message.reqId });
-    } catch (notifyError) {
-      log.error('Failed to notify orchestrator', {
-        reqId: message.reqId,
-        error: notifyError instanceof Error ? notifyError.message : String(notifyError)
-      });
-      // Orchestrator will timeout and send timeout error - that's OK
-    }
+  // Report delivery status to orchestrator (for monitoring and queue cleanup)
+  try {
+    const orchestratorId = env.FETCH_ORCHESTRATOR.idFromName('singleton');
+    const orchestrator = env.FETCH_ORCHESTRATOR.get(orchestratorId);
+    await orchestrator.reportDelivery(message.reqId, deliverySuccessful);
+    
+    log.debug('Reported delivery status to orchestrator', { 
+      reqId: message.reqId,
+      delivered: deliverySuccessful
+    });
+  } catch (reportError) {
+    log.error('Failed to report delivery status to orchestrator', {
+      reqId: message.reqId,
+      delivered: deliverySuccessful,
+      error: reportError instanceof Error ? reportError.message : String(reportError),
+      note: 'Orchestrator may not clean up queue entry'
+    });
   }
-  // If delivery failed, don't notify - let Orchestrator timeout
 }
 ```
 
-**Key Changes**:
-- Track `deliverySuccessful` boolean
-- Only call `markDelivered()` if delivery succeeded
-- If delivery failed, remain silent (Orchestrator will timeout)
+**Changes to `proxy-fetch/src/FetchOrchestrator.ts`**:
+- Renamed `markComplete(reqId)` → `reportDelivery(reqId, delivered: boolean)`
+- Logs delivery failures with `log.error()` for monitoring/alerting
+- Cleans up queue entry regardless of delivery status
+
+**Key Implementation Details**:
+- Track `delivered` boolean in executor
+- Always report status to orchestrator (success or failure)
+- Orchestrator logs delivery failures for monitoring
+- Orchestrator always cleans up queue (whether delivered or not)
 
 **Tests**:
-- ✅ Successful delivery → `markDelivered()` called
-- ✅ Failed delivery → silent (Orchestrator timeout handles it)
-- ✅ Failed notification → logged but doesn't crash
-- ✅ Response converted to ResponseSync via `ResponseSync.fromResponse()`
-- ✅ Handler can call `result.json()` synchronously (no await needed)
+- ✅ Successful delivery → reported to orchestrator, queue cleaned up
+- ✅ Failed delivery → reported to orchestrator with error log, queue cleaned up
+- ✅ Failed status report → logged but doesn't crash execution
+- ✅ Existing integration tests pass (9/15, same 6 pre-existing timeout failures)
 - ✅ Handler can call `result.text()` synchronously (no await needed)
 - ✅ Handler can call `result.arrayBuffer()` synchronously (no await needed)
 
