@@ -251,7 +251,7 @@ export class FetchOrchestrator extends LumenizeBase {
   }
 
   /**
-   * Send timeout error to origin DO using operation chain pattern
+   * Send timeout error to origin DO using callRaw
    * @internal
    */
   async #sendTimeoutToOrigin(message: any): Promise<void> {
@@ -269,21 +269,18 @@ export class FetchOrchestrator extends LumenizeBase {
         elapsed: Date.now() - message.timestamp
       });
       
-      // Get origin DO
-      const originId = this.env[message.originBinding].idFromString(message.originId);
-      const originDO = this.env[message.originBinding].get(originId);
-      
       // Postprocess the continuation (deserialize it)
       const continuation = await postprocess(message.continuation);
       
       // Inject RAW Error into continuation placeholder (not preprocessed!)
       const filledChain = await replaceNestedOperationMarkers(continuation, timeoutError);
       
-      // Preprocess the filled chain for transmission via Workers RPC
-      const preprocessedChain = await preprocess(filledChain);
-      
-      // Send to origin DO (__executeOperation handles postprocessing)
-      await originDO.__executeOperation(preprocessedChain);
+      // Use callRaw to send to origin DO (automatic metadata propagation!)
+      await this.lmz.callRaw(
+        message.originBinding,
+        message.originId,
+        filledChain
+      );
       
       log.debug('Delivery timeout sent to origin DO successfully', { reqId: message.reqId });
     } catch (sendError) {

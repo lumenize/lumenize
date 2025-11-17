@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
 import { postprocess } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
+import { createLmzApiForDO, type LmzApi } from './lmz-api.js';
 
 /**
  * Continuation type with $result marker for explicit result placement.
@@ -51,6 +52,7 @@ export type Continuation<T> = T & { $result: any };
 export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
+  #lmzApi: LmzApi | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -61,7 +63,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * 
    * This handler automatically reads `x-lumenize-do-binding-name` and
    * `x-lumenize-do-instance-name-or-id` headers (set by routeDORequest)
-   * and stores them for use by services like @lumenize/call.
+   * and stores them for use by this.lmz.call() and other services.
    * 
    * Subclasses should call `super.fetch(request)` at the start of their
    * fetch handler to enable auto-initialization:
@@ -116,7 +118,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * Initialize DO metadata from request headers
    * 
    * Reads `x-lumenize-do-binding-name` and `x-lumenize-do-instance-name-or-id`
-   * headers and calls `__lmzInit()` if present. These headers are automatically
+   * headers and calls `this.lmz.init()` if present. These headers are automatically
    * set by `routeDORequest` in @lumenize/utils.
    * 
    * This is called automatically by the default `fetch()` handler. If you
@@ -144,9 +146,9 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
 
     // Only call init if at least one header is present
     if (doBindingName || doInstanceNameOrId) {
-      this.__lmzInit({
-        doBindingName: doBindingName || undefined,
-        doInstanceNameOrId: doInstanceNameOrId || undefined
+      this.lmz.init({
+        bindingName: doBindingName || undefined,
+        instanceNameOrId: doInstanceNameOrId || undefined
       });
     }
   }
@@ -167,7 +169,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * 
    * // Remote DO calls
    * const remote = this.ctn<RemoteDO>().getUserData(userId);
-   * this.svc.call(REMOTE_DO, 'instance-id', remote, this.ctn().handleResult(remote));
+   * this.lmz.call(REMOTE_DO, 'instance-id', remote, this.ctn().handleResult(remote));
    * 
    * // Nesting
    * const data1 = this.ctn().getData(1);
@@ -182,10 +184,10 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   /**
    * Execute an OCAN (Operation Chaining And Nesting) operation chain on this DO.
    * 
-   * This method enables remote DOs to call methods on this DO via @lumenize/call.
+   * This method enables remote DOs to call methods on this DO via this.lmz.call().
    * Any DO extending LumenizeBase can receive remote calls without additional setup.
    * 
-   * @internal This is called by @lumenize/call, not meant for direct use
+   * @internal This is called by this.lmz.call(), not meant for direct use
    * @param chain - The operation chain to execute
    * @returns The result of executing the operation chain
    * 
@@ -204,11 +206,54 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   }
 
   /**
+   * Receive and execute an RPC call envelope with auto-initialization
+   * 
+   * Handles versioned envelopes and automatically initializes this DO's identity
+   * from the callee metadata included in the envelope. This enables DOs to learn
+   * their binding name and instance name from the first incoming call.
+   * 
+   * **Envelope format**:
+   * - `version: 1` - Current envelope version (required)
+   * - `chain` - Preprocessed operation chain to execute
+   * - `metadata.callee` - Identity of this DO (used for auto-initialization)
+   * 
+   * @internal This is called by this.lmz.callRaw(), not meant for direct use
+   * @param envelope - The call envelope with version, chain, and metadata
+   * @returns The result of executing the operation chain
+   * @throws Error if envelope version is not 1
+   * 
+   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
+   */
+  async __executeOperation(envelope: any): Promise<any> {
+    // 1. Validate envelope version
+    if (!envelope.version || envelope.version !== 1) {
+      throw new Error(
+        `Unsupported RPC envelope version: ${envelope.version}. ` +
+        `This version of LumenizeBase only supports v1 envelopes. ` +
+        `Old-style calls without envelopes are no longer supported.`
+      );
+    }
+
+    // 2. Auto-initialize from callee metadata if present
+    if (envelope.metadata?.callee) {
+      this.lmz.init({
+        bindingName: envelope.metadata.callee.bindingName,
+        instanceNameOrId: envelope.metadata.callee.instanceNameOrId
+      });
+    }
+
+    // 3. Postprocess and execute chain
+    const preprocessedChain = envelope.chain;
+    const operationChain = await postprocess(preprocessedChain);
+    return await this.__executeChain(operationChain);
+  }
+
+  /**
    * Enqueue work for asynchronous processing (Actor Model)
    * 
    * This implements the actor model pattern: work is queued, sender returns
-   * immediately, and receiver processes asynchronously. Used by @lumenize/call,
-   * @lumenize/proxy-fetch, and other packages that need queued async processing.
+   * immediately, and receiver processes asynchronously. Used by @lumenize/proxy-fetch
+   * and other packages that need queued async processing.
    * 
    * @param workType - Type of work (e.g., 'call', 'fetch', custom types)
    * @param workId - Unique identifier for this work item
@@ -216,7 +261,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * 
    * @example
    * ```typescript
-   * // From @lumenize/call - queue remote operation
+   * // From this.lmz.callRaw() - queue remote operation
    * await remoteDO.__enqueueWork('call', operationId, {
    *   operationChain,
    *   returnAddress: { doBinding, instanceId }
@@ -311,7 +356,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * - Inject the result into the continuation (via replaceNestedOperationMarkers)
    * - Execute the continuation (via executeOperationChain)
    * 
-   * Used by @lumenize/call, @lumenize/proxy-fetch, and other async actor-model packages.
+   * Used by @lumenize/proxy-fetch and other async actor-model packages.
    * 
    * @param workType - Type of work that produced this result (e.g., 'call', 'proxyFetch')
    * @param workId - ID of the work item (e.g., operationId, reqId)
@@ -389,112 +434,23 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Process a queued call operation (internal handler for @lumenize/call)
+   * Access Lumenize infrastructure: identity and RPC methods
    * 
-   * This method is called by alarms.schedule(0, ...) from call() to process
-   * async operations (preprocessing and RPC) without blocking the caller.
+   * Provides clean abstraction over identity management and RPC infrastructure:
+   * - **Identity**: `bindingName`, `instanceName`, `id`, `instanceNameOrId`, `type`
+   * - **RPC**: `callRaw()`, `call()` (added in Phases 2 and 4)
+   * - **Convenience**: `init()` to set multiple properties at once
    * 
-   * The call data is retrieved from storage using the callId to avoid
-   * passing complex operation chains through OCAN.
+   * Properties use getters/setters to abstract storage details.
+   * Changes are validated to prevent accidental overwrites.
    * 
-   * @param callId - Unique identifier for this call (stored in __lmz_call_data:{callId})
-   * 
-   * @internal Called by @lumenize/call via alarms
+   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
-  async __processCallQueue(
-    callId: string
-  ): Promise<void> {
-    // Implemented by @lumenize/call - this is just a placeholder
-    throw new Error('__processCallQueue called but @lumenize/call is not imported');
-  }
-
-  /**
-   * Initialize DO metadata (binding name and instance name)
-   * 
-   * This method stores the DO's binding name and instance name in storage
-   * for later use by services like @lumenize/call. Only names are stored;
-   * IDs are always available via this.ctx.id.
-   * 
-   * This is typically called automatically when using:
-   * - routeDORequest() - extracts from headers
-   * - svc.call() - includes in envelope
-   * 
-   * But can be called manually if needed:
-   * 
-   * @param options - Optional initialization data
-   * @param options.doBindingName - The binding name for this DO (e.g., 'USER_DO')
-   * @param options.doInstanceNameOrId - The instance name or ID for this DO
-   * 
-   * @throws {Error} If provided values don't match stored values or this.ctx.id
-   * 
-   * @example
-   * ```typescript
-   * class MyDO extends LumenizeBase<Env> {
-   *   init(userId: string) {
-   *     this.__lmzInit({ 
-   *       doBindingName: 'USER_DO',
-   *       doInstanceNameOrId: userId 
-   *     });
-   *   }
-   * }
-   * ```
-   */
-  __lmzInit(options?: {
-    doBindingName?: string;
-    doInstanceNameOrId?: string;
-  }): void {
-    const { doBindingName, doInstanceNameOrId } = options || {};
-
-    // Verify and store binding name if provided
-    if (doBindingName !== undefined) {
-      const storedBindingName = this.ctx.storage.kv.get('__lmz_do_binding_name');
-      
-      if (storedBindingName !== undefined) {
-        // Verify it matches
-        if (storedBindingName !== doBindingName) {
-          throw new Error(
-            `DO binding name mismatch: stored '${storedBindingName}' but received '${doBindingName}'. ` +
-            `A DO instance cannot change its binding name.`
-          );
-        }
-      } else {
-        // Store it
-        this.ctx.storage.kv.put('__lmz_do_binding_name', doBindingName);
-      }
+  get lmz(): LmzApi {
+    if (!this.#lmzApi) {
+      this.#lmzApi = createLmzApiForDO(this.ctx, this.env, this);
     }
-
-    // Verify and store instance name if provided (IDs are not stored, always use this.ctx.id)
-    if (doInstanceNameOrId !== undefined) {
-      // Check if this is an ID or a name
-      const isId = isDurableObjectId(doInstanceNameOrId);
-      
-      if (isId) {
-        // Verify the ID matches this.ctx.id
-        if (this.ctx.id.toString() !== doInstanceNameOrId) {
-          throw new Error(
-            `DO instance ID mismatch: this.ctx.id is '${this.ctx.id}' but received '${doInstanceNameOrId}'. ` +
-            `A DO instance cannot change its ID.`
-          );
-        }
-        // Don't store IDs - they're always available via this.ctx.id
-      } else {
-        // It's a name - verify and store it
-        const storedInstanceName = this.ctx.storage.kv.get('__lmz_do_instance_name');
-        
-        if (storedInstanceName !== undefined) {
-          // Verify it matches
-          if (storedInstanceName !== doInstanceNameOrId) {
-            throw new Error(
-              `DO instance name mismatch: stored '${storedInstanceName}' but received '${doInstanceNameOrId}'. ` +
-              `A DO instance cannot change its name.`
-            );
-          }
-        } else {
-          // Store the name
-          this.ctx.storage.kv.put('__lmz_do_instance_name', doInstanceNameOrId);
-        }
-      }
-    }
+    return this.#lmzApi;
   }
 
   /**

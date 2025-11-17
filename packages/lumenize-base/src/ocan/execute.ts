@@ -231,7 +231,7 @@ function findParentObject(operations: OperationChain, target: any): any {
 /**
  * Replace nested operation markers in a continuation chain with an actual result value.
  * 
- * This is used by actor-model systems (@lumenize/call, @lumenize/proxy-fetch) where
+ * This is used by actor-model systems (this.lmz.call(), @lumenize/proxy-fetch) where
  * a continuation handler needs to receive the result of an async operation.
  * 
  * Supports two patterns:
@@ -247,7 +247,7 @@ function findParentObject(operations: OperationChain, target: any): any {
  * ```typescript
  * const remote = this.ctn<RemoteDO>().getData();
  * const handler = this.ctn().ctx.storage.kv.put('cache', remote);
- * await this.svc.call('REMOTE_DO', 'id', remote, handler);
+ * this.lmz.call('REMOTE_DO', 'id', remote, handler);
  * 
  * // Handler chain: [get:ctx, get:storage, get:kv, apply:['cache', NestedMarker]]
  * const finalChain = replaceNestedOperationMarkers(handler, actualData);

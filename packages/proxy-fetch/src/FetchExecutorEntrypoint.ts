@@ -21,11 +21,11 @@
  * 3. FetchOrchestrator will automatically use it via RPC
  */
 
-import { WorkerEntrypoint } from 'cloudflare:workers';
+import { LumenizeWorker } from '@lumenize/lumenize-base';
 import { executeFetch } from './workerFetchExecutor.js';
 import type { WorkerFetchMessage } from './types.js';
 
-export class FetchExecutorEntrypoint extends WorkerEntrypoint {
+export class FetchExecutorEntrypoint extends LumenizeWorker {
   /**
    * Execute an external fetch request
    * 
@@ -36,7 +36,7 @@ export class FetchExecutorEntrypoint extends WorkerEntrypoint {
    * 1. Quick RPC acknowledgment (microseconds)
    * 2. FetchOrchestrator stops billing
    * 3. Fetch executes in background (CPU billing)
-   * 4. Result delivered to origin DO via __executeOperation()
+   * 4. Result delivered to origin DO via this.lmz.callRaw()
    * 5. Delivery status reported to orchestrator (for monitoring/queue cleanup)
    * 
    * @param message - Fetch message containing request and callback info
@@ -45,7 +45,7 @@ export class FetchExecutorEntrypoint extends WorkerEntrypoint {
     
     // Quick acknowledgment - return immediately to stop DO wall-clock billing
     this.ctx.waitUntil(
-      executeFetch(message, this.env)
+      executeFetch(message, this.env, this)
     );
     
     // Return immediately - FetchOrchestrator continues without blocking

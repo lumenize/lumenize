@@ -2,6 +2,13 @@
   "name": "lumenize-base",
   "main": "test/test-worker-and-dos.ts",
   "compatibility_date": "2025-09-12",
+  "services": [
+    {
+      "binding": "TEST_WORKER",
+      "service": "lumenize-base",
+      "entrypoint": "TestWorker"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

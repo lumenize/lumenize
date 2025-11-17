@@ -17,9 +17,10 @@
  */
 
 import { debug } from '@lumenize/core';
-import { preprocess, postprocess, ResponseSync } from '@lumenize/structured-clone';
+import { postprocess, ResponseSync } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers } from '@lumenize/lumenize-base';
 import type { WorkerFetchMessage } from './types.js';
+import type { LumenizeWorker } from '@lumenize/lumenize-base';
 
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
@@ -30,11 +31,13 @@ const DEFAULT_TIMEOUT = 30000; // 30 seconds
  * 
  * @param message - The fetch request message
  * @param env - Worker environment (must contain DO bindings for result delivery)
+ * @param worker - The LumenizeWorker instance (for callRaw access)
  * @internal
  */
 export async function executeFetch(
   message: WorkerFetchMessage,
-  env: any
+  env: any,
+  worker: LumenizeWorker
 ): Promise<void> {
   const log = debug({ id: { toString: () => 'worker' } })('lmz.proxyFetch.worker');
   
@@ -91,16 +94,13 @@ export async function executeFetch(
     return;
   }
 
-  // Send result to origin DO using operation chain pattern
+  // Send result to origin DO using callRaw (automatic metadata propagation!)
   log.debug('Sending result to origin DO', { 
     reqId: message.reqId,
     resultType: result instanceof Error ? 'Error' : 'ResponseSync'
   });
   
   try {
-    const originId = env[message.originBinding].idFromString(message.originId);
-    const originDO = env[message.originBinding].get(originId);
-    
     log.debug('Postprocessing continuation', {
       reqId: message.reqId,
       continuationType: typeof message.continuation
@@ -112,16 +112,18 @@ export async function executeFetch(
     // Inject RAW result into continuation placeholder (not preprocessed!)
     const filledChain = await replaceNestedOperationMarkers(continuation, result);
     
-    // Preprocess the filled chain for transmission via Workers RPC (one time only)
-    const preprocessedChain = await preprocess(filledChain);
-    
-    log.debug('Calling __executeOperation on origin DO', { 
+    log.debug('Calling origin DO via callRaw', { 
       reqId: message.reqId,
-      chainPreview: JSON.stringify(preprocessedChain, null, 2).substring(0, 500)
+      originBinding: message.originBinding,
+      originId: message.originId
     });
     
-    // Send to origin DO (__executeOperation handles postprocessing)
-    await originDO.__executeOperation(preprocessedChain);
+    // Use callRaw to send to origin DO (automatic metadata propagation!)
+    await worker.lmz.callRaw(
+      message.originBinding,
+      message.originId,
+      filledChain
+    );
     
     log.debug('Result sent to origin DO successfully', { reqId: message.reqId });
   } catch (callbackError) {

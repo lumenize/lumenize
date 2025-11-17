@@ -24,9 +24,8 @@
  * - Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
  */
 
-import type { DurableObject } from 'cloudflare:workers';
 import { debug } from '@lumenize/core';
-import { getOperationChain } from '@lumenize/lumenize-base';
+import { getOperationChain, type LumenizeBase } from '@lumenize/lumenize-base';
 import { preprocess } from '@lumenize/structured-clone';
 import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.js';
 
@@ -39,11 +38,12 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * - Worker executes fetch via RPC and calls your continuation with result
  * 
  * **Setup Required**:
- * 1. Call `__lmzInit({ doBindingName })` in your DO constructor
- * 2. Export `FetchExecutorEntrypoint` from your worker
- * 3. Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
+ * 1. Your DO must extend `LumenizeBase`
+ * 2. Call `this.lmz.init({ bindingName })` in your DO constructor
+ * 3. Export `FetchExecutorEntrypoint` from your worker
+ * 4. Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
  * 
- * @param doInstance - The DO instance making the request
+ * @param doInstance - The LumenizeBase DO instance making the request
  * @param request - URL string or Request object
  * @param continuation - OCAN continuation that receives ResponseSync | Error
  * @param options - Optional configuration (executorBinding, timeout, etc)
@@ -68,7 +68,7 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * class MyDO extends LumenizeBase<Env> {
  *   constructor(ctx: DurableObjectState, env: Env) {
  *     super(ctx, env);
- *     this.__lmzInit({ doBindingName: 'MY_DO' });
+ *     this.lmz.init({ bindingName: 'MY_DO' });
  *   }
  * 
  *   async fetchUserData(userId: string) {
@@ -93,13 +93,13 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * ```
  */
 export async function proxyFetch(
-  doInstance: DurableObject,
+  doInstance: LumenizeBase,
   request: string | Request,
   continuation: any, // OCAN continuation
   options?: ProxyFetchWorkerOptions,
   reqId?: string
 ): Promise<string> {
-  const ctx = doInstance.ctx as DurableObjectState;
+  const ctx = doInstance.ctx;
   const env = doInstance.env;
   const log = debug(ctx)('lmz.proxyFetch');
   
@@ -117,13 +117,14 @@ export async function proxyFetch(
   // Normalize request to Request object
   const requestObj = typeof request === 'string' ? new Request(request) : request;
 
-  // Get origin binding from storage (set via __lmzInit)
-  const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  // Get origin binding from DO instance  
+  const originBinding = doInstance.lmz?.bindingName;
   
   if (!originBinding) {
     throw new Error(
       `Cannot use proxyFetch() from a DO that doesn't know its own binding name. ` +
-      `Call __lmzInit({ doBindingName }) in your DO constructor.`
+      `Call this.lmz.init({ bindingName }) in your DO constructor or ensure ` +
+      `routeDORequest() is used to set headers automatically.`
     );
   }
 
@@ -149,29 +150,28 @@ export async function proxyFetch(
     timestamp: Date.now()
   };
 
-  // Send to FetchOrchestrator
+  // Send to FetchOrchestrator using this.lmz.callRaw()
   try {
     const orchestratorBinding = options?.orchestratorBinding || 'FETCH_ORCHESTRATOR';
     const orchestratorInstanceName = options?.orchestratorInstanceName || 'singleton';
     
-    log.debug('Looking for orchestrator binding', { 
+    log.debug('Calling orchestrator via callRaw', { 
       orchestratorBinding, 
       orchestratorInstanceName,
-      availableBindings: Object.keys(env)
+      reqId: finalReqId
     });
     
-    const orchestratorNamespace = env[orchestratorBinding];
-    if (!orchestratorNamespace) {
-      throw new Error(`FetchOrchestrator binding '${orchestratorBinding}' not found in env`);
-    }
+    // Create continuation for the enqueueFetch call
+    const remoteContinuation = doInstance.ctn().enqueueFetch(message);
     
-    const orchestratorId = orchestratorNamespace.idFromName(orchestratorInstanceName);
-    const orchestrator = orchestratorNamespace.get(orchestratorId);
+    // Use callRaw for DO-to-DO RPC with automatic metadata propagation
+    await doInstance.lmz.callRaw(
+      orchestratorBinding,
+      orchestratorInstanceName,
+      remoteContinuation
+    );
     
-    log.debug('Calling orchestrator.enqueueFetch', { reqId: finalReqId });
-    await orchestrator.enqueueFetch(message);
-    
-    log.debug('Request enqueued', { reqId: finalReqId });
+    log.debug('Request enqueued via callRaw', { reqId: finalReqId });
   } catch (error) {
     log.error('Failed to enqueue request', {
       reqId: finalReqId,

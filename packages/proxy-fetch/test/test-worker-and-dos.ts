@@ -1,5 +1,4 @@
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import '@lumenize/call';  // Required for __executeOperation
 import '@lumenize/proxy-fetch';
 import { FetchOrchestrator as _FetchOrchestrator, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 import { ResponseSync, stringify } from '@lumenize/structured-clone';
@@ -10,7 +9,7 @@ export { FetchExecutorEntrypoint };
 export class _TestDO extends LumenizeBase {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    this.__lmzInit({ doBindingName: 'TEST_DO' });
+    this.lmz.init({ bindingName: 'TEST_DO' });
   }
 
   async fetchData(url: string, reqId?: string): Promise<string> {

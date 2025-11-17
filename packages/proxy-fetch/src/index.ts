@@ -26,6 +26,7 @@ export type {
 // Register as NADIS service
 import { proxyFetch } from './proxyFetch';
 import type { ProxyFetchWorkerOptions } from './types';
+import type { LumenizeBase } from '@lumenize/lumenize-base';
 
 if (!(globalThis as any).__lumenizeServiceRegistry) {
   (globalThis as any).__lumenizeServiceRegistry = {};
@@ -33,7 +34,7 @@ if (!(globalThis as any).__lumenizeServiceRegistry) {
 
 // Capture proxyFetch function in closure
 const proxyFetchFn = proxyFetch;
-(globalThis as any).__lumenizeServiceRegistry.proxyFetch = (doInstance: any) => {
+(globalThis as any).__lumenizeServiceRegistry.proxyFetch = (doInstance: LumenizeBase) => {
   return (
     request: Request | string,
     continuation: any,
@@ -52,7 +53,7 @@ declare global {
      * 
      * Returns immediately with request ID. Result arrives later via continuation.
      * 
-     * **Setup Required**: Call `__lmzInit({ doBindingName })` in your DO constructor.
+     * **Setup Required**: Call `this.lmz.init({ bindingName })` in your DO constructor.
      * 
      * @param request - URL string or Request object
      * @param continuation - OCAN continuation that receives ResponseSync | Error
@@ -65,7 +66,7 @@ declare global {
      * class MyDO extends LumenizeBase {
      *   constructor(ctx: DurableObjectState, env: Env) {
      *     super(ctx, env);
-     *     this.__lmzInit({ doBindingName: 'MY_DO' });
+     *     this.lmz.init({ bindingName: 'MY_DO' });
      *   }
      * 
      *   fetchUserData(userId: string) {
