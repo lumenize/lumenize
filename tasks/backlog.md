@@ -65,6 +65,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 
+- [ ] Add this to the docs: https://discord.com/channels/595317990191398933/773219443911819284/1439941400778117292
+
 - [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
 
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
@@ -76,6 +78,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Add llms.txt support https://github.com/din0s/docusaurus-plugin-llms-txt
 
 - [ ] Add MCP server for docs
+  
+- [ ] Consider adding this to BSL and maybe other licenses:
+        The Software, or any part of it, including its source code, may not be used
+        to create, train, or improve any artificial intelligence or machine learning
+        models or systems, or to generate any datasets, without the express written
+        permission of the copyright holder(s).
 
 
 ## Future bigger things
