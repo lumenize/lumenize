@@ -4,46 +4,91 @@
 
 ## Objective
 
-Create infrastructure for **consistent, high-quality RPC calls** across all Lumenize packages. `callRaw` standardizes DO-to-DO, Worker-to-DO, DO-to-Worker, and Worker-to-Worker calls with automatic metadata propagation where available.
+Create **two-layer RPC architecture** for consistent, high-quality calls across all Lumenize code.
+
+### Layer 1: callRaw() - Infrastructure (Public in both classes)
+- **Async**: Returns `Promise<any>` with fully postprocessed result
+- **Pure RPC**: Build envelope, get stub, send, return result
+- **Metadata propagation**: Automatic caller + callee identity in envelope
+- **Universal**: Works in LumenizeBase (DOs) and LumenizeWorker (Workers)
+
+### Layer 2: call() - Application Pattern (LumenizeBase only)
+- **Synchronous**: Returns void, uses `blockConcurrencyWhile`
+- **Continuation pattern**: Handler receives result or Error
+- **Error handling**: Catches errors, injects into handler continuation
+- **Marker substitution**: Replaces nested operation placeholders
+- **DO-optimized**: Leverages blockConcurrencyWhile for non-blocking execution
 
 **Primary Goals** (in priority order):
-1. **Consistency**: All RPC calls use the same pattern and envelope format
+1. **Consistency**: All RPC calls use the same envelope format
 2. **Quality**: Proper metadata handling, error detection, and evolvability
-3. **DRY**: Single source of truth for envelope format and metadata propagation
-4. **Evolvability**: Adding new metadata fields happens in one place
-5. **Simplicity**: Eliminate boilerplate (5+ lines → 1 line per call)
+3. **Clear separation**: Infrastructure (callRaw) vs Application (call)
+4. **DRY**: Single source of truth for envelope format and metadata propagation
+5. **Evolvability**: Adding new metadata fields happens in one place
 
 ## Problem
 
 **Current state**:
-- Manual envelope creation in multiple packages (`@lumenize/call`, `@lumenize/proxy-fetch`)
-- Inconsistent metadata propagation patterns
-- Tests manually calling `__lmzInit` 
-- No support for Worker ↔ Worker or Worker ↔ DO calls
-- Hard to evolve (adding metadata field requires changes in N places)
+- Manual envelope creation in `@lumenize/call`
+- `@lumenize/proxy-fetch` duplicates metadata handling code
+- Tests manually call `__lmzInit`
+- No Worker support (Workers can't use current `call()`)
+- Hard to evolve (adding metadata field requires changes in multiple places)
 
-**Example boilerplate** (repeated everywhere):
+**Example boilerplate** (in packages/call/src/call.ts):
 ```typescript
-const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string;
-const originInstanceId = ctx.id.toString();
-const envelope = { 
-  chain: await preprocess(chain), 
-  originBinding, 
-  originInstanceId 
-};
-await remoteDO.__executeOperation(envelope);
+// Manual validation
+const originBinding = ctx.storage.kv.get('__lmz_do_binding_name');
+if (!originBinding) throw new Error('...');
+
+// Manual stub acquisition  
+const remoteStub = getDOStub(env[doBinding], doInstanceNameOrId);
+
+// Manual preprocessing
+const preprocessed = await preprocess(remoteChain);
+
+// Send (no callee metadata!)
+const result = await remoteStub.__executeOperation(preprocessed);
 ```
 
-## Design Goals
+## Why Two Layers?
 
-1. **Single line for callers**: `await callRaw(this, remoteDO, chain)`
-2. **Works from DOs AND Workers**: Detect caller context, send what we know
-3. **Works to DOs AND Workers**: Receivers handle envelope consistently
-4. **Automatic metadata propagation**: Origin identity travels with the call (when available)
-5. **Automatic initialization**: Remote DO receives metadata and calls `__lmzInit` before executing
-6. **Composition-based**: Both senders and receivers use composable helpers
-7. **Type-safe envelope structure**: Versioned, evolvable contract
-8. **Test simplification**: Tests stop manually calling `__lmzInit`
+### Layer 1: callRaw() - Infrastructure
+**Purpose**: Raw RPC transport with metadata propagation
+
+**Used by**:
+- Application code that wants simple async calls
+- `call()` implementation internally
+- Infrastructure code (`@lumenize/proxy-fetch`, `@lumenize/alarms`)
+- Workers (no blockConcurrencyWhile available)
+- Tests (simpler than continuation pattern)
+
+**Example**:
+```typescript
+// In LumenizeBase or LumenizeWorker
+const result = await this.callRaw(chain, 'REMOTE_DO', 'instance-123');
+// result is fully postprocessed and ready to use
+```
+
+### Layer 2: call() - Application Pattern
+**Purpose**: Non-blocking DO-to-DO calls with continuation pattern
+
+**Used by**:
+- Application DOs that want fire-and-forget pattern
+- DOs that need non-blocking execution
+- Code following the "synchronous by default" DO pattern
+
+**Example**:
+```typescript
+// In LumenizeBase only
+this.call(
+  'REMOTE_DO',
+  'instance-123',
+  this.ctn<RemoteDO>().getUserData(userId),
+  this.ctn().handleResult(this.ctn<RemoteDO>().getUserData(userId))
+);
+// Returns immediately! Handler called when result arrives
+```
 
 ## Architecture
 
@@ -55,200 +100,301 @@ interface CallEnvelope {
   version: 1;  // For future evolution
   chain: any;  // Preprocessed operation chain
   metadata?: {
-    originType?: 'do' | 'worker';      // Where call originated
-    originBinding?: string;             // DO binding name (DO only)
-    originInstanceId?: string;          // DO instance ID (DO only)
-    // Future: requestId, traceId, etc.
+    caller: {
+      type: 'LumenizeBase' | 'LumenizeWorker';
+      bindingName?: string;            // From storage (__lmz_do_binding_name)
+      instanceNameOrId?: string;       // From ctx.id (LumenizeBase only)
+    };
+    callee: {
+      type: 'LumenizeBase' | 'LumenizeWorker';
+      bindingName: string;             // Parameter to callRaw()
+      instanceNameOrId?: string;       // Parameter to callRaw() (LumenizeBase only)
+    };
   };
 }
 ```
 
-**Caller Context Detection**:
-- **Durable Object**: Has `this.ctx.storage.kv` - read binding from storage, get ID from `ctx.id`
-- **Worker**: No `this.ctx.storage` (or exists but no `kv`) - send `originType: 'worker'` only
-- **Test (vitest-pool-workers)**: Treated as Worker - no identity needed
+**Why both caller AND callee metadata?**
+- **Caller metadata**: Tells callee "who called me" (for logging, callbacks)
+- **Callee metadata**: Tells callee "my own identity" (auto-initialize if first call)
+- **Key insight**: Caller always knows callee's full identity, but callee might not know its own!
 
-### Caller Side (callRaw)
+**Type Detection**:
+- Set `this.#lmzBaseType` in constructor
+- `LumenizeBase` sets `'LumenizeBase'`
+- `LumenizeWorker` sets `'LumenizeWorker'`
+
+### callRaw() Implementation (Both Classes)
 
 ```typescript
-// In @lumenize/core (low-level, no dependencies)
-export async function callRaw(
-  caller: any,  // 'this' from DO or Worker
-  remoteTarget: any,  // Target DO/Worker stub
-  operationChain: OperationChain
+// In LumenizeBase and LumenizeWorker
+async callRaw(
+  chain: OperationChain,
+  calleeBindingName: string,
+  calleeInstanceNameOrId?: string,
+  options?: CallOptions
 ): Promise<any> {
-  // 1. Detect caller context and gather metadata
-  const metadata: CallEnvelope['metadata'] = {};
+  // 1. Gather caller metadata
+  const callerBindingName = this.ctx.storage?.kv?.get('__lmz_do_binding_name') as string | undefined;
+  const callerInstanceId = (this as any).ctx.id?.toString();
   
-  // Try to read DO metadata (fails silently for Workers)
-  if (caller.ctx?.storage?.kv) {
-    // This is a DO - gather identity
-    metadata.originType = 'do';
-    metadata.originBinding = caller.ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
-    metadata.originInstanceId = caller.ctx.id?.toString();
-  } else {
-    // This is a Worker or test - no persistent identity
-    metadata.originType = 'worker';
-  }
+  // 2. Determine types based on context
+  const calleeType = calleeInstanceNameOrId ? 'LumenizeBase' : 'LumenizeWorker';
   
-  // 2. Preprocess operation chain
-  const preprocessedChain = await preprocess(operationChain);
+  // 3. Build metadata
+  const metadata = {
+    caller: {
+      type: this.#lmzBaseType,
+      bindingName: callerBindingName,
+      instanceNameOrId: callerInstanceId
+    },
+    callee: {
+      type: calleeType,
+      bindingName: calleeBindingName,
+      instanceNameOrId: calleeInstanceNameOrId
+    }
+  };
   
-  // 3. Create versioned envelope
-  const envelope: CallEnvelope = {
+  // 4. Preprocess operation chain
+  const preprocessedChain = await preprocess(chain);
+  
+  // 5. Create versioned envelope
+  const envelope = {
     version: 1,
     chain: preprocessedChain,
     metadata
   };
   
-  // 4. Send to remote target
-  return await remoteTarget.__executeOperation(envelope);
+  // 6. Get stub based on callee type
+  let stub: any;
+  if (calleeType === 'LumenizeBase') {
+    // DO: Use getDOStub from @lumenize/utils
+    stub = getDOStub(this.env[calleeBindingName], calleeInstanceNameOrId!);
+  } else {
+    // Worker: Direct access to entrypoint
+    stub = this.env[calleeBindingName];
+  }
+  
+  // 7. Send to remote and return postprocessed result
+  return await stub.__executeOperation(envelope);
 }
 ```
 
-### Receiver Side (DO)
+**Key implementation details**:
+- Parameter count determines callee type (2 params = Worker, 3 params = DO)
+- Caller binding may be undefined (not an error - silently omit)
+- Stub acquisition uses `getDOStub()` for DOs, direct env access for Workers
+- Result is already postprocessed by receiver's `__executeOperation`
+
+### __executeOperation() Receiver (Both Classes)
 
 ```typescript
-// In @lumenize/call (execute-operation-handler.ts)
-// This is installed by installRpcHandlers() on DO classes
-async function executeOperation(
-  this: any,  // 'this' is the DO instance
-  envelopeOrChain: any
-): Promise<any> {
+// In LumenizeBase and LumenizeWorker
+// Installed by installRpcHandlers() or similar
+async __executeOperation(envelopeOrChain: any): Promise<any> {
   // 1. Detect format (envelope vs raw chain for backward compatibility)
   const isEnvelope = envelopeOrChain?.version === 1;
   
   const preprocessedChain = isEnvelope ? envelopeOrChain.chain : envelopeOrChain;
   const metadata = isEnvelope ? envelopeOrChain.metadata : undefined;
   
-  // 2. Auto-initialize from metadata if present
-  if (metadata?.originBinding || metadata?.originInstanceId) {
+  // 2. Auto-initialize from callee metadata if present
+  if (metadata?.callee) {
     this.__lmzInit({
-      doBindingName: metadata.originBinding,
-      doInstanceNameOrId: metadata.originInstanceId
+      doBindingName: metadata.callee.bindingName,
+      doInstanceNameOrId: metadata.callee.instanceNameOrId
     });
   }
   
   // 3. Postprocess and execute
-  const operationChain: OperationChain = await postprocess(preprocessedChain);
+  const operationChain = await postprocess(preprocessedChain);
   return await this.__executeChain(operationChain);
 }
 ```
 
-### Receiver Side (Worker)
+**Why callee metadata, not caller?**
+- Callee metadata tells receiver "this is YOUR identity"
+- Enables auto-initialization on first call
+- Caller metadata available for logging/debugging but not used for initialization
+
+### call() Implementation (LumenizeBase Only)
 
 ```typescript
-// In @lumenize/core or @lumenize/worker-utils
-// Pattern for Workers to handle callRaw envelopes
-export function handleRpcEnvelope(
-  envelopeOrChain: any,
-  handler: (chain: OperationChain, metadata?: any) => Promise<any>
-): Promise<any> {
-  const isEnvelope = envelopeOrChain?.version === 1;
+// In LumenizeBase - synchronous wrapper around callRaw
+call(
+  calleeBindingName: string,
+  calleeInstanceNameOrId: string,
+  remoteOperation: Continuation<T>,
+  handlerContinuation: Continuation<this>,
+  options?: CallOptions
+): void {
+  // 1. Extract operation chains from continuations
+  const remoteChain = getOperationChain(remoteOperation);
+  const handlerChain = getOperationChain(handlerContinuation);
   
-  const preprocessedChain = isEnvelope ? envelopeOrChain.chain : envelopeOrChain;
-  const metadata = isEnvelope ? envelopeOrChain.metadata : undefined;
-  
-  // Postprocess and execute via user's handler
-  const operationChain = postprocess(preprocessedChain);
-  return handler(operationChain, metadata);
-}
-
-// Usage in Worker fetch handler:
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const envelope = await request.json();
-    const result = await handleRpcEnvelope(envelope, async (chain, metadata) => {
-      // User's logic here - metadata available if needed
-      return executeChain(chain);
-    });
-    return Response.json(result);
+  if (!remoteChain) {
+    throw new Error('Invalid remoteOperation: must be created with this.ctn()');
   }
+  if (!handlerChain) {
+    throw new Error('Invalid continuation: must be created with this.ctn()');
+  }
+  
+  // 2. Validate caller knows its own binding (fail fast!)
+  const callerBinding = this.ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  if (!callerBinding) {
+    throw new Error(
+      `Cannot use call() from a DO that doesn't know its own binding name. ` +
+      `Call __lmzInit({ doBindingName }) in your constructor.`
+    );
+  }
+  
+  // 3. Use blockConcurrencyWhile for non-blocking async work
+  this.ctx.blockConcurrencyWhile(async () => {
+    try {
+      // Call infrastructure layer
+      const result = await this.callRaw(remoteChain, calleeBindingName, calleeInstanceNameOrId, options);
+      
+      // Substitute result into handler continuation
+      const finalChain = replaceNestedOperationMarkers(handlerChain, result);
+      
+      // Execute handler locally
+      await executeOperationChain(finalChain, this);
+      
+    } catch (error) {
+      // Inject Error into handler continuation
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
+      
+      // Execute handler with error
+      await executeOperationChain(finalChain, this);
+    }
+  });
+  
+  // Returns immediately! Handler executes when result arrives
 }
 ```
+
+**Why not in LumenizeWorker?**
+- Workers don't have `blockConcurrencyWhile`
+- Workers use async/await naturally (just use `callRaw()` directly)
 
 ## Implementation Phases
 
-### Phase 1: Core Infrastructure (callRaw + Envelope Types)
+### Phase 1: Add callRaw() to LumenizeBase
 
-**Goal**: Create `callRaw` in `@lumenize/core` with DO and Worker context detection.
+**Goal**: Implement `callRaw()` method in LumenizeBase with caller+callee metadata propagation.
 
 **Success Criteria**:
-- [ ] TypeScript interface for `CallEnvelope` (versioned)
-- [ ] `callRaw()` function with context detection logic
-- [ ] Handles both DO and Worker callers gracefully
-- [ ] Unit tests for envelope structure in both contexts
-- [ ] Tests verify metadata populated correctly for DOs
-- [ ] Tests verify metadata minimal for Workers
-- [ ] JSDoc with examples for both DO and Worker usage
+- [ ] TypeScript interface for `CallEnvelope` (versioned, caller+callee metadata)
+- [ ] `this.#lmzBaseType = 'LumenizeBase'` set in constructor
+- [ ] `callRaw()` method implemented (async, public)
+- [ ] Gathers caller metadata from storage
+- [ ] Accepts callee metadata as parameters
+- [ ] Determines callee type from parameter count
+- [ ] Uses `getDOStub()` from @lumenize/utils
+- [ ] Preprocesses chain, builds envelope, sends to remote
+- [ ] Returns postprocessed result
+- [ ] Unit tests for envelope structure
+- [ ] Tests verify caller+callee metadata correct
+- [ ] JSDoc with clear examples
 
-**Package Location**: `@lumenize/core` (low-level, no dependencies on call/proxy-fetch)
+**Package Location**: `@lumenize/lumenize-base/src/lumenize-base.ts`
 
-**Why `@lumenize/core`**: 
-- Both `@lumenize/call` and `@lumenize/proxy-fetch` need it
-- Workers need it (won't depend on `@lumenize/call`)
-- Future packages will need it
-- Keeps envelope format centralized
+**Why lumenize-base**: 
+- Already has LumenizeBase class
+- Will also add LumenizeWorker here (shared infrastructure)
+- OCAN already lives here
+- Natural home for RPC infrastructure
 
-### Phase 2: Update __executeOperation in DOs
+### Phase 2: Update __executeOperation Receiver
 
-**Goal**: Modify `__executeOperation` to handle versioned envelopes and auto-initialize.
+**Goal**: Modify `__executeOperation` in LumenizeBase to handle versioned envelopes and auto-initialize.
 
 **Success Criteria**:
 - [ ] Detects envelope `version: 1` vs. raw chain (backward compat)
-- [ ] Extracts metadata from envelope
-- [ ] Auto-calls `__lmzInit` with metadata before executing
+- [ ] Extracts callee metadata from envelope
+- [ ] Auto-calls `__lmzInit` with callee metadata before executing
 - [ ] Backward compatible with old raw chain calls
-- [ ] Tests verify metadata → `__lmzInit` flow
+- [ ] Tests verify callee metadata → `__lmzInit` flow
 - [ ] Tests verify old calls still work
-- [ ] Tests with Worker→DO calls (no DO identity in metadata)
+- [ ] Tests verify caller metadata available but not used for init
 
-**Package**: `@lumenize/call` (modify `execute-operation-handler.ts`)
+**Package**: `@lumenize/lumenize-base/src/lumenize-base.ts`
 
 **Backward Compatibility**:
 ```typescript
-// Old (still works)
+// Old (still works - from packages/call)
 await remoteDO.__executeOperation(preprocessedChain);
 
-// New (metadata propagates)
-await remoteDO.__executeOperation({ version: 1, chain: preprocessedChain, metadata: {...} });
+// New (metadata propagates - from callRaw)
+await remoteDO.__executeOperation({ 
+  version: 1, 
+  chain: preprocessedChain, 
+  metadata: { caller: {...}, callee: {...} }
+});
 ```
 
-### Phase 3: Worker RPC Handler Composition
+### Phase 3: Refactor call() to use callRaw()
 
-**Goal**: Create `handleRpcEnvelope` helper for Workers to receive callRaw calls.
-
-**Success Criteria**:
-- [ ] `handleRpcEnvelope()` function extracts chain and metadata
-- [ ] Works with versioned envelopes
-- [ ] Backward compatible with raw chains
-- [ ] Example Worker fetch handler using it
-- [ ] Tests demonstrating Worker→Worker calls
-- [ ] JSDoc with clear usage pattern
-
-**Package**: `@lumenize/core` (same as callRaw)
-
-### Phase 4: Refactor @lumenize/call
-
-**Goal**: Replace manual envelope creation in `call()` with `callRaw`.
+**Goal**: Simplify `call()` implementation to use `callRaw()` internally.
 
 **Success Criteria**:
-- [ ] `call.ts` imports `callRaw` from `@lumenize/core`
-- [ ] Remove manual `storage.kv.get('__lmz_do_binding_name')` code
-- [ ] Remove manual envelope construction
-- [ ] All existing tests pass unchanged
-- [ ] Verify no behavior changes
+- [ ] Move `call()` from @lumenize/call to LumenizeBase
+- [ ] Refactor to use `this.callRaw()` internally
+- [ ] Keep same public API (continuations, no breaking changes)
+- [ ] Remove manual stub acquisition
+- [ ] Remove manual preprocessing
+- [ ] Remove manual metadata handling
+- [ ] All existing call tests pass unchanged
+- [ ] Verify error handling still works
 
-**Impact**: ~10-15 lines removed from call implementation
+**Package**: `@lumenize/lumenize-base/src/lumenize-base.ts`
 
-### Phase 5: Refactor @lumenize/proxy-fetch
+**Impact**: call() implementation shrinks from ~80 lines to ~40 lines
+
+### Phase 4: Create LumenizeWorker Class
+
+**Goal**: Create Worker Entrypoint base class with `callRaw()` but not `call()`.
+
+**Success Criteria**:
+- [ ] `LumenizeWorker` class created
+- [ ] Extends `WorkerEntrypoint` from Cloudflare
+- [ ] `this.#lmzBaseType = 'LumenizeWorker'` set in constructor
+- [ ] `callRaw()` method (same signature as LumenizeBase)
+- [ ] `__executeOperation()` receiver implemented
+- [ ] `__lmzInit()` for storing binding name
+- [ ] NADIS `svc` proxy (same as LumenizeBase)
+- [ ] Tests for Worker→DO and Worker→Worker calls
+- [ ] JSDoc with clear examples
+
+**Package**: `@lumenize/lumenize-base/src/lumenize-worker.ts`
+
+**Export**: Update `@lumenize/lumenize-base/src/index.ts` to export LumenizeWorker
+
+### Phase 5: Delete @lumenize/call Package
+
+**Goal**: Remove obsolete @lumenize/call package and migrate all code.
+
+**Success Criteria**:
+- [ ] Move remaining utilities (if any) to lumenize-base
+- [ ] Delete `packages/call/` directory
+- [ ] Update all imports across codebase
+- [ ] Move tests to `packages/lumenize-base/test/call.test.ts`
+- [ ] Move doc-tests to appropriate location
+- [ ] All tests still pass
+- [ ] No references to @lumenize/call remain
+
+**Impact**: One less package to maintain, simpler architecture
+
+### Phase 6: Refactor @lumenize/proxy-fetch
 
 **Goal**: Use `callRaw` for all DO-to-DO communication in proxy-fetch.
 
 **Success Criteria**:
+- [ ] Update to use LumenizeBase (extends it or imports callRaw)
 - [ ] `FetchOrchestrator` → Origin DO uses `callRaw`
 - [ ] `FetchExecutor` → Origin DO uses `callRaw`
-- [ ] Remove manual metadata reading
+- [ ] Remove manual metadata handling
 - [ ] All existing tests pass
 - [ ] Verify metadata flows correctly in timeout scenarios
 
@@ -256,13 +402,13 @@ await remoteDO.__executeOperation({ version: 1, chain: preprocessedChain, metada
 - `workerFetchExecutor.ts` - Executor → Origin DO
 - `FetchOrchestrator.ts` - Timeout errors → Origin DO
 
-### Phase 6: Test Refactoring (Opportunistic)
+### Phase 7: Test Refactoring (Opportunistic)
 
-**Goal**: Refactor tests to use `callRaw` instead of manual `__lmzInit` calls.
+**Goal**: Simplify tests by using `callRaw` instead of manual `__lmzInit` calls.
 
 **Success Criteria**:
 - [ ] Identify tests calling `__lmzInit` manually
-- [ ] Replace with `callRaw` where applicable
+- [ ] Replace with `callRaw` where it makes tests cleaner
 - [ ] Document pattern for future test writers
 - [ ] Tests become simpler and more maintainable
 
@@ -271,63 +417,76 @@ await remoteDO.__executeOperation({ version: 1, chain: preprocessedChain, metada
 **Locations** (examples):
 - `packages/rpc/test/downstream-messaging.test.ts`
 - `packages/rpc/test/test-worker-and-dos.ts`
-- Any doc-test projects using Workers
+- `doc-test/rpc/*` (various doc tests)
 
 **Note**: Not all tests need refactoring. Some unit tests should continue testing `__lmzInit` directly.
 
 ## Design Decisions
 
-### 1. Where should callRaw live?
+### 1. Where should callRaw and call live?
 
-**Decision**: `@lumenize/core`
+**Decision**: `@lumenize/lumenize-base` as methods on LumenizeBase and LumenizeWorker classes
 
 **Rationale**:
-- Both `@lumenize/call` and `@lumenize/proxy-fetch` need it
-- Workers need it (won't depend on `@lumenize/call`)
-- Centralizes envelope format for entire ecosystem
-- Low-level infrastructure with no dependencies
-- Future packages (rate-limiting, metrics) will need it
+- Inheritance over composition (simpler, no foot-guns)
+- OCAN already lives there
+- Natural place for RPC infrastructure
+- Both base classes can share code
+- Users just extend one class and get everything
 
 **Rejected alternatives**:
-- `@lumenize/call` - Creates circular dependency for Workers
-- `@lumenize/lumenize-base` - Too high-level, not all callers are DOs
+- Composition (separate utilities) - More complex, easier to misuse
+- `@lumenize/core` - Needs access to base class internals
+- `@lumenize/call` - Delete this package entirely
 
-### 2. Should callRaw validate originBinding for DOs?
+### 2. Should callRaw validate caller binding for DOs?
 
-**Decision**: **No validation** - fail silently and send undefined
+**Decision**: **No validation in callRaw, YES validation in call()**
 
 **Rationale**:
-- DOs might not have initialized yet (first call)
-- Receiver can handle missing metadata gracefully
-- Aligns with "fail silently" approach for Workers
-- Testing is easier (no need to initialize every test DO)
+- `callRaw()` is infrastructure - fail gracefully, send undefined if missing
+- `call()` is application - fail fast with clear error message
+- Tests can use `callRaw()` without initialization
+- Application code using `call()` gets helpful error messages
 
-**Alternative considered**: Throw error if binding missing → Rejected because:
-- Too strict for tests and development
-- Breaks the "just works" philosophy
-- Receiver already handles undefined metadata
+**call() validation**:
+```typescript
+const callerBinding = this.ctx.storage.kv.get('__lmz_do_binding_name');
+if (!callerBinding) {
+  throw new Error('Call __lmzInit({ doBindingName }) in your constructor.');
+}
+```
 
-### 3. Envelope format and versioning?
+### 3. Envelope format and metadata structure?
 
-**Decision**: Versioned envelope with `version: 1`
+**Decision**: Versioned envelope with caller + callee metadata
 
 ```typescript
 interface CallEnvelope {
   version: 1;  // REQUIRED - for evolution
   chain: any;  // Preprocessed operation chain
   metadata?: {
-    originType?: 'do' | 'worker';   // NEW - caller type
-    originBinding?: string;          // DO only
-    originInstanceId?: string;       // DO only
+    caller: {
+      type: 'LumenizeBase' | 'LumenizeWorker';
+      bindingName?: string;            // From storage
+      instanceNameOrId?: string;       // From ctx.id
+    };
+    callee: {
+      type: 'LumenizeBase' | 'LumenizeWorker';
+      bindingName: string;             // Always known by caller
+      instanceNameOrId?: string;       // Known for DOs
+    };
   };
 }
 ```
 
 **Rationale**:
-- `version` enables safe evolution (add fields, change structure)
-- `originType` makes debugging easier (know what called you)
-- Optional metadata supports Workers (no identity) and backward compat
+- **Caller metadata**: For logging, debugging, future callbacks
+- **Callee metadata**: For auto-initialization (receiver learns its own identity!)
+- `version: 1` enables safe evolution
 - Receiver checks `version: 1` to detect envelope vs. raw chain
+
+**Key insight**: Caller always knows callee's full identity, but callee might not know its own!
 
 **Future evolution examples**:
 - Add `requestId` for distributed tracing
@@ -335,50 +494,26 @@ interface CallEnvelope {
 - Add `timeout` for deadline propagation
 - Add `retryCount` for idempotency
 
-### 4. How to detect DO vs Worker context?
+### 4. How to detect caller and callee types?
 
-**Decision**: Check for `caller.ctx?.storage?.kv`
+**Decision**: 
+- Caller type: Set `this.#lmzBaseType` in constructor
+- Callee type: Infer from parameter count (3 params = DO, 2 params = Worker)
 
 ```typescript
-if (caller.ctx?.storage?.kv) {
-  // This is a DO
-  metadata.originType = 'do';
-  metadata.originBinding = caller.ctx.storage.kv.get('__lmz_do_binding_name');
-  metadata.originInstanceId = caller.ctx.id?.toString();
-} else {
-  // This is a Worker or test
-  metadata.originType = 'worker';
-}
+// In constructor
+this.#lmzBaseType = 'LumenizeBase' | 'LumenizeWorker';
+
+// In callRaw()
+const calleeType = calleeInstanceNameOrId ? 'LumenizeBase' : 'LumenizeWorker';
 ```
 
 **Rationale**:
-- DOs always have `ctx.storage.kv` (synchronous storage)
-- Workers never have `ctx.storage.kv`
-- Tests (vitest-pool-workers) act like Workers
-- Simple, works reliably
+- Reliable, set once at construction
+- Parameter count naturally indicates DO (has instance) vs Worker (no instance)
+- Simple, no runtime type checks needed
 
-**Trade-offs**:
-- ⚠️ Fragile if someone adds fake `kv` property
-- ✅ But unlikely in practice
-- ✅ Well-tested behavior
-- ✅ No need for explicit context parameter
-
-### 5. What metadata should Workers send?
-
-**Decision**: Just `originType: 'worker'` - no binding or instance ID
-
-**Rationale**:
-- Workers are ephemeral (no persistent identity)
-- Can't call back to specific Worker instance
-- Receiver doesn't need Worker identity (nothing to do with it)
-- Keeps metadata simple and honest
-
-**Why not more**:
-- Worker request URL? Receiver can't call it back
-- Worker name? Not meaningful (load balanced)
-- Worker trace ID? Future addition, not now
-
-### 6. Backward compatibility strategy?
+### 5. Backward compatibility strategy?
 
 **Decision**: Check for `version: 1` field
 
@@ -394,16 +529,27 @@ const isEnvelope = envelopeOrChain?.version === 1;
 
 **Example**:
 ```typescript
-// Old code (no changes needed)
+// Old code (no changes needed - from packages/call)
 await remoteDO.__executeOperation(preprocessedChain);
 
-// New code (with metadata)
+// New code (with metadata - from callRaw)
 await remoteDO.__executeOperation({ 
   version: 1, 
   chain: preprocessedChain, 
-  metadata: {...} 
+  metadata: { caller: {...}, callee: {...} }
 });
 ```
+
+### 6. Should call() and callRaw() be in same class?
+
+**Decision**: YES - both methods on base classes
+
+**Rationale**:
+- `call()` is sugar over `callRaw()` (just adds continuation pattern + blockConcurrencyWhile)
+- Simpler for users (one class, two methods for different use cases)
+- Clear layering: call() internally uses callRaw()
+- LumenizeBase: both methods
+- LumenizeWorker: only callRaw() (no blockConcurrencyWhile)
 
 ## Success Metrics
 
@@ -485,71 +631,109 @@ await remoteDO.__executeOperation({
 
 ## Package Changes Required
 
-### @lumenize/core
+### @lumenize/lumenize-base (Major Updates)
 
 **New files**:
-- `src/rpc/call-raw.ts` - Core `callRaw()` implementation
-- `src/rpc/types.ts` - `CallEnvelope` interface and related types
-- `src/rpc/handle-rpc-envelope.ts` - Worker receiver helper
-- `src/rpc/index.ts` - Public exports
-- `test/rpc/` - Tests for all RPC infrastructure
+- `src/lumenize-worker.ts` - LumenizeWorker class for Worker Entrypoints
+- `src/types.ts` - `CallEnvelope` interface and RPC types
+- `test/call.test.ts` - Tests migrated from @lumenize/call
+- `test/call-raw.test.ts` - Tests for callRaw infrastructure
+- `test/lumenize-worker.test.ts` - Tests for Worker class
 
 **Updated files**:
-- `src/index.ts` - Add `export * from './rpc/index.js'`
-- `package.json` - Update description to mention Workers support
+- `src/lumenize-base.ts` - Add `callRaw()`, `call()`, `__executeOperation()` with envelope handling
+- `src/index.ts` - Export LumenizeWorker and RPC types
+- `package.json` - Dependencies already include @lumenize/structured-clone and @lumenize/utils
 
-**Dependencies**: 
-- `@lumenize/structured-clone` (for `preprocess()`)
-- Already has no other dependencies (good!)
+**Existing dependencies (already present)**:
+- `@lumenize/structured-clone` (for preprocess/postprocess)
+- `@lumenize/utils` (for getDOStub)
 
-**Note**: Currently described as "for Durable Objects" but will now support Workers too.
+### @lumenize/call (Delete Entire Package)
 
-### @lumenize/call
+**Actions**:
+- Delete entire `packages/call/` directory
+- Migrate tests to `packages/lumenize-base/test/`
+- Migrate doc-tests to appropriate location
+- Update all imports across codebase
 
-**Updated files**:
-- `src/execute-operation-handler.ts` - Handle versioned envelopes
-- `src/call.ts` - Use `callRaw` from `@lumenize/core`
-- `package.json` - Add `@lumenize/core` dependency
-
-**Dependencies added**:
-- `@lumenize/core` (for `callRaw`)
+**Files to migrate**:
+- `test/call.test.ts` → `packages/lumenize-base/test/call.test.ts`
+- `test/for-docs/` → TBD based on structure
+- Delete: `src/call.ts`, `src/execute-operation-handler.ts`, `src/types.ts`, `src/index.ts`
 
 ### @lumenize/proxy-fetch
 
 **Updated files**:
-- `src/workerFetchExecutor.ts` - Use `callRaw` for Origin DO callbacks
-- `src/FetchOrchestrator.ts` - Use `callRaw` for timeout errors
-- `package.json` - Add `@lumenize/core` dependency
+- `src/workerFetchExecutor.ts` - Use `this.callRaw()` (extend LumenizeBase)
+- `src/FetchOrchestrator.ts` - Use `this.callRaw()` (extend LumenizeBase)
+- Remove manual metadata handling code
+- `package.json` - Remove `@lumenize/call` dependency (now use @lumenize/lumenize-base which is already a dep)
 
-**Dependencies added**:
-- `@lumenize/core` (for `callRaw`)
+**No new dependencies needed** - Already depends on @lumenize/lumenize-base
 
-### Tests affected
+### Tests affected (Phase 7 - Opportunistic)
 
-**Will need updates** (opportunistic, Phase 6):
-- `packages/rpc/test/downstream-messaging.test.ts`
-- `packages/rpc/test/test-worker-and-dos.ts`
-- `packages/call/test/call.test.ts` (verify still works)
-- `packages/proxy-fetch/test/` (all tests)
-- `doc-test/rpc/*` (various doc tests using Workers)
+**Will need updates**:
+- `packages/rpc/test/downstream-messaging.test.ts` - Use callRaw instead of manual __lmzInit
+- `packages/rpc/test/test-worker-and-dos.ts` - Use callRaw where appropriate
+- `packages/proxy-fetch/test/` - Verify still works after refactor
+- `doc-test/rpc/*` - Update any that used @lumenize/call
 
-## Questions for Maintainer
+**Import changes**:
+```typescript
+// Old
+import { call } from '@lumenize/call';
 
-1. **Package location confirmed?** `@lumenize/core` feels right, but want explicit approval.
-2. **@lumenize/core description update?** Currently says "for Durable Objects" - should we say "for Workers and Durable Objects"?
-3. **Should we create @lumenize/rpc as a separate package?** Instead of `@lumenize/core/rpc`?
-   - **Recommendation**: Keep in `@lumenize/core` - it's low-level infrastructure, not a high-level feature.
-4. **Validation strictness?** Should we validate envelope structure or just trust callers?
-   - **Recommendation**: Light validation (check `version` exists), trust the rest.
-5. **Phase 6 scope?** Should test refactoring be part of this task or separate follow-up?
-   - **Recommendation**: Opportunistic within this task - refactor as we touch files.
+// New
+import { LumenizeBase } from '@lumenize/lumenize-base';
+// Use: this.call() or this.callRaw()
+```
+
+## Summary: What We're Building
+
+### Two-Layer RPC System
+
+**Layer 1: callRaw() - Infrastructure**
+- Public async method on both LumenizeBase and LumenizeWorker
+- Parameters: `(chain, calleeBindingName, calleeInstanceNameOrId?, options?)`
+- Returns fully postprocessed result
+- Builds envelope with caller + callee metadata
+- Works for all combinations: DO↔DO, DO↔Worker, Worker↔DO, Worker↔Worker
+
+**Layer 2: call() - Application Pattern**  
+- Public synchronous method on LumenizeBase only
+- Parameters: `(calleeBindingName, calleeInstanceNameOrId, remoteOperation, handlerContinuation, options?)`
+- Uses blockConcurrencyWhile for non-blocking execution
+- Continuation pattern: handler receives result or Error
+- Internally uses callRaw()
+
+### Key Benefits
+
+1. **Consistency**: Single envelope format everywhere
+2. **Auto-initialization**: Callees learn their identity automatically
+3. **Simpler tests**: Use callRaw() without manual __lmzInit
+4. **Worker support**: LumenizeWorker class with full RPC capabilities
+5. **Clear layers**: Infrastructure (callRaw) vs Application (call)
+6. **Evolvable**: Versioned envelope, easy to add fields
+7. **Less boilerplate**: ~80 lines of call() shrinks to ~40
+
+### Architecture Wins
+
+- **Inheritance over composition**: Just extend LumenizeBase or LumenizeWorker
+- **Delete @lumenize/call**: Consolidate into lumenize-base
+- **Shared code**: Both classes use same envelope infrastructure
+- **Type safety**: TypeScript interfaces prevent mistakes
 
 ## Next Steps
 
-1. ✅ **Review this document** with maintainer  
-2. **Answer maintainer questions** (see above)
-3. **Get approval** on architecture and phases
-4. **Proceed with Phase 1** (Core Infrastructure)
+1. ✅ **Document reviewed and updated** with final architecture
+2. **Get maintainer approval** on:
+   - Two-layer system (call vs callRaw)
+   - Inheritance approach (methods on base classes)
+   - Deleting @lumenize/call package
+   - Caller + callee metadata structure
+3. **Proceed with Phase 1** (Add callRaw to LumenizeBase)
 
-Ready to proceed?
+Ready to start implementation!
 
