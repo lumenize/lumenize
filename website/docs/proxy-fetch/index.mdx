@@ -12,7 +12,7 @@ A de✨light✨ful way to make external API calls from Durable Objects without b
 - ✅ **Cost-effective** - CPU billing for fetches, minimal DO billing
 - ✅ **Type-safe** - Full TypeScript support with OCAN continuations
 - ✅ **Timeout monitoring** - Automatic timeout detection with clear error messages
-- ✅ **Idempotent** - Race conditions handled automatically
+- ✅ **Simple architecture** - No result storage in Origin DO, direct continuation delivery
 
 ## Quick Start
 
@@ -247,6 +247,8 @@ this.svc.proxyFetch(
 
 The **Origin DO decides retry strategy**. The Orchestrator only monitors timeouts - it never retries.
 
+**Race condition safety**: Handlers with early returns on errors are naturally safe from duplicate calls. Only add explicit deduplication if you perform destructive actions on both success AND error. See [Race Conditions](/docs/proxy-fetch/architecture-and-failure-modes#race-conditions) for details.
+
 ### Sequential Retry Pattern
 
 ```typescript @skip-check
@@ -352,14 +354,39 @@ For detailed architecture diagrams, failure scenarios, and race condition handli
 👉 **[Architecture & Failure Modes](/docs/proxy-fetch/architecture-and-failure-modes)**
 
 **High-level flow:**
-1. Origin DO → Orchestrator: Enqueue fetch + store continuation
+1. Origin DO → Orchestrator: Enqueue fetch with continuation
 2. Orchestrator → Executor: Dispatch via RPC (returns immediately)
 3. Executor → External API: Perform fetch (CPU billing)
-4. Executor → Origin DO: Deliver result via `__receiveResult()`
-5. Origin DO: Execute continuation with result
+4. Executor → Origin DO: Deliver result via continuation chain
+5. Origin DO: Handler receives result synchronously
 
 **Key design:**
 - ✅ Orchestrator stops billing after quick RPC dispatch
 - ✅ Executor uses CPU billing for external fetch
 - ✅ Timeout monitoring via native alarm (5s polling)
-- ✅ Idempotent result handling (first wins, duplicates logged)
+- ✅ Direct delivery via continuation chains (no result storage)
+
+**Important: Handler Call Guarantee**
+
+**Normal operation**: Handler called exactly once with either `ResponseSync` or `Error`.
+
+**Rare race condition** (network partition): Handler may be called twice - first with `ResponseSync` (success), then with `TimeoutError`. Most handlers are naturally safe:
+
+```typescript
+handleResult(result: ResponseSync | Error) {
+  if (result instanceof Error) {
+    console.warn('Error:', result.message);
+    return; // Early return - safe!
+  }
+  
+  // Only success path performs destructive operations
+  const data = result.json();
+  this.saveToDatabase(data); // ✅ Only happens once
+}
+```
+
+This common pattern is safe because destructive operations only happen on the success path (ResponseSync). The second call (TimeoutError) hits the early return.
+
+**Only risky if** you perform destructive actions on BOTH success AND error (e.g., incrementing error counters, sending alerts). In that case, use idempotency keys or check for "delivery timeout" in error messages.
+
+See [Race Conditions](/docs/proxy-fetch/architecture-and-failure-modes#race-conditions) for detailed examples.

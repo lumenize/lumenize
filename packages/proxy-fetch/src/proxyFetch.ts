@@ -39,13 +39,15 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * - Worker executes fetch via RPC and calls your continuation with result
  * 
  * **Setup Required**:
- * 1. Export `FetchExecutorEntrypoint` from your worker
- * 2. Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
+ * 1. Call `__lmzInit({ doBindingName })` in your DO constructor
+ * 2. Export `FetchExecutorEntrypoint` from your worker
+ * 3. Add service binding in wrangler.jsonc (see FetchExecutorEntrypoint docs)
  * 
  * @param doInstance - The DO instance making the request
  * @param request - URL string or Request object
- * @param continuation - OCAN continuation that receives Response | Error
- * @param options - Optional configuration (executorBinding, originBinding, timeout, etc)
+ * @param continuation - OCAN continuation that receives ResponseSync | Error
+ * @param options - Optional configuration (executorBinding, timeout, etc)
+ * @param reqId - Optional request ID (generated if not provided). Useful for testing and log correlation.
  * @returns Request ID (for correlation)
  * 
  * @example
@@ -64,27 +66,27 @@ import type { FetchOrchestratorMessage, ProxyFetchWorkerOptions } from './types.
  * 
  * // In your DO:
  * class MyDO extends LumenizeBase<Env> {
+ *   constructor(ctx: DurableObjectState, env: Env) {
+ *     super(ctx, env);
+ *     this.__lmzInit({ doBindingName: 'MY_DO' });
+ *   }
+ * 
  *   async fetchUserData(userId: string) {
  *     const request = new Request(`https://api.example.com/users/${userId}`);
  *     
- *     const reqId = proxyFetch(
- *       this,
+ *     const reqId = await this.svc.proxyFetch(
  *       request,
- *       this.ctn().handleFetchResult(),
- *       {
- *         originBinding: 'MY_DO',
- *         workerUrl: 'https://my-worker.my-subdomain.workers.dev'
- *       }
+ *       this.ctn().handleFetchResult()
  *     );
  *   }
  *   
- *   handleFetchResult(result: Response | Error) {
+ *   handleFetchResult(result: ResponseSync | Error) {
  *     if (result instanceof Error) {
  *       console.error('Fetch failed:', result);
  *       return;
  *     }
  *     // Process response
- *     const data = await result.json();
+ *     const data = result.json(); // Synchronous!
  *     this.ctx.storage.kv.put('user-data', data);
  *   }
  * }
@@ -94,7 +96,8 @@ export async function proxyFetch(
   doInstance: DurableObject,
   request: string | Request,
   continuation: any, // OCAN continuation
-  options?: ProxyFetchWorkerOptions
+  options?: ProxyFetchWorkerOptions,
+  reqId?: string
 ): Promise<string> {
   const ctx = doInstance.ctx as DurableObjectState;
   const env = doInstance.env;
@@ -108,17 +111,24 @@ export async function proxyFetch(
     throw new Error('Invalid continuation: must be created with this.ctn()');
   }
 
-  // Generate request ID
-  const reqId = crypto.randomUUID();
+  // Use provided reqId or generate one
+  const finalReqId = reqId ?? crypto.randomUUID();
 
   // Normalize request to Request object
   const requestObj = typeof request === 'string' ? new Request(request) : request;
 
-  // Get origin binding (for callbacks)
-  const originBinding = options?.originBinding || getOriginBinding(doInstance);
+  // Get origin binding from storage (set via __lmzInit)
+  const originBinding = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+  
+  if (!originBinding) {
+    throw new Error(
+      `Cannot use proxyFetch() from a DO that doesn't know its own binding name. ` +
+      `Call __lmzInit({ doBindingName }) in your DO constructor.`
+    );
+  }
 
   log.debug('Initiating proxy fetch', {
-    reqId,
+    reqId: finalReqId,
     url: requestObj.url,
     originBinding
   });
@@ -130,7 +140,7 @@ export async function proxyFetch(
   // Prepare message for FetchOrchestrator
   // Continuation travels through the pipeline (no storage at origin)
   const message: FetchOrchestratorMessage = {
-    reqId,
+    reqId: finalReqId,
     request: preprocessedRequest,
     continuation: preprocessedContinuation,
     originBinding,
@@ -158,13 +168,13 @@ export async function proxyFetch(
     const orchestratorId = orchestratorNamespace.idFromName(orchestratorInstanceName);
     const orchestrator = orchestratorNamespace.get(orchestratorId);
     
-    log.debug('Calling orchestrator.enqueueFetch', { reqId });
+    log.debug('Calling orchestrator.enqueueFetch', { reqId: finalReqId });
     await orchestrator.enqueueFetch(message);
     
-    log.debug('Request enqueued', { reqId });
+    log.debug('Request enqueued', { reqId: finalReqId });
   } catch (error) {
     log.error('Failed to enqueue request', {
-      reqId,
+      reqId: finalReqId,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined
     });
@@ -172,33 +182,6 @@ export async function proxyFetch(
     throw new Error(`Failed to enqueue fetch request: ${error}`);
   }
 
-  return reqId;
-}
-
-/**
- * Get the binding name for this DO in the environment
- * @internal
- */
-function getOriginBinding(doInstance: any): string {
-  // Try to get from constructor name as fallback
-  const constructorName = doInstance.constructor.name;
-  
-  // For LumenizeBase DOs, try to infer from env
-  const env = doInstance.env;
-  if (env) {
-    for (const [key, value] of Object.entries(env)) {
-      if (value && typeof value === 'object' && 'idFromName' in value) {
-        // This looks like a DO binding
-        // Check if it matches our instance type
-        if (value.constructor?.name === constructorName) {
-          return key;
-        }
-      }
-    }
-  }
-  
-  // Fallback: Use constructor name
-  // User may need to configure this explicitly in production
-  return constructorName.replace(/DO$/, '_DO').toUpperCase();
+  return finalReqId;
 }
 

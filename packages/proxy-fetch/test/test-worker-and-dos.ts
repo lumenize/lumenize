@@ -8,41 +8,58 @@ import { ResponseSync, stringify } from '@lumenize/structured-clone';
 export { FetchExecutorEntrypoint };
 
 export class _TestDO extends LumenizeBase {
-  async fetchData(url: string): Promise<string> {
-    const reqId = await this.svc.proxyFetch(
-      url,
-      this.ctn().handleFetchResult(this.ctn().$result, url),
-      { originBinding: 'TEST_DO' }
-    );
-    return reqId;
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+    this.__lmzInit({ doBindingName: 'TEST_DO' });
   }
 
-  async fetchDataWithRequest(request: Request): Promise<string> {
-    const reqId = await this.svc.proxyFetch(
+  async fetchData(url: string, reqId?: string): Promise<string> {
+    const finalReqId = await this.svc.proxyFetch(
+      url,
+      this.ctn().handleFetchResult(this.ctn().$result, url),
+      {},
+      reqId
+    );
+    return finalReqId;
+  }
+
+  async fetchDataWithRequest(request: Request, reqId?: string): Promise<string> {
+    const finalReqId = await this.svc.proxyFetch(
       request,
       this.ctn().handleFetchResult(this.ctn().$result, request.url),
-      { originBinding: 'TEST_DO' }
+      {},
+      reqId
     );
-    return reqId;
+    return finalReqId;
   }
 
-  async fetchDataWithOptions(url: string, options: { timeout?: number }): Promise<string> {
-    const reqId = await this.svc.proxyFetch(
+  async fetchDataWithOptions(url: string, options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean } }, reqId?: string): Promise<string> {
+    const finalReqId = await this.svc.proxyFetch(
       url,
       this.ctn().handleFetchResult(this.ctn().$result, url),
-      { ...options, originBinding: 'TEST_DO' }
+      options,
+      reqId
     );
-    return reqId;
+    return finalReqId;
   }
 
   async handleFetchResult(result: ResponseSync | Error, url: string): Promise<void> {
     const resultKey = `__test_result:${url}`;
     const serialized = await stringify(result);
     this.ctx.storage.kv.put(resultKey, serialized);
+    
+    // Increment call counter for testing
+    const counterKey = `__test_call_count:${url}`;
+    const currentCount: number = this.ctx.storage.kv.get(counterKey) || 0;
+    this.ctx.storage.kv.put(counterKey, currentCount + 1);
   }
 
   getResult(url: string): string | undefined {
     return this.ctx.storage.kv.get(`__test_result:${url}`);
+  }
+
+  getCallCount(url: string): number {
+    return this.ctx.storage.kv.get(`__test_call_count:${url}`) || 0;
   }
 
   /**

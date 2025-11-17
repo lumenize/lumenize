@@ -11,9 +11,10 @@ This document provides detailed flow diagrams for all scenarios in `@lumenize/pr
 
 1. **MyDO (user's DO) = Failure Decision Maker**: MyDO DO decides how to handle errors, if/when to retry, etc. based on business logic
 2. **Orchestrator (DO) = Timeout Watchdog Only**: FetchOrchestrator dispatches to FetchExecutor once and monitors timeout
-3. **Executor (WorkerEntryPoint) = Performs Fetch**: FetchExecutor makes the actual fetch to the 3rd party and reports back directly to MyDO.
-4. **Only One MyDO Handler Call Per Fetch**: First result (Timeout Error from Orchestrator or ResponseSync/Error from Executor) that makes it back to the MyDO will be the only one delivered to the user's handler. Duplicates arriving later are logged as errors
-5. **Timeout ambiguity**: A timeout error doesn't mean the fetch didn't execute - it may have partially succeeded
+3. **Executor (WorkerEntryPoint) = Performs Fetch**: FetchExecutor makes the actual fetch to the 3rd party and reports back directly to MyDO
+4. **No result storage in Origin DO**: Results are delivered directly via continuation chains - no storage for deduplication (performance/simplicity trade-off)
+5. **Type-based safety**: In rare race conditions (see Race 1 below), handler may be called twice - first with `ResponseSync` (success), then with `TimeoutError`. Handlers with early error returns are naturally safe.
+6. **Timeout ambiguity**: A timeout error doesn't mean the fetch didn't execute - it may have partially succeeded
 
 ## What Handler Receives (Precise Categories)
 
@@ -170,7 +171,9 @@ particular fetch.
 
 ## MyDO-Controlled Retry Logic
 
-Since MyDO decides retry behavior, here's a fully-functional example:
+Since MyDO decides retry behavior, here's a fully-functional example.
+
+**Important**: Design your handlers to be **idempotent** (safe to call multiple times). In rare race conditions (see Race 1 above), a handler may be called twice with different results. Use idempotency keys, upserts, or duplicate detection as appropriate for your use case.
 
 ```typescript @skip-check
 class MyDO extends LumenizeBase {
@@ -384,12 +387,11 @@ the Response but before it can deliver it to MyDO's handler.
 
 ## Race Conditions
 
-### Race 1: ResponseSync, then Timeout
+### Race 1: ResponseSync, then Timeout (POSSIBLE - Handler Called Twice)
 
-The FetchOrchestrator timeout is 10 seconds beyond the fetch timeout 
-(default or user-set), so this race condition is impossible under normal operation. 
-However, we wanted you to be aware of the risk, no matter how slim, and how the system 
-will behave if this improbability occurs.
+The FetchOrchestrator timeout is 10 seconds beyond the fetch timeout, making this race extremely unlikely. However, it IS possible if:
+- Result delivery to MyDO succeeds, BUT
+- `reportDelivery()` to Orchestrator fails (network partition)
 
 ```mermaid @skip-check
 sequenceDiagram
@@ -398,20 +400,65 @@ sequenceDiagram
     participant Exec as FetchExecutor (Worker)
 
     Exec->>MyDO: 4. ResponseSync ✅
-    Note over MyDO: handler(ResponseSync)
+    Note over MyDO: handler(ResponseSync) called
     
-    Exec-xOrch: 5. ❌ markDelivered(reqId) fails
+    Exec-xOrch: 5. ❌ reportDelivery(reqId) fails
     
-    Note over Orch: Timeout alarm fires
+    Note over Orch: Timeout alarm fires<br/>(no confirmation received)
     
-    Orch-xMyDO: 6. TimeoutError
-    
-    Note over MyDO: log error: duplicate result
+    Orch->>MyDO: 6. TimeoutError ✅
+    Note over MyDO: ⚠️ handler(TimeoutError) called AGAIN
 ```
 
-**How It Works**: The handler preprocessor checks if the `reqId` has already been processed. If yes, it logs an error and ignores the duplicate.
+**Critical**: In this race, the handler is called **twice**:
+1. First with `ResponseSync` (actual result from fetch)
+2. Then with `TimeoutError` (orchestrator gave up waiting)
 
-### Race 2: Timeout, then ResponseSync
+**Natural Protection**: Most handlers are **already safe** because of type differences:
+
+```typescript
+handleResult(result: ResponseSync | Error) {
+  if (result instanceof Error) {
+    console.warn('Timeout - operation may have succeeded');
+    return; // Early return - no destructive action
+  }
+  
+  // Process success - only happens once (first call)
+  const data = result.json();
+  this.saveToDatabase(data);
+}
+```
+
+This pattern is safe because:
+- ✅ First call (ResponseSync) → processes data normally
+- ✅ Second call (TimeoutError) → early return, no side effects
+- ✅ Destructive operations only happen on success path
+
+**Only risky if** your handler performs destructive actions on BOTH success AND error:
+
+```typescript
+// ❌ UNSAFE: Destructive actions in both branches
+handleResult(result: ResponseSync | Error) {
+  if (result instanceof Error) {
+    this.incrementErrorCounter(); // ❌ Happens on second call
+    this.sendErrorEmail();        // ❌ Duplicate email
+  } else {
+    this.saveToDatabase(result.json()); // ✅ Only first call
+  }
+}
+```
+
+**Best practices for error handling**:
+- Log errors (safe - duplicate logs are minor)
+- Avoid destructive error actions (counters, alerts, database writes)
+- Use idempotency keys if you must perform destructive error handling
+- Check if error contains "delivery timeout" (second call) vs other errors (first call)
+
+**Why no automatic deduplication?** The current architecture doesn't store pending fetches in Origin DO (for performance and simplicity). The 10-second buffer makes this race extremely rare, and type-based natural protection handles most cases safely.
+
+### Race 2: Timeout, then ResponseSync (IMPOSSIBLE)
+
+This race cannot happen in the current design:
 
 ```mermaid @skip-check
 sequenceDiagram
@@ -423,16 +470,18 @@ sequenceDiagram
     Orch->>MyDO: 6. TimeoutError
     Note over MyDO: handler(TimeoutError)
     
-    Note over Exec: fetch completes late
-    Exec-xMyDO: 5. ResponseSync
-    
-    Note over MyDO: log error: duplicate result
+    Note over Exec: ❌ Fetch completes AFTER<br/>its own AbortController fired?<br/>IMPOSSIBLE
+    Exec-xMyDO: 5. ResponseSync (never arrives)
 ```
 
-**Key**: First result wins.
+**Why it's impossible**:
+- The `timeout` option sets AbortController timeout for the fetch
+- Orchestrator timeout = fetch timeout + 10 seconds
+- If fetch completes, it delivers result BEFORE orchestrator timeout
+- If fetch is aborted, it can't complete afterward (AbortController guarantees this)
+- There's no scenario where orchestrator times out first AND fetch still succeeds
 
-
-**Timeout Behavior**:
-- The `timeout` option controls how long the external fetch is allowed to run (AbortController)
-- The Orchestrator automatically adds 10 seconds (`alarmPollingPeriod + buffer`) to this timeout before sending a timeout error
-- This ensures the fetch has time to complete AND report back before the Orchestrator gives up
+**Timeout Behavior Summary**:
+- `timeout` option → AbortController timeout for external fetch
+- Orchestrator timeout → `timeout` + 10 seconds (buffer for delivery)
+- This ensures fetch always completes (or aborts) before orchestrator gives up

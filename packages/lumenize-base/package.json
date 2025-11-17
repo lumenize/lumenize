@@ -26,6 +26,9 @@
     "lumenize"
   ],
   "license": "MIT",
+  "dependencies": {
+    "@lumenize/utils": "*"
+  },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "@lumenize/alarms": "*",

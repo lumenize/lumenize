@@ -16,10 +16,9 @@
   ],
   "scripts": {
     "test": "vitest --run",
-    "test:worker": "vitest --run --project worker",
-    "test:live": "vitest --run --project live-integration",
+    "test:debug": "DEBUG=lmz.* vitest --run",
     "coverage": "vitest --run --coverage",
-    "types": "cd test/worker && wrangler types"
+    "types": "cd test && wrangler types"
   },
   "keywords": [
     "cloudflare",

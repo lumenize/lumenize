@@ -80,6 +80,17 @@ export async function executeFetch(
     });
   }
 
+  // TEST HOOK: Check if we should simulate delivery failure
+  const shouldSkipDelivery = message.options?.testMode?.simulateDeliveryFailure === true;
+  
+  if (shouldSkipDelivery) {
+    log.debug('TEST MODE: Skipping delivery to simulate delivery failure', { 
+      reqId: message.reqId 
+    });
+    // Skip both delivery and reportDelivery to trigger orchestrator timeout
+    return;
+  }
+
   // Send result to origin DO using operation chain pattern
   log.debug('Sending result to origin DO', { 
     reqId: message.reqId,

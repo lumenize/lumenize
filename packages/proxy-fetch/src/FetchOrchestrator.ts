@@ -6,7 +6,7 @@
  * 2. Queues them in storage
  * 3. Dispatches to Workers via RPC (service binding) - QUICK RETURN
  * 4. Workers execute fetches in background (CPU billing, no wall-clock)
- * 5. Workers deliver results DIRECTLY to origin DOs via __receiveResult()
+ * 5. Workers deliver results DIRECTLY to origin DOs via __executeOperation()
  * 6. Workers report delivery status back to orchestrator (for monitoring/queue cleanup)
  * 
  * Benefits:
@@ -18,9 +18,9 @@
  * - Cost-effective (Workers use CPU billing, not wall-clock billing)
  */
 
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeBase, replaceNestedOperationMarkers } from '@lumenize/lumenize-base';
 import { debug } from '@lumenize/core';
-import { preprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import type { DurableObjectState } from '@cloudflare/workers-types';
 import type { FetchOrchestratorMessage, WorkerFetchMessage } from './types.js';
 
@@ -51,9 +51,10 @@ export class FetchOrchestrator extends LumenizeBase {
     // fetchTimeout = time for external fetch (user's timeout option)
     // +10s = alarm polling period (5s) + buffer (5s)
     const fetchTimeout = message.options?.timeout ?? 30000;
-    const ALARM_POLLING_PERIOD = 5000; // 5 seconds
-    const BUFFER = 5000; // 5 seconds for network latency
-    const orchestratorTimeout = fetchTimeout + ALARM_POLLING_PERIOD + BUFFER;
+    
+    // Allow test mode to override orchestrator timeout for faster tests
+    const orchestratorTimeout = message.options?.testMode?.orchestratorTimeoutOverride ?? 
+      (fetchTimeout + 10000); // Default: fetchTimeout + 10s (5s polling + 5s buffer)
     
     // Store in queue with timeout
     const queueKey = `__lmz_fetch_queue:${message.reqId}`;
@@ -188,6 +189,14 @@ export class FetchOrchestrator extends LumenizeBase {
   }
 
   /**
+   * Force alarm check (for testing only)
+   * @internal
+   */
+  async forceAlarmCheck(): Promise<void> {
+    await this.alarm();
+  }
+
+  /**
    * Alarm handler - checks for timed-out fetches
    * 
    * Runs every 5 seconds (while queue is not empty).
@@ -242,38 +251,43 @@ export class FetchOrchestrator extends LumenizeBase {
   }
 
   /**
-   * Send timeout error to origin DO
+   * Send timeout error to origin DO using operation chain pattern
    * @internal
    */
   async #sendTimeoutToOrigin(message: any): Promise<void> {
     const log = debug(this.ctx)('lmz.proxyFetch.orchestrator');
     
     try {
-      // Create timeout error
+      // Create delivery timeout error
       const timeoutError = new Error(
-        'Fetch timeout - external fetch may have partially succeeded. ' +
-        'Check if request was idempotent before retrying.'
+        'Fetch delivery timeout - result could not be delivered to origin DO within timeout period. ' +
+        'External fetch may have completed successfully but result was not delivered.'
       );
       
-      // Prepare error result (similar to FetchResult but with timeout error)
-      const errorResult = {
+      log.debug('Sending delivery timeout to origin DO', { 
         reqId: message.reqId,
-        response: undefined,
-        error: timeoutError,
-        retryCount: message.retryCount || 0,
-        duration: Date.now() - message.timestamp
-      };
+        elapsed: Date.now() - message.timestamp
+      });
       
-      // Get origin DO and send timeout error
+      // Get origin DO
       const originId = this.env[message.originBinding].idFromString(message.originId);
       const originDO = this.env[message.originBinding].get(originId);
       
-      const preprocessedResult = await preprocess(errorResult);
-      await originDO.__receiveResult('proxyFetch', message.reqId, preprocessedResult);
+      // Postprocess the continuation (deserialize it)
+      const continuation = await postprocess(message.continuation);
       
-      log.debug('Timeout error sent to origin DO', { reqId: message.reqId });
+      // Inject RAW Error into continuation placeholder (not preprocessed!)
+      const filledChain = await replaceNestedOperationMarkers(continuation, timeoutError);
+      
+      // Preprocess the filled chain for transmission via Workers RPC
+      const preprocessedChain = await preprocess(filledChain);
+      
+      // Send to origin DO (__executeOperation handles postprocessing)
+      await originDO.__executeOperation(preprocessedChain);
+      
+      log.debug('Delivery timeout sent to origin DO successfully', { reqId: message.reqId });
     } catch (sendError) {
-      log.error('Failed to send timeout error to origin DO', {
+      log.error('Failed to send delivery timeout to origin DO', {
         reqId: message.reqId,
         error: sendError instanceof Error ? sendError.message : String(sendError)
       });

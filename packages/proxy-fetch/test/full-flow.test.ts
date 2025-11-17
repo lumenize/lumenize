@@ -97,7 +97,7 @@ describe('HTTP Error Scenarios', () => {
   });
 });
 
-describe('Errors throw in the Executor', () => {
+describe('Errors thrown in the Executor', () => {
   it('receives Error (not ResponseSync) when external API is unreachable', async () => {
     await using originClient = createTestingClient<typeof TestDO>(
       'TEST_DO',
@@ -121,6 +121,99 @@ describe('Errors throw in the Executor', () => {
     expect(result.message).not.toContain('delivery timeout'); // Not from Orchestrator
     // Cloudflare wraps network errors as "internal error"
     expect(result.message).toContain('internal error');
+  });
+
+  it('receives Error when fetch exceeds timeout (AbortController)', async () => {
+    await using originClient = createTestingClient<typeof TestDO>(
+      'TEST_DO',
+      'fetch-timeout-test',
+      { transport: 'websocket'}
+    );
+
+    const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'fetch-timeout-test');
+    // Delay endpoint will take 5 seconds, but we timeout after 500ms
+    const url = testEndpoints.buildUrl('/delay/5000');
+    
+    await originClient.fetchDataWithOptions(url, { timeout: 500 });
+
+    const serialized = await vi.waitFor(async () => {
+      const r = await originClient.getResult(url);
+      expect(r).toBeDefined();
+      return r;
+    }, { timeout: 2000, interval: 50 });
+
+    const result = await parse(serialized);
+    expect(result).toBeInstanceOf(Error);
+    expect(result.message).not.toContain('delivery timeout'); // Not from Orchestrator
+    // AbortController errors typically contain "aborted" or "abort"
+    expect(result.message.toLowerCase()).toMatch(/abort/);
+  });
+});
+
+describe('Orchestrator Timeout (Delivery Timeout)', () => {
+  it('receives delivery timeout Error when result cannot be delivered to Origin', async () => {
+    await using originClient = createTestingClient<typeof TestDO>(
+      'TEST_DO',
+      'delivery-timeout-test',
+      { transport: 'websocket'}
+    );
+
+    const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'delivery-timeout-test');
+    const url = testEndpoints.buildUrl('/uuid');
+    const reqId = 'test-delivery-timeout-123'; // Explicit reqId for testing
+    
+    // Get orchestrator client to check queue
+    const orchestratorClient = createTestingClient<typeof FetchOrchestrator>(
+      'FETCH_ORCHESTRATOR',
+      'singleton',
+      { transport: 'websocket' }
+    );
+
+    // Use test hook to simulate delivery failure
+    // Use very short orchestrator timeout for fast testing (150ms total)
+    await originClient.fetchDataWithOptions(url, { 
+      timeout: 100,
+      testMode: { 
+        simulateDeliveryFailure: true,
+        orchestratorTimeoutOverride: 150  // Short timeout for testing
+      }
+    }, reqId);
+
+    // Verify request was queued
+    const queueStats = await orchestratorClient.getQueueStats();
+    expect(queueStats.pendingCount).toBeGreaterThan(0);
+    expect(queueStats.items).toContain(reqId);
+
+    // Wait for fetch to fail (timeout is 100ms)
+    await new Promise(resolve => setTimeout(resolve, 150));
+    
+    // Manually trigger alarm check (alarm simulation doesn't work with cross-DO RPC)
+    await orchestratorClient.forceAlarmCheck();
+
+    // Result should now be available
+    const serialized = await vi.waitFor(async () => {
+      const r = await originClient.getResult(url);
+      expect(r).toBeDefined();
+      return r;
+    }, { timeout: 200, interval: 10 });
+
+    const result = await parse(serialized);
+    expect(result).toBeInstanceOf(Error);
+    expect(result.message).toContain('delivery timeout'); // FROM Orchestrator
+    
+    // First check: Handler should have been called exactly once
+    const callCountAfterFirst = await originClient.getCallCount(url);
+    expect(callCountAfterFirst).toBe(1);
+    
+    // Wait 200ms to ensure no duplicate handler calls (race condition test)
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Final check: Handler should still have been called exactly once (no duplicates)
+    const callCountAfterWait = await originClient.getCallCount(url);
+    expect(callCountAfterWait).toBe(1);
+    
+    // Clean up
+    orchestratorClient[Symbol.dispose]();
   });
 });
 

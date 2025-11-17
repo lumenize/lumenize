@@ -70,14 +70,22 @@ export interface ProxyFetchWorkerOptions {
   timeout?: number;
   /** Maximum number of retry attempts (default: 3) */
   maxRetries?: number;
-  /** Binding name for origin DO (for callbacks) */
-  originBinding?: string;
   /** Binding name for FetchOrchestrator DO (default: 'FETCH_ORCHESTRATOR') */
   orchestratorBinding?: string;
   /** Instance name for FetchOrchestrator DO (default: 'singleton') */
   orchestratorInstanceName?: string;
   /** Binding name for FetchExecutor service (default: 'FETCH_EXECUTOR') */
   executorBinding?: string;
+  /** 
+   * Test mode options (for testing only)
+   * @internal
+   */
+  testMode?: {
+    /** Simulate delivery failure to test orchestrator timeout */
+    simulateDeliveryFailure?: boolean;
+    /** Override orchestrator timeout (ms) for faster tests */
+    orchestratorTimeoutOverride?: number;
+  };
 }
 
 /**

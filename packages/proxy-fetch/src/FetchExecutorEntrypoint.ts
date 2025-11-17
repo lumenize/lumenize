@@ -36,7 +36,7 @@ export class FetchExecutorEntrypoint extends WorkerEntrypoint {
    * 1. Quick RPC acknowledgment (microseconds)
    * 2. FetchOrchestrator stops billing
    * 3. Fetch executes in background (CPU billing)
-   * 4. Result delivered to origin DO via __receiveResult()
+   * 4. Result delivered to origin DO via __executeOperation()
    * 5. Delivery status reported to orchestrator (for monitoring/queue cleanup)
    * 
    * @param message - Fetch message containing request and callback info

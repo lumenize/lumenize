@@ -23,14 +23,6 @@ export type {
   FetchResult
 } from './types';
 
-// Register Worker result handler with LumenizeBase
-import { fetchWorkerResultHandler } from './fetchWorkerResultHandler';
-
-if (!(globalThis as any).__lumenizeResultHandlers) {
-  (globalThis as any).__lumenizeResultHandlers = {};
-}
-(globalThis as any).__lumenizeResultHandlers.proxyFetch = fetchWorkerResultHandler;
-
 // Register as NADIS service
 import { proxyFetch } from './proxyFetch';
 import type { ProxyFetchWorkerOptions } from './types';
@@ -45,9 +37,10 @@ const proxyFetchFn = proxyFetch;
   return (
     request: Request | string,
     continuation: any,
-    options?: ProxyFetchWorkerOptions
+    options?: ProxyFetchWorkerOptions,
+    reqId?: string
   ) => {
-    return proxyFetchFn(doInstance, request, continuation, options);
+    return proxyFetchFn(doInstance, request, continuation, options, reqId);
   };
 };
 
@@ -59,14 +52,22 @@ declare global {
      * 
      * Returns immediately with request ID. Result arrives later via continuation.
      * 
+     * **Setup Required**: Call `__lmzInit({ doBindingName })` in your DO constructor.
+     * 
      * @param request - URL string or Request object
      * @param continuation - OCAN continuation that receives ResponseSync | Error
      * @param options - Optional configuration (timeout, executorBinding, etc)
+     * @param reqId - Optional request ID (generated if not provided). Useful for testing and log correlation.
      * @returns Request ID (for logging/debugging)
      * 
      * @example
      * ```typescript
      * class MyDO extends LumenizeBase {
+     *   constructor(ctx: DurableObjectState, env: Env) {
+     *     super(ctx, env);
+     *     this.__lmzInit({ doBindingName: 'MY_DO' });
+     *   }
+     * 
      *   fetchUserData(userId: string) {
      *     const reqId = this.svc.proxyFetch(
      *       `https://api.example.com/users/${userId}`,
@@ -89,7 +90,8 @@ declare global {
     proxyFetch(
       request: Request | string,
       continuation: any,
-      options?: ProxyFetchWorkerOptions
+      options?: ProxyFetchWorkerOptions,
+      reqId?: string
     ): Promise<string>;
   }
 }

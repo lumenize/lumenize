@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
 import { postprocess } from '@lumenize/structured-clone';
+import { isDurableObjectId } from '@lumenize/utils';
 
 /**
  * Continuation type with $result marker for explicit result placement.
@@ -83,7 +84,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    */
   async fetch(request: Request): Promise<Response> {
     try {
-      await this.__initFromHeaders(request.headers);
+      this.__initFromHeaders(request.headers);
     } catch (error) {
       // Initialization errors indicate misconfiguration
       const message = error instanceof Error ? error.message : String(error);
@@ -129,7 +130,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * class MyDO extends LumenizeBase<Env> {
    *   async fetch(request: Request) {
    *     // Manual initialization (alternative to super.fetch())
-   *     await this.__initFromHeaders(request.headers);
+   *     this.__initFromHeaders(request.headers);
    *     
    *     // Handle request
    *     return new Response('Hello');
@@ -137,13 +138,13 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * }
    * ```
    */
-  async __initFromHeaders(headers: Headers): Promise<void> {
+  __initFromHeaders(headers: Headers): void {
     const doBindingName = headers.get('x-lumenize-do-binding-name');
     const doInstanceNameOrId = headers.get('x-lumenize-do-instance-name-or-id');
 
     // Only call init if at least one header is present
     if (doBindingName || doInstanceNameOrId) {
-      await this.__lmzInit({
+      this.__lmzInit({
         doBindingName: doBindingName || undefined,
         doInstanceNameOrId: doInstanceNameOrId || undefined
       });
@@ -429,8 +430,8 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * @example
    * ```typescript
    * class MyDO extends LumenizeBase<Env> {
-   *   async init(userId: string) {
-   *     await this.__lmzInit({ 
+   *   init(userId: string) {
+   *     this.__lmzInit({ 
    *       doBindingName: 'USER_DO',
    *       doInstanceNameOrId: userId 
    *     });
@@ -438,10 +439,10 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * }
    * ```
    */
-  async __lmzInit(options?: {
+  __lmzInit(options?: {
     doBindingName?: string;
     doInstanceNameOrId?: string;
-  }): Promise<void> {
+  }): void {
     const { doBindingName, doInstanceNameOrId } = options || {};
 
     // Verify and store binding name if provided
@@ -465,7 +466,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
     // Verify and store instance name if provided (IDs are not stored, always use this.ctx.id)
     if (doInstanceNameOrId !== undefined) {
       // Check if this is an ID or a name
-      const isId = (await import('@lumenize/utils')).isDurableObjectId(doInstanceNameOrId);
+      const isId = isDurableObjectId(doInstanceNameOrId);
       
       if (isId) {
         // Verify the ID matches this.ctx.id

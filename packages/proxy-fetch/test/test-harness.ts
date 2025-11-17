@@ -1,5 +1,5 @@
 /**
- * Test harness for live integration testing
+ * Test harness for integration testing
  * Instruments DOs from test-worker-and-dos.ts
  */
 import * as sourceModule from './test-worker-and-dos';

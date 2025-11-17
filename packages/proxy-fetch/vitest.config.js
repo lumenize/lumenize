@@ -1,49 +1,22 @@
-import { defineConfig } from 'vitest/config';
 import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 
-export default defineConfig({
+export default defineWorkersProject({
   test: {
-    projects: [
-      // Worker Variant tests - DO-Worker Hybrid
-      defineWorkersProject({
-        test: {
-          name: 'worker',
-          globals: true,
-          testTimeout: 15000, // Longer for latency measurements
-          include: ['test/worker/**/*.test.ts'],
-          fileParallelism: false, // Required: tests share orchestrator singleton
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/worker/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
-      
-      // Live Integration tests - requires wrangler dev running
-      defineWorkersProject({
-        test: {
-          name: 'live-integration',
-          globals: true,
-          testTimeout: 30000, // Longer timeout for wrangler dev interaction
-          include: ['test/live-integration/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              isolatedStorage: false, // Required for WebSocket support
-              wrangler: { configPath: './test/live-integration/wrangler.jsonc' },
-            },
-          },
-        },
-      }),
-    ],
+    globals: true,
+    testTimeout: 2000, // 2 second timeout
+    include: ['test/**/*.test.ts'],
+    poolOptions: {
+      workers: {
+        isolatedStorage: false, // Required for WebSocket support
+        wrangler: { configPath: './test/wrangler.jsonc' },
+      },
+    },
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**'],
       exclude: ['**/node_modules/**', '**/dist/**'],
       skipFull: false,
-      all: false,
     },
   },
 });
