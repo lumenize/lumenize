@@ -99,9 +99,16 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Consider creating a two hop version of proxy-fetch that moves the timeout functionality served by the Orchestrator to the origin DO. It would create a dependency on alarms though. Right now, we use the single native alarm in the Orchestrator.
 
+- [ ] Add an option to call for including the result handler execution in the same blockConcurrencyWhile on caller side.
+
+- [ ] Add an option to call for blockConcurrencyWhile on callee side... or maybe transaction?
+
+- [ ] Consider whether transaction is better for call than blockConcurrencyWhile?
+
 
 ## MCP
 
+- [ ] Consider using JS Proxy to for JSON RPC/MCP where JSON Schema is involved. This will allow us to have a simple method call that will still check the input schema. Look at what tRPC does with them.
 - [ ] Add TypeBox Value support for RPC runtime checking (both TypeBox and JSON Schema)
   - Don't make TypeBox a dependency
   - Auto-detect TypeBox spec vs JSON Schema spec
