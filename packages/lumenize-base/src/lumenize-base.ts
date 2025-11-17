@@ -350,7 +350,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
     
     // 2. Get stored continuation
     const pendingKey = `__lmz_${workType}_pending:${workId}`;
-    const pendingData = this.ctx.storage.kv.get(pendingKey);
+    const pendingData = this.ctx.storage.kv.get(pendingKey) as { continuation: any } | undefined;
     
     if (!pendingData) {
       log?.warn?.('No pending continuation found', { workId, workType });

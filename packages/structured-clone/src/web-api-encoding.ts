@@ -276,8 +276,8 @@ export function decodeResponse(
 // RequestSync/ResponseSync synchronous encoding functions
 // ============================================================================
 
-import type { RequestSync } from './request-sync';
-import type { ResponseSync } from './response-sync';
+import { RequestSync } from './request-sync.js';
+import { ResponseSync } from './response-sync.js';
 
 /**
  * Encode RequestSync to plain object for RPC/Queue transmission.
@@ -334,13 +334,11 @@ export async function encodeRequestSync(
  * }
  * ```
  */
-export async function decodeRequestSync(
+export function decodeRequestSync(
   data: any,
   decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
-): Promise<RequestSync> {
-  // Import dynamically to avoid circular dependency
-  const { RequestSync: RequestSyncClass } = await import('./request-sync.js');
-  return new RequestSyncClass(data.url, {
+): RequestSync {
+  return new RequestSync(data.url, {
     method: data.method,
     headers: decodeHeaders(data.headers),
     body: data.body,
@@ -404,13 +402,11 @@ export async function encodeResponseSync(
  * }
  * ```
  */
-export async function decodeResponseSync(
+export function decodeResponseSync(
   data: any,
   decodeHeaders: (h: any) => Headers = defaultDeencodeHeaders
-): Promise<ResponseSync> {
-  // Import dynamically to avoid circular dependency
-  const { ResponseSync: ResponseSyncClass } = await import('./response-sync.js');
-  return new ResponseSyncClass(data.body, {
+): ResponseSync {
+  return new ResponseSync(data.body, {
     status: data.status,
     statusText: data.statusText,
     headers: decodeHeaders(data.headers),

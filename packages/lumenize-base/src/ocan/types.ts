@@ -28,11 +28,15 @@ export type OperationChain = Operation[];
  * this marker carries the operation chain that needs to be executed first.
  * The executor recursively resolves nested operations before execution.
  * 
+ * For RPC deduplication, markers can include a `__refId` to reference
+ * previously transmitted operation chains (avoiding duplication).
+ * 
  * @internal
  */
 export interface NestedOperationMarker {
   __isNestedOperation: true;
-  __operationChain: OperationChain;
+  __operationChain?: OperationChain;
+  __refId?: string;
 }
 
 /**

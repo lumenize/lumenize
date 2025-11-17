@@ -176,7 +176,7 @@ export async function postprocess(data: LmzIntermediate, options?: PostprocessOp
         objects.set(i, reconstructed);
       } else if (type === 'request-sync') {
         // Decode RequestSync, resolving header references
-        const reconstructed = await decodeRequestSync(
+        const reconstructed = decodeRequestSync(
           value,
           (headerRef) => {
             // headerRef is ["$lmz", index], look it up directly
@@ -189,7 +189,7 @@ export async function postprocess(data: LmzIntermediate, options?: PostprocessOp
         objects.set(i, reconstructed);
       } else if (type === 'response-sync') {
         // Decode ResponseSync, resolving header references
-        const reconstructed = await decodeResponseSync(
+        const reconstructed = decodeResponseSync(
           value,
           (headerRef) => {
             // headerRef is ["$lmz", index], look it up directly

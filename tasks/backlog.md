@@ -4,12 +4,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Is proxy-fetch/src/utils.ts still used?
 - [ ] Make pattern for registering callback executor the same for call and proxy-fetch
-- [ ] Assuming we can stay in vitest-pool-workers (alarms seem to work), refactor the proxy-fetch tests.
-- [ ] Also fix any comments that say to use `wrangler dev`
-- [ ] Delete all this step crap from the live-integration tests. It's stupid to change the numbers when you want to change the test order. Maybe delete the two tests that prove the testing framework works and alarms work. I would have just built a single test and kept adding to it incrementally, trying it with everything I added.
-- [x] Refactor call to document infrastructure pattern (operation chain + __executeOperation). Now refactoring proxy-fetch to use this pattern.
 - [ ] Must be able to use call from a Worker. Make sure you do all the necessary like set the doBindingName and doInstanceNameOrId.
 
 ## LumenizeBase NADIS modules
