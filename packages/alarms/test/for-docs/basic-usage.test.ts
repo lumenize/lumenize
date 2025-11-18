@@ -4,30 +4,18 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { DurableObject } from 'cloudflare:workers';
-import { Alarms, type Schedule } from '@lumenize/alarms';
-import { sql } from '@lumenize/core';
-import { newContinuation } from '@lumenize/lumenize-base';
+import '@lumenize/core';    // Registers sql in this.svc
+import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
+import { LumenizeBase } from '@lumenize/lumenize-base';
+import type { Schedule } from '@lumenize/alarms';
 
 // Example: Task scheduling DO
-class TaskSchedulerDO extends DurableObject {
-  #alarms: Alarms;
+class TaskSchedulerDO extends LumenizeBase<any> {
   executedTasks: Array<{ name: string; time: number }> = [];
-
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
-    // Initialize alarms with dependencies
-    this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
-  }
-
-  // Helper to create continuations (like this.ctn() in LumenizeBase)
-  ctn<T = this>(): T {
-    return newContinuation<T>();
-  }
 
   // Schedule a task - seconds from now
   scheduleTask(taskName: string, delaySeconds: number) {
-    const schedule = this.#alarms.schedule(
+    const schedule = this.svc.alarms.schedule(
       delaySeconds,  // a number
       this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
@@ -36,7 +24,7 @@ class TaskSchedulerDO extends DurableObject {
 
   // Schedule task at specific time
   scheduleAt(taskName: string, timestamp: number) {
-    const schedule = this.#alarms.schedule(
+    const schedule = this.svc.alarms.schedule(
       new Date(timestamp),  // a Date
       this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
@@ -45,7 +33,7 @@ class TaskSchedulerDO extends DurableObject {
 
   // Schedule a recurring task with cron
   scheduleRecurringTask(taskName: string) {
-    const schedule = this.#alarms.schedule(
+    const schedule = this.svc.alarms.schedule(
       '0 0 * * *',  // cron expression (daily at midnight)
       this.ctn().handleRecurringTask({ name: taskName })  // OCAN chain
     );
@@ -54,18 +42,18 @@ class TaskSchedulerDO extends DurableObject {
 
   // Cancel a scheduled task
   cancelTask(taskName: string, delaySeconds: number) {
-    const schedule = this.#alarms.schedule(
+    const schedule = this.svc.alarms.schedule(
       delaySeconds,  // a number
       this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
     // Later, to cancel:
-    this.#alarms.cancelSchedule(schedule.id);
+    this.svc.alarms.cancelSchedule(schedule.id);
     return { cancelled: true, scheduleId: schedule.id };
   }
 
   // Get all scheduled tasks
   getScheduledTasks() {
-    return this.#alarms.getSchedules();
+    return this.svc.alarms.getSchedules();
   }
 
   // Alarm callbacks
@@ -94,7 +82,7 @@ class TaskSchedulerDO extends DurableObject {
 
   // Required: Cloudflare alarm handler
   async alarm() {
-    await this.#alarms.alarm();
+    await this.svc.alarms.alarm();
   }
 }
 

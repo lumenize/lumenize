@@ -151,11 +151,15 @@ await this.#parent.__executeChain(operationChain);  // Use LumenizeBase abstract
 - ✅ Only needed for external fetches (use `proxy-fetch`) and RPC (use `this.lmz.call()`)
 
 **Success Criteria**:
-- [ ] Change `executeOperationChain()` → `__executeChain()` in `triggerAlarms()`
-- [ ] Same change in `alarm()` method
-- [ ] Verify no `await` on storage operations (all storage is sync)
-- [ ] All alarms tests still pass
-- [ ] Pattern matches `this.lmz.call()` architecture
+- [x] Change `executeOperationChain()` → `__executeChain()` in `triggerAlarms()`
+- [x] `alarm()` method delegates to `triggerAlarms()`, so inherits the change
+- [x] Verify no `await` on storage operations (all storage is sync)
+- [x] Remove standalone DurableObject support - require LumenizeBase
+- [x] Delete `standalone-pattern.test.ts` and update all test DOs to extend LumenizeBase
+- [x] All alarms tests still pass (52 tests)
+- [x] Pattern matches `this.lmz.call()` architecture
+
+**Summary**: Successfully refactored to use `this.#parent.__executeChain()` and **removed standalone DurableObject support**. All test DOs now extend `LumenizeBase`, eliminating the need for conditional fallback logic. Deleted `standalone-pattern.test.ts` and simplified `basic-usage.test.ts` to use LumenizeBase. This aligns perfectly with the new `this.lmz.call()` pattern.
 
 ## Phase 1: Upgrade `cancelSchedule()` to Return Schedule Data
 

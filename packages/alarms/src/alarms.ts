@@ -6,7 +6,7 @@
 
 import { parseCronExpression } from 'cron-schedule';
 import { debug, type sql as sqlType, type DebugLogger } from '@lumenize/core';
-import { executeOperationChain, getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
+import { getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
 import { preprocess, parse } from '@lumenize/structured-clone';
 import { ulidFactory } from 'ulid-workers';
 import type { Schedule } from './types.js';
@@ -454,9 +454,9 @@ export class Alarms {
       const row = result[0];
 
       try {
-        // Deserialize and execute the operation chain
+        // Deserialize and execute the operation chain using LumenizeBase's __executeChain()
         const operationChain = parse(row.operationChain);
-        await executeOperationChain(operationChain, this.#parent);
+        await (this.#parent as any).__executeChain(operationChain);
         executedIds.push(row.id);
       } catch (e) {
         this.#log.error('Error executing alarm', {
