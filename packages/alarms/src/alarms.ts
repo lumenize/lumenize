@@ -193,7 +193,8 @@ export class Alarms {
    */
   schedule(
     when: Date | string | number,
-    continuation: any
+    continuation: any,
+    options?: { id?: string }
   ): Schedule {
     this.#ensureTable();
     
@@ -203,7 +204,7 @@ export class Alarms {
       throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
     }
 
-    const id = ulid();  // Monotonic ULID for FIFO ordering
+    const id = options?.id ?? ulid();  // Use provided ID or generate monotonic ULID for FIFO ordering
 
     if (when instanceof Date) {
       const timestamp = Math.floor(when.getTime() / 1000);

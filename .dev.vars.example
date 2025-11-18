@@ -11,6 +11,14 @@ TEST_TOKEN=your-test-token-here
 # For your own deployment: https://your-test-endpoints.workers.dev
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
 
+# Programatically access Cloudflare Logpush logs pushed to R2
+CLOUDFLARE_R2_LOGPUSH_URL=r2-logpush-url
+CLOUDFLARE_R2_ACCESS_KEY_ID=r2-access-key-id
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=r2-secret-key
+
+# Cloudflare global API key
+CLOUDFLARE_GLOBAL_API_KEY=your-api-key-here
+
 # Debug logging (see @lumenize/debug for patterns)
 # Examples: proxy-fetch.*, rpc.*, *
 # Leave empty to disable

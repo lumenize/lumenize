@@ -23,7 +23,9 @@
 
 import { LumenizeWorker } from '@lumenize/lumenize-base';
 import { executeFetch } from './workerFetchExecutor.js';
+import { executeFetchSimple } from './workerFetchExecutorSimple.js';
 import type { WorkerFetchMessage } from './types.js';
+import type { SimpleFetchMessage } from './proxyFetchSimple.js';
 
 export class FetchExecutorEntrypoint extends LumenizeWorker {
   /**
@@ -49,6 +51,30 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
     );
     
     // Return immediately - FetchOrchestrator continues without blocking
+  }
+
+  /**
+   * Execute an external fetch request (simplified version for proxyFetchSimple)
+   * 
+   * Called by origin DO directly via RPC. Returns immediately, then executes
+   * fetch in background. Calls back to origin DO's `handleFetchResult()` method.
+   * 
+   * Flow:
+   * 1. Quick RPC acknowledgment (microseconds)
+   * 2. Origin DO continues (alarm is scheduled)
+   * 3. Fetch executes in background (CPU billing)
+   * 4. Result delivered to origin DO's `handleFetchResult(reqId, result, url, preprocessedContinuation)` method
+   * 5. Origin DO cancels alarm atomically to get continuation
+   * 
+   * @param message - Fetch message with preprocessed continuation
+   */
+  async executeFetchSimple(message: SimpleFetchMessage): Promise<void> {
+    // Quick acknowledgment - return immediately
+    this.ctx.waitUntil(
+      executeFetchSimple(message, this.env, this)
+    );
+    
+    // Return immediately - origin DO continues
   }
 }
 

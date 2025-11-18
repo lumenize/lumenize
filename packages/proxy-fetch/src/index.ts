@@ -9,11 +9,13 @@
 
 // Main API
 export { proxyFetch } from './proxyFetch';
+export { proxyFetchSimple, type SimpleFetchMessage } from './proxyFetchSimple'; // Clean v2 implementation
 
 // Infrastructure components
 export { FetchOrchestrator } from './FetchOrchestrator';
 export { FetchExecutorEntrypoint } from './FetchExecutorEntrypoint';
 export { executeFetch, createFetchWorker, type FetchWorker } from './workerFetchExecutor';
+export { executeFetchSimple } from './workerFetchExecutorSimple'; // Clean v2 implementation
 
 // Types
 export type { 

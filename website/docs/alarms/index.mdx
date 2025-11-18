@@ -515,11 +515,11 @@ Understanding the execution flow:
 1. **`schedule()` is synchronous** - Stores alarm to SQL, sets native alarm, returns immediately
 2. **Never executes inline** - Even 0-second delays go through Cloudflare's native alarm queue
 3. **Production**: Native `alarm()` fires → calls `triggerAlarms(overdueCount)` → executes callbacks
-4. **Testing**: Call `triggerAlarms()` manually to bypass Cloudflare's timing uncertainty
+4. **Testing**: Call `await triggerAlarms()` manually to bypass Cloudflare's timing uncertainty
 
 ### Manual Trigger for Tests
 
-The `triggerAlarms(count?)` method is the core execution logic used both by the production `alarm()` handler and exposed publicly for testing:
+To make testing as close to reality as possible, the `triggerAlarms(count?)` method is the core execution logic used both by the production `alarm()` handler and exposed publicly for testing:
 
 ```typescript @skip-check
 import { describe, test, expect } from 'vitest';
@@ -557,7 +557,7 @@ describe('Alarm Tests', () => {
 
 **Key insight**: Without calling `triggerAlarms()`, alarms remain queued waiting for Cloudflare to fire the native alarm - which can be unpredictable in test environments.
 
-See [Testing Alarm Simulation](/docs/testing/alarm-simulation) for complete examples and patterns.
+Note, the `@lumenize/testing` package includes experimental [alarm simulation](/docs/testing/alarm-simulation) capability that will speed up the clock 100x to simulate time passing faster for the convenience of tests. When using `@lumenize/alarms`, calling triggerAlarms directly for testing is superior in every way. Simulate alarms is only for testing with native alarms or 3rd party alarms packages like Actor Alarms.
 
 ## How It Works
 

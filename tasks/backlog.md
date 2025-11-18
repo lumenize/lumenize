@@ -6,6 +6,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Make pattern for registering callback executor the same for call and proxy-fetch
 - [ ] Update the alarms JSDoc and user-facing docs to remove standalone usage
+- [ ] Try RpcTarget instead of WorkerEntrypoint as base for proxyFetch Executor
 
 ## LumenizeBase NADIS modules
 

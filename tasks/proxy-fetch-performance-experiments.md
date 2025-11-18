@@ -6,7 +6,7 @@
 
 ## Objective
 
-Measure and compare wall clock billing costs across three fetch approaches to validate cost-saving theories and decide which implementation(s) to keep.
+Measure and compare wall clock billing costs across proxyFetch approaches with simply making the fetch directly from the origin DO to validate cost-saving and performance theories and decide which implementation(s) to keep.
 
 ## Background
 
@@ -14,7 +14,7 @@ Measure and compare wall clock billing costs across three fetch approaches to va
 - `Date.now()` doesn't work - clock stops during Workers/DO execution
 - Multiple calls to `Date.now()` return the same value even when separated by real time
 - Need to use Cloudflare's observability logs which contain wall clock billing data
-- Just because something *shouldn't* bill wall clock time doesn't mean it won't
+- Just because we think something *shouldn't* bill wall clock time doesn't mean it won't
 - Need empirical data to validate assumptions
 
 **Three Approaches to Compare:**
@@ -22,27 +22,81 @@ Measure and compare wall clock billing costs across three fetch approaches to va
 2. **Current** - `proxyFetch` with Orchestrator (DO → Orchestrator DO → Worker)
 3. **Simple** - `proxyFetchSimple` without Orchestrator (DO → Worker)
 
-## Phase 1: Research Cloudflare Observability API
+## Phase 1: Research Cloudflare Observability API ✅
 
 **Goal**: Figure out how to retrieve wall clock billing data from Cloudflare logs.
 
 **Questions to Answer:**
-- [ ] What API exists for retrieving observability logs?
-- [ ] What fields are available in log entries?
-- [ ] Is there a `wallClockMs` or similar field?
-- [ ] How delayed are log entries? (seconds? minutes?)
-- [ ] Can we query logs in real-time or need to wait?
-- [ ] What's the API authentication/access pattern?
-- [ ] Are logs available in local dev (`wrangler dev`) or production only?
+- [x] What API exists for retrieving observability logs?
+- [x] What fields are available in log entries?
+- [x] Is there a `wallClockMs` or similar field?
+- [x] How delayed are log entries? (seconds? minutes?)
+- [x] Can we query logs in real-time or need to wait?
+- [x] What's the API authentication/access pattern?
+- [x] Are logs available in local dev (`wrangler dev`) or production only?
 
-**Research Sources:**
-- Cloudflare Workers documentation
-- Cloudflare GraphQL Analytics API
-- Cloudflare Logpush
-- Workers observability dashboard
-- Community Discord
+**Findings:**
 
-**Deliverable**: Document with clear answers + example API calls
+**1. Available APIs:**
+- ❌ **Workers Logs Dashboard** - UI-only query builder at `/workers-and-pages/observability`, no REST API
+- ❌ **Log Explorer SQL API** - Supports HTTP/firewall logs, but NOT `workers_trace_events`
+- ❌ **GraphQL Analytics API** - Only provides aggregates (P50/P99), not individual log events
+- ✅ **Logpush to R2** - Can export `workers_trace_events` to R2 bucket for querying
+- ✅ **`wrangler tail`** - Real-time log streaming (no historical data)
+
+**2. Log Fields (from Logpush job config):**
+Available fields in `workers_trace_events`:
+- `CPUTimeMs` - CPU billing time ✅
+- `WallTimeMs` - Wall clock billing time ✅
+- `EventTimestampMs` - When event occurred
+- `ScriptName` - Worker/DO name
+- `EventType` - `fetch`, `alarm`, etc.
+- `Outcome` - `ok`, `exception`, `canceled`, etc.
+- `DispatchNamespace`, `Entrypoint`, `Event`, `Exceptions`, `Logs`, `ScriptTags`, `ScriptVersion`
+
+**3. Logpush Job Configuration:**
+```bash
+# List all Logpush jobs
+curl "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/logpush/jobs" \
+  --header "X-Auth-Email: larry@maccherone.com" \
+  --header "X-Auth-Key: $CLOUDFLARE_GLOBAL_API_KEY"
+```
+
+Current job:
+- **Dataset**: `workers_trace_events`
+- **Destination**: `r2://cloudflare-managed-03e4752d/{DATE}`
+- **Frequency**: `high` (every few minutes)
+- **Enabled**: `true`
+- **R2 Credentials**: Available in job config's `destination_conf`
+
+**4. Log Delay:**
+- Logpush jobs with "high" frequency push logs every few minutes
+- Logs organized by date: `{DATE}/` folder structure
+- Our job created at 2025-11-18T20:46:58Z, first logs expected within 5-10 minutes
+
+**5. Authentication:**
+- **Logpush API**: `X-Auth-Email` + `X-Auth-Key` (global API key)
+- **R2 Access**: Access Key ID + Secret Access Key (from Logpush job config)
+- **AWS CLI**: Can use `aws s3 ls/cp` with R2 endpoint (requires AWS CLI installed)
+
+**6. Production vs Dev:**
+- **Production only** - Logpush requires deployed Workers/DOs
+- `wrangler dev` logs don't go to Logpush
+- Need to run experiments against deployed services
+
+**Recommended Approach:**
+Use **Logpush to R2** for experiments:
+1. Trigger test fetches against deployed DO
+2. Wait 5-10 minutes for logs to push
+3. Download logs from R2 (either via wrangler or AWS CLI)
+4. Parse JSONL files to extract `WallTimeMs` and `CPUTimeMs`
+5. Aggregate statistics
+
+**Validation:**
+- ✅ R2 bucket access confirmed via `@aws-sdk/client-s3`
+- ✅ Script created: `scripts/inspect-r2-logs.js` successfully lists and parses logs
+- ✅ Credentials working (downloaded test file: `{"content":"test"}`)
+- ⏳ Waiting for real Worker activity to generate actual logs
 
 ## Phase 2: Create Measurement Infrastructure
 

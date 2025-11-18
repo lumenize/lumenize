@@ -1,7 +1,10 @@
+import '@lumenize/core';        // Registers sql in this.svc
+import '@lumenize/alarms';      // Registers alarms in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import '@lumenize/proxy-fetch';
-import { FetchOrchestrator as _FetchOrchestrator, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
-import { ResponseSync, stringify } from '@lumenize/structured-clone';
+import { FetchOrchestrator as _FetchOrchestrator, FetchExecutorEntrypoint, proxyFetchSimple } from '@lumenize/proxy-fetch';
+import { ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
+import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
 
 // Export FetchExecutorEntrypoint for service binding
 export { FetchExecutorEntrypoint };
@@ -72,7 +75,252 @@ export class _TestDO extends LumenizeBase {
   }
 }
 
+/**
+ * Test DO for proxyFetchSimple
+ * Uses alarms for timeout handling instead of FetchOrchestrator
+ */
+export class _TestSimpleDO extends LumenizeBase {
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+    this.lmz.init({ bindingName: 'TEST_SIMPLE_DO' });
+  }
+
+  // Required: Delegate to alarms
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
+
+  async fetchDataSimple(url: string, reqId?: string): Promise<string> {
+    const finalReqId = await proxyFetchSimple(
+      this,
+      url,
+      this.ctn().handleFetchComplete(this.ctn().$result, url),
+      {},
+      reqId
+    );
+    return finalReqId;
+  }
+
+  async fetchDataSimpleWithOptions(
+    url: string, 
+    options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; orchestratorTimeoutOverride?: number } },
+    reqId?: string
+  ): Promise<string> {
+    const finalReqId = await proxyFetchSimple(
+      this,
+      url,
+      this.ctn().handleFetchComplete(this.ctn().$result, url),
+      options,
+      reqId
+    );
+    return finalReqId;
+  }
+
+  /**
+   * Single handler called by both alarm (timeout) and worker (result delivery)
+   * Both paths embed the continuation in their call
+   */
+  async handleFetchResult(
+    reqId: string, 
+    result: ResponseSync | Error, 
+    url: string,
+    preprocessedContinuation: any
+  ): Promise<void> {
+    // Try to cancel alarm - returns schedule if successful (we won the race)
+    const scheduleData = this.svc.alarms.cancelSchedule(reqId);
+    
+    if (!scheduleData) {
+      // Alarm already fired or already cancelled - this is a noop
+      const noopKey = `__test_noop:${reqId}`;
+      this.ctx.storage.kv.put(noopKey, true);
+      return;
+    }
+    
+    // We won the race - deserialize continuation and execute with result
+    const userContinuation = postprocess(preprocessedContinuation);
+    const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
+    await this.__executeChain(filledChain);
+  }
+
+  /**
+   * Final handler that receives the result (either from worker or timeout)
+   * This is what the continuation points to
+   */
+  async handleFetchComplete(result: ResponseSync | Error, url: string): Promise<void> {
+    const resultKey = `__test_result:${url}`;
+    const serialized = await stringify(result);
+    this.ctx.storage.kv.put(resultKey, serialized);
+    
+    // Increment call counter for testing
+    const counterKey = `__test_call_count:${url}`;
+    const currentCount: number = this.ctx.storage.kv.get(counterKey) || 0;
+    this.ctx.storage.kv.put(counterKey, currentCount + 1);
+  }
+
+  getResult(url: string): string | undefined {
+    return this.ctx.storage.kv.get(`__test_result:${url}`);
+  }
+
+  getCallCount(url: string): number {
+    return this.ctx.storage.kv.get(`__test_call_count:${url}`) || 0;
+  }
+
+  wasNoop(reqId: string): boolean {
+    return this.ctx.storage.kv.get(`__test_noop:${reqId}`) || false;
+  }
+
+  /**
+   * Test helper: Trigger alarms manually
+   */
+  async triggerAlarmsHelper(count?: number): Promise<string[]> {
+    return await this.svc.alarms.triggerAlarms(count);
+  }
+
+  /**
+   * Clear all results (for test cleanup)
+   */
+  clearResults(): void {
+    const allKeys = this.ctx.storage.kv.list();
+    for (const [key] of allKeys) {
+      if (key.startsWith('__test_')) {
+        this.ctx.storage.kv.delete(key);
+      }
+    }
+  }
+
+  // ============================================================================
+  // Infrastructure Pattern Test Helpers (for Phase 2b)
+  // ============================================================================
+
+  /**
+   * Pattern 1: Schedule alarm with explicit ID
+   */
+  scheduleWithExplicitId(reqId: string): string {
+    const fireAt = new Date(Date.now() + 10000); // 10 seconds from now
+    const continuation = this.ctn().handleTestAlarm(reqId);
+    this.svc.alarms.schedule(fireAt, continuation, { id: reqId });
+    return reqId;
+  }
+
+  /**
+   * Pattern 2: Cancel and get schedule data atomically
+   */
+  cancelAndGetData(reqId: string): any {
+    return this.svc.alarms.cancelSchedule(reqId);
+  }
+
+  /**
+   * Get schedule by ID
+   */
+  getScheduleById(id: string): any {
+    return this.svc.alarms.getSchedule(id);
+  }
+
+  /**
+   * Pattern 3: Test continuation embedding
+   */
+  async testContinuationEmbedding(value: string): Promise<string> {
+    const reqId = 'embed-' + Date.now();
+    const fireAt = new Date(Date.now() + 100); // 100ms from now
+    
+    // Create user continuation that stores the value
+    const userContinuation = this.ctn().handleEmbedTest(value);
+    
+    // Preprocess it (simulate what proxyFetchSimple does)
+    const preprocessed = await preprocess(getOperationChain(userContinuation));
+    
+    // Create alarm handler that embeds the preprocessed continuation
+    const alarmHandler = this.ctn().handleEmbedWrapper(preprocessed);
+    
+    this.svc.alarms.schedule(fireAt, alarmHandler, { id: reqId });
+    return reqId;
+  }
+
+  /**
+   * Wrapper handler that deserializes and executes embedded continuation
+   */
+  async handleEmbedWrapper(preprocessedContinuation: any): Promise<void> {
+    const userContinuation = postprocess(preprocessedContinuation);
+    await this.__executeChain(userContinuation);
+  }
+
+  /**
+   * User handler that receives the value from embedded continuation
+   */
+  handleEmbedTest(value: string): void {
+    this.ctx.storage.kv.put('__test_value:embed-test', value);
+  }
+
+  /**
+   * Pattern 4: Test direct fetch to in-process endpoints
+   */
+  async testDirectFetch(url: string): Promise<{ status: number; json: any }> {
+    const response = await fetch(url);
+    const json = await response.json();
+    return { status: response.status, json };
+  }
+
+  /**
+   * Pattern 5: Test result filling with replaceNestedOperationMarkers
+   */
+  async testResultFilling(testValue: any): Promise<void> {
+    // Create continuation with $result placeholder
+    const continuation = this.ctn().handleResultTest(this.ctn().$result);
+    
+    // Fill $result with actual value (simulates worker pattern)
+    const filled = await replaceNestedOperationMarkers(
+      getOperationChain(continuation),
+      testValue
+    );
+    
+    // Execute filled continuation
+    await this.__executeChain(filled);
+  }
+
+  /**
+   * Handler that receives the filled result
+   */
+  handleResultTest(result: any): void {
+    this.ctx.storage.kv.put('__test_value:result-fill-test', JSON.stringify(result));
+  }
+
+  /**
+   * Get stored value by key
+   */
+  getStoredValue(key: string): string | undefined {
+    return this.ctx.storage.kv.get(`__test_value:${key}`);
+  }
+
+  /**
+   * Get received value (for result filling test)
+   */
+  getReceivedValue(key: string): any {
+    const stored = this.ctx.storage.kv.get(`__test_value:${key}`);
+    return stored ? JSON.parse(stored) : undefined;
+  }
+
+  /**
+   * Handler for test alarms
+   */
+  handleTestAlarm(reqId: string): void {
+    // Do nothing - just for testing scheduling
+  }
+}
+
 // Export raw DOs (not instrumented - that happens in test-harness.ts)
 export { _TestDO as TestDO };
+export { _TestSimpleDO as TestSimpleDO };
 export { _FetchOrchestrator as FetchOrchestrator };
 
+/**
+ * Worker fetch handler that routes requests to test-endpoints-do
+ */
+import { routeDORequest } from '@lumenize/utils';
+
+export default {
+  async fetch(request: Request, env: any): Promise<Response> {
+    // Route test-endpoints requests to TEST_ENDPOINTS_DO
+    const response = await routeDORequest(request, env);
+    return response ?? new Response('Not Found', { status: 404 });
+  }
+};
