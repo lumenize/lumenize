@@ -35,9 +35,9 @@ await ctx.storage.setAlarm(Date.now() + 30000); // overwrites task1!
 **With @lumenize/alarms:**
 ```typescript @skip-check
 // ✅ Unlimited tasks with automatic multiplexing and type safety
-await this.svc.alarms.schedule(60, this.ctn().handleTask1({ id: 1 }));
-await this.svc.alarms.schedule(new Date('2026-01-01'), this.ctn().handleTask2({ id: 2 }));
-await this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
+this.svc.alarms.schedule(60, this.ctn().handleTask1({ id: 1 }));
+this.svc.alarms.schedule(new Date('2026-01-01'), this.ctn().handleTask2({ id: 2 }));
+this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
 // All three tasks execute at their scheduled times
 ```
 
@@ -50,7 +50,7 @@ import '@lumenize/alarms'; // Registers alarms service
 class MyDO extends LumenizeBase<Env> {
   async fetch(request: Request): Promise<Response> {
     // Schedule a task 60 seconds from now
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       60,  // seconds from now
       this.ctn().sendEmail('user@example.com', 'Welcome!')
     );
@@ -81,7 +81,7 @@ class MyDO extends LumenizeBase<Env> {
   // No boilerplate required - LumenizeBase handles alarm() delegation
   
   async scheduleTask(userId: string, data: any) {
-    const schedule = await this.svc.alarms.schedule(
+    const schedule = this.svc.alarms.schedule(
       60,  // 60 seconds
       this.ctn().processUserData(userId, data)
     );
@@ -146,7 +146,7 @@ Schedule a task to run after a delay:
 
 ```typescript @skip-check
 // Schedule task for 60 seconds from now
-await this.svc.alarms.schedule(
+this.svc.alarms.schedule(
   60,  // 60 seconds
   this.ctn().handleTask({ name: 'send-email' })
 );
@@ -157,14 +157,14 @@ await this.svc.alarms.schedule(
 Schedule a task at a specific moment:
 
 ```typescript @skip-check
-await this.svc.alarms.schedule(
+this.svc.alarms.schedule(
   new Date('2026-01-01T00:00:00Z'),
   this.ctn().newYearTask()
 );
 
 // Or with a timestamp
 const timestamp = Date.now() + 3600000; // 1 hour from now
-await this.svc.alarms.schedule(
+this.svc.alarms.schedule(
   new Date(timestamp),
   this.ctn().handleTask({ id: 123 })
 );
@@ -176,19 +176,19 @@ Schedule recurring tasks with cron expressions:
 
 ```typescript @skip-check
 // Daily at midnight UTC
-await this.svc.alarms.schedule(
+this.svc.alarms.schedule(
   '0 0 * * *',
   this.ctn().dailyReport()
 );
 
 // Every 15 minutes
-await this.svc.alarms.schedule(
+this.svc.alarms.schedule(
   '*/15 * * * *',
   this.ctn().checkStatus()
 );
 
 // Weekdays at 9am
-await this.svc.alarms.schedule(
+this.svc.alarms.schedule(
   '0 9 * * 1-5',
   this.ctn().sendDailyDigest()
 );
@@ -202,10 +202,10 @@ await this.svc.alarms.schedule(
 class MyDO extends LumenizeBase {
   async scheduleTasks() {
     // No arguments
-    await this.svc.alarms.schedule(30, this.ctn().simpleTask());
+    this.svc.alarms.schedule(30, this.ctn().simpleTask());
     
     // With arguments
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       60,
       this.ctn().taskWithArgs('value1', 123, { key: 'value' })
     );
@@ -230,7 +230,7 @@ class SessionDO extends LumenizeBase {
   async scheduleUserReminder(userId: string, message: string) {
     const scheduledAt = Date.now();
     
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       3600, // 1 hour
       // Context preserved in continuation
       this.ctn().sendReminder(userId, message, scheduledAt)
@@ -260,7 +260,7 @@ Build complex workflows by chaining operations:
 ```typescript @skip-check
 class WorkflowDO extends LumenizeBase {
   async startWorkflow(data: any) {
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       60,
       // Chain: validate → process → save → notify
       this.ctn()
@@ -299,7 +299,7 @@ class WorkflowDO extends LumenizeBase {
 
 ```typescript @skip-check
 // Schedule returns schedule info
-const schedule = await this.svc.alarms.schedule(
+const schedule = this.svc.alarms.schedule(
   60,
   this.ctn().handleTask()
 );
@@ -318,7 +318,7 @@ console.log(schedule);
 
 ```typescript @skip-check
 // Save the schedule ID
-const schedule = await this.svc.alarms.schedule(/* ... */);
+const schedule = this.svc.alarms.schedule(/* ... */);
 
 // Later, cancel it
 await this.svc.alarms.cancelSchedule(schedule.id);
@@ -391,7 +391,7 @@ All cron schedules use UTC. Convert local times to UTC when scheduling.
 ```typescript @skip-check
 class SmartDO extends LumenizeBase {
   async scheduleConditionalTask() {
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       60,
       this.ctn().checkAndExecute('feature-flag')
     );
@@ -420,7 +420,7 @@ class SmartDO extends LumenizeBase {
 ```typescript @skip-check
 class ResilientDO extends LumenizeBase {
   async startWithRetry(url: string, maxRetries = 3) {
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       5, // Initial delay
       this.ctn().fetchWithRetry(url, 0, maxRetries)
     );
@@ -444,7 +444,7 @@ class ResilientDO extends LumenizeBase {
       const backoffSeconds = 10 * Math.pow(2, attempt);
       console.log(`Retry ${attempt + 1}/${maxRetries} in ${backoffSeconds}s`);
       
-      await this.svc.alarms.schedule(
+      this.svc.alarms.schedule(
         backoffSeconds,
         this.ctn().fetchWithRetry(url, attempt + 1, maxRetries)
       );
@@ -461,7 +461,7 @@ class StateMachineDO extends LumenizeBase {
     // Initial state
     this.ctx.storage.kv.put('state', 'init');
     
-    await this.svc.alarms.schedule(
+    this.svc.alarms.schedule(
       1,
       this.ctn().transition('init', 'processing', data)
     );

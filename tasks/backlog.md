@@ -88,6 +88,29 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Future bigger things
 
+- [ ] Investigate refactoring `@lumenize/rpc` to use new `this.lmz.call()` infrastructure
+  - Currently uses manual `processIncomingOperations()` function (lines 277-318 in `lumenize-rpc-do.ts`)
+  - Originally had `createIncomingOperationsTransform()` for postprocess hooks, but it was never called (dead code)
+  - RPC was great learning and we developed OCAN for it, but it's somewhat a dead-end product now
+  - Might be worth simplifying to use the standard `this.lmz.call()` pattern
+  - Or might be worth keeping as-is since it works and has its own specialized needs
+
+- [ ] Research microtask batching for atomic execution in Lumenize RPC batches
+  - Lumenize RPC has batch execution but currently awaits every operation (allows interleaving)
+  - Wrapping batch execution with `queueMicrotask` pattern could ensure atomicity (all operations execute without yielding)
+  - Pattern: Queue all batch operations, then execute them together in one microtask before yielding to event loop
+  - Would guarantee no other requests interleave during batch execution on remote DO
+  - Reference implementation: [Discord - microtask transaction pattern](https://discord.com/channels/595317990191398933/773219443911819284/1440314373473046529)
+  - Note: This is about remote execution atomicity, not serializable continuations (microtasks can't be stored)
+
+- [ ] Research adding `ctnBatch()` API to `this.lmz.call` for atomic multi-operation execution
+  - Syntax: `this.ctnBatch([this.ctn().methodA(), this.ctn().methodB()])`
+  - Would execute multiple operations atomically on remote DO without yielding between them
+  - Use case: Multiple related operations that should execute together (e.g., transfer funds = debit + credit)
+  - Implementation: Use microtask batching pattern to ensure no interleaving
+  - Could batch the continuations into single RPC call, then use microtask pattern on receiver side
+  - Reference: [Discord - microtask transaction pattern](https://discord.com/channels/595317990191398933/773219443911819284/1440314373473046529)
+
 - [ ] RPC. Maybe we need a way to secure the DO access over RPC so it can't change storage, or maybe we just need examples that show it not being accessible. Maybe you move this.ctx to this.#ctx and this.env to this.#env. Extending from DurableObject makes those public, but it's JavaScript so you can dynamically do whatever you want in the constructor.
 
 - [ ] Authentication patterns
