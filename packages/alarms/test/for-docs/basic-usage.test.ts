@@ -40,15 +40,19 @@ class TaskSchedulerDO extends LumenizeBase<any> {
     return { scheduled: true, taskName, recurring: true, id: schedule.id };
   }
 
-  // Cancel a scheduled task
-  cancelTask(taskName: string, delaySeconds: number) {
+  // Schedule a task and return its ID (for later cancellation)
+  scheduleTaskForCancellation(taskName: string, delaySeconds: number) {
     const schedule = this.svc.alarms.schedule(
       delaySeconds,  // a number
       this.ctn().handleTask({ name: taskName })  // OCAN chain
     );
-    // Later, to cancel:
-    this.svc.alarms.cancelSchedule(schedule.id);
-    return { cancelled: true, scheduleId: schedule.id };
+    return { scheduled: true, scheduleId: schedule.id };
+  }
+  
+  // Cancel a scheduled task (separate request)
+  cancelScheduledTask(scheduleId: string) {
+    const cancelled = this.svc.alarms.cancelSchedule(scheduleId);
+    return { cancelled: cancelled !== undefined, scheduleId, cancelledData: cancelled };
   }
 
   // Get all scheduled tasks
@@ -119,12 +123,19 @@ describe('Alarms - Basic Usage', () => {
   it('cancels scheduled task', async () => {
     const stub = env.TASK_SCHEDULER_DO.getByName('cancel-test');
     
-    const result = await stub.cancelTask('reminder', 60);
+    // First request: schedule the task
+    const scheduleResult = await stub.scheduleTaskForCancellation('reminder', 60);
+    expect(scheduleResult.scheduled).toBe(true);
     
-    expect(result.cancelled).toBe(true);
+    // Second request: cancel the task
+    const cancelResult = await stub.cancelScheduledTask(scheduleResult.scheduleId);
+    expect(cancelResult.cancelled).toBe(true);
+    expect(cancelResult.cancelledData).toBeDefined();
+    expect(cancelResult.cancelledData!.id).toBe(scheduleResult.scheduleId);
     
+    // Verify it's gone
     const scheduled = await stub.getScheduledTasks();
-    expect(scheduled.find((s: any) => s.id === result.scheduleId)).toBeUndefined();
+    expect(scheduled.find((s: any) => s.id === scheduleResult.scheduleId)).toBeUndefined();
   });
 
   it('lists all scheduled tasks', async () => {

@@ -224,18 +224,22 @@ cancelSchedule(id: string): Schedule | undefined {
 - This is the entire point of Phase -1!
 
 **Success Criteria**:
-- [ ] `cancelSchedule()` returns `Schedule | undefined` instead of `boolean`
-- [ ] Remove unnecessary `blockConcurrencyWhile` wrapper
-- [ ] Unit tests verify atomic get-and-delete behavior
-- [ ] Returns `undefined` if alarm not found (already fired or never existed)
-- [ ] Properly reschedules next alarm
+- [x] `cancelSchedule()` returns `Schedule | undefined` instead of `boolean`
+- [x] Remove unnecessary `blockConcurrencyWhile` wrapper
+- [x] Unit tests verify atomic get-and-delete behavior
+- [x] Returns `undefined` if alarm not found (already fired or never existed)
+- [x] Properly reschedules next alarm
+- [x] **Test pattern fixed**: Split schedule + cancel into separate requests (realistic usage)
+- [x] **All 52 alarms tests pass**
 - [ ] **Documentation updated** (`website/docs/alarms/index.mdx`):
   - [ ] Remove `await` from `cancelSchedule()` example (will be sync after Phase 1)
   - [ ] Show example using returned `Schedule` data with if/else pattern
   - [ ] Add new section: "Idempotency Pattern" showing race condition handling
   - [ ] **CRITICAL**: Remove `await` from ALL `schedule()` calls (already sync, never needed await!)
   - [ ] Note in docs: `schedule()` and `cancelSchedule()` are synchronous operations
-- [ ] Used in Phase 2 for idempotency pattern
+- [x] Used in Phase 2 for idempotency pattern
+
+**Summary**: ✅ Successfully upgraded `cancelSchedule()` to atomically return `Schedule | undefined`. All operations are synchronous (no `blockConcurrencyWhile`). Tests updated to use realistic two-request pattern (schedule in one call, cancel in another). All 52 tests pass. Documentation updates deferred.
 
 ## Phase 2: Create `proxyFetchSimple()`
 

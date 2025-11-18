@@ -5,7 +5,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Immediate work backlog
 
 - [ ] Make pattern for registering callback executor the same for call and proxy-fetch
-- [ ] Must be able to use call from a Worker. Make sure you do all the necessary like set the doBindingName and doInstanceNameOrId.
+- [ ] Update the alarms JSDoc and user-facing docs to remove standalone usage
 
 ## LumenizeBase NADIS modules
 

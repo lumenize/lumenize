@@ -370,18 +370,27 @@ export class Alarms {
   /**
    * Cancel a scheduled task
    * @param id ID of the task to cancel
-   * @returns true if the task was cancelled, false otherwise
+   * @returns The cancelled Schedule with its continuation data, or undefined if not found
    */
-  cancelSchedule(id: string): boolean {
+  cancelSchedule(id: string): Schedule | undefined {
     this.#ensureTable();
     
-    // Use blockConcurrencyWhile for consistency with schedule()
-    this.#ctx.blockConcurrencyWhile(async () => {
-      this.#sql`DELETE FROM __lmz_alarms WHERE id = ${id}`;
-      this.#scheduleNextAlarm();
-    });
+    // Atomically get schedule data before deleting
+    const result = [...this.#storage.sql.exec(`SELECT * FROM __lmz_alarms WHERE id = ?`, id)];
     
-    return true;
+    if (!result || result.length === 0) {
+      return undefined;
+    }
+    
+    const row = result[0];
+    
+    // Delete the schedule
+    this.#storage.sql.exec(`DELETE FROM __lmz_alarms WHERE id = ?`, id);
+    this.#scheduleNextAlarm();
+    
+    // Deserialize and return the schedule with its continuation
+    const operationChain = parse(row.operationChain);
+    return { ...row, operationChain } as Schedule;
   }
 
   /**
@@ -421,6 +430,10 @@ export class Alarms {
    * ```
    */
   async triggerAlarms(count?: number): Promise<string[]> {
+    // Yield to event loop to ensure any pending blockConcurrencyWhile from schedule() completes
+    // This is needed for tests that call schedule() then immediately triggerAlarms()
+    await new Promise(resolve => setTimeout(resolve, 0));
+    
     this.#ensureTable();
     
     const now = Math.floor(Date.now() / 1000);

@@ -156,7 +156,9 @@ describe('Alarms', () => {
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'cancel-me' });
       
       const cancelled = await stub.cancelSchedule(schedule.id);
-      expect(cancelled).toBe(true);
+      expect(cancelled).toBeDefined();
+      expect(cancelled!.id).toBe(schedule.id);
+      expect(cancelled!.operationChain).toBeDefined(); // Should have the continuation
       
       const retrieved = await stub.getSchedule(schedule.id);
       expect(retrieved).toBeUndefined();
