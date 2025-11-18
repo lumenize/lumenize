@@ -7,7 +7,7 @@
 import { parseCronExpression } from 'cron-schedule';
 import { debug, type sql as sqlType, type DebugLogger } from '@lumenize/core';
 import { executeOperationChain, getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { preprocess, parse } from '@lumenize/structured-clone';
 import { ulidFactory } from 'ulid-workers';
 import type { Schedule } from './types.js';
 
@@ -313,7 +313,7 @@ export class Alarms {
     }
 
     const row = result[0];
-    const operationChain = await postprocess(JSON.parse(row.operationChain));
+    const operationChain = parse(row.operationChain);
     
     return { ...row, operationChain } as Schedule;
   }
@@ -359,12 +359,10 @@ export class Alarms {
     const result = [...this.#storage.sql.exec(query, ...params)];
     
     // Deserialize operation chains
-    const schedules = await Promise.all(
-      result.map(async (row: any) => ({
-        ...row,
-        operationChain: await postprocess(JSON.parse(row.operationChain)),
-      }))
-    );
+    const schedules = result.map((row: any) => ({
+      ...row,
+      operationChain: parse(row.operationChain),
+    }));
 
     return schedules as Schedule[];
   }
@@ -457,7 +455,7 @@ export class Alarms {
 
       try {
         // Deserialize and execute the operation chain
-        const operationChain = await postprocess(JSON.parse(row.operationChain));
+        const operationChain = parse(row.operationChain);
         await executeOperationChain(operationChain, this.#parent);
         executedIds.push(row.id);
       } catch (e) {

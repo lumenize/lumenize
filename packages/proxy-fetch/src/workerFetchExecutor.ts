@@ -51,7 +51,7 @@ export async function executeFetch(
 
   try {
     // Deserialize Request object
-    const request = await postprocess(message.request) as Request;
+    const request = postprocess(message.request) as Request;
     
     // Execute fetch with timeout
     const timeout = message.options?.timeout ?? DEFAULT_TIMEOUT;
@@ -107,7 +107,7 @@ export async function executeFetch(
     });
     
     // Postprocess the continuation (deserialize it)
-    const continuation = await postprocess(message.continuation);
+    const continuation = postprocess(message.continuation);
     
     // Inject RAW result into continuation placeholder (not preprocessed!)
     const filledChain = await replaceNestedOperationMarkers(continuation, result);

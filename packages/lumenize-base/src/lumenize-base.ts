@@ -244,7 +244,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
 
     // 3. Postprocess and execute chain
     const preprocessedChain = envelope.chain;
-    const operationChain = await postprocess(preprocessedChain);
+    const operationChain = postprocess(preprocessedChain);
     return await this.__executeChain(operationChain);
   }
 
@@ -404,8 +404,8 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
     
     try {
       // 3. Deserialize continuation and result (REUSE: structured-clone)
-      const continuation = await postprocess(pendingData.continuation);
-      const result = await postprocess(preprocessedResult);
+      const continuation = postprocess(pendingData.continuation);
+      const result = postprocess(preprocessedResult);
       
       // 4. Inject result into continuation (REUSE: OCAN)
       const chainWithResult = replaceNestedOperationMarkers(continuation, result);

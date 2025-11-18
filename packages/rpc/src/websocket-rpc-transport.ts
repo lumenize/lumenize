@@ -302,7 +302,7 @@ export class WebSocketRpcTransport implements RpcTransport {
     try {
       // Parse the message through intermediate format
       const intermediate = JSON.parse(data);
-      const message = await postprocess(intermediate);
+      const message = postprocess(intermediate);
 
       // Route based on message type
       if (message.type === '__downstream') {

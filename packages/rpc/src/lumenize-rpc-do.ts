@@ -9,7 +9,7 @@ import type {
 } from './types';
 import { isNestedOperationMarker } from './types';
 import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
-import { createRpcPreprocessTransform, createIncomingOperationsTransform } from './rpc-transforms';
+import { createRpcPreprocessTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 import { debug } from '@lumenize/core';
@@ -153,7 +153,7 @@ async function handleCallRequest(
   try {
     // Parse the batch request using @lumenize/structured-clone
     const requestBody = await request.text();
-    const batchRequest: RpcBatchRequest = await parse(requestBody);
+    const batchRequest: RpcBatchRequest = parse(requestBody);
 
     const batchResults: Array<{ id: string; success: boolean; result?: any; error?: any }> = [];
     const refIdCache = new Map<string, any>();  // Shared cache for alias detection across batch
@@ -251,7 +251,7 @@ async function dispatchCall(
     const intermediate = await preprocess(flattenedResult, { transform });
     
     // Postprocess to reconstruct objects (with markers in place of functions)
-    const processedResult = await postprocess(intermediate);
+    const processedResult = postprocess(intermediate);
     
     return {
       success: true,
@@ -477,7 +477,7 @@ export async function handleRpcMessage(
 
   try {
     // Parse the entire message using @lumenize/structured-clone
-    const wsMessage: RpcWebSocketMessage = await parse(message);
+    const wsMessage: RpcWebSocketMessage = parse(message);
 
     // Check if this is an RPC message by verifying the type field
     if (wsMessage.type !== messageType) {

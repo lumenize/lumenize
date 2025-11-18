@@ -20,7 +20,7 @@
  */
 
 import { preprocess, type PreprocessOptions } from './preprocess';
-import { postprocess, type PostprocessOptions } from './postprocess';
+import { postprocess } from './postprocess';
 
 /**
  * Convert value to JSON string with full type support.
@@ -43,7 +43,7 @@ import { postprocess, type PostprocessOptions } from './postprocess';
  * obj.self = obj;  // Cycle
  * 
  * const json = await stringify(obj);
- * const restored = await parse(json);
+ * const restored = parse(json);
  * console.log(restored.self === restored);  // true
  * ```
  */
@@ -58,19 +58,20 @@ export async function stringify(value: any, options?: PreprocessOptions): Promis
  * 
  * This is a convenience wrapper around `JSON.parse()` + `postprocess()`.
  * 
+ * All reconstruction operations are synchronous.
+ * 
  * @param value - JSON string in tuple $lmz format
- * @param options - Optional postprocessing options including custom transform hooks
  * @returns Restored value with all types and references preserved
  * 
  * @example
  * ```typescript
  * const json = await stringify({ name: "Alice", tags: ["dev", "js"] });
- * const restored = await parse(json);
+ * const restored = parse(json);
  * console.log(restored.tags[0]);  // "dev"
  * ```
  */
-export async function parse(value: string, options?: PostprocessOptions): Promise<any> {
-  return await postprocess(JSON.parse(value), options);
+export function parse(value: string): any {
+  return postprocess(JSON.parse(value));
 }
 
 // Intermediate format API - see preprocess.ts and postprocess.ts for full JSDoc
@@ -95,6 +96,5 @@ export { ResponseSync } from './response-sync';
 
 // Type exports
 export type { LmzIntermediate, PreprocessOptions, PreprocessTransform, PreprocessContext, PathElement } from './preprocess';
-export type { PostprocessOptions, PostprocessTransform, PostprocessContext } from './postprocess';
 export type { SerializableBody, RequestSyncInit } from './request-sync';
 export type { SerializableBody as ResponseSerializableBody } from './response-sync';

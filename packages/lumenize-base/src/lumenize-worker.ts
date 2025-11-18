@@ -159,7 +159,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
 
     // 3. Postprocess and execute chain
     const preprocessedChain = envelope.chain;
-    const operationChain = await postprocess(preprocessedChain);
+    const operationChain = postprocess(preprocessedChain);
     return await this.__executeChain(operationChain);
   }
 }

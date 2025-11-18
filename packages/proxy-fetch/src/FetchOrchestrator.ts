@@ -270,7 +270,7 @@ export class FetchOrchestrator extends LumenizeBase {
       });
       
       // Postprocess the continuation (deserialize it)
-      const continuation = await postprocess(message.continuation);
+      const continuation = postprocess(message.continuation);
       
       // Inject RAW Error into continuation placeholder (not preprocessed!)
       const filledChain = await replaceNestedOperationMarkers(continuation, timeoutError);

@@ -72,7 +72,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     // The client will then replace markers with proxies (without breaking identity)
     const responseText = await response.text();
     const intermediate = JSON.parse(responseText);
-    const batchResponse: RpcBatchResponse = await postprocess(intermediate);
+    const batchResponse: RpcBatchResponse = postprocess(intermediate);
 
     if (!response.ok) {
       // Handle error response - if any operation failed, the server returns HTTP 500
