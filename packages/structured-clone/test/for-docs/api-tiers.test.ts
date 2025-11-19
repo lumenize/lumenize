@@ -21,7 +21,7 @@ describe('Tier 2: preprocess/postprocess', () => {
   it('demonstrates intermediate format without JSON', async () => {
     const complexObject = { name: 'John', items: [1, 2, 3] };
     
-    const intermediate = await preprocess(complexObject);  // Returns { root, objects }
+    const intermediate = preprocess(complexObject);  // Returns { root, objects }
     const restored = await postprocess(intermediate);      // Reconstructs from object
     
     expect(restored).toEqual(complexObject);

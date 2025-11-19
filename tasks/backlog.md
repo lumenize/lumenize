@@ -89,6 +89,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Future bigger things
 
+- [ ] Publish our test-endpoints as part of @lumenize/testing. It's particularly useful now that it can be run in-process. Does it still need a token when used that way? Should we rename it httpbin to match? What's different about it compared to httpbin?
+
 - [ ] Investigate refactoring `@lumenize/rpc` to use new `this.lmz.call()` infrastructure
   - Currently uses manual `processIncomingOperations()` function (lines 277-318 in `lumenize-rpc-do.ts`)
   - Originally had `createIncomingOperationsTransform()` for postprocess hooks, but it was never called (dead code)

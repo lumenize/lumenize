@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
-import { postprocess } from '@lumenize/structured-clone';
+import { postprocess, parse } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
 import { createLmzApiForDO, type LmzApi } from './lmz-api.js';
 
@@ -246,6 +246,37 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
     const preprocessedChain = envelope.chain;
     const operationChain = postprocess(preprocessedChain);
     return await this.__executeChain(operationChain);
+  }
+
+  /**
+   * Internal handler for proxyFetchSimple
+   * 
+   * This is called by both the worker (on success) and the alarm (on timeout).
+   * It handles idempotency via alarm cancellation and executes the user's continuation.
+   * 
+   * @param reqId - Request ID (used for alarm cancellation)
+   * @param result - Fetch result (ResponseSync or Error)
+   * @param stringifiedUserContinuation - User's continuation as JSON string
+   * @internal
+   */
+  async __handleProxyFetchSimpleResult(
+    reqId: string,
+    result: any,
+    stringifiedUserContinuation: string
+  ): Promise<void> {
+    // Try to cancel alarm - returns schedule if successful (we won the race)
+    const scheduleData = this.svc.alarms.cancelSchedule(reqId);
+    
+    if (!scheduleData) {
+      // Alarm already fired or already cancelled - this is a noop
+      return;
+    }
+    
+    // We won the race - parse user's continuation, fill $result, and execute
+    // (parse and replaceNestedOperationMarkers are imported at top of file)
+    const userContinuation = parse(stringifiedUserContinuation);
+    const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
+    await this.__executeChain(filledChain);
   }
 
   /**

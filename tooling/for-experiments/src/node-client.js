@@ -5,65 +5,25 @@
  */
 
 import { WebSocket } from 'ws';
+import { fetchBillingMetrics } from './r2-billing.js';
 
 /**
- * Poll for completion of the last operation via RPC
+ * LEGACY: Poll for completion (deprecated - DO now sends totalTime directly)
  * 
- * @param {string} wsUrl - WebSocket URL (converted to HTTP for RPC)
- * @param {string} mode - Test mode
- * @param {number} lastIndex - Index of last operation (count - 1)
- * @param {number} startTime - When batch started
- * @param {number} timeout - Max time to wait
- * @returns {Promise<number>} Total time elapsed
+ * This function is kept for backward compatibility but should not be used.
+ * Modern experiments use msg.totalTime from batch-complete event.
+ * 
+ * @deprecated Use msg.totalTime from batch-complete message instead
  */
-async function pollForCompletion(wsUrl, mode, lastIndex, startTime, timeout) {
-  // Convert ws:// to http:// for RPC calls
-  const httpUrl = wsUrl.replace('ws://', 'http://').replace('wss://', 'https://');
-  const baseUrl = httpUrl.replace(/\/$/, ''); // Remove trailing slash
-  
-  const maxAttempts = 50; // 5 seconds max (100ms * 50)
-  
-  console.log(`  🔍 Polling for completion of ${mode}[${lastIndex}]...`);
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    // Check if we've exceeded total timeout
-    if (Date.now() - startTime > timeout) {
-      throw new Error(`Timeout waiting for completion after ${timeout}ms`);
-    }
-    
-    try {
-      // Make RPC call to check if last operation completed
-      const response = await fetch(`${baseUrl}/rpc/checkCompletion`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, index: lastIndex })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`RPC call failed: ${response.status}`);
-      }
-      
-      const isComplete = await response.json();
-      
-      if (isComplete) {
-        // Last operation completed! Return total time
-        console.log(`  ✅ Completion confirmed after ${attempt + 1} poll(s)`);
-        return Date.now() - startTime;
-      }
-      
-      // Log every 10 attempts
-      if ((attempt + 1) % 10 === 0) {
-        console.log(`  ⏳ Still polling... (attempt ${attempt + 1}/${maxAttempts})`);
-      }
-    } catch (error) {
-      console.warn(`  ⚠️  Poll attempt ${attempt + 1} failed:`, error.message);
-    }
-    
-    // Wait 100ms before next check
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  
-  throw new Error(`Last operation did not complete after ${maxAttempts} polling attempts`);
+
+/**
+ * Sleep for specified milliseconds
+ * 
+ * @param {number} ms - Milliseconds to sleep
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -88,8 +48,7 @@ export async function runBatch(wsUrl, mode, count, timeout = 60000) {
     }, timeout);
 
     ws.on('open', () => {
-      // Send batch request and start client-side timing
-      startTime = Date.now();
+      // Send batch request (timing starts when DO sends 'timing-start')
       ws.send(JSON.stringify({
         action: 'run-batch',
         mode,
@@ -101,7 +60,12 @@ export async function runBatch(wsUrl, mode, count, timeout = 60000) {
       try {
         const msg = JSON.parse(data.toString());
 
-        if (msg.type === 'progress') {
+        if (msg.type === 'timing-start') {
+          // DO signals timing start - record on client side where Date.now() works
+          startTime = Date.now();
+        } else if (msg.type === 'timing-end') {
+          // DO signals timing end (we'll calculate total when batch completes)
+        } else if (msg.type === 'progress') {
           progressUpdates.push(msg);
           const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
           console.log(`  ⏱️  Progress: ${msg.completed}/${msg.total} (${elapsed}s)`);
@@ -109,26 +73,21 @@ export async function runBatch(wsUrl, mode, count, timeout = 60000) {
           clearTimeout(timeoutHandle);
           ws.close();
           
-          console.log(`  📡 Batch signaled complete, polling for actual completion...`);
+          console.log(`  ✅ Batch complete`);
           
-          // Poll for completion of last operation (client-side polling)
-          pollForCompletion(wsUrl, mode, count - 1, startTime, timeout)
-            .then((totalTime) => {
-              const result = {
-                mode: msg.mode,
-                totalTime: totalTime,
-                avgPerOp: (totalTime / count).toFixed(2),
-                completed: msg.completed,
-                errors: msg.errors,
-                errorMessages: msg.errorMessages,
-                progressUpdates
-              };
-              resolve(result);
-            })
-            .catch((error) => {
-              console.error(`  ❌ Polling failed:`, error.message);
-              reject(error);
-            });
+          // Calculate totalTime on client side (where Date.now() actually advances!)
+          const totalTime = Date.now() - startTime;
+          
+          const result = {
+            mode: msg.mode,
+            totalTime,
+            avgPerOp: (totalTime / count).toFixed(2),
+            completed: msg.completed,
+            errors: msg.errors,
+            errorMessages: msg.errorMessages,
+            progressUpdates
+          };
+          resolve(result);
         } else if (msg.type === 'error') {
           clearTimeout(timeoutHandle);
           ws.close();
@@ -177,9 +136,19 @@ export function connectWebSocket(wsUrl) {
  */
 export function displayResults(results) {
   console.log(`\n${results.mode}:`);
-  console.log(`  Total: ${results.totalTime}ms`);
-  console.log(`  Avg: ${results.avgPerOp}ms per operation`);
+  console.log(`  Latency (Client-measured):`);
+  console.log(`    Total: ${results.totalTime}ms`);
+  console.log(`    Avg: ${results.avgPerOp}ms per operation`);
   console.log(`  Completed: ${results.completed}/${results.completed + results.errors}`);
+  
+  if (results.billing) {
+    console.log(`  Billing (R2 logs):`);
+    console.log(`    Count: ${results.billing.count} log entries`);
+    console.log(`    Avg Wall Time: ${results.billing.avgWallTimeMs}ms`);
+    console.log(`    Avg CPU Time: ${results.billing.avgCPUTimeMs}ms`);
+    console.log(`    Total Wall Time: ${results.billing.totalWallTimeMs}ms`);
+    console.log(`    Total CPU Time: ${results.billing.totalCPUTimeMs}ms`);
+  }
   
   if (results.errors > 0) {
     console.log(`  Errors: ${results.errors}`);
@@ -214,6 +183,8 @@ async function discoverPatterns(baseUrl) {
  * @param {number} operationCount - Number of operations per pattern
  * @param {Object} options - Optional configuration
  * @param {number} options.timeout - Timeout per batch in ms (default: 60000)
+ * @param {boolean} options.withBilling - Include R2 billing analysis (default: false)
+ * @param {string} options.scriptName - Script name for R2 log filtering (required if withBilling=true)
  */
 export async function runAllExperiments(baseUrl, operationCount = 50, options = {}) {
   const timeout = options.timeout || 60000;
@@ -246,15 +217,53 @@ export async function runAllExperiments(baseUrl, operationCount = 50, options = 
     });
     console.log('');
     
+    // Warmup if billing analysis is enabled
+    if (options.withBilling) {
+      console.log('🔥 Warmup phase (excluded from billing analysis)...');
+      for (const pattern of patterns) {
+        await runBatch(wsUrl, pattern.mode, 10, timeout);
+      }
+      await sleep(2000);
+      console.log('');
+    }
+    
     // Run batch for each pattern
     const results = [];
     for (const pattern of patterns) {
       console.log(`\n📊 Testing: ${pattern.name}`);
+      const batchStart = Date.now();
       const result = await runBatch(wsUrl, pattern.mode, operationCount, timeout);
+      const batchEnd = Date.now();
+      
       results.push({
         ...pattern,
-        ...result
+        ...result,
+        batchWindow: { start: batchStart, end: batchEnd } // For R2 query
       });
+    }
+    
+    // Fetch billing metrics if enabled
+    if (options.withBilling) {
+      if (!options.scriptName) {
+        console.warn('\n⚠️  withBilling=true but no scriptName provided. Skipping billing analysis.');
+      } else {
+        console.log('\n💰 Fetching billing metrics from R2...');
+        
+        for (const result of results) {
+          try {
+            const billing = await fetchBillingMetrics(
+              options.scriptName,
+              result.batchWindow.start,
+              result.batchWindow.end,
+              operationCount
+            );
+            result.billing = billing;
+          } catch (error) {
+            console.error(`  ❌ Failed to fetch billing for ${result.mode}:`, error.message);
+            result.billing = null;
+          }
+        }
+      }
     }
     
     // Display comparison table

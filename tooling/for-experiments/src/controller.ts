@@ -13,7 +13,13 @@ import { DurableObject } from 'cloudflare:workers';
 export interface VariationDefinition {
   name: string;
   description: string;
-  handler: (index: number) => Promise<void>;
+  handler: (index: number, count?: number) => Promise<void>;
+  /**
+   * Execution strategy:
+   * - 'sequential': Call handler(i) for each i, awaiting each (default)
+   * - 'chained': Call handler(0, count) ONCE, handler manages internal chaining
+   */
+  strategy?: 'sequential' | 'chained';
 }
 
 export class ExperimentController<Env = any> extends DurableObject<Env> {

@@ -1,0 +1,32 @@
+{
+  "name": "proxy-fetch-performance",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "services": [
+    {
+      "binding": "FETCH_EXECUTOR",
+      "service": "proxy-fetch-performance",
+      "entrypoint": "FetchExecutorEntrypoint"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CONTROLLER", "class_name": "PerformanceController" },
+      { "name": "ORIGIN_DO", "class_name": "OriginDO" },
+      { "name": "FETCH_ORCHESTRATOR", "class_name": "FetchOrchestrator" },
+      { "name": "TEST_ENDPOINTS_DO", "class_name": "TestEndpointsDO" }
+    ]
+  },
+  "migrations": [
+    { 
+      "tag": "v1", 
+      "new_sqlite_classes": [
+        "PerformanceController",
+        "OriginDO",
+        "FetchOrchestrator",
+        "TestEndpointsDO"
+      ]
+    }
+  ]
+}
+

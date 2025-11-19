@@ -11,13 +11,28 @@ TEST_TOKEN=your-test-token-here
 # For your own deployment: https://your-test-endpoints.workers.dev
 TEST_ENDPOINTS_URL=https://test-endpoints.transformation.workers.dev
 
+# Cloudflare Log Explorer API token (for http_requests, firewall_events datasets)
+# Create at: Cloudflare Dashboard → Analytics & Logs → Logs → Log Explorer
+CLOUDFLARE_LOG_QUERY_TOKEN=your-log-query-token-here
+
 # Programatically access Cloudflare Logpush logs pushed to R2
-CLOUDFLARE_R2_LOGPUSH_URL=r2-logpush-url
-CLOUDFLARE_R2_ACCESS_KEY_ID=r2-access-key-id
-CLOUDFLARE_R2_SECRET_ACCESS_KEY=r2-secret-key
+# Full URL to R2 bucket (includes account ID and bucket name)
+CLOUDFLARE_R2_LOGPUSH_URL=https://YOUR-ACCOUNT-ID.r2.cloudflarestorage.com/YOUR-BUCKET-NAME
+
+# R2 bucket name for Logpush (e.g., cloudflare-managed-03e4752d)
+CLOUDFLARE_R2_BUCKET_NAME=your-bucket-name
+
+# Cloudflare account ID (same as in R2 URL)
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+
+# R2 API credentials for bucket access
+# Create at: Cloudflare Dashboard → R2 → Manage R2 API Tokens
+CLOUDFLARE_R2_ACCESS_KEY_ID=your-r2-access-key-id
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=your-r2-secret-access-key
 
 # Cloudflare global API key
-CLOUDFLARE_GLOBAL_API_KEY=your-api-key-here
+# Find at: Cloudflare Dashboard → My Profile → API Tokens → Global API Key
+CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
 
 # Debug logging (see @lumenize/debug for patterns)
 # Examples: proxy-fetch.*, rpc.*, *

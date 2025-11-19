@@ -360,7 +360,7 @@ export class TestWorker extends LumenizeWorker<Env> {
         { type: 'call', property: 'workerEcho', args: ['envelope_test'] }
       ] 
     };
-    const preprocessedChain = await preprocess(chain);
+    const preprocessedChain = preprocess(chain);
     const envelope = {
       version: 1,
       chain: preprocessedChain,
@@ -377,7 +377,7 @@ export class TestWorker extends LumenizeWorker<Env> {
         { type: 'call', property: 'getBindingName', args: [] }
       ] 
     };
-    const preprocessedChain = await preprocess(chain);
+    const preprocessedChain = preprocess(chain);
     const envelope = {
       version: 1,
       chain: preprocessedChain,

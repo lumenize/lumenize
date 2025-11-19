@@ -253,12 +253,12 @@ describe('Edge Cases', () => {
 describe('Preprocess/Postprocess', () => {
   it('preprocess/postprocess round-trip', async () => {
     const o = { a: 1, b: 2 };
-    expect(await postprocess(await preprocess(o))).toEqual(o);
+    expect(await postprocess(preprocess(o))).toEqual(o);
   });
 
   it('round-trip with complex types', async () => {
     const original = { date: new Date(), map: new Map([['key', 'value']]) };
-    expect(await postprocess(await preprocess(original))).toEqual(original);
+    expect(await postprocess(preprocess(original))).toEqual(original);
   });
 
   it('round-trip with JSON.stringify/parse (MessagePort/BroadcastChannel)', async () => {
@@ -267,7 +267,7 @@ describe('Preprocess/Postprocess', () => {
       set: new Set([1, 2, 3]),
       nested: { value: 42 }
     };
-    const intermediate = await preprocess(original);
+    const intermediate = preprocess(original);
     const transported = JSON.parse(JSON.stringify(intermediate));
     expect(await postprocess(transported)).toEqual(original);
   });

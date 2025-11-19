@@ -86,7 +86,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     };
 
     // Use preprocess/postprocess
-    const intermediate = await preprocess(data);
+    const intermediate = preprocess(data);
     const restored = await postprocess(intermediate);
 
     // ✅ Identity preserved!
@@ -99,8 +99,8 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     const map = new Map([[key, 'data in map']]);
 
     // Serialize them separately
-    const intermediateMap = await preprocess(map);
-    const intermediateKey = await preprocess(key);
+    const intermediateMap = preprocess(map);
+    const intermediateKey = preprocess(key);
 
     // Restore them separately
     const restoredMap = await postprocess(intermediateMap);

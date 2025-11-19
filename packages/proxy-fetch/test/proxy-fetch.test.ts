@@ -1,3 +1,12 @@
+/**
+ * Integration tests for proxyFetch
+ * 
+ * Tests the full architecture with FetchOrchestrator:
+ * - Origin DO → FetchOrchestrator DO
+ * - FetchOrchestrator → Worker (RPC)
+ * - Worker executes fetch and calls back to Origin DO
+ * - Orchestrator provides timeout/delivery failure backstop
+ */
 import { describe, test, expect, vi } from 'vitest';
 import { createTestingClient } from '@lumenize/testing';
 import { createTestEndpoints } from '@lumenize/test-endpoints';

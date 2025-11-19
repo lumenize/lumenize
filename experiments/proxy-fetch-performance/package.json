@@ -1,0 +1,22 @@
+{
+  "name": "proxy-fetch-performance",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "test": "node test/measurements.mjs",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@lumenize/lumenize-base": "*",
+    "@lumenize/proxy-fetch": "*",
+    "@lumenize/test-endpoints": "*",
+    "@lumenize/for-experiments": "*"
+  },
+  "devDependencies": {
+    "wrangler": "^4.38.0"
+  }
+}
+

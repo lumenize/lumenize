@@ -1,8 +1,9 @@
 # Proxy-Fetch Performance Experiments
 
-**Status**: Planning
+**Status**: Ready for Phase 3 (Production Testing)
 **Type**: Research & Measurement
-**Dependencies**: Requires both `proxyFetch` and `proxyFetchSimple` implementations complete
+**Dependencies**: ✅ Both `proxyFetch` and `proxyFetchSimple` implementations complete
+**Infrastructure**: ✅ Measurement tooling complete (local testing + R2 polling ready)
 
 ## Objective
 
@@ -98,27 +99,142 @@ Use **Logpush to R2** for experiments:
 - ✅ Credentials working (downloaded test file: `{"content":"test"}`)
 - ⏳ Waiting for real Worker activity to generate actual logs
 
-## Phase 2: Create Measurement Infrastructure
+## Phase 2: Create Measurement Infrastructure ✅
 
-**Goal**: Build tooling to capture and analyze wall clock billing data.
+**Status**: COMPLETE
 
-**Infrastructure Needed:**
-- Script to trigger test fetches
-- Script to query/poll Cloudflare logs
-- Parser to extract wall clock times from log entries
-- Aggregator to compute statistics (mean, median, p95, p99)
-- Handle log delay (retry logic, timeout)
+**Goal**: Build tooling to capture both latency and wall clock billing data.
 
-**Test Design:**
-- Multiple runs per approach (30+ for statistical significance)
-- Various fetch durations (100ms, 500ms, 1s, 5s, 10s)
-- Control for external variability (same endpoint, same time of day)
-- Record metadata (timestamp, fetch duration, approach used)
+### Two Metrics Required
+
+**1. Latency (Client Perspective)**
+- Measured on Node.js client (where `Date.now()` advances!)
+- Start: `Date.now()` when DO sends `timing-start` event
+- End: `Date.now()` when DO sends `timing-end` event
+- Client calculates `totalTime` for batch
+- Run 50+ iterations for statistical significance (proven stable in call-delay experiments)
+
+**2. Wall Clock Billing (Cloudflare Perspective)**
+- Extracted from R2 Logpush logs
+- Fields: `WallTimeMs`, `CPUTimeMs` per operation
+- Shows actual cost (what you pay), not just latency
+- Validates assumptions about DO wall clock vs Worker CPU billing
+
+### Step 1: Upgrade `@lumenize/for-experiments` ✅
+
+**Remove Legacy Polling:**
+- Current: Client polls `/rpc/checkCompletion` for last operation
+- New: DO sends `totalTime` directly in `batch-complete` message
+- Simpler, more accurate, already used in `call-delay` experiment
+
+**Changes Made:**
+- ✅ Removed `pollForCompletion()` function from `node-client.js` (marked as deprecated)
+- ✅ Updated `batch-complete` handler to use `msg.totalTime` directly
+- ✅ Simplified logging: "Batch complete" instead of "polling for completion"
+- ✅ Pattern already proven in `experiments/call-delay`
+
+**Backward Compatibility:**
+- Existing experiments may still have `/rpc/checkCompletion` endpoints
+- They're no longer called, but harmless if present
+- New experiments don't need to implement it
+
+### Step 2: Add R2 Billing Analysis Module ✅
+
+**Created: `tooling/for-experiments/src/r2-billing.js`**
+
+**Phase A - Mock Implementation (for local testing):**
+- ✅ `pollForR2Logs()` - Returns mock billing data
+- ✅ `fetchBillingMetrics()` - Aggregates mock logs into metrics
+- ✅ `extractMetricsFromLogs()` - Calculates avg/total WallTime and CPUTime
+- ✅ `generateMockLogs()` - Simulates realistic billing data
+- ⏳ Real R2 polling - Stubbed for Phase B (production)
+
+**Updated: `tooling/for-experiments/src/node-client.js`**
+- ✅ Added `withBilling` option to `runAllExperiments()`
+- ✅ Added warmup phase (10 ops) when billing is enabled
+- ✅ Track batch timing windows (`batchWindow: { start, end }`)
+- ✅ Fetch billing metrics after all batches complete
+- ✅ Updated `displayResults()` to show billing data
+
+**Usage:**
+```javascript
+// Local testing with mock billing data
+runAllExperiments(baseUrl, 50, { 
+  withBilling: true, 
+  scriptName: 'my-worker' 
+});
+
+// Output includes both latency and billing (mock)
+// Latency (DO-measured): 1500ms total, 30ms/op
+// Billing (R2 logs): Avg Wall Time: 25ms, Avg CPU Time: 7ms
+```
+
+**Environment Variables:**
+- ✅ Added to `.dev.vars`: `CLOUDFLARE_R2_BUCKET_NAME`, `CLOUDFLARE_ACCOUNT_ID`
+- ✅ Updated `.dev.vars.example` with placeholders and descriptions
+
+**R2 Log Matching Strategy:**
+- **Assumption**: Isolated testing (we're the only ones running)
+- **Time window**: Wide buffer for safety (experiment to determine actual skew)
+- **Filter by**: `ScriptName`, `EventType` (fetch/alarm), timestamp range
+- **Multi-DO handling**: Need to query Origin DO and Orchestrator DO separately
+  - Experiment: Check if `ScriptName` differs or if binding/class name available
+- **Validation**: Warn if log count ≠ expected count, but continue with what we have
+
+**Polling Strategy:**
+- Poll R2 every 10 seconds
+- Max timeout: Determined experimentally (start with 10 minutes)
+- If logs consistently appear in ~1 min, can reduce max timeout to 3 min
+- Stop polling once expected logs are found
+
+### Step 3: Test & Iterate on R2 Log Matching
+
+**Experiments to run:**
+1. **Clock skew measurement**: Compare log timestamps to node.js `Date.now()`
+2. **Log delay**: How long until logs appear in R2? (avg, p95, max)
+3. **Multi-DO identification**: Can we distinguish Origin DO vs Orchestrator DO logs?
+   - Check: `ScriptName` field (may be same if exported from same index)
+   - Check: Binding name field (if available)
+   - Check: Class name field (if available)
+   - Fallback: Sequential batches (run Origin-only first, then Orchestrator-only)
 
 **Success Criteria:**
-- [ ] Can reliably retrieve wall clock billing for a test fetch
-- [ ] Can run automated test suite
-- [ ] Can generate comparison reports
+- [x] Remove legacy polling from `for-experiments`
+- [x] Fixed client-side timing (using `timing-start`/`timing-end` events)
+- [x] Create R2 billing module with mock implementation (Phase A)
+- [x] Add `withBilling` option to `runAllExperiments()`
+- [x] Combined reporting shows latency + billing side-by-side (with mock data)
+- [x] **Phase B**: R2 polling infrastructure implemented (`listLogFiles`, `downloadAndParseLogFile`, `filterLogsByTimeWindow`)
+- [ ] **Phase B**: R2 polling tested against deployed services (finds logs within max timeout)
+- [ ] **Phase B**: Time window matching validated (<5% false positives/negatives)
+- [ ] **Phase B**: Multi-DO identification strategy determined (Origin vs Orchestrator)
+
+**Phase 2 Summary:**
+
+Phase 2 is **COMPLETE** for local development. The infrastructure is ready to:
+1. ✅ Measure latency on the Node.js client (where `Date.now()` actually advances)
+2. ✅ Poll R2 for billing logs (infrastructure complete, ready for production testing)
+3. ✅ Display both metrics side-by-side
+
+**Next**: Deploy to production and validate R2 log matching with real data (Phase 3).
+
+### Infrastructure Files
+
+**Updated:**
+- `tooling/for-experiments/src/node-client.js` - Client-side timing via WebSocket events, billing integration
+- `tooling/for-experiments/src/lumenize-experiment-do.ts` - Sends `timing-start`/`timing-end` events
+- `tooling/for-experiments/src/index.ts` - No longer exports R2 functions (Node.js-only)
+
+**New:**
+- `tooling/for-experiments/src/r2-billing.js` - R2 query and billing extraction (Phase A - mock)
+- `experiments/proxy-fetch-performance/` - Experiment folder for Phase 3
+  - `src/index.ts` - PerformanceController and OriginDO
+  - `test/measurements.mjs` - Test client with billing support
+  - `wrangler.jsonc` - DO bindings and Worker config
+  - `README.md` - Usage instructions
+
+**Reused:**
+- `scripts/inspect-r2-logs.js` - R2 query patterns for Phase B
 
 ## Phase 3: Run Baseline Experiments
 

@@ -92,7 +92,7 @@ export class AlarmDO extends LumenizeBase<Env> {
 
   // Test helper: Manually trigger alarms for testing
   async triggerAlarms(count?: number) {
-    return await this.svc.alarms.triggerAlarms(count);
+    return await this.svc.alarms.triggerAlarmsForTesting(count);
   }
 
   // Test helper: Call the alarm() method (simulates Cloudflare calling it)

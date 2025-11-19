@@ -106,6 +106,7 @@ export class _TestSimpleDO extends LumenizeBase {
     options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; orchestratorTimeoutOverride?: number } },
     reqId?: string
   ): Promise<string> {
+    // User just passes their continuation directly - no handleFetchResult() needed!
     const finalReqId = await proxyFetchSimple(
       this,
       url,
@@ -116,35 +117,20 @@ export class _TestSimpleDO extends LumenizeBase {
     return finalReqId;
   }
 
-  /**
-   * Single handler called by both alarm (timeout) and worker (result delivery)
-   * Both paths embed the continuation in their call
-   */
-  async handleFetchResult(
-    reqId: string, 
-    result: ResponseSync | Error, 
-    url: string,
-    preprocessedContinuation: any
-  ): Promise<void> {
-    // Try to cancel alarm - returns schedule if successful (we won the race)
-    const scheduleData = this.svc.alarms.cancelSchedule(reqId);
-    
-    if (!scheduleData) {
-      // Alarm already fired or already cancelled - this is a noop
-      const noopKey = `__test_noop:${reqId}`;
-      this.ctx.storage.kv.put(noopKey, true);
-      return;
-    }
-    
-    // We won the race - deserialize continuation and execute with result
-    const userContinuation = postprocess(preprocessedContinuation);
-    const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
-    await this.__executeChain(filledChain);
+  async fetchDataSimpleWithRequest(request: Request, reqId?: string): Promise<string> {
+    const finalReqId = await proxyFetchSimple(
+      this,
+      request,
+      this.ctn().handleFetchComplete(this.ctn().$result, request.url),
+      {},
+      reqId
+    );
+    return finalReqId;
   }
 
   /**
-   * Final handler that receives the result (either from worker or timeout)
-   * This is what the continuation points to
+   * User's handler - receives the result directly (either from worker or timeout)
+   * This is the only method the user needs to implement
    */
   async handleFetchComplete(result: ResponseSync | Error, url: string): Promise<void> {
     const resultKey = `__test_result:${url}`;
@@ -173,7 +159,7 @@ export class _TestSimpleDO extends LumenizeBase {
    * Test helper: Trigger alarms manually
    */
   async triggerAlarmsHelper(count?: number): Promise<string[]> {
-    return await this.svc.alarms.triggerAlarms(count);
+    return await this.svc.alarms.triggerAlarmsForTesting(count);
   }
 
   /**
@@ -220,7 +206,7 @@ export class _TestSimpleDO extends LumenizeBase {
    * Pattern 3: Test continuation embedding
    */
   async testContinuationEmbedding(value: string): Promise<string> {
-    const reqId = 'embed-' + Date.now();
+    const reqId = 'embed-' + crypto.randomUUID();
     const fireAt = new Date(Date.now() + 100); // 100ms from now
     
     // Create user continuation that stores the value

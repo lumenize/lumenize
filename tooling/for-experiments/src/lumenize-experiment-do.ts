@@ -21,6 +21,8 @@ import type { VariationDefinition } from './controller.js';
 
 export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> {
   #wsConnections = new Set<WebSocket>();
+  #activeWebSocket: WebSocket | null = null;
+  #chainedBatchState: { mode: string; count: number; completed: number; errors: number; errorMessages: string[] } | null = null;
 
   /**
    * Override fetch to handle experiment routes before delegating to LumenizeBase
@@ -158,6 +160,9 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
   async #handleBatchRequest(ws: WebSocket, msg: { mode: string; count: number }): Promise<void> {
     const { mode, count } = msg;
 
+    // Store active WebSocket for chained execution signals
+    this.#activeWebSocket = ws;
+
     // Clean up any stale completion markers from previous runs
     const prefix = `__lmz_exp_completed_${mode}_`;
     for (const [key] of this.ctx.storage.kv.list({ prefix })) {
@@ -170,6 +175,7 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
       count
     });
 
+    const startTime = Date.now();
     const results = {
       completed: 0,
       errors: 0,
@@ -185,24 +191,53 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
       throw new Error(`Unknown mode: ${mode}. Available: ${available || 'none'}`);
     }
 
-    const isAsync = definition.handler.constructor.name !== 'AsyncFunction';
+    const strategy = definition.strategy || 'sequential';
 
-    if (isAsync) {
-      // Fire-and-forget patterns: fire all without awaiting
-      for (let i = 0; i < count; i++) {
-        try {
-          definition.handler(i);
-          results.completed++;
-          if (results.completed % 5 === 0) {
-            this.#sendProgress(ws, mode, count, results.completed);
-          }
-        } catch (error) {
-          results.errors++;
-          results.errorMessages.push(`Op ${i}: ${error instanceof Error ? error.message : String(error)}`);
-        }
+    // Signal timing start (client-side timing begins)
+    this.#sendMessage(ws, {
+      type: 'timing-start',
+      mode
+    });
+
+    if (strategy === 'chained') {
+      // Chained execution: call handler ONCE, it manages internal chaining
+      // Handler is responsible for calling signalChainedComplete() when done
+      // Store state for later completion signal
+      this.#chainedBatchState = {
+        mode,
+        count,
+        completed: 0,
+        errors: 0,
+        errorMessages: []
+      };
+      
+      try {
+        await definition.handler(0, count);
+        // Assume success if no error thrown - actual completion signaled by handler
+      } catch (error) {
+        // Handler threw error during setup - complete immediately
+        this.#chainedBatchState.errors++;
+        this.#chainedBatchState.errorMessages.push(`Chained execution failed: ${error instanceof Error ? error.message : String(error)}`);
+        
+        // Send timing-end and batch-complete for error case
+        this.#sendMessage(ws, {
+          type: 'timing-end',
+          mode
+        });
+        this.#sendMessage(ws, {
+          type: 'batch-complete',
+          mode,
+          completed: 0,
+          errors: this.#chainedBatchState.errors,
+          errorMessages: this.#chainedBatchState.errorMessages
+        });
+        
+        this.#activeWebSocket = null;
+        this.#chainedBatchState = null;
       }
+      // Note: For chained strategy, batch-complete is sent by signalChainedComplete()
     } else {
-      // Sequential patterns: execute sequentially
+      // Sequential: execute each operation sequentially
       for (let i = 0; i < count; i++) {
         try {
           await definition.handler(i);
@@ -215,16 +250,25 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
           results.errorMessages.push(`Op ${i}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-    }
+      
+      // Signal timing end (client-side timing ends)
+      this.#sendMessage(ws, {
+        type: 'timing-end',
+        mode
+      });
+      
+      // Send batch complete (timing calculated client-side)
+      this.#sendMessage(ws, {
+        type: 'batch-complete',
+        mode,
+        completed: results.completed,
+        errors: results.errors,
+        errorMessages: results.errorMessages
+      });
 
-    // Send batch complete (client will poll for actual completion)
-    this.#sendMessage(ws, {
-      type: 'batch-complete',
-      mode,
-      completed: results.completed,
-      errors: results.errors,
-      errorMessages: results.errorMessages
-    });
+      // Clear active WebSocket
+      this.#activeWebSocket = null;
+    }
   }
 
   /**
@@ -237,6 +281,61 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
       total,
       completed
     });
+  }
+
+  /**
+   * Signal completion for chained execution
+   * Called by chained handlers when all operations complete
+   * Sends timing-end and batch-complete messages
+   * PUBLIC: Can be called via RPC from other DOs
+   */
+  signalChainedComplete(mode: string): void {
+    const ws = this.#activeWebSocket;
+    const state = this.#chainedBatchState;
+    
+    if (!ws) {
+      console.warn('No active WebSocket to signal chained completion');
+      return;
+    }
+    
+    if (!state) {
+      console.warn('No chained batch state found');
+      return;
+    }
+    
+    // Signal timing end
+    this.#sendMessage(ws, {
+      type: 'timing-end',
+      mode
+    });
+    
+    // Send batch complete
+    this.#sendMessage(ws, {
+      type: 'batch-complete',
+      mode,
+      completed: state.count, // All operations completed successfully
+      errors: state.errors,
+      errorMessages: state.errorMessages
+    });
+    
+    // Clean up
+    this.#activeWebSocket = null;
+    this.#chainedBatchState = null;
+  }
+
+  /**
+   * Send progress update for chained execution
+   * Called by chained handlers to report progress
+   * PUBLIC: Can be called via RPC from other DOs
+   */
+  signalChainedProgress(mode: string, total: number, completed: number): void {
+    const ws = this.#activeWebSocket;
+    if (!ws) {
+      console.warn('No active WebSocket to signal progress');
+      return;
+    }
+    
+    this.#sendProgress(ws, mode, total, completed);
   }
 
   /**

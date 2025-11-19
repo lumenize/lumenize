@@ -92,12 +92,11 @@ export async function executeFetchSimple(
 
   try {
     // Create continuation with $result placeholder
-    // Pattern: handleFetchResult(reqId, $result, url, preprocessedContinuation)
-    const handleResultContinuation = worker.ctn().handleFetchResult(
+    // Pattern: __handleProxyFetchSimpleResult(reqId, $result, stringifiedUserContinuation)
+    const handleResultContinuation = worker.ctn().__handleProxyFetchSimpleResult(
       message.reqId,
       worker.ctn().$result, // Placeholder
-      message.url,
-      message.preprocessedContinuation
+      message.stringifiedUserContinuation
     );
 
     // Fill $result placeholder with actual result

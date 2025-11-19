@@ -87,6 +87,27 @@ class MyClass {
 
 **Why:** JavaScript `#` prefix provides true runtime privacy, TypeScript `private` is erased at compile time.
 
+### ID Generation
+
+**Always:**
+```typescript
+// For unique IDs in Workers/DOs
+const id = crypto.randomUUID();
+
+// For ordered IDs (e.g., sorting by creation time)
+import { ulidFactory } from 'ulid-workers';
+const ulid = ulidFactory({ monotonic: true });
+const id = ulid();
+```
+
+**Never:**
+```typescript
+const id = Date.now();           // ❌ Doesn't advance during DO execution
+const id = 'req-' + Date.now();  // ❌ Will cause ID collisions
+```
+
+**Why:** `Date.now()` returns the same value throughout a Cloudflare Worker/DO's execution context, causing ID collisions when creating multiple IDs in rapid succession. Use `crypto.randomUUID()` for guaranteed uniqueness, or `ulid-workers` with `monotonic: true` when ordering matters.
+
 ## NPM Package Management
 
 ### Before Installing

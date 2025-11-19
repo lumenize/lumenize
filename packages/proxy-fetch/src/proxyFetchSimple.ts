@@ -21,7 +21,7 @@
 
 import { debug } from '@lumenize/core';
 import { getOperationChain, type LumenizeBase } from '@lumenize/lumenize-base';
-import { preprocess } from '@lumenize/structured-clone';
+import { preprocess, stringify } from '@lumenize/structured-clone';
 import type { ProxyFetchWorkerOptions } from './types.js';
 
 /**
@@ -34,7 +34,7 @@ export interface SimpleFetchMessage {
   originBinding: string;
   originId: string;
   url: string;
-  preprocessedContinuation: any;
+  stringifiedUserContinuation: string;  // User's continuation as JSON string
   options?: ProxyFetchWorkerOptions;
   fetchTimeout: number;
 }
@@ -47,9 +47,9 @@ export interface SimpleFetchMessage {
  * **Setup Required**:
  * 1. Your DO must extend `LumenizeBase`
  * 2. Call `this.lmz.init({ bindingName })` in constructor
- * 3. Export `FetchExecutorEntrypoint` from your worker
- * 4. Add service binding in wrangler.jsonc
- * 5. Your DO must have `handleFetchResult(reqId, result, url, preprocessedContinuation)` method
+ * 3. Import `@lumenize/alarms` (registers NADIS plugin)
+ * 4. Export `FetchExecutorEntrypoint` from your worker
+ * 5. Add service binding in wrangler.jsonc
  * 6. Your DO must have `async alarm()` that calls `await this.svc.alarms.alarm()`
  * 
  * @param doInstance - The LumenizeBase DO instance making the request
@@ -77,37 +77,21 @@ export interface SimpleFetchMessage {
  *   }
  * 
  *   async fetchUserData(userId: string) {
+ *     // Just pass your continuation - no boilerplate needed!
  *     const reqId = await proxyFetchSimple(
  *       this,
  *       `https://api.example.com/users/${userId}`,
- *       this.ctn().handleResult()
+ *       this.ctn().handleResult(this.ctn().$result, userId)
  *     );
  *   }
  *   
- *   handleResult(result: ResponseSync | Error) {
+ *   handleResult(result: ResponseSync | Error, userId: string) {
  *     if (result instanceof Error) {
  *       console.error('Fetch failed:', result);
  *     } else {
  *       const data = result.json(); // Synchronous!
- *       this.ctx.storage.kv.put('user-data', data);
+ *       this.ctx.storage.kv.put(`user-data:${userId}`, data);
  *     }
- *   }
- * 
- *   // Required handler for internal use (DO extension point)
- *   async handleFetchResult(
- *     reqId: string,
- *     result: ResponseSync | Error,
- *     url: string,
- *     preprocessedContinuation: any
- *   ) {
- *     // Cancel alarm - if successful, we won the race
- *     const scheduleData = this.svc.alarms.cancelSchedule(reqId);
- *     if (!scheduleData) return; // Already executed
- *     
- *     // Deserialize and fill user continuation with result
- *     const userContinuation = postprocess(preprocessedContinuation);
- *     const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
- *     await this.__executeChain(filledChain);
  *   }
  * }
  * ```
@@ -157,20 +141,19 @@ export async function proxyFetchSimple(
     alarmFiresAt: alarmFiresAt.toISOString()
   });
 
-  // Preprocess user continuation for embedding
-  const preprocessedContinuation = await preprocess(continuationChain);
+  // Stringify user continuation for embedding as opaque data
+  const stringifiedUserContinuation = await stringify(continuationChain);
 
   // Create timeout error for alarm path
   const timeoutError = new Error(
     `Fetch timeout - request exceeded timeout period. URL: ${requestObj.url}`
   );
 
-  // Create alarm handler: calls handleFetchResult with timeout error + embedded continuation
-  const alarmHandler = doInstance.ctn().handleFetchResult(
+  // Create alarm handler: internal method with embedded user continuation
+  const alarmHandler = doInstance.ctn().__handleProxyFetchSimpleResult(
     finalReqId,
-    timeoutError,
-    requestObj.url,
-    preprocessedContinuation
+    timeoutError,  // Will be filled with actual error at alarm time
+    stringifiedUserContinuation
   );
 
   // Schedule alarm with explicit ID
@@ -191,7 +174,7 @@ export async function proxyFetchSimple(
     originBinding,
     originId: ctx.id.toString(),
     url: requestObj.url,
-    preprocessedContinuation,
+    stringifiedUserContinuation,
     options,
     fetchTimeout: timeout
   };
