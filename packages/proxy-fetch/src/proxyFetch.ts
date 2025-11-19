@@ -101,7 +101,7 @@ export async function proxyFetch(
 ): Promise<string> {
   const ctx = doInstance.ctx;
   const env = doInstance.env;
-  const log = debug(ctx)('lmz.proxyFetch');
+  const log = debug(doInstance)('lmz.proxyFetch');
   
   log.debug('proxyFetch called', { requestType: typeof request });
 
@@ -162,7 +162,14 @@ export async function proxyFetch(
     });
     
     // Create continuation for the enqueueFetch call
+    log.debug('Creating remote continuation for enqueueFetch', { reqId: finalReqId });
     const remoteContinuation = doInstance.ctn().enqueueFetch(message);
+    
+    log.debug('Calling orchestrator.enqueueFetch via callRaw', { 
+      reqId: finalReqId,
+      orchestratorBinding,
+      orchestratorInstanceName
+    });
     
     // Use callRaw for DO-to-DO RPC with automatic metadata propagation
     await doInstance.lmz.callRaw(
@@ -171,7 +178,7 @@ export async function proxyFetch(
       remoteContinuation
     );
     
-    log.debug('Request enqueued via callRaw', { reqId: finalReqId });
+    log.debug('Request enqueued successfully via callRaw', { reqId: finalReqId });
   } catch (error) {
     log.error('Failed to enqueue request', {
       reqId: finalReqId,

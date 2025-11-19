@@ -49,8 +49,18 @@ import type { DebugLogger } from './types';
 export function debug(withEnv: any): (namespace: string) => DebugLogger {
   // Get DEBUG environment variable
   // Try withEnv.env first (DO, Worker, or { env } object)
-  const env = withEnv.env || (withEnv as any).env;
-  const debugFilter = env?.DEBUG || (typeof process !== 'undefined' ? process.env?.DEBUG : undefined);
+  const env = withEnv?.env || (withEnv as any)?.env;
+  
+  // Validate that we can access env - fail fast with helpful error
+  if (!env) {
+    throw new Error(
+      'debug() requires an object with an "env" property. ' +
+      'Pass doInstance or { env } instead of ctx. ' +
+      'Example: debug(doInstance)(\'namespace\') or debug({ env })(\'namespace\')'
+    );
+  }
+  
+  const debugFilter = env.DEBUG || (typeof process !== 'undefined' ? process.env?.DEBUG : undefined);
   
   // Create matcher from environment
   const matcher = createMatcher(debugFilter);

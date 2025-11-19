@@ -105,11 +105,15 @@ export async function proxyFetchSimple(
 ): Promise<string> {
   const ctx = doInstance.ctx;
   const env = doInstance.env;
-  const log = debug(ctx)('lmz.proxyFetchSimple');
+  const log = debug(doInstance)('lmz.proxyFetchSimple');
 
   // Validate continuation
   const continuationChain = getOperationChain(continuation);
   if (!continuationChain) {
+    log.error('Invalid continuation passed to proxyFetchSimple', {
+      hasContinuation: !!continuation,
+      continuationType: typeof continuation
+    });
     throw new Error('Invalid continuation: must be created with this.ctn()');
   }
 
@@ -138,11 +142,16 @@ export async function proxyFetchSimple(
     url: requestObj.url,
     reqId: finalReqId,
     alarmTimeout,
-    alarmFiresAt: alarmFiresAt.toISOString()
+    alarmFiresAt: alarmFiresAt.toISOString(),
+    originBinding
   });
 
   // Stringify user continuation for embedding as opaque data
   const stringifiedUserContinuation = await stringify(continuationChain);
+  log.debug('Stringified user continuation for alarm handler', {
+    reqId: finalReqId,
+    continuationLength: stringifiedUserContinuation.length
+  });
 
   // Create timeout error for alarm path
   const timeoutError = new Error(
@@ -157,15 +166,24 @@ export async function proxyFetchSimple(
   );
 
   // Schedule alarm with explicit ID
+  log.debug('Scheduling alarm for timeout backstop', {
+    reqId: finalReqId,
+    alarmFiresAt: alarmFiresAt.toISOString(),
+    alarmTimeout
+  });
+  
   doInstance.svc.alarms.schedule(alarmFiresAt, alarmHandler, { id: finalReqId });
 
-  log.debug('Alarm scheduled', {
-    reqId: finalReqId,
-    alarmFiresAt: alarmFiresAt.toISOString()
+  log.debug('Alarm scheduled successfully', {
+    reqId: finalReqId
   });
 
   // Preprocess request for transmission
   const preprocessedRequest = await preprocess(requestObj);
+  log.debug('Request preprocessed for worker transmission', {
+    reqId: finalReqId,
+    url: requestObj.url
+  });
 
   // Prepare message for Worker
   const message: SimpleFetchMessage = {
@@ -182,15 +200,26 @@ export async function proxyFetchSimple(
   // Call Worker directly via this.lmz.callRaw()
   try {
     const executorBinding = options?.executorBinding || 'FETCH_EXECUTOR';
+    log.debug('Resolving worker binding', {
+      reqId: finalReqId,
+      executorBinding
+    });
+    
     const worker = (env as any)[executorBinding];
     
     if (!worker) {
+      log.error('Worker binding not found in environment', {
+        reqId: finalReqId,
+        executorBinding,
+        availableKeys: Object.keys(env).filter(k => !k.startsWith('__'))
+      });
       throw new Error(`Worker binding '${executorBinding}' not found in env`);
     }
 
-    log.debug('Calling worker executor', {
+    log.debug('Worker binding resolved, calling via callRaw', {
       executorBinding,
-      reqId: finalReqId
+      reqId: finalReqId,
+      url: requestObj.url
     });
 
     // Create continuation for executeFetchSimple call

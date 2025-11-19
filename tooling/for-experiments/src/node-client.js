@@ -217,15 +217,13 @@ export async function runAllExperiments(baseUrl, operationCount = 50, options = 
     });
     console.log('');
     
-    // Warmup if billing analysis is enabled
-    if (options.withBilling) {
-      console.log('🔥 Warmup phase (excluded from billing analysis)...');
-      for (const pattern of patterns) {
-        await runBatch(wsUrl, pattern.mode, 10, timeout);
-      }
-      await sleep(2000);
-      console.log('');
+    // Warmup phase to eliminate cold-start overhead
+    console.log('🔥 Warmup phase (eliminating cold starts)...');
+    for (const pattern of patterns) {
+      await runBatch(wsUrl, pattern.mode, 5, timeout);
     }
+    await sleep(500); // Brief pause between warmup and real measurements
+    console.log('');
     
     // Run batch for each pattern
     const results = [];

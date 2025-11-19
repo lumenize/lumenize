@@ -39,7 +39,7 @@ export class FetchOrchestrator extends LumenizeBase {
    * Stores the request in a queue and dispatches to a Worker.
    */
   async enqueueFetch(message: FetchOrchestratorMessage): Promise<void> {
-    const log = debug(this.ctx)('lmz.proxyFetch.orchestrator');
+    const log = debug(this)('lmz.proxyFetch.orchestrator');
     
     log.debug('Enqueueing fetch request', {
       reqId: message.reqId,
@@ -80,7 +80,7 @@ export class FetchOrchestrator extends LumenizeBase {
    * @param delivered - True if result was successfully delivered to origin DO, false if delivery failed
    */
   async reportDelivery(reqId: string, delivered: boolean): Promise<void> {
-    const log = debug(this.ctx)('lmz.proxyFetch.orchestrator');
+    const log = debug(this)('lmz.proxyFetch.orchestrator');
     
     if (delivered) {
       log.debug('Fetch result delivered successfully', { reqId });
@@ -107,7 +107,7 @@ export class FetchOrchestrator extends LumenizeBase {
    * @internal
    */
   async #dispatchToWorker(message: any): Promise<void> {
-    const log = debug(this.ctx)('lmz.proxyFetch.orchestrator');
+    const log = debug(this)('lmz.proxyFetch.orchestrator');
 
     // Prepare message for Worker
     const workerMessage: WorkerFetchMessage = {
@@ -203,7 +203,7 @@ export class FetchOrchestrator extends LumenizeBase {
    * Pattern: Reschedule at start (defensive), cancel at end if queue empty.
    */
   async alarm(): Promise<void> {
-    const log = debug(this.ctx)('lmz.proxyFetch.orchestrator.alarm');
+    const log = debug(this)('lmz.proxyFetch.orchestrator.alarm');
     
     // Reschedule EARLY (defensive - ensures alarm keeps running even if something throws)
     this.#scheduleAlarm();
@@ -255,7 +255,7 @@ export class FetchOrchestrator extends LumenizeBase {
    * @internal
    */
   async #sendTimeoutToOrigin(message: any): Promise<void> {
-    const log = debug(this.ctx)('lmz.proxyFetch.orchestrator');
+    const log = debug(this)('lmz.proxyFetch.orchestrator');
     
     try {
       // Create delivery timeout error

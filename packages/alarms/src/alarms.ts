@@ -100,7 +100,7 @@ export class Alarms {
     this.#ctx = ctx;
     this.#parent = doInstance;
     this.#storage = ctx.storage;
-    this.#log = debug(ctx)('lmz.alarms.Alarms');
+    this.#log = debug(doInstance)('lmz.alarms.Alarms');
     
     // Use provided sql or get from DO instance (NADIS pattern)
     if (deps?.sql) {
@@ -201,6 +201,10 @@ export class Alarms {
     // Extract operation chain from the continuation proxy
     const operationChain = getOperationChain(continuation);
     if (!operationChain) {
+      this.#log.error('Invalid continuation passed to schedule', {
+        hasContinuation: !!continuation,
+        continuationType: typeof continuation
+      });
       throw new Error('Invalid continuation: must be created with newContinuation() or this.ctn()');
     }
 
@@ -209,9 +213,17 @@ export class Alarms {
     if (when instanceof Date) {
       const timestamp = Math.floor(when.getTime() / 1000);
       
+      this.#log.debug('Scheduling alarm', {
+        id,
+        firesAt: when.toISOString(),
+        timestamp,
+        operationName: operationChain.name
+      });
+      
       // Store asynchronously - blockConcurrencyWhile prevents race conditions but doesn't block return
       void this.#ctx.blockConcurrencyWhile(async () => {
         await this.#storeSchedule(id, operationChain, 'scheduled', timestamp, { time: timestamp });
+        this.#log.debug('Alarm stored and next alarm scheduled', { id, timestamp });
         this.#scheduleNextAlarm();
       });
       

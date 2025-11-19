@@ -238,7 +238,43 @@ Phase 2 is **COMPLETE** for local development. The infrastructure is ready to:
 
 ## Phase 3: Run Baseline Experiments
 
+**Status**: IN PROGRESS - Blocked on production issues
+
 **Goal**: Establish baseline performance for Direct and Current approaches.
+
+**Current Blockers**:
+1. **Chained strategies timeout in production** - Both `current` (proxyFetch) and `simple` (proxyFetchSimple) fail with 60s timeout
+   - Sequential `direct` strategy works perfectly
+   - Likely cause: Alarms system is brand new (~1 week old) and never tested in production
+   - Both `proxyFetch` and `proxyFetchSimple` rely on chained/fire-and-forget patterns
+   - RPC callback to `signalChainedComplete()` may not be reaching controller
+   
+2. **Relative URLs don't work in DO fetch()** - `fetch('/test-endpoints-do/...')` fails with "Invalid URL"
+   - Works in local dev (wrangler dev handles routing)
+   - Breaks in production (no base URL context)
+   - Need to either: construct full URLs or call TEST_ENDPOINTS_DO binding directly
+
+3. **R2 credentials not available to Node.js client** - "Resolved credential object is not valid"
+   - Need to export env vars before running test:
+     ```bash
+     export CLOUDFLARE_R2_ACCESS_KEY_ID=...
+     export CLOUDFLARE_R2_SECRET_ACCESS_KEY=...
+     export CLOUDFLARE_ACCOUNT_ID=...
+     export CLOUDFLARE_R2_BUCKET_NAME=...
+     ```
+
+**What Works**:
+- ✅ Health check endpoint
+- ✅ Sequential/await-based execution (Direct strategy)
+- ✅ TEST_TOKEN secret configured in production
+- ✅ All DO bindings present and accessible
+- ✅ R2 polling infrastructure (code is ready, just needs credentials)
+
+**Next Steps** (Tomorrow):
+1. Fix relative URL issue in `fetchDirect()` (use full URLs or DO binding)
+2. Debug alarms/chained strategies in production (add logging, use `wrangler tail`)
+3. Run Direct-only experiment with proper R2 credentials to validate billing infrastructure
+4. Once issues resolved, run full experiment matrix
 
 **Experiments:**
 1. **Direct fetch from origin DO**

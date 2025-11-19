@@ -20,9 +20,7 @@ import { LumenizeBase } from '@lumenize/lumenize-base';
 import type { VariationDefinition } from './controller.js';
 
 export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> {
-  #wsConnections = new Set<WebSocket>();
-  #activeWebSocket: WebSocket | null = null;
-  #chainedBatchState: { mode: string; count: number; completed: number; errors: number; errorMessages: string[] } | null = null;
+  // Note: WebSockets accessed via this.ctx.getWebSockets('experiment')
 
   /**
    * Override fetch to handle experiment routes before delegating to LumenizeBase
@@ -113,8 +111,8 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
     const client = pair[0];
     const server = pair[1];
 
-    this.ctx.acceptWebSocket(server);
-    this.#wsConnections.add(server);
+    // Tag WebSocket for retrieval via this.ctx.getWebSockets('experiment')
+    this.ctx.acceptWebSocket(server, ['experiment']);
 
     return new Response(null, {
       status: 101,
@@ -144,14 +142,14 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
    * Handle WebSocket close (Cloudflare DO lifecycle method)
    */
   async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
-    this.#wsConnections.delete(ws);
+    // WebSocket cleanup handled automatically by runtime
   }
 
   /**
    * Handle WebSocket error (Cloudflare DO lifecycle method)
    */
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    this.#wsConnections.delete(ws);
+    // WebSocket cleanup handled automatically by runtime
   }
 
   /**
@@ -159,9 +157,6 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
    */
   async #handleBatchRequest(ws: WebSocket, msg: { mode: string; count: number }): Promise<void> {
     const { mode, count } = msg;
-
-    // Store active WebSocket for chained execution signals
-    this.#activeWebSocket = ws;
 
     // Clean up any stale completion markers from previous runs
     const prefix = `__lmz_exp_completed_${mode}_`;
@@ -201,41 +196,18 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
 
     if (strategy === 'chained') {
       // Chained execution: call handler ONCE, it manages internal chaining
-      // Handler is responsible for calling signalChainedComplete() when done
-      // Store state for later completion signal
-      this.#chainedBatchState = {
-        mode,
-        count,
-        completed: 0,
-        errors: 0,
-        errorMessages: []
-      };
-      
+      // Handler is responsible for calling signalChainedComplete() or signalChainedError()
       try {
         await definition.handler(0, count);
-        // Assume success if no error thrown - actual completion signaled by handler
+        // Handler manages completion signaling
       } catch (error) {
-        // Handler threw error during setup - complete immediately
-        this.#chainedBatchState.errors++;
-        this.#chainedBatchState.errorMessages.push(`Chained execution failed: ${error instanceof Error ? error.message : String(error)}`);
-        
-        // Send timing-end and batch-complete for error case
+        // Handler threw error during setup - send error immediately
         this.#sendMessage(ws, {
-          type: 'timing-end',
-          mode
+          type: 'error',
+          error: `${mode}: ${error instanceof Error ? error.message : String(error)}`
         });
-        this.#sendMessage(ws, {
-          type: 'batch-complete',
-          mode,
-          completed: 0,
-          errors: this.#chainedBatchState.errors,
-          errorMessages: this.#chainedBatchState.errorMessages
-        });
-        
-        this.#activeWebSocket = null;
-        this.#chainedBatchState = null;
       }
-      // Note: For chained strategy, batch-complete is sent by signalChainedComplete()
+      // Note: batch-complete is sent by signalChainedComplete()
     } else {
       // Sequential: execute each operation sequentially
       for (let i = 0; i < count; i++) {
@@ -265,9 +237,6 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
         errors: results.errors,
         errorMessages: results.errorMessages
       });
-
-      // Clear active WebSocket
-      this.#activeWebSocket = null;
     }
   }
 
@@ -284,43 +253,73 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
   }
 
   /**
+   * Signal error for chained execution
+   * Called by chained handlers when an error occurs
+   * Sends error message immediately to client
+   * PUBLIC: Can be called via RPC from other DOs
+   */
+  signalChainedError(mode: string, errorMessage: string): void {
+    console.log('[LumenizeExperimentDO] signalChainedError called:', { mode, errorMessage });
+    
+    // Get the WebSocket (assume single active batch)
+    const ws = this.ctx.getWebSockets('experiment')[0];
+    
+    if (!ws) {
+      console.warn('[LumenizeExperimentDO] No WebSocket to signal error');
+      return;
+    }
+    
+    // Send error immediately
+    this.#sendMessage(ws, {
+      type: 'error',
+      error: `${mode}: ${errorMessage}`
+    });
+    
+    console.log('[LumenizeExperimentDO] Error signaled');
+  }
+
+  /**
    * Signal completion for chained execution
    * Called by chained handlers when all operations complete
    * Sends timing-end and batch-complete messages
    * PUBLIC: Can be called via RPC from other DOs
+   * 
+   * @param mode - Pattern mode identifier
+   * @param count - Number of operations completed
    */
-  signalChainedComplete(mode: string): void {
-    const ws = this.#activeWebSocket;
-    const state = this.#chainedBatchState;
+  signalChainedComplete(mode: string, count: number): void {
+    console.log('[LumenizeExperimentDO] signalChainedComplete called:', { mode, count });
+    
+    // Get the WebSocket (assume single active batch)
+    const ws = this.ctx.getWebSockets('experiment')[0];
+    
+    console.log('[LumenizeExperimentDO] WebSocket check:', { 
+      hasWebSocket: !!ws
+    });
     
     if (!ws) {
-      console.warn('No active WebSocket to signal chained completion');
+      console.warn('[LumenizeExperimentDO] No WebSocket to signal chained completion');
       return;
     }
     
-    if (!state) {
-      console.warn('No chained batch state found');
-      return;
-    }
-    
+    console.log('[LumenizeExperimentDO] Sending timing-end');
     // Signal timing end
     this.#sendMessage(ws, {
       type: 'timing-end',
       mode
     });
     
+    console.log('[LumenizeExperimentDO] Sending batch-complete');
     // Send batch complete
     this.#sendMessage(ws, {
       type: 'batch-complete',
       mode,
-      completed: state.count, // All operations completed successfully
-      errors: state.errors,
-      errorMessages: state.errorMessages
+      completed: count, // All operations completed successfully
+      errors: 0,
+      errorMessages: []
     });
     
-    // Clean up
-    this.#activeWebSocket = null;
-    this.#chainedBatchState = null;
+    console.log('[LumenizeExperimentDO] signalChainedComplete completed successfully');
   }
 
   /**
@@ -329,9 +328,11 @@ export abstract class LumenizeExperimentDO<Env = any> extends LumenizeBase<Env> 
    * PUBLIC: Can be called via RPC from other DOs
    */
   signalChainedProgress(mode: string, total: number, completed: number): void {
-    const ws = this.#activeWebSocket;
+    // Get the WebSocket (assume single active batch)
+    const ws = this.ctx.getWebSockets('experiment')[0];
+    
     if (!ws) {
-      console.warn('No active WebSocket to signal progress');
+      console.warn('No WebSocket to signal progress');
       return;
     }
     

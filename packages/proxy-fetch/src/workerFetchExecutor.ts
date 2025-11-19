@@ -39,7 +39,7 @@ export async function executeFetch(
   env: any,
   worker: LumenizeWorker
 ): Promise<void> {
-  const log = debug({ id: { toString: () => 'worker' } })('lmz.proxyFetch.worker');
+  const log = debug({ env })('lmz.proxyFetch.worker');
   
   log.debug('Executing fetch', {
     reqId: message.reqId,
