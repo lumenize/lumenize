@@ -8,7 +8,7 @@
  */
 
 import { LumenizeExperimentDO, type VariationDefinition } from '@lumenize/for-experiments';
-import { proxyFetch, proxyFetchSimple, FetchOrchestrator, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
+import { proxyFetchSimple, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 import { TestEndpointsDO, createTestEndpoints } from '@lumenize/test-endpoints';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { routeDORequest } from '@lumenize/utils';
@@ -22,24 +22,18 @@ export class PerformanceController extends LumenizeExperimentDO<Env> {
 
   protected getVariations(): Map<string, VariationDefinition> {
     return new Map([
-      // ['direct', {
-      //   name: 'Direct Fetch',
-      //   description: 'Origin DO fetches directly (baseline)',
-      //   handler: this.#runDirect.bind(this),
-      //   strategy: 'sequential'
-      // }],
-      ['current', {
-        name: 'Current (proxyFetch)',
-        description: 'proxyFetch with Orchestrator DO',
-        handler: this.#runCurrent.bind(this),
+      ['direct', {
+        name: 'Direct Fetch',
+        description: 'Origin DO fetches directly (baseline)',
+        handler: this.#runDirect.bind(this),
+        strategy: 'sequential'
+      }],
+      ['simple', {
+        name: 'proxyFetchSimple',
+        description: 'Two-hop proxy with alarm-based timeout',
+        handler: this.#runSimple.bind(this),
         strategy: 'chained'
       }],
-      // ['simple', {
-      //   name: 'Simple (proxyFetchSimple)',
-      //   description: 'proxyFetchSimple without Orchestrator',
-      //   handler: this.#runSimple.bind(this),
-      //   strategy: 'chained'
-      // }],
     ]);
   }
 
@@ -78,35 +72,10 @@ export class PerformanceController extends LumenizeExperimentDO<Env> {
   }
 
   /**
-   * Current proxyFetch (with Orchestrator)
-   * Chained execution - each completion triggers next operation
-   */
-  async #runCurrent(index: number, count?: number): Promise<void> {
-    console.log('[PerformanceController] #runCurrent START:', { index, count });
-    if (!count) throw new Error('Chained execution requires count parameter');
-    
-    const endpoints = this.#getTestEndpoints();
-    console.log('[PerformanceController] Got endpoints');
-    const originStub = this.env.ORIGIN_DO.get(
-      this.env.ORIGIN_DO.idFromName('origin-current')
-    );
-    console.log('[PerformanceController] Got OriginDO stub');
-
-    const url = endpoints.buildUrl('/uuid');
-    console.log('[PerformanceController] Built URL:', url);
-    
-    // Start the chain - pass controller identity for RPC callback
-    console.log('[PerformanceController] Calling startProxyFetchChain...');
-    await originStub.startProxyFetchChain(url, count, 'current', 'CONTROLLER', 'controller');
-    console.log('[PerformanceController] startProxyFetchChain returned');
-  }
-
-  /**
    * Simple proxyFetchSimple (without Orchestrator)
    * Chained execution - each completion triggers next operation
    */
   async #runSimple(index: number, count?: number): Promise<void> {
-    console.log('[PerformanceController] #runSimple called:', { index, count });
     if (!count) throw new Error('Chained execution requires count parameter');
     
     const endpoints = this.#getTestEndpoints();
@@ -115,11 +84,9 @@ export class PerformanceController extends LumenizeExperimentDO<Env> {
     );
 
     const url = endpoints.buildUrl('/uuid');
-    console.log('[PerformanceController] Starting chain:', { url, count });
     
     // Start the chain - pass controller identity for RPC callback
     await originStub.startProxyFetchSimpleChain(url, count, 'simple', 'CONTROLLER', 'controller');
-    console.log('[PerformanceController] Chain started (returned from startProxyFetchSimpleChain)');
   }
 }
 
@@ -250,34 +217,10 @@ export class OriginDO extends LumenizeBase<Env> {
   }
 
   /**
-   * Start proxyFetch chain (returns immediately)
-   * Countdown flows through continuation parameters
-   */
-  async startProxyFetchChain(url: string, count: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
-    console.log('[OriginDO] startProxyFetchChain:', { url, count, mode });
-    
-    // Kick off first operation (fire-and-forget, but catch errors)
-    // Parameters: $result (response), url, remaining, total, mode, controller identity
-    proxyFetch(
-      this,
-      url,
-      this.ctn().handleProxyFetchChainResult(this.ctn().$result, url, count, count, mode, controllerBindingName, controllerInstanceName)
-    ).catch(async (error) => {
-      // Send error immediately to controller
-      console.log('[OriginDO] Error in proxyFetch:', error);
-      const controllerStub = this.env[controllerBindingName].get(this.env[controllerBindingName].idFromName(controllerInstanceName));
-      await controllerStub.signalChainedError(mode, error instanceof Error ? error.message : String(error));
-    });
-    console.log('[OriginDO] proxyFetch called (fire-and-forget)');
-  }
-
-  /**
    * Start proxyFetchSimple chain (returns immediately)
    * Countdown flows through continuation parameters
    */
   async startProxyFetchSimpleChain(url: string, count: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
-    console.log('[OriginDO] startProxyFetchSimpleChain:', { url, count, mode });
-    
     // Kick off first operation (fire-and-forget, but catch errors)
     // Parameters: $result (response), url, remaining, total, mode, controller identity
     proxyFetchSimple(
@@ -286,60 +229,9 @@ export class OriginDO extends LumenizeBase<Env> {
       this.ctn().handleProxyFetchSimpleChainResult(this.ctn().$result, url, count, count, mode, controllerBindingName, controllerInstanceName)
     ).catch(async (error) => {
       // Send error immediately to controller
-      console.log('[OriginDO] Error in proxyFetchSimple:', error);
       const controllerStub = this.env[controllerBindingName].get(this.env[controllerBindingName].idFromName(controllerInstanceName));
       await controllerStub.signalChainedError(mode, error instanceof Error ? error.message : String(error));
     });
-    console.log('[OriginDO] proxyFetchSimple called (fire-and-forget)');
-  }
-
-  /**
-   * Handle proxyFetch chain result
-   * Continuation that decrements counter and kicks off next operation
-   * Parameters flow through the chain: response, url, remaining, total, mode, controller identity
-   */
-  async handleProxyFetchChainResult(response: any, url: string, remaining: number, total: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
-    console.log('[OriginDO] handleProxyFetchChainResult called:', { 
-      hasResponse: !!response,
-      isError: response instanceof Error,
-      responseOk: response?.ok,
-      remaining,
-      total,
-      mode
-    });
-    
-    // Check for errors
-    if (response instanceof Error) {
-      console.log('[OriginDO] Response is Error, throwing');
-      throw response; // Let the error propagate
-    }
-    if (!response?.ok) {
-      console.log('[OriginDO] Response not ok, throwing');
-      throw new Error(`Fetch failed: ${response?.status || 'unknown'}`);
-    }
-
-    // Check if chain complete (this was the last operation)
-    if (remaining === 1) {
-      console.log('[OriginDO] Chain complete (remaining=1), signaling controller');
-      // Signal completion to controller via direct RPC
-      // Note: signalChainedComplete is a simple void method, no continuation needed
-      const namespace = this.env.CONTROLLER;
-      const id = namespace.idFromName(controllerInstanceName);
-      const stub = namespace.get(id);
-      console.log('[OriginDO] Calling signalChainedComplete...');
-      await stub.signalChainedComplete(mode, total);
-      console.log('[OriginDO] signalChainedComplete returned');
-      return;
-    }
-
-    console.log('[OriginDO] Continuing chain, kicking off next operation. Remaining:', remaining - 1);
-    // Kick off next operation with decremented count
-    proxyFetch(
-      this,
-      url,
-      this.ctn().handleProxyFetchChainResult(this.ctn().$result, url, remaining - 1, total, mode, controllerBindingName, controllerInstanceName)
-    );
-    console.log('[OriginDO] proxyFetch called (fire-and-forget)');
   }
 
   /**
@@ -348,39 +240,24 @@ export class OriginDO extends LumenizeBase<Env> {
    * Parameters flow through the chain: response, url, remaining, total, mode, controller identity
    */
   async handleProxyFetchSimpleChainResult(response: any, url: string, remaining: number, total: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
-    console.log('[OriginDO] handleProxyFetchSimpleChainResult called:', { 
-      hasResponse: !!response, 
-      isError: response instanceof Error,
-      responseOk: response?.ok,
-      remaining,
-      total,
-      mode 
-    });
-    
     // Check for errors
     if (response instanceof Error) {
-      console.log('[OriginDO] Error in chain:', response.message);
       throw response; // Let the error propagate
     }
     if (!response?.ok) {
-      console.log('[OriginDO] Response not ok:', response?.status);
       throw new Error(`Fetch failed: ${response?.status || 'unknown'}`);
     }
 
     // Check if chain complete (this was the last operation)
     if (remaining === 1) {
-      console.log('[OriginDO] Chain complete (remaining=1), signaling controller');
       // Signal completion to controller via direct RPC
-      // Note: signalChainedComplete is a simple void method, no continuation needed
       const namespace = this.env.CONTROLLER;
       const id = namespace.idFromName(controllerInstanceName);
       const stub = namespace.get(id);
       await stub.signalChainedComplete(mode, total);
-      console.log('[OriginDO] Controller signaled successfully');
       return;
     }
 
-    console.log('[OriginDO] Continuing chain, kicking off next operation. Remaining:', remaining - 1);
     // Kick off next operation with decremented count
     proxyFetchSimple(
       this,
@@ -391,9 +268,9 @@ export class OriginDO extends LumenizeBase<Env> {
 }
 
 /**
- * Export proxy-fetch DOs and Workers
+ * Export proxy-fetch Workers
  */
-export { FetchOrchestrator, FetchExecutorEntrypoint };
+export { FetchExecutorEntrypoint };
 
 /**
  * Export TestEndpointsDO from test-endpoints
@@ -419,7 +296,6 @@ export default {
         bindings: {
           hasController: !!env.CONTROLLER,
           hasOriginDo: !!env.ORIGIN_DO,
-          hasFetchOrchestrator: !!env.FETCH_ORCHESTRATOR,
           hasTestEndpointsDo: !!env.TEST_ENDPOINTS_DO,
           hasFetchExecutor: !!env.FETCH_EXECUTOR,
         }

@@ -21,7 +21,6 @@
     "bindings": [
       { "name": "CONTROLLER", "class_name": "PerformanceController" },
       { "name": "ORIGIN_DO", "class_name": "OriginDO" },
-      { "name": "FETCH_ORCHESTRATOR", "class_name": "FetchOrchestrator" },
       { "name": "TEST_ENDPOINTS_DO", "class_name": "TestEndpointsDO" }
     ]
   },
@@ -31,7 +30,6 @@
       "new_sqlite_classes": [
         "PerformanceController",
         "OriginDO",
-        "FetchOrchestrator",
         "TestEndpointsDO"
       ]
     }

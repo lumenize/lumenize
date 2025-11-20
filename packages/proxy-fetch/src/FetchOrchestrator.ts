@@ -133,38 +133,23 @@ export class FetchOrchestrator extends LumenizeBase {
       // Get the fetch executor entrypoint (via service binding)
       const executorBinding = message.options?.executorBinding || 'FETCH_EXECUTOR';
       
-      log.debug('Looking for executor binding', { 
-        executorBinding,
-        availableBindings: Object.keys(this.env)
-      });
-      
-      const executor = this.env[executorBinding];
-      
-      if (!executor) {
-        throw new Error(
-          `Fetch executor binding '${executorBinding}' not found. ` +
-          `Add a service binding in wrangler.jsonc:\n` +
-          `{\n` +
-          `  "services": [{\n` +
-          `    "binding": "${executorBinding}",\n` +
-          `    "service": "your-worker",\n` +
-          `    "entrypoint": "FetchExecutorEntrypoint"\n` +
-          `  }]\n` +
-          `}`
-        );
-      }
-
-      log.debug('Calling executor.executeFetch', { 
+      log.debug('Dispatching to Worker via callRaw', { 
         reqId: message.reqId,
-        continuationType: typeof workerMessage.continuation,
-        continuationPreview: JSON.stringify(workerMessage.continuation, null, 2).substring(0, 500)
+        executorBinding,
+        continuationType: typeof workerMessage.continuation
       });
-      log.debug('Dispatching to Worker via RPC', { reqId: message.reqId, executorBinding });
 
-      // Call Worker via RPC (service binding)
-      await executor.executeFetch(workerMessage);
+      // Create remote continuation for executeFetch call
+      const remoteContinuation = this.ctn().executeFetch(workerMessage);
+
+      // Use callRaw for Worker RPC (prevents connection accumulation)
+      await this.lmz.callRaw(
+        executorBinding,
+        undefined, // Workers don't have instance IDs
+        remoteContinuation
+      );
       
-      log.debug('Dispatched successfully to Worker', { reqId: message.reqId });
+      log.debug('Dispatched successfully to Worker via callRaw', { reqId: message.reqId });
     } catch (error) {
       log.error('Failed to dispatch to Worker', {
         reqId: message.reqId,
