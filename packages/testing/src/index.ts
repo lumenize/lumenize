@@ -5,10 +5,6 @@ export { createTestingClient } from './create-testing-client';
 export { instrumentDOProject } from './instrument-do-project';
 export type { InstrumentDOProjectConfig, InstrumentedDOProject } from './instrument-do-project';
 
-// Alarm simulation
-export { enableAlarmSimulation } from './alarm-simulation';
-export type { AlarmSimulationConfig } from './alarm-simulation';
-
 // Re-export RPC functionality for downstream messaging
 export { sendDownstream } from '@lumenize/rpc';
 

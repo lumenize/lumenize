@@ -37,7 +37,7 @@ This folder contains tests that run against a live `wrangler dev` instance using
 
 ## Test Structure
 
-- `test-worker-and-dos.ts` - Raw DO classes (`TestDO`, `FetchOrchestrator`)
+- `test-worker-and-dos.ts` - Raw DO classes for testing (`TestDO`)
 - `test-harness.ts` - Instruments DOs with `@lumenize/testing`
 - `wrangler.jsonc` - Configuration (points to `test-harness.ts` as main)
 - `full-flow.test.ts` - Test suite

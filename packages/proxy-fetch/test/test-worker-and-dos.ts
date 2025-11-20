@@ -1,83 +1,16 @@
 import '@lumenize/core';        // Registers sql in this.svc
 import '@lumenize/alarms';      // Registers alarms in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import '@lumenize/proxy-fetch';
-import { FetchOrchestrator as _FetchOrchestrator, FetchExecutorEntrypoint, proxyFetchSimple } from '@lumenize/proxy-fetch';
+import { FetchExecutorEntrypoint, proxyFetch } from '@lumenize/proxy-fetch';
 import { ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
 
 // Export FetchExecutorEntrypoint for service binding
 export { FetchExecutorEntrypoint };
 
-export class _TestDO extends LumenizeBase {
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
-    this.lmz.init({ bindingName: 'TEST_DO' });
-  }
-
-  async fetchData(url: string, reqId?: string): Promise<string> {
-    const finalReqId = await this.svc.proxyFetch(
-      url,
-      this.ctn().handleFetchResult(this.ctn().$result, url),
-      {},
-      reqId
-    );
-    return finalReqId;
-  }
-
-  async fetchDataWithRequest(request: Request, reqId?: string): Promise<string> {
-    const finalReqId = await this.svc.proxyFetch(
-      request,
-      this.ctn().handleFetchResult(this.ctn().$result, request.url),
-      {},
-      reqId
-    );
-    return finalReqId;
-  }
-
-  async fetchDataWithOptions(url: string, options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean } }, reqId?: string): Promise<string> {
-    const finalReqId = await this.svc.proxyFetch(
-      url,
-      this.ctn().handleFetchResult(this.ctn().$result, url),
-      options,
-      reqId
-    );
-    return finalReqId;
-  }
-
-  async handleFetchResult(result: ResponseSync | Error, url: string): Promise<void> {
-    const resultKey = `__test_result:${url}`;
-    const serialized = await stringify(result);
-    this.ctx.storage.kv.put(resultKey, serialized);
-    
-    // Increment call counter for testing
-    const counterKey = `__test_call_count:${url}`;
-    const currentCount: number = this.ctx.storage.kv.get(counterKey) || 0;
-    this.ctx.storage.kv.put(counterKey, currentCount + 1);
-  }
-
-  getResult(url: string): string | undefined {
-    return this.ctx.storage.kv.get(`__test_result:${url}`);
-  }
-
-  getCallCount(url: string): number {
-    return this.ctx.storage.kv.get(`__test_call_count:${url}`) || 0;
-  }
-
-  /**
-   * Clear all results (for test cleanup)
-   */
-  clearResults(): void {
-    const results = this.ctx.storage.kv.list({ prefix: '__test_result:' });
-    for (const [key] of results) {
-      this.ctx.storage.kv.delete(key);
-    }
-  }
-}
-
 /**
- * Test DO for proxyFetchSimple
- * Uses alarms for timeout handling instead of FetchOrchestrator
+ * Test DO for proxyFetch
+ * Uses alarms for timeout handling
  */
 export class _TestSimpleDO extends LumenizeBase {
   constructor(ctx: DurableObjectState, env: any) {
@@ -91,7 +24,7 @@ export class _TestSimpleDO extends LumenizeBase {
   }
 
   async fetchDataSimple(url: string, reqId?: string): Promise<string> {
-    const finalReqId = await proxyFetchSimple(
+    const finalReqId = await proxyFetch(
       this,
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
@@ -103,11 +36,11 @@ export class _TestSimpleDO extends LumenizeBase {
 
   async fetchDataSimpleWithOptions(
     url: string, 
-    options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; orchestratorTimeoutOverride?: number } },
+    options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } },
     reqId?: string
   ): Promise<string> {
     // User just passes their continuation directly - no handleFetchResult() needed!
-    const finalReqId = await proxyFetchSimple(
+    const finalReqId = await proxyFetch(
       this,
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
@@ -118,7 +51,7 @@ export class _TestSimpleDO extends LumenizeBase {
   }
 
   async fetchDataSimpleWithRequest(request: Request, reqId?: string): Promise<string> {
-    const finalReqId = await proxyFetchSimple(
+    const finalReqId = await proxyFetch(
       this,
       request,
       this.ctn().handleFetchComplete(this.ctn().$result, request.url),
@@ -212,7 +145,7 @@ export class _TestSimpleDO extends LumenizeBase {
     // Create user continuation that stores the value
     const userContinuation = this.ctn().handleEmbedTest(value);
     
-    // Preprocess it (simulate what proxyFetchSimple does)
+    // Preprocess it (simulate what proxyFetch does)
     const preprocessed = await preprocess(getOperationChain(userContinuation));
     
     // Create alarm handler that embeds the preprocessed continuation
@@ -293,10 +226,8 @@ export class _TestSimpleDO extends LumenizeBase {
   }
 }
 
-// Export raw DOs (not instrumented - that happens in test-harness.ts)
-export { _TestDO as TestDO };
+// Export test DO
 export { _TestSimpleDO as TestSimpleDO };
-export { _FetchOrchestrator as FetchOrchestrator };
 
 /**
  * Worker fetch handler that routes requests to test-endpoints-do

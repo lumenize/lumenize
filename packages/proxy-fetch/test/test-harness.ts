@@ -1,18 +1,18 @@
 /**
- * Test harness for integration testing
- * Instruments DOs from test-worker-and-dos.ts
+ * Test harness for proxy-fetch integration tests
+ * Instruments DOs for coverage tracking
  */
 import * as sourceModule from './test-worker-and-dos';
 import { instrumentDOProject } from '@lumenize/testing';
 
-const { worker, dos } = instrumentDOProject({
-  sourceModule,
-  doClassNames: ['TestDO', 'TestSimpleDO', 'FetchOrchestrator'],
-  simulateAlarms: true  // 100x speedup - tests run in ~600ms instead of ~3s
+// Instrument DOs for coverage tracking
+const { dos, worker } = instrumentDOProject({
+  doClassNames: ['TestSimpleDO'],
+  sourceModule
 });
 
 // Re-export the instrumented DOs for type imports
-export const { TestDO, TestSimpleDO, FetchOrchestrator } = dos;
+export const { TestSimpleDO } = dos;
 
 // Re-export FetchExecutorEntrypoint (not a DO, so not instrumented)
 export { FetchExecutorEntrypoint } from './test-worker-and-dos';
@@ -20,6 +20,5 @@ export { FetchExecutorEntrypoint } from './test-worker-and-dos';
 // Import and re-export TestEndpointsDO for in-process testing
 export { TestEndpointsDO } from '@lumenize/test-endpoints';
 
-// Export the instrumented worker as default
+// Export the worker (with instrumented DOs) as default
 export default worker;
-

@@ -325,7 +325,7 @@ export class RpcClient<T> {
   #transport: RpcTransport;
   #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
-  #log = debug({})('lmz.rpc.RpcClient');
+  #log = debug({ env: process.env })('lmz.rpc.RpcClient');
   
   // Operations in the same tick are batched
   #executionQueue: QueuedExecution[] = [];

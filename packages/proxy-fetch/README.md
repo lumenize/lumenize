@@ -7,7 +7,7 @@ For complete documentation, visit **[https://lumenize.com/docs/proxy-fetch](http
 ## Features
 
 - **Cost Optimization**: Offload external fetch() calls to Workers to avoid Durable Object wall-clock billing
-- **DO-Worker Hybrid**: Uses FetchOrchestrator DO + HTTP dispatch for low latency (~100ms)
+- **DO-Worker Hybrid**: Uses alarm-based coordination for reliability and low latency
 - **Continuation-Based**: Results delivered via OCAN continuations stored in origin DO
 - **Linear Scalability**: Tested up to 2000+ concurrent requests
 - **Type-Safe**: Full TypeScript support with proper Request/Response handling

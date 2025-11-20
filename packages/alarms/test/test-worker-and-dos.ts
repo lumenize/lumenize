@@ -4,7 +4,6 @@ import '@lumenize/core';    // Registers sql in this.svc
 import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import type { Schedule } from '../src/alarms';
-import { enableAlarmSimulation } from '@lumenize/testing';
 
 // Export DOs for documentation examples
 export { TaskSchedulerDO } from './for-docs/basic-usage.test';
@@ -15,8 +14,6 @@ export class AlarmDO extends LumenizeBase<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    // Enable alarm simulation BEFORE alarms is accessed (so it captures mocked methods)
-    enableAlarmSimulation(ctx, this, { timeScale: 100 });
   }
 
   // Required: delegate to Alarms (NADIS pattern)

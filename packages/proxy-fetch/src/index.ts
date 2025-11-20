@@ -1,100 +1,58 @@
 /**
  * Proxy fetch for cost-effective external API calls from Durable Objects.
  * 
- * Uses a DO-Worker hybrid architecture where a Durable Object manages the queue
+ * Uses a DO-Worker hybrid architecture where a Durable Object manages timing
  * and Workers perform CPU-billed fetch execution.
  * 
  * @module @lumenize/proxy-fetch
  */
 
 // Main API
-export { proxyFetch } from './proxyFetch';
-export { proxyFetchSimple, type SimpleFetchMessage } from './proxyFetchSimple'; // Clean v2 implementation
+export { proxyFetch, type FetchMessage } from './proxy-fetch';
 
 // Infrastructure components
-export { FetchOrchestrator } from './FetchOrchestrator';
-export { FetchExecutorEntrypoint } from './FetchExecutorEntrypoint';
-export { executeFetch, createFetchWorker, type FetchWorker } from './workerFetchExecutor';
-export { executeFetchSimple } from './workerFetchExecutorSimple'; // Clean v2 implementation
+export { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
 
 // Types
-export type { 
-  ProxyFetchWorkerOptions,
-  FetchOrchestratorMessage,
-  WorkerFetchMessage,
-  FetchResult
-} from './types';
+export type { ProxyFetchWorkerOptions } from './types';
 
-// Register as NADIS service
-import { proxyFetch } from './proxyFetch';
-import type { ProxyFetchWorkerOptions } from './types';
-import type { LumenizeBase } from '@lumenize/lumenize-base';
+// Add __handleProxyFetchResult to LumenizeBase prototype
+// This is called by both the worker (success) and alarm (timeout)
+import { parse } from '@lumenize/structured-clone';
+import { replaceNestedOperationMarkers } from '@lumenize/lumenize-base';
 
-if (!(globalThis as any).__lumenizeServiceRegistry) {
-  (globalThis as any).__lumenizeServiceRegistry = {};
-}
-
-// Capture proxyFetch function in closure
-const proxyFetchFn = proxyFetch;
-(globalThis as any).__lumenizeServiceRegistry.proxyFetch = (doInstance: LumenizeBase) => {
-  return (
-    request: Request | string,
-    continuation: any,
-    options?: ProxyFetchWorkerOptions,
-    reqId?: string
-  ) => {
-    return proxyFetchFn(doInstance, request, continuation, options, reqId);
+const LumenizeBasePrototype = (globalThis as any).__LumenizeBasePrototype;
+if (LumenizeBasePrototype && !LumenizeBasePrototype.__handleProxyFetchResult) {
+  LumenizeBasePrototype.__handleProxyFetchResult = async function(
+    this: any,
+    reqId: string,
+    result: any,
+    stringifiedUserContinuation?: string
+  ): Promise<void> {
+    // Try to cancel alarm - returns schedule if successful (we won the race)
+    const scheduleData = this.svc.alarms.cancelSchedule(reqId);
+    
+    if (!scheduleData) {
+      // Alarm already fired or already cancelled - this is a noop
+      return;
+    }
+    
+    // If not provided (worker path), extract from the cancelled alarm's operation chain
+    let continuation = stringifiedUserContinuation;
+    if (!continuation) {
+      const lastOp = scheduleData.operationChain[scheduleData.operationChain.length - 1];
+      if (!lastOp || lastOp.type !== 'apply' || !Array.isArray(lastOp.args) || lastOp.args.length < 3) {
+        throw new Error(`Invalid alarm continuation for reqId ${reqId}: expected apply operation with 3 arguments`);
+      }
+      continuation = lastOp.args[2];
+      if (typeof continuation !== 'string') {
+        throw new Error(`Invalid alarm continuation for reqId ${reqId}: expected string but got ${typeof continuation}`);
+      }
+    }
+    
+    // We won the race - parse user's continuation, fill $result, and execute
+    const userContinuation = parse(continuation);
+    const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
+    await this.__executeChain(filledChain);
   };
-};
-
-// TypeScript declaration merging for NADIS
-declare global {
-  interface LumenizeServices {
-    /**
-     * Make an external fetch request with continuation-based callback
-     * 
-     * Returns immediately with request ID. Result arrives later via continuation.
-     * 
-     * **Setup Required**: Call `this.lmz.init({ bindingName })` in your DO constructor.
-     * 
-     * @param request - URL string or Request object
-     * @param continuation - OCAN continuation that receives ResponseSync | Error
-     * @param options - Optional configuration (timeout, executorBinding, etc)
-     * @param reqId - Optional request ID (generated if not provided). Useful for testing and log correlation.
-     * @returns Request ID (for logging/debugging)
-     * 
-     * @example
-     * ```typescript
-     * class MyDO extends LumenizeBase {
-     *   constructor(ctx: DurableObjectState, env: Env) {
-     *     super(ctx, env);
-     *     this.lmz.init({ bindingName: 'MY_DO' });
-     *   }
-     * 
-     *   fetchUserData(userId: string) {
-     *     const reqId = this.svc.proxyFetch(
-     *       `https://api.example.com/users/${userId}`,
-     *       this.ctn().handleResult({ userId })
-     *     );
-     *     // Returns immediately, result arrives later
-     *   }
-     *   
-     *   handleResult(context: { userId: string }, result: ResponseSync | Error) {
-     *     if (result instanceof Error) {
-     *       console.error('Fetch failed:', result);
-     *     } else {
-     *       const data = result.json(); // Synchronous!
-     *       console.log('User data:', data);
-     *     }
-     *   }
-     * }
-     * ```
-     */
-    proxyFetch(
-      request: Request | string,
-      continuation: any,
-      options?: ProxyFetchWorkerOptions,
-      reqId?: string
-    ): Promise<string>;
-  }
 }

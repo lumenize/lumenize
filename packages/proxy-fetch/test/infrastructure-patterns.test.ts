@@ -2,7 +2,7 @@
  * Infrastructure Pattern Tests
  * 
  * These tests demonstrate and validate the key patterns learned during
- * proxyFetchSimple development that will be used in the clean v2 rebuild:
+ * proxyFetch development that will be used in the clean v2 rebuild:
  * 
  * 1. Explicit ID scheduling: alarms.schedule(when, continuation, { id })
  * 2. Atomic cancellation: cancelSchedule(id) returns Schedule | undefined
@@ -17,7 +17,7 @@ import { describe, test, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
-describe('Infrastructure Patterns for proxyFetchSimple', () => {
+describe('Infrastructure Patterns for proxyFetch', () => {
   describe('Pattern 1: Explicit ID Scheduling', () => {
     test('can schedule alarm with explicit ID matching request ID', async () => {
       const stub = env.TEST_SIMPLE_DO.getByName('explicit-id-test');

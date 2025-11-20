@@ -11,15 +11,26 @@ A de✨light✨ful way to make external API calls from Durable Objects without b
 - ✅ **Fire-and-forget** - Returns immediately, result arrives via continuation
 - ✅ **Cost-effective** - CPU billing for fetches, minimal DO billing
 - ✅ **Type-safe** - Full TypeScript support with OCAN continuations
-- ✅ **Timeout monitoring** - Automatic timeout detection with clear error messages
-- ✅ **Simple architecture** - No result storage in Origin DO, direct continuation delivery
+- ✅ **Timeout monitoring** - Automatic timeout detection via @lumenize/alarms
+- ✅ **Simple architecture** - Two-hop design (Origin DO → Worker → External API)
 
 ## Quick Start
 
 ```typescript @skip-check
 import '@lumenize/proxy-fetch';  // Registers as NADIS service
+import '@lumenize/alarms';       // Required for timeout monitoring
 
 class MyDO extends LumenizeBase {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.lmz.init({ bindingName: 'MY_DO' });
+  }
+
+  // Implement alarm handler (required for timeout monitoring)
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
+
   fetchUserData(userId: string) {
     // Fire and forget - result comes to handler later
     const reqId = this.svc.proxyFetch(
@@ -45,14 +56,20 @@ class MyDO extends LumenizeBase {
 
 ## Setup
 
-1. **Export `FetchExecutorEntrypoint`** from your worker:
+### 1. Install Dependencies
+
+```bash @skip-check
+npm install @lumenize/proxy-fetch @lumenize/alarms
+```
+
+### 2. Export `FetchExecutorEntrypoint` from your worker
 
 ```typescript @skip-check
 // src/index.ts
 export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 ```
 
-2. **Add service binding** in `wrangler.jsonc`:
+### 3. Add service binding in `wrangler.jsonc`
 
 ```jsonc @skip-check
 {
@@ -60,19 +77,25 @@ export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
     "binding": "FETCH_EXECUTOR",
     "service": "my-worker",
     "entrypoint": "FetchExecutorEntrypoint"
-  }],
-  "durable_objects": {
-    "bindings": [
-      { "name": "FETCH_ORCHESTRATOR", "class_name": "FetchOrchestrator" }
-    ]
-  }
+  }]
 }
 ```
 
-3. **Import** to register:
+### 4. Import to register
 
 ```typescript @skip-check
 import '@lumenize/proxy-fetch';
+import '@lumenize/alarms';
+```
+
+### 5. Implement `alarm()` handler in your DO
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
+}
 ```
 
 That's it! Now use `this.svc.proxyFetch()` in any DO extending `LumenizeBase`.
@@ -147,12 +170,6 @@ class MyDO extends LumenizeBase {
 interface ProxyFetchWorkerOptions {
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
-  
-  /** Binding name for FetchOrchestrator DO (default: 'FETCH_ORCHESTRATOR') */
-  orchestratorBinding?: string;
-  
-  /** Instance name for FetchOrchestrator DO (default: 'singleton') */
-  orchestratorInstanceName?: string;
   
   /** Binding name for FetchExecutor service (default: 'FETCH_EXECUTOR') */
   executorBinding?: string;
@@ -245,7 +262,7 @@ this.svc.proxyFetch(
 
 ## Retry Logic
 
-The **Origin DO decides retry strategy**. The Orchestrator only monitors timeouts - it never retries.
+The **Origin DO decides retry strategy**. The alarm system only monitors timeouts - it never retries.
 
 **Race condition safety**: Handlers with early returns on errors are naturally safe from duplicate calls. Only add explicit deduplication if you perform destructive actions on both success AND error. See [Race Conditions](/docs/proxy-fetch/architecture-and-failure-modes#race-conditions) for details.
 
@@ -328,9 +345,9 @@ class PaymentDO extends LumenizeBase {
 
 ## Timeout Behavior
 
-- **User timeout** (`options.timeout`): Controls fetch execution (AbortController)
-- **Orchestrator timeout**: Automatically adds 10s buffer (5s polling + 5s network)
-- **Timeout error message**: "Fetch timeout - external fetch may have partially succeeded"
+- **User timeout** (`options.timeout`): Controls fetch execution (AbortController) - default 30s
+- **Alarm timeout**: Same as user timeout (no buffer needed)
+- **Timeout error message**: "Fetch delivery timeout - external fetch may have partially succeeded"
 
 **Important:** If you receive a timeout error for a non-idempotent operation, **check the external system** before retrying!
 
@@ -341,11 +358,11 @@ class PaymentDO extends LumenizeBase {
 | Executor | `Error` (network) | API unreachable (DNS, connection refused) |
 | Executor | `Error` (abort) | Fetch exceeded timeout (AbortController) |
 | Executor | `Error` (parsing) | ResponseSync deserialization failed |
-| **Orchestrator** | **`Error` (timeout)** | ⚠️ **Ambiguous - may have succeeded!** |
+| **Alarm** | **`Error` (timeout)** | ⚠️ **Ambiguous - may have succeeded!** |
 | Executor | `ResponseSync` (ok) | HTTP 2xx success |
 | Executor | `ResponseSync` (!ok) | HTTP 4xx/5xx error |
 
-**Key distinction:** Only Orchestrator timeout is ambiguous. All Executor errors mean the fetch definitely failed/completed.
+**Key distinction:** Only alarm timeout is ambiguous. All Executor errors mean the fetch definitely failed/completed.
 
 ## Architecture
 
@@ -354,25 +371,26 @@ For detailed architecture diagrams, failure scenarios, and race condition handli
 👉 **[Architecture & Failure Modes](/docs/proxy-fetch/architecture-and-failure-modes)**
 
 **High-level flow:**
-1. Origin DO → Orchestrator: Enqueue fetch with continuation
-2. Orchestrator → Executor: Dispatch via RPC (returns immediately)
+1. Origin DO → Schedule alarm with embedded continuation
+2. Origin DO → Executor: Dispatch fetch via RPC (returns immediately)
 3. Executor → External API: Perform fetch (CPU billing)
-4. Executor → Origin DO: Deliver result via continuation chain
-5. Origin DO: Handler receives result synchronously
+4. Executor → Origin DO: Deliver result via `__handleProxyFetchResult()`
+5. Origin DO: Cancel alarm atomically, execute user handler synchronously
 
 **Key design:**
-- ✅ Orchestrator stops billing after quick RPC dispatch
+- ✅ Origin DO stops billing after quick RPC dispatch
 - ✅ Executor uses CPU billing for external fetch
-- ✅ Timeout monitoring via native alarm (5s polling)
+- ✅ Timeout monitoring via @lumenize/alarms (native DO alarm system)
 - ✅ Direct delivery via continuation chains (no result storage)
+- ✅ Atomic alarm cancellation on result delivery
 
 **Important: Handler Call Guarantee**
 
 **Normal operation**: Handler called exactly once with either `ResponseSync` or `Error`.
 
-**Rare race condition** (network partition): Handler may be called twice - first with `ResponseSync` (success), then with `TimeoutError`. Most handlers are naturally safe:
+**Rare race condition** (DO crash before alarm cancellation persists): Handler may be called twice - first with `ResponseSync` (success), then with `TimeoutError`. Most handlers are naturally safe:
 
-```typescript
+```typescript @skip-check
 handleResult(result: ResponseSync | Error) {
   if (result instanceof Error) {
     console.warn('Error:', result.message);

@@ -1,8 +1,8 @@
 /**
- * ProxyFetchSimple - Clean v2 Implementation
+ * ProxyFetch - DO-Worker architecture for external API calls
  * 
- * Simplified DO-Worker architecture without FetchOrchestrator.
- * Built from scratch applying learnings from WIP debugging session.
+ * Two-hop architecture: Origin DO → Worker Executor → External API
+ * All coordination in origin DO via @lumenize/alarms.
  * 
  * Architecture:
  * 1. Origin DO schedules alarm with embedded continuation
@@ -11,38 +11,35 @@
  * 4. Worker OR alarm calls single handler with result/error + embedded continuation
  * 5. Handler cancels alarm atomically - winner gets continuation and executes it
  * 
- * Key Patterns (from Phase 2b):
+ * Key Patterns:
  * - Explicit ID: schedule(when, continuation, { id: reqId })
  * - Atomic Cancel: cancelSchedule(reqId) returns Schedule | undefined
  * - Continuation Embedding: preprocess user continuation, embed in both paths
- * - Single Handler: handleFetchResult() called by both worker and alarm
+ * - Single Handler: __handleProxyFetchResult() called by both worker and alarm
  * - Worker $result Filling: replaceNestedOperationMarkers before callRaw
  */
 
 import { debug } from '@lumenize/core';
 import { getOperationChain, type LumenizeBase } from '@lumenize/lumenize-base';
-import { preprocess, stringify } from '@lumenize/structured-clone';
-import type { ProxyFetchWorkerOptions } from './types.js';
+import { stringify } from '@lumenize/structured-clone';
+import type { ProxyFetchWorkerOptions } from './types';
+import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
 
 /**
  * Message sent from origin DO to Worker Executor
  * @internal
  */
-export interface SimpleFetchMessage {
+export interface FetchMessage {
   reqId: string;
-  request: any; // Preprocessed Request object
+  request: string | Request; // URL string or Request object (callRaw handles serialization)
   originBinding: string;
   originId: string;
-  url: string;
-  stringifiedUserContinuation: string;  // User's continuation as JSON string
   options?: ProxyFetchWorkerOptions;
   fetchTimeout: number;
 }
 
 /**
  * Make an external fetch request using simplified DO-Worker architecture.
- * 
- * No FetchOrchestrator - all coordination in origin DO via @lumenize/alarms.
  * 
  * **Setup Required**:
  * 1. Your DO must extend `LumenizeBase`
@@ -64,7 +61,7 @@ export interface SimpleFetchMessage {
  * import '@lumenize/core';
  * import '@lumenize/alarms';
  * import { LumenizeBase } from '@lumenize/lumenize-base';
- * import { proxyFetchSimple } from '@lumenize/proxy-fetch';
+ * import { proxyFetch } from '@lumenize/proxy-fetch';
  * 
  * class MyDO extends LumenizeBase<Env> {
  *   constructor(ctx: DurableObjectState, env: Env) {
@@ -78,7 +75,7 @@ export interface SimpleFetchMessage {
  * 
  *   async fetchUserData(userId: string) {
  *     // Just pass your continuation - no boilerplate needed!
- *     const reqId = await proxyFetchSimple(
+ *     const reqId = await proxyFetch(
  *       this,
  *       `https://api.example.com/users/${userId}`,
  *       this.ctn().handleResult(this.ctn().$result, userId)
@@ -96,50 +93,50 @@ export interface SimpleFetchMessage {
  * }
  * ```
  */
-export async function proxyFetchSimple(
+export async function proxyFetch(
   doInstance: LumenizeBase,
   request: string | Request,
   continuation: any,
   options?: ProxyFetchWorkerOptions,
   reqId?: string
 ): Promise<string> {
-  const ctx = doInstance.ctx;
-  const env = doInstance.env;
-  const log = debug(doInstance)('lmz.proxyFetchSimple');
+  const ctx = (doInstance as any).ctx;
+  const env = (doInstance as any).env;
+  const log = debug(doInstance)('lmz.proxyFetch');
 
   // Validate continuation
   const continuationChain = getOperationChain(continuation);
   if (!continuationChain) {
-    log.error('Invalid continuation passed to proxyFetchSimple', {
+    log.error('Invalid continuation passed to proxyFetch', {
       hasContinuation: !!continuation,
       continuationType: typeof continuation
     });
     throw new Error('Invalid continuation: must be created with this.ctn()');
   }
 
-  // Normalize request
-  const requestObj = typeof request === 'string' ? new Request(request) : request;
-
   // Get origin identity
   const originBinding = doInstance.lmz?.bindingName;
   if (!originBinding) {
     throw new Error(
-      'Cannot use proxyFetchSimple() from DO without bindingName. ' +
+      'Cannot use proxyFetch() from DO without bindingName. ' +
       'Call this.lmz.init({ bindingName }) in constructor.'
     );
   }
 
+  // Extract URL for logging/error messages
+  const url = typeof request === 'string' ? request : request.url;
+
   // Calculate timing
   const timeout = options?.timeout ?? 30000;
-  const alarmTimeout = options?.testMode?.orchestratorTimeoutOverride ?? timeout;
+  const alarmTimeout = options?.testMode?.alarmTimeoutOverride ?? timeout;
   const now = Date.now();
   const alarmFiresAt = new Date(now + alarmTimeout);
 
   // Generate reqId (or use provided for testing)
   const finalReqId = reqId ?? crypto.randomUUID();
 
-  log.debug('Starting proxyFetchSimple', {
-    url: requestObj.url,
+  log.debug('Starting proxyFetch', {
+    url,
     reqId: finalReqId,
     alarmTimeout,
     alarmFiresAt: alarmFiresAt.toISOString(),
@@ -155,11 +152,12 @@ export async function proxyFetchSimple(
 
   // Create timeout error for alarm path
   const timeoutError = new Error(
-    `Fetch timeout - request exceeded timeout period. URL: ${requestObj.url}`
+    `Fetch timeout - request exceeded timeout period. URL: ${url}`
   );
 
   // Create alarm handler: internal method with embedded user continuation
-  const alarmHandler = doInstance.ctn().__handleProxyFetchSimpleResult(
+  // Note: __handleProxyFetchResult is added to prototype when @lumenize/proxy-fetch is imported
+  const alarmHandler = (doInstance.ctn() as any).__handleProxyFetchResult(
     finalReqId,
     timeoutError,  // Will be filled with actual error at alarm time
     stringifiedUserContinuation
@@ -178,21 +176,14 @@ export async function proxyFetchSimple(
     reqId: finalReqId
   });
 
-  // Preprocess request for transmission
-  const preprocessedRequest = await preprocess(requestObj);
-  log.debug('Request preprocessed for worker transmission', {
-    reqId: finalReqId,
-    url: requestObj.url
-  });
-
-  // Prepare message for Worker
+  // Prepare message for Worker (callRaw handles serialization)
+  // Note: stringifiedUserContinuation is NOT sent - it's embedded in the alarm
+  // and extracted when the alarm is cancelled
   const message: SimpleFetchMessage = {
     reqId: finalReqId,
-    request: preprocessedRequest,
+    request, // Raw string or Request - callRaw handles it
     originBinding,
     originId: ctx.id.toString(),
-    url: requestObj.url,
-    stringifiedUserContinuation,
     options,
     fetchTimeout: timeout
   };
@@ -219,11 +210,11 @@ export async function proxyFetchSimple(
     log.debug('Worker binding resolved, calling via callRaw', {
       executorBinding,
       reqId: finalReqId,
-      url: requestObj.url
+      url
     });
 
-    // Create continuation for executeFetchSimple call
-    const remoteContinuation = doInstance.ctn().executeFetchSimple(message);
+    // Create continuation for executeFetchSimple call on remote worker
+    const remoteContinuation = doInstance.ctn<FetchExecutorEntrypoint>().executeFetchSimple(message);
 
     // Use callRaw for automatic metadata propagation
     await doInstance.lmz.callRaw(

@@ -9,9 +9,9 @@ This document provides detailed flow diagrams for all scenarios in `@lumenize/pr
 
 ## Core Architecture Principles
 
-1. **MyDO (user's DO) = Failure Decision Maker**: MyDO DO decides how to handle errors, if/when to retry, etc. based on business logic
-2. **Orchestrator (DO) = Timeout Watchdog Only**: FetchOrchestrator dispatches to FetchExecutor once and monitors timeout
-3. **Executor (WorkerEntryPoint) = Performs Fetch**: FetchExecutor makes the actual fetch to the 3rd party and reports back directly to MyDO
+1. **Origin DO (user's DO) = Complete Control**: Your DO decides how to handle errors, if/when to retry, manages alarms, etc.
+2. **Executor (WorkerEntrypoint) = Performs Fetch**: FetchExecutor makes the actual fetch to the 3rd party and reports back directly to Origin DO
+3. **@lumenize/alarms = Timeout Watchdog**: Built-in alarm system monitors timeouts and delivers timeout errors if worker doesn't respond
 4. **No result storage in Origin DO**: Results are delivered directly via continuation chains - no storage for deduplication (performance/simplicity trade-off)
 5. **Type-based safety**: In rare race conditions (see Race 1 below), handler may be called twice - first with `ResponseSync` (success), then with `TimeoutError`. Handlers with early error returns are naturally safe.
 6. **Timeout ambiguity**: A timeout error doesn't mean the fetch didn't execute - it may have partially succeeded
@@ -23,15 +23,15 @@ This document provides detailed flow diagrams for all scenarios in `@lumenize/pr
 | Network error | `Error` | Executor | External API unreachable (ECONNREFUSED, DNS, etc. failure) |
 | Abort/timeout error | `Error` | Executor | Fetch took too long (AbortController fired) |
 | Parsing error | `Error` | Executor | ResponseSync couldn't be deserialized |
-| **Delivery timeout** | `Error` | **Orchestrator** | ⚠️ **Ambiguous state. Fetch may have all/partially occured!** |
+| **Delivery timeout** | `Error` | **Alarm** | ⚠️ **Ambiguous state. Fetch may have all/partially occured!** |
 | Success response | `ResponseSync` | Executor | HTTP 2xx (use `.json()`, `.text()`, or `.arrayBuffer()` - no await!) |
 | HTTP error | `ResponseSync` | Executor | HTTP 4xx/5xx (use `.json()`, `.text()`, or `.arrayBuffer()` - no await!) |
 
 **Key Distinctions**: 
-- If MyDO receives an `Error`, check the message:
-  - Contains "delivery timeout" → From Orchestrator (ambiguous state - check external system!)
+- If Origin DO receives an `Error`, check the message:
+  - Contains "delivery timeout" → From Alarm (ambiguous state - check external system!)
   - Anything else → From Executor (fetch definitely failed)
-- If MyDO receives a `ResponseSync`, use **synchronous body methods**: `.json()`, `.text()`, `.arrayBuffer()` (no await!)
+- If Origin DO receives a `ResponseSync`, use **synchronous body methods**: `.json()`, `.text()`, `.arrayBuffer()` (no await!)
 
 ## Why ResponseSync?
 
@@ -62,7 +62,7 @@ handleResult(result: ResponseSync | Error) {
 2. Executor converts to `ResponseSync`: `await ResponseSync.fromResponse(response)`
    - This reads the body once (based on Content-Type)
    - Stores it in serializable format (string, ArrayBuffer, or plain object)
-3. MyDO's synchronous handler receives `ResponseSync`
+3. Origin DO's synchronous handler receives `ResponseSync`
 4. Handler calls `.json()`, `.text()`, or `.arrayBuffer()` **without await**
 
 ## Basic Usage
@@ -86,7 +86,7 @@ class MyDO extends LumenizeBase {
   handleResult(result: ResponseSync | Error) {
     if (result instanceof Error) {
       if (result.message.includes('delivery timeout')) {
-        // From Orchestrator - check external system state!
+        // From Alarm - check external system state!
         console.error('Timeout - fetch may have succeeded:', result);
       } else {
         // From Executor - fetch definitely failed
@@ -156,24 +156,15 @@ const reqId = this.svc.proxyFetch(
   {
     timeout: 60000,  // 60 second timeout for external fetch (default: 30000)
     executorBinding: 'FETCH_EXECUTOR',  // Custom executor binding
-    orchestratorBinding: 'FETCH_ORCHESTRATOR',  // Custom orchestrator
-    orchestratorInstanceName: 'singleton'  // Orchestrator instance name
   }
 );
 ```
 
-**orchestratorInstanceName**: By default, the system uses a single instance of the 
-FetchOrchestrator, whose location is determined by Cloudflare heuristics. This single 
-instance can handle surpisingly high volume so it's rare that you would overload one. 
-However, you may want more control over where in the world they are. To achieve 
-this, you can pre-create instances in locales and control which one is used for any 
-particular fetch.
+## Origin DO-Controlled Retry Logic
 
-## MyDO-Controlled Retry Logic
+Since the Origin DO decides retry behavior, here's a fully-functional example.
 
-Since MyDO decides retry behavior, here's a fully-functional example.
-
-**Important**: Design your handlers to be **idempotent** (safe to call multiple times). In rare race conditions (see Race 1 above), a handler may be called twice with different results. Use idempotency keys, upserts, or duplicate detection as appropriate for your use case.
+**Important**: Design your handlers to be **idempotent** (safe to call multiple times). In rare race conditions (see Race 1 below), a handler may be called twice with different results. Use idempotency keys, upserts, or duplicate detection as appropriate for your use case.
 
 ```typescript @skip-check
 class MyDO extends LumenizeBase {
@@ -241,28 +232,47 @@ class MyDO extends LumenizeBase {
 
 ## Happy Path
 
+### Version 1: Single Origin DO Participant (Simplified)
+
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO (DO)
-    participant Orch as FetchOrchestrator (DO)
+    participant Origin as Origin DO
     participant Exec as FetchExecutor (Worker)
     participant API as External API
 
-    MyDO->>Orch: 1. proxyFetch(request, handler)
-    Note over Orch: Store in queue
-    Orch-->>MyDO: returns immediately
-    Orch->>Exec: 2. executeFetch(request, reqId)
-    Exec-->>Orch: returns ~5-20ms<br/>(stops wall clock billing)
+    Origin->>Origin: 1. Schedule alarm with<br/>embedded continuation
+    Origin->>Exec: 2. proxyFetch → executeFetch(request, reqId)
+    Exec-->>Origin: returns ~5-20ms<br/>(stops wall clock billing)
     
     Note over Exec: Background work starts
     Exec->>API: 3. fetch(request)
     API-->>Exec: ResponseSync
     
-    Exec->>MyDO: 4. ResponseSync
-    Note over MyDO: handler(ResponseSync)
+    Exec->>Origin: 4. __handleProxyFetchResult(reqId, ResponseSync)
+    Note over Origin: Cancel alarm atomically<br/>Parse user continuation<br/>Fill $result with ResponseSync<br/>Execute handler(ResponseSync)
+```
+
+### Version 2: Two Origin DO Participants (Detailed Timing)
+
+```mermaid @skip-check
+sequenceDiagram
+    box Origin DO
+    participant Before as Origin DO<br/>(Setup Phase)
+    participant After as Origin DO<br/>(Result Phase)
+    end
+    participant Exec as FetchExecutor (Worker)
+    participant API as External API
+
+    Before->>Before: 1. Schedule alarm with<br/>embedded continuation
+    Before->>Exec: 2. proxyFetch → executeFetch(request, reqId)
+    Exec-->>Before: returns ~5-20ms<br/>(stops wall clock billing)
     
-    Exec->>Orch: 5. markDelivered(reqId)
-    Note over Orch: Delete from queue
+    Note over Exec: Background work starts
+    Exec->>API: 3. fetch(request)
+    API-->>Exec: ResponseSync
+    
+    Exec->>After: 4. __handleProxyFetchResult(reqId, ResponseSync)
+    Note over After: Cancel alarm atomically<br/>Parse user continuation<br/>Fill $result with ResponseSync<br/>Execute handler(ResponseSync)
 ```
 
 Total Timeline: 80ms-30s
@@ -273,97 +283,184 @@ Blocking Time: microseconds
 
 ### Scenario 1: Network Error (Executor Detects)
 
+#### Version 1: Single Origin DO Participant
+
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO DO
-    participant Orch as FetchOrchestrator (DO)
+    participant Origin as Origin DO
     participant Exec as FetchExecutor (Worker)
     participant API as External API
 
-    MyDO->>Orch: 1. proxyFetch()
-    Orch->>Exec: 2. executeFetch()
+    Origin->>Origin: 1. Schedule alarm
+    Origin->>Exec: 2. executeFetch()
     
     Exec-xAPI: 3. fetch(request) ❌
     
-    Exec->>MyDO: 4. Error: ECONNREFUSED, DNS, TLS, etc.
-    Note over MyDO: handler(Error)<br/>(handler decides what to do)
-    
-    Exec->>Orch: 5. markDelivered(reqId)
-    Note over Orch: Delete from queue
+    Exec->>Origin: 4. __handleProxyFetchResult(reqId, Error)
+    Note over Origin: Cancel alarm atomically<br/>Execute handler(Error)<br/>(handler decides what to do)
 ```
 
-**Key**: Orchestrator considers this **delivered** because MyDO received something. MyDO decides whether to retry.
-
-### Scenario 2: HTTP Error (5xx, 4xx)
+#### Version 2: Two Origin DO Participants
 
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO DO
-    participant Orch as FetchOrchestrator (DO)
+    box Origin DO
+    participant Before as Origin DO<br/>(Setup)
+    participant After as Origin DO<br/>(Result)
+    end
     participant Exec as FetchExecutor (Worker)
     participant API as External API
 
-    MyDO->>Orch: 1. proxyFetch()
-    Orch->>Exec: 2. executeFetch()
+    Before->>Before: 1. Schedule alarm
+    Before->>Exec: 2. executeFetch()
+    
+    Exec-xAPI: 3. fetch(request) ❌
+    
+    Exec->>After: 4. __handleProxyFetchResult(reqId, Error)
+    Note over After: Cancel alarm atomically<br/>Execute handler(Error)<br/>(handler decides what to do)
+```
+
+**Key**: Origin DO's alarm is cancelled because the executor delivered a result. Origin DO handler decides whether to retry.
+
+### Scenario 2: HTTP Error (5xx, 4xx)
+
+#### Version 1: Single Origin DO Participant
+
+```mermaid @skip-check
+sequenceDiagram
+    participant Origin as Origin DO
+    participant Exec as FetchExecutor (Worker)
+    participant API as External API
+
+    Origin->>Origin: 1. Schedule alarm
+    Origin->>Exec: 2. executeFetch()
     
     Exec->>API: 3. fetch(request)
     API-->>Exec: ResponseSync(status: 500)
     
-    Exec->>MyDO: 4. ResponseSync(status: 500)
-    Note over MyDO: handler(ResponseSync)<br/>(handler decides what to do)
-    
-    Exec->>Orch: 5. markDelivered(reqId)
+    Exec->>Origin: 4. __handleProxyFetchResult(reqId, ResponseSync)
+    Note over Origin: Cancel alarm atomically<br/>Execute handler(ResponseSync)<br/>(handler examines status)
 ```
 
-**Key**: HTTP errors are delivered as `ResponseSync` objects (not `Error`). MyDO examines `response.ok`, `response.status`, etc. and decides how to handle.
-
-### Scenario 3: Fetch Timeout (AbortController)
+#### Version 2: Two Origin DO Participants
 
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO (DO)
-    participant Orch as FetchOrchestrator (DO)
+    box Origin DO
+    participant Before as Origin DO<br/>(Setup)
+    participant After as Origin DO<br/>(Result)
+    end
     participant Exec as FetchExecutor (Worker)
     participant API as External API
 
-    MyDO->>Orch: 1. proxyFetch(timeout: 30s)
-    Orch->>Exec: 2. executeFetch()
+    Before->>Before: 1. Schedule alarm
+    Before->>Exec: 2. executeFetch()
+    
+    Exec->>API: 3. fetch(request)
+    API-->>Exec: ResponseSync(status: 500)
+    
+    Exec->>After: 4. __handleProxyFetchResult(reqId, ResponseSync)
+    Note over After: Cancel alarm atomically<br/>Execute handler(ResponseSync)<br/>(handler examines status)
+```
+
+**Key**: HTTP errors are delivered as `ResponseSync` objects (not `Error`). Origin DO examines `response.ok`, `response.status`, etc. and decides how to handle.
+
+### Scenario 3: Fetch Timeout (AbortController)
+
+#### Version 1: Single Origin DO Participant
+
+```mermaid @skip-check
+sequenceDiagram
+    participant Origin as Origin DO
+    participant Exec as FetchExecutor (Worker)
+    participant API as External API
+
+    Origin->>Origin: 1. Schedule alarm (timeout: 30s)
+    Origin->>Exec: 2. executeFetch()
     
     Exec-xAPI: 3. fetch(request)
     Note over API: ❌ Slow response...
     
     Note over Exec: 30 seconds pass<br/>AbortController fires
     
-    Exec->>MyDO: 4. Error: "Aborted"
-    Note over MyDO: handler(Error)<br/>handler decides: retry?
-    
-    Exec->>Orch: 5. markDelivered(reqId)
+    Exec->>Origin: 4. __handleProxyFetchResult(reqId, Error: "Aborted")
+    Note over Origin: Cancel alarm atomically<br/>Execute handler(Error)<br/>handler decides: retry?
 ```
 
-### Scenario 4: Delivery Timeout
+#### Version 2: Two Origin DO Participants
 
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO (DO)
-    participant Orch as FetchOrchestrator (DO)
+    box Origin DO
+    participant Before as Origin DO<br/>(Setup)
+    participant After as Origin DO<br/>(Result)
+    end
     participant Exec as FetchExecutor (Worker)
     participant API as External API
 
-    MyDO->>Orch: 1. proxyFetch()
-    Orch->>Exec: 2. executeFetch()
+    Before->>Before: 1. Schedule alarm (timeout: 30s)
+    Before->>Exec: 2. executeFetch()
+    
+    Exec-xAPI: 3. fetch(request)
+    Note over API: ❌ Slow response...
+    
+    Note over Exec: 30 seconds pass<br/>AbortController fires
+    
+    Exec->>After: 4. __handleProxyFetchResult(reqId, Error: "Aborted")
+    Note over After: Cancel alarm atomically<br/>Execute handler(Error)<br/>handler decides: retry?
+```
+
+### Scenario 4: Delivery Timeout (Alarm Fires)
+
+#### Version 1: Single Origin DO Participant
+
+```mermaid @skip-check
+sequenceDiagram
+    participant Origin as Origin DO
+    participant Exec as FetchExecutor (Worker)
+    participant API as External API
+
+    Origin->>Origin: 1. Schedule alarm
+    Origin->>Exec: 2. executeFetch()
     
     Exec->>API: 3. fetch(request)
     API-->>Exec: Response ✅
     Note over API: ⚠️ State may have changed!
     
-    Exec-xMyDO: 4. ❌ ResponseSync delivery fails
-    Exec-xOrch: 5. ❌ markDeliverable(reqId) never occurs
+    Exec-xOrigin: 4. ❌ __handleProxyFetchResult delivery fails
     Note over Exec: Logs error
     
-    Note over Orch: Timeout period elapses<br/>No markDelivered() received
+    Note over Origin: Alarm timeout elapses<br/>Alarm fires
     
-    Orch->>MyDO: 6. TimeoutError
-    Note over MyDO: ⚠️ receives TimeoutError<br/>handler decides: check external state?
+    Origin->>Origin: 5. alarm() triggered
+    Note over Origin: Parse embedded continuation<br/>Fill $result with TimeoutError<br/>Execute handler(TimeoutError)<br/>⚠️ check external state!
+```
+
+#### Version 2: Two Origin DO Participants
+
+```mermaid @skip-check
+sequenceDiagram
+    box Origin DO
+    participant Before as Origin DO<br/>(Setup)
+    participant Alarm as Origin DO<br/>(Alarm)
+    end
+    participant Exec as FetchExecutor (Worker)
+    participant API as External API
+
+    Before->>Before: 1. Schedule alarm
+    Before->>Exec: 2. executeFetch()
+    
+    Exec->>API: 3. fetch(request)
+    API-->>Exec: Response ✅
+    Note over API: ⚠️ State may have changed!
+    
+    Exec-xBefore: 4. ❌ __handleProxyFetchResult delivery fails
+    Note over Exec: Logs error
+    
+    Note over Alarm: Alarm timeout elapses<br/>Alarm fires
+    
+    Alarm->>Alarm: 5. alarm() triggered
+    Note over Alarm: Parse embedded continuation<br/>Fill $result with TimeoutError<br/>Execute handler(TimeoutError)<br/>⚠️ check external state!
 ```
 
 **Critical**: The timeout error message indicates ambiguity:
@@ -376,47 +473,67 @@ new Error(
 )
 ```
 
-**Key**: Orchestrator only sends timeout. MyDO must decide whether to:
+**Key**: The alarm fires and delivers a timeout error. Origin DO must decide whether to:
 - Check external system state (idempotent GET)
 - Retry if operation is idempotent (PUT with idempotency key)
 - NOT retry if best effort is all that is required
 
 Note, the network failure here is illustrative. The failure could be anywhere along the 
 path back including failure of the FetchExecutor during or immediately after it receives 
-the Response but before it can deliver it to MyDO's handler.
+the Response but before it can deliver it to Origin DO's handler.
 
 ## Race Conditions
 
 ### Race 1: ResponseSync, then Timeout (POSSIBLE - Handler Called Twice)
 
-The FetchOrchestrator timeout is 10 seconds beyond the fetch timeout, making this race extremely unlikely. However, it IS possible if:
-- Result delivery to MyDO succeeds, BUT
-- `reportDelivery()` to Orchestrator fails (network partition)
+This race is extremely unlikely but IS possible if:
+- Result delivery to Origin DO succeeds, BUT
+- Origin DO crashes/restarts before cancelling the alarm
+
+#### Version 1: Single Origin DO Participant
 
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO (DO)
-    participant Orch as FetchOrchestrator (DO)
+    participant Origin as Origin DO
     participant Exec as FetchExecutor (Worker)
 
-    Exec->>MyDO: 4. ResponseSync ✅
-    Note over MyDO: handler(ResponseSync) called
+    Exec->>Origin: 4. __handleProxyFetchResult(reqId, ResponseSync) ✅
+    Note over Origin: ❌ DO crashes before<br/>alarm cancellation completes
+    Note over Origin: handler(ResponseSync) called
     
-    Exec-xOrch: 5. ❌ reportDelivery(reqId) fails
+    Note over Origin: DO restarts<br/>Alarm fires
     
-    Note over Orch: Timeout alarm fires<br/>(no confirmation received)
+    Origin->>Origin: alarm() triggered
+    Note over Origin: ⚠️ handler(TimeoutError) called AGAIN
+```
+
+#### Version 2: Two Origin DO Participants
+
+```mermaid @skip-check
+sequenceDiagram
+    box Origin DO
+    participant Result as Origin DO<br/>(Result Delivery)
+    participant Alarm as Origin DO<br/>(Alarm Fires)
+    end
+    participant Exec as FetchExecutor (Worker)
+
+    Exec->>Result: 4. __handleProxyFetchResult(reqId, ResponseSync) ✅
+    Note over Result: ❌ DO crashes before<br/>alarm cancellation completes
+    Note over Result: handler(ResponseSync) called
     
-    Orch->>MyDO: 6. TimeoutError ✅
-    Note over MyDO: ⚠️ handler(TimeoutError) called AGAIN
+    Note over Alarm: DO restarts<br/>Alarm fires
+    
+    Alarm->>Alarm: alarm() triggered
+    Note over Alarm: ⚠️ handler(TimeoutError) called AGAIN
 ```
 
 **Critical**: In this race, the handler is called **twice**:
 1. First with `ResponseSync` (actual result from fetch)
-2. Then with `TimeoutError` (orchestrator gave up waiting)
+2. Then with `TimeoutError` (alarm fired before cancellation persisted)
 
 **Natural Protection**: Most handlers are **already safe** because of type differences:
 
-```typescript
+```typescript @skip-check
 handleResult(result: ResponseSync | Error) {
   if (result instanceof Error) {
     console.warn('Timeout - operation may have succeeded');
@@ -436,7 +553,7 @@ This pattern is safe because:
 
 **Only risky if** your handler performs destructive actions on BOTH success AND error:
 
-```typescript
+```typescript @skip-check
 // ❌ UNSAFE: Destructive actions in both branches
 handleResult(result: ResponseSync | Error) {
   if (result instanceof Error) {
@@ -454,34 +571,52 @@ handleResult(result: ResponseSync | Error) {
 - Use idempotency keys if you must perform destructive error handling
 - Check if error contains "delivery timeout" (second call) vs other errors (first call)
 
-**Why no automatic deduplication?** The current architecture doesn't store pending fetches in Origin DO (for performance and simplicity). The 10-second buffer makes this race extremely rare, and type-based natural protection handles most cases safely.
+**Why no automatic deduplication?** The current architecture doesn't store pending fetches in Origin DO (for performance and simplicity). This race is extremely rare in practice, and type-based natural protection handles most cases safely.
 
 ### Race 2: Timeout, then ResponseSync (IMPOSSIBLE)
 
 This race cannot happen in the current design:
 
+#### Version 1: Single Origin DO Participant
+
 ```mermaid @skip-check
 sequenceDiagram
-    participant MyDO as MyDO (DO)
-    participant Orch as FetchOrchestrator (DO)
+    participant Origin as Origin DO
     participant Exec as FetchExecutor (Worker)
 
-    Note over Orch: Orchestrator timeout fires first
-    Orch->>MyDO: 6. TimeoutError
-    Note over MyDO: handler(TimeoutError)
+    Note over Origin: Alarm timeout fires first
+    Origin->>Origin: alarm() triggered
+    Note over Origin: handler(TimeoutError)
     
     Note over Exec: ❌ Fetch completes AFTER<br/>its own AbortController fired?<br/>IMPOSSIBLE
-    Exec-xMyDO: 5. ResponseSync (never arrives)
+    Exec-xOrigin: __handleProxyFetchResult (never arrives)
+```
+
+#### Version 2: Two Origin DO Participants
+
+```mermaid @skip-check
+sequenceDiagram
+    box Origin DO
+    participant Alarm as Origin DO<br/>(Alarm)
+    participant Result as Origin DO<br/>(Never Reached)
+    end
+    participant Exec as FetchExecutor (Worker)
+
+    Note over Alarm: Alarm timeout fires first
+    Alarm->>Alarm: alarm() triggered
+    Note over Alarm: handler(TimeoutError)
+    
+    Note over Exec: ❌ Fetch completes AFTER<br/>its own AbortController fired?<br/>IMPOSSIBLE
+    Exec-xResult: __handleProxyFetchResult (never arrives)
 ```
 
 **Why it's impossible**:
 - The `timeout` option sets AbortController timeout for the fetch
-- Orchestrator timeout = fetch timeout + 10 seconds
-- If fetch completes, it delivers result BEFORE orchestrator timeout
+- If fetch completes, it delivers result BEFORE alarm timeout
 - If fetch is aborted, it can't complete afterward (AbortController guarantees this)
-- There's no scenario where orchestrator times out first AND fetch still succeeds
+- There's no scenario where alarm times out first AND fetch still succeeds
 
 **Timeout Behavior Summary**:
-- `timeout` option → AbortController timeout for external fetch
-- Orchestrator timeout → `timeout` + 10 seconds (buffer for delivery)
-- This ensures fetch always completes (or aborts) before orchestrator gives up
+- `timeout` option → AbortController timeout for external fetch (default: 30s)
+- Alarm timeout → Same as fetch timeout (no extra buffer needed)
+- Alarm only fires if worker never delivers a result (success or error)

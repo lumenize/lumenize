@@ -110,7 +110,7 @@ async __receiveResult(handlerType: string, reqId: string, resultData: any): Prom
 import { ResponseSync } from '@lumenize/structured-clone';
 
 export async function executeFetch(message: WorkerFetchMessage, env: any): Promise<void> {
-  const log = debug({ id: { toString: () => 'worker' } })('lmz.proxyFetch.worker');
+  const log = debug({ env })('lmz.proxyFetch.worker');
   
   // Execute fetch (success or error)
   let responseSync: ResponseSync | undefined;

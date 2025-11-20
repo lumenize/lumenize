@@ -279,15 +279,6 @@ async fetch(request: Request, env: Env)
 async fetch(request, env, ctx)
 ```
 
-**Object Shorthand:**
-```typescript
-// ❌ BAD: MDX tries to evaluate `env` variable
-const log = debug({ env })('namespace');
-
-// ✅ GOOD: Explicit property
-const log = debug({ env: environment })('namespace');
-```
-
 **Generic Type Parameters:**
 ```typescript
 // ❌ BAD: Undefined type reference

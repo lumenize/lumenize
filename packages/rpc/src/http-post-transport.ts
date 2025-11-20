@@ -1,6 +1,7 @@
 import type { RpcBatchRequest, RpcBatchResponse, RpcTransport } from './types';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { debug } from '@lumenize/core';
+import { env } from 'cloudflare:workers';
 
 /**
  * Utility function to remove leading and trailing slashes from a URL segment
@@ -23,7 +24,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     fetch: typeof fetch;
     headers: Record<string, string>;
   };
-  #log = debug({})('lmz.rpc.HttpPostRpcTransport');
+  #log = debug({ env })('lmz.rpc.HttpPostRpcTransport');
 
   constructor(config: {
     baseUrl: string;

@@ -13,9 +13,7 @@
   
   "durable_objects": {
     "bindings": [
-      { "name": "TEST_DO", "class_name": "TestDO" },
       { "name": "TEST_SIMPLE_DO", "class_name": "TestSimpleDO" },
-      { "name": "FETCH_ORCHESTRATOR", "class_name": "FetchOrchestrator" },
       { "name": "TEST_ENDPOINTS_DO", "class_name": "TestEndpointsDO" }
     ]
   },
@@ -23,12 +21,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["TestDO", "FetchOrchestrator"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["TestSimpleDO"]
+      "new_sqlite_classes": ["TestSimpleDO", "TestEndpointsDO"]
     }
   ]
 }
-
