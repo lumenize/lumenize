@@ -21,7 +21,7 @@
 
 import { debug } from '@lumenize/core';
 import { getOperationChain, type LumenizeBase } from '@lumenize/lumenize-base';
-import { stringify } from '@lumenize/structured-clone';
+import { stringify, RequestSync } from '@lumenize/structured-clone';
 import type { ProxyFetchWorkerOptions } from './types';
 import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
 
@@ -95,7 +95,7 @@ export interface FetchMessage {
  */
 export async function proxyFetch(
   doInstance: LumenizeBase,
-  request: string | Request,
+  request: string | Request | RequestSync,
   continuation: any,
   options?: ProxyFetchWorkerOptions,
   reqId?: string
@@ -124,7 +124,7 @@ export async function proxyFetch(
   }
 
   // Extract URL for logging/error messages
-  const url = typeof request === 'string' ? request : request.url;
+  const url = typeof request === 'string' ? request : request.url || (request as RequestSync)._request.url;
 
   // Calculate timing
   const timeout = options?.timeout ?? 30000;
@@ -144,7 +144,7 @@ export async function proxyFetch(
   });
 
   // Stringify user continuation for embedding as opaque data
-  const stringifiedUserContinuation = await stringify(continuationChain);
+  const stringifiedUserContinuation = stringify(continuationChain);
   log.debug('Stringified user continuation for alarm handler', {
     reqId: finalReqId,
     continuationLength: stringifiedUserContinuation.length

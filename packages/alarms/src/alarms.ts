@@ -287,7 +287,7 @@ export class Alarms {
     extra: { delayInSeconds?: number; cron?: string; time?: number }
   ): Promise<void> {
     // Preprocess and serialize the operation chain
-    const preprocessed = await preprocess(operationChain);
+    const preprocessed = preprocess(operationChain);
     const serialized = JSON.stringify(preprocessed);
 
     if (type === 'scheduled') {

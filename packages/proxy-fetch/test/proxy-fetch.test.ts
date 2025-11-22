@@ -9,7 +9,7 @@
  */
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
-import { parse, ResponseSync } from '@lumenize/structured-clone';
+import { parse, RequestSync, ResponseSync } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
 
 describe('proxyFetch - Basic Flow', () => {
@@ -40,22 +40,23 @@ describe('proxyFetch - Basic Flow', () => {
     expect(callCount).toBe(1);
   });
 
-  test('fetches with Request object including headers and body', async () => {
-    const stub = env.TEST_SIMPLE_DO.getByName('request-object-test');
+  test('fetches with RequestSync including headers and body', async () => {
+    const stub = env.TEST_SIMPLE_DO.getByName('request-sync-test');
     await stub.clearResults();
-    const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'request-object-test');
+    const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'request-sync-test');
     const url = testEndpoints.buildUrl('/echo');
-    
-    const request = new Request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Custom-Header': 'test-value'
-      },
-      body: JSON.stringify({ message: 'Hello from Request object' })
-    });
 
-    const reqId = await stub.fetchDataSimpleWithRequest(request);
+    const reqId = await stub.fetchDataSimpleWithRequestSync(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Custom-Header': 'test-value'
+        },
+        body: { message: 'Hello from RequestSync' }
+      }
+    );
 
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
@@ -69,7 +70,7 @@ describe('proxyFetch - Basic Flow', () => {
     expect(result.status).toBe(200);
     
     const body = result.json();
-    expect(body.json).toEqual({ message: 'Hello from Request object' });
+    expect(body.json).toEqual({ message: 'Hello from RequestSync' });
     expect(body.headers['x-custom-header']).toBe('test-value');
     expect(body.headers['content-type']).toBe('application/json');
     

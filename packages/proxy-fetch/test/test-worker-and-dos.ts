@@ -2,7 +2,7 @@ import '@lumenize/core';        // Registers sql in this.svc
 import '@lumenize/alarms';      // Registers alarms in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { FetchExecutorEntrypoint, proxyFetch } from '@lumenize/proxy-fetch';
-import { ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
+import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
 
 // Export FetchExecutorEntrypoint for service binding
@@ -51,6 +51,22 @@ export class _TestSimpleDO extends LumenizeBase {
   }
 
   async fetchDataSimpleWithRequest(request: Request, reqId?: string): Promise<string> {
+    const finalReqId = await proxyFetch(
+      this,
+      request,
+      this.ctn().handleFetchComplete(this.ctn().$result, request.url),
+      {},
+      reqId
+    );
+    return finalReqId;
+  }
+
+  async fetchDataSimpleWithRequestSync(
+    url: string,
+    options: { method?: string; headers?: Record<string, string>; body?: any },
+    reqId?: string
+  ): Promise<string> {
+    const request = new RequestSync(url, options);
     const finalReqId = await proxyFetch(
       this,
       request,

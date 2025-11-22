@@ -274,7 +274,7 @@ export abstract class LumenizeBase<Env = any> extends DurableObject<Env> {
    * ```typescript
    * // Executor sends result back after external fetch completes
    * await originDO.__receiveResult('proxyFetch', reqId, 
-   *   await preprocess({ response: responseSync })
+   *   preprocess({ response: responseSync })
    * );
    * 
    * // Origin DO executes stored continuation:

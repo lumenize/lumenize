@@ -311,38 +311,9 @@ from a Durable Object (where you're billed on wall clock time) to a Worker
 This use case is one of the most common sources of repeated questions on the
 #durable-objects Discord channel.
 
-**Lumenize RPC**: ✅ Web API types work including body content  
-**Cap'n Web**: ❌ Cannot serialize any Web API types
+**Note**: Native Request/Response objects are no longer supported in Lumenize RPC.
+Use RequestSync/ResponseSync instead.
 */
-it('demonstrates Web API Request support', async () => {
-  const testRequest = new Request('https://example.com/test', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: 'test payload' })
-  });
-
-  // ==========================================================================
-  // Lumenize RPC
-  // ==========================================================================
-  using lumenizeClient = getLumenizeClient('request');
-  const lumenizeResult = await lumenizeClient.echo(testRequest);
-  expect(lumenizeResult).toBeInstanceOf(Request); // ✅
-  expect(lumenizeResult.url).toBe('https://example.com/test'); // ✅
-  expect(lumenizeResult.method).toBe('POST'); // ✅
-  expect(await lumenizeResult.json()).toEqual({ data: 'test payload' }); // ✅
-
-  // ==========================================================================
-  // Cap'n Web
-  // ==========================================================================
-  using capnwebClient = getCapnWebClient('request');
-  let capnwebThrew = false;
-  try {
-    await capnwebClient.echo(testRequest);
-  } catch (e) {
-    capnwebThrew = true;
-  }
-  expect(capnwebThrew).toBe(true); // ❌
-});
 
 /*
 ## Standard types (primitives and built-ins)

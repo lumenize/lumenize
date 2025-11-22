@@ -62,12 +62,17 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
     const log = debug(this)('lmz.proxyFetch.worker');
     
     const isString = typeof message.request === 'string';
-    const url = isString ? message.request : (message.request as Request).url;
+    const isRequestSync = message.request && typeof message.request === 'object' && '_request' in message.request;
+    const url = isString 
+      ? message.request 
+      : isRequestSync 
+        ? (message.request as any)._request.url
+        : (message.request as Request).url;
     
     log.debug('Executing fetch', { 
       reqId: message.reqId, 
       url,
-      requestType: isString ? 'string' : 'Request'
+      requestType: isString ? 'string' : isRequestSync ? 'RequestSync' : 'Request'
     });
 
     const startTime = Date.now();
@@ -75,8 +80,12 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
 
     // Execute fetch
     try {
-      // callRaw already deserialized - use directly
-      const fetchInput = message.request as string | Request;
+      // callRaw already deserialized - convert RequestSync to Request if needed
+      const fetchInput = isString 
+        ? message.request 
+        : isRequestSync
+          ? (message.request as any).toRequest()
+          : message.request as Request;
       
       // Fetch with timeout
       const timeout = message.fetchTimeout ?? DEFAULT_TIMEOUT;

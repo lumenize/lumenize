@@ -359,7 +359,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       };
       
       // 5. Preprocess operation chain
-      const preprocessedChain = await preprocess(chain);
+      const preprocessedChain = preprocess(chain);
       
       // 6. Create versioned envelope
       const envelope: CallEnvelope = {
@@ -550,7 +550,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       };
       
       // 5. Preprocess operation chain
-      const preprocessedChain = await preprocess(chain);
+      const preprocessedChain = preprocess(chain);
       
       // 6. Create versioned envelope
       const envelope: CallEnvelope = {
