@@ -9,7 +9,7 @@ import { stringify, parse, encodeRequest, encodeResponse, decodeRequest, decodeR
 describe('Headers Serialization', () => {
   it('handles empty Headers', async () => {
     const headers = new Headers();
-    const result = await parse(await stringify(headers));
+    const result = parse(await stringify(headers));
     
     expect(result).toBeInstanceOf(Headers);
     expect(Array.from(result.entries())).toEqual([]);
@@ -21,7 +21,7 @@ describe('Headers Serialization', () => {
       'x-custom-header': 'value'
     });
     
-    const result = await parse(await stringify(headers));
+    const result = parse(await stringify(headers));
     
     expect(result).toBeInstanceOf(Headers);
     expect(result.get('content-type')).toBe('application/json');
@@ -34,7 +34,7 @@ describe('Headers Serialization', () => {
       data: 'test'
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     expect(result.headers).toBeInstanceOf(Headers);
     expect(result.headers.get('content-type')).toBe('text/html');
@@ -45,7 +45,7 @@ describe('Headers Serialization', () => {
 describe('URL Serialization', () => {
   it('handles simple URL', async () => {
     const url = new URL('https://example.com/path');
-    const result = await parse(await stringify(url));
+    const result = parse(await stringify(url));
     
     expect(result).toBeInstanceOf(URL);
     expect(result.href).toBe('https://example.com/path');
@@ -55,7 +55,7 @@ describe('URL Serialization', () => {
 
   it('handles URL with query params', async () => {
     const url = new URL('https://api.example.com/search?q=test&limit=10');
-    const result = await parse(await stringify(url));
+    const result = parse(await stringify(url));
     
     expect(result).toBeInstanceOf(URL);
     expect(result.searchParams.get('q')).toBe('test');
@@ -64,7 +64,7 @@ describe('URL Serialization', () => {
 
   it('handles URL with hash', async () => {
     const url = new URL('https://example.com/page#section');
-    const result = await parse(await stringify(url));
+    const result = parse(await stringify(url));
     
     expect(result).toBeInstanceOf(URL);
     expect(result.hash).toBe('#section');
@@ -76,7 +76,7 @@ describe('URL Serialization', () => {
       new URL('https://test.com')
     ];
     
-    const result = await parse(await stringify(urls));
+    const result = parse(await stringify(urls));
     
     expect(result[0]).toBeInstanceOf(URL);
     expect(result[0].href).toBe('https://example.com/');
@@ -87,7 +87,7 @@ describe('URL Serialization', () => {
 describe('Request Serialization', () => {
   it('handles GET request', async () => {
     const request = new Request('https://api.example.com/users');
-    const result = await parse(await stringify(request));
+    const result = parse(await stringify(request));
     
     expect(result).toBeInstanceOf(Request);
     expect(result.url).toBe('https://api.example.com/users');
@@ -101,7 +101,7 @@ describe('Request Serialization', () => {
       headers: { 'content-type': 'application/json' }
     });
     
-    const result = await parse(await stringify(request));
+    const result = parse(await stringify(request));
     
     expect(result).toBeInstanceOf(Request);
     expect(result.method).toBe('POST');
@@ -117,7 +117,7 @@ describe('Request Serialization', () => {
       body: 'updated data'
     });
     
-    const result = await parse(await stringify(request));
+    const result = parse(await stringify(request));
     
     expect(result.method).toBe('PUT');
     expect(await result.text()).toBe('updated data');
@@ -128,7 +128,7 @@ describe('Request Serialization', () => {
       method: 'DELETE'
     });
     
-    const result = await parse(await stringify(request));
+    const result = parse(await stringify(request));
     
     expect(result.method).toBe('DELETE');
     expect(result.url).toBe('https://api.example.com/users/1');
@@ -142,7 +142,7 @@ describe('Request Serialization', () => {
       }
     });
     
-    const result = await parse(await stringify(request));
+    const result = parse(await stringify(request));
     
     expect(result.headers.get('authorization')).toBe('Bearer token123');
     expect(result.headers.get('x-api-key')).toBe('key456');
@@ -154,7 +154,7 @@ describe('Request Serialization', () => {
       timestamp: Date.now()
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     expect(result.request).toBeInstanceOf(Request);
     expect(result.request.method).toBe('POST');
@@ -165,7 +165,7 @@ describe('Request Serialization', () => {
 describe('Response Serialization', () => {
   it('handles simple Response', async () => {
     const response = new Response('Hello World');
-    const result = await parse(await stringify(response));
+    const result = parse(await stringify(response));
     
     expect(result).toBeInstanceOf(Response);
     expect(await result.text()).toBe('Hello World');
@@ -174,7 +174,7 @@ describe('Response Serialization', () => {
 
   it('handles Response with status', async () => {
     const response = new Response('Not Found', { status: 404, statusText: 'Not Found' });
-    const result = await parse(await stringify(response));
+    const result = parse(await stringify(response));
     
     expect(result.status).toBe(404);
     expect(result.statusText).toBe('Not Found');
@@ -188,7 +188,7 @@ describe('Response Serialization', () => {
       headers: { 'content-type': 'application/json' }
     });
     
-    const result = await parse(await stringify(response));
+    const result = parse(await stringify(response));
     
     expect(result.status).toBe(201);
     expect(result.headers.get('content-type')).toBe('application/json');
@@ -205,7 +205,7 @@ describe('Response Serialization', () => {
       }
     });
     
-    const result = await parse(await stringify(response));
+    const result = parse(await stringify(response));
     
     expect(result.headers.get('cache-control')).toBe('max-age=3600');
     expect(result.headers.get('content-type')).toBe('text/plain');
@@ -213,7 +213,7 @@ describe('Response Serialization', () => {
 
   it('handles empty Response', async () => {
     const response = new Response(null, { status: 204 });
-    const result = await parse(await stringify(response));
+    const result = parse(await stringify(response));
     
     expect(result.status).toBe(204);
     expect(await result.text()).toBe('');
@@ -225,7 +225,7 @@ describe('Response Serialization', () => {
       new Response('Second', { status: 201 })
     ];
     
-    const result = await parse(await stringify(responses));
+    const result = parse(await stringify(responses));
     
     expect(result[0]).toBeInstanceOf(Response);
     expect(await result[0].text()).toBe('First');
@@ -248,7 +248,7 @@ describe('Mixed Web API Objects', () => {
       headers: new Headers({ 'x-custom': 'value' })
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     expect(result.request).toBeInstanceOf(Request);
     expect(await result.request.text()).toBe('request data');
@@ -274,7 +274,7 @@ describe('Mixed Web API Objects', () => {
       response: new Response(JSON.stringify({ success: true }))
     };
     
-    const result = await parse(await stringify(nested));
+    const result = parse(await stringify(nested));
     
     expect(result.api.endpoints[0].url).toBeInstanceOf(URL);
     expect(result.api.endpoints[0].url.pathname).toBe('/users');
@@ -288,7 +288,7 @@ describe('Mixed Web API Objects', () => {
       ['url', new URL('https://test.com')]
     ]);
     
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     
     expect(result).toBeInstanceOf(Map);
     expect(result.get('req')).toBeInstanceOf(Request);
@@ -302,7 +302,7 @@ describe('Mixed Web API Objects', () => {
       new URL('https://example2.com')
     ]);
     
-    const result = await parse(await stringify(set));
+    const result = parse(await stringify(set));
     
     expect(result).toBeInstanceOf(Set);
     expect(result.size).toBe(2);
@@ -316,14 +316,14 @@ describe('Mixed Web API Objects', () => {
 describe('Edge Cases', () => {
   it('handles Request with empty body', async () => {
     const request = new Request('https://example.com');
-    const result = await parse(await stringify(request));
+    const result = parse(await stringify(request));
     
     expect(await result.text()).toBe('');
   });
 
   it('handles Response with null body', async () => {
     const response = new Response(null);
-    const result = await parse(await stringify(response));
+    const result = parse(await stringify(response));
     
     expect(await result.text()).toBe('');
   });
@@ -333,7 +333,7 @@ describe('Edge Cases', () => {
     headers.append('x-custom', 'value1');
     headers.append('x-custom', 'value2');
     
-    const result = await parse(await stringify(headers));
+    const result = parse(await stringify(headers));
     
     // Headers with duplicate keys are concatenated with comma
     expect(result.get('x-custom')).toContain('value1');
@@ -342,7 +342,7 @@ describe('Edge Cases', () => {
 
   it('handles URL with all components', async () => {
     const url = new URL('https://user:pass@example.com:8080/path?query=1#hash');
-    const result = await parse(await stringify(url));
+    const result = parse(await stringify(url));
     
     expect(result.protocol).toBe('https:');
     expect(result.username).toBe('user');
@@ -361,7 +361,7 @@ describe('Edge Cases', () => {
     };
     obj.self = obj;
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     expect(result.url).toBeInstanceOf(URL);
     expect(result.self).toBe(result);

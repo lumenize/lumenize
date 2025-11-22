@@ -365,7 +365,7 @@ describe('ResponseSync', () => {
   describe('Round-trip Serialization', () => {
     it('handles simple ResponseSync round-trip', async () => {
       const responseSync = new ResponseSync('Hello World');
-      const result = await parse(await stringify(responseSync));
+      const result = parse(await stringify(responseSync));
       
       expect(result).toBeInstanceOf(ResponseSync);
       expect(result.text()).toBe('Hello World');
@@ -377,7 +377,7 @@ describe('ResponseSync', () => {
         status: 404, 
         statusText: 'Not Found' 
       });
-      const result = await parse(await stringify(responseSync));
+      const result = parse(await stringify(responseSync));
       
       expect(result).toBeInstanceOf(ResponseSync);
       expect(result.status).toBe(404);
@@ -391,7 +391,7 @@ describe('ResponseSync', () => {
         status: 201,
         statusText: 'Created'
       });
-      const result = await parse(await stringify(responseSync));
+      const result = parse(await stringify(responseSync));
       
       expect(result).toBeInstanceOf(ResponseSync);
       expect(result.status).toBe(201);
@@ -408,7 +408,7 @@ describe('ResponseSync', () => {
           'X-Custom-Header': 'custom-value'
         }
       });
-      const result = await parse(await stringify(responseSync));
+      const result = parse(await stringify(responseSync));
       
       expect(result).toBeInstanceOf(ResponseSync);
       expect(result.headers.get('Content-Type')).toBe('application/json');
@@ -419,7 +419,7 @@ describe('ResponseSync', () => {
     it('handles ResponseSync with ArrayBuffer body round-trip', async () => {
       const buffer = new TextEncoder().encode('Binary data').buffer;
       const responseSync = new ResponseSync(buffer);
-      const result = await parse(await stringify(responseSync));
+      const result = parse(await stringify(responseSync));
       
       expect(result).toBeInstanceOf(ResponseSync);
       expect(result.arrayBuffer()).toEqual(buffer);
@@ -430,7 +430,7 @@ describe('ResponseSync', () => {
         new ResponseSync('First', { status: 200 }),
         new ResponseSync('Second', { status: 201 })
       ];
-      const result = await parse(await stringify(responses));
+      const result = parse(await stringify(responses));
       
       expect(result).toHaveLength(2);
       expect(result[0]).toBeInstanceOf(ResponseSync);
@@ -444,7 +444,7 @@ describe('ResponseSync', () => {
         response: new ResponseSync({ success: true }),
         metadata: { timestamp: Date.now() }
       };
-      const result = await parse(await stringify(obj));
+      const result = parse(await stringify(obj));
       
       expect(result.response).toBeInstanceOf(ResponseSync);
       expect(result.response.json()).toEqual({ success: true });

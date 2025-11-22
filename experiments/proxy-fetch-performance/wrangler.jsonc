@@ -32,6 +32,14 @@
         "OriginDO",
         "TestEndpointsDO"
       ]
+    },
+    { 
+      "tag": "v2",
+      "new_sqlite_classes": []
+    },
+    { 
+      "tag": "v3",
+      "new_sqlite_classes": []
     }
   ]
 }

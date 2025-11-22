@@ -12,7 +12,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     const originalMap = new Map([[keyObj, 'user data']]);
 
     // Serialize the map alone
-    const clonedMap = await parse(await stringify(originalMap));
+    const clonedMap = parse(await stringify(originalMap));
 
     // Original key won't work (it was never part of this serialization)
     expect(clonedMap.get(keyObj)).toBeUndefined();
@@ -37,7 +37,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     expect(data.theKey === Array.from(data.map.keys())[0]).toBe(true);
 
     // Serialize together
-    const clonedData = await parse(await stringify(data));
+    const clonedData = parse(await stringify(data));
 
     // ✅ Identity preserved! This should work
     expect(clonedData.map.get(clonedData.theKey)).toBe('value');
@@ -55,7 +55,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     expect(setData.set.has(setData.theObj)).toBe(true);
 
     // Serialize together
-    const clonedSetData = await parse(await stringify(setData));
+    const clonedSetData = parse(await stringify(setData));
 
     // ✅ Identity preserved! This should work
     expect(clonedSetData.set.has(clonedSetData.theObj)).toBe(true);
@@ -71,7 +71,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     expect(circularKey.backref === circularMap).toBe(true);
 
     // Serialize
-    const clonedCircular = await parse(await stringify(circularMap));
+    const clonedCircular = parse(await stringify(circularMap));
     const clonedCircularKeys = Array.from(clonedCircular.keys());
 
     // ✅ Circular reference preserved!
@@ -86,8 +86,8 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     };
 
     // Use preprocess/postprocess
-    const intermediate = preprocess(data);
-    const restored = await postprocess(intermediate);
+    const intermediate = await preprocess(data);
+    const restored = postprocess(intermediate);
 
     // ✅ Identity preserved!
     expect(restored.map.get(restored.theKey)).toBe('preprocessed data');
@@ -99,12 +99,12 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     const map = new Map([[key, 'data in map']]);
 
     // Serialize them separately
-    const intermediateMap = preprocess(map);
-    const intermediateKey = preprocess(key);
+    const intermediateMap = await preprocess(map);
+    const intermediateKey = await preprocess(key);
 
     // Restore them separately
-    const restoredMap = await postprocess(intermediateMap);
-    const restoredKey = await postprocess(intermediateKey);
+    const restoredMap = postprocess(intermediateMap);
+    const restoredKey = postprocess(intermediateKey);
 
     // ❌ Identity lost - different serialization contexts
     expect(restoredMap.get(restoredKey)).toBeUndefined();
@@ -125,7 +125,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
       explicitKey: sharedKey
     };
 
-    const cloned = await parse(await stringify(data));
+    const cloned = parse(await stringify(data));
 
     // All three should reference the same object
     const key1 = Array.from(cloned.map1.keys())[0];
@@ -148,7 +148,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
       explicitValue: sharedValue
     };
 
-    const cloned = await parse(await stringify(data));
+    const cloned = parse(await stringify(data));
 
     // All three should reference the same object
     const val1 = Array.from(cloned.set1)[0];

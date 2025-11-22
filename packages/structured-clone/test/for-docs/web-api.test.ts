@@ -13,7 +13,7 @@ describe('Request Serialization', () => {
       headers: { 'Authorization': 'Bearer token123' }
     });
     
-    const restored = await parse(await stringify(request));
+    const restored = parse(await stringify(request));
     
     expect(restored).toBeInstanceOf(Request);
     expect(restored.url).toBe('https://api.example.com/users');
@@ -29,7 +29,7 @@ describe('Request Serialization', () => {
       headers: { 'content-type': 'application/json' }
     });
     
-    const restored = await parse(await stringify(request));
+    const restored = parse(await stringify(request));
     
     expect(restored.method).toBe('POST');
     const bodyText = await restored.text();
@@ -45,7 +45,7 @@ describe('Response Serialization', () => {
       headers: { 'content-type': 'text/plain' }
     });
     
-    const restored = await parse(await stringify(response));
+    const restored = parse(await stringify(response));
     
     expect(restored).toBeInstanceOf(Response);
     expect(restored.status).toBe(201);
@@ -59,7 +59,7 @@ describe('Response Serialization', () => {
       headers: { 'content-type': 'application/json' }
     });
     
-    const restored = await parse(await stringify(response));
+    const restored = parse(await stringify(response));
     
     const responseData = JSON.parse(await restored.text());
     expect(responseData.id).toBe(123);
@@ -74,7 +74,7 @@ describe('Headers and URL', () => {
       'cache-control': 'max-age=3600'
     });
     
-    const restored = await parse(await stringify(headers));
+    const restored = parse(await stringify(headers));
     
     expect(restored).toBeInstanceOf(Headers);
     expect(restored.get('content-type')).toBe('application/json');
@@ -84,7 +84,7 @@ describe('Headers and URL', () => {
   it('serializes URL objects', async () => {
     const url = new URL('https://api.example.com/search?q=test&limit=10');
     
-    const restored = await parse(await stringify(url));
+    const restored = parse(await stringify(url));
     
     expect(restored).toBeInstanceOf(URL);
     expect(restored.hostname).toBe('api.example.com');
@@ -107,7 +107,7 @@ describe('Web API Use Cases', () => {
       timestamp: Date.now()
     };
     
-    const restored = await parse(await stringify(apiData));
+    const restored = parse(await stringify(apiData));
     
     expect(restored.incomingRequest).toBeInstanceOf(Request);
     expect(await restored.incomingRequest.text()).toBe('request data');

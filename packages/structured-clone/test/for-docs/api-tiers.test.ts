@@ -11,7 +11,7 @@ describe('Tier 1: stringify/parse', () => {
     const complexObject = { name: 'John', items: [1, 2, 3] };
     
     const jsonString = await stringify(complexObject);  // Returns JSON string
-    const restored = await parse(jsonString);           // Reconstructs from JSON string
+    const restored = parse(jsonString);           // Reconstructs from JSON string
     
     expect(restored).toEqual(complexObject);
   });
@@ -21,8 +21,8 @@ describe('Tier 2: preprocess/postprocess', () => {
   it('demonstrates intermediate format without JSON', async () => {
     const complexObject = { name: 'John', items: [1, 2, 3] };
     
-    const intermediate = preprocess(complexObject);  // Returns { root, objects }
-    const restored = await postprocess(intermediate);      // Reconstructs from object
+    const intermediate = await preprocess(complexObject);  // Returns { root, objects }
+    const restored = postprocess(intermediate);      // Reconstructs from object
     
     expect(restored).toEqual(complexObject);
     expect(intermediate).toHaveProperty('root');

@@ -8,23 +8,23 @@ import { stringify, parse, preprocess, postprocess } from '../src/index.js';
 
 describe('Core Types', () => {
   it('handles primitives', async () => {
-    expect(await parse(await stringify(null))).toBe(null);
-    expect(await parse(await stringify(undefined))).toBe(undefined);
-    expect(await parse(await stringify(true))).toBe(true);
-    expect(await parse(await stringify(false))).toBe(false);
-    expect(await parse(await stringify(123))).toBe(123);
-    expect(await parse(await stringify('hello'))).toBe('hello');
+    expect(parse(await stringify(null))).toBe(null);
+    expect(parse(await stringify(undefined))).toBe(undefined);
+    expect(parse(await stringify(true))).toBe(true);
+    expect(parse(await stringify(false))).toBe(false);
+    expect(parse(await stringify(123))).toBe(123);
+    expect(parse(await stringify('hello'))).toBe('hello');
   });
 
   it('handles arrays', async () => {
     const arr = [1, 2, 3, 'four', true, null];
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result).toEqual(arr);
   });
 
   it('handles plain objects', async () => {
     const obj = { a: 1, b: 'two', c: true, d: null };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     expect(result).toEqual(obj);
   });
 
@@ -33,7 +33,7 @@ describe('Core Types', () => {
       array: [1, 2, { nested: true }],
       object: { deep: { deeper: 'value' } }
     };
-    const result = await parse(await stringify(nested));
+    const result = parse(await stringify(nested));
     expect(result).toEqual(nested);
   });
 });
@@ -41,13 +41,13 @@ describe('Core Types', () => {
 describe('Special Types', () => {
   it('handles Date objects', async () => {
     const date = new Date('2025-01-30T12:00:00Z');
-    const result = await parse(await stringify(date));
+    const result = parse(await stringify(date));
     expect(result).toEqual(date);
   });
 
   it('handles RegExp objects', async () => {
     const regex = /test\d+/gi;
-    const result = await parse(await stringify(regex));
+    const result = parse(await stringify(regex));
     expect(result).toEqual(regex);
   });
 
@@ -57,32 +57,32 @@ describe('Special Types', () => {
       ['key2', 42],
       [{ nested: true }, 'nested key']
     ]);
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     expect(result).toEqual(map);
   });
 
   it('handles Set objects', async () => {
     const set = new Set([1, 2, 3, 'four', true]);
-    const result = await parse(await stringify(set));
+    const result = parse(await stringify(set));
     expect(result).toEqual(set);
   });
 
   it('handles BigInt values', async () => {
     const bigint = BigInt('9007199254740991');
-    const result = await parse(await stringify(bigint));
+    const result = parse(await stringify(bigint));
     expect(result).toBe(bigint);
   });
 
   it('handles Error objects', async () => {
     const error = new Error('Test error');
-    const result = await parse(await stringify(error));
+    const result = parse(await stringify(error));
     expect(result).toBeInstanceOf(Error);
     expect(result.message).toBe('Test error');
   });
 
   it('handles TypeError objects', async () => {
     const error = new TypeError('Type error');
-    const result = await parse(await stringify(error));
+    const result = parse(await stringify(error));
     // Note: Error subclass types are preserved
     expect(result).toBeInstanceOf(TypeError);
     expect(result).toBeInstanceOf(Error);
@@ -93,32 +93,32 @@ describe('Special Types', () => {
 describe('TypedArrays', () => {
   it('handles Uint8Array', async () => {
     const arr = new Uint8Array([1, 2, 3, 4, 5]);
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result).toEqual(arr);
   });
 
   it('handles Int16Array', async () => {
     const arr = new Int16Array([-100, 0, 100]);
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result).toEqual(arr);
   });
 
   it('handles Float32Array', async () => {
     const arr = new Float32Array([1.5, 2.7, 3.9]);
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result).toEqual(arr);
   });
 
   it('handles ArrayBuffer', async () => {
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
-    const result = await parse(await stringify(buffer));
+    const result = parse(await stringify(buffer));
     expect(new Uint8Array(result)).toEqual(new Uint8Array(buffer));
   });
 
   it('handles DataView', async () => {
     const buffer = new Uint8Array([1, 2, 3, 4]).buffer;
     const view = new DataView(buffer);
-    const result = await parse(await stringify(view));
+    const result = parse(await stringify(view));
     expect(result).toBeInstanceOf(DataView);
     expect(result.byteLength).toBe(4);
   });
@@ -129,7 +129,7 @@ describe('Circular References', () => {
     const obj: any = { name: 'circular' };
     obj.self = obj;
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     expect(result.name).toBe('circular');
     expect(result.self).toBe(result);
     expect(result).toEqual(obj);
@@ -139,7 +139,7 @@ describe('Circular References', () => {
     const arr: any = [1, 2, 3];
     arr.push(arr);
     
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result[0]).toBe(1);
     expect(result[3]).toBe(result);
   });
@@ -150,7 +150,7 @@ describe('Circular References', () => {
     obj1.ref = obj2;
     obj2.ref = obj1;
     
-    const result = await parse(await stringify(obj1));
+    const result = parse(await stringify(obj1));
     expect(result.name).toBe('obj1');
     expect(result.ref.name).toBe('obj2');
     expect(result.ref.ref).toBe(result);
@@ -161,7 +161,7 @@ describe('Circular References', () => {
     map.set('self', map);
     map.set('key', 'value');
     
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     expect(result.get('key')).toBe('value');
     expect(result.get('self')).toBe(result);
   });
@@ -171,7 +171,7 @@ describe('Circular References', () => {
     set.add(1);
     set.add(set);
     
-    const result = await parse(await stringify(set));
+    const result = parse(await stringify(set));
     expect(result.has(1)).toBe(true);
     expect(result.has(result)).toBe(true);
   });
@@ -179,28 +179,28 @@ describe('Circular References', () => {
 
 describe('Edge Cases', () => {
   it('handles empty arrays', async () => {
-    const result = await parse(await stringify([]));
+    const result = parse(await stringify([]));
     expect(result).toEqual([]);
   });
 
   it('handles empty objects', async () => {
-    const result = await parse(await stringify({}));
+    const result = parse(await stringify({}));
     expect(result).toEqual({});
   });
 
   it('handles empty Maps', async () => {
-    const result = await parse(await stringify(new Map()));
+    const result = parse(await stringify(new Map()));
     expect(result).toEqual(new Map());
   });
 
   it('handles empty Sets', async () => {
-    const result = await parse(await stringify(new Set()));
+    const result = parse(await stringify(new Set()));
     expect(result).toEqual(new Set());
   });
 
   it('converts functions to markers', async () => {
     const obj = { func: () => 'test', value: 123 };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     expect(result.value).toBe(123);
     expect(result.func).toBeDefined();
@@ -210,7 +210,7 @@ describe('Edge Cases', () => {
 
   it('converts functions in arrays to markers', async () => {
     const arr = [1, () => 'test', 3];
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     
     expect(result[0]).toBe(1);
     expect(result[1]).toBeDefined();
@@ -225,7 +225,7 @@ describe('Edge Cases', () => {
         func: () => 'test'
       }
     };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     expect(result.nested.func).toBeDefined();
     expect(result.nested.func.name).toBeDefined();
@@ -253,12 +253,12 @@ describe('Edge Cases', () => {
 describe('Preprocess/Postprocess', () => {
   it('preprocess/postprocess round-trip', async () => {
     const o = { a: 1, b: 2 };
-    expect(await postprocess(preprocess(o))).toEqual(o);
+    expect(postprocess(await preprocess(o))).toEqual(o);
   });
 
   it('round-trip with complex types', async () => {
     const original = { date: new Date(), map: new Map([['key', 'value']]) };
-    expect(await postprocess(preprocess(original))).toEqual(original);
+    expect(postprocess(await preprocess(original))).toEqual(original);
   });
 
   it('round-trip with JSON.stringify/parse (MessagePort/BroadcastChannel)', async () => {
@@ -267,34 +267,34 @@ describe('Preprocess/Postprocess', () => {
       set: new Set([1, 2, 3]),
       nested: { value: 42 }
     };
-    const intermediate = preprocess(original);
+    const intermediate = await preprocess(original);
     const transported = JSON.parse(JSON.stringify(intermediate));
-    expect(await postprocess(transported)).toEqual(original);
+    expect(postprocess(transported)).toEqual(original);
   });
 });
 
 describe('Wrapper Types', () => {
   it('handles Boolean objects', async () => {
     const bool = new Boolean(true);
-    const result = await parse(await stringify(bool));
+    const result = parse(await stringify(bool));
     expect(result.valueOf()).toBe(true);
   });
 
   it('handles Number objects', async () => {
     const num = new Number(42);
-    const result = await parse(await stringify(num));
+    const result = parse(await stringify(num));
     expect(result.valueOf()).toBe(42);
   });
 
   it('handles String objects', async () => {
     const str = new String('hello');
-    const result = await parse(await stringify(str));
+    const result = parse(await stringify(str));
     expect(result.valueOf()).toBe('hello');
   });
 
   it('handles BigInt objects', async () => {
     const bigint = Object(BigInt(123));
-    const result = await parse(await stringify(bigint));
+    const result = parse(await stringify(bigint));
     expect(result.valueOf()).toBe(BigInt(123));
   });
 });

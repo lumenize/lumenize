@@ -23,7 +23,7 @@ describe('Object Aliases', () => {
       list: [shared, shared] // Multiple times in array
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All references should point to the same object
     expect(result.a.ref).toBe(result.b.ref);
@@ -73,7 +73,7 @@ describe('Object Aliases', () => {
       }
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All users should share the same profile object
     expect(result.user1.profile).toBe(result.user2.profile);
@@ -104,7 +104,7 @@ describe('Object Aliases', () => {
       topLevel: shared
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All paths should reference the same object
     expect(result.level1.level2.deep).toBe(result.level1.direct);
@@ -127,7 +127,7 @@ describe('Object Aliases', () => {
       }
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All array entries should be the same object
     expect(result.items[0]).toBe(result.items[1]);
@@ -148,13 +148,13 @@ describe('Map/Set Aliases', () => {
   it('handles same object as Map values', async () => {
     const shared = { id: 1, data: 'shared' };
     
-    const map = new Map([
+    const map = new Map<string, { id?: number; data?: string; other?: string }>([
       ['key1', shared],
       ['key2', shared],
       ['key3', { other: 'value' }]
     ]);
     
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     
     // Same object should be aliased
     expect(result.get('key1')).toBe(result.get('key2'));
@@ -172,7 +172,7 @@ describe('Map/Set Aliases', () => {
     map.set(keyObj, 'first');
     map.set(keyObj, 'updated'); // Same key object
     
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     
     // Should have one entry with updated value
     expect(result.size).toBe(1);
@@ -186,28 +186,28 @@ describe('Map/Set Aliases', () => {
     
     const set = new Set([shared, shared, { other: true }]);
     
-    const result = await parse(await stringify(set));
+    const result = parse(await stringify(set));
     
     // Should have 2 unique items (shared appears twice but is one object)
     expect(result.size).toBe(2);
     
     const values = Array.from(result);
     // Find the shared object
-    const sharedValue = values.find(v => v && v.id === 1);
+    const sharedValue = values.find((v: any) => v && v.id === 1) as { id: number; value: string } | undefined;
     expect(sharedValue).toBeDefined();
-    expect(sharedValue.id).toBe(1);
+    expect(sharedValue!.id).toBe(1);
   });
 
   it('handles complex alias scenario with Map containing shared objects', async () => {
     const shared = { config: { theme: 'dark' } };
     
-    const map = new Map([
+    const map = new Map<string, { settings?: { theme: string }; config?: { theme: string } }>([
       ['user1', { settings: shared.config }],
       ['user2', { settings: shared.config }],
       ['shared', shared]
     ]);
     
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     
     // All should reference same config
     expect(result.get('user1').settings).toBe(result.get('user2').settings);
@@ -222,7 +222,7 @@ describe('Map/Set Aliases', () => {
 
 describe('Error Aliases', () => {
   it('handles shared Error cause', async () => {
-    const rootCause = new Error('Root cause');
+    const rootCause = new Error('Root cause') as any;
     rootCause.code = 'ROOT_ERROR';
     
     const error1 = new Error('First error', { cause: rootCause });
@@ -233,7 +233,7 @@ describe('Error Aliases', () => {
       root: rootCause
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // Both errors should share the same cause
     expect(result.errors[0].cause).toBe(result.errors[1].cause);
@@ -259,7 +259,7 @@ describe('Error Aliases', () => {
       metadata: sharedMetadata
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All should share the same metadata object
     expect(result.errors[0].metadata).toBe(result.errors[1].metadata);
@@ -284,7 +284,7 @@ describe('Web API Aliases', () => {
       }
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All should reference the same URL
     expect(result.endpoint).toBe(result.config.baseUrl);
@@ -312,7 +312,7 @@ describe('Web API Aliases', () => {
       defaultHeaders: sharedHeaders
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // All should reference the same Headers object
     expect(result.request.headers).toBe(result.response.headers);
@@ -363,7 +363,7 @@ describe('Complex Alias Scenarios', () => {
       }
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // Verify all alias relationships
     expect(result.user1.settings).toBe(result.user2.settings);
@@ -394,7 +394,7 @@ describe('Complex Alias Scenarios', () => {
       alsoCyclic: cyclic1 // Alias to cyclic structure
     };
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     
     // Verify aliases
     expect(result.shared).toBe(result.alsoShared);
@@ -411,20 +411,20 @@ describe('Complex Alias Scenarios', () => {
   it('handles aliases in nested Map/Set structures', async () => {
     const shared = { config: { value: 42 } };
     
-    const outerMap = new Map([
+    const outerMap = new Map<string, Map<string, { value: number }> | Set<{ value: number }>>([
       ['map1', new Map([['key', shared.config]])],
       ['map2', new Map([['key', shared.config]])],
       ['set1', new Set([shared.config])],
       ['set2', new Set([shared.config])]
     ]);
     
-    const result = await parse(await stringify(outerMap));
+    const result = parse(await stringify(outerMap)) as Map<string, Map<string, { value: number }> | Set<{ value: number }>>;
     
     // All should reference the same config
-    const map1Config = result.get('map1').get('key');
-    const map2Config = result.get('map2').get('key');
-    const set1Config = Array.from(result.get('set1'))[0];
-    const set2Config = Array.from(result.get('set2'))[0];
+    const map1Config = (result.get('map1') as Map<string, { value: number }>).get('key')!;
+    const map2Config = (result.get('map2') as Map<string, { value: number }>).get('key')!;
+    const set1Config = Array.from(result.get('set1') as Set<{ value: number }>)[0];
+    const set2Config = Array.from(result.get('set2') as Set<{ value: number }>)[0];
     
     expect(map1Config).toBe(map2Config);
     expect(map1Config).toBe(set1Config);
@@ -456,7 +456,7 @@ describe('Performance - Large Aliased Structures', () => {
     }
     
     const start = performance.now();
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     const duration = performance.now() - start;
     
     // All references should point to the same object

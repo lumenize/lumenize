@@ -1,12 +1,16 @@
 /**
- * R2 Billing Analysis for Experiments
+ * Billing Analysis for Experiments
  * 
- * Queries Cloudflare Logpush logs from R2 to extract wall clock billing metrics.
+ * Extracts wall clock billing metrics from logs.
  * 
- * Phase A (Current): Mock implementation for local development
- * Phase B (Future): Real R2 polling and log matching in production
+ * TWO MODES:
+ * 1. Wrangler Tail (RECOMMENDED): Parse logs captured via `wrangler tail --format json`
+ * 2. Mock Mode: Generate realistic mock data for local testing
+ * 
+ * R2 Logpush support removed - proved unreliable in practice
  */
 
+import { readFileSync } from 'fs';
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
 import { createGunzip } from 'zlib';
 import { Readable } from 'stream';
@@ -165,11 +169,15 @@ export async function fetchBillingMetrics(scriptName, batchStartTime, batchEndTi
 /**
  * Extract billing metrics from log entries
  * 
+ * For ProxyFetch approach: Separates DO wall time (billed) from Worker CPU time (billed)
+ * Workers bill on CPU time, not wall time, so we don't add Worker wall time to total.
+ * 
  * @param {Array} logs - Array of log entries
  * @param {number} expectedCount - Expected number of logs
+ * @param {string} approach - Approach name (for special handling)
  * @returns {Object} Aggregated metrics
  */
-function extractMetricsFromLogs(logs, expectedCount) {
+function extractMetricsFromLogs(logs, expectedCount, approach = null) {
   if (logs.length === 0) {
     console.warn(`⚠️  No logs found`);
     return {
@@ -182,6 +190,46 @@ function extractMetricsFromLogs(logs, expectedCount) {
     };
   }
   
+  // For ProxyFetch: Separate DO logs (wall time billed) from Worker logs (CPU time billed)
+  if (approach && approach.includes('proxyfetch')) {
+    const doLogs = logs.filter(log => log.ExecutionModel === 'durableObject');
+    const workerLogs = logs.filter(log => log.ExecutionModel === 'stateless');
+    
+    const doWallTime = doLogs.reduce((sum, log) => sum + (log.WallTimeMs || 0), 0);
+    const doCpuTime = doLogs.reduce((sum, log) => sum + (log.CPUTimeMs || 0), 0);
+    const workerCpuTime = workerLogs.reduce((sum, log) => sum + (log.CPUTimeMs || 0), 0);
+    const workerWallTime = workerLogs.reduce((sum, log) => sum + (log.WallTimeMs || 0), 0);
+    
+    // Total billing: DO wall time (what we pay for DO) + Worker CPU time (what we pay for Worker)
+    const totalBillingWallTime = doWallTime; // Only DO wall time counts for billing
+    const totalBillingCpuTime = doCpuTime + workerCpuTime; // Both DO and Worker CPU time
+    
+    const metrics = {
+      count: logs.length,
+      totalWallTimeMs: totalBillingWallTime, // Only DO wall time (billed)
+      totalCPUTimeMs: totalBillingCpuTime, // DO + Worker CPU time (billed)
+      avgWallTimeMs: (totalBillingWallTime / doLogs.length || 1).toFixed(2), // Avg per DO invocation
+      avgCPUTimeMs: (totalBillingCpuTime / logs.length).toFixed(2), // Avg across all invocations
+      breakdown: {
+        doLogs: doLogs.length,
+        workerLogs: workerLogs.length,
+        doWallTimeMs: doWallTime,
+        doCpuTimeMs: doCpuTime,
+        workerCpuTimeMs: workerCpuTime,
+        workerWallTimeMs: workerWallTime // For reference (not billed)
+      },
+      logs: logs // For debugging
+    };
+    
+    // Validate count (more lenient for ProxyFetch since we have 2 logs per operation)
+    if (logs.length < expectedCount * 0.8 || logs.length > expectedCount * 1.5) {
+      console.warn(`⚠️  Log count mismatch: expected ~${expectedCount}, found ${logs.length}`);
+    }
+    
+    return metrics;
+  }
+  
+  // For Direct: Simple aggregation (all logs are DO wall time)
   const totalWallTime = logs.reduce((sum, log) => sum + (log.WallTimeMs || 0), 0);
   const totalCPUTime = logs.reduce((sum, log) => sum + (log.CPUTimeMs || 0), 0);
   
@@ -195,11 +243,146 @@ function extractMetricsFromLogs(logs, expectedCount) {
   };
   
   // Validate count
-  if (logs.length !== expectedCount) {
-    console.warn(`⚠️  Log count mismatch: expected ${expectedCount}, found ${logs.length}`);
+  if (logs.length < expectedCount * 0.8 || logs.length > expectedCount * 1.5) {
+    console.warn(`⚠️  Log count mismatch: expected ~${expectedCount}, found ${logs.length}`);
   }
   
   return metrics;
+}
+
+/**
+ * Parse wrangler tail logs from a JSON file
+ * 
+ * Handles both JSONL format (one JSON per line) and pretty-printed JSON (multi-line objects).
+ * 
+ * @param {string} filepath - Path to tail log file
+ * @param {string} scriptName - Script name to filter (optional)
+ * @param {Date} startTime - Start of time window (optional)
+ * @param {Date} endTime - End of time window (optional)
+ * @returns {Array} Parsed log entries in normalized format
+ */
+export function parseWranglerTailLogs(filepath, scriptName = null, startTime = null, endTime = null) {
+  console.log(`\n📄 Parsing wrangler tail logs from: ${filepath}`);
+  
+  const content = readFileSync(filepath, 'utf-8');
+  
+  // Parse pretty-printed JSON by finding complete objects
+  // Wrangler tail --format json outputs objects separated by newlines but spans multiple lines
+  const logs = [];
+  let currentObj = '';
+  let braceDepth = 0;
+  
+  for (const line of content.split('\n')) {
+    // Track brace depth to identify complete JSON objects
+    for (const char of line) {
+      if (char === '{') braceDepth++;
+      if (char === '}') braceDepth--;
+    }
+    
+    currentObj += line;
+    
+    // Complete object when braces balance
+    if (braceDepth === 0 && currentObj.trim()) {
+      try {
+        const event = JSON.parse(currentObj);
+        
+        // Skip events that don't have billing metrics
+        if (event.wallTime !== undefined && event.cpuTime !== undefined) {
+          // Normalize to standard format (matching R2 Logpush format)
+          const normalizedLog = {
+            ScriptName: event.scriptName,
+            EventType: event.event?.type || 'fetch',
+            EventTimestampMs: event.eventTimestamp,
+            WallTimeMs: event.wallTime,
+            CPUTimeMs: event.cpuTime,
+            Outcome: event.outcome,
+            ExecutionModel: event.executionModel,
+            Entrypoint: event.entrypoint,
+            DurableObjectId: event.durableObjectId
+          };
+          
+          // Apply filters if provided
+          if (scriptName && normalizedLog.ScriptName !== scriptName) {
+            // Skip - doesn't match filter
+          } else if (startTime && normalizedLog.EventTimestampMs < startTime.getTime()) {
+            // Skip - before time window
+          } else if (endTime && normalizedLog.EventTimestampMs > endTime.getTime()) {
+            // Skip - after time window
+          } else {
+            logs.push(normalizedLog);
+          }
+        }
+      } catch (e) {
+        // Skip malformed JSON
+      }
+      
+      currentObj = '';
+    }
+  }
+  
+  console.log(`   ✅ Parsed ${logs.length} log entries`);
+  
+  // Group by execution model for debugging
+  const byModel = {};
+  logs.forEach(log => {
+    const model = log.ExecutionModel || 'unknown';
+    byModel[model] = (byModel[model] || 0) + 1;
+  });
+  console.log(`   📊 Execution models:`, byModel);
+  
+  return logs;
+}
+
+/**
+ * Fetch billing metrics from wrangler tail logs
+ * 
+ * @param {string} tailLogPath - Path to tail log file
+ * @param {string} scriptName - Script name to filter
+ * @param {number} batchStartTime - Batch start timestamp (ms)
+ * @param {number} batchEndTime - Batch end timestamp (ms)
+ * @param {number} expectedCount - Expected number of operations
+ * @param {Object} options - Additional options
+ * @param {Function} options.logFilter - Optional function to filter logs (log) => boolean
+ * @param {string} options.approach - Approach name for logging (e.g., 'direct', 'proxyfetch')
+ * @returns {Object} Billing metrics
+ */
+export function fetchBillingMetricsFromTail(tailLogPath, scriptName, batchStartTime, batchEndTime, expectedCount, options = {}) {
+  // Use very tight time windows to avoid overlap between sequential batches
+  // Wrangler tail is real-time, so minimal buffers needed
+  const bufferBefore = options.bufferBeforeMs || 1000; // 1s before (for clock skew)
+  const bufferAfter = options.bufferAfterMs || 2000; // 2s after (for log capture delay)
+  
+  // Use the actual batch window with minimal buffers
+  const searchStart = new Date(batchStartTime - bufferBefore);
+  const searchEnd = new Date(batchEndTime + bufferAfter);
+  
+  console.log(`\n⏱️  Extracting billing metrics${options.approach ? ` (${options.approach})` : ''}...`);
+  console.log(`   Batch window: ${new Date(batchStartTime).toISOString()} - ${new Date(batchEndTime).toISOString()}`);
+  console.log(`   Search window: ${searchStart.toISOString()} - ${searchEnd.toISOString()}`);
+  console.log(`   Expecting: ${expectedCount} log entries`);
+  
+  // Parse tail logs with time/script filters
+  let logs = parseWranglerTailLogs(tailLogPath, scriptName, searchStart, searchEnd);
+  
+  // Apply additional filter if provided (e.g., filter by entrypoint/executionModel)
+  if (options.logFilter) {
+    const beforeCount = logs.length;
+    logs = logs.filter(options.logFilter);
+    console.log(`   Filtered: ${beforeCount} → ${logs.length} logs`);
+    
+    // Show time range of matched logs for debugging
+    if (logs.length > 0) {
+      const timestamps = logs.map(l => l.EventTimestampMs).filter(Boolean);
+      if (timestamps.length > 0) {
+        const minTime = new Date(Math.min(...timestamps)).toISOString();
+        const maxTime = new Date(Math.max(...timestamps)).toISOString();
+        console.log(`   Matched log time range: ${minTime} - ${maxTime}`);
+      }
+    }
+  }
+  
+  // Extract metrics (pass approach name for special handling)
+  return extractMetricsFromLogs(logs, expectedCount, options.approach);
 }
 
 /**

@@ -10,7 +10,7 @@ describe('Error Serialization', () => {
   it('preserves Error objects with stack traces', async () => {
     const error = new Error('Database connection failed');
     
-    const restored = await parse(await stringify(error));
+    const restored = parse(await stringify(error));
     
     expect(restored).toBeInstanceOf(Error);
     expect(restored.message).toBe('Database connection failed');
@@ -20,7 +20,7 @@ describe('Error Serialization', () => {
   it('preserves Error subclasses', async () => {
     const error = new TypeError('Invalid user ID');
     
-    const restored = await parse(await stringify(error));
+    const restored = parse(await stringify(error));
     
     expect(restored).toBeInstanceOf(TypeError);
     expect(restored.message).toBe('Invalid user ID');
@@ -32,7 +32,7 @@ describe('Error Serialization', () => {
       cause: networkError 
     });
     
-    const restored = await parse(await stringify(appError));
+    const restored = parse(await stringify(appError));
     
     expect(restored.message).toBe('Failed to fetch user data');
     expect(restored.cause).toBeInstanceOf(Error);
@@ -44,7 +44,7 @@ describe('Error Serialization', () => {
     apiError.statusCode = 500;
     apiError.endpoint = '/api/users';
     
-    const restored: any = await parse(await stringify(apiError));
+    const restored: any = parse(await stringify(apiError));
     
     expect(restored.message).toBe('API request failed');
     expect(restored.statusCode).toBe(500);
@@ -53,7 +53,7 @@ describe('Error Serialization', () => {
 
   it('preserves TypeError with instanceof behavior', async () => {
     const typeError = new TypeError('Expected string, got number');
-    const restored = await parse(await stringify(typeError));
+    const restored = parse(await stringify(typeError));
     
     expect(restored).toBeInstanceOf(TypeError); // ✅ Type preserved!
     expect(restored).toBeInstanceOf(Error);     // ✅ Also an Error
@@ -70,7 +70,7 @@ describe('Error in Data Structures', () => {
       timestamp: Date.now()
     };
     
-    const restored = await parse(await stringify(response));
+    const restored = parse(await stringify(response));
     
     expect(restored.success).toBe(false);
     expect(restored.error).toBeInstanceOf(Error);
@@ -95,7 +95,7 @@ describe('Custom Error Classes', () => {
     (globalThis as any).ValidationError = ValidationError;
 
     const error = new ValidationError('Invalid email', 'email');
-    const restored = await parse(await stringify(error));
+    const restored = parse(await stringify(error));
     
     expect(restored instanceof ValidationError).toBe(true); // ✅ true!
     expect((restored as any).field).toBe('email'); // ✅ 'email' (custom property preserved)
@@ -108,7 +108,7 @@ describe('Custom Error Classes', () => {
   it('falls back gracefully without global registration', async () => {
     // No global registration
     const error = new ValidationError('Invalid email', 'email');
-    const restored = await parse(await stringify(error));
+    const restored = parse(await stringify(error));
     
     expect(restored instanceof ValidationError).toBe(false); // ❌ false (no type)
     expect(restored instanceof Error).toBe(true); // ✅ true (fallback)

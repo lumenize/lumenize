@@ -5,7 +5,7 @@
  */
 
 import { WebSocket } from 'ws';
-import { fetchBillingMetrics } from './r2-billing.js';
+import { fetchBillingMetrics, fetchBillingMetricsFromTail } from './r2-billing.js';
 
 /**
  * LEGACY: Poll for completion (deprecated - DO now sends totalTime directly)
@@ -32,10 +32,10 @@ function sleep(ms) {
  * @param {string} wsUrl - WebSocket URL (e.g., 'ws://localhost:8787')
  * @param {string} mode - Test mode
  * @param {number} count - Number of operations
- * @param {number} timeout - Timeout in ms (default: 60000)
+ * @param {number} timeout - Timeout in ms (default: 300000 = 5 minutes)
  * @returns {Promise<Object>} Results
  */
-export async function runBatch(wsUrl, mode, count, timeout = 60000) {
+export async function runBatch(wsUrl, mode, count, timeout = 300000) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     let startTime;
@@ -142,12 +142,20 @@ export function displayResults(results) {
   console.log(`  Completed: ${results.completed}/${results.completed + results.errors}`);
   
   if (results.billing) {
-    console.log(`  Billing (R2 logs):`);
+    console.log(`  Billing (Cloudflare logs):`);
     console.log(`    Count: ${results.billing.count} log entries`);
     console.log(`    Avg Wall Time: ${results.billing.avgWallTimeMs}ms`);
     console.log(`    Avg CPU Time: ${results.billing.avgCPUTimeMs}ms`);
     console.log(`    Total Wall Time: ${results.billing.totalWallTimeMs}ms`);
     console.log(`    Total CPU Time: ${results.billing.totalCPUTimeMs}ms`);
+    
+    // Show breakdown for ProxyFetch approach
+    if (results.billing.breakdown) {
+      const b = results.billing.breakdown;
+      console.log(`    Breakdown:`);
+      console.log(`      DO: ${b.doLogs} logs, ${b.doWallTimeMs}ms wall, ${b.doCpuTimeMs}ms CPU`);
+      console.log(`      Worker: ${b.workerLogs} logs, ${b.workerCpuTimeMs}ms CPU (${b.workerWallTimeMs}ms wall, not billed)`);
+    }
   }
   
   if (results.errors > 0) {
@@ -182,12 +190,13 @@ async function discoverPatterns(baseUrl) {
  * @param {string} baseUrl - Base HTTP URL (e.g., 'http://localhost:8787')
  * @param {number} operationCount - Number of operations per pattern
  * @param {Object} options - Optional configuration
- * @param {number} options.timeout - Timeout per batch in ms (default: 60000)
- * @param {boolean} options.withBilling - Include R2 billing analysis (default: false)
- * @param {string} options.scriptName - Script name for R2 log filtering (required if withBilling=true)
+ * @param {number} options.timeout - Timeout per batch in ms (default: 300000 = 5 minutes)
+ * @param {boolean} options.withBilling - Include billing analysis (default: false)
+ * @param {string} options.scriptName - Script name for log filtering (required if withBilling=true)
+ * @param {string} options.tailLogPath - Path to wrangler tail log file (recommended for billing analysis)
  */
 export async function runAllExperiments(baseUrl, operationCount = 50, options = {}) {
-  const timeout = options.timeout || 60000;
+  const timeout = options.timeout || 300000; // 5 minutes default (allows 30 ops with 1000ms delay)
   const reverse = options.reverse || false;
   const wsUrl = baseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
   
@@ -238,14 +247,70 @@ export async function runAllExperiments(baseUrl, operationCount = 50, options = 
         ...result,
         batchWindow: { start: batchStart, end: batchEnd } // For R2 query
       });
+      
+      // Small delay between batches to ensure time windows don't overlap
+      // This prevents billing analysis from matching logs from the wrong batch
+      if (options.withBilling && patterns.indexOf(pattern) < patterns.length - 1) {
+        await sleep(3000); // 3s delay to ensure clean separation
+      }
     }
     
     // Fetch billing metrics if enabled
     if (options.withBilling) {
       if (!options.scriptName) {
         console.warn('\n⚠️  withBilling=true but no scriptName provided. Skipping billing analysis.');
+      } else if (options.tailLogPath) {
+        // Use wrangler tail logs (recommended approach)
+        console.log(`\n💰 Extracting billing metrics from wrangler tail logs (${options.tailLogPath})...`);
+        
+        for (const result of results) {
+          try {
+            // Define log filters and expected counts based on approach
+            let logFilter = null;
+            let approachName = result.mode;
+            let expectedLogCount = operationCount; // Default: 1 log per operation
+            
+            if (result.mode === 'direct') {
+              // Direct: Only OriginDO logs (durableObject, entrypoint: "OriginDO")
+              // Exclude: PerformanceController, TestEndpointsDO, Worker logs
+              // Expected: 1 log per operation (just OriginDO invocation)
+              logFilter = (log) => 
+                log.ExecutionModel === 'durableObject' && 
+                log.Entrypoint === 'OriginDO';
+              approachName = 'direct (OriginDO only)';
+              expectedLogCount = operationCount; // 1 log per operation
+            } else if (result.mode === 'proxyfetch') {
+              // ProxyFetch: OriginDO logs + Worker logs (FetchExecutorEntrypoint)
+              // Exclude: PerformanceController, TestEndpointsDO
+              // Expected: 2 logs per operation (OriginDO + Worker)
+              logFilter = (log) => 
+                (log.ExecutionModel === 'durableObject' && log.Entrypoint === 'OriginDO') ||
+                (log.ExecutionModel === 'stateless' && log.Entrypoint === 'FetchExecutorEntrypoint');
+              approachName = 'proxyfetch (OriginDO + Worker)';
+              expectedLogCount = operationCount * 2; // 2 logs per operation
+            }
+            
+            const billing = fetchBillingMetricsFromTail(
+              options.tailLogPath,
+              options.scriptName,
+              result.batchWindow.start,
+              result.batchWindow.end,
+              expectedLogCount,
+              {
+                logFilter,
+                approach: approachName
+              }
+            );
+            result.billing = billing;
+          } catch (error) {
+            console.error(`  ❌ Failed to extract billing for ${result.mode}:`, error.message);
+            result.billing = null;
+          }
+        }
       } else {
-        console.log('\n💰 Fetching billing metrics from R2...');
+        // Fallback to R2 polling (legacy, not recommended)
+        console.log('\n💰 Fetching billing metrics from R2 (legacy mode)...');
+        console.warn('⚠️  R2 Logpush may be unreliable. Consider using wrangler tail instead.');
         
         for (const result of results) {
           try {

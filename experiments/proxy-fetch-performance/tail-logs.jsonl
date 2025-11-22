@@ -1,0 +1,2902 @@
+{
+    "wallTime": 0,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752373767,
+    "event": {
+        "request": {
+            "url": "https://proxy-fetch-performance.transformation.workers.dev/version",
+            "method": "GET",
+            "headers": {
+                "accept": "*/*",
+                "accept-encoding": "gzip, br",
+                "accept-language": "*",
+                "cf-connecting-ip": "75.165.169.132",
+                "cf-ipcountry": "US",
+                "cf-ray": "9a22804feca90ed5",
+                "cf-visitor": "{\"scheme\":\"https\"}",
+                "connection": "Keep-Alive",
+                "host": "proxy-fetch-performance.transformation.workers.dev",
+                "sec-fetch-mode": "cors",
+                "user-agent": "node",
+                "x-forwarded-proto": "https",
+                "x-real-ip": "75.165.169.132"
+            },
+            "cf": {
+                "httpProtocol": "HTTP/1.1",
+                "clientAcceptEncoding": "gzip, deflate, br",
+                "requestPriority": "",
+                "edgeRequestKeepAliveStatus": 1,
+                "requestHeaderNames": {},
+                "clientTcpRtt": 29,
+                "colo": "EWR",
+                "asn": 19901,
+                "asOrganization": "CenturyLink Communications, LLC",
+                "country": "US",
+                "isEUCountry": false,
+                "city": "Wake Forest",
+                "continent": "NA",
+                "region": "North Carolina",
+                "regionCode": "NC",
+                "timezone": "America/New_York",
+                "longitude": "-78.50972",
+                "latitude": "35.97987",
+                "postalCode": "27587",
+                "tlsVersion": "TLSv1.3",
+                "tlsCipher": "AEAD-AES256-GCM-SHA384",
+                "tlsClientRandom": "qwdom5zwuIiWT0RgnIjpyjfz7bFq6WipnGGvvPTVGJ8=",
+                "tlsClientCiphersSha1": "JZtiTn8H/ntxORk+XXvU2EvNoz8=",
+                "tlsClientExtensionsSha1": "Y7DIC8A6G0/aXviZ8ie/xDbJb7g=",
+                "tlsClientExtensionsSha1Le": "6e+q3vPm88rSgMTN/h7WTTxQ2wQ=",
+                "tlsExportedAuthenticator": {
+                    "clientHandshake": "4f4bcc2be568f95d202aae20081b85c55cbf896118cf993721c53c21561d6440c70a6c857714e8b1ad7ea0558366e607",
+                    "serverHandshake": "06932986c3fce2588eab80694a824a0607b32fd5729727075efb1a7d9984c44b4b71d5e8d620dbfc97607566e9db7f40",
+                    "clientFinished": "edb94c0aa69aed94ff5114c139e059fedff7d135d1c1ec0c40e4edda2e46a122ac6134ced5add910f49b080a53e0e579",
+                    "serverFinished": "5e96d94bfaf3619a5ec978d1c039de7522193fb31217a97b6ea314fd114529f1302961fd93a7db8636bce1319740ee33"
+                },
+                "tlsClientHelloLength": "414",
+                "tlsClientAuth": {
+                    "certPresented": "0",
+                    "certVerified": "NONE",
+                    "certRevoked": "0",
+                    "certIssuerDN": "",
+                    "certSubjectDN": "",
+                    "certIssuerDNRFC2253": "",
+                    "certSubjectDNRFC2253": "",
+                    "certIssuerDNLegacy": "",
+                    "certSubjectDNLegacy": "",
+                    "certSerial": "",
+                    "certIssuerSerial": "",
+                    "certSKI": "",
+                    "certIssuerSKI": "",
+                    "certFingerprintSHA1": "",
+                    "certFingerprintSHA256": "",
+                    "certNotBefore": "",
+                    "certNotAfter": ""
+                },
+                "verifiedBotCategory": ""
+            }
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 33,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752373749,
+    "event": {
+        "request": {
+            "url": "https://proxy-fetch-performance.transformation.workers.dev/version",
+            "method": "GET",
+            "headers": {
+                "accept": "*/*",
+                "accept-encoding": "gzip, br",
+                "accept-language": "*",
+                "cf-connecting-ip": "75.165.169.132",
+                "cf-ipcountry": "US",
+                "cf-ray": "9a22804feca90ed5",
+                "cf-visitor": "{\"scheme\":\"https\"}",
+                "connection": "Keep-Alive",
+                "host": "proxy-fetch-performance.transformation.workers.dev",
+                "sec-fetch-mode": "cors",
+                "user-agent": "node",
+                "x-forwarded-proto": "https",
+                "x-real-ip": "75.165.169.132"
+            },
+            "cf": {
+                "httpProtocol": "HTTP/1.1",
+                "clientAcceptEncoding": "gzip, deflate, br",
+                "requestPriority": "",
+                "edgeRequestKeepAliveStatus": 1,
+                "requestHeaderNames": {},
+                "clientTcpRtt": 29,
+                "colo": "EWR",
+                "asn": 19901,
+                "asOrganization": "CenturyLink Communications, LLC",
+                "country": "US",
+                "isEUCountry": false,
+                "city": "Wake Forest",
+                "continent": "NA",
+                "region": "North Carolina",
+                "regionCode": "NC",
+                "timezone": "America/New_York",
+                "longitude": "-78.50972",
+                "latitude": "35.97987",
+                "postalCode": "27587",
+                "tlsVersion": "TLSv1.3",
+                "tlsCipher": "AEAD-AES256-GCM-SHA384",
+                "tlsClientRandom": "qwdom5zwuIiWT0RgnIjpyjfz7bFq6WipnGGvvPTVGJ8=",
+                "tlsClientCiphersSha1": "JZtiTn8H/ntxORk+XXvU2EvNoz8=",
+                "tlsClientExtensionsSha1": "Y7DIC8A6G0/aXviZ8ie/xDbJb7g=",
+                "tlsClientExtensionsSha1Le": "6e+q3vPm88rSgMTN/h7WTTxQ2wQ=",
+                "tlsExportedAuthenticator": {
+                    "clientHandshake": "4f4bcc2be568f95d202aae20081b85c55cbf896118cf993721c53c21561d6440c70a6c857714e8b1ad7ea0558366e607",
+                    "serverHandshake": "06932986c3fce2588eab80694a824a0607b32fd5729727075efb1a7d9984c44b4b71d5e8d620dbfc97607566e9db7f40",
+                    "clientFinished": "edb94c0aa69aed94ff5114c139e059fedff7d135d1c1ec0c40e4edda2e46a122ac6134ced5add910f49b080a53e0e579",
+                    "serverFinished": "5e96d94bfaf3619a5ec978d1c039de7522193fb31217a97b6ea314fd114529f1302961fd93a7db8636bce1319740ee33"
+                },
+                "tlsClientHelloLength": "414",
+                "tlsClientAuth": {
+                    "certPresented": "0",
+                    "certVerified": "NONE",
+                    "certRevoked": "0",
+                    "certIssuerDN": "",
+                    "certSubjectDN": "",
+                    "certIssuerDNRFC2253": "",
+                    "certSubjectDNRFC2253": "",
+                    "certIssuerDNLegacy": "",
+                    "certSubjectDNLegacy": "",
+                    "certSerial": "",
+                    "certIssuerSerial": "",
+                    "certSKI": "",
+                    "certIssuerSKI": "",
+                    "certFingerprintSHA1": "",
+                    "certFingerprintSHA256": "",
+                    "certNotBefore": "",
+                    "certNotAfter": ""
+                },
+                "verifiedBotCategory": ""
+            }
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 0,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752373836,
+    "event": {
+        "request": {
+            "url": "https://proxy-fetch-performance.transformation.workers.dev/patterns",
+            "method": "GET",
+            "headers": {
+                "accept": "*/*",
+                "accept-encoding": "gzip, br",
+                "accept-language": "*",
+                "cf-connecting-ip": "75.165.169.132",
+                "cf-ipcountry": "US",
+                "cf-ray": "9a2280505e500ed5",
+                "cf-visitor": "{\"scheme\":\"https\"}",
+                "connection": "Keep-Alive",
+                "host": "proxy-fetch-performance.transformation.workers.dev",
+                "sec-fetch-mode": "cors",
+                "user-agent": "node",
+                "x-forwarded-proto": "https",
+                "x-real-ip": "75.165.169.132"
+            },
+            "cf": {
+                "httpProtocol": "HTTP/1.1",
+                "clientAcceptEncoding": "gzip, deflate, br",
+                "requestPriority": "",
+                "edgeRequestKeepAliveStatus": 1,
+                "requestHeaderNames": {},
+                "clientTcpRtt": 28,
+                "colo": "EWR",
+                "asn": 19901,
+                "asOrganization": "CenturyLink Communications, LLC",
+                "country": "US",
+                "isEUCountry": false,
+                "city": "Wake Forest",
+                "continent": "NA",
+                "region": "North Carolina",
+                "regionCode": "NC",
+                "timezone": "America/New_York",
+                "longitude": "-78.50972",
+                "latitude": "35.97987",
+                "postalCode": "27587",
+                "tlsVersion": "TLSv1.3",
+                "tlsCipher": "AEAD-AES256-GCM-SHA384",
+                "tlsClientRandom": "qwdom5zwuIiWT0RgnIjpyjfz7bFq6WipnGGvvPTVGJ8=",
+                "tlsClientCiphersSha1": "JZtiTn8H/ntxORk+XXvU2EvNoz8=",
+                "tlsClientExtensionsSha1": "Y7DIC8A6G0/aXviZ8ie/xDbJb7g=",
+                "tlsClientExtensionsSha1Le": "6e+q3vPm88rSgMTN/h7WTTxQ2wQ=",
+                "tlsExportedAuthenticator": {
+                    "clientHandshake": "4f4bcc2be568f95d202aae20081b85c55cbf896118cf993721c53c21561d6440c70a6c857714e8b1ad7ea0558366e607",
+                    "serverHandshake": "06932986c3fce2588eab80694a824a0607b32fd5729727075efb1a7d9984c44b4b71d5e8d620dbfc97607566e9db7f40",
+                    "clientFinished": "edb94c0aa69aed94ff5114c139e059fedff7d135d1c1ec0c40e4edda2e46a122ac6134ced5add910f49b080a53e0e579",
+                    "serverFinished": "5e96d94bfaf3619a5ec978d1c039de7522193fb31217a97b6ea314fd114529f1302961fd93a7db8636bce1319740ee33"
+                },
+                "tlsClientHelloLength": "414",
+                "tlsClientAuth": {
+                    "certPresented": "0",
+                    "certVerified": "NONE",
+                    "certRevoked": "0",
+                    "certIssuerDN": "",
+                    "certSubjectDN": "",
+                    "certIssuerDNRFC2253": "",
+                    "certSubjectDNRFC2253": "",
+                    "certIssuerDNLegacy": "",
+                    "certSubjectDNLegacy": "",
+                    "certSerial": "",
+                    "certIssuerSerial": "",
+                    "certSKI": "",
+                    "certIssuerSKI": "",
+                    "certFingerprintSHA1": "",
+                    "certFingerprintSHA256": "",
+                    "certNotBefore": "",
+                    "certNotAfter": ""
+                },
+                "verifiedBotCategory": ""
+            }
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 31,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752373820,
+    "event": {
+        "request": {
+            "url": "https://proxy-fetch-performance.transformation.workers.dev/patterns",
+            "method": "GET",
+            "headers": {
+                "accept": "*/*",
+                "accept-encoding": "gzip, br",
+                "accept-language": "*",
+                "cf-connecting-ip": "75.165.169.132",
+                "cf-ipcountry": "US",
+                "cf-ray": "9a2280505e500ed5",
+                "cf-visitor": "{\"scheme\":\"https\"}",
+                "connection": "Keep-Alive",
+                "host": "proxy-fetch-performance.transformation.workers.dev",
+                "sec-fetch-mode": "cors",
+                "user-agent": "node",
+                "x-forwarded-proto": "https",
+                "x-real-ip": "75.165.169.132"
+            },
+            "cf": {
+                "httpProtocol": "HTTP/1.1",
+                "clientAcceptEncoding": "gzip, deflate, br",
+                "requestPriority": "",
+                "edgeRequestKeepAliveStatus": 1,
+                "requestHeaderNames": {},
+                "clientTcpRtt": 28,
+                "colo": "EWR",
+                "asn": 19901,
+                "asOrganization": "CenturyLink Communications, LLC",
+                "country": "US",
+                "isEUCountry": false,
+                "city": "Wake Forest",
+                "continent": "NA",
+                "region": "North Carolina",
+                "regionCode": "NC",
+                "timezone": "America/New_York",
+                "longitude": "-78.50972",
+                "latitude": "35.97987",
+                "postalCode": "27587",
+                "tlsVersion": "TLSv1.3",
+                "tlsCipher": "AEAD-AES256-GCM-SHA384",
+                "tlsClientRandom": "qwdom5zwuIiWT0RgnIjpyjfz7bFq6WipnGGvvPTVGJ8=",
+                "tlsClientCiphersSha1": "JZtiTn8H/ntxORk+XXvU2EvNoz8=",
+                "tlsClientExtensionsSha1": "Y7DIC8A6G0/aXviZ8ie/xDbJb7g=",
+                "tlsClientExtensionsSha1Le": "6e+q3vPm88rSgMTN/h7WTTxQ2wQ=",
+                "tlsExportedAuthenticator": {
+                    "clientHandshake": "4f4bcc2be568f95d202aae20081b85c55cbf896118cf993721c53c21561d6440c70a6c857714e8b1ad7ea0558366e607",
+                    "serverHandshake": "06932986c3fce2588eab80694a824a0607b32fd5729727075efb1a7d9984c44b4b71d5e8d620dbfc97607566e9db7f40",
+                    "clientFinished": "edb94c0aa69aed94ff5114c139e059fedff7d135d1c1ec0c40e4edda2e46a122ac6134ced5add910f49b080a53e0e579",
+                    "serverFinished": "5e96d94bfaf3619a5ec978d1c039de7522193fb31217a97b6ea314fd114529f1302961fd93a7db8636bce1319740ee33"
+                },
+                "tlsClientHelloLength": "414",
+                "tlsClientAuth": {
+                    "certPresented": "0",
+                    "certVerified": "NONE",
+                    "certRevoked": "0",
+                    "certIssuerDN": "",
+                    "certSubjectDN": "",
+                    "certIssuerDNRFC2253": "",
+                    "certSubjectDNRFC2253": "",
+                    "certIssuerDNLegacy": "",
+                    "certSubjectDNLegacy": "",
+                    "certSerial": "",
+                    "certIssuerSerial": "",
+                    "certSKI": "",
+                    "certIssuerSKI": "",
+                    "certFingerprintSHA1": "",
+                    "certFingerprintSHA256": "",
+                    "certNotBefore": "",
+                    "certNotAfter": ""
+                },
+                "verifiedBotCategory": ""
+            }
+        },
+        "response": {
+            "status": 200
+        }
+    }
+}
+{
+    "wallTime": 1059,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752360412,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1047,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752375115,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1051,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752376167,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1055,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752377224,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1069,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752378286,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 5318,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752373995,
+    "event": {
+        "getWebSocketEvent": {
+            "webSocketEventType": "message"
+        }
+    }
+}
+{
+    "wallTime": 0,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752379368,
+    "event": {
+        "getWebSocketEvent": {
+            "wasClean": true,
+            "code": 1005,
+            "webSocketEventType": "close"
+        }
+    }
+}
+{
+    "wallTime": 10,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752379537,
+    "event": {
+        "getWebSocketEvent": {
+            "webSocketEventType": "message"
+        }
+    }
+}
+{
+    "wallTime": 1091,
+    "cpuTime": 3,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:00.674Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"status\": 200,\n    \"duration\": 1062\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380674
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:00.674Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380674
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:00.699Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380699
+        }
+    ],
+    "eventTimestamp": 1763752379612,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 20,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:29.612Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:29.612Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"id\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"firesAt\": \"2025-11-21T19:13:29.612Z\",\n    \"timestamp\": 1763752409\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"id\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"timestamp\": 1763752409\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        }
+    ],
+    "eventTimestamp": 1763752370493,
+    "event": {
+        "rpcMethod": "startProxyFetchChain"
+    }
+}
+{
+    "wallTime": 1091,
+    "cpuTime": 3,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:12:59.612Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752379612
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:00.674Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"status\": 200,\n    \"duration\": 1062\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380674
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:00.674Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380674
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:00.699Z\",\n  \"data\": {\n    \"reqId\": \"57b8f787-b6cf-45f1-b99a-38c090d347ef\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380699
+        }
+    ],
+    "eventTimestamp": 1763752379612,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 26,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:30.678Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:30.678Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"id\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"firesAt\": \"2025-11-21T19:13:30.678Z\",\n    \"timestamp\": 1763752410\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:00.678Z\",\n  \"data\": {\n    \"id\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"timestamp\": 1763752410\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380678
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:00.698Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380698
+        }
+    ],
+    "eventTimestamp": 1763752380674,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1118,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:00.698Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380698
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:01.772Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"status\": 200,\n    \"duration\": 1074\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381772
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:01.772Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381772
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:01.796Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381796
+        }
+    ],
+    "eventTimestamp": 1763752380678,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1118,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:00.698Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752380698
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:01.772Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"status\": 200,\n    \"duration\": 1074\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381772
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:01.772Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381772
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:01.796Z\",\n  \"data\": {\n    \"reqId\": \"74f807d9-ff04-487c-b193-ef51383e78e4\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381796
+        }
+    ],
+    "eventTimestamp": 1763752380678,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 29,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:31.777Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:31.777Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"id\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"firesAt\": \"2025-11-21T19:13:31.777Z\",\n    \"timestamp\": 1763752411\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:01.777Z\",\n  \"data\": {\n    \"id\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"timestamp\": 1763752411\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381777
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:01.796Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381796
+        }
+    ],
+    "eventTimestamp": 1763752381772,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1098,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:01.796Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381796
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:02.851Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"status\": 200,\n    \"duration\": 1055\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382851
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:02.851Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382851
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:02.874Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382874
+        }
+    ],
+    "eventTimestamp": 1763752381777,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1098,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:01.796Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752381796
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:02.851Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"status\": 200,\n    \"duration\": 1055\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382851
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:02.851Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382851
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:02.874Z\",\n  \"data\": {\n    \"reqId\": \"9bfc4c1a-afb7-4d85-a20c-85819a44e48e\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382874
+        }
+    ],
+    "eventTimestamp": 1763752381777,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1094,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:02.874Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382874
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:03.926Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"status\": 200,\n    \"duration\": 1052\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383926
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:03.926Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383926
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:03.950Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383950
+        }
+    ],
+    "eventTimestamp": 1763752382856,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 28,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:32.856Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:32.856Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"id\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"firesAt\": \"2025-11-21T19:13:32.856Z\",\n    \"timestamp\": 1763752412\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:02.856Z\",\n  \"data\": {\n    \"id\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"timestamp\": 1763752412\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382856
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:02.874Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382874
+        }
+    ],
+    "eventTimestamp": 1763752382851,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1094,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:02.874Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752382874
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:03.926Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"status\": 200,\n    \"duration\": 1052\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383926
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:03.926Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383926
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:03.950Z\",\n  \"data\": {\n    \"reqId\": \"f264021e-24ae-4637-9b2c-eaf0de11eed3\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383950
+        }
+    ],
+    "eventTimestamp": 1763752382856,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 16,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[LumenizeExperimentDO] signalChainedComplete called:",
+                {
+                    "mode": "proxyfetch",
+                    "count": 5
+                }
+            ],
+            "level": "log",
+            "timestamp": 1763752385049
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] WebSocket check:",
+                {
+                    "hasWebSocket": true
+                }
+            ],
+            "level": "log",
+            "timestamp": 1763752385049
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] Sending timing-end"
+            ],
+            "level": "log",
+            "timestamp": 1763752385049
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] Sending batch-complete"
+            ],
+            "level": "log",
+            "timestamp": 1763752385049
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] signalChainedComplete completed successfully"
+            ],
+            "level": "log",
+            "timestamp": 1763752385049
+        }
+    ],
+    "eventTimestamp": 1763752379653,
+    "event": {
+        "rpcMethod": "signalChainedComplete"
+    }
+}
+{
+    "wallTime": 1111,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:03.949Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383949
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:05.018Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"status\": 200,\n    \"duration\": 1069\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752385018
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:05.018Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752385018
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:05.044Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752385044
+        }
+    ],
+    "eventTimestamp": 1763752383931,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 30,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752385018,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 29,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:33.931Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:33.931Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"id\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"firesAt\": \"2025-11-21T19:13:33.931Z\",\n    \"timestamp\": 1763752413\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:03.931Z\",\n  \"data\": {\n    \"id\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"timestamp\": 1763752413\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383931
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:03.949Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383949
+        }
+    ],
+    "eventTimestamp": 1763752383926,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1111,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:03.949Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752383949
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:05.018Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"status\": 200,\n    \"duration\": 1069\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752385018
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:05.018Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752385018
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:05.044Z\",\n  \"data\": {\n    \"reqId\": \"e5ed3bda-05a9-4733-8cbb-adf4959161fd\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752385044
+        }
+    ],
+    "eventTimestamp": 1763752383931,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 0,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752385051,
+    "event": {
+        "getWebSocketEvent": {
+            "wasClean": true,
+            "code": 1005,
+            "webSocketEventType": "close"
+        }
+    }
+}
+{
+    "wallTime": 1075,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752379411,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1059,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752386856,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1061,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752387924,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1066,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752388992,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 1064,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752390063,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 6441,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752385713,
+    "event": {
+        "getWebSocketEvent": {
+            "webSocketEventType": "message"
+        }
+    }
+}
+{
+    "wallTime": 1070,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "9702e25a6546970bb36b5cecb08d6a61ab9a74c35fc8b51fb238f9299f1c9a0c",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752391135,
+    "event": {
+        "rpcMethod": "fetchDirect"
+    }
+}
+{
+    "wallTime": 0,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752392265,
+    "event": {
+        "getWebSocketEvent": {
+            "wasClean": true,
+            "code": 1005,
+            "webSocketEventType": "close"
+        }
+    }
+}
+{
+    "wallTime": 18,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752395443,
+    "event": {
+        "getWebSocketEvent": {
+            "webSocketEventType": "message"
+        }
+    }
+}
+{
+    "wallTime": 1088,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:16.571Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"status\": 200,\n    \"duration\": 1063\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396571
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:16.571Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396571
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:16.594Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396594
+        }
+    ],
+    "eventTimestamp": 1763752395508,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 23,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:45.508Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:45.508Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"id\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"firesAt\": \"2025-11-21T19:13:45.508Z\",\n    \"timestamp\": 1763752425\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"id\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"timestamp\": 1763752425\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        }
+    ],
+    "eventTimestamp": 1763752385094,
+    "event": {
+        "rpcMethod": "startProxyFetchChain"
+    }
+}
+{
+    "wallTime": 1088,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:15.508Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752395508
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:16.571Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"status\": 200,\n    \"duration\": 1063\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396571
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:16.571Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396571
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:16.594Z\",\n  \"data\": {\n    \"reqId\": \"0dfaf978-300e-403a-972c-e76bec472ca7\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396594
+        }
+    ],
+    "eventTimestamp": 1763752395508,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1099,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:16.594Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396594
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:17.646Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"status\": 200,\n    \"duration\": 1052\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397646
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:17.646Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397646
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:17.671Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397671
+        }
+    ],
+    "eventTimestamp": 1763752396575,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 25,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:46.575Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:46.575Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"id\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"firesAt\": \"2025-11-21T19:13:46.575Z\",\n    \"timestamp\": 1763752426\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:16.575Z\",\n  \"data\": {\n    \"id\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"timestamp\": 1763752426\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396575
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:16.594Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396594
+        }
+    ],
+    "eventTimestamp": 1763752396571,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1099,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:16.594Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752396594
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:17.646Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"status\": 200,\n    \"duration\": 1052\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397646
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:17.646Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397646
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:17.671Z\",\n  \"data\": {\n    \"reqId\": \"829b04cf-93aa-4ca6-afdf-7a7e421ad18b\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397671
+        }
+    ],
+    "eventTimestamp": 1763752396575,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1089,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:17.671Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397671
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:18.718Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"status\": 200,\n    \"duration\": 1047\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398718
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:18.718Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398718
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:18.740Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398740
+        }
+    ],
+    "eventTimestamp": 1763752397651,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 29,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:47.651Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:47.651Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"id\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"firesAt\": \"2025-11-21T19:13:47.651Z\",\n    \"timestamp\": 1763752427\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:17.651Z\",\n  \"data\": {\n    \"id\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"timestamp\": 1763752427\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397651
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:17.671Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397671
+        }
+    ],
+    "eventTimestamp": 1763752397646,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1089,
+    "cpuTime": 2,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:17.671Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752397671
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:18.718Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"status\": 200,\n    \"duration\": 1047\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398718
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:18.718Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398718
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:18.740Z\",\n  \"data\": {\n    \"reqId\": \"d7bd7507-4c85-460f-aaf7-60bb828d74ff\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398740
+        }
+    ],
+    "eventTimestamp": 1763752397651,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 26,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:48.721Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:48.721Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"id\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"firesAt\": \"2025-11-21T19:13:48.721Z\",\n    \"timestamp\": 1763752428\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:18.721Z\",\n  \"data\": {\n    \"id\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"timestamp\": 1763752428\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398721
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:18.739Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398739
+        }
+    ],
+    "eventTimestamp": 1763752398718,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1093,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:18.739Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398739
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:19.792Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"status\": 200,\n    \"duration\": 1053\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399792
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:19.792Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399792
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:19.816Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399816
+        }
+    ],
+    "eventTimestamp": 1763752398721,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1093,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:18.739Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752398739
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:19.792Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"status\": 200,\n    \"duration\": 1053\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399792
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:19.792Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399792
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:19.816Z\",\n  \"data\": {\n    \"reqId\": \"97ccc849-9567-400a-bcad-3b4d1174cfa9\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399816
+        }
+    ],
+    "eventTimestamp": 1763752398721,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 28,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:49.797Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:49.797Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"id\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"firesAt\": \"2025-11-21T19:13:49.797Z\",\n    \"timestamp\": 1763752429\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:19.797Z\",\n  \"data\": {\n    \"id\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"timestamp\": 1763752429\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399797
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:19.815Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399815
+        }
+    ],
+    "eventTimestamp": 1763752399792,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1089,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:19.815Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399815
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:20.862Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"status\": 200,\n    \"duration\": 1047\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400862
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:20.862Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400862
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:20.886Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400886
+        }
+    ],
+    "eventTimestamp": 1763752399797,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1089,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:19.815Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752399815
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:20.862Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"status\": 200,\n    \"duration\": 1047\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400862
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:20.862Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400862
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:20.886Z\",\n  \"data\": {\n    \"reqId\": \"c815502e-44e2-4a5f-a331-4c0e684b222d\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400886
+        }
+    ],
+    "eventTimestamp": 1763752399797,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1107,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:20.885Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400885
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:21.948Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"status\": 200,\n    \"duration\": 1063\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752401948
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:21.948Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752401948
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:21.975Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752401975
+        }
+    ],
+    "eventTimestamp": 1763752400866,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 32,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Starting proxyFetch\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"alarmTimeout\": 30000,\n    \"alarmFiresAt\": \"2025-11-21T19:13:50.866Z\",\n    \"originBinding\": \"ORIGIN_DO\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Stringified user continuation for alarm handler\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"continuationLength\": 636\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Scheduling alarm for timeout backstop\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"alarmFiresAt\": \"2025-11-21T19:13:50.866Z\",\n    \"alarmTimeout\": 30000\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Scheduling alarm\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"id\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"firesAt\": \"2025-11-21T19:13:50.866Z\",\n    \"timestamp\": 1763752430\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Alarm scheduled successfully\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Resolving worker binding\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"executorBinding\": \"FETCH_EXECUTOR\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker binding resolved, calling via callRaw\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"executorBinding\": \"FETCH_EXECUTOR\",\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.alarms.Alarms\",\n  \"message\": \"Alarm stored and next alarm scheduled\",\n  \"timestamp\": \"2025-11-21T19:13:20.866Z\",\n  \"data\": {\n    \"id\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"timestamp\": 1763752430\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400866
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch\",\n  \"message\": \"Worker called successfully\",\n  \"timestamp\": \"2025-11-21T19:13:20.885Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400885
+        }
+    ],
+    "eventTimestamp": 1763752400862,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 1107,
+    "cpuTime": 1,
+    "truncated": false,
+    "executionModel": "stateless",
+    "outcome": "ok",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "FetchExecutorEntrypoint",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Executing fetch\",\n  \"timestamp\": \"2025-11-21T19:13:20.885Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"url\": \"https://test-endpoints.transformation.workers.dev/test-endpoints-do/test/delay/1000?token=8b169d0d-0ad0-4a62-ad64-79d218508041\",\n    \"requestType\": \"string\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752400885
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Fetch completed\",\n  \"timestamp\": \"2025-11-21T19:13:21.948Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"status\": 200,\n    \"duration\": 1063\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752401948
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Delivering result to origin DO\",\n  \"timestamp\": \"2025-11-21T19:13:21.948Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\",\n    \"resultType\": \"ResponseSync\",\n    \"originBinding\": \"ORIGIN_DO\",\n    \"originId\": \"344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752401948
+        },
+        {
+            "message": [
+                "{\n  \"type\": \"debug\",\n  \"level\": \"debug\",\n  \"namespace\": \"lmz.proxyFetch.worker\",\n  \"message\": \"Result delivered successfully\",\n  \"timestamp\": \"2025-11-21T19:13:21.975Z\",\n  \"data\": {\n    \"reqId\": \"ac2b3513-c0d6-4700-b2cf-146da3ddcc9c\"\n  }\n}"
+            ],
+            "level": "debug",
+            "timestamp": 1763752401975
+        }
+    ],
+    "eventTimestamp": 1763752400866,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}
+{
+    "wallTime": 7,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "587d481e0e9365501fd50ccab6b0223c6065c34b24d65ee8a1ab81df3de255e7",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "PerformanceController",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [
+        {
+            "message": [
+                "[LumenizeExperimentDO] signalChainedComplete called:",
+                {
+                    "mode": "proxyfetch",
+                    "count": 6
+                }
+            ],
+            "level": "log",
+            "timestamp": 1763752401980
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] WebSocket check:",
+                {
+                    "hasWebSocket": true
+                }
+            ],
+            "level": "log",
+            "timestamp": 1763752401980
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] Sending timing-end"
+            ],
+            "level": "log",
+            "timestamp": 1763752401980
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] Sending batch-complete"
+            ],
+            "level": "log",
+            "timestamp": 1763752401980
+        },
+        {
+            "message": [
+                "[LumenizeExperimentDO] signalChainedComplete completed successfully"
+            ],
+            "level": "log",
+            "timestamp": 1763752401980
+        }
+    ],
+    "eventTimestamp": 1763752395584,
+    "event": {
+        "rpcMethod": "signalChainedComplete"
+    }
+}
+{
+    "wallTime": 28,
+    "cpuTime": 0,
+    "truncated": false,
+    "executionModel": "durableObject",
+    "outcome": "ok",
+    "durableObjectId": "344991495d9ed0961a5de07ee1e520ecb9c79f14fb9ad08c1c53a6602da09077",
+    "scriptVersion": {
+        "id": "620b4c41-cb7f-4606-98f4-0a3a904de511"
+    },
+    "entrypoint": "OriginDO",
+    "scriptName": "proxy-fetch-performance",
+    "diagnosticsChannelEvents": [],
+    "exceptions": [],
+    "logs": [],
+    "eventTimestamp": 1763752401948,
+    "event": {
+        "rpcMethod": "__executeOperation"
+    }
+}

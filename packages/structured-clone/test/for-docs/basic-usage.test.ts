@@ -15,7 +15,7 @@ describe('Basic Serialization', () => {
     };
     
     const serialized = await stringify(user);
-    const restored = await parse(serialized);
+    const restored = parse(serialized);
     
     expect(restored).toEqual(user);
   });
@@ -29,7 +29,7 @@ describe('Basic Serialization', () => {
       }
     };
     
-    const restored = await parse(await stringify(data));
+    const restored = parse(await stringify(data));
     
     expect(restored.users).toEqual(['Alice', 'Bob', 'Charlie']);
     expect(restored.metadata.count).toBe(3);
@@ -43,7 +43,7 @@ describe('Complex Types', () => {
       scheduledFor: new Date('2025-06-15T10:00:00Z')
     };
     
-    const restored = await parse(await stringify(event));
+    const restored = parse(await stringify(event));
     
     expect(restored.scheduledFor).toBeInstanceOf(Date);
     expect(restored.scheduledFor.toISOString()).toBe('2025-06-15T10:00:00.000Z');
@@ -57,7 +57,7 @@ describe('Complex Types', () => {
     const tags = new Set(['javascript', 'typescript', 'cloudflare']);
     
     const data = { cache, tags };
-    const restored = await parse(await stringify(data));
+    const restored = parse(await stringify(data));
     
     expect(restored.cache).toBeInstanceOf(Map);
     expect(restored.cache.get('key1')).toBe('value1');
@@ -74,7 +74,7 @@ describe('Special Numbers', () => {
       minimum: -Infinity
     };
     
-    const restored = await parse(await stringify(stats));
+    const restored = parse(await stringify(stats));
     
     expect(restored.average).toBeNaN();
     expect(restored.maximum).toBe(Infinity);
@@ -90,7 +90,7 @@ describe('Circular References', () => {
     };
     node.self = node;
     
-    const restored: any = await parse(await stringify(node));
+    const restored: any = parse(await stringify(node));
     
     expect(restored.id).toBe(1);
     expect(restored.self).toBe(restored);

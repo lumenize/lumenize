@@ -3,16 +3,15 @@
  * 
  * Compares latency and wall clock billing across:
  * - Direct: Origin DO fetches directly (baseline)
- * - Current: proxyFetch with Orchestrator DO
- * - Simple: proxyFetchSimple without Orchestrator DO
+ * - ProxyFetch: Two-hop proxy (Origin DO → Worker Executor → External API)
  */
 
 import { LumenizeExperimentDO, type VariationDefinition } from '@lumenize/for-experiments';
-import { proxyFetchSimple, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
+import { proxyFetch, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 import { TestEndpointsDO, createTestEndpoints } from '@lumenize/test-endpoints';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { routeDORequest } from '@lumenize/utils';
-import '@lumenize/alarms'; // NADIS plugin for proxyFetchSimple
+import '@lumenize/alarms'; // NADIS plugin for proxyFetch
 
 /**
  * Performance Controller - Runs batch tests for proxy-fetch variations
@@ -28,10 +27,10 @@ export class PerformanceController extends LumenizeExperimentDO<Env> {
         handler: this.#runDirect.bind(this),
         strategy: 'sequential'
       }],
-      ['simple', {
-        name: 'proxyFetchSimple',
-        description: 'Two-hop proxy with alarm-based timeout',
-        handler: this.#runSimple.bind(this),
+      ['proxyfetch', {
+        name: 'proxyFetch',
+        description: 'Two-hop proxy with alarm-based timeout (Origin DO → Worker → External API)',
+        handler: this.#runProxyFetch.bind(this),
         strategy: 'chained'
       }],
     ]);
@@ -55,6 +54,14 @@ export class PerformanceController extends LumenizeExperimentDO<Env> {
   }
 
   /**
+   * Get test endpoint path (configurable via env var, default: /uuid)
+   */
+  #getTestEndpointPath(): string {
+    // Support ENDPOINT_PATH env var (e.g., "/delay/100", "/delay/1000", "/uuid")
+    return this.env.ENDPOINT_PATH || '/uuid';
+  }
+
+  /**
    * Direct fetch (baseline)
    * Sequential execution - called for each index
    */
@@ -67,26 +74,26 @@ export class PerformanceController extends LumenizeExperimentDO<Env> {
     );
 
     // Call Origin DO to do direct fetch
-    const url = endpoints.buildUrl('/uuid');
+    const url = endpoints.buildUrl(this.#getTestEndpointPath());
     await originStub.fetchDirect(url, index);
   }
 
   /**
-   * Simple proxyFetchSimple (without Orchestrator)
+   * ProxyFetch (two-hop architecture)
    * Chained execution - each completion triggers next operation
    */
-  async #runSimple(index: number, count?: number): Promise<void> {
+  async #runProxyFetch(index: number, count?: number): Promise<void> {
     if (!count) throw new Error('Chained execution requires count parameter');
     
     const endpoints = this.#getTestEndpoints();
     const originStub = this.env.ORIGIN_DO.get(
-      this.env.ORIGIN_DO.idFromName('origin-simple')
+      this.env.ORIGIN_DO.idFromName('origin-proxyfetch')
     );
 
-    const url = endpoints.buildUrl('/uuid');
+    const url = endpoints.buildUrl(this.#getTestEndpointPath());
     
     // Start the chain - pass controller identity for RPC callback
-    await originStub.startProxyFetchSimpleChain(url, count, 'simple', 'CONTROLLER', 'controller');
+    await originStub.startProxyFetchChain(url, count, 'proxyfetch', 'CONTROLLER', 'controller');
   }
 }
 
@@ -214,19 +221,22 @@ export class OriginDO extends LumenizeBase<Env> {
     if (!response.ok) {
       throw new Error(`Fetch failed: ${response.status}`);
     }
+    // Consume response body to ensure full request/response cycle completes
+    // This is critical for accurate billing measurements - DO must wait for full fetch
+    await response.json();
   }
 
   /**
-   * Start proxyFetchSimple chain (returns immediately)
+   * Start proxyFetch chain (returns immediately)
    * Countdown flows through continuation parameters
    */
-  async startProxyFetchSimpleChain(url: string, count: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
+  async startProxyFetchChain(url: string, count: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
     // Kick off first operation (fire-and-forget, but catch errors)
     // Parameters: $result (response), url, remaining, total, mode, controller identity
-    proxyFetchSimple(
+    proxyFetch(
       this,
       url,
-      this.ctn().handleProxyFetchSimpleChainResult(this.ctn().$result, url, count, count, mode, controllerBindingName, controllerInstanceName)
+      this.ctn().handleProxyFetchChainResult(this.ctn().$result, url, count, count, mode, controllerBindingName, controllerInstanceName)
     ).catch(async (error) => {
       // Send error immediately to controller
       const controllerStub = this.env[controllerBindingName].get(this.env[controllerBindingName].idFromName(controllerInstanceName));
@@ -235,11 +245,11 @@ export class OriginDO extends LumenizeBase<Env> {
   }
 
   /**
-   * Handle proxyFetchSimple chain result
+   * Handle proxyFetch chain result
    * Continuation that decrements counter and kicks off next operation
    * Parameters flow through the chain: response, url, remaining, total, mode, controller identity
    */
-  async handleProxyFetchSimpleChainResult(response: any, url: string, remaining: number, total: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
+  async handleProxyFetchChainResult(response: any, url: string, remaining: number, total: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
     // Check for errors
     if (response instanceof Error) {
       throw response; // Let the error propagate
@@ -247,6 +257,11 @@ export class OriginDO extends LumenizeBase<Env> {
     if (!response?.ok) {
       throw new Error(`Fetch failed: ${response?.status || 'unknown'}`);
     }
+    
+    // Consume response body (equivalent of reading it)
+    // Response is already a ResponseSync (body consumed in Worker), but we access it here
+    // to ensure full processing and accurate billing measurements
+    response.json(); // Synchronous access to already-consumed body
 
     // Check if chain complete (this was the last operation)
     if (remaining === 1) {
@@ -259,10 +274,10 @@ export class OriginDO extends LumenizeBase<Env> {
     }
 
     // Kick off next operation with decremented count
-    proxyFetchSimple(
+    proxyFetch(
       this,
       url,
-      this.ctn().handleProxyFetchSimpleChainResult(this.ctn().$result, url, remaining - 1, total, mode, controllerBindingName, controllerInstanceName)
+      this.ctn().handleProxyFetchChainResult(this.ctn().$result, url, remaining - 1, total, mode, controllerBindingName, controllerInstanceName)
     );
   }
 }

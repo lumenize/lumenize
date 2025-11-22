@@ -239,7 +239,7 @@ async function serializeCurrentFormat(data: any): Promise<string> {
 }
 
 async function parseCurrentFormat(json: string): Promise<any> {
-  return await parse(json);
+  return parse(json);
 }
 
 /**

@@ -296,7 +296,7 @@ describe('RequestSync', () => {
   describe('Round-trip Serialization', () => {
     it('handles simple RequestSync round-trip', async () => {
       const requestSync = new RequestSync('https://example.com');
-      const result = await parse(await stringify(requestSync));
+      const result = parse(await stringify(requestSync));
       
       expect(result).toBeInstanceOf(RequestSync);
       expect(result.url).toBe('https://example.com/');
@@ -307,7 +307,7 @@ describe('RequestSync', () => {
       const requestSync = new RequestSync('https://api.example.com/users', {
         method: 'POST'
       });
-      const result = await parse(await stringify(requestSync));
+      const result = parse(await stringify(requestSync));
       
       expect(result).toBeInstanceOf(RequestSync);
       expect(result.url).toBe('https://api.example.com/users');
@@ -320,7 +320,7 @@ describe('RequestSync', () => {
         method: 'POST',
         body: body
       });
-      const result = await parse(await stringify(requestSync));
+      const result = parse(await stringify(requestSync));
       
       expect(result).toBeInstanceOf(RequestSync);
       expect(result.method).toBe('POST');
@@ -335,7 +335,7 @@ describe('RequestSync', () => {
           'X-Custom-Header': 'custom-value'
         }
       });
-      const result = await parse(await stringify(requestSync));
+      const result = parse(await stringify(requestSync));
       
       expect(result).toBeInstanceOf(RequestSync);
       expect(result.headers.get('Content-Type')).toBe('application/json');
@@ -348,7 +348,7 @@ describe('RequestSync', () => {
         method: 'POST',
         body: 'plain text data'
       });
-      const result = await parse(await stringify(requestSync));
+      const result = parse(await stringify(requestSync));
       
       expect(result).toBeInstanceOf(RequestSync);
       expect(result.text()).toBe('plain text data');
@@ -360,7 +360,7 @@ describe('RequestSync', () => {
         method: 'POST',
         body: buffer
       });
-      const result = await parse(await stringify(requestSync));
+      const result = parse(await stringify(requestSync));
       
       expect(result).toBeInstanceOf(RequestSync);
       expect(result.arrayBuffer()).toEqual(buffer);
@@ -371,7 +371,7 @@ describe('RequestSync', () => {
         new RequestSync('https://api.example.com/users'),
         new RequestSync('https://api.example.com/posts', { method: 'POST' })
       ];
-      const result = await parse(await stringify(requests));
+      const result = parse(await stringify(requests));
       
       expect(result).toHaveLength(2);
       expect(result[0]).toBeInstanceOf(RequestSync);
@@ -388,7 +388,7 @@ describe('RequestSync', () => {
         }),
         metadata: { timestamp: Date.now() }
       };
-      const result = await parse(await stringify(obj));
+      const result = parse(await stringify(obj));
       
       expect(result.request).toBeInstanceOf(RequestSync);
       expect(result.request.method).toBe('POST');

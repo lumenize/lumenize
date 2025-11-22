@@ -7,35 +7,35 @@ import { stringify, parse, preprocess, postprocess } from '../src/index.js';
 
 describe('Special Numbers', () => {
   it('handles NaN', async () => {
-    const result = await parse(await stringify(NaN));
+    const result = parse(await stringify(NaN));
     expect(result).toBeNaN();
   });
 
   it('handles Infinity', async () => {
-    const result = await parse(await stringify(Infinity));
+    const result = parse(await stringify(Infinity));
     expect(result).toBe(Infinity);
   });
 
   it('handles -Infinity', async () => {
-    const result = await parse(await stringify(-Infinity));
+    const result = parse(await stringify(-Infinity));
     expect(result).toBe(-Infinity);
   });
 
   it('handles NaN in objects', async () => {
     const obj = { value: NaN, other: 42 };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     expect(result).toEqual(obj);
   });
 
   it('handles Infinity in objects', async () => {
     const obj = { max: Infinity, min: -Infinity };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     expect(result).toEqual(obj);
   });
 
   it('handles special numbers in arrays', async () => {
     const arr = [1, NaN, 2, Infinity, 3, -Infinity, 4];
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result).toEqual(arr);
   });
 
@@ -48,7 +48,7 @@ describe('Special Numbers', () => {
       },
       values: [1, 2, NaN, Infinity]
     };
-    const result = await parse(await stringify(nested));
+    const result = parse(await stringify(nested));
     expect(result).toEqual(nested);
   });
 
@@ -59,13 +59,13 @@ describe('Special Numbers', () => {
       ['neginf', -Infinity],
       ['normal', 42]
     ]);
-    const result = await parse(await stringify(map));
+    const result = parse(await stringify(map));
     expect(result).toEqual(map);
   });
 
   it('handles special numbers in Set', async () => {
     const set = new Set([1, NaN, Infinity, -Infinity, 2]);
-    const result = await parse(await stringify(set));
+    const result = parse(await stringify(set));
     expect(result).toEqual(set);
   });
 
@@ -76,7 +76,7 @@ describe('Special Numbers', () => {
       c: Infinity,
       d: -Infinity
     };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     expect(result).toEqual(obj);
   });
 
@@ -90,7 +90,7 @@ describe('Special Numbers', () => {
       normal: 42.5,
       negative: -42.5
     };
-    const result = await parse(await stringify(mixed));
+    const result = parse(await stringify(mixed));
     expect(result.zero).toBe(0);
     // Note: -0 becomes +0 through JSON (known limitation)
     expect(result.negZero).toBe(0);
@@ -108,7 +108,7 @@ describe('Special Numbers', () => {
     };
     obj.self = obj;
     
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     expect(result).toEqual(obj);
   });
 });
@@ -116,10 +116,10 @@ describe('Special Numbers', () => {
 describe('Special Numbers - Preprocess/Postprocess', () => {
   it('preprocesses special numbers correctly', async () => {
     const obj = { nan: NaN, inf: Infinity };
-    const preprocessed = preprocess(obj);
+    const preprocessed = await preprocess(obj);
     const jsonString = JSON.stringify(preprocessed);
     const parsed = JSON.parse(jsonString);
-    const result = await postprocess(parsed);
+    const result = postprocess(parsed);
     
     expect(result).toEqual(obj);
   });
@@ -142,7 +142,7 @@ describe('Special Numbers - Edge Cases', () => {
       calculation: 0 / 0,
       parseResult: parseInt('not a number')
     };
-    const result = await parse(await stringify(contexts));
+    const result = parse(await stringify(contexts));
     expect(result).toEqual(contexts);
   });
 
@@ -150,7 +150,7 @@ describe('Special Numbers - Edge Cases', () => {
     // Note: +0 and -0 are NOT special numbers, but interesting edge case
     // JSON does not preserve the sign of zero - known limitation
     const obj = { pos: +0, neg: -0 };
-    const result = await parse(await stringify(obj));
+    const result = parse(await stringify(obj));
     // Both become +0 after JSON round-trip
     expect(Object.is(result.pos, +0)).toBe(true);
     expect(Object.is(result.neg, +0)).toBe(true); // -0 becomes +0
@@ -158,7 +158,7 @@ describe('Special Numbers - Edge Cases', () => {
 
   it('handles arrays of only special numbers', async () => {
     const arr = [NaN, Infinity, -Infinity];
-    const result = await parse(await stringify(arr));
+    const result = parse(await stringify(arr));
     expect(result).toEqual(arr);
   });
 });

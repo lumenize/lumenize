@@ -1,8 +1,8 @@
 /**
  * Proxy-Fetch Performance Measurements
  * 
- * Compares Direct vs Current (proxyFetch) vs Simple (proxyFetchSimple)
- * Measures both latency (DO timing) and billing (R2 logs)
+ * Compares Direct vs ProxyFetch (two-hop architecture)
+ * Measures both latency (client-side timing) and billing (R2 logs)
  * 
  * Usage:
  *   Terminal 1: npm run dev
@@ -17,7 +17,9 @@ import { runAllExperiments } from '@lumenize/for-experiments/node-client';
 
 const BASE_URL = process.env.TEST_URL || 'http://localhost:8787';
 const OPS_COUNT = parseInt(process.argv[2] || process.env.OPS_COUNT || '50', 10);
+const TAIL_LOG_FILE = process.env.TAIL_LOG_FILE || 'tail-logs.jsonl';
 const WITH_BILLING = process.env.WITH_BILLING === 'true' || process.argv.includes('--billing');
+const ENDPOINT_PATH = process.env.ENDPOINT_PATH || '/uuid';
 
 async function runExperiment() {
   console.log('\n🧪 Proxy-Fetch Performance Experiment');
@@ -43,59 +45,57 @@ async function runExperiment() {
   }
   
   console.log(`Operations per variation: ${OPS_COUNT}`);
-  console.log(`Billing analysis: ${WITH_BILLING ? 'ENABLED (R2 logs)' : 'DISABLED (latency only)'}`);
+  console.log(`Test endpoint: ${ENDPOINT_PATH}`);
+  console.log(`Billing analysis: ${WITH_BILLING ? `ENABLED (wrangler tail logs: ${TAIL_LOG_FILE})` : 'DISABLED (latency only)'}`);
   console.log('');
   console.log('Comparing:');
   console.log('  • Direct - Origin DO fetches directly (baseline)');
-  console.log('  • Current - proxyFetch with Orchestrator DO');
-  console.log('  • Simple - proxyFetchSimple without Orchestrator');
+  console.log('  • ProxyFetch - Two-hop proxy (Origin DO → Worker → External API)');
   console.log('');
   
   try {
+    // Set endpoint path in environment (will be passed to Worker/DO via wrangler)
+    // Note: For production, set ENDPOINT_PATH secret: wrangler secret put ENDPOINT_PATH
+    if (ENDPOINT_PATH !== '/uuid') {
+      console.log(`⚠️  Note: Using custom endpoint ${ENDPOINT_PATH}`);
+      console.log(`   For production, set: wrangler secret put ENDPOINT_PATH\n`);
+    }
+    
     const results = await runAllExperiments(BASE_URL, OPS_COUNT, { 
       withBilling: WITH_BILLING,
-      scriptName: WITH_BILLING ? 'proxy-fetch-performance' : undefined
+      scriptName: WITH_BILLING ? 'proxy-fetch-performance' : undefined,
+      tailLogPath: WITH_BILLING ? TAIL_LOG_FILE : undefined
     });
     
     // Additional analysis
-    if (results.length === 3) {
-      const [direct, current, simple] = results;
+    if (results.length === 2) {
+      const [direct, proxyfetch] = results;
       
       console.log('\n\n💡 ANALYSIS');
       console.log('===========\n');
       
       // Latency comparison
       const directAvg = parseFloat(direct.avgPerOp);
-      const currentAvg = parseFloat(current.avgPerOp);
-      const simpleAvg = parseFloat(simple.avgPerOp);
+      const proxyfetchAvg = parseFloat(proxyfetch.avgPerOp);
       
-      const currentOverhead = currentAvg - directAvg;
-      const simpleOverhead = simpleAvg - directAvg;
+      const overhead = proxyfetchAvg - directAvg;
       
       console.log('Latency Overhead (vs Direct):');
-      console.log(`  Current: +${currentOverhead.toFixed(2)}ms (+${((currentOverhead / directAvg) * 100).toFixed(1)}%)`);
-      console.log(`  Simple: +${simpleOverhead.toFixed(2)}ms (+${((simpleOverhead / directAvg) * 100).toFixed(1)}%)`);
+      console.log(`  ProxyFetch: +${overhead.toFixed(2)}ms (+${((overhead / directAvg) * 100).toFixed(1)}%)`);
       
-      if (WITH_BILLING && direct.billing && current.billing && simple.billing) {
+      if (WITH_BILLING && direct.billing && proxyfetch.billing) {
         console.log('\nBilling Cost Comparison:');
         console.log(`  Direct: ${direct.billing.avgWallTimeMs}ms wall time`);
-        console.log(`  Current: ${current.billing.avgWallTimeMs}ms wall time`);
-        console.log(`  Simple: ${simple.billing.avgWallTimeMs}ms wall time`);
+        console.log(`  ProxyFetch: ${proxyfetch.billing.avgWallTimeMs}ms wall time`);
         
         const directCost = parseFloat(direct.billing.avgWallTimeMs);
-        const currentCost = parseFloat(current.billing.avgWallTimeMs);
-        const simpleCost = parseFloat(simple.billing.avgWallTimeMs);
+        const proxyfetchCost = parseFloat(proxyfetch.billing.avgWallTimeMs);
         
-        const currentSavings = ((directCost - currentCost) / directCost) * 100;
-        const simpleSavings = ((directCost - simpleCost) / directCost) * 100;
+        const savings = ((directCost - proxyfetchCost) / directCost) * 100;
+        const absolute = directCost - proxyfetchCost;
         
-        console.log(`\n  Current savings: ${currentSavings.toFixed(1)}% vs Direct`);
-        console.log(`  Simple savings: ${simpleSavings.toFixed(1)}% vs Direct`);
-        
-        if (simpleCost < currentCost) {
-          const improvement = ((currentCost - simpleCost) / currentCost) * 100;
-          console.log(`  Simple is ${improvement.toFixed(1)}% cheaper than Current`);
-        }
+        console.log(`\n  Cost savings: ${savings.toFixed(1)}% (${absolute.toFixed(2)}ms less wall time)`);
+        console.log(`  Expected monthly savings: ~${((savings * 0.012) / 1000).toFixed(3)}¢ per 1000 requests`);
       }
       
       console.log('\n✅ Experiment complete!\n');
