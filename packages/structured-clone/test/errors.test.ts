@@ -9,7 +9,7 @@ import { stringify, parse } from '../src/index.js';
 describe('Error Serialization - Basic', () => {
   it('handles basic Error', async () => {
     const error = new Error('Something went wrong');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(Error);
     expect(result.message).toBe('Something went wrong');
@@ -20,7 +20,7 @@ describe('Error Serialization - Basic', () => {
     const error = new Error('With stack');
     const originalStack = error.stack;
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.stack).toBeDefined();
     expect(result.stack).toBe(originalStack);
@@ -30,7 +30,7 @@ describe('Error Serialization - Basic', () => {
     const error = new Error('No stack');
     delete (error as any).stack;
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.message).toBe('No stack');
     expect(result.stack).toBeUndefined();
@@ -38,7 +38,7 @@ describe('Error Serialization - Basic', () => {
 
   it('handles empty Error', async () => {
     const error = new Error();
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(Error);
     expect(result.message).toBe('');
@@ -48,7 +48,7 @@ describe('Error Serialization - Basic', () => {
 describe('Error Serialization - Subclasses', () => {
   it('handles TypeError', async () => {
     const error = new TypeError('Type error occurred');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(TypeError);
     expect(result).toBeInstanceOf(Error);
@@ -58,7 +58,7 @@ describe('Error Serialization - Subclasses', () => {
 
   it('handles RangeError', async () => {
     const error = new RangeError('Out of range');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(RangeError);
     expect(result.message).toBe('Out of range');
@@ -67,7 +67,7 @@ describe('Error Serialization - Subclasses', () => {
 
   it('handles ReferenceError', async () => {
     const error = new ReferenceError('Reference not found');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(ReferenceError);
     expect(result.message).toBe('Reference not found');
@@ -75,7 +75,7 @@ describe('Error Serialization - Subclasses', () => {
 
   it('handles SyntaxError', async () => {
     const error = new SyntaxError('Syntax invalid');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(SyntaxError);
     expect(result.message).toBe('Syntax invalid');
@@ -83,7 +83,7 @@ describe('Error Serialization - Subclasses', () => {
 
   it('handles URIError', async () => {
     const error = new URIError('Invalid URI');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(URIError);
     expect(result.message).toBe('Invalid URI');
@@ -91,7 +91,7 @@ describe('Error Serialization - Subclasses', () => {
 
   it('handles EvalError', async () => {
     const error = new EvalError('Eval failed');
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result).toBeInstanceOf(EvalError);
     expect(result.message).toBe('Eval failed');
@@ -103,7 +103,7 @@ describe('Error Serialization - Error Chaining (cause)', () => {
     const rootCause = new Error('Root cause');
     const error = new Error('Wrapper error', { cause: rootCause });
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.message).toBe('Wrapper error');
     expect(result.cause).toBeInstanceOf(Error);
@@ -114,7 +114,7 @@ describe('Error Serialization - Error Chaining (cause)', () => {
     const cause = new TypeError('Type mismatch');
     const error = new Error('Failed operation', { cause });
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.cause).toBeInstanceOf(TypeError);
     expect(result.cause.message).toBe('Type mismatch');
@@ -125,7 +125,7 @@ describe('Error Serialization - Error Chaining (cause)', () => {
     const level2 = new Error('Level 2', { cause: level3 });
     const level1 = new Error('Level 1', { cause: level2 });
     
-    const result = parse(await stringify(level1));
+    const result = parse(stringify(level1));
     
     expect(result.message).toBe('Level 1');
     expect(result.cause.message).toBe('Level 2');
@@ -136,7 +136,7 @@ describe('Error Serialization - Error Chaining (cause)', () => {
   it('handles Error with non-Error cause', async () => {
     const error = new Error('With string cause', { cause: 'just a string' });
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.cause).toBe('just a string');
   });
@@ -145,7 +145,7 @@ describe('Error Serialization - Error Chaining (cause)', () => {
     const cause = { code: 'ERR_NETWORK', details: 'Timeout' };
     const error = new Error('Network error', { cause });
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.cause).toEqual({ code: 'ERR_NETWORK', details: 'Timeout' });
   });
@@ -154,7 +154,7 @@ describe('Error Serialization - Error Chaining (cause)', () => {
     const cause = new Error('Cause with stack');
     const error = new Error('Wrapper with stack', { cause });
     
-    const result = parse(await stringify(error));
+    const result = parse(stringify(error));
     
     expect(result.stack).toBeDefined();
     expect(result.cause.stack).toBeDefined();
@@ -167,7 +167,7 @@ describe('Error Serialization - Custom Properties', () => {
     error.code = 'ERR_CUSTOM';
     error.statusCode = 500;
     
-    const result: any = parse(await stringify(error));
+    const result: any = parse(stringify(error));
     
     expect(result.message).toBe('Custom error');
     expect(result.code).toBe('ERR_CUSTOM');
@@ -179,7 +179,7 @@ describe('Error Serialization - Custom Properties', () => {
     error.metadata = { timestamp: Date.now(), user: 'test' };
     error.tags = ['network', 'timeout'];
     
-    const result: any = parse(await stringify(error));
+    const result: any = parse(stringify(error));
     
     expect(result.metadata).toEqual(error.metadata);
     expect(result.tags).toEqual(['network', 'timeout']);
@@ -192,7 +192,7 @@ describe('Error Serialization - Custom Properties', () => {
       response: { status: 500, body: null }
     };
     
-    const result: any = parse(await stringify(error));
+    const result: any = parse(stringify(error));
     
     expect(result.context.request.url).toBe('/api/test');
     expect(result.context.response.status).toBe(500);
@@ -204,7 +204,7 @@ describe('Error Serialization - Custom Properties', () => {
     error.message = 'Standard message';
     error.stack = 'Custom stack';
     
-    const result: any = parse(await stringify(error));
+    const result: any = parse(stringify(error));
     
     // Standard properties should be preserved with their custom values
     expect(result.name).toBe('CustomName'); // Custom name is preserved
@@ -224,7 +224,7 @@ describe('Error Serialization - In Data Structures', () => {
       timestamp: Date.now()
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     expect(result.status).toBe('failed');
     expect(result.error).toBeInstanceOf(Error);
@@ -238,7 +238,7 @@ describe('Error Serialization - In Data Structures', () => {
       new TypeError('Second')
     ];
     
-    const result = parse(await stringify(arr));
+    const result = parse(stringify(arr));
     
     expect(result[0]).toBeInstanceOf(Error);
     expect(result[0].message).toBe('First');
@@ -255,7 +255,7 @@ describe('Error Serialization - In Data Structures', () => {
       ]
     };
     
-    const result = parse(await stringify(nested));
+    const result = parse(stringify(nested));
     
     expect(result.results[0].success).toBe(true);
     expect(result.results[1].error).toBeInstanceOf(Error);
@@ -268,7 +268,7 @@ describe('Error Serialization - In Data Structures', () => {
       ['error', new Error('Map error')]
     ]);
     
-    const result = parse(await stringify(map));
+    const result = parse(stringify(map));
     
     expect(result).toBeInstanceOf(Map);
     expect(result.get('error')).toBeInstanceOf(Error);
@@ -280,7 +280,7 @@ describe('Error Serialization - In Data Structures', () => {
     const error2 = new Error('Error 2');
     const set = new Set([error1, 'value', error2]);
     
-    const result = parse(await stringify(set));
+    const result = parse(stringify(set));
     
     expect(result).toBeInstanceOf(Set);
     expect(result.size).toBe(3);
@@ -296,7 +296,7 @@ describe('Error Serialization - Edge Cases', () => {
     const error2 = new Error('Error 2', { cause: error1 });
     error1.cause = error2; // Circular!
     
-    const result: any = parse(await stringify(error1));
+    const result: any = parse(stringify(error1));
     
     expect(result.message).toBe('Error 1');
     expect(result.cause.message).toBe('Error 2');
@@ -307,7 +307,7 @@ describe('Error Serialization - Edge Cases', () => {
     const error: any = new Error('With function');
     error.handler = () => 'test';
     
-    const result: any = parse(await stringify(error));
+    const result: any = parse(stringify(error));
     
     expect(result.message).toBe('With function');
     expect(result.handler).toBeDefined();
@@ -320,7 +320,7 @@ describe('Error Serialization - Edge Cases', () => {
     error.notANumber = NaN;
     error.infinite = Infinity;
     
-    const result: any = parse(await stringify(error));
+    const result: any = parse(stringify(error));
     
     expect(result.notANumber).toBeNaN();
     expect(result.infinite).toBe(Infinity);
@@ -333,7 +333,7 @@ describe('Error Serialization - Edge Cases', () => {
       new TypeError('Same message')
     ];
     
-    const result = parse(await stringify(errors));
+    const result = parse(stringify(errors));
     
     expect(result[0]).toBeInstanceOf(Error);
     expect(result[1]).toBeInstanceOf(Error);

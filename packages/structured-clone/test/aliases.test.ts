@@ -23,7 +23,7 @@ describe('Object Aliases', () => {
       list: [shared, shared] // Multiple times in array
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All references should point to the same object
     expect(result.a.ref).toBe(result.b.ref);
@@ -73,7 +73,7 @@ describe('Object Aliases', () => {
       }
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All users should share the same profile object
     expect(result.user1.profile).toBe(result.user2.profile);
@@ -104,7 +104,7 @@ describe('Object Aliases', () => {
       topLevel: shared
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All paths should reference the same object
     expect(result.level1.level2.deep).toBe(result.level1.direct);
@@ -127,7 +127,7 @@ describe('Object Aliases', () => {
       }
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All array entries should be the same object
     expect(result.items[0]).toBe(result.items[1]);
@@ -154,7 +154,7 @@ describe('Map/Set Aliases', () => {
       ['key3', { other: 'value' }]
     ]);
     
-    const result = parse(await stringify(map));
+    const result = parse(stringify(map));
     
     // Same object should be aliased
     expect(result.get('key1')).toBe(result.get('key2'));
@@ -172,7 +172,7 @@ describe('Map/Set Aliases', () => {
     map.set(keyObj, 'first');
     map.set(keyObj, 'updated'); // Same key object
     
-    const result = parse(await stringify(map));
+    const result = parse(stringify(map));
     
     // Should have one entry with updated value
     expect(result.size).toBe(1);
@@ -186,7 +186,7 @@ describe('Map/Set Aliases', () => {
     
     const set = new Set([shared, shared, { other: true }]);
     
-    const result = parse(await stringify(set));
+    const result = parse(stringify(set));
     
     // Should have 2 unique items (shared appears twice but is one object)
     expect(result.size).toBe(2);
@@ -207,7 +207,7 @@ describe('Map/Set Aliases', () => {
       ['shared', shared]
     ]);
     
-    const result = parse(await stringify(map));
+    const result = parse(stringify(map));
     
     // All should reference same config
     expect(result.get('user1').settings).toBe(result.get('user2').settings);
@@ -233,7 +233,7 @@ describe('Error Aliases', () => {
       root: rootCause
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // Both errors should share the same cause
     expect(result.errors[0].cause).toBe(result.errors[1].cause);
@@ -259,7 +259,7 @@ describe('Error Aliases', () => {
       metadata: sharedMetadata
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All should share the same metadata object
     expect(result.errors[0].metadata).toBe(result.errors[1].metadata);
@@ -284,7 +284,7 @@ describe('Web API Aliases', () => {
       }
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All should reference the same URL
     expect(result.endpoint).toBe(result.config.baseUrl);
@@ -312,7 +312,7 @@ describe('Web API Aliases', () => {
       defaultHeaders: sharedHeaders
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // All should reference the same Headers object
     expect(result.request.headers).toBe(result.response.headers);
@@ -363,7 +363,7 @@ describe('Complex Alias Scenarios', () => {
       }
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // Verify all alias relationships
     expect(result.user1.settings).toBe(result.user2.settings);
@@ -394,7 +394,7 @@ describe('Complex Alias Scenarios', () => {
       alsoCyclic: cyclic1 // Alias to cyclic structure
     };
     
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     
     // Verify aliases
     expect(result.shared).toBe(result.alsoShared);
@@ -418,7 +418,7 @@ describe('Complex Alias Scenarios', () => {
       ['set2', new Set([shared.config])]
     ]);
     
-    const result = parse(await stringify(outerMap)) as Map<string, Map<string, { value: number }> | Set<{ value: number }>>;
+    const result = parse(stringify(outerMap)) as Map<string, Map<string, { value: number }> | Set<{ value: number }>>;
     
     // All should reference the same config
     const map1Config = (result.get('map1') as Map<string, { value: number }>).get('key')!;
@@ -456,7 +456,7 @@ describe('Performance - Large Aliased Structures', () => {
     }
     
     const start = performance.now();
-    const result = parse(await stringify(obj));
+    const result = parse(stringify(obj));
     const duration = performance.now() - start;
     
     // All references should point to the same object

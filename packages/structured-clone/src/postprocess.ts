@@ -10,8 +10,6 @@
  */
 
 import { 
-  decodeRequest, 
-  decodeResponse,
   decodeRequestSync,
   decodeResponseSync
 } from './web-api-encoding';
@@ -104,48 +102,7 @@ export function postprocess(data: LmzIntermediate): any {
       
       const [type, value] = tuple;
       
-      if (type === 'request') {
-        // Decode Request, resolving header and body references
-        // Headers and bodies are already created in first pass, so we can resolve synchronously
-        const reconstructed = decodeRequest(
-          value,
-          (headerRef) => {
-            // headerRef is ["$lmz", index], look it up directly
-            if (Array.isArray(headerRef) && headerRef[0] === '$lmz') {
-              return objects.get(headerRef[1]) as Headers;
-            }
-            return headerRef;
-          },
-          (bodyRef) => {
-            // bodyRef is ["$lmz", index] for ArrayBuffer, look it up directly
-            if (Array.isArray(bodyRef) && bodyRef[0] === '$lmz') {
-              return objects.get(bodyRef[1]) as ArrayBuffer;
-            }
-            return bodyRef;
-          }
-        );
-        objects.set(i, reconstructed);
-      } else if (type === 'response') {
-        // Decode Response, resolving header and body references
-        const reconstructed = decodeResponse(
-          value,
-          (headerRef) => {
-            // headerRef is ["$lmz", index], look it up directly
-            if (Array.isArray(headerRef) && headerRef[0] === '$lmz') {
-              return objects.get(headerRef[1]) as Headers;
-            }
-            return headerRef;
-          },
-          (bodyRef) => {
-            // bodyRef is ["$lmz", index] for ArrayBuffer, look it up directly
-            if (Array.isArray(bodyRef) && bodyRef[0] === '$lmz') {
-              return objects.get(bodyRef[1]) as ArrayBuffer;
-            }
-            return bodyRef;
-          }
-        );
-        objects.set(i, reconstructed);
-      } else if (type === 'request-sync') {
+      if (type === 'request-sync') {
         // Decode RequestSync, resolving header references
         const reconstructed = decodeRequestSync(
           value,

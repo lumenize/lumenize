@@ -8,8 +8,6 @@
  */
 
 import { 
-  encodeRequest,
-  encodeResponse,
   encodeRequestSync,
   encodeResponseSync
 } from './web-api-encoding';
@@ -67,7 +65,7 @@ export interface PreprocessContext {
  * @returns Transformed value, or TRANSFORM_SKIP to use default processing
  * @internal
  */
-export type PreprocessTransform = (value: any, context: PreprocessContext) => any | typeof TRANSFORM_SKIP | Promise<any | typeof TRANSFORM_SKIP>;
+export type PreprocessTransform = (value: any, context: PreprocessContext) => any | typeof TRANSFORM_SKIP;
 
 /**
  * Options for preprocess()
@@ -97,7 +95,7 @@ export interface PreprocessOptions {
  * @param options - Optional preprocessing options including custom transform hooks
  * @returns Intermediate format with root value and objects array
  */
-export async function preprocess(data: any, options?: PreprocessOptions): Promise<LmzIntermediate> {
+export function preprocess(data: any, options?: PreprocessOptions): LmzIntermediate {
   const seen = new WeakMap<any, number>();
   const objects: any[] = [];
   let nextId = 0;
@@ -108,10 +106,10 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
    * @param value - The value to preprocess
    * @param path - Current path from root to this value
    */
-  async function preprocessValue(value: any, path: PathElement[] = []): Promise<any> {
+  function preprocessValue(value: any, path: PathElement[] = []): any {
     // Call custom transform hook if provided
     if (transform) {
-      const transformed = await transform(value, { seen, nextId, objects, path });
+      const transformed = transform(value, { seen, nextId, objects, path });
       if (transformed !== TRANSFORM_SKIP) {
         // Hook handled this value, check if it needs to be tracked for aliases
         if (transformed && typeof transformed === 'object') {
@@ -176,7 +174,7 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
       if (Array.isArray(value)) {
         const items: any[] = [];
         for (let i = 0; i < value.length; i++) {
-          items.push(await preprocessValue(value[i], [...path, { type: 'index', key: i }]));
+          items.push(preprocessValue(value[i], [...path, { type: 'index', key: i }]));
         }
         const tuple: any = ["array", items];
         objects[id] = tuple;
@@ -186,7 +184,7 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
         // Note: Map keys don't have a meaningful "path" since they're not accessed by property
         // We just pass the current path without extending it
         for (const [key, val] of value) {
-          entries.push([await preprocessValue(key, path), await preprocessValue(val, path)]);
+          entries.push([preprocessValue(key, path), preprocessValue(val, path)]);
         }
         const tuple: any = ["map", entries];
         objects[id] = tuple;
@@ -195,7 +193,7 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
         const values: any[] = [];
         // Similar to Map keys, Set values don't have property-based paths
         for (const item of value) {
-          values.push(await preprocessValue(item, path));
+          values.push(preprocessValue(item, path));
         }
         const tuple: any = ["set", values];
         objects[id] = tuple;
@@ -213,14 +211,14 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
           message: value.message || ''
         };
         if (value.stack) errorData.stack = value.stack;
-        if (value.cause !== undefined) errorData.cause = await preprocessValue(value.cause, [...path, { type: 'get', key: 'cause' }]);
+        if (value.cause !== undefined) errorData.cause = preprocessValue(value.cause, [...path, { type: 'get', key: 'cause' }]);
         
         // Custom properties (skip standard Error properties)
         const allProps = Object.getOwnPropertyNames(value);
         for (const key of allProps) {
           if (!['name', 'message', 'stack', 'cause'].includes(key)) {
             try {
-              errorData[key] = await preprocessValue((value as any)[key], [...path, { type: 'get', key }]);
+              errorData[key] = preprocessValue((value as any)[key], [...path, { type: 'get', key }]);
             } catch {
               // Skip properties that can't be preprocessed
             }
@@ -246,42 +244,27 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
         return ["$lmz", id];
       } else if (value.constructor?.name === 'RequestSync') {
         // RequestSync - encode with headers references
-        const data = await encodeRequestSync(
+        const data = encodeRequestSync(
           value as RequestSync,
-          async (headers) => await preprocessValue(headers)
+          (headers) => preprocessValue(headers)
         );
         const tuple: any = ["request-sync", data];
         objects[id] = tuple;
         return ["$lmz", id];
       } else if (value.constructor?.name === 'ResponseSync') {
         // ResponseSync - encode with headers references
-        const data = await encodeResponseSync(
+        const data = encodeResponseSync(
           value as ResponseSync,
-          async (headers) => await preprocessValue(headers)
+          (headers) => preprocessValue(headers)
         );
         const tuple: any = ["response-sync", data];
         objects[id] = tuple;
         return ["$lmz", id];
       } else if (value instanceof Request) {
-        // Request - encode with headers and body references
-        const data = await encodeRequest(
-          value,
-          async (headers) => await preprocessValue(headers),
-          async (body) => await preprocessValue(body)
-        );
-        const tuple: any = ["request", data];
-        objects[id] = tuple;
-        return ["$lmz", id];
+        throw new Error('Cannot serialize native Request object. Use RequestSync instead.');
       } else if (value instanceof Response) {
-        // Response - encode with headers and body references
-        const data = await encodeResponse(
-          value,
-          async (headers) => await preprocessValue(headers),
-          async (body) => await preprocessValue(body)
-        );
-        const tuple: any = ["response", data];
-        objects[id] = tuple;
-        return ["$lmz", id];
+        // Throw on native Response - user must convert to ResponseSync first
+        throw new Error('Cannot serialize native Response object. Use ResponseSync instead.');
       } else if (value instanceof Boolean) {
         // Boolean wrapper object
         return ["boolean-object", value.valueOf()];
@@ -336,7 +319,7 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
       // Plain object
       const obj: any = {};
       for (const key in value) {
-        obj[key] = await preprocessValue(value[key], [...path, { type: 'get', key }]);
+        obj[key] = preprocessValue(value[key], [...path, { type: 'get', key }]);
       }
       const tuple: any = ["object", obj];
       objects[id] = tuple;
@@ -348,7 +331,7 @@ export async function preprocess(data: any, options?: PreprocessOptions): Promis
   }
   
   // Start with empty path at root
-  const root = await preprocessValue(data, []);
+  const root = preprocessValue(data, []);
   return { root, objects };
 }
 

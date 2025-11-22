@@ -15,7 +15,7 @@ describe('Primitive Keys Work as Expected', () => {
       [true, { active: true }]
     ]);
     
-    const serialized = await stringify(map);
+    const serialized = stringify(map);
     
     // Receiver side
     const restored = parse(serialized);
@@ -32,7 +32,7 @@ describe('Object Keys - Reconstructed but Different Identity', () => {
     const keyObj = { userId: 123, role: "admin" };
     const map = new Map([[keyObj, "user data"]]);
     
-    const serialized = await stringify(map);
+    const serialized = stringify(map);
     
     // Receiver side
     const restored = parse(serialized);
@@ -67,7 +67,7 @@ describe('Finding Object Keys After Deserialization', () => {
       [adminKey, { name: "Admin", email: "admin@example.com" }]
     ]);
     
-    const serialized = await stringify(map);
+    const serialized = stringify(map);
     
     // Receiver side
     const restored = parse(serialized);
@@ -94,7 +94,7 @@ describe('Finding Object Keys After Deserialization', () => {
       keyToLookup: keyObj  // ✅ Share the key explicitly!
     };
     
-    const serialized = await stringify(data);
+    const serialized = stringify(data);
     
     // Receiver side
     const restored = parse(serialized);
@@ -111,14 +111,14 @@ describe('Set Behavior with Objects', () => {
   it('handles primitive and object values', async () => {
     // Primitive values work fine
     const set = new Set(["apple", "banana", 123]);
-    const restored = parse(await stringify(set));
+    const restored = parse(stringify(set));
     expect(restored.has("apple")).toBe(true);
     // ...
     
     // Object values: can't use new objects, must search or store reference
     const obj = { id: 1, name: "Alice" };
     const data = { set: new Set([obj]), aliceRef: obj };
-    const restored2 = parse(await stringify(data));
+    const restored2 = parse(stringify(data));
     expect(restored2.set.has(restored2.aliceRef)).toBe(true);
   });
 });
@@ -130,7 +130,7 @@ describe('Aliases and Identity Preservation', () => {
     const map2 = new Map([[sharedKey, "data2"]]);
     const data = { map1, map2, theKey: sharedKey };
     
-    const restored = parse(await stringify(data));
+    const restored = parse(stringify(data));
     
     // All references point to the same reconstructed object!
     expect(restored.map1.get(restored.theKey)).toBe("data1");

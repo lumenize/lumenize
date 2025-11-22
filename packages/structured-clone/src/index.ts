@@ -36,19 +36,9 @@ import { postprocess } from './postprocess';
  * @param options - Optional preprocessing options including custom transform hooks
  * @returns JSON string in tuple $lmz format
  * @throws TypeError if value contains symbols
- * 
- * @example
- * ```typescript
- * const obj = { name: "John", age: 30 };
- * obj.self = obj;  // Cycle
- * 
- * const json = await stringify(obj);
- * const restored = parse(json);
- * console.log(restored.self === restored);  // true
- * ```
  */
-export async function stringify(value: any, options?: PreprocessOptions): Promise<string> {
-  return JSON.stringify(await preprocess(value, options));
+export function stringify(value: any, options?: PreprocessOptions): string {
+  return JSON.stringify(preprocess(value, options));
 }
 
 /**
@@ -62,13 +52,6 @@ export async function stringify(value: any, options?: PreprocessOptions): Promis
  * 
  * @param value - JSON string in tuple $lmz format
  * @returns Restored value with all types and references preserved
- * 
- * @example
- * ```typescript
- * const json = await stringify({ name: "Alice", tags: ["dev", "js"] });
- * const restored = parse(json);
- * console.log(restored.tags[0]);  // "dev"
- * ```
  */
 export function parse(value: string): any {
   return postprocess(JSON.parse(value));
@@ -78,23 +61,13 @@ export function parse(value: string): any {
 export { preprocess, TRANSFORM_SKIP } from './preprocess';
 export { postprocess } from './postprocess';
 
-// Low-level encoding utilities - see web-api-encoding.ts for full JSDoc
-export {
-  encodeRequest,
-  encodeResponse,
-  decodeRequest,
-  decodeResponse,
-  encodeRequestSync,
-  encodeResponseSync,
-  decodeRequestSync,
-  decodeResponseSync
-} from './web-api-encoding';
-
 // Synchronous Request/Response wrappers - see request-sync.ts and response-sync.ts for full JSDoc
 export { RequestSync } from './request-sync';
 export { ResponseSync } from './response-sync';
 
-// Type exports
-export type { LmzIntermediate, PreprocessOptions, PreprocessTransform, PreprocessContext, PathElement } from './preprocess';
-export type { SerializableBody, RequestSyncInit } from './request-sync';
-export type { SerializableBody as ResponseSerializableBody } from './response-sync';
+// Type exports - only what's needed by other packages or advanced users
+export type { 
+  PreprocessTransform,   // For custom transform hooks (used by RPC)
+  PathElement,           // For operation chain conversion (used by RPC)
+  PreprocessOptions      // For users who need transform hooks
+} from './preprocess';

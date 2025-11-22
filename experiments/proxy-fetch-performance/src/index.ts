@@ -7,11 +7,12 @@
  */
 
 import { LumenizeExperimentDO, type VariationDefinition } from '@lumenize/for-experiments';
-import { proxyFetch, FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
+import { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 import { TestEndpointsDO, createTestEndpoints } from '@lumenize/test-endpoints';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { routeDORequest } from '@lumenize/utils';
-import '@lumenize/alarms'; // NADIS plugin for proxyFetch
+import '@lumenize/alarms'; // NADIS plugin for timeout handling
+import '@lumenize/proxy-fetch'; // NADIS plugin - registers this.svc.proxyFetch
 
 /**
  * Performance Controller - Runs batch tests for proxy-fetch variations
@@ -233,8 +234,7 @@ export class OriginDO extends LumenizeBase<Env> {
   async startProxyFetchChain(url: string, count: number, mode: string, controllerBindingName: string, controllerInstanceName: string): Promise<void> {
     // Kick off first operation (fire-and-forget, but catch errors)
     // Parameters: $result (response), url, remaining, total, mode, controller identity
-    proxyFetch(
-      this,
+    this.svc.proxyFetch(
       url,
       this.ctn().handleProxyFetchChainResult(this.ctn().$result, url, count, count, mode, controllerBindingName, controllerInstanceName)
     ).catch(async (error) => {
@@ -274,8 +274,7 @@ export class OriginDO extends LumenizeBase<Env> {
     }
 
     // Kick off next operation with decremented count
-    proxyFetch(
-      this,
+    this.svc.proxyFetch(
       url,
       this.ctn().handleProxyFetchChainResult(this.ctn().$result, url, remaining - 1, total, mode, controllerBindingName, controllerInstanceName)
     );

@@ -4,13 +4,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { stringify, parse, preprocess, postprocess, encodeRequest, decodeRequest, encodeResponse, decodeResponse } from '../../src/index.js';
+import { stringify, parse, preprocess, postprocess, RequestSync, ResponseSync } from '../../src/index.js';
+import { encodeRequestSync, decodeRequestSync, encodeResponseSync, decodeResponseSync } from '../../src/web-api-encoding.js';
 
 describe('Tier 1: stringify/parse', () => {
   it('demonstrates basic JSON string I/O', async () => {
     const complexObject = { name: 'John', items: [1, 2, 3] };
     
-    const jsonString = await stringify(complexObject);  // Returns JSON string
+    const jsonString = stringify(complexObject);  // Returns JSON string
     const restored = parse(jsonString);           // Reconstructs from JSON string
     
     expect(restored).toEqual(complexObject);
@@ -18,10 +19,10 @@ describe('Tier 1: stringify/parse', () => {
 });
 
 describe('Tier 2: preprocess/postprocess', () => {
-  it('demonstrates intermediate format without JSON', async () => {
+  it('demonstrates intermediate format without JSON', () => {
     const complexObject = { name: 'John', items: [1, 2, 3] };
     
-    const intermediate = await preprocess(complexObject);  // Returns { root, objects }
+    const intermediate = preprocess(complexObject);  // Returns { root, objects }
     const restored = postprocess(intermediate);      // Reconstructs from object
     
     expect(restored).toEqual(complexObject);
@@ -30,32 +31,32 @@ describe('Tier 2: preprocess/postprocess', () => {
   });
 });
 
-describe('Tier 3: encode/decode Request/Response', () => {
-  it('demonstrates Request encoding', async () => {
-    const request = new Request('https://example.com', {
+describe('Tier 3: encode/decode RequestSync/ResponseSync', () => {
+  it('demonstrates RequestSync encoding', () => {
+    const requestSync = new RequestSync('https://example.com', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: 'test' })
+      body: { data: 'test' }
     });
     
-    const encoded = await encodeRequest(request);  // Plain object
-    const decoded = decodeRequest(encoded);        // Reconstructed Request
+    const encoded = encodeRequestSync(requestSync);  // Plain object
+    const decoded = decodeRequestSync(encoded);      // Reconstructed RequestSync
     
-    expect(decoded).toBeInstanceOf(Request);
+    expect(decoded).toBeInstanceOf(RequestSync);
     expect(decoded.url).toBe('https://example.com/');
     expect(decoded.method).toBe('POST');
   });
 
-  it('demonstrates Response encoding', async () => {
-    const response = new Response('Hello', {
+  it('demonstrates ResponseSync encoding', () => {
+    const responseSync = new ResponseSync('Hello', {
       status: 200,
       headers: { 'Content-Type': 'text/plain' }
     });
     
-    const encoded = await encodeResponse(response);  // Plain object
-    const decoded = decodeResponse(encoded);         // Reconstructed Response
+    const encoded = encodeResponseSync(responseSync);  // Plain object
+    const decoded = decodeResponseSync(encoded);       // Reconstructed ResponseSync
     
-    expect(decoded).toBeInstanceOf(Response);
+    expect(decoded).toBeInstanceOf(ResponseSync);
     expect(decoded.status).toBe(200);
   });
 });

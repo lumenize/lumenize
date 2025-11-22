@@ -179,7 +179,7 @@ export async function proxyFetch(
   // Prepare message for Worker (callRaw handles serialization)
   // Note: stringifiedUserContinuation is NOT sent - it's embedded in the alarm
   // and extracted when the alarm is cancelled
-  const message: SimpleFetchMessage = {
+  const message: FetchMessage = {
     reqId: finalReqId,
     request, // Raw string or Request - callRaw handles it
     originBinding,
