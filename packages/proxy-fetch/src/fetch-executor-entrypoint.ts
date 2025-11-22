@@ -45,10 +45,10 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
    * 
    * @param message - Fetch message with preprocessed continuation
    */
-  async executeFetchSimple(message: FetchMessage): Promise<void> {
+  async executeFetch(message: FetchMessage): Promise<void> {
     // Quick acknowledgment - return immediately
     this.ctx.waitUntil(
-      this.#executeFetchSimple(message)
+      this.#executeFetch(message)
     );
     
     // Return immediately - origin DO continues
@@ -58,21 +58,18 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
    * Internal implementation of fetch execution
    * Runs in background via ctx.waitUntil()
    */
-  async #executeFetchSimple(message: FetchMessage): Promise<void> {
+  async #executeFetch(message: FetchMessage): Promise<void> {
     const log = debug(this)('lmz.proxyFetch.worker');
     
     const isString = typeof message.request === 'string';
-    const isRequestSync = message.request && typeof message.request === 'object' && '_request' in message.request;
     const url = isString 
       ? message.request 
-      : isRequestSync 
-        ? (message.request as any)._request.url
-        : (message.request as Request).url;
+      : (message.request as any)._request.url;
     
     log.debug('Executing fetch', { 
       reqId: message.reqId, 
       url,
-      requestType: isString ? 'string' : isRequestSync ? 'RequestSync' : 'Request'
+      requestType: isString ? 'string' : 'RequestSync'
     });
 
     const startTime = Date.now();
@@ -80,12 +77,10 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
 
     // Execute fetch
     try {
-      // callRaw already deserialized - convert RequestSync to Request if needed
+      // callRaw already deserialized - convert RequestSync to native Request if needed
       const fetchInput = isString 
         ? message.request 
-        : isRequestSync
-          ? (message.request as any).toRequest()
-          : message.request as Request;
+        : (message.request as any).toRequest();
       
       // Fetch with timeout
       const timeout = message.fetchTimeout ?? DEFAULT_TIMEOUT;

@@ -50,17 +50,6 @@ export class _TestSimpleDO extends LumenizeBase {
     return finalReqId;
   }
 
-  async fetchDataSimpleWithRequest(request: Request, reqId?: string): Promise<string> {
-    const finalReqId = await proxyFetch(
-      this,
-      request,
-      this.ctn().handleFetchComplete(this.ctn().$result, request.url),
-      {},
-      reqId
-    );
-    return finalReqId;
-  }
-
   async fetchDataSimpleWithRequestSync(
     url: string,
     options: { method?: string; headers?: Record<string, string>; body?: any },
