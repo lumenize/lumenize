@@ -58,7 +58,7 @@ export class HttpPostRpcTransport implements RpcTransport {
     };
 
     // Serialize the entire batch request
-    const requestIntermediate = await preprocess(batch);
+    const requestIntermediate = preprocess(batch);
     const requestBody = JSON.stringify(requestIntermediate);
 
     const response = await this.#config.fetch(url, {

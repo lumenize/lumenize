@@ -390,7 +390,7 @@ export class WebSocketRpcTransport implements RpcTransport {
           batch: batch.batch
         };
 
-        const intermediate = await preprocess(message);
+        const intermediate = preprocess(message);
         const messageBody = JSON.stringify(intermediate);
         this.#ws!.send(messageBody);
 

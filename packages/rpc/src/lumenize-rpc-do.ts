@@ -63,7 +63,7 @@ export async function sendDownstream(
   };
 
   // Serialize the message with full type support
-  const intermediate = await preprocess(message);
+  const intermediate = preprocess(message);
   const messageString = JSON.stringify(intermediate);
 
   // Get WebSockets with matching tags
@@ -181,7 +181,7 @@ async function handleCallRequest(
       batch: batchResults
     };
     
-    const intermediate = await preprocess(batchResponse);
+    const intermediate = preprocess(batchResponse);
     const responseBody = JSON.stringify(intermediate);
     
     // Check if any operations failed
@@ -205,7 +205,7 @@ async function handleCallRequest(
         error // stringify() will handle Error serialization
       }]
     };
-    const intermediate = await preprocess(batchResponse);
+    const intermediate = preprocess(batchResponse);
     const responseBody = JSON.stringify(intermediate);
     return new Response(responseBody, {
       status: 400,
@@ -248,7 +248,7 @@ async function dispatchCall(
     // Preprocess with RPC transform to replace functions with markers during the tree walk
     // This preserves object identity while replacing functions
     const transform = createRpcPreprocessTransform(processedOperations);
-    const intermediate = await preprocess(flattenedResult, { transform });
+    const intermediate = preprocess(flattenedResult, { transform });
     
     // Postprocess to reconstruct objects (with markers in place of functions)
     const processedResult = postprocess(intermediate);
@@ -511,7 +511,7 @@ export async function handleRpcMessage(
       batch: batchResults
     };
     
-    const intermediate = await preprocess(messageResponse);
+    const intermediate = preprocess(messageResponse);
     const responseBody = JSON.stringify(intermediate);
     ws.send(responseBody);
 

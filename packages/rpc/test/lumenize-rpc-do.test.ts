@@ -38,7 +38,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
 
       const request = new Request(`https://example.com/__rpc/example-do/${id.toString()}/call`, {
         method: 'POST',
-        body: await stringify(rpcBatchRequest),
+        body: stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -104,7 +104,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: await stringify(rpcBatchRequest),
+        body: stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
@@ -141,7 +141,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
 
       const request = new Request('https://example.com/__rpc/call', {
         method: 'POST',
-        body: await stringify(rpcBatchRequest),
+        body: stringify(rpcBatchRequest),
         headers: { 'Content-Type': 'application/json' }
       });
 
