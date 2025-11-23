@@ -5,7 +5,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 ## Immediate work backlog
 
 - [ ] Update the alarms JSDoc and user-facing docs to remove standalone usage
-- [ ] Make sure that our implementation of the native lifecycle hook alarm handler returns immediately and the user's handler is tried after that. I'm afraid that when the user's handler has a bug, and doesn't return successfully, we will create a thundering herd.
+- [x] ~~Make sure that our implementation of the native lifecycle hook alarm handler returns immediately and the user's handler is tried after that. I'm afraid that when the user's handler has a bug, and doesn't return successfully, we will create a thundering herd.~~
+  - **Resolution**: No action needed. The try/catch in `triggerAlarms()` already prevents thundering herd by catching errors without rethrowing them. When user handlers throw, the alarm handler completes successfully, so Cloudflare doesn't retry. The fire-and-forget pattern with `waitUntil()` would be redundant.
 - [ ] One benefit of proxy-fetch is that it's sync automatically. If you want to fire off several in parallel, that's easy. Show the code difference for parallel when doing direct
 - [ ] Move debug into base, maybe?
 
