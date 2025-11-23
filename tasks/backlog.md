@@ -4,9 +4,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Make pattern for registering callback executor the same for call and proxy-fetch
 - [ ] Update the alarms JSDoc and user-facing docs to remove standalone usage
-- [ ] Make sure that our alarm handler returns immediately and the user's handler is tried after that. I'm afraid that when the user's handler has a bug, and doesn't return successfully, we create a thundering herd.
+- [ ] Make sure that our implementation of the native lifecycle hook alarm handler returns immediately and the user's handler is tried after that. I'm afraid that when the user's handler has a bug, and doesn't return successfully, we will create a thundering herd.
 - [ ] One benefit of proxy-fetch is that it's sync automatically. If you want to fire off several in parallel, that's easy. Show the code difference for parallel when doing direct
 - [ ] Move debug into base, maybe?
 
