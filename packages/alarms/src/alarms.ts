@@ -217,7 +217,7 @@ export class Alarms {
         id,
         firesAt: when.toISOString(),
         timestamp,
-        operationName: operationChain.name
+        operationName: operationChain[0]?.type === 'get' ? String(operationChain[0].key) : undefined
       });
       
       // Store asynchronously - blockConcurrencyWhile prevents race conditions but doesn't block return
@@ -401,6 +401,9 @@ export class Alarms {
     this.#scheduleNextAlarm();
     
     // Deserialize and return the schedule with its continuation
+    if (typeof row.operationChain !== 'string') {
+      throw new Error(`Invalid operationChain type: ${typeof row.operationChain}`);
+    }
     const operationChain = parse(row.operationChain);
     return { ...row, operationChain } as Schedule;
   }
