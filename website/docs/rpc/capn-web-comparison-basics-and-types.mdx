@@ -373,15 +373,15 @@ from a Durable Object (where you're billed on wall clock time) to a Worker
 This use case is one of the most common sources of repeated questions on the
 #durable-objects Discord channel.
 
-**Lumenize RPC**: ✅ Web API types work including body content  
+**Lumenize RPC**: ✅ Web API types work via `RequestSync`/`ResponseSync` (synchronous body access)  
 **Cap'n Web**: ❌ Cannot serialize any Web API types
 
 
 
 
 ```typescript test
-it('demonstrates Web API Request support', async () => {
-  const testRequest = new Request('https://example.com/test', {
+it('demonstrates Web API RequestSync support', async () => {
+  const testRequest = new RequestSync('https://example.com/test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ data: 'test payload' })
@@ -392,10 +392,10 @@ it('demonstrates Web API Request support', async () => {
   // ==========================================================================
   using lumenizeClient = getLumenizeClient('request');
   const lumenizeResult = await lumenizeClient.echo(testRequest);
-  expect(lumenizeResult).toBeInstanceOf(Request); // ✅
+  expect(lumenizeResult).toBeInstanceOf(RequestSync); // ✅
   expect(lumenizeResult.url).toBe('https://example.com/test'); // ✅
   expect(lumenizeResult.method).toBe('POST'); // ✅
-  expect(await lumenizeResult.json()).toEqual({ data: 'test payload' }); // ✅
+  expect(lumenizeResult.json()).toEqual({ data: 'test payload' }); // ✅ No await needed!
 
   // ==========================================================================
   // Cap'n Web

@@ -124,12 +124,14 @@ class MyDO extends LumenizeBase {
 }
 ```
 
-### POST with Request Object
+### POST with RequestSync Object
 
 ```typescript @skip-check
+import { RequestSync } from '@lumenize/structured-clone';
+
 class MyDO extends LumenizeBase {
   createOrder(orderData: any) {
-    const request = new Request('https://api.example.com/orders', {
+    const request = new RequestSync('https://api.example.com/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orderData)
@@ -159,11 +161,11 @@ class MyDO extends LumenizeBase {
 ### `this.svc.proxyFetch(request, continuation, options?)`
 
 **Parameters:**
-- `request`: `string | Request` - URL or Request object
+- `request`: `string | RequestSync` - URL or RequestSync object
 - `continuation`: OCAN continuation created with `this.ctn().handlerMethod()`
 - `options?`: Optional configuration
 
-**Returns:** `Promise<string>` - Request ID (for logging/debugging)
+**Returns:** `string` - Request ID (for logging/debugging)
 
 **Options:**
 ```typescript @skip-check

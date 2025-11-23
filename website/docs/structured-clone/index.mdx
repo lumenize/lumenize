@@ -25,17 +25,17 @@ import TypeSupportTable from '@site/docs/_partials/_type-support-table.mdx';
 ### Key Features
 
 - **Platform Independent**: Works in Node.js, browsers, Deno, Bun, and Cloudflare Workers
-- **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects
+- **Full Type Support**: All primitives, special numbers (`NaN`, `Infinity`, `-Infinity`), built-in types (`Date`, `RegExp`, `Map`, `Set`), typed arrays, and Web API objects (via RequestSync/ResponseSync)
 - **Error Fidelity**: Preserves stack traces, `cause` chains, custom properties, and subclass types (including custom Error classes!)
 - **Circular References**: Automatically handled with `$lmz` reference markers
 - **Zero Dependencies**: No external packages required
-- **Async API**: Supports Request/Response body reading
+- **Synchronous API**: No async/await needed for serialization
 
 ## Basic Usage
 
 The core API is simple: `stringify()` to serialize, `parse()` to deserialize.
 
-**Note:** Both functions are `async` to support Request/Response body reading.
+Both functions are **synchronous** - no `await` needed!
 
 ```typescript @check-example packages/structured-clone/test/for-docs/basic-usage.test.ts
 import { stringify, parse } from '@lumenize/structured-clone';
@@ -46,8 +46,8 @@ const user = {
   active: true
 };
 
-const serialized = await stringify(user);
-const restored = await parse(serialized);
+const serialized = stringify(user);
+const restored = parse(serialized);
 
 expect(restored).toEqual(user);
 ```
@@ -66,7 +66,7 @@ const appError = new Error('Failed to fetch user data', {
   cause: networkError 
 });
 
-const restored = await parse(await stringify(appError));
+const restored = parse(stringify(appError));
 
 expect(restored.message).toBe('Failed to fetch user data');
 expect(restored.cause).toBeInstanceOf(Error);
@@ -82,7 +82,7 @@ const apiError: any = new Error('API request failed');
 apiError.statusCode = 500;
 apiError.endpoint = '/api/users';
 
-const restored: any = await parse(await stringify(apiError));
+const restored: any = parse(stringify(apiError));
 
 expect(restored.message).toBe('API request failed');
 expect(restored.statusCode).toBe(500);
@@ -105,7 +105,7 @@ All standard JavaScript Error types are automatically preserved with correct `in
 **Example:**
 ```typescript @check-example packages/structured-clone/test/for-docs/errors.test.ts
 const typeError = new TypeError('Expected string, got number');
-const restored = await parse(await stringify(typeError));
+const restored = parse(stringify(typeError));
 
 expect(restored).toBeInstanceOf(TypeError); // ✅ Type preserved!
 expect(restored).toBeInstanceOf(Error);     // ✅ Also an Error
@@ -146,7 +146,7 @@ export class ValidationError extends Error {
 
 ```typescript @check-example packages/structured-clone/test/for-docs/errors.test.ts
 const error = new ValidationError('Invalid email', 'email');
-const restored = await parse(await stringify(error));
+const restored = parse(stringify(error));
 
 // ...
 expect(restored instanceof ValidationError).toBe(true); // ✅ true!
@@ -160,27 +160,29 @@ If you don't register the class globally, deserialization falls back to base `Er
 
 ### Web API Objects Example
 
-Serialize Request/Response objects for storage, queues, or RPC:
+Serialize RequestSync/ResponseSync objects for storage, queues, or RPC:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/web-api.test.ts
+import { RequestSync, ResponseSync } from '@lumenize/structured-clone';
+
 const apiData = {
-  incomingRequest: new Request('https://api.example.com/endpoint', {
+  incomingRequest: new RequestSync('https://api.example.com/endpoint', {
     method: 'POST',
     body: 'request data'
   }),
-  outgoingResponse: new Response('response data', {
+  outgoingResponse: new ResponseSync('response data', {
     status: 200
   }),
   timestamp: Date.now()
 };
 
-const restored = await parse(await stringify(apiData));
+const restored = parse(stringify(apiData));
 
-expect(restored.incomingRequest).toBeInstanceOf(Request);
+expect(restored.incomingRequest).toBeInstanceOf(RequestSync);
 // ...
 ```
 
-**Note:** Request/Response bodies are consumed during serialization (streams become strings). You should clone the Request/Response if you need them preserved.
+**Note:** Use `RequestSync`/`ResponseSync` instead of native `Request`/`Response` for synchronous body access and serialization support.
 
 ## Advanced API
 
@@ -191,8 +193,8 @@ The package provides a three-tier API for different use cases:
 The main API for most use cases. Serializes to/from JSON strings:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/api-tiers.test.ts
-const jsonString = await stringify(complexObject);  // Returns JSON string
-const restored = await parse(jsonString);           // Reconstructs from JSON string
+const jsonString = stringify(complexObject);  // Returns JSON string
+const restored = parse(jsonString);           // Reconstructs from JSON string
 ```
 
 ### Tier 2: `preprocess()` / `postprocess()` - Intermediate Format
@@ -200,38 +202,11 @@ const restored = await parse(jsonString);           // Reconstructs from JSON st
 For scenarios where you want a simple object format without stringification:
 
 ```typescript @check-example packages/structured-clone/test/for-docs/api-tiers.test.ts
-const intermediate = await preprocess(complexObject);  // Returns { root, objects }
-const restored = await postprocess(intermediate);      // Reconstructs from object
+const intermediate = preprocess(complexObject);  // Returns { root, objects }
+const restored = postprocess(intermediate);      // Reconstructs from object
 ```
 
 **Use for:** `MessagePort`, `BroadcastChannel`, BJSON, Cloudflare: Workers RPC, Durable Object KV Storage, Queues, etc.
-
-### Tier 3: `encode*()` / `decode*()` - Type-Specific Encoding
-
-For encoding specific Web API types when you need explicit control:
-
-```typescript @check-example packages/structured-clone/test/for-docs/api-tiers.test.ts
-// Encode Request for storage or transmission
-const encoded = await encodeRequest(request);  // Plain object
-// Later... decode back to Request
-const decoded = decodeRequest(encoded);        // Reconstructed Request
-```
-
-**Use for:** Embedding Request/Response in larger structures that are separately serialized (e.g., Durable Object storage, Cloudflare Queues)
-
-**Example - DO Storage:**
-```typescript @skip-check
-// Store Request in DO storage
-const encodedRequest = await encodeRequest(request);
-ctx.storage.kv.put('my-request', { 
-  timestamp: new Date(),  // DO storage KV supports Date, but not Request
-  request: encodedRequest  // Plain object, storage handles serialization
-});
-
-// Later... retrieve and decode
-const stored = ctx.storage.kv.get('my-request');
-const restoredRequest = decodeRequest(stored.request);
-```
 
 ### Performance
 
