@@ -63,7 +63,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
   });
 
   it('Circular reference with Map', async () => {
-    const circularKey = { type: 'key' };
+    const circularKey: { type: string; backref?: Map<any, any> } = { type: 'key' };
     const circularMap = new Map([[circularKey, 'data']]);
     circularKey.backref = circularMap;  // Circular!
 
@@ -75,7 +75,7 @@ describe('Identity Preservation - Match Native structuredClone', () => {
     const clonedCircularKeys = Array.from(clonedCircular.keys());
 
     // ✅ Circular reference preserved!
-    expect(clonedCircularKeys[0].backref === clonedCircular).toBe(true);
+    expect((clonedCircularKeys[0] as any).backref === clonedCircular).toBe(true);
   });
 
   it('preprocess/postprocess layer (SAME call - identity preserved!)', async () => {
