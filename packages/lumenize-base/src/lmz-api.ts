@@ -1,4 +1,3 @@
-import type { DurableObjectState } from 'cloudflare:workers';
 import { isDurableObjectId, getDOStub } from '@lumenize/utils';
 import { preprocess } from '@lumenize/structured-clone';
 import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
@@ -167,24 +166,25 @@ export interface LmzApi {
    * - Application code that wants actor model behavior
    * - Event handlers that need to trigger remote calls without blocking
    * - Methods that want to chain operations across DOs
+   * - Fire-and-forget calls (omit handler)
    * 
    * **Continuation pattern**:
    * - Remote continuation: what to execute on remote DO
-   * - Handler continuation: what to execute locally when result arrives
+   * - Handler continuation (optional): what to execute locally when result arrives
    * - Result/error automatically injected into handler via OCAN markers
    * 
    * **Requirements**:
    * - Caller must know its own bindingName (set in constructor via `this.lmz.init()`)
-   * - Both continuations must be created with `this.ctn()`
+   * - Continuations must be created with `this.ctn()`
    * 
    * **Parameters**:
    * - `calleeBindingName` - Binding name of target DO (e.g., 'REMOTE_DO')
    * - `calleeInstanceNameOrId` - Instance name/ID of target DO (undefined for Workers)
    * - `remoteContinuation` - What to execute remotely (from `this.ctn<RemoteDO>()`)
-   * - `handlerContinuation` - What to execute locally when done (from `this.ctn()`)
+   * - `handlerContinuation` - Optional: What to execute locally when done (from `this.ctn()`)
    * - `options` - Optional configuration
    * 
-   * **Returns**: void (returns immediately, handler executes asynchronously)
+   * **Returns**: void (returns immediately, handler executes asynchronously if provided)
    * 
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
@@ -192,7 +192,7 @@ export interface LmzApi {
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     remoteContinuation: Continuation<T>,
-    handlerContinuation: Continuation<any>,
+    handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void;
 }
@@ -346,7 +346,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       };
       
       // 3. Determine callee type
-      const calleeType = calleeInstanceNameOrId ? 'LumenizeBase' : 'LumenizeWorker';
+      const calleeType: "LumenizeBase" | "LumenizeWorker" = calleeInstanceNameOrId ? 'LumenizeBase' : 'LumenizeWorker';
       
       // 4. Build metadata
       const metadata = {
@@ -386,18 +386,23 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
       remoteContinuation: Continuation<T>,
-      handlerContinuation: Continuation<any>,
+      handlerContinuation?: Continuation<any>,
       options?: CallOptions
     ): void {
       // 1. Extract operation chains from continuations
       const remoteChain = getOperationChain(remoteContinuation);
-      const handlerChain = getOperationChain(handlerContinuation);
       
       if (!remoteChain) {
         throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
       }
-      if (!handlerChain) {
-        throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
+      
+      // Extract handler chain if provided
+      let handlerChain: OperationChain | undefined;
+      if (handlerContinuation) {
+        handlerChain = getOperationChain(handlerContinuation);
+        if (!handlerChain) {
+          throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
+        }
       }
       
       // 2. Validate caller knows its own binding (fail fast!)
@@ -414,23 +419,30 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
           // Call infrastructure layer
           const result = await this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
           
-          // Substitute result into handler continuation
-          const finalChain = replaceNestedOperationMarkers(handlerChain, result);
-          
-          // Execute handler locally on the DO instance
-          await executeOperationChain(finalChain, doInstance);
+          // Execute handler if provided
+          if (handlerChain) {
+            // Substitute result into handler continuation
+            const finalChain = replaceNestedOperationMarkers(handlerChain, result);
+            
+            // Execute handler locally on the DO instance
+            await executeOperationChain(finalChain, doInstance);
+          }
           
         } catch (error) {
-          // Inject Error into handler continuation
-          const errorObj = error instanceof Error ? error : new Error(String(error));
-          const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
-          
-          // Execute handler with error on the DO instance
-          await executeOperationChain(finalChain, doInstance);
+          // Execute error handler if provided
+          if (handlerChain) {
+            // Inject Error into handler continuation
+            const errorObj = error instanceof Error ? error : new Error(String(error));
+            const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
+            
+            // Execute handler with error on the DO instance
+            await executeOperationChain(finalChain, doInstance);
+          }
+          // If no handler, silently swallow error (fire-and-forget)
         }
       });
       
-      // Returns immediately! Handler executes when result arrives
+      // Returns immediately! Handler executes when result arrives (or fire-and-forget)
     },
   };
 }
@@ -537,7 +549,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       };
       
       // 3. Determine callee type
-      const calleeType = calleeInstanceNameOrId ? 'LumenizeBase' : 'LumenizeWorker';
+      const calleeType: "LumenizeBase" | "LumenizeWorker" = calleeInstanceNameOrId ? 'LumenizeBase' : 'LumenizeWorker';
       
       // 4. Build metadata
       const metadata = {

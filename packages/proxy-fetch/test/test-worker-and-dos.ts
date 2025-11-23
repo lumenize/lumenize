@@ -23,8 +23,8 @@ export class _TestSimpleDO extends LumenizeBase {
     await this.svc.alarms.alarm();
   }
 
-  async fetchDataSimple(url: string, reqId?: string): Promise<string> {
-    const finalReqId = await proxyFetch(
+  fetchDataSimple(url: string, reqId?: string): string {
+    const finalReqId = proxyFetch(
       this,
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
@@ -34,13 +34,13 @@ export class _TestSimpleDO extends LumenizeBase {
     return finalReqId;
   }
 
-  async fetchDataSimpleWithOptions(
+  fetchDataSimpleWithOptions(
     url: string, 
     options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } },
     reqId?: string
-  ): Promise<string> {
+  ): string {
     // User just passes their continuation directly - no handleFetchResult() needed!
-    const finalReqId = await proxyFetch(
+    const finalReqId = proxyFetch(
       this,
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
@@ -50,13 +50,13 @@ export class _TestSimpleDO extends LumenizeBase {
     return finalReqId;
   }
 
-  async fetchDataSimpleWithRequestSync(
+  fetchDataSimpleWithRequestSync(
     url: string,
     options: { method?: string; headers?: Record<string, string>; body?: any },
     reqId?: string
-  ): Promise<string> {
+  ): string {
     const request = new RequestSync(url, options);
-    const finalReqId = await proxyFetch(
+    const finalReqId = proxyFetch(
       this,
       request,
       this.ctn().handleFetchComplete(this.ctn().$result, request.url),
@@ -193,7 +193,7 @@ export class _TestSimpleDO extends LumenizeBase {
     
     // Fill $result with actual value (simulates worker pattern)
     const filled = await replaceNestedOperationMarkers(
-      getOperationChain(continuation),
+      getOperationChain(continuation)!,  // Non-null assertion - continuation is always valid
       testValue
     );
     
@@ -219,7 +219,7 @@ export class _TestSimpleDO extends LumenizeBase {
    * Get received value (for result filling test)
    */
   getReceivedValue(key: string): any {
-    const stored = this.ctx.storage.kv.get(`__test_value:${key}`);
+    const stored = this.ctx.storage.kv.get<string>(`__test_value:${key}`);
     return stored ? JSON.parse(stored) : undefined;
   }
 

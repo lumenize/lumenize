@@ -72,7 +72,6 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       requestType: isString ? 'string' : 'RequestSync'
     });
 
-    const startTime = Date.now();
     let result: ResponseSync | Error;
 
     // Execute fetch
@@ -97,7 +96,6 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
         log.debug('Fetch completed', {
           reqId: message.reqId,
           status: result.status,
-          duration: Date.now() - startTime
         });
       } catch (fetchError) {
         clearTimeout(timeoutId);
@@ -108,7 +106,6 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       log.error('Fetch failed', {
         reqId: message.reqId,
         error: result.message,
-        duration: Date.now() - startTime
       });
     }
 
@@ -157,7 +154,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       });
       
       // If delivery fails, origin DO will get timeout via alarm
-      // This is by design - alarm provides fallback timeout mechanism
+      // This is by design - alarm provides backstop timeout mechanism
     }
   }
 }

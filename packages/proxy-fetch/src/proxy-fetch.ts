@@ -42,13 +42,13 @@ export interface FetchMessage {
  * @param reqId - Optional request ID (generated if not provided)
  * @returns Request ID (for correlation/testing)
  */
-export async function proxyFetch(
+export function proxyFetch(
   doInstance: LumenizeBase,
   request: string | RequestSync,
   continuation: any,
   options?: ProxyFetchWorkerOptions,
   reqId?: string
-): Promise<string> {
+): string {
   const ctx = (doInstance as any).ctx;
   const env = (doInstance as any).env;
   const log = debug(doInstance)('lmz.proxyFetch');
@@ -139,38 +139,26 @@ export async function proxyFetch(
     fetchTimeout: timeout
   };
 
-  // Call Worker directly via this.lmz.callRaw()
-  try {
-    const executorBinding = options?.executorBinding || 'FETCH_EXECUTOR';
-    
-    log.debug('Calling worker via callRaw', {
-      reqId: finalReqId,
-      executorBinding,
-      url
-    });
+  // Call Worker directly via this.lmz.call() (fire-and-forget)
+  // Worker will explicitly call back to __handleProxyFetchResult when done
+  const executorBinding = options?.executorBinding || 'FETCH_EXECUTOR';
+  
+  log.debug('Calling worker via call()', {
+    reqId: finalReqId,
+    executorBinding,
+    url
+  });
 
-    // Create continuation for executeFetch call on remote worker
-    const remoteContinuation = doInstance.ctn<FetchExecutorEntrypoint>().executeFetch(message);
+  // call() returns immediately, uses blockConcurrencyWhile internally
+  // No handler needed - worker explicitly calls back to __handleProxyFetchResult
+  doInstance.lmz.call(
+    executorBinding,
+    undefined, // Workers don't have instance IDs
+    doInstance.ctn<FetchExecutorEntrypoint>().executeFetch(message) as any
+    // No handler - fire-and-forget (worker calls back explicitly)
+  );
 
-    // callRaw handles binding resolution, metadata propagation, and error handling
-    await doInstance.lmz.callRaw(
-      executorBinding,
-      undefined, // Workers don't have instance IDs
-      remoteContinuation
-    );
-
-    log.debug('Worker called successfully', { reqId: finalReqId });
-  } catch (error) {
-    // If worker call fails, cancel alarm before throwing
-    doInstance.svc.alarms.cancelSchedule(finalReqId);
-    
-    log.error('Failed to call worker executor', {
-      reqId: finalReqId,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    
-    throw new Error(`Failed to call worker executor: ${error}`);
-  }
+  log.debug('Worker call initiated (fire-and-forget)', { reqId: finalReqId });
 
   return finalReqId;
 }
