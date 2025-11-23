@@ -338,34 +338,6 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Actors (Cloudflare Actors ecosystem packages)
-    {
-      type: 'category',
-      label: 'Actors',
-      items: [
-        {
-          type: 'category',
-          label: 'Alarms',
-          items: [
-            {
-              type: 'doc',
-              id: 'actors/alarms/basic-usage',
-              customProps: {
-                docTest: 'doc-test/actors/alarms/basic-usage/test/basic-usage.test.ts'
-              }
-            },
-            {
-              type: 'doc',
-              id: 'actors/alarms/plain-usage',
-              customProps: {
-                docTest: 'doc-test/actors/alarms/plain-usage/test/basic-usage.test.ts'
-              }
-            },
-          ],
-        },
-      ],
-    },
-
     // Lumenize
     {
       type: 'category',
