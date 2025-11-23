@@ -121,7 +121,7 @@ describe('Mixed Web API Objects', () => {
   });
 
   it('handles Web API objects in Maps', () => {
-    const map = new Map([
+    const map = new Map<string, URL | Headers>([
       ['url', new URL('https://test.com')],
       ['headers', new Headers({ 'x-test': 'value' })]
     ]);
