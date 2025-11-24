@@ -25,7 +25,7 @@ import { debug } from '@lumenize/core';
 import { LumenizeWorker } from '@lumenize/lumenize-base';
 import { ResponseSync } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
-import type { FetchMessage } from './proxy-fetch';
+import type { FetchMessage } from './fetch';
 
 const DEFAULT_TIMEOUT = 30000;
 
@@ -34,7 +34,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
    * Execute an external fetch request
    * 
    * Called by origin DO directly via RPC. Returns immediately, then executes
-   * fetch in background. Calls back to origin DO's `__handleProxyFetchResult()` method.
+   * fetch in background. Calls back to origin DO's `svc.fetch.__handleProxyFetchResult()` via OCAN.
    * 
    * Flow:
    * 1. Quick RPC acknowledgment (microseconds)
@@ -124,10 +124,10 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
     });
 
     try {
-      // Create continuation with $result placeholder for remote DO method
-      // Pattern: __handleProxyFetchResult(reqId, $result)
+      // Create continuation with $result placeholder for remote DO's Fetch plugin
+      // Pattern: svc.fetch.__handleProxyFetchResult(reqId, $result)
       // Note: stringifiedUserContinuation is NOT passed - it's extracted from the alarm
-      const handleResultContinuation = (this.ctn() as any).__handleProxyFetchResult(
+      const handleResultContinuation = (this.ctn() as any).svc.fetch.__handleProxyFetchResult(
         message.reqId,
         (this.ctn() as any).$result // Placeholder
       );
@@ -137,6 +137,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       if (!chain) {
         throw new Error('Invalid continuation created for result delivery');
       }
+      
       const filledContinuation = await replaceNestedOperationMarkers(chain, result);
 
       // Call origin DO via callRaw (automatic metadata propagation)

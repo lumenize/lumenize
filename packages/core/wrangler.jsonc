@@ -1,6 +1,6 @@
 {
   "name": "lumenize-core-test",
-  "main": "sql/test/test-do.ts",
+  "main": "test-worker-and-dos.ts",
   "compatibility_date": "2025-09-12",
   "durable_objects": {
     "bindings": [

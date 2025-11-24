@@ -30,6 +30,7 @@
  * IMPORTANT: error() level ALWAYS outputs, regardless of DEBUG filter.
  */
 
+import { NadisPlugin } from '@lumenize/lumenize-base';
 import { createMatcher } from './pattern-matcher';
 import { DebugLoggerImpl } from './logger';
 import type { DebugLogger } from './types';
@@ -77,7 +78,7 @@ export function debug(withEnv: any): (namespace: string) => DebugLogger {
 // Export types for external use
 export type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from './types';
 
-// TypeScript declaration merging magic
+// TypeScript declaration merging for type safety
 // This augments the global LumenizeServices interface so TypeScript knows
 // about this.svc.debug when you import this package
 declare global {
@@ -86,9 +87,5 @@ declare global {
   }
 }
 
-// Register service in global registry for LumenizeBase auto-injection
-if (!(globalThis as any).__lumenizeServiceRegistry) {
-  (globalThis as any).__lumenizeServiceRegistry = {};
-}
-(globalThis as any).__lumenizeServiceRegistry.debug = (withEnv: any) => debug(withEnv);
-
+// Register service in NADIS registry
+NadisPlugin.register('debug', (withEnv) => debug(withEnv));

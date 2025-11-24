@@ -60,47 +60,58 @@ export abstract class NadisPlugin {
 - ✅ No breaking changes to existing NADIS system
 - ✅ Tests verify base functionality
 
-## Phase 2: Convert SQL and Debug to Use NadisPlugin.register()
+## Phase 2: Convert sql and debug to use NadisPlugin.register() ✅ COMPLETED
 
-**Goal**: Convert `@lumenize/core` (sql and debug) to use `NadisPlugin.register()` helper for consistent registration pattern.
+**Goal**: Migrate sql and debug from `@lumenize/core` to use `NadisPlugin.register()`.
 
-**Why First**: Alarms depends on sql, so sql must use the new registration pattern before we convert alarms.
+**Initial Concern**: Potential circular dependency:
+- `@lumenize/lumenize-base` has `@lumenize/core` as devDependency (for tests)
+- Converting `@lumenize/core` to use `NadisPlugin` would make it depend on `@lumenize/lumenize-base`
 
-**Note**: These remain functions (not classes) since they're stateless. We're just cleaning up the registration boilerplate.
+**Resolution**: No circular dependency exists:
+- `@lumenize/core` **depends on** `@lumenize/lumenize-base` (production dependency)
+- `@lumenize/lumenize-base` **devDepends on** `@lumenize/core` (test-only)
+- This is a valid one-way dependency (core → lumenize-base)
 
-**Current** (sql):
-```typescript
-// In packages/core/sql/index.ts
-if (!(globalThis as any).__lumenizeServiceRegistry) {
-  (globalThis as any).__lumenizeServiceRegistry = {};
-}
-(globalThis as any).__lumenizeServiceRegistry.sql = (doInstance: any) => sql(doInstance);
-```
+**Key Insight**: Tests must dogfood the NADIS pattern. The initial error was caused by test files directly importing `sql()` and `debug()` instead of using `this.svc.sql` and `this.svc.debug` via NADIS auto-registration.
 
-**After** (sql):
+**Implementation**:
+1. Modified `packages/core/sql/index.ts` to use `NadisPlugin.register()`
+2. Modified `packages/core/debug/index.ts` to use `NadisPlugin.register()`
+3. Created `packages/core/test-worker-and-dos.ts` with DOs extending `LumenizeBase`
+4. Updated all tests to access services via NADIS (`this.svc.*`)
+
+**Converted** (sql and debug now use):
 ```typescript
 import { NadisPlugin } from '@lumenize/lumenize-base';
 
-// Registration (2 lines)
-declare global { interface LumenizeServices { sql: ReturnType<typeof sql>; } }
+// ... implementation ...
+
+declare global {
+  interface LumenizeServices {
+    sql: ReturnType<typeof sql>;
+  }
+}
+
 NadisPlugin.register('sql', (doInstance) => sql(doInstance));
 ```
 
 **Success Criteria**:
-- ✅ sql uses `NadisPlugin.register()`
-- ✅ debug uses `NadisPlugin.register()`
-- ✅ Declaration merging unchanged (still works)
-- ✅ All tests pass unchanged
-- ✅ Reduced boilerplate (from 4 lines to 2 for registration)
+- ✅ sql and debug use `NadisPlugin.register()` for registration
+- ✅ All tests pass (47 tests across 6 test files)
+- ✅ Tests dogfood NADIS pattern (use `this.svc.*` not direct imports)
+- ✅ No runtime circular dependency
+- ✅ Declaration merging provides full type safety
+- ✅ Removed tests of internal implementation details (pattern-matcher, error handling)
 
-## Phase 3: Refactor Alarms to Use NadisPlugin
+## Phase 3: Refactor Alarms to Use NadisPlugin ✅ COMPLETED
 
 **Goal**: Convert `@lumenize/alarms` to extend `NadisPlugin` base class as dogfooding test.
 
 **Key Changes**:
-- Extend `NadisPlugin` instead of standalone class
-- Use `this.svc.sql` for eager dependency validation
-- Simplify registration using `NadisPlugin.register()`
+- ✅ Extend `NadisPlugin` instead of standalone class
+- ✅ Use `this.svc.sql` for eager dependency validation
+- ✅ Simplify registration using `NadisPlugin.register()`
 
 **Before** (current pattern):
 ```typescript
@@ -161,16 +172,18 @@ NadisPlugin.register('alarms', (doInstance) => new Alarms(doInstance));
 - ✅ Alarms extends `NadisPlugin`
 - ✅ Simplified constructor (no manual ctx/deps handling)
 - ✅ Registration uses `NadisPlugin.register()`
-- ✅ All tests pass unchanged
+- ✅ All tests pass (52 tests passing)
 - ✅ Eager dependency validation works (error if sql not imported)
 - ✅ **Dogfooding in tests**: `test/test-worker-and-dos.ts` uses NADIS import pattern:
-  - Imports `'@lumenize/core'` and `'@lumenize/alarms'`
+  - Imports `'@lumenize/core'` and `'@lumenize/alarms'` as side-effect imports
   - Test DOs extend `LumenizeBase`
   - Use `this.svc.sql` and `this.svc.alarms` (not manual instantiation)
 
-## Phase 4: Acid Test - Convert proxy-fetch
+**Completed**: All tests passing. Alarms now extends `NadisPlugin`, uses `this.ctx` (inherited), accesses `this.svc.sql` for eager validation, and registers via `NadisPlugin.register()`.
 
-**Goal**: Convert `@lumenize/proxy-fetch` to full NADIS plugin as final validation of the design.
+## Phase 4: Acid Test - Rename and Convert proxy-fetch to Fetch Plugin
+
+**Goal**: Rename `@lumenize/proxy-fetch` to `@lumenize/fetch` and convert to full NADIS plugin as final validation of the design.
 
 **Why Before Documentation**: If conversion reveals design issues, we can adjust the pattern before documenting it.
 
@@ -181,22 +194,39 @@ NadisPlugin.register('alarms', (doInstance) => new Alarms(doInstance));
 - If conversion is smooth, we've succeeded
 
 **Current Pattern**:
+- Package: `@lumenize/proxy-fetch`
 - Not registered in `__lumenizeServiceRegistry`
 - Monkey-patches LumenizeBase prototype
-- Called via `proxyFetch(this, ...)`
+- Called via `proxyFetch(this, url, continuation, options, reqId)`
 
 **Target Pattern**:
-- Full NADIS plugin: `this.svc.proxyFetch.fetch(...)`
-- No monkey-patching (everything on service instance)
-- Uses `NadisPlugin` base class
+- Package: `@lumenize/fetch`
+- Full NADIS plugin: `this.svc.fetch.proxy(url, continuation, options, reqId)`
+- Add stub: `this.svc.fetch.direct(url, continuation, options)` (for future implementation)
+- No monkey-patching - `__handleProxyFetchResult` becomes internal method
+- Clean class-based implementation extending `NadisPlugin`
+
+**Steps**:
+1. Rename package directory from `proxy-fetch` to `fetch`
+2. Update `package.json` name from `@lumenize/proxy-fetch` to `@lumenize/fetch`
+3. Create `Fetch` class extending `NadisPlugin`
+4. Move `__handleProxyFetchResult` from prototype monkey-patch to internal class method
+5. Refactor `proxyFetch()` function to `proxy()` method on `Fetch` class
+6. Add stub `direct()` method for future direct fetch implementation
+7. Register using `NadisPlugin.register('fetch', ...)` (not 'proxyFetch')
+8. Update all imports across codebase from `@lumenize/proxy-fetch` to `@lumenize/fetch`
+9. Update all test files to use NADIS pattern (side-effect imports, `this.svc.fetch.proxy()`)
+10. Update wrangler.jsonc, vitest configs, and other package references
+11. Verify all tests pass
 
 **Success Criteria**:
-- ✅ `ProxyFetch` class extends `NadisPlugin`
-- ✅ Registered with `NadisPlugin.register()`
-- ✅ No prototype monkey-patching
-- ✅ Namespaced: `this.svc.proxyFetch.fetch(...)`
-- ✅ All tests pass with new pattern
-- ✅ Conversion was smooth (validates design quality)
+- ✅ Package renamed to `@lumenize/fetch`
+- ✅ No more monkey-patching of LumenizeBase
+- ✅ Clean `this.svc.fetch.proxy()` API
+- ✅ Stub `this.svc.fetch.direct()` ready for future implementation
+- ✅ All existing tests pass
+- ✅ Test files dogfood NADIS pattern (side-effect imports, extend LumenizeBase)
+- ✅ All package references updated across monorepo
 
 **If Conversion Is Hard**: Revisit NadisPlugin design before documenting.
 

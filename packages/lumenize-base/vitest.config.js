@@ -16,6 +16,7 @@ export default defineWorkersProject({
       reporter: ['text', 'html', 'lcov'],
       include: [
         'src/lumenize-base.ts',
+        'src/nadis-plugin.ts',
         'src/ocan/**/*.ts',
         'test/test-worker-and-dos.ts'
       ],

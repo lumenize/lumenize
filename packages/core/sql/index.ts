@@ -1,3 +1,5 @@
+import { NadisPlugin } from '@lumenize/lumenize-base';
+
 /**
  * SQL template literal tag for Durable Object storage.
  * 
@@ -59,7 +61,7 @@ export function sql(doInstance: any) {
   };
 }
 
-// TypeScript declaration merging magic
+// TypeScript declaration merging for type safety
 // This augments the global LumenizeServices interface so TypeScript knows
 // about this.svc.sql when you import this package
 declare global {
@@ -68,9 +70,5 @@ declare global {
   }
 }
 
-// Register service in global registry for LumenizeBase auto-injection
-if (!(globalThis as any).__lumenizeServiceRegistry) {
-  (globalThis as any).__lumenizeServiceRegistry = {};
-}
-(globalThis as any).__lumenizeServiceRegistry.sql = (doInstance: any) => sql(doInstance);
-
+// Register service in NADIS registry
+NadisPlugin.register('sql', (doInstance) => sql(doInstance));

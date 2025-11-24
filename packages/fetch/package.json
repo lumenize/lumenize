@@ -1,7 +1,7 @@
 {
-  "name": "@lumenize/proxy-fetch",
+  "name": "@lumenize/fetch",
   "version": "0.17.0",
-  "description": "De✨light✨ful proxy fetch for cost-effective external API calls from Durable Objects",
+  "description": "De✨light✨ful fetch utilities for Durable Objects - proxy and direct fetch strategies",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -42,6 +42,7 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
+    "@lumenize/alarms": "*",
     "@lumenize/core": "*",
     "@lumenize/lumenize-base": "*",
     "@lumenize/structured-clone": "^0.17.0",

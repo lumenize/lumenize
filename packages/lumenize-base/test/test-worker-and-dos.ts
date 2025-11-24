@@ -12,6 +12,9 @@ import { preprocess } from '@lumenize/structured-clone';
 // Export documentation example DOs
 export { UsersDO, NotificationsDO } from './for-docs/basic-usage.test';
 
+// Export test DO for NadisPlugin tests
+export { NadisPluginTestDO } from './nadis-plugin-test-do';
+
 export class TestDO extends LumenizeBase<Env> {
   executedAlarms: Array<{ payload: any; schedule: Schedule }> = [];
 

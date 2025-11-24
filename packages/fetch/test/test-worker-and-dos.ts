@@ -1,7 +1,6 @@
-import '@lumenize/core';        // Registers sql in this.svc
-import '@lumenize/alarms';      // Registers alarms in this.svc
+import '@lumenize/fetch';       // Registers fetch in this.svc
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import { FetchExecutorEntrypoint, proxyFetch } from '@lumenize/proxy-fetch';
+import { FetchExecutorEntrypoint } from '@lumenize/fetch';
 import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
 
@@ -24,8 +23,7 @@ export class _TestSimpleDO extends LumenizeBase {
   }
 
   fetchDataSimple(url: string, reqId?: string): string {
-    const finalReqId = proxyFetch(
-      this,
+    const finalReqId = this.svc.fetch.proxy(
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
       {},
@@ -40,8 +38,7 @@ export class _TestSimpleDO extends LumenizeBase {
     reqId?: string
   ): string {
     // User just passes their continuation directly - no handleFetchResult() needed!
-    const finalReqId = proxyFetch(
-      this,
+    const finalReqId = this.svc.fetch.proxy(
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
       options,
@@ -56,8 +53,7 @@ export class _TestSimpleDO extends LumenizeBase {
     reqId?: string
   ): string {
     const request = new RequestSync(url, options);
-    const finalReqId = proxyFetch(
-      this,
+    const finalReqId = this.svc.fetch.proxy(
       request,
       this.ctn().handleFetchComplete(this.ctn().$result, request.url),
       {},

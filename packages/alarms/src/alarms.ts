@@ -4,9 +4,10 @@
 // Modifications: Complete rewrite to use OCAN (Operation Chaining And Nesting),
 // NADIS dependency injection pattern, lazy table initialization, TypeScript generics
 
+import '@lumenize/core';  // Side-effect import for NADIS registration (sql, debug)
 import { parseCronExpression } from 'cron-schedule';
 import { debug, type sql as sqlType, type DebugLogger } from '@lumenize/core';
-import { getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
+import { NadisPlugin, getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
 import { preprocess, parse } from '@lumenize/structured-clone';
 import { ulidFactory } from 'ulid-workers';
 import type { Schedule } from './types.js';
@@ -27,41 +28,7 @@ function getNextCronTime(cron: string): Date {
  * Uses OCAN (Operation Chaining And Nesting) for type-safe callbacks.
  * 
  * @example
- * Standalone usage:
- * ```typescript
- * import { Alarms } from '@lumenize/alarms';
- * import { sql } from '@lumenize/core';
- * import { DurableObject } from 'cloudflare:workers';
- * 
- * class MyDO extends DurableObject {
- *   #alarms: Alarms;
- *   
- *   constructor(ctx: DurableObjectState, env: Env) {
- *     super(ctx, env);
- *     this.#alarms = new Alarms(ctx, this, { sql: sql(this) });
- *   }
- *   
- *   // Required: delegate to Alarms
- *   async alarm() {
- *     await this.#alarms.alarm();
- *   }
- *   
- *   scheduleTask() {
- *     // Use OCAN to define what to execute
- *     const schedule = this.#alarms.schedule(
- *       60,  // 60 seconds from now
- *       this.ctn().handleTask({ data: 'example' })
- *     );
- *   }
- *   
- *   handleTask(payload: { data: string }) {
- *     console.log('Task executed:', payload);
- *   }
- * }
- * ```
- * 
- * @example
- * With LumenizeBase (auto-injected):
+ * With LumenizeBase (recommended - auto-injected):
  * ```typescript
  * import '@lumenize/alarms';  // Registers alarms in this.svc
  * import { LumenizeBase } from '@lumenize/lumenize-base';
@@ -84,37 +51,28 @@ function getNextCronTime(cron: string): Date {
  * }
  * ```
  */
-export class Alarms {
-  #parent: any;
+export class Alarms extends NadisPlugin {
   #sql: ReturnType<typeof sqlType>;
   #storage: DurableObjectStorage;
   #tableInitialized = false;
   #log: DebugLogger;
-  #ctx: DurableObjectState;
 
-  constructor(
-    ctx: DurableObjectState,
-    doInstance: any,
-    deps?: { sql?: ReturnType<typeof sqlType> }
-  ) {
-    this.#ctx = ctx;
-    this.#parent = doInstance;
-    this.#storage = ctx.storage;
-    this.#log = debug(doInstance)('lmz.alarms.Alarms');
+  constructor(doInstance: any) {
+    super(doInstance);
     
-    // Use provided sql or get from DO instance (NADIS pattern)
-    if (deps?.sql) {
-      this.#sql = deps.sql;
-    } else if ('svc' in doInstance && doInstance.svc && 'sql' in doInstance.svc) {
-      this.#sql = (doInstance.svc as any).sql;
-    } else {
-      throw new Error('Alarms requires sql injectable. Pass it in deps or use LumenizeBase.');
+    // Eager dependency validation - fails immediately if sql not available
+    if (!this.svc.sql) {
+      throw new Error('Alarms requires @lumenize/core to be imported for sql dependency');
     }
+    this.#sql = this.svc.sql;
+    
+    this.#storage = this.ctx.storage;
+    this.#log = debug(doInstance)('lmz.alarms.Alarms');
 
     // Try to initialize in blockConcurrencyWhile if we're in constructor phase
     // This will fail silently if called outside constructor (lazy init case)
     try {
-      void ctx.blockConcurrencyWhile(async () => {
+      void this.ctx.blockConcurrencyWhile(async () => {
         this.#ensureTable();
         // Execute any pending alarms and schedule the next alarm
         await this.alarm();
@@ -221,7 +179,7 @@ export class Alarms {
       });
       
       // Store asynchronously - blockConcurrencyWhile prevents race conditions but doesn't block return
-      void this.#ctx.blockConcurrencyWhile(async () => {
+      void this.ctx.blockConcurrencyWhile(async () => {
         await this.#storeSchedule(id, operationChain, 'scheduled', timestamp, { time: timestamp });
         this.#log.debug('Alarm stored and next alarm scheduled', { id, timestamp });
         this.#scheduleNextAlarm();
@@ -240,7 +198,7 @@ export class Alarms {
       const timestamp = Math.floor(time.getTime() / 1000);
       
       // Store asynchronously - blockConcurrencyWhile prevents race conditions but doesn't block return
-      void this.#ctx.blockConcurrencyWhile(async () => {
+      void this.ctx.blockConcurrencyWhile(async () => {
         await this.#storeSchedule(id, operationChain, 'delayed', timestamp, { delayInSeconds: when });
         this.#scheduleNextAlarm();
       });
@@ -259,7 +217,7 @@ export class Alarms {
       const timestamp = Math.floor(nextExecutionTime.getTime() / 1000);
       
       // Store asynchronously - blockConcurrencyWhile prevents race conditions but doesn't block return
-      void this.#ctx.blockConcurrencyWhile(async () => {
+      void this.ctx.blockConcurrencyWhile(async () => {
         await this.#storeSchedule(id, operationChain, 'cron', timestamp, { cron: when });
         this.#scheduleNextAlarm();
       });
@@ -480,7 +438,7 @@ export class Alarms {
       try {
         // Deserialize and execute the operation chain using LumenizeBase's __executeChain()
         const operationChain = parse(row.operationChain);
-        await (this.#parent as any).__executeChain(operationChain);
+        await (this.doInstance as any).__executeChain(operationChain);
         executedIds.push(row.id);
       } catch (e) {
         this.#log.error('Error executing alarm', {
@@ -579,27 +537,13 @@ export class Alarms {
   }
 }
 
-// TypeScript declaration merging magic
-// This augments the global LumenizeServices interface so TypeScript knows
-// about this.svc.alarms when you import this package
+// TypeScript declaration merging - augments LumenizeServices interface
+// Provides type safety for this.svc.alarms
 declare global {
   interface LumenizeServices {
     alarms: Alarms;
   }
 }
 
-// Register service in global registry for LumenizeBase auto-injection
-if (!(globalThis as any).__lumenizeServiceRegistry) {
-  (globalThis as any).__lumenizeServiceRegistry = {};
-}
-(globalThis as any).__lumenizeServiceRegistry.alarms = (doInstance: any) => {
-  // Auto-inject dependencies
-  const deps: any = {};
-  
-  // Alarms needs sql - get it from doInstance.svc (will be cached by LumenizeBase)
-  if (doInstance.svc && doInstance.svc.sql) {
-    deps.sql = doInstance.svc.sql;
-  }
-  
-  return new Alarms(doInstance.ctx, doInstance, deps);
-};
+// Register alarms service using NadisPlugin helper
+NadisPlugin.register('alarms', (doInstance) => new Alarms(doInstance));

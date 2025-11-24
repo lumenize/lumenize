@@ -11,6 +11,8 @@ export type { Continuation } from './lumenize-base';
 export { LumenizeWorker } from './lumenize-worker';
 // Continuation type is the same for both LumenizeBase and LumenizeWorker
 
+export { NadisPlugin } from './nadis-plugin';
+
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope, CallOptions } from './lmz-api';
 
