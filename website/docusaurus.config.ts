@@ -133,10 +133,10 @@ const config: Config = {
       [
         'docusaurus-plugin-typedoc',
         {
-          id: 'proxy-fetch',
-          entryPoints: ['../packages/proxy-fetch/src/index.ts'],
-          tsconfig: '../packages/proxy-fetch/tsconfig.json',
-          out: 'docs/proxy-fetch/api',
+          id: 'fetch',
+          entryPoints: ['../packages/fetch/src/index.ts'],
+          tsconfig: '../packages/fetch/tsconfig.json',
+          out: 'docs/fetch/api',
           sidebar: {
             autoConfiguration: true,
           },

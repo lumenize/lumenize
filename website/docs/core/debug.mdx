@@ -130,7 +130,7 @@ All logs output as pretty-printed JSON objects to `console.debug`:
 {
   "type": "debug",  // Says "this is from Lumenize debug"
   "level": "info",
-  "namespace": "lmz.proxy-fetch.proxyFetchQueueConsumer",
+  "namespace": "lmz.fetch.proxyFetchQueueConsumer",
   "message": "Processing request",
   "url": "https://api.example.com/data",
   "method": "POST",
@@ -139,7 +139,7 @@ All logs output as pretty-printed JSON objects to `console.debug`:
 ```
 
 This format integrates with Cloudflare's observability dashboard, allowing you to:
-- Query by field (e.g., `namespace:"lmz.proxy-fetch.proxyFetchQueueConsumer"`)
+- Query by field (e.g., `namespace:"lmz.fetch.proxyFetchQueueConsumer"`)
 - Filter by level
 - Search message content
 - Analyze structured data
@@ -177,12 +177,12 @@ if (log.enabled) {
 ## Lumenize Internals
 
 `lmz.{package-name}.{ActualIdentifier}` convention:
-- Package names: kebab-case (npm convention) - `rpc`, `proxy-fetch`, `utils`
+- Package names: kebab-case (npm convention) - `rpc`, `fetch`, `utils`
 - Identifiers: actual case from code - `RpcClient`, `routeDORequest`, `ProxyFetchDO`
 
 Examples:
 - `lmz.rpc.RpcClient`, `lmz.rpc.WebSocketRpcTransport`
-- `lmz.proxy-fetch.ProxyFetchDO`, `lmz.proxy-fetch.proxyFetchQueueConsumer`
+- `lmz.fetch.ProxyFetchDO`, `lmz.fetch.proxyFetchQueueConsumer`
 - `lmz.utils.routeDORequest`
 - `lmz.alarms.Alarms`
 

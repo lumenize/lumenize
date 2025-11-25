@@ -7,7 +7,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 let typedocRpcSidebar: any[] = [];
 let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
-let typedocProxyFetchSidebar: any[] = [];
+let typedocFetchSidebar: any[] = [];
 let typedocStructuredCloneSidebar: any[] = [];
 let typedocCoreSidebar: any[] = [];
 let typedocAlarmsSidebar: any[] = [];
@@ -35,10 +35,10 @@ try {
 }
 
 try {
-  typedocProxyFetchSidebar = require('./docs/proxy-fetch/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded proxy-fetch sidebar, items:', typedocProxyFetchSidebar?.length);
+  typedocFetchSidebar = require('./docs/fetch/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded fetch sidebar, items:', typedocFetchSidebar?.length);
 } catch (e) {
-  console.warn('⚠️  TypeDoc proxy-fetch sidebar not yet generated, using empty sidebar');
+  console.warn('⚠️  TypeDoc fetch sidebar not yet generated, using empty sidebar');
 }
 
 try {
@@ -289,15 +289,15 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Proxy Fetch
+    // Fetch
     {
       type: 'category',
-      label: 'Proxy Fetch',
+      label: 'Fetch',
       items: [
-        'proxy-fetch/index',
-        'proxy-fetch/architecture-and-failure-modes',
-        ...(typedocProxyFetchSidebar && typedocProxyFetchSidebar.length > 0
-          ? [wrapInApiReference(typedocProxyFetchSidebar, 'API Reference')]
+        'fetch/index',
+        'fetch/architecture-and-failure-modes',
+        ...(typedocFetchSidebar && typedocFetchSidebar.length > 0
+          ? [wrapInApiReference(typedocFetchSidebar, 'API Reference')]
           : []),
       ],
     },

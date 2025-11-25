@@ -1,11 +1,11 @@
 ---
 title: Architecture & Failure Modes
-description: Detailed flow diagrams for happy paths, failure scenarios, and race conditions in proxy-fetch
+description: Detailed flow diagrams for happy paths, failure scenarios, and race conditions in fetch
 ---
 
 # Architecture & Failure Modes
 
-This document provides detailed flow diagrams for all scenarios in `@lumenize/proxy-fetch`, including happy paths, failure modes, and race conditions.
+This document provides detailed flow diagrams for all scenarios in `@lumenize/fetch`, including happy paths, failure modes, and race conditions.
 
 ## Core Architecture Principles
 
@@ -68,7 +68,7 @@ handleResult(result: ResponseSync | Error) {
 ## Basic Usage
 
 ```typescript @skip-check
-import '@lumenize/proxy-fetch';  // Registers as NADIS service
+import '@lumenize/fetch';  // Registers as NADIS service
 
 class MyDO extends LumenizeBase {
   fetchUserData(userId: string) {

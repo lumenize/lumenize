@@ -17,7 +17,7 @@ A de✨light✨ful way to make external API calls from Durable Objects without b
 ## Quick Start
 
 ```typescript @skip-check
-import '@lumenize/proxy-fetch';  // Registers as NADIS service
+import '@lumenize/fetch';  // Registers as NADIS service
 import '@lumenize/alarms';       // Required for timeout monitoring
 
 class MyDO extends LumenizeBase {
@@ -59,14 +59,14 @@ class MyDO extends LumenizeBase {
 ### 1. Install Dependencies
 
 ```bash @skip-check
-npm install @lumenize/proxy-fetch @lumenize/alarms
+npm install @lumenize/fetch @lumenize/alarms
 ```
 
 ### 2. Export `FetchExecutorEntrypoint` from your worker
 
 ```typescript @skip-check
 // src/index.ts
-export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
+export { FetchExecutorEntrypoint } from '@lumenize/fetch';
 ```
 
 ### 3. Add service binding in `wrangler.jsonc`
@@ -84,7 +84,7 @@ export { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 ### 4. Import to register
 
 ```typescript @skip-check
-import '@lumenize/proxy-fetch';
+import '@lumenize/fetch';
 import '@lumenize/alarms';
 ```
 
@@ -266,7 +266,7 @@ this.svc.proxyFetch(
 
 The **Origin DO decides retry strategy**. The alarm system only monitors timeouts - it never retries.
 
-**Race condition safety**: Handlers with early returns on errors are naturally safe from duplicate calls. Only add explicit deduplication if you perform destructive actions on both success AND error. See [Race Conditions](/docs/proxy-fetch/architecture-and-failure-modes#race-conditions) for details.
+**Race condition safety**: Handlers with early returns on errors are naturally safe from duplicate calls. Only add explicit deduplication if you perform destructive actions on both success AND error. See [Race Conditions](/docs/fetch/architecture-and-failure-modes#race-conditions) for details.
 
 ### Sequential Retry Pattern
 
@@ -370,7 +370,7 @@ class PaymentDO extends LumenizeBase {
 
 For detailed architecture diagrams, failure scenarios, and race condition handling, see:
 
-👉 **[Architecture & Failure Modes](/docs/proxy-fetch/architecture-and-failure-modes)**
+👉 **[Architecture & Failure Modes](/docs/fetch/architecture-and-failure-modes)**
 
 **High-level flow:**
 1. Origin DO → Schedule alarm with embedded continuation
@@ -409,4 +409,4 @@ This common pattern is safe because destructive operations only happen on the su
 
 **Only risky if** you perform destructive actions on BOTH success AND error (e.g., incrementing error counters, sending alerts). In that case, use idempotency keys or check for "delivery timeout" in error messages.
 
-See [Race Conditions](/docs/proxy-fetch/architecture-and-failure-modes#race-conditions) for detailed examples.
+See [Race Conditions](/docs/fetch/architecture-and-failure-modes#race-conditions) for detailed examples.
