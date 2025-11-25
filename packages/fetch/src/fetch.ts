@@ -181,6 +181,7 @@ export class Fetch extends NadisPlugin {
     };
 
     // Call Worker directly via lmz.call() (fire-and-forget)
+    // Worker will explicitly call back to svc.fetch.__handleProxyFetchResult when done
     const executorBinding = options?.executorBinding || 'FETCH_EXECUTOR';
     
     this.#log.debug('Calling worker via call()', {
@@ -190,11 +191,11 @@ export class Fetch extends NadisPlugin {
     });
 
     // call() returns immediately, uses blockConcurrencyWhile internally
+    // No handler needed - worker explicitly calls back to svc.fetch.__handleProxyFetchResult
     (this.doInstance as any).lmz.call(
       executorBinding,
       undefined, // Workers don't have instance IDs
-      (this.doInstance.ctn() as any)<FetchExecutorEntrypoint>().executeFetch(message) as any
-      // No handler - fire-and-forget (worker calls back explicitly)
+      (this.doInstance as any).ctn<FetchExecutorEntrypoint>().executeFetch(message) as any
     );
 
     this.#log.debug('Worker call initiated (fire-and-forget)', { reqId: finalReqId });

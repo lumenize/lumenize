@@ -308,6 +308,7 @@ const sidebars: SidebarsConfig = {
       label: 'LumenizeBase',
       items: [
         'lumenize-base/index',
+        'lumenize-base/creating-plugins',
         ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
           ? [wrapInApiReference(typedocLumenizeBaseSidebar, 'API Reference')]
           : []),

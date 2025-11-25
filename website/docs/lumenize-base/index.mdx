@@ -211,13 +211,7 @@ All NADIS services work without `LumenizeBase` via manual instantiation. See [@l
 
 ## Creating NADIS Services
 
-To create your own NADIS-compatible service:
-
-1. Register a factory function in `globalThis.__lumenizeServiceRegistry`
-2. Augment the `LumenizeServices` interface via TypeScript declaration merging
-3. Ensure your service works standalone (without `LumenizeBase`)
-
-See `packages/core/src/sql.ts` or `packages/alarms/src/alarms.ts` for implementation examples.
+Want to create your own NADIS plugins? See the [Creating NADIS Plugins](/docs/lumenize-base/creating-plugins) guide for complete instructions and examples.
 
 ## Design Principles
 
