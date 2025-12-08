@@ -21,7 +21,7 @@ The **Lumenize Mesh (LM)** is an actor-model network where nodes communicate via
 
 **Infrastructure nodes** (not user-extended):
 - LumenizeGateway - Proxies between mesh and WebSocket client
-- LumenizeRouter (TBD) - Factory function for Worker routing with mesh defaults
+- createLumenizeRouter - Factory function for Worker routing with mesh defaults
 
 ## Design Principles
 
@@ -50,7 +50,7 @@ State derived from `this.ctx.getWebSockets()` + `this.ctx.getAlarm()`:
 ### Gateway `__executeOperation` Is a Proxy
 Unlike LumenizeBase/LumenizeWorker which execute chains on `this`, Gateway forwards chains to the client over WebSocket and returns the response.
 
-### LumenizeRouter (TBD)
+### createLumenizeRouter
 Factory function (not a class) for creating Workers with mesh-friendly defaults:
 ```typescript
 // Creates a fetch handler with auth + gateway routing
@@ -66,9 +66,9 @@ const handleRequest = createLumenizeRouter(env, {
 
 ```typescript
 interface LumenizeClientConfig {
-  baseUrl: string;                    // 'wss://app.example.com'
-  gatewayBinding?: string;            // Default: 'GATEWAY_DO'
-  instanceName: string;               // '${userId}.${tabId}' - becomes Gateway DO name
+  baseUrl?: string;                   // Default: 'wss://localhost:8787'
+  gatewayBinding?: string;            // Default: 'LUMENIZE_GATEWAY'
+  instanceName: string;               // Suggest '${userId}.${tabId}' - becomes Gateway instance name
   
   // Auth
   accessToken?: string;               // Initial JWT (can be updated)
@@ -77,9 +77,6 @@ interface LumenizeClientConfig {
   // Connection callbacks
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;
-  
-  // Incoming calls from mesh
-  onMessage?: (payload: any) => void; // For fire-and-forget downstream
 }
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';

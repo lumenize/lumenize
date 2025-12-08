@@ -92,6 +92,9 @@ interface LumenizeClientConfig {
    * This is for connection-level errors, not RPC errors.
    */
   onConnectionError?: (error: Error) => void;
+
+  // Note: No onMessage callback - all mesh→client communication
+  // goes through method calls via this.lmz.call()
   
   /**
    * Request timeout in milliseconds.
