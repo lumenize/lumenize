@@ -42,21 +42,10 @@ const client = createLumenizeClient({
   // Initial access token
   accessToken: accessToken,
   
-  // Called ~30 seconds before token expires
-  onTokenExpiring: async () => {
-    // Get new token from your auth endpoint
-    const response = await fetch('/auth/refresh-token', {
-      method: 'POST',
-      credentials: 'include'  // Include refresh token cookie
-    });
-    
-    if (!response.ok) {
-      throw new Error('Token refresh failed');
-    }
-    
-    const { accessToken } = await response.json();
-    return accessToken;
-  }
+  // Token refresh handled automatically!
+  // Client parses JWT expiry, refreshes ~30s before expiration
+  // using HTTP-only refresh token cookie
+  refreshEndpoint: '/auth/refresh-token'  // This is the default
 });
 ```
 
@@ -84,6 +73,8 @@ export default {
 
 ## Token Refresh Flow
 
+Token refresh is **automatic** — LumenizeClient handles it internally:
+
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                                                               │
@@ -97,20 +88,25 @@ export default {
 │     │                          │                              │
 │     │     ... 14 minutes ...   │                              │
 │     │                          │                              │
-│     │ onTokenExpiring()        │                              │
-│     │─ ─ ─ ─ ┐                 │                              │
-│     │        │ POST /auth/refresh-token                       │
-│     │        └────────────────→│                              │
+│     │ (internal: token expiring soon)                         │
+│     │                          │                              │
+│     │  POST /auth/refresh-token (with cookie)                 │
+│     ├─────────────────────────→│                              │
 │     │          new accessToken │                              │
 │     │←─────────────────────────┤                              │
 │     │                          │                              │
-│     │ updateAccessToken()      │                              │
-│     │ (internal)               │                              │
+│     │ (internal: update token) │                              │
 │     │                          │                              │
 │     │     ... continues ...    │                              │
 │                                                               │
 └───────────────────────────────────────────────────────────────┘
 ```
+
+No callback needed — the client:
+1. Parses JWT to determine expiration time
+2. Sets internal timer for ~30 seconds before expiry
+3. Makes HTTP POST to `refreshEndpoint` with `credentials: 'include'`
+4. Updates internal token and continues
 
 ## Gateway Token Verification
 
@@ -148,15 +144,12 @@ async webSocketMessage(ws: WebSocket, message: string) {
 
 ### Access Token
 
-Stored in memory (closure variable). Never persisted to localStorage or cookies.
+Stored in memory (private field). Never persisted to localStorage or cookies. Managed automatically by LumenizeClient.
 
 ```typescript
-// Inside LumenizeClient
+// Inside LumenizeClient (internal)
 #accessToken: string | null = null;
-
-updateAccessToken(token: string) {
-  this.#accessToken = token;
-}
+// Updated automatically during refresh
 ```
 
 ### Refresh Token
@@ -210,28 +203,21 @@ ws.onclose = (event) => {
 
 ### Refresh Token Expired
 
+When the refresh token expires, the automatic refresh will fail with a 401. Handle this via `onConnectionError`:
+
 ```typescript
-onTokenExpiring: async () => {
-  try {
-    const response = await fetch('/auth/refresh-token', {
-      method: 'POST',
-      credentials: 'include'
-    });
-    
-    if (response.status === 401) {
+const client = createLumenizeClient({
+  // ...
+  onConnectionError: (error) => {
+    if (error.message.includes('401') || error.message.includes('Session expired')) {
       // Refresh token expired - must re-authenticate
       redirectToLogin();
-      throw new Error('Session expired');
     }
-    
-    const { accessToken } = await response.json();
-    return accessToken;
-  } catch (error) {
-    // Network error or other failure
-    throw error;
   }
-}
+});
 ```
+
+The client will automatically attempt refresh and surface the error if it fails.
 
 ## WebSocket Close Codes
 
@@ -331,29 +317,15 @@ export async function handleMagicLinkCallback(token: string): Promise<void> {
   state.accessToken = accessToken;
   
   // Create authenticated client
+  // Token refresh is automatic via HTTP-only cookie!
   state.client = createLumenizeClient({
     baseUrl: 'wss://app.example.com',
     instanceName: `${state.userId}.${getTabId()}`,
     accessToken: state.accessToken,
-    
-    onTokenExpiring: async () => {
-      const response = await fetch('/auth/refresh-token', {
-        method: 'POST',
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        await logout();
-        throw new Error('Session expired');
-      }
-      
-      const { accessToken } = await response.json();
-      state.accessToken = accessToken;
-      return accessToken;
-    },
+    // refreshEndpoint: '/auth/refresh-token'  // default
     
     onConnectionError: (error) => {
-      if (error.message.includes('401')) {
+      if (error.message.includes('401') || error.message.includes('Session expired')) {
         logout();
       }
     }

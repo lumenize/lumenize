@@ -71,8 +71,9 @@ interface LumenizeClientConfig {
   instanceName: string;               // Suggest '${userId}.${tabId}' - becomes Gateway instance name
   
   // Auth
-  accessToken?: string;               // Initial JWT (can be updated)
-  onTokenExpiring?: () => Promise<string>; // Called before expiry to get new token
+  accessToken?: string;               // Initial JWT
+  refreshEndpoint?: string;           // Default: '/auth/refresh-token'
+  // Token refresh handled internally - parses JWT expiry, refreshes ~30s before
   
   // Connection callbacks
   onConnectionStateChange?: (state: ConnectionState) => void;

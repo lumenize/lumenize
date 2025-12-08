@@ -329,18 +329,6 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // LumenizeClient
-    {
-      type: 'category',
-      label: 'LumenizeClient',
-      items: [
-        'lumenize-client/index',
-        'lumenize-client/gateway',
-        'lumenize-client/client-api',
-        'lumenize-client/auth-integration',
-      ],
-    },
-
     // Lumenize
     {
       type: 'category',

@@ -76,11 +76,12 @@ interface LumenizeClientConfig {
   accessToken?: string;
   
   /**
-   * Called when token is about to expire.
-   * Return a new token to refresh, or throw to disconnect.
-   * Called ~30 seconds before expiration.
+   * Endpoint for token refresh.
+   * Client automatically refreshes ~30s before expiration using
+   * HTTP-only refresh token cookie.
+   * @default '/auth/refresh-token'
    */
-  onTokenExpiring?: () => Promise<string>;
+  refreshEndpoint?: string;
   
   /**
    * Called when connection state changes.
@@ -243,16 +244,6 @@ disconnect(): void;
 ```
 
 After disconnecting, calls will fail until reconnected. If `autoReconnect` is true, the client will attempt to reconnect on the next call.
-
-### `updateAccessToken(token: string)`
-
-Update the access token without reconnecting:
-
-```typescript
-updateAccessToken(token: string): void;
-```
-
-The new token will be used for subsequent messages. For token refresh, consider using `onTokenExpiring` callback instead.
 
 ### `[Symbol.dispose]()`
 
