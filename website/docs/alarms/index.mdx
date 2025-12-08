@@ -5,11 +5,11 @@ description: Powerful alarm scheduling for Cloudflare Durable Objects with conti
 
 # Lumenize Alarms
 
-De✨light✨ful alarm scheduling for Cloudflare Durable Objects using [continuations](/docs/core/continuations). Multiplexes single native alarm to give you unlimited scheduled tasks.
+De✨light✨ful alarm scheduling for Cloudflare Durable Objects using [continuations](/docs/concepts/continuations). Multiplexes single native alarm to give you unlimited scheduled tasks.
 
 ## Features
 
-- **[Continuations](/docs/core/continuations)** - Type-safe, serializable task handlers using OCAN
+- **[Continuations](/docs/concepts/continuations)** - Type-safe, serializable task handlers
 - **Multiple schedules** - Specific time, seconds from now, or cron expressions
 - **SQL persistence** - Survives DO eviction and restarts
 - **Auto-injection** - Automatically available via NADIS when using LumenizeBase
@@ -526,7 +526,7 @@ Note, the `@lumenize/testing` package includes experimental [alarm simulation](/
 
 1. **Persistence**: All schedules stored in SQL table `__lmz_alarms`
 2. **Multiplexing**: Cloudflare's single native alarm set to the next due task
-3. **Execution**: When alarm fires, all overdue tasks execute via OCAN
+3. **Execution**: When alarm fires, all overdue tasks execute via continuations
 4. **Cron handling**: After cron task executes, automatically rescheduled for next occurrence
 5. **Lazy initialization**: Table created on first use (compatible with NADIS)
 
@@ -534,7 +534,7 @@ Note, the `@lumenize/testing` package includes experimental [alarm simulation](/
 
 The alarms table (`__lmz_alarms`) is automatically created with:
 - `id` - Unique schedule ID
-- `operationChain` - Serialized OCAN chain
+- `operationChain` - Serialized continuation chain
 - `type` - 'delayed', 'timestamp', or 'cron'
 - `time` - Unix timestamp for next execution
 - `delayInSeconds` - Original delay (delayed type only)
@@ -567,7 +567,7 @@ The alarms table (`__lmz_alarms`) is automatically created with:
 |---------|-------------|------------------|
 | **Max alarms** | 1 per DO | Unlimited |
 | **Cron support** | No | Yes |
-| **Type safety** | No | Yes (via OCAN) |
+| **Type safety** | No | Yes (via continuations) |
 | **Serialization** | Manual | Automatic |
 | **Testing** | Real time only | Manual triggers |
 | **Persistence** | Native | SQL table |
@@ -578,7 +578,7 @@ See the [TypeDoc API Reference](/docs/alarms/api) for complete type information.
 
 ## Next Steps
 
-- **[Continuations](/docs/core/continuations)** - Understanding the continuation pattern
+- **[Continuations](/docs/concepts/continuations)** - Understanding the continuation pattern
 - **[LumenizeBase](/docs/lumenize-base/index)** - DO-to-DO communication with `this.lmz.call()`
 - **[Fetch](/docs/fetch/index)** - External API calls with continuations
 - **[Testing](/docs/testing/alarm-simulation)** - Testing alarms without waiting
@@ -587,7 +587,7 @@ See the [TypeDoc API Reference](/docs/alarms/api) for complete type information.
 
 The core implementation is based on the Alarms functionality in [`@cloudflare/actors`](https://www.npmjs.com/package/@cloudflare/actors) with these enhancements:
 
-- **OCAN continuations** - Type-safe handlers instead of string callbacks
+- **Continuations** - Type-safe handlers instead of string callbacks
 - **NADIS integration** - Auto-injection via dependency injection
 - **Lazy initialization** - Table created on first use (critical for NADIS)
 - **Synchronous API** - No unnecessary async operations

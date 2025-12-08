@@ -8,7 +8,7 @@ description: Non-blocking async operations with type-safe callbacks for Durable 
 **Continuations** are Lumenize's pattern for handling asynchronous operations in Durable Objects without blocking. Instead of using `async`/`await` (which breaks Cloudflare's consistency guarantees), you describe what should happen next using **operation chains**.
 
 :::tip Key Concept
-A continuation is a **description of future work** that gets executed later with the result of an async operation. It maintains DO consistency by keeping the handler synchronous.
+A continuation is a **description of future work** that gets executed in some other place and/or time usually during/after some native async operation. It maintains DO consistency by keeping the handler synchronous.
 :::
 
 ## Why Continuations?
@@ -212,7 +212,7 @@ class MyDO extends LumenizeBase {
 
 ## Under the Hood
 
-Continuations are built on **OCAN** (Operation Chaining and Nesting):
+Continuations use **operation chaining** internally—method calls are recorded as a chain of operations that can be serialized, stored, and later executed with results injected:
 
 1. **Proxy Factory**: `this.ctn()` returns a Proxy that records operations
 2. **Serialization**: The operation chain is serialized via `structured-clone`
@@ -225,6 +225,10 @@ This ensures:
 - ✅ **Serialization**: Chains survive DO eviction/restart
 - ✅ **Consistency**: Handlers execute synchronously (no race conditions)
 - ✅ **Flexibility**: Complex flows without callback hell
+
+:::info For Power Users
+The operation chaining pattern is also exposed in [Lumenize RPC](/docs/rpc/operation-chaining-and-nesting) where it enables batching multiple client operations into a single round trip. While the user-facing API differs, the underlying serialization mechanism is shared.
+:::
 
 ## Error Handling
 
@@ -270,5 +274,7 @@ If you don't check for `Error`, your handler might crash when operations fail. A
 - **[@lumenize/lumenize-base](/docs/lumenize-base/index)** - DO-to-DO communication with `this.lmz.call()`
 - **[@lumenize/alarms](/docs/alarms/index)** - Scheduled tasks with continuations
 - **[@lumenize/fetch](/docs/fetch/index)** - External fetches with continuations
-- **[OCAN](/docs/core/ocan)** - The operation chaining pattern underlying continuations
+
+
+
 

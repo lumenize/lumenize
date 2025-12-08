@@ -7,6 +7,10 @@ description: Type-safe SQL queries with automatic parameter binding
 
 The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage.
 
+:::tip Core Utility
+This is a small (~10 lines), universally useful utility from `@lumenize/core` that's automatically available via NADIS when using LumenizeBase.
+:::
+
 ## Basic Usage
 
 ### Standalone Usage
@@ -204,5 +208,7 @@ const result = sql`SELECT * FROM products WHERE id = ${productId}`;
 - [Cloudflare SQLite Storage](https://developers.cloudflare.com/durable-objects/api/storage/#sql) - Official storage API docs
 - [@lumenize/lumenize-base](/docs/lumenize-base) - Auto-injection via NADIS
 - [@lumenize/alarms](/docs/alarms) - Uses SQL for persistence
+
+
 
 

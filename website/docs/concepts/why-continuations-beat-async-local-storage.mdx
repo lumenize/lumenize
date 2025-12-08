@@ -1,11 +1,12 @@
 ---
-title: Context Patterns
-description: Comparing AsyncLocalStorage with OCAN closures for maintaining context across async operations
+title: Why Continuations Beat AsyncLocalStorage
+description: Comparing AsyncLocalStorage with continuations for maintaining context across async operations in Durable Objects
+draft: true
 ---
 
-# Context Patterns: AsyncLocalStorage vs OCAN Closures
+# Why Continuations Beat AsyncLocalStorage
 
-When working with asynchronous operations in Durable Objects, you often need to maintain context—information from the call site that needs to be available when the async operation completes. This guide compares two approaches: AsyncLocalStorage (from Node.js/Cloudflare agents) and OCAN closures (Lumenize's approach).
+When working with asynchronous operations in Durable Objects, you often need to maintain context—information from the call site that needs to be available when the async operation completes. This guide compares two approaches: AsyncLocalStorage (from Node.js/Cloudflare agents) and continuations (Lumenize's approach).
 
 ## The Context Problem
 
@@ -86,9 +87,9 @@ AsyncLocalStorage relies on Node.js's async tracking mechanism. Cloudflare's Dur
 
 AsyncLocalStorage maintains a context chain through the entire async execution, adding overhead to every async operation.
 
-## Solution 2: OCAN Closures (Lumenize)
+## Solution 2: Continuations (Lumenize)
 
-OCAN uses standard JavaScript closures to capture context:
+Continuations use standard JavaScript closures to capture context:
 
 ```typescript
 async handleRequest() {
@@ -109,7 +110,7 @@ async handleResult(result: Response, requestId: string, startTime: number) {
 }
 ```
 
-### OCAN Advantages
+### Continuation Advantages
 
 **1. Full Type Safety**
 ```typescript
@@ -143,7 +144,7 @@ handler(result, ...capturedContext) // No magic, just pattern
 
 **4. Preserves DO Consistency**
 
-OCAN handlers are **synchronous** (except for the required async handlers like `fetch()`):
+Continuation handlers are **synchronous** (except for the required async handlers like `fetch()`):
 
 ```typescript
 // Synchronous handler preserves input/output gates
@@ -193,7 +194,7 @@ class MyDO extends DurableObject {
 }
 ```
 
-**OCAN Closures:**
+**Continuations:**
 ```typescript
 class MyDO extends LumenizeBase {
   async fetch(request: Request) {
@@ -229,7 +230,7 @@ class MyDO extends LumenizeBase {
 
 ### Key Differences
 
-| Feature | AsyncLocalStorage | OCAN Closures |
+| Feature | AsyncLocalStorage | Continuations |
 |---------|------------------|---------------|
 | **Type Safety** | ❌ Runtime access (`any`) | ✅ Compile-time typed |
 | **Explicitness** | ❌ Magic global state | ✅ Clear parameter passing |
@@ -257,7 +258,7 @@ function doSomething() {
 }
 ```
 
-### After (OCAN):
+### After (Continuations):
 ```typescript
 // Capture context in continuation - result injected as first parameter
 await someAsyncOperation(
@@ -350,14 +351,14 @@ Durable Objects are designed around **single-threaded consistency**:
 - Race conditions become possible
 - Consistency guarantees are lost
 
-**OCAN + sync handlers** preserves this model:
+**Continuations + sync handlers** preserves this model:
 - Handlers run synchronously when async work completes
 - No interleaving with other requests
 - Consistency guarantees maintained
 
 ## Conclusion
 
-While AsyncLocalStorage is familiar to Node.js developers, **OCAN closures are better suited to Durable Objects**:
+While AsyncLocalStorage is familiar to Node.js developers, **continuations are better suited to Durable Objects**:
 
 - ✅ **Type-safe** - Compile-time errors, not runtime surprises
 - ✅ **Explicit** - Clear data flow, easy to debug
@@ -369,9 +370,11 @@ The pattern requires a small "aha moment" to discover, but once you see it, it's
 
 ## Further Reading
 
-- [Continuations Guide](/docs/concepts/continuations) - Deep dive into OCAN patterns
+- [Continuations Guide](/docs/concepts/continuations) - Deep dive into continuation patterns
 - [Durable Objects Consistency](/docs/guides/do-consistency) - Understanding DO consistency guarantees
-- [@lumenize/call](/docs/call) - DO-to-DO communication with continuations
 - [@lumenize/alarms](/docs/alarms) - Scheduled tasks with continuations
 - [@lumenize/fetch](/docs/fetch) - External API calls with continuations
+
+
+
 

@@ -39,3 +39,13 @@ CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
 # Leave empty to disable
 DEBUG=
 
+# JWT keys for @lumenize/auth (Ed25519)
+# Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
+# BLUE key pair (active signing key)
+JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+
+# GREEN key pair (for key rotation)
+# JWT_PRIVATE_KEY_GREEN=
+# JWT_PUBLIC_KEY_GREEN=
+

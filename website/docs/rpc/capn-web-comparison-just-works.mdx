@@ -312,24 +312,27 @@ Lumenize RPC seamlessly hops from User to Room via `client.env.ROOM`:
 - ✅ Map and other StructuredClone types work seamlessly
 - ✅ it "just works"
 
+Beware, batching by not `await`ing makes this look more transactional locally 
+than it is in reality.
+
 
 
 
 ```typescript test
-it('demonstrates Lumenize RPC service hopping', async () => {
-  using lumenizeClient = getLumenizeUserClient('user-lumenize');
+it('demonstrates Lumenize RPC hopping over Workers RPC', async () => {
+  using lumenizeClient = getLumenizeUserClient('env-hopping');
 
   // Client → User via Lumenize RPC → Room via Workers RPC
 
   // Get stub for room - not as slick as Cap'n Web syntax but works
   const roomStub = lumenizeClient.env.ROOM.getByName('lumenize');
-  
-  // Type checking works across the hop so no red-squigly for `addMessage()`
-  const msgId1 = await roomStub.addMessage('Hello');
-  expect(msgId1).toBe(1);
 
-  const msgId2 = await roomStub.addMessage('World');
-  expect(msgId2).toBe(2);
+  // In these next two lines, we don't `await` but that's just telling
+  // Lumenize RPC to build a batch. When this executes in the ROOM DO
+  // it will `await` each of these. That's good and bad. Good because it builds
+  // the batch. Bad because it looks more transactional locally than reality.
+  roomStub.addMessage('Hello');
+  roomStub.addMessage('World');
 
   const messages = await roomStub.getMessages();
   expect(messages).toBeInstanceOf(Map); // ✅ Map works seamlessly

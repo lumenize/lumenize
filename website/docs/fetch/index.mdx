@@ -10,7 +10,7 @@ A de✨light✨ful way to make external API calls from Durable Objects without b
 **Key Benefits:**
 - ✅ **Fire-and-forget** - Returns immediately, result arrives via continuation
 - ✅ **Cost-effective** - CPU billing for fetches, minimal DO billing
-- ✅ **Type-safe** - Full TypeScript support with OCAN continuations
+- ✅ **Type-safe** - Full TypeScript support with continuations
 - ✅ **Timeout monitoring** - Automatic timeout detection via @lumenize/alarms
 - ✅ **Simple architecture** - Two-hop design (Origin DO → Worker → External API)
 
@@ -162,7 +162,7 @@ class MyDO extends LumenizeBase {
 
 **Parameters:**
 - `request`: `string | RequestSync` - URL or RequestSync object
-- `continuation`: OCAN continuation created with `this.ctn().handlerMethod()`
+- `continuation`: Continuation created with `this.ctn().handlerMethod()`
 - `options?`: Optional configuration
 
 **Returns:** `string` - Request ID (for logging/debugging)
@@ -261,6 +261,83 @@ this.svc.proxyFetch(
   { timeout: 60000 } // 60 seconds
 );
 ```
+
+### Parallel Fetches
+
+Since `proxyFetch` is fire-and-forget (synchronous, non-blocking), launching multiple fetches in parallel is trivial—just call it multiple times:
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  fetchMultipleUsers(userIds: string[]) {
+    // Fire all fetches in parallel - each returns immediately
+    userIds.forEach((userId, index) => {
+      this.svc.proxyFetch(
+        `https://api.example.com/users/${userId}`,
+        this.ctn().handleUserResult({ userId, index })
+      );
+    });
+    // All fetches dispatched, DO billing stops here
+  }
+  
+  handleUserResult(context: { userId: string; index: number }, result: ResponseSync | Error) {
+    if (result instanceof Error) {
+      console.error(`User ${context.userId} fetch failed:`, result);
+      return;
+    }
+    const user = result.json();
+    console.log(`User ${context.userId} (index ${context.index}):`, user.name);
+  }
+}
+```
+
+**Key benefit:** Unlike `Promise.all()` which keeps your DO billing while waiting, each `proxyFetch` returns immediately. Your DO stops billing after dispatching all requests, regardless of how long the external APIs take.
+
+#### Ordering Results
+
+Responses arrive in completion order, not dispatch order. If you need original ordering, use the context to track sequence and store results to reassemble later:
+
+```typescript @skip-check
+class MyDO extends LumenizeBase {
+  fetchInOrder(urls: string[]) {
+    // Clear any previous pending results
+    this.ctx.storage.kv.delete('pendingResults');
+    
+    urls.forEach((url, index) => {
+      this.svc.proxyFetch(
+        url,
+        this.ctn().collectResult({ index, total: urls.length })
+      );
+    });
+  }
+  
+  collectResult(context: { index: number; total: number }, result: ResponseSync | Error) {
+    // Get or create the pending results map from storage
+    const pending: Map<number, any> = 
+      this.ctx.storage.kv.get('pendingResults') ?? new Map();
+    
+    // Store result at its original position
+    pending.set(context.index, result);
+    this.ctx.storage.kv.set('pendingResults', pending);
+    
+    // Check if all results are in
+    if (pending.size === context.total) {
+      // Reassemble in order
+      const ordered = Array.from({ length: context.total }, (_, i) => 
+        pending.get(i)
+      );
+      this.ctx.storage.kv.delete('pendingResults');
+      this.processAllResults(ordered);
+    }
+  }
+  
+  processAllResults(results: (ResponseSync | Error)[]) {
+    console.log('All results in order:', results.length);
+    // Process ordered results...
+  }
+}
+```
+
+This pattern works even when slower endpoints respond before faster ones—the context preserves the original sequence, and storage ensures results survive DO eviction.
 
 ## Retry Logic
 

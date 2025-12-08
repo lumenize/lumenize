@@ -165,6 +165,29 @@ it('shows remote access to ctx (DurableObjectState)', async () => {
 
 
 
+## Accessing globalThis
+
+You can even access the remote DO's globalThis as a parameter, but we
+don't provide a way to access it directly.
+
+
+
+
+```typescript test
+it('shows accessing globalThis as a parameter (but not directly)', async () => {
+  using client = getLumenizeClient('global-this');
+  
+  client.ctx.storage.kv.put('id', (globalThis as any).crypto.randomUUID());
+  const result = await client.ctx.storage.kv.get('id');
+  expect(result).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  );
+});
+```
+
+
+
+
 ## Chaining
 
 We showed batching in the last example, but chaining is also supported with the

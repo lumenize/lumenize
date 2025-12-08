@@ -4,8 +4,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Unpublish @lumenize/proxy-fetch from npm
-- [ ] One benefit of proxy-fetch is that it's sync automatically. If you want to fire off several in parallel, that's easy. Show the code difference for parallel when doing direct
+- [ ] 
+
 
 ## LumenizeBase NADIS modules
 
