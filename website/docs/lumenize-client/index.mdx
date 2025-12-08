@@ -1,0 +1,256 @@
+---
+title: LumenizeClient Overview
+description: Browser clients as first-class participants in the Lumenize Mesh
+---
+
+# LumenizeClient
+
+LumenizeClient enables browser and Node.js applications to participate as **full peers** in the Lumenize Mesh — making and receiving RPC calls just like server-side Durable Objects.
+
+## The Lumenize Mesh
+
+The **Lumenize Mesh (LM)** is an actor-model network where nodes communicate via `this.lmz.call()` and `this.lmz.callRaw()`. Each node can make calls to any other node and receive calls from any other node.
+
+### Node Types
+
+| Node Type | Runs In | Storage | Use Case |
+|-----------|---------|---------|----------|
+| **LumenizeBase** | Cloudflare DO | Yes | Stateful server-side logic |
+| **LumenizeWorker** | Cloudflare Worker | No | Stateless server-side logic |
+| **LumenizeClient** | Browser/Node.js | Local only | Client applications |
+| **LumenizeGateway** | Cloudflare DO | None | Bridges client ↔ mesh |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        LUMENIZE MESH                             │
+│                                                                  │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐    │
+│  │ LumenizeBase │ ←→  │ LumenizeBase │ ←→  │LumenizeWorker│    │
+│  │   (User DO)  │     │  (Data DO)   │     │  (Processor) │    │
+│  └──────────────┘     └──────────────┘     └──────────────┘    │
+│         ↑                    ↑                                   │
+│         │                    │                                   │
+│         └────────────────────┼──────────────────────┐           │
+│                              │                       │           │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │              LumenizeGateway (per-client)                 │   │
+│  │                   Zero storage                            │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+└──────────────────────────────┼───────────────────────────────────┘
+                               │ WebSocket
+                               │
+                    ┌──────────────────┐
+                    │  LumenizeClient  │
+                    │    (Browser)     │
+                    └──────────────────┘
+```
+
+## Why LumenizeClient?
+
+### Before: RPC Pattern
+
+With `@lumenize/rpc`, you can call DO methods from the browser:
+
+```typescript
+// Browser: Call a method on a DO
+const result = await client.getUserData(userId);
+```
+
+But the DO can only **respond** to requests — it can't initiate communication or call client methods.
+
+### After: Full Mesh Participant
+
+With LumenizeClient, communication is **bidirectional**:
+
+```typescript
+// Browser: Make calls to any mesh node
+this.lmz.call('USER_DO', userId, this.ctn<UserDO>().getUserData());
+
+// Browser: Receive calls FROM mesh nodes
+handleNotification(data) {
+  // Called by a DO via this.lmz.call('GATEWAY_DO', clientId, ...)
+  this.showToast(data.message);
+}
+```
+
+### Key Differences from RPC
+
+| Aspect | `@lumenize/rpc` | `LumenizeClient` |
+|--------|-----------------|------------------|
+| **Direction** | Client → Server only | Bidirectional |
+| **Client Role** | Consumer | Full mesh peer |
+| **Server → Client** | Downstream messages (fire-and-forget) | Full RPC calls |
+| **API Style** | Proxy-based (`client.method()`) | Continuation-based (`this.lmz.call()`) |
+| **Best For** | Simple request/response | Real-time, collaborative apps |
+
+## Quick Start
+
+### 1. Create a Client
+
+```typescript
+import { createLumenizeClient } from '@lumenize/lumenize-base';
+
+const client = createLumenizeClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,  // Becomes Gateway DO name
+  accessToken: jwt,
+  
+  onConnectionStateChange: (state) => {
+    console.log('Connection:', state);
+  }
+});
+
+await client.connect();
+```
+
+### 2. Make Calls to Mesh Nodes
+
+```typescript
+// Call a DO method
+const userData = await client.lmz.callRaw(
+  'USER_DO',           // Binding name
+  userId,              // Instance name
+  client.ctn<UserDO>().getUserData()
+);
+
+// Fire-and-forget call
+client.lmz.call(
+  'ANALYTICS_DO',
+  'global',
+  client.ctn<AnalyticsDO>().trackEvent({ type: 'page_view' })
+);
+```
+
+### 3. Receive Calls from Mesh
+
+Define methods on your client that DOs can call:
+
+```typescript
+class MyClient extends LumenizeClient {
+  // This method can be called by any mesh node
+  handleNotification(data: { title: string; body: string }) {
+    showBrowserNotification(data.title, data.body);
+    return { received: true };
+  }
+  
+  // Real-time collaboration update
+  handleDocumentChange(change: DocumentChange) {
+    this.localDoc.applyChange(change);
+  }
+}
+
+// From a DO:
+this.lmz.call(
+  'GATEWAY_DO',
+  `${userId}.${tabId}`,
+  this.ctn<MyClient>().handleNotification({ 
+    title: 'New message',
+    body: 'You have 3 unread messages'
+  })
+);
+```
+
+## LumenizeGateway
+
+The Gateway is a **zero-storage Durable Object** that bridges the mesh and WebSocket clients:
+
+- **1:1 relationship**: Each LumenizeClient connects to its own Gateway instance
+- **Transparent proxying**: Calls pass through without the Gateway interpreting them
+- **Zero cost when idle**: No storage = no charges when client is disconnected
+- **Graceful reconnection**: 5-second grace period for network glitches
+
+### How Gateway Routing Works
+
+1. Client connects to Gateway DO at `GATEWAY_DO/${instanceName}`
+2. Gateway accepts hibernatable WebSocket connection
+3. Outgoing calls from client → Gateway → Target DO/Worker
+4. Incoming calls to client: Source DO → Gateway → WebSocket → Client
+
+### Client-to-Client Communication
+
+LumenizeClients can call each other through the mesh:
+
+```
+Client A  →  Gateway A  →  Gateway B  →  Client B
+   ↑                                         │
+   └─────────────────────────────────────────┘
+                    ~60ms round-trip
+```
+
+```typescript
+// From Client A: Call Client B
+client.lmz.call(
+  'GATEWAY_DO',
+  `${otherUserId}.${otherTabId}`,
+  client.ctn<OtherClient>().handleCollabCursor({ x: 100, y: 200 })
+);
+```
+
+## Authentication
+
+LumenizeClient integrates with `@lumenize/auth`:
+
+```typescript
+const client = createLumenizeClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  
+  // Initial token
+  accessToken: jwt,
+  
+  // Called before token expires
+  onTokenExpiring: async () => {
+    const newToken = await refreshAccessToken();
+    return newToken;
+  }
+});
+```
+
+Tokens are passed via WebSocket subprotocol (`lmz.access-token.{jwt}`) — no URL exposure, no header limitations.
+
+## Connection States
+
+LumenizeClient manages connection lifecycle automatically:
+
+```typescript
+type ConnectionState = 
+  | 'disconnected'   // Not connected
+  | 'connecting'     // WebSocket handshake in progress
+  | 'connected'      // Active connection
+  | 'reconnecting';  // Auto-reconnecting after disconnect
+
+client.onConnectionStateChange = (state) => {
+  switch (state) {
+    case 'connected':
+      enableRealTimeFeatures();
+      break;
+    case 'reconnecting':
+      showReconnectingIndicator();
+      break;
+    case 'disconnected':
+      disableRealTimeFeatures();
+      break;
+  }
+};
+```
+
+## When to Use What
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Simple CRUD operations | `@lumenize/rpc` |
+| Real-time notifications | LumenizeClient |
+| Collaborative editing | LumenizeClient |
+| Server-initiated actions | LumenizeClient |
+| Multiple tabs, same user | LumenizeClient (one per tab) |
+| Background processing results | LumenizeClient |
+
+## Next Steps
+
+- [Gateway Internals](./gateway) — How LumenizeGateway works
+- [Client API Reference](./client-api) — Complete API documentation
+- [Auth Integration](./auth-integration) — Token handling patterns
+

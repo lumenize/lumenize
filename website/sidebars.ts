@@ -9,7 +9,6 @@ let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
 let typedocFetchSidebar: any[] = [];
 let typedocStructuredCloneSidebar: any[] = [];
-let typedocCoreSidebar: any[] = [];
 let typedocAlarmsSidebar: any[] = [];
 let typedocLumenizeBaseSidebar: any[] = [];
 
@@ -46,13 +45,6 @@ try {
   console.log('✅ Loaded structured-clone sidebar, items:', typedocStructuredCloneSidebar?.length);
 } catch (e) {
   console.warn('⚠️  TypeDoc structured-clone sidebar not yet generated, using empty sidebar');
-}
-
-try {
-  typedocCoreSidebar = require('./docs/core/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded core sidebar, items:', typedocCoreSidebar?.length);
-} catch (e) {
-  console.warn('⚠️  TypeDoc core sidebar not yet generated, using empty sidebar');
 }
 
 try {
@@ -183,7 +175,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Concepts',
       items: [
-        'concepts/context-patterns',
+        'concepts/continuations',
       ],
     },
 
@@ -302,28 +294,17 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Core Lumenize Packages
+    // LumenizeBase
     {
       type: 'category',
       label: 'LumenizeBase',
       items: [
         'lumenize-base/index',
         'lumenize-base/creating-plugins',
+        'lumenize-base/sql',
+        'lumenize-base/debug',
         ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
           ? [wrapInApiReference(typedocLumenizeBaseSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-
-    {
-      type: 'category',
-      label: 'Core',
-      items: [
-        'core/index',
-        'core/sql',
-        'core/debug',
-        ...(typedocCoreSidebar && typedocCoreSidebar.length > 0
-          ? [wrapInApiReference(typedocCoreSidebar, 'API Reference')]
           : []),
       ],
     },
@@ -336,6 +317,27 @@ const sidebars: SidebarsConfig = {
         ...(typedocAlarmsSidebar && typedocAlarmsSidebar.length > 0
           ? [wrapInApiReference(typedocAlarmsSidebar, 'API Reference')]
           : []),
+      ],
+    },
+
+    // Auth
+    {
+      type: 'category',
+      label: 'Auth',
+      items: [
+        'auth/index',
+      ],
+    },
+
+    // LumenizeClient
+    {
+      type: 'category',
+      label: 'LumenizeClient',
+      items: [
+        'lumenize-client/index',
+        'lumenize-client/gateway',
+        'lumenize-client/client-api',
+        'lumenize-client/auth-integration',
       ],
     },
 

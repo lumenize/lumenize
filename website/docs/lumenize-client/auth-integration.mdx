@@ -1,0 +1,399 @@
+---
+title: Auth Integration
+description: Token handling patterns for LumenizeClient
+---
+
+# Auth Integration
+
+LumenizeClient integrates with `@lumenize/auth` for seamless JWT authentication over WebSocket connections.
+
+## How It Works
+
+### Token Delivery via Subprotocol
+
+Browsers don't allow custom headers on WebSocket connections. LumenizeClient uses the WebSocket subprotocol mechanism to pass JWT tokens:
+
+```
+Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
+```
+
+The server:
+1. Extracts the token from the `lmz.access-token.{jwt}` protocol
+2. Verifies the JWT signature and expiration
+3. Accepts with `Sec-WebSocket-Protocol: lmz` (the primary protocol)
+4. Stores token metadata in WebSocket attachment for per-message verification
+
+### Token Lifetime
+
+- **Access tokens**: 15 minutes (short-lived, passed with every connection)
+- **Refresh tokens**: 30 days (stored securely, used to get new access tokens)
+
+## Basic Setup
+
+### Client Configuration
+
+```typescript
+import { createLumenizeClient } from '@lumenize/lumenize-base';
+
+const client = createLumenizeClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${getTabId()}`,
+  
+  // Initial access token
+  accessToken: accessToken,
+  
+  // Called ~30 seconds before token expires
+  onTokenExpiring: async () => {
+    // Get new token from your auth endpoint
+    const response = await fetch('/auth/refresh-token', {
+      method: 'POST',
+      credentials: 'include'  // Include refresh token cookie
+    });
+    
+    if (!response.ok) {
+      throw new Error('Token refresh failed');
+    }
+    
+    const { accessToken } = await response.json();
+    return accessToken;
+  }
+});
+```
+
+### Server Configuration
+
+Use `createWebSocketAuthMiddleware` in your Worker:
+
+```typescript
+import { createWebSocketAuthMiddleware } from '@lumenize/auth';
+import { routeDORequest } from '@lumenize/utils';
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const wsAuthMiddleware = await createWebSocketAuthMiddleware({
+      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
+    });
+    
+    return routeDORequest(request, env, {
+      // Verify token on WebSocket upgrade
+      onBeforeConnect: wsAuthMiddleware
+    });
+  }
+};
+```
+
+## Token Refresh Flow
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                                                               │
+│   Client                    Server                            │
+│     │                          │                              │
+│     │  Connect with token      │                              │
+│     ├─────────────────────────→│                              │
+│     │                          │ Verify JWT                   │
+│     │         Connected        │                              │
+│     │←─────────────────────────┤                              │
+│     │                          │                              │
+│     │     ... 14 minutes ...   │                              │
+│     │                          │                              │
+│     │ onTokenExpiring()        │                              │
+│     │─ ─ ─ ─ ┐                 │                              │
+│     │        │ POST /auth/refresh-token                       │
+│     │        └────────────────→│                              │
+│     │          new accessToken │                              │
+│     │←─────────────────────────┤                              │
+│     │                          │                              │
+│     │ updateAccessToken()      │                              │
+│     │ (internal)               │                              │
+│     │                          │                              │
+│     │     ... continues ...    │                              │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+```
+
+## Gateway Token Verification
+
+LumenizeGateway verifies tokens in two places:
+
+### 1. On Connection (via Middleware)
+
+```typescript
+// Worker routes to Gateway with verified auth context
+onBeforeConnect: async (request, context) => {
+  const result = await wsAuthMiddleware(request, context);
+  // Returns enhanced request with X-Auth-User-Id header
+  return result;
+}
+```
+
+### 2. On Each Message (via Attachment)
+
+```typescript
+// In LumenizeGateway
+async webSocketMessage(ws: WebSocket, message: string) {
+  const attachment = ws.deserializeAttachment();
+  
+  // Check if token has expired
+  if (attachment.tokenExp && attachment.tokenExp < Date.now() / 1000) {
+    ws.close(4401, 'Token expired');
+    return;
+  }
+  
+  // Process message...
+}
+```
+
+## Token Storage
+
+### Access Token
+
+Stored in memory (closure variable). Never persisted to localStorage or cookies.
+
+```typescript
+// Inside LumenizeClient
+#accessToken: string | null = null;
+
+updateAccessToken(token: string) {
+  this.#accessToken = token;
+}
+```
+
+### Refresh Token
+
+Use HTTP-only cookies (recommended):
+
+```typescript
+// Login response sets cookie
+Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict; Path=/auth
+
+// Client refresh request includes cookie automatically
+fetch('/auth/refresh-token', {
+  method: 'POST',
+  credentials: 'include'
+});
+```
+
+## Error Handling
+
+### Token Expired During Connection
+
+```typescript
+client.onConnectionError = (error) => {
+  if (error.message.includes('401')) {
+    // Token was invalid/expired at connection time
+    redirectToLogin();
+  }
+};
+```
+
+### Token Expires During Session
+
+The Gateway closes the WebSocket with code `4401`:
+
+```typescript
+client.onConnectionStateChange = (state) => {
+  if (state === 'disconnected') {
+    // Check if we were kicked due to auth
+    // The close event will have code 4401
+  }
+};
+
+// Or handle via WebSocket close event
+ws.onclose = (event) => {
+  if (event.code === 4401) {
+    // Token expired - try to refresh and reconnect
+    refreshAndReconnect();
+  }
+};
+```
+
+### Refresh Token Expired
+
+```typescript
+onTokenExpiring: async () => {
+  try {
+    const response = await fetch('/auth/refresh-token', {
+      method: 'POST',
+      credentials: 'include'
+    });
+    
+    if (response.status === 401) {
+      // Refresh token expired - must re-authenticate
+      redirectToLogin();
+      throw new Error('Session expired');
+    }
+    
+    const { accessToken } = await response.json();
+    return accessToken;
+  } catch (error) {
+    // Network error or other failure
+    throw error;
+  }
+}
+```
+
+## WebSocket Close Codes
+
+LumenizeGateway uses custom close codes for auth errors:
+
+| Code | Meaning | Client Action |
+|------|---------|---------------|
+| `4400` | No token | Redirect to login |
+| `4401` | Token expired | Refresh and reconnect |
+| `4403` | Invalid token | Redirect to login |
+
+```typescript
+import { WS_CLOSE_CODES } from '@lumenize/auth';
+
+// WS_CLOSE_CODES.TOKEN_EXPIRED === 4401
+// WS_CLOSE_CODES.UNAUTHORIZED === 4403
+// WS_CLOSE_CODES.NO_TOKEN === 4400
+```
+
+## Security Considerations
+
+### Token in URL (Avoid)
+
+Never put tokens in WebSocket URLs:
+
+```typescript
+// ❌ BAD - Token in URL, logged everywhere
+const ws = new WebSocket(`wss://app.com/gateway?token=${jwt}`);
+
+// ✅ GOOD - Token in subprotocol, not logged
+const ws = new WebSocket(url, ['lmz', `lmz.access-token.${jwt}`]);
+```
+
+### Token Storage (Client-Side)
+
+```typescript
+// ❌ BAD - Accessible to XSS
+localStorage.setItem('accessToken', jwt);
+
+// ✅ GOOD - Memory only, not accessible to XSS
+let accessToken = jwt; // Closure variable
+```
+
+### Gateway Identity Validation
+
+The Gateway instance name should include the user ID to prevent impersonation:
+
+```typescript
+// Instance name format: userId.tabId
+const instanceName = `${userId}.${tabId}`;
+
+// Gateway can verify caller matches instance
+async fetch(request: Request) {
+  const authUserId = request.headers.get('X-Auth-User-Id');
+  const instanceUserId = this.lmz.instanceName?.split('.')[0];
+  
+  if (authUserId !== instanceUserId) {
+    return new Response('Unauthorized', { status: 403 });
+  }
+  // ...
+}
+```
+
+## Complete Example
+
+```typescript
+// client-auth.ts
+import { createLumenizeClient, type LumenizeClient } from '@lumenize/lumenize-base';
+
+interface AuthState {
+  userId: string;
+  accessToken: string;
+  client: LumenizeClient | null;
+}
+
+const state: AuthState = {
+  userId: '',
+  accessToken: '',
+  client: null
+};
+
+export async function login(email: string): Promise<void> {
+  // Request magic link
+  await fetch('/auth/email-magic-link', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+}
+
+export async function handleMagicLinkCallback(token: string): Promise<void> {
+  // Exchange magic link for tokens
+  const response = await fetch(`/auth/magic-link?token=${token}`);
+  const { accessToken, user } = await response.json();
+  
+  state.userId = user.id;
+  state.accessToken = accessToken;
+  
+  // Create authenticated client
+  state.client = createLumenizeClient({
+    baseUrl: 'wss://app.example.com',
+    instanceName: `${state.userId}.${getTabId()}`,
+    accessToken: state.accessToken,
+    
+    onTokenExpiring: async () => {
+      const response = await fetch('/auth/refresh-token', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        await logout();
+        throw new Error('Session expired');
+      }
+      
+      const { accessToken } = await response.json();
+      state.accessToken = accessToken;
+      return accessToken;
+    },
+    
+    onConnectionError: (error) => {
+      if (error.message.includes('401')) {
+        logout();
+      }
+    }
+  });
+  
+  await state.client.connect();
+}
+
+export async function logout(): Promise<void> {
+  // Disconnect client
+  state.client?.disconnect();
+  state.client = null;
+  
+  // Clear server session
+  await fetch('/auth/logout', {
+    method: 'POST',
+    credentials: 'include'
+  });
+  
+  // Clear local state
+  state.userId = '';
+  state.accessToken = '';
+  
+  // Redirect
+  window.location.href = '/login';
+}
+
+function getTabId(): string {
+  let tabId = sessionStorage.getItem('tabId');
+  if (!tabId) {
+    tabId = crypto.randomUUID();
+    sessionStorage.setItem('tabId', tabId);
+  }
+  return tabId;
+}
+```
+
+## Next Steps
+
+- [Client API Reference](./client-api) — Complete API documentation
+- [Gateway Internals](./gateway) — How LumenizeGateway works
+- [@lumenize/auth](/docs/auth) — Server-side authentication
+

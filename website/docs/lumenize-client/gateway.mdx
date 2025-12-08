@@ -1,0 +1,316 @@
+---
+title: Gateway Internals
+description: How LumenizeGateway bridges the mesh and WebSocket clients
+---
+
+# LumenizeGateway
+
+LumenizeGateway is a **zero-storage Durable Object** that bridges the Lumenize Mesh and browser clients. It extends `DurableObject` directly (not `LumenizeBase`) to avoid any storage operations.
+
+## Design Principles
+
+### Zero Storage = Zero Cost When Idle
+
+LumenizeGateway uses **no DO storage operations**:
+- No `ctx.storage.put/get/delete`
+- No `ctx.storage.sql`
+- No `ctx.storage.kv`
+
+Instead, state is derived from:
+- `this.ctx.getWebSockets()` — Active WebSocket connections
+- `this.ctx.getAlarm()` — Pending reconnection grace period
+- `ws.deserializeAttachment()` — Per-connection metadata
+
+**Cost implications**: When a client disconnects (and the grace period expires), the Gateway can be evicted from memory with zero charges. Creating and destroying Gateways is essentially free.
+
+### 1:1 Gateway-Client Relationship
+
+Each LumenizeClient connects to **its own** Gateway instance:
+
+```
+Client A (user1.tab1) → Gateway DO "user1.tab1"
+Client B (user1.tab2) → Gateway DO "user1.tab2"
+Client C (user2.tab1) → Gateway DO "user2.tab1"
+```
+
+The Gateway instance name matches the client's `instanceName` configuration.
+
+### Transparent Proxying
+
+Gateway doesn't interpret the calls passing through it — it simply:
+1. Receives calls from the mesh
+2. Forwards them over WebSocket to the client
+3. Returns the response to the caller
+
+This keeps Gateway simple and allows clients to define any methods they want.
+
+## State Machine
+
+Gateway state is **derived**, not stored. On every wake, it checks:
+
+| `getWebSockets()` | `getAlarm()` | State | Behavior |
+|-------------------|--------------|-------|----------|
+| Has connection | Any | **Connected** | Forward calls immediately |
+| Empty | Pending | **Grace Period** | Wait for reconnect (up to 5s) |
+| Empty | None | **Disconnected** | Reject calls with "not connected" |
+
+### State Transitions
+
+```
+                    ┌─────────────────────────────────────┐
+                    │                                     │
+                    ▼                                     │
+    ┌─────────┐   connect   ┌───────────┐   disconnect  │
+    │Disconnect│ ─────────→ │ Connected │ ────────────────┘
+    └─────────┘             └───────────┘        │
+         ▲                        │              │
+         │                        │              ▼
+         │                        │    ┌──────────────┐
+         │                        │    │ Grace Period │
+         │                        │    │   (5 sec)    │
+         │                        │    └──────────────┘
+         │                        │              │
+         │    timeout             │   reconnect  │
+         └────────────────────────┼──────────────┘
+                                  │
+                              (back to Connected)
+```
+
+## Connection Lifecycle
+
+### Client Connects
+
+```typescript
+// 1. Client initiates WebSocket connection
+const ws = new WebSocket(url, [
+  'lmz',                           // Primary protocol
+  `lmz.access-token.${jwt}`,       // Auth token (smuggled)
+  `lmz.client-id.${clientId}`      // Client identifier
+]);
+
+// 2. Gateway receives upgrade request
+async fetch(request: Request): Promise<Response> {
+  // Verify auth token from subprotocol
+  const token = extractWebSocketToken(request);
+  
+  // Accept hibernatable WebSocket
+  const pair = new WebSocketPair();
+  this.ctx.acceptWebSocket(pair[1]);
+  
+  // Store metadata in attachment (not DO storage!)
+  pair[1].serializeAttachment({
+    userId: payload.sub,
+    connectedAt: Date.now(),
+    token
+  });
+  
+  return new Response(null, {
+    status: 101,
+    headers: { 'Sec-WebSocket-Protocol': 'lmz' }
+  });
+}
+```
+
+### Client Disconnects
+
+```typescript
+async webSocketClose(ws: WebSocket, code: number, reason: string) {
+  // Set 5-second grace period alarm
+  await this.ctx.storage.setAlarm(Date.now() + 5000);
+  
+  // Note: If client reconnects before alarm, state goes back to Connected
+}
+
+async alarm() {
+  // Grace period expired — client didn't reconnect
+  // Gateway can now be evicted (no action needed)
+  // Any incoming calls will see "disconnected" state
+}
+```
+
+### Client Reconnects (Within Grace Period)
+
+```typescript
+async fetch(request: Request): Promise<Response> {
+  // ... handle WebSocket upgrade ...
+  
+  // Cancel grace period alarm if pending
+  const pendingAlarm = await this.ctx.storage.getAlarm();
+  if (pendingAlarm) {
+    await this.ctx.storage.deleteAlarm();
+  }
+  
+  // State is now "Connected" again
+}
+```
+
+## Call Handling
+
+### Outgoing Calls (Client → Mesh)
+
+```typescript
+async webSocketMessage(ws: WebSocket, message: string) {
+  const envelope = JSON.parse(message);
+  
+  if (envelope.type === '__call') {
+    // Client is making a call to a mesh node
+    const { binding, instance, chain, callId } = envelope;
+    
+    try {
+      // Forward to target DO/Worker
+      const result = await this.lmz.callRaw(binding, instance, chain);
+      
+      // Send response back to client
+      ws.send(JSON.stringify({
+        type: '__response',
+        callId,
+        success: true,
+        result
+      }));
+    } catch (error) {
+      ws.send(JSON.stringify({
+        type: '__response',
+        callId,
+        success: false,
+        error: serializeError(error)
+      }));
+    }
+  }
+}
+```
+
+### Incoming Calls (Mesh → Client)
+
+```typescript
+// Called by mesh nodes via: this.lmz.call('GATEWAY_DO', clientId, ...)
+async __executeOperation(envelope: CallEnvelope): Promise<any> {
+  const ws = this.ctx.getWebSockets()[0];
+  
+  if (!ws) {
+    // Check if in grace period
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm) {
+      // Wait for reconnect (with timeout)
+      await this.#waitForReconnect();
+      // Retry getting WebSocket
+      const ws = this.ctx.getWebSockets()[0];
+      if (!ws) {
+        throw new Error('Client did not reconnect in time');
+      }
+    } else {
+      throw new Error('Client not connected');
+    }
+  }
+  
+  // Forward to client and await response
+  return await this.#forwardToClient(ws, envelope);
+}
+
+async #forwardToClient(ws: WebSocket, envelope: CallEnvelope): Promise<any> {
+  const callId = crypto.randomUUID();
+  
+  // Send call to client
+  ws.send(JSON.stringify({
+    type: '__incomingCall',
+    callId,
+    chain: envelope.chain
+  }));
+  
+  // Wait for response (with timeout)
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Client call timed out'));
+    }, 30000);
+    
+    // Response handling via webSocketMessage
+    this.#pendingCalls.set(callId, { resolve, reject, timeout });
+  });
+}
+```
+
+## WebSocket Attachments
+
+Attachments store per-connection metadata **without using DO storage**:
+
+```typescript
+// When accepting connection
+ws.serializeAttachment({
+  userId: 'user-123',
+  connectedAt: Date.now(),
+  token: jwt,
+  tokenExp: payload.exp
+});
+
+// When handling messages
+const attachment = ws.deserializeAttachment();
+if (attachment.tokenExp < Date.now() / 1000) {
+  ws.close(4401, 'Token expired');
+}
+```
+
+Attachments persist across DO hibernation — when the DO wakes up, you can read the attachment from any active WebSocket.
+
+## Why Not Extend LumenizeBase?
+
+LumenizeBase stores identity in `ctx.storage.kv`:
+- `__lmz_do_binding_name`
+- `__lmz_do_instance_name`
+
+For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `DurableObject` directly and derives all state from:
+- WebSocket list
+- Alarm status
+- WebSocket attachments
+
+## Error Handling
+
+### Client Not Connected
+
+```typescript
+// From a DO trying to reach a disconnected client:
+try {
+  await this.lmz.callRaw('GATEWAY_DO', clientId, chain);
+} catch (error) {
+  if (error.message === 'Client not connected') {
+    // Queue for later, send push notification, etc.
+  }
+}
+```
+
+### Client Call Timeout
+
+Gateway enforces a 30-second timeout for client responses. If the client doesn't respond in time, the calling mesh node receives an error.
+
+### Token Expiration
+
+Gateway can verify token expiration on each incoming message using the stored `tokenExp` in the WebSocket attachment:
+
+```typescript
+async webSocketMessage(ws: WebSocket, message: string) {
+  const attachment = ws.deserializeAttachment();
+  
+  // Check if token expired
+  if (attachment.tokenExp && attachment.tokenExp < Date.now() / 1000) {
+    ws.close(4401, 'Token expired');
+    return;
+  }
+  
+  // Process message...
+}
+```
+
+## Cost Analysis
+
+| Scenario | Storage Cost | Compute Cost |
+|----------|--------------|--------------|
+| Client connected, idle | None | Hibernation only |
+| Client connected, active | None | Message handling |
+| Client disconnected (grace period) | Alarm only* | None |
+| Client disconnected (expired) | None | None |
+
+*Alarms use Cloudflare's alarm system, not DO SQLite — minimal/no additional charges.
+
+## Next Steps
+
+- [Client API Reference](./client-api) — LumenizeClient API documentation
+- [Auth Integration](./auth-integration) — Token handling patterns
+

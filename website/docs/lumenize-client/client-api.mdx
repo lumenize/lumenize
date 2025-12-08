@@ -1,0 +1,487 @@
+---
+title: Client API Reference
+description: Complete LumenizeClient API documentation
+---
+
+# LumenizeClient API
+
+Complete API reference for creating and using LumenizeClient instances.
+
+## Creating a Client
+
+### Factory Function (Recommended)
+
+```typescript
+import { createLumenizeClient } from '@lumenize/lumenize-base';
+
+const client = createLumenizeClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  accessToken: jwt
+});
+```
+
+### Class-Based (For Extending)
+
+```typescript
+import { LumenizeClient } from '@lumenize/lumenize-base';
+
+class MyClient extends LumenizeClient {
+  // Add methods that mesh nodes can call
+  handleNotification(data: NotificationData) {
+    showToast(data.message);
+    return { received: true };
+  }
+}
+
+const client = new MyClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  accessToken: jwt
+});
+```
+
+## Configuration
+
+### LumenizeClientConfig
+
+```typescript
+interface LumenizeClientConfig {
+  /**
+   * Base URL for WebSocket connection.
+   * Must use wss:// for production.
+   * @example 'wss://app.example.com'
+   */
+  baseUrl: string;
+  
+  /**
+   * Gateway DO binding name.
+   * @default 'GATEWAY_DO'
+   */
+  gatewayBinding?: string;
+  
+  /**
+   * Instance name — becomes the Gateway DO name.
+   * Recommended format: `${userId}.${tabId}`
+   * 
+   * The tabId should be unique per browser tab (stored in sessionStorage).
+   * @example 'user-123.tab-abc'
+   */
+  instanceName: string;
+  
+  /**
+   * Initial JWT access token for authentication.
+   * Passed via WebSocket subprotocol (not in URL).
+   */
+  accessToken?: string;
+  
+  /**
+   * Called when token is about to expire.
+   * Return a new token to refresh, or throw to disconnect.
+   * Called ~30 seconds before expiration.
+   */
+  onTokenExpiring?: () => Promise<string>;
+  
+  /**
+   * Called when connection state changes.
+   */
+  onConnectionStateChange?: (state: ConnectionState) => void;
+  
+  /**
+   * Called when a connection error occurs.
+   * This is for connection-level errors, not RPC errors.
+   */
+  onConnectionError?: (error: Error) => void;
+  
+  /**
+   * Request timeout in milliseconds.
+   * @default 30000 (30 seconds)
+   */
+  timeout?: number;
+  
+  /**
+   * Whether to auto-reconnect on connection drop.
+   * @default true
+   */
+  autoReconnect?: boolean;
+  
+  /**
+   * Custom WebSocket class (for testing or polyfills).
+   * @default globalThis.WebSocket
+   */
+  WebSocketClass?: typeof WebSocket;
+}
+
+type ConnectionState = 
+  | 'disconnected'
+  | 'connecting' 
+  | 'connected'
+  | 'reconnecting';
+```
+
+## Instance Properties
+
+### `lmz`
+
+Access to Lumenize Mesh infrastructure:
+
+```typescript
+interface LmzClientApi {
+  /**
+   * Always 'LumenizeClient' for clients.
+   */
+  readonly type: 'LumenizeClient';
+  
+  /**
+   * Gateway binding name (e.g., 'GATEWAY_DO').
+   */
+  readonly bindingName?: string;
+  
+  /**
+   * Client instance name (becomes Gateway DO name).
+   */
+  readonly instanceName?: string;
+  
+  /**
+   * Alias for instanceName (for API consistency with LumenizeBase).
+   */
+  readonly instanceNameOrId?: string;
+  
+  /**
+   * Make an async RPC call to a mesh node.
+   * Returns when the remote method completes.
+   * 
+   * @param binding - Target binding name (e.g., 'USER_DO')
+   * @param instance - Target instance name/id (undefined for Workers)
+   * @param chain - Operation chain from this.ctn()
+   */
+  callRaw(
+    binding: string,
+    instance: string | undefined,
+    chain: OperationChain
+  ): Promise<any>;
+  
+  /**
+   * Make an RPC call with continuation pattern.
+   * 
+   * @param binding - Target binding name
+   * @param instance - Target instance name/id
+   * @param remote - Remote continuation (what to execute on target)
+   * @param handler - Optional handler continuation (what to execute locally when done)
+   */
+  call(
+    binding: string,
+    instance: string | undefined,
+    remote: Continuation<any>,
+    handler?: Continuation<any>
+  ): void;
+}
+```
+
+### `connectionState`
+
+Current connection state:
+
+```typescript
+readonly connectionState: ConnectionState;
+
+// Example usage
+if (client.connectionState === 'connected') {
+  // Safe to make calls
+}
+```
+
+## Instance Methods
+
+### `ctn<T>()`
+
+Create a continuation for building operation chains:
+
+```typescript
+ctn<T = this>(): Continuation<T>;
+```
+
+Usage:
+
+```typescript
+// Call a method on a remote DO
+const chain = client.ctn<UserDO>().getUserData(userId);
+const result = await client.lmz.callRaw('USER_DO', userId, chain);
+
+// Chain multiple operations
+const chain = client.ctn<DataDO>()
+  .loadData()
+  .transform()
+  .validate();
+```
+
+### `connect()`
+
+Establish WebSocket connection to Gateway:
+
+```typescript
+async connect(): Promise<void>;
+```
+
+Connection is **lazy** — it's automatically established on first `callRaw()` if not already connected. Call `connect()` explicitly if you want to establish the connection early.
+
+```typescript
+// Explicit connection
+await client.connect();
+console.log(client.connectionState); // 'connected'
+```
+
+### `disconnect()`
+
+Close WebSocket connection:
+
+```typescript
+disconnect(): void;
+```
+
+After disconnecting, calls will fail until reconnected. If `autoReconnect` is true, the client will attempt to reconnect on the next call.
+
+### `updateAccessToken(token: string)`
+
+Update the access token without reconnecting:
+
+```typescript
+updateAccessToken(token: string): void;
+```
+
+The new token will be used for subsequent messages. For token refresh, consider using `onTokenExpiring` callback instead.
+
+### `[Symbol.dispose]()`
+
+Resource cleanup for `using` syntax:
+
+```typescript
+// Automatically disconnects when scope exits
+{
+  using client = createLumenizeClient(config);
+  await client.lmz.callRaw('USER_DO', userId, chain);
+} // client.disconnect() called automatically
+```
+
+## Making Calls
+
+### `callRaw()` - Async Pattern
+
+```typescript
+// Simple call
+const result = await client.lmz.callRaw(
+  'USER_DO',
+  'user-123',
+  client.ctn<UserDO>().getUserData()
+);
+
+// Call with arguments
+const result = await client.lmz.callRaw(
+  'DATA_DO',
+  'global',
+  client.ctn<DataDO>().processItems([1, 2, 3], { validate: true })
+);
+
+// Call a Worker (no instance)
+const result = await client.lmz.callRaw(
+  'PROCESSOR_WORKER',
+  undefined,
+  client.ctn<ProcessorWorker>().analyze(data)
+);
+
+// Call another client
+const result = await client.lmz.callRaw(
+  'GATEWAY_DO',
+  `${otherUserId}.${otherTabId}`,
+  client.ctn<OtherClient>().getCursorPosition()
+);
+```
+
+### `call()` - Continuation Pattern
+
+```typescript
+// Fire-and-forget (no handler)
+client.lmz.call(
+  'ANALYTICS_DO',
+  'global',
+  client.ctn<AnalyticsDO>().trackEvent({ type: 'click' })
+);
+
+// With result handler
+client.lmz.call(
+  'USER_DO',
+  userId,
+  client.ctn<UserDO>().getUserData(),
+  client.ctn().handleUserData(client.ctn().$result)
+);
+
+// Handler method
+handleUserData(data: UserData) {
+  this.updateUI(data);
+}
+```
+
+## Receiving Calls
+
+Define methods on your client class that mesh nodes can call:
+
+```typescript
+class MyClient extends LumenizeClient {
+  // Called by mesh nodes
+  handleNotification(data: NotificationData) {
+    showToast(data.message);
+    return { received: true }; // Optional return value
+  }
+  
+  // Called for real-time updates
+  handleDocumentChange(change: DocumentChange) {
+    this.doc.apply(change);
+    // No return = fire-and-forget from server's perspective
+  }
+  
+  // Called for collaborative cursor updates
+  handleCursorUpdate(userId: string, position: Position) {
+    this.cursors.set(userId, position);
+    this.renderCursors();
+  }
+}
+```
+
+From a mesh node (DO or Worker):
+
+```typescript
+// Call client method and wait for response
+const result = await this.lmz.callRaw(
+  'GATEWAY_DO',
+  `${userId}.${tabId}`,
+  this.ctn<MyClient>().handleNotification({ 
+    message: 'Hello!' 
+  })
+);
+
+// Fire-and-forget call to client
+this.lmz.call(
+  'GATEWAY_DO',
+  `${userId}.${tabId}`,
+  this.ctn<MyClient>().handleDocumentChange(change)
+);
+```
+
+## Error Handling
+
+### Connection Errors
+
+```typescript
+const client = createLumenizeClient({
+  // ...
+  onConnectionError: (error) => {
+    console.error('Connection error:', error.message);
+    showConnectionErrorUI();
+  }
+});
+```
+
+### RPC Errors
+
+```typescript
+try {
+  const result = await client.lmz.callRaw(
+    'USER_DO',
+    userId,
+    client.ctn<UserDO>().getUserData()
+  );
+} catch (error) {
+  if (error.message === 'Client not connected') {
+    // Gateway says we're disconnected
+  } else if (error.message.includes('timeout')) {
+    // Request timed out
+  } else {
+    // Error thrown by remote method
+    console.error('RPC error:', error);
+  }
+}
+```
+
+### Connection State Handling
+
+```typescript
+const client = createLumenizeClient({
+  // ...
+  onConnectionStateChange: (state) => {
+    switch (state) {
+      case 'connecting':
+        showConnectingSpinner();
+        break;
+      case 'connected':
+        hideSpinner();
+        enableFeatures();
+        break;
+      case 'reconnecting':
+        showReconnectingBanner();
+        break;
+      case 'disconnected':
+        disableFeatures();
+        break;
+    }
+  }
+});
+```
+
+## Browser Considerations
+
+### Tab Identity
+
+Generate a unique tab ID and store it in sessionStorage:
+
+```typescript
+function getTabId(): string {
+  let tabId = sessionStorage.getItem('tabId');
+  if (!tabId) {
+    tabId = crypto.randomUUID();
+    sessionStorage.setItem('tabId', tabId);
+  }
+  return tabId;
+}
+
+const client = createLumenizeClient({
+  instanceName: `${userId}.${getTabId()}`
+});
+```
+
+### Page Visibility
+
+Consider disconnecting when the page is hidden to save resources:
+
+```typescript
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    client.disconnect();
+  } else {
+    client.connect();
+  }
+});
+```
+
+### Multiple Tabs
+
+Each tab should have its own client with a unique instance name. This ensures:
+- Each tab has its own Gateway DO
+- Notifications can target specific tabs
+- Collaborative cursors are per-tab
+
+## TypeScript Types
+
+```typescript
+import type { 
+  LumenizeClient,
+  LumenizeClientConfig,
+  ConnectionState,
+  Continuation
+} from '@lumenize/lumenize-base';
+```
+
+## Next Steps
+
+- [Gateway Internals](./gateway) — How LumenizeGateway works
+- [Auth Integration](./auth-integration) — Token handling patterns
+
