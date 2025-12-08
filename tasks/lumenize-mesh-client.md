@@ -103,9 +103,6 @@ class LumenizeClient {
   disconnect(): void;
   readonly connectionState: ConnectionState;
   
-  // Token management
-  updateAccessToken(token: string): void;
-  
   // Resource cleanup
   [Symbol.dispose](): void;
 }
@@ -130,7 +127,7 @@ class LumenizeGateway extends DurableObject<Env> {
 }
 ```
 
-### LumenizeRouter (TBD)
+### createLumenizeRouter
 
 ```typescript
 interface LumenizeRouterConfig {
