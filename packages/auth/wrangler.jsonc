@@ -1,0 +1,26 @@
+{
+  "name": "lumenize-auth",
+  "main": "test/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LUMENIZE_AUTH",
+        "class_name": "LumenizeAuth"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "LumenizeAuth"
+      ]
+    }
+  ],
+  "vars": {
+    "AUTH_TEST_MODE": "true",
+    "ACTIVE_JWT_KEY": "BLUE"
+  }
+}
+

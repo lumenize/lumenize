@@ -1,0 +1,51 @@
+{
+  "name": "@lumenize/auth",
+  "version": "0.17.0",
+  "private": true,
+  "description": "De✨light✨ful authentication for Cloudflare Durable Objects",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/**/*"
+  ],
+  "scripts": {
+    "test": "vitest --run",
+    "test:coverage": "vitest --coverage --run",
+    "coverage": "COVERAGE=true vitest --run --coverage",
+    "types": "wrangler types"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "durable-objects",
+    "authentication",
+    "jwt",
+    "magic-link"
+  ],
+  "author": "Lumenize",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@vitest/coverage-istanbul": "3.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "3.2.4",
+    "wrangler": "^4.38.0"
+  },
+  "dependencies": {
+    "@lumenize/core": "*",
+    "@lumenize/lumenize-base": "*",
+    "@lumenize/utils": "*"
+  },
+  "peerDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "vitest": "3.2.4"
+  }
+}
+
