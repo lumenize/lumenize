@@ -25,12 +25,12 @@ Instead, state is derived from:
 
 ### 1:1 Gateway-Client Relationship
 
-Each LumenizeClient connects to **its own** Gateway instance:
+Each LumenizeClient connects to **its own** Gateway instance. Using the document editing example:
 
 ```
-Client A (user1.tab1) → Gateway DO "user1.tab1"
-Client B (user1.tab2) → Gateway DO "user1.tab2"
-Client C (user2.tab1) → Gateway DO "user2.tab1"
+Alice's browser (alice.tab1) → Gateway DO "alice.tab1"
+Bob's browser (bob.tab1)     → Gateway DO "bob.tab1"
+Bob's second tab (bob.tab2)  → Gateway DO "bob.tab2"
 ```
 
 The Gateway instance name matches the client's `instanceName` configuration.
@@ -266,12 +266,21 @@ For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `D
 ### Client Not Connected
 
 ```typescript
-// From a DO trying to reach a disconnected client:
-try {
-  await this.lmz.callRaw('GATEWAY_DO', clientId, chain);
-} catch (error) {
-  if (error.message === 'Client not connected') {
-    // Queue for later, send push notification, etc.
+// From DocumentDO trying to notify a disconnected collaborator:
+notifyCollaborators(change: DocumentChange) {
+  for (const clientId of this.getConnectedClients()) {
+    try {
+      this.lmz.call(
+        'GATEWAY_DO',
+        clientId,
+        this.ctn<EditorClient>().handleDocumentChange(change)
+      );
+    } catch (error) {
+      if (error.message === 'Client not connected') {
+        // Remove from collaborators list
+        this.removeClient(clientId);
+      }
+    }
   }
 }
 ```

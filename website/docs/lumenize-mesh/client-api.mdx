@@ -12,7 +12,7 @@ Complete API reference for creating and using LumenizeClient instances.
 ### Factory Function (Recommended)
 
 ```typescript
-import { createLumenizeClient } from '@lumenize/lumenize-base';
+import { createLumenizeClient } from '@lumenize/mesh';
 
 const client = createLumenizeClient({
   baseUrl: 'wss://app.example.com',
@@ -23,18 +23,19 @@ const client = createLumenizeClient({
 
 ### Class-Based (For Extending)
 
-```typescript
-import { LumenizeClient } from '@lumenize/lumenize-base';
+Using the document editing example:
 
-class MyClient extends LumenizeClient {
-  // Add methods that mesh nodes can call
-  handleNotification(data: NotificationData) {
-    showToast(data.message);
-    return { received: true };
+```typescript
+import { LumenizeClient } from '@lumenize/mesh';
+
+class EditorClient extends LumenizeClient {
+  // Called by DocumentDO when content changes
+  handleDocumentChange(change: DocumentChange) {
+    this.editor.applyChange(change);
   }
 }
 
-const client = new MyClient({
+using client = new EditorClient({
   baseUrl: 'wss://app.example.com',
   instanceName: `${userId}.${tabId}`,
   accessToken: jwt
@@ -262,56 +263,49 @@ Resource cleanup for `using` syntax:
 ### `callRaw()` - Async Pattern
 
 ```typescript
-// Simple call
-const result = await client.lmz.callRaw(
-  'USER_DO',
-  'user-123',
-  client.ctn<UserDO>().getUserData()
+// Get document content
+const content = await client.lmz.callRaw(
+  'DOCUMENT_DO',
+  documentId,
+  client.ctn<DocumentDO>().getContent()
 );
 
-// Call with arguments
-const result = await client.lmz.callRaw(
-  'DATA_DO',
-  'global',
-  client.ctn<DataDO>().processItems([1, 2, 3], { validate: true })
-);
-
-// Call a Worker (no instance)
-const result = await client.lmz.callRaw(
-  'PROCESSOR_WORKER',
+// Call SpellCheck Worker (no instance name for Workers)
+const errors = await client.lmz.callRaw(
+  'SPELLCHECK_WORKER',
   undefined,
-  client.ctn<ProcessorWorker>().analyze(data)
+  client.ctn<SpellCheckWorker>().check(content)
 );
 
-// Call another client
-const result = await client.lmz.callRaw(
+// Call another client (collaborative cursor)
+const cursor = await client.lmz.callRaw(
   'GATEWAY_DO',
   `${otherUserId}.${otherTabId}`,
-  client.ctn<OtherClient>().getCursorPosition()
+  client.ctn<EditorClient>().getCursorPosition()
 );
 ```
 
 ### `call()` - Continuation Pattern
 
 ```typescript
-// Fire-and-forget (no handler)
+// Fire-and-forget: send document update
 client.lmz.call(
-  'ANALYTICS_DO',
-  'global',
-  client.ctn<AnalyticsDO>().trackEvent({ type: 'click' })
+  'DOCUMENT_DO',
+  documentId,
+  client.ctn<DocumentDO>().update({ type: 'insert', text: 'Hello' })
 );
 
-// With result handler
+// With result handler: get content and handle response
 client.lmz.call(
-  'USER_DO',
-  userId,
-  client.ctn<UserDO>().getUserData(),
-  client.ctn().handleUserData(client.ctn().$result)
+  'DOCUMENT_DO',
+  documentId,
+  client.ctn<DocumentDO>().getContent(),
+  client.ctn().handleContentLoaded(client.ctn().$result)
 );
 
-// Handler method
-handleUserData(data: UserData) {
-  this.updateUI(data);
+// Handler method in EditorClient
+handleContentLoaded(content: string) {
+  this.editor.setContent(content);
 }
 ```
 
@@ -320,16 +314,10 @@ handleUserData(data: UserData) {
 Define methods on your client class that mesh nodes can call:
 
 ```typescript
-class MyClient extends LumenizeClient {
-  // Called by mesh nodes
-  handleNotification(data: NotificationData) {
-    showToast(data.message);
-    return { received: true }; // Optional return value
-  }
-  
-  // Called for real-time updates
+class EditorClient extends LumenizeClient {
+  // Called by DocumentDO when content changes
   handleDocumentChange(change: DocumentChange) {
-    this.doc.apply(change);
+    this.editor.applyChange(change);
     // No return = fire-and-forget from server's perspective
   }
   
@@ -338,27 +326,27 @@ class MyClient extends LumenizeClient {
     this.cursors.set(userId, position);
     this.renderCursors();
   }
+  
+  // Called to get this client's cursor (returns a value)
+  getCursorPosition(): Position {
+    return this.editor.getCursorPosition();
+  }
 }
 ```
 
-From a mesh node (DO or Worker):
+From DocumentDO (pushing updates to clients):
 
 ```typescript
-// Call client method and wait for response
-const result = await this.lmz.callRaw(
-  'GATEWAY_DO',
-  `${userId}.${tabId}`,
-  this.ctn<MyClient>().handleNotification({ 
-    message: 'Hello!' 
-  })
-);
-
-// Fire-and-forget call to client
-this.lmz.call(
-  'GATEWAY_DO',
-  `${userId}.${tabId}`,
-  this.ctn<MyClient>().handleDocumentChange(change)
-);
+// In DocumentDO - notify all collaborators
+notifyCollaborators(change: DocumentChange) {
+  for (const clientId of this.getConnectedClients()) {
+    this.lmz.call(
+      'GATEWAY_DO',
+      clientId,
+      this.ctn<EditorClient>().handleDocumentChange(change)
+    );
+  }
+}
 ```
 
 ## Error Handling
@@ -379,10 +367,10 @@ const client = createLumenizeClient({
 
 ```typescript
 try {
-  const result = await client.lmz.callRaw(
-    'USER_DO',
-    userId,
-    client.ctn<UserDO>().getUserData()
+  const content = await client.lmz.callRaw(
+    'DOCUMENT_DO',
+    documentId,
+    client.ctn<DocumentDO>().getContent()
   );
 } catch (error) {
   if (error.message === 'Client not connected') {
@@ -420,6 +408,49 @@ const client = createLumenizeClient({
   }
 });
 ```
+
+## Reconnection & Subscriptions
+
+### Grace Period
+
+When a client disconnects, the Gateway waits **5 seconds** before cleaning up. If the client reconnects within this grace period:
+- Subscriptions remain valid
+- No re-subscription needed
+- `onSubscriptionsLost` is **not** called
+
+### Subscription Loss
+
+If the client reconnects **after** the grace period:
+1. Gateway informs the client that subscriptions were lost
+2. Client receives this info in the WebSocket handshake response
+3. `onSubscriptionsLost` callback fires
+4. Client must re-subscribe to any DOs it was subscribed to
+
+```typescript
+class EditorClient extends LumenizeClient {
+  documentId: string;
+  
+  onSubscriptionsLost = () => {
+    // Called only when reconnecting after grace period expired
+    // Re-subscribe to the document we were editing
+    this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
+  };
+}
+```
+
+### How It Works
+
+The Gateway is the source of truth for subscription state:
+
+1. **Client disconnects** → Gateway sets alarm for 5 seconds
+2. **Within grace period**: Client reconnects, alarm cancelled, subscriptions intact
+3. **After grace period**: Alarm fires, Gateway notifies subscribed DOs with `ClientDisconnectedError`, cleans up
+4. **Late reconnect**: Gateway tells client "subscriptions lost" in handshake, client calls `onSubscriptionsLost`
+
+This design ensures:
+- Brief network glitches don't cause subscription churn
+- DOs can clean up stale subscriptions
+- Clients know when to re-subscribe
 
 ## Browser Considerations
 
@@ -471,7 +502,7 @@ import type {
   LumenizeClientConfig,
   ConnectionState,
   Continuation
-} from '@lumenize/lumenize-base';
+} from '@lumenize/mesh';
 ```
 
 ## Next Steps

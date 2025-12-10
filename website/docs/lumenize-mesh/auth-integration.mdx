@@ -32,10 +32,18 @@ The server:
 
 ### Client Configuration
 
-```typescript
-import { createLumenizeClient } from '@lumenize/lumenize-base';
+Using the document editing example from the overview:
 
-const client = createLumenizeClient({
+```typescript
+import { LumenizeClient } from '@lumenize/mesh';
+
+class EditorClient extends LumenizeClient {
+  handleDocumentChange(change: DocumentChange) {
+    this.editor.applyChange(change);
+  }
+}
+
+using client = new EditorClient({
   baseUrl: 'wss://app.example.com',
   instanceName: `${userId}.${getTabId()}`,
   
@@ -283,21 +291,30 @@ async fetch(request: Request) {
 
 ## Complete Example
 
-```typescript
-// client-auth.ts
-import { createLumenizeClient, type LumenizeClient } from '@lumenize/lumenize-base';
+Using the document editing example:
 
-interface AuthState {
-  userId: string;
-  accessToken: string;
-  client: LumenizeClient | null;
+```typescript
+// editor-auth.ts
+import { LumenizeClient } from '@lumenize/mesh';
+
+// Define the editor client with handlers
+class EditorClient extends LumenizeClient {
+  editor: EditorInstance;
+  documentId: string;
+  
+  handleDocumentChange(change: DocumentChange) {
+    this.editor.applyChange(change);
+  }
+  
+  // Re-subscribe after grace period expires
+  onSubscriptionsLost = () => {
+    this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
+  };
 }
 
-const state: AuthState = {
-  userId: '',
-  accessToken: '',
-  client: null
-};
+// App state
+let client: EditorClient | null = null;
+let userId = '';
 
 export async function login(email: string): Promise<void> {
   // Request magic link
@@ -313,15 +330,14 @@ export async function handleMagicLinkCallback(token: string): Promise<void> {
   const response = await fetch(`/auth/magic-link?token=${token}`);
   const { accessToken, user } = await response.json();
   
-  state.userId = user.id;
-  state.accessToken = accessToken;
+  userId = user.id;
   
-  // Create authenticated client
+  // Create authenticated editor client
   // Token refresh is automatic via HTTP-only cookie!
-  state.client = createLumenizeClient({
+  client = new EditorClient({
     baseUrl: 'wss://app.example.com',
-    instanceName: `${state.userId}.${getTabId()}`,
-    accessToken: state.accessToken,
+    instanceName: `${userId}.${getTabId()}`,
+    accessToken,
     // refreshEndpoint: '/auth/refresh-token'  // default
     
     onConnectionError: (error) => {
@@ -330,14 +346,21 @@ export async function handleMagicLinkCallback(token: string): Promise<void> {
       }
     }
   });
+}
+
+export async function openDocument(documentId: string): Promise<void> {
+  if (!client) throw new Error('Not authenticated');
   
-  await state.client.connect();
+  client.documentId = documentId;
+  
+  // Subscribe to document updates
+  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().subscribe());
 }
 
 export async function logout(): Promise<void> {
   // Disconnect client
-  state.client?.disconnect();
-  state.client = null;
+  client?.disconnect();
+  client = null;
   
   // Clear server session
   await fetch('/auth/logout', {
@@ -345,11 +368,7 @@ export async function logout(): Promise<void> {
     credentials: 'include'
   });
   
-  // Clear local state
-  state.userId = '';
-  state.accessToken = '';
-  
-  // Redirect
+  userId = '';
   window.location.href = '/login';
 }
 

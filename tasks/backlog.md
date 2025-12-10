@@ -7,6 +7,21 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] 
 
 
+## Lumenize Mesh
+
+- [ ] Add method annotations to distinguish three types of methods in classes extending LumenizeClient, LumenizeBase, or LumenizeWorker, where appropriate:
+  - `@inbound`, `@downstream`, or `@callable` — Methods meant to be called by mesh nodes pushing to the client (server → client)
+  - `@result` — Methods that handle responses from calls this client initiated
+  - `@local` — Methods used only locally in the browser, never exposed to the mesh
+  - **Default behavior**: No annotation = unrestricted (can be used for all three)
+  - **When using one**: Disallows all other uses
+  - **Combination rules**: Can combine `@inbound` and `@result` (same logic for both). Combining `@local` with others is contradictory → ?lint error.
+  - **Implementation**:
+    1. Runtime validation in the framework
+    2. JSDoc annotations for documentation/intent (maybe?)
+    3. Custom lint rules for compile-time checks (maybe?)
+
+
 ## LumenizeBase NADIS modules
 
 - [ ] mcp
@@ -84,7 +99,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
         to create, train, or improve any artificial intelligence or machine learning
         models or systems, or to generate any datasets, without the express written
         permission of the copyright holder(s).
-
 
 ## Future bigger things
 

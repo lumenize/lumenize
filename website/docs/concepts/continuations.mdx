@@ -5,60 +5,27 @@ description: Non-blocking async operations with type-safe callbacks for Durable 
 
 # Continuations
 
-**Continuations** are Lumenize's pattern for handling asynchronous operations in Durable Objects without blocking. Instead of using `async`/`await` (which breaks Cloudflare's consistency guarantees), you describe what should happen next using **operation chains**.
+A **Continuation** is a **description of work** that gets executed in some other place or time usually during/after some native async operation.
 
-:::tip Key Concept
-A continuation is a **description of future work** that gets executed in some other place and/or time usually during/after some native async operation. It maintains DO consistency by keeping the handler synchronous.
-:::
-
-## Why Continuations?
-
-Durable Objects have special consistency guarantees, but only if you follow their rules:
-
-**❌ Don't Do This** (breaks consistency):
-```typescript @skip-check
-class MyDO extends DurableObject {
-  async fetch(request: Request) {
-    // This async method can be interrupted!
-    const response = await fetch('https://api.example.com/data');
-    const data = await response.json();
-    
-    // ⚠️ Another request could execute here, causing race conditions
-    this.ctx.storage.kv.put('data', data);
-  }
-}
+Here is an example of how Lumenize's built-in remote procedure call uses them:
+```
+const remote = this.ctn<RemoteDO>().getUserData(userId);
+const local = this.ctn().handleResult(remote);
+this.lmz.call(REMOTE_DO, 'instance-id', remote, local);
 ```
 
-**✅ Do This Instead** (maintains consistency):
-```typescript @skip-check
-class MyDO extends LumenizeBase {
-  async fetch(request: Request) {
-    // Non-blocking: returns immediately
-    await proxyFetchWorker(
-      this,
-      'https://api.example.com/data',
-      this.ctn().handleResponse(this.ctn().$result) // Continuation!
-    );
-    
-    return new Response('Processing...');
-  }
-  
-  // Synchronous handler - no race conditions
-  handleResponse(result: Response | Error) {
-    if (result instanceof Error) {
-      console.error('Failed:', result);
-      return;
-    }
-    
-    const data = await result.json();
-    this.ctx.storage.kv.put('data', data);
-  }
-}
-```
+Continuations:
+
+- Are Serializable so can be pushed into storage, an alarms handler, or sent over the wire to be executed in some other Durable Object or Worker.
+- Can carry arbitrary data that supports almost all types (Dates, Map, Set, cycles, aliases, etc.). This allows you to restore context and pick up where you left of when returning from an asynchronous operation
+- Provide an alternative to using `async`/`await`, which can be problematic for Durable Object's consistency guarantees.
+- Provide type safety, so you get development-time feedback if you have the method/property name or signature wrong.
+- Are built with JavaScript Proxy objects and serialize to a well-defined, `JSON.strinigify`-friendly operation chaining and nesting (OCAN) object. 
+- Can encapsulate multiple method calls and property accesses and where the output of one operation can be used in another
 
 ## The `this.ctn()` Factory
 
-Every DO that extends `LumenizeBase` has access to `this.ctn()`, which creates continuation chains:
+Components that extend `LumenizeBase`, `LumenizeWorker`, or `LumenizeClient` has access to `this.ctn()`, which creates continuation chains:
 
 ```typescript @skip-check
 // Simple method call
@@ -274,6 +241,7 @@ If you don't check for `Error`, your handler might crash when operations fail. A
 - **[@lumenize/lumenize-base](/docs/lumenize-base/index)** - DO-to-DO communication with `this.lmz.call()`
 - **[@lumenize/alarms](/docs/alarms/index)** - Scheduled tasks with continuations
 - **[@lumenize/fetch](/docs/fetch/index)** - External fetches with continuations
+
 
 
 

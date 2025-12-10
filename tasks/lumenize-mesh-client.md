@@ -2,7 +2,7 @@
 
 **Status**: Phase 1 - Design Documentation
 **Created**: 2025-12-08
-**Design Document**: `/website/docs/lumenize-client/`
+**Design Document**: `/website/docs/lumenize-mesh/`
 
 ## Goal
 
@@ -149,14 +149,32 @@ function createLumenizeRouter(
 
 ## Implementation Phases
 
+### Phase 0: Rename Package
+**Goal**: Rename `@lumenize/lumenize-base` to `@lumenize/mesh`
+
+**Rationale**: 
+- All mesh participants (LumenizeBase, LumenizeWorker, LumenizeClient, LumenizeGateway) come from the same package
+- `@lumenize/mesh` is more intuitive than `@lumenize/lumenize-base`
+- Package not yet published, so now is the right time
+
+**Tasks**:
+- [ ] Rename directory `packages/lumenize-base/` → `packages/mesh/`
+- [ ] Update `package.json` name to `@lumenize/mesh`
+- [ ] Update all imports across the monorepo
+- [ ] Update TypeDoc config in `website/docusaurus.config.ts`
+- [ ] Update sidebar references in `website/sidebars.ts`
+- [ ] Merge `website/docs/lumenize-base/` content into `website/docs/lumenize-mesh/`
+  - Reconcile the two `index.mdx` files (restructure as needed)
+  - Move/integrate LumenizeBase and LumenizeWorker docs
+
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation
 
 **Deliverables**:
-- `website/docs/lumenize-client/index.mdx` - Overview, Lumenize Mesh concept
-- `website/docs/lumenize-client/gateway.mdx` - Gateway behavior, state machine
-- `website/docs/lumenize-client/client-api.mdx` - LumenizeClient API reference
-- `website/docs/lumenize-client/auth-integration.mdx` - Token handling patterns
+- `website/docs/lumenize-mesh/index.mdx` - Overview, Lumenize Mesh concept
+- `website/docs/lumenize-mesh/gateway.mdx` - Gateway behavior, state machine
+- `website/docs/lumenize-mesh/client-api.mdx` - LumenizeClient API reference
+- `website/docs/lumenize-mesh/auth-integration.mdx` - Token handling patterns
 
 **Success Criteria**:
 - API design approved by maintainer
@@ -178,7 +196,7 @@ function createLumenizeRouter(
 **Goal**: Create mesh-specific WebSocket transport by forking from RPC
 
 **Success Criteria**:
-- `WebSocketTransport` class in `@lumenize/lumenize-base`
+- `WebSocketTransport` class in `@lumenize/mesh`
 - Forked from `rpc/src/websocket-rpc-transport.ts` (~200 lines)
 - Adapted for mesh: call envelopes, incoming calls, token refresh
 - `@lumenize/rpc` untouched (stays frozen)
@@ -237,8 +255,8 @@ Reuse from existing packages:
 
 | Component | Source | Reuse |
 |-----------|--------|-------|
-| OCAN/Continuations | `lumenize-base/src/ocan/` | Direct import |
-| CallEnvelope format | `lumenize-base/src/lmz-api.ts` | Shared types |
+| OCAN/Continuations | `mesh/src/ocan/` | Direct import |
+| CallEnvelope format | `mesh/src/lmz-api.ts` | Shared types |
 | WebSocket transport | `rpc/src/websocket-rpc-transport.ts` | **Fork** (~200 lines) |
 | Auth middleware | `auth/src/middleware.ts` | Use directly |
 
@@ -267,7 +285,7 @@ Reuse from existing packages:
 - Pending call tracking: by callId, not batchId
 - Token refresh: coordinate with `onTokenExpiring` callback
 
-**Location:** New file `lumenize-base/src/websocket-transport.ts`
+**Location:** New file `mesh/src/websocket-transport.ts`
 
 ### New LmzApi for Client
 
@@ -278,13 +296,13 @@ New `createLmzApiForClient()` alongside existing:
 
 ## Package Location
 
-Both LumenizeGateway and LumenizeClient in `@lumenize/lumenize-base`:
+Both LumenizeGateway and LumenizeClient in `@lumenize/mesh`:
 - Keeps shared types together
 - Tree-shaking handles browser vs. server code
 - Simpler dependency management
 
 ```
-packages/lumenize-base/
+packages/mesh/
   src/
     lumenize-base.ts        # Existing
     lumenize-worker.ts      # Existing
@@ -306,7 +324,7 @@ packages/lumenize-base/
 
 ## References
 
-- `packages/lumenize-base/src/lmz-api.ts` - Call infrastructure
+- `packages/mesh/src/lmz-api.ts` - Call infrastructure
 - `packages/rpc/src/websocket-rpc-transport.ts` - Transport patterns  
 - `packages/auth/src/middleware.ts` - Auth middleware
 - Memory [[11961810]] - Auth package details

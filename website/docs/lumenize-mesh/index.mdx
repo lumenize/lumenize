@@ -1,0 +1,267 @@
+---
+title: Lumenize Mesh
+description: Durable Objects, Workers, and browser clients as peers in an actor-model network
+---
+
+# Lumenize Mesh
+
+The **Lumenize Mesh** is an actor-model network where nodes communicate via `this.lmz.call()`. Each node is a **true peer** — able to both make and receive calls.
+
+## Lumenize Mesh "Actor" Nodes
+
+| Node Type | Runs In | Storage | Use Case |
+|-----------|---------|---------|----------|
+| **LumenizeBase** | Cloudflare DO | SQL/KV | Stateful server-side capability |
+| **LumenizeWorker** | Cloudflare Worker | none | Stateless server-side capability |
+| **LumenizeClient** | Browser/Node.js | Local | Client applications |
+
+## Other Lumenize Mesh Elements
+
+| Element | Type | Use Case |
+|---------|------|----------|
+| **LumenizeGateway** | Cloudflare DO | Bridges client ↔ mesh (zero storage) |
+| **createLumenizeRouter** | Factory function | Creates Worker fetch handler with auth + gateway routing |
+
+## Illustration
+
+```mermaid
+flowchart TB
+
+    subgraph browserA[" "]
+        ClientA[/"Client<br/><small>alice.tab1</small>"/]
+    end
+
+    subgraph cloud[" ☁️ Cloudflare "]
+        direction TB
+        
+        %% Top row: LumenizeBase DOs and LumenizeWorkers
+        subgraph mesh[" "]
+            direction LR
+            Workspace["Workspace<br/><small>acme-corp</small>"]
+            Doc1["Document<br/><small>draft-1</small>"]
+            Doc2["Document<br/><small>draft-2</small>"]
+            Spell1(("SpellCheck"))
+            Spell2(("SpellCheck"))
+        end
+        
+        %% Gateways (inside cloud)
+        subgraph gatewaysA[" "]
+            GwA(["Gateway<br/><small>alice.tab1</small>"])
+        end
+        
+        subgraph gatewaysB[" "]
+            GwB1(["Gateway<br/><small>bob.tab1</small>"])
+            GwB2(["Gateway<br/><small>bob.tab2</small>"])
+            GwB1 ~~~ GwB2
+        end
+        
+        %% Mesh interconnections - Workspace manages all docs
+        Workspace <--> Doc1
+        Workspace <--> Doc2
+        Doc1 <--> Spell1
+        Doc2 <--> Spell2
+        
+        %% Gateway to workspace connections
+        GwA <--> Workspace
+        GwB1 <--> Workspace
+        GwB2 <--> Workspace
+        
+        %% Gateway to document connections
+        %% Alice works on draft-2
+        GwA <--> Doc2
+        %% Bob tab1 collaborates with Alice on draft-2
+        GwB1 <--> Doc2
+        %% Bob tab2 works alone on draft-1
+        GwB2 <--> Doc1
+    end
+
+    subgraph browserB[" "]
+        ClientB1[/"Client<br/><small>bob.tab1</small>"/]
+        ClientB2[/"Client<br/><small>bob.tab2</small>"/]
+        ClientB1 ~~~ ClientB2
+    end
+    
+    %% WebSocket connections - B first to influence layout
+    GwB1 <-->|WebSocket| ClientB1
+    GwB2 <-->|WebSocket| ClientB2
+    GwA <-->|WebSocket| ClientA
+    
+    %% Styling
+    classDef workspaceDO fill:#6366f1,stroke:#4f46e5,color:#fff
+    classDef documentDO fill:#a855f7,stroke:#9333ea,color:#fff
+    classDef spellWorker fill:#10b981,stroke:#059669,color:#fff
+    classDef gateway fill:#f59e0b,stroke:#d97706,color:#fff
+    classDef client fill:#ec4899,stroke:#db2777,color:#fff
+    classDef invisible fill:none,stroke:none
+    
+    class Workspace workspaceDO
+    class Doc1,Doc2 documentDO
+    class Spell1,Spell2 spellWorker
+    class GwA,GwB1,GwB2 gateway
+    class ClientA,ClientB1,ClientB2 client
+    class mesh,gatewaysA,gatewaysB,browserA,browserB invisible
+```
+
+## Quick Start
+
+This example builds the document editing app shown in the illustration above.
+
+### 1. Define a Document DO (LumenizeBase)
+
+Stateful server-side logic with persistent storage:
+
+```typescript
+import { LumenizeBase } from '@lumenize/mesh';
+
+class DocumentDO extends LumenizeBase {
+  // Called by clients to update the document
+  update(changes: DocumentChange) {
+    const content = this.ctx.storage.kv.get('content') ?? '';
+    const newContent = applyChanges(content, changes);
+    this.ctx.storage.kv.put('content', newContent);
+    
+    // Notify all connected clients about the change
+    this.notifyCollaborators(changes);
+    
+    // Trigger spell check
+    this.lmz.call(
+      'SPELLCHECK_WORKER',
+      undefined,  // Workers don't have instance names
+      this.ctn<SpellCheckWorker>().check(newContent),
+      this.ctn().handleSpellCheckResult()
+    );
+  }
+  
+  // Response handler for spell check results
+  handleSpellCheckResult(errors: SpellError[]) {
+    this.ctx.storage.kv.put('spellErrors', errors);
+    this.notifyCollaborators({ type: 'spell_errors', errors });
+  }
+  
+  // Push changes to all collaborators
+  notifyCollaborators(change: DocumentChange) {
+    for (const clientId of this.getConnectedClients()) {
+      this.lmz.call(
+        'GATEWAY_DO',
+        clientId,
+        this.ctn<EditorClient>().handleDocumentChange(change)
+      );
+    }
+  }
+}
+```
+
+### 2. Define a SpellCheck Worker (LumenizeWorker)
+
+Conceptual stateless proxy to external service. Note: to avoid DO wall-clock billing, use `this.svc.fetch.proxy()` or refactor as two one-way calls.
+
+```typescript
+import { LumenizeWorker } from '@lumenize/mesh';
+
+class SpellCheckWorker extends LumenizeWorker {
+  async check(content: string): Promise<SpellError[]> {
+    const response = await fetch('https://api.spellcheck.example/check', {
+      method: 'POST',
+      body: JSON.stringify({ text: content }),
+    });
+    return response.json();
+  }
+}
+```
+
+### 3. Define a Client (LumenizeClient)
+
+Browser-side mesh participant:
+
+```typescript
+import { LumenizeClient } from '@lumenize/mesh';
+
+class EditorClient extends LumenizeClient {  
+  // Called by DocumentDO when content changes
+  handleDocumentChange(change: DocumentChange) {
+    this.editor.applyChange(change);
+  }
+}
+```
+
+### 4. Connect and Edit
+
+```typescript
+using client = new EditorClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  accessToken: jwt,
+});
+
+// User types in the editor - send changes to the document
+client.lmz.call(
+  'DOCUMENT_DO',
+  documentId,
+  client.ctn<DocumentDO>().update({ type: 'insert', text: 'Hello' })
+);
+```
+
+[TODO: Either remove LumenizeClient and LumenizeGateway sections below or add other mesh actors and elements (LumenizeBase, etc.)]
+
+## LumenizeClient
+
+The browser/Node.js mesh participant with automatic connection management:
+
+- **Auto-reconnect**: Reconnects automatically after network glitches
+- **Re-subscribe on reconnect**: After the 5-second grace period, clients must re-subscribe to any DO subscriptions (the Gateway notifies DOs with `ClientDisconnectedError` so they can clean up)
+- **Resource cleanup**: Use `using` keyword for automatic disposal
+
+```typescript
+using client = new EditorClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  accessToken: jwt,
+});
+
+// Only called when reconnecting AFTER grace period expired
+// (Gateway informs client when subscriptions are lost)
+client.onSubscriptionsLost = () => {
+  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().subscribe());
+};
+```
+
+## LumenizeGateway
+
+The Gateway is a **zero-storage Durable Object** that bridges the mesh and WebSocket clients:
+
+- **1:1 relationship**: Each LumenizeClient connects to its own Gateway instance
+- **Transparent proxying**: Calls pass through without the Gateway interpreting them
+- **Zero cost when idle**: No storage = no charges when client is disconnected
+- **Graceful reconnection**: 5-second grace period for network glitches
+- **Presence notifications**: Notifies callers with `ClientDisconnectedError` so they can clean up subscriptions
+
+### How Gateway Routing Works
+
+1. Client connects to Gateway DO at `GATEWAY_DO/${instanceName}`
+2. Gateway accepts hibernatable WebSocket connection
+3. Outgoing calls from client → WebSocket → Gateway → Target DO/Worker
+4. Incoming calls to client: Source DO → Gateway → WebSocket → Client
+
+### Client-to-Client Communication
+
+LumenizeClients can call each other through the mesh:
+
+```
+Client A  →  Gateway A  →  Gateway B  →  Client B
+   ↑                                         │
+   └─────────────────────────────────────────┘
+                    ~60ms round-trip
+```
+
+```typescript
+// From Client A: Call Client B
+client.lmz.call(
+  'GATEWAY_DO',
+  `${otherUserId}.${otherTabId}`,
+  client.ctn<OtherClient>().handleCollabCursor({ x: 100, y: 200 })
+);
+```
+
+## Authentication
+
+LumenizeClient integrates with `@lumenize/auth`. Tokens are passed via WebSocket subprotocol — no URL exposure, no header limitations. See [Auth Integration](./auth-integration) for token refresh patterns.
