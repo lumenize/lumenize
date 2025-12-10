@@ -91,7 +91,7 @@ interface LumenizeClientConfig {
   
   /**
    * Called when a connection error occurs.
-   * This is for connection-level errors, not RPC errors.
+   * This is for connection-level errors, not call errors.
    */
   onConnectionError?: (error: Error) => void;
 
@@ -153,10 +153,11 @@ interface LmzClientApi {
   readonly instanceNameOrId?: string;
   
   /**
-   * Make an async RPC call to a mesh node.
+   * Make a call to a mesh node (async/await pattern).
    * Returns when the remote method completes.
+   * Prefer `call()` with continuations for actor-model style.
    * 
-   * @param binding - Target binding name (e.g., 'USER_DO')
+   * @param binding - Target binding name (e.g., 'DOCUMENT_DO')
    * @param instance - Target instance name/id (undefined for Workers)
    * @param chain - Operation chain from this.ctn()
    */
@@ -167,7 +168,7 @@ interface LmzClientApi {
   ): Promise<any>;
   
   /**
-   * Make an RPC call with continuation pattern.
+   * Call a mesh node with continuation pattern (preferred).
    * 
    * @param binding - Target binding name
    * @param instance - Target instance name/id
@@ -209,15 +210,23 @@ ctn<T = this>(): Continuation<T>;
 Usage:
 
 ```typescript
-// Call a method on a remote DO
-const chain = client.ctn<UserDO>().getUserData(userId);
-const result = await client.lmz.callRaw('USER_DO', userId, chain);
+// Build a continuation for a remote method
+client.lmz.call(
+  'DOCUMENT_DO',
+  documentId,
+  client.ctn<DocumentDO>().getContent(),
+  client.ctn().handleContentLoaded(client.ctn().$result)
+);
 
-// Chain multiple operations
-const chain = client.ctn<DataDO>()
-  .loadData()
-  .transform()
-  .validate();
+// Chain multiple operations in a single call
+client.lmz.call(
+  'DOCUMENT_DO',
+  documentId,
+  client.ctn<DocumentDO>()
+    .loadContent()
+    .transform()
+    .validate()
+);
 ```
 
 ### `connect()`
@@ -228,7 +237,7 @@ Establish WebSocket connection to Gateway:
 async connect(): Promise<void>;
 ```
 
-Connection is **lazy** — it's automatically established on first `callRaw()` if not already connected. Call `connect()` explicitly if you want to establish the connection early.
+Connection is **lazy** — it's automatically established on first `call()` if not already connected. Call `connect()` explicitly if you want to establish the connection early.
 
 ```typescript
 // Explicit connection
@@ -253,49 +262,32 @@ Resource cleanup for `using` syntax:
 ```typescript
 // Automatically disconnects when scope exits
 {
-  using client = createLumenizeClient(config);
-  await client.lmz.callRaw('USER_DO', userId, chain);
+  using client = new EditorClient(config);
+  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().update(changes));
 } // client.disconnect() called automatically
 ```
 
 ## Making Calls
 
-### `callRaw()` - Async Pattern
+### Fire-and-Forget
+
+No response handler — just send and move on:
 
 ```typescript
-// Get document content
-const content = await client.lmz.callRaw(
-  'DOCUMENT_DO',
-  documentId,
-  client.ctn<DocumentDO>().getContent()
-);
-
-// Call SpellCheck Worker (no instance name for Workers)
-const errors = await client.lmz.callRaw(
-  'SPELLCHECK_WORKER',
-  undefined,
-  client.ctn<SpellCheckWorker>().check(content)
-);
-
-// Call another client (collaborative cursor)
-const cursor = await client.lmz.callRaw(
-  'GATEWAY_DO',
-  `${otherUserId}.${otherTabId}`,
-  client.ctn<EditorClient>().getCursorPosition()
-);
-```
-
-### `call()` - Continuation Pattern
-
-```typescript
-// Fire-and-forget: send document update
+// Send document update
 client.lmz.call(
   'DOCUMENT_DO',
   documentId,
   client.ctn<DocumentDO>().update({ type: 'insert', text: 'Hello' })
 );
+```
 
-// With result handler: get content and handle response
+### With Response Handler
+
+Pass a second continuation to handle the result:
+
+```typescript
+// Load document content
 client.lmz.call(
   'DOCUMENT_DO',
   documentId,
@@ -306,6 +298,25 @@ client.lmz.call(
 // Handler method in EditorClient
 handleContentLoaded(content: string) {
   this.editor.setContent(content);
+}
+```
+
+### Passing Context to Handlers
+
+Include additional context alongside `$result`:
+
+```typescript
+// Request spell check with document context
+client.lmz.call(
+  'SPELLCHECK_WORKER',
+  undefined,  // Workers don't have instance names
+  client.ctn<SpellCheckWorker>().check(content),
+  client.ctn().handleSpellCheckResult(client.ctn().$result, documentId)
+);
+
+// Handler receives both result and context
+handleSpellCheckResult(errors: SpellError[], documentId: string) {
+  this.showSpellErrors(documentId, errors);
 }
 ```
 
@@ -363,24 +374,26 @@ const client = createLumenizeClient({
 });
 ```
 
-### RPC Errors
+### Call Errors
+
+`call` returns an `Error` object on failure. Check the type in your handler:
 
 ```typescript
-try {
-  const content = await client.lmz.callRaw(
-    'DOCUMENT_DO',
-    documentId,
-    client.ctn<DocumentDO>().getContent()
-  );
-} catch (error) {
-  if (error.message === 'Client not connected') {
-    // Gateway says we're disconnected
-  } else if (error.message.includes('timeout')) {
-    // Request timed out
-  } else {
-    // Error thrown by remote method
-    console.error('RPC error:', error);
+// Handler receives result OR Error
+handleContentLoaded(result: string | Error) {
+  if (result instanceof Error) {
+    if (result.message === 'Client not connected') {
+      this.showOfflineMessage();
+    } else if (result.message.includes('timeout')) {
+      this.showRetryButton();
+    } else {
+      console.error('Call error:', result);
+    }
+    return;
   }
+  
+  // Success case
+  this.editor.setContent(result);
 }
 ```
 
