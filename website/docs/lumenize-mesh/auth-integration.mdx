@@ -118,7 +118,7 @@ No callback needed — the client:
 
 ## Gateway Token Verification
 
-LumenizeGateway verifies tokens in two places:
+LumenizeClientGateway verifies tokens in two places:
 
 ### 1. On Connection (via Middleware)
 
@@ -134,7 +134,7 @@ onBeforeConnect: async (request, context) => {
 ### 2. On Each Message (via Attachment)
 
 ```typescript
-// In LumenizeGateway
+// In LumenizeClientGateway
 async webSocketMessage(ws: WebSocket, message: string) {
   const attachment = ws.deserializeAttachment();
   
@@ -229,7 +229,7 @@ The client will automatically attempt refresh and surface the error if it fails.
 
 ## WebSocket Close Codes
 
-LumenizeGateway uses custom close codes for auth errors:
+LumenizeClientGateway uses custom close codes for auth errors:
 
 | Code | Meaning | Client Action |
 |------|---------|---------------|
@@ -385,6 +385,6 @@ function getTabId(): string {
 ## Next Steps
 
 - [Client API Reference](./client-api) — Complete API documentation
-- [Gateway Internals](./gateway) — How LumenizeGateway works
+- [Gateway Internals](./gateway) — How LumenizeClientGateway works
 - [@lumenize/auth](/docs/auth) — Server-side authentication
 

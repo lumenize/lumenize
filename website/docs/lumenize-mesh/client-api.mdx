@@ -57,7 +57,7 @@ interface LumenizeClientConfig {
   
   /**
    * Gateway DO binding name.
-   * @default 'GATEWAY_DO'
+   * @default 'LUMENIZE_CLIENT_GATEWAY'
    */
   gatewayBinding?: string;
   
@@ -138,7 +138,7 @@ interface LmzClientApi {
   readonly type: 'LumenizeClient';
   
   /**
-   * Gateway binding name (e.g., 'GATEWAY_DO').
+   * Gateway binding name (e.g., 'LUMENIZE_CLIENT_GATEWAY').
    */
   readonly bindingName?: string;
   
@@ -148,7 +148,7 @@ interface LmzClientApi {
   readonly instanceName?: string;
   
   /**
-   * Alias for instanceName (for API consistency with LumenizeBase).
+   * Alias for instanceName (for API consistency with LumenizeDO).
    */
   readonly instanceNameOrId?: string;
   
@@ -352,7 +352,7 @@ From DocumentDO (pushing updates to clients):
 notifyCollaborators(change: DocumentChange) {
   for (const clientId of this.getConnectedClients()) {
     this.lmz.call(
-      'GATEWAY_DO',
+      'LUMENIZE_CLIENT_GATEWAY',
       clientId,
       this.ctn<EditorClient>().handleDocumentChange(change)
     );
@@ -520,6 +520,6 @@ import type {
 
 ## Next Steps
 
-- [Gateway Internals](./gateway) — How LumenizeGateway works
+- [Gateway Internals](./gateway) — How LumenizeClientGateway works
 - [Auth Integration](./auth-integration) — Token handling patterns
 

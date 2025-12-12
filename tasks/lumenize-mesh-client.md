@@ -1,4 +1,4 @@
-# LumenizeGateway & LumenizeClient
+# LumenizeClientGateway & LumenizeClient
 
 **Status**: Phase 1 - Design Documentation
 **Created**: 2025-12-08
@@ -14,19 +14,19 @@ The **Lumenize Mesh (LM)** is an actor-model network where nodes communicate via
 
 | Node Type | Runs In | Storage | Extends |
 |-----------|---------|---------|---------|
-| LumenizeBase | Cloudflare DO | Yes | DurableObject |
+| LumenizeDO | Cloudflare DO | Yes | DurableObject |
 | LumenizeWorker | Cloudflare Worker | No | WorkerEntrypoint |
 | **LumenizeClient** (NEW) | Browser/Node.js | Local only | - |
-| **LumenizeGateway** (NEW) | Cloudflare DO | **None** | DurableObject |
+| **LumenizeClientGateway** (NEW) | Cloudflare DO | **None** | DurableObject |
 
 **Infrastructure nodes** (not user-extended):
-- LumenizeGateway - Proxies between mesh and WebSocket client
+- LumenizeClientGateway - Proxies between mesh and WebSocket client
 - createLumenizeRouter - Factory function for Worker routing with mesh defaults
 
 ## Design Principles
 
-1. **Code Similarity**: LumenizeClient API mirrors LumenizeBase (`this.lmz.*`, `this.ctn()`)
-2. **Zero Storage Gateway**: LumenizeGateway uses NO DO storage - state derived from WebSockets + alarms only
+1. **Code Similarity**: LumenizeClient API mirrors LumenizeDO (`this.lmz.*`, `this.ctn()`)
+2. **Zero Storage Gateway**: LumenizeClientGateway uses NO DO storage - state derived from WebSockets + alarms only
 3. **Full Mesh Peers**: Clients can call any mesh node and receive calls from any mesh node
 4. **1:1 Gateway-Client**: Each client connects to its own Gateway DO instance
 5. **Auth Integrated**: Uses existing `@lumenize/auth` token patterns
@@ -48,7 +48,7 @@ State derived from `this.ctx.getWebSockets()` + `this.ctx.getAlarm()`:
 | Empty | None | Disconnected | Reject calls with "not connected" |
 
 ### Gateway `__executeOperation` Is a Proxy
-Unlike LumenizeBase/LumenizeWorker which execute chains on `this`, Gateway forwards chains to the client over WebSocket and returns the response.
+Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forwards chains to the client over WebSocket and returns the response.
 
 ### createLumenizeRouter
 Factory function (not a class) for creating Workers with mesh-friendly defaults:
@@ -56,7 +56,7 @@ Factory function (not a class) for creating Workers with mesh-friendly defaults:
 // Creates a fetch handler with auth + gateway routing
 const handleRequest = createLumenizeRouter(env, {
   authConfig: { publicKeysPem: [...] },
-  gatewayBinding: 'GATEWAY_DO',
+  gatewayBinding: 'LUMENIZE_CLIENT_GATEWAY',
 });
 ```
 
@@ -83,10 +83,10 @@ interface LumenizeClientConfig {
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
 class LumenizeClient {
-  // Identity - similar to LumenizeBase
+  // Identity - similar to LumenizeDO
   readonly lmz: {
     readonly type: 'LumenizeClient';
-    readonly bindingName?: string;    // 'GATEWAY_DO'
+    readonly bindingName?: string;    // 'LUMENIZE_CLIENT_GATEWAY'
     readonly instanceName?: string;   // User-provided name
     readonly instanceNameOrId?: string;
     
@@ -95,7 +95,7 @@ class LumenizeClient {
     call(binding: string, instance: string | undefined, remote: Continuation, handler?: Continuation): void;
   };
   
-  // Continuations - identical to LumenizeBase
+  // Continuations - identical to LumenizeDO
   ctn<T = this>(): Continuation<T>;
   
   // Connection lifecycle
@@ -111,11 +111,11 @@ class LumenizeClient {
 function createLumenizeClient(config: LumenizeClientConfig): LumenizeClient;
 ```
 
-### LumenizeGateway
+### LumenizeClientGateway
 
 ```typescript
 // Not user-extended - internal implementation
-class LumenizeGateway extends DurableObject<Env> {
+class LumenizeClientGateway extends DurableObject<Env> {
   // WebSocket handlers
   async fetch(request: Request): Promise<Response>;
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void>;
@@ -136,7 +136,7 @@ interface LumenizeRouterConfig {
     audience?: string;
     issuer?: string;
   };
-  gatewayBinding?: string;  // Default: 'GATEWAY_DO'
+  gatewayBinding?: string;  // Default: 'LUMENIZE_CLIENT_GATEWAY'
   // ... other mesh defaults
 }
 
@@ -153,19 +153,21 @@ function createLumenizeRouter(
 **Goal**: Rename `@lumenize/lumenize-base` to `@lumenize/mesh`
 
 **Rationale**: 
-- All mesh participants (LumenizeBase, LumenizeWorker, LumenizeClient, LumenizeGateway) come from the same package
+- All mesh participants (LumenizeDO, LumenizeWorker, LumenizeClient, LumenizeClientGateway) come from the same package
 - `@lumenize/mesh` is more intuitive than `@lumenize/lumenize-base`
 - Package not yet published, so now is the right time
 
 **Tasks**:
 - [ ] Rename directory `packages/lumenize-base/` → `packages/mesh/`
+- [ ] Rename file `lumenize-base.ts` → `lumenize-do.ts`
+- [ ] Rename class `LumenizeBase` → `LumenizeDO` across codebase
 - [ ] Update `package.json` name to `@lumenize/mesh`
 - [ ] Update all imports across the monorepo
 - [ ] Update TypeDoc config in `website/docusaurus.config.ts`
 - [ ] Update sidebar references in `website/sidebars.ts`
 - [ ] Merge `website/docs/lumenize-base/` content into `website/docs/lumenize-mesh/`
   - Reconcile the two `index.mdx` files (restructure as needed)
-  - Move/integrate LumenizeBase and LumenizeWorker docs
+  - Move/integrate LumenizeDO and LumenizeWorker docs
 
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation
@@ -180,11 +182,11 @@ function createLumenizeRouter(
 - API design approved by maintainer
 - Clear examples for common use cases
 
-### Phase 2: LumenizeGateway Implementation
+### Phase 2: LumenizeClientGateway Implementation
 **Goal**: Zero-storage DO that proxies between mesh and WebSocket client
 
 **Success Criteria**:
-- Extends DurableObject directly (not LumenizeBase)
+- Extends DurableObject directly (not LumenizeDO)
 - NO storage operations - state from getWebSockets() + getAlarm() only
 - WebSocket attachments for connection metadata
 - 5-second grace period on disconnect (via alarm)
@@ -208,7 +210,7 @@ function createLumenizeRouter(
 - `this.lmz.callRaw()` working through Gateway
 - `this.lmz.call()` with continuation support
 - `this.ctn()` for building operation chains
-- Shared code with LumenizeBase where possible
+- Shared code with LumenizeDO where possible
 - Uses refactored WebSocket transport
 
 ### Phase 5: Connection Management
@@ -228,6 +230,8 @@ function createLumenizeRouter(
 - `updateAccessToken()` for token refresh
 - `onTokenExpiring` callback before expiry
 - Gateway stores token in WebSocket attachment for verification
+- Authentication info included in call envelope metadata (for zero-trust propagation)
+- Example: Subscription token validation pattern (subscriber provides token, publisher validates)
 
 ### Phase 7: Client-to-Client Communication
 **Goal**: Enable LumenizeClient → LumenizeClient calls
@@ -290,13 +294,13 @@ Reuse from existing packages:
 ### New LmzApi for Client
 
 New `createLmzApiForClient()` alongside existing:
-- `createLmzApiForDO()` - LumenizeBase
+- `createLmzApiForDO()` - LumenizeDO
 - `createLmzApiForWorker()` - LumenizeWorker
 - `createLmzApiForClient()` - LumenizeClient (NEW)
 
 ## Package Location
 
-Both LumenizeGateway and LumenizeClient in `@lumenize/mesh`:
+Both LumenizeClientGateway and LumenizeClient in `@lumenize/mesh`:
 - Keeps shared types together
 - Tree-shaking handles browser vs. server code
 - Simpler dependency management
@@ -304,10 +308,10 @@ Both LumenizeGateway and LumenizeClient in `@lumenize/mesh`:
 ```
 packages/mesh/
   src/
-    lumenize-base.ts        # Existing
+    lumenize-do.ts          # Existing (renamed from lumenize-base.ts)
     lumenize-worker.ts      # Existing
     lumenize-client.ts      # NEW
-    lumenize-gateway.ts     # NEW
+    lumenize-client-gateway.ts  # NEW
     lmz-api.ts             # Add createLmzApiForClient()
     types.ts               # Shared types
 ```

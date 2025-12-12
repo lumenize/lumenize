@@ -1,17 +1,17 @@
 ---
 title: Gateway Internals
-description: How LumenizeGateway bridges the mesh and WebSocket clients
+description: How LumenizeClientGateway bridges the mesh and WebSocket clients
 ---
 
-# LumenizeGateway
+# LumenizeClientGateway
 
-LumenizeGateway is a **zero-storage Durable Object** that bridges the Lumenize Mesh and browser clients. It extends `DurableObject` directly (not `LumenizeBase`) to avoid any storage operations.
+LumenizeClientGateway is a **zero-storage Durable Object** that bridges the Lumenize Mesh and browser clients. It extends `DurableObject` directly (not `LumenizeDO`) to avoid any storage operations.
 
 ## Design Principles
 
 ### Zero Storage = Zero Cost When Idle
 
-LumenizeGateway uses **no DO storage operations**:
+LumenizeClientGateway uses **no DO storage operations**:
 - No `ctx.storage.put/get/delete`
 - No `ctx.storage.sql`
 - No `ctx.storage.kv`
@@ -182,7 +182,7 @@ async webSocketMessage(ws: WebSocket, message: string) {
 ### Incoming Calls (Mesh → Client)
 
 ```typescript
-// Called by mesh nodes via: this.lmz.call('GATEWAY_DO', clientId, ...)
+// Called by mesh nodes via: this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)
 async __executeOperation(envelope: CallEnvelope): Promise<any> {
   const ws = this.ctx.getWebSockets()[0];
   
@@ -250,9 +250,9 @@ if (attachment.tokenExp < Date.now() / 1000) {
 
 Attachments persist across DO hibernation — when the DO wakes up, you can read the attachment from any active WebSocket.
 
-## Why Not Extend LumenizeBase?
+## Why Not Extend LumenizeDO?
 
-LumenizeBase stores identity in `ctx.storage.kv`:
+LumenizeDO stores identity in `ctx.storage.kv`:
 - `__lmz_do_binding_name`
 - `__lmz_do_instance_name`
 
@@ -271,7 +271,7 @@ notifyCollaborators(change: DocumentChange) {
   for (const clientId of this.getConnectedClients()) {
     try {
       this.lmz.call(
-        'GATEWAY_DO',
+        'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         this.ctn<EditorClient>().handleDocumentChange(change)
       );

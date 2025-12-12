@@ -4,7 +4,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] 
+- [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
+  - Wraps `routeDORequest` but requires instance **names** only (no ids)
+  - `routeDORequest` keeps `doInstanceNameOrId` for low-level flexibility
+  - Will likely become the **only** way people connect into the mesh
+  - Includes auth middleware + gateway routing
+  - Some LumenizeClient/Gateway testing may be deferred until this is working
 
 
 ## Lumenize Mesh

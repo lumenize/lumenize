@@ -11,7 +11,7 @@ The **Lumenize Mesh** is an actor-model network where nodes communicate via `thi
 
 | Node Type | Runs In | Storage | Use Case |
 |-----------|---------|---------|----------|
-| **LumenizeBase** | Cloudflare DO | SQL/KV | Stateful server-side capability |
+| **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side capability |
 | **LumenizeWorker** | Cloudflare Worker | none | Stateless server-side capability |
 | **LumenizeClient** | Browser/Node.js | Local | Client applications |
 
@@ -19,7 +19,7 @@ The **Lumenize Mesh** is an actor-model network where nodes communicate via `thi
 
 | Element | Type | Use Case |
 |---------|------|----------|
-| **LumenizeGateway** | Cloudflare DO | Bridges client ↔ mesh (zero storage) |
+| **LumenizeClientGateway** | Cloudflare DO | Bridges client ↔ mesh (zero storage) |
 | **createLumenizeRouter** | Factory function | Creates Worker fetch handler with auth + gateway routing |
 
 ## Illustration
@@ -34,7 +34,7 @@ flowchart TB
     subgraph cloud[" ☁️ Cloudflare "]
         direction TB
         
-        %% Top row: LumenizeBase DOs and LumenizeWorkers
+        %% Top row: LumenizeDO DOs and LumenizeWorkers
         subgraph mesh[" "]
             direction LR
             Workspace["Workspace<br/><small>acme-corp</small>"]
@@ -102,18 +102,115 @@ flowchart TB
     class mesh,gatewaysA,gatewaysB,browserA,browserB invisible
 ```
 
+## Concepts
+
+### Automatic Identity Propagation
+
+DO and Worker instances don't know their own binding names. DO instances don't know their instance name (i.e. `getByName('my-instance')`) while they do know their id. This is problematic, because it makes it impossible for a caller to say, "Hey, do this thing for me and when you are done, call me back at this address." However, while the callee doesn't know its own identity, anything calling it, by definition, must know its identity. So we leverage that necessity to automatically propogate identity throughout the mesh. Every call into the mesh as well as every call within the mesh includes the callee identity information and every node stores that for use in making its own calls.
+
+### Zero Trust
+
+#### Authentication
+
+LumenizeClient integrates with `@lumenize/auth`. Tokens are passed via WebSocket subprotocol — no URL exposure, no header limitations. See [Auth Integration](./auth-integration) for token refresh patterns.
+
+We propogate that authentication information, using the same metadata sub-object in the call envelope that we use to auto-propogate node identity, with every call from a LumenizeClient. It's up to the LumenizeDO instances to include the appropriate authentication information on sub-calls but we provide those mechanisms.
+
+#### Access Control
+
+However, authentication is only part of the story. It's useless unless it's used to control access. We provide easy-to-use mechanisms and examples on how to do this. For instance, for every subscription, the client provides a subscription-specific access token. Only updates that include that token will be accepted.
+
+[TODO: Example of using a subscription-specific token]
+[TODO: Example showing LumenizeOrg style access control using the automatic authentication information metadata in calls (MAYBE NOT UNTIL WE BUILD LUMENIZE_BAAS)]
+
+## The `this.lmz` API
+
+Every mesh node (LumenizeDO, LumenizeWorker, LumenizeClient) has access to `this.lmz` — the unified API for identity and communication.
+
+### Identity
+
+```typescript
+this.lmz.type          // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
+this.lmz.bindingName   // e.g., 'DOCUMENT_DO' (auto-propagated from caller)
+this.lmz.instanceName  // e.g., 'draft-1' (auto-propagated from caller)
+```
+
+These properties are populated automatically via [identity propagation](#automatic-identity-propagation). Your node knows who it is because a prior caller told it.
+
+### Making Calls
+
+**Fire-and-forget** — no response handler:
+
+```typescript
+this.lmz.call(
+  'DOCUMENT_DO',                                    // Binding name
+  documentId,                                       // Instance name (undefined for Workers)
+  this.ctn<DocumentDO>().update(changes)            // Remote continuation
+);
+```
+
+**With response handler** — handle the result locally:
+
+```typescript
+this.lmz.call(
+  'SPELLCHECK_WORKER',
+  undefined,
+  this.ctn<SpellCheckWorker>().check(content),      // Remote continuation
+  this.ctn().handleSpellCheckResult()               // Local handler continuation
+);
+
+// Handler receives result OR Error
+handleSpellCheckResult(result: SpellError[] | Error) {
+  if (result instanceof Error) {
+    console.error('Spell check failed:', result);
+    return;
+  }
+  this.applySpellErrors(result);
+}
+```
+
+**Passing context to handlers** — include additional data alongside `$result`:
+
+```typescript
+this.lmz.call(
+  'DOCUMENT_DO',
+  documentId,
+  this.ctn<DocumentDO>().getContent(),
+  this.ctn().handleContent(this.ctn().$result, documentId, userId)
+);
+
+// Handler receives result + context
+handleContent(content: string | Error, documentId: string, userId: string) {
+  // ...
+}
+```
+
+### Building Continuations
+
+Use `this.ctn<T>()` to build type-safe continuations. See [Continuations](/docs/concepts/continuations) for the full guide.
+
+```typescript
+// Type-safe method chain on remote node
+this.ctn<DocumentDO>().update(changes)
+
+// Self-referencing for handlers
+this.ctn().handleResult(this.ctn().$result)
+
+// The $result placeholder is replaced with actual result at runtime
+```
+
 ## Quick Start
 
 This example builds the document editing app shown in the illustration above.
 
-### 1. Define a Document DO (LumenizeBase)
+### 1. Define a Document DO (LumenizeDO)
 
 Stateful server-side logic with persistent storage:
 
 ```typescript
-import { LumenizeBase } from '@lumenize/mesh';
+import { LumenizeDO } from '@lumenize/mesh';
 
-class DocumentDO extends LumenizeBase {
+class DocumentDO extends LumenizeDO {
   // Called by clients to update the document
   update(changes: DocumentChange) {
     const content = this.ctx.storage.kv.get('content') ?? '';
@@ -142,7 +239,7 @@ class DocumentDO extends LumenizeBase {
   notifyCollaborators(change: DocumentChange) {
     for (const clientId of this.getConnectedClients()) {
       this.lmz.call(
-        'GATEWAY_DO',
+        'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         this.ctn<EditorClient>().handleDocumentChange(change)
       );
@@ -201,7 +298,7 @@ client.lmz.call(
 );
 ```
 
-[TODO: Either remove LumenizeClient and LumenizeGateway sections below or add other mesh actors and elements (LumenizeBase, etc.)]
+[TODO: Either remove LumenizeClient and LumenizeClientGateway sections below or add other mesh actors and elements (LumenizeDO, etc.)]
 
 ## LumenizeClient
 
@@ -225,19 +322,19 @@ client.onSubscriptionsLost = () => {
 };
 ```
 
-## LumenizeGateway
+## LumenizeClientGateway
 
-The Gateway is a **zero-storage Durable Object** that bridges the mesh and WebSocket clients:
+The LumenizeClientGateway is a **zero-storage Durable Object** that bridges the mesh and WebSocket clients:
 
-- **1:1 relationship**: Each LumenizeClient connects to its own Gateway instance
-- **Transparent proxying**: Calls pass through without the Gateway interpreting them
+- **1:1 relationship**: Each LumenizeClient connects to its own gateway instance
+- **Call proxying**: Calls pass through without the gateway to another mesh destination
 - **Zero cost when idle**: No storage = no charges when client is disconnected
 - **Graceful reconnection**: 5-second grace period for network glitches
-- **Presence notifications**: Notifies callers with `ClientDisconnectedError` so they can clean up subscriptions
+- **Presence tracking**: After grace period, responds to callers with `ClientDisconnectedError` so they can clean up subscriptions
 
 ### How Gateway Routing Works
 
-1. Client connects to Gateway DO at `GATEWAY_DO/${instanceName}`
+1. Client connects to Gateway DO at `LUMENIZE_CLIENT_GATEWAY/${userId}.${tabId}`
 2. Gateway accepts hibernatable WebSocket connection
 3. Outgoing calls from client → WebSocket → Gateway → Target DO/Worker
 4. Incoming calls to client: Source DO → Gateway → WebSocket → Client
@@ -256,12 +353,8 @@ Client A  →  Gateway A  →  Gateway B  →  Client B
 ```typescript
 // From Client A: Call Client B
 client.lmz.call(
-  'GATEWAY_DO',
+  'LUMENIZE_CLIENT_GATEWAY',
   `${otherUserId}.${otherTabId}`,
   client.ctn<OtherClient>().handleCollabCursor({ x: 100, y: 200 })
 );
 ```
-
-## Authentication
-
-LumenizeClient integrates with `@lumenize/auth`. Tokens are passed via WebSocket subprotocol — no URL exposure, no header limitations. See [Auth Integration](./auth-integration) for token refresh patterns.
