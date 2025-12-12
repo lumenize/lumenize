@@ -5,7 +5,7 @@
  */
 
 // Main Auth DO class
-export { LumenizeAuth } from './lumenize-auth.js';
+export { LumenizeAuth } from './lumenize-auth';
 
 // JWT utilities
 export { 
@@ -19,7 +19,7 @@ export {
   hashString,
   createJwtPayload,
   parseJwtUnsafe
-} from './jwt.js';
+} from './jwt';
 
 // Email service implementations
 export {
@@ -28,15 +28,14 @@ export {
   MockEmailService,
   createDefaultEmailService,
   type HttpEmailServiceOptions
-} from './email-service.js';
+} from './email-service';
 
 // Auth middleware for routeDORequest
 export {
   createAuthMiddleware,
-  createAuthMiddlewareSync,
   type AuthMiddlewareConfig,
   type AuthContext
-} from './middleware.js';
+} from './middleware';
 
 // WebSocket authentication
 export {
@@ -47,7 +46,7 @@ export {
   WS_CLOSE_CODES,
   type WebSocketAuthMiddlewareConfig,
   type WebSocketTokenVerifyResult
-} from './middleware.js';
+} from './middleware';
 
 // Types
 export type { 
@@ -61,8 +60,8 @@ export type {
   AuthEnv,
   LoginResponse,
   AuthError
-} from './types.js';
+} from './types';
 
 // Schemas (for reference/customization)
-export { ALL_SCHEMAS } from './schemas.js';
+export { ALL_SCHEMAS } from './schemas';
 

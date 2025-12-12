@@ -1,4 +1,4 @@
-import type { JwtHeader, JwtPayload } from './types.js';
+import type { JwtHeader, JwtPayload } from './types';
 
 /**
  * Base64URL encode a string or ArrayBuffer

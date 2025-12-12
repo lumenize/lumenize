@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt.js';
+import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt';
 import { 
   createAuthMiddleware, 
-  createAuthMiddlewareSync,
   createWebSocketAuthMiddleware,
   extractWebSocketToken,
   verifyWebSocketToken,
   getTokenTtl,
   WS_CLOSE_CODES
-} from '../src/middleware.js';
+} from '../src/middleware';
 
 describe('@lumenize/auth - LumenizeAuth DO', () => {
   describe('Schema Initialization', () => {
@@ -911,36 +910,6 @@ describe('@lumenize/auth - Auth Middleware', () => {
       expect(result).toBeInstanceOf(Response);
       const wwwAuth = (result as Response).headers.get('WWW-Authenticate');
       expect(wwwAuth).toContain('realm="MyCustomApp"');
-    });
-  });
-
-  describe('createAuthMiddlewareSync', () => {
-    it('works with pre-imported CryptoKey objects', async () => {
-      // Import key first
-      const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
-      
-      // Create middleware synchronously
-      const middleware = createAuthMiddlewareSync({
-        publicKeys: [publicKey]
-      });
-      
-      // Create valid JWT
-      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-      const payload = createJwtPayload({
-        issuer: 'test',
-        audience: 'test',
-        subject: 'user-sync',
-        expiresInSeconds: 900
-      });
-      const token = await signJwt(payload, privateKey, 'BLUE');
-      
-      const request = new Request('http://localhost/protected', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const result = await middleware(request, mockContext);
-      
-      expect(result).toBeInstanceOf(Request);
-      expect((result as Request).headers.get('X-Auth-User-Id')).toBe('user-sync');
     });
   });
 

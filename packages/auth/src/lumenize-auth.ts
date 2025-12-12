@@ -1,7 +1,7 @@
 import '@lumenize/core';
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import { ALL_SCHEMAS } from './schemas.js';
-import type { AuthEnv, User, MagicLink, RefreshToken, LoginResponse, AuthError, AuthConfig, EmailService } from './types.js';
+import { ALL_SCHEMAS } from './schemas';
+import type { AuthEnv, User, MagicLink, RefreshToken, LoginResponse, AuthError, AuthConfig, EmailService } from './types';
 import { 
   generateRandomString, 
   generateUuid, 
@@ -9,8 +9,8 @@ import {
   signJwt,
   importPrivateKey,
   createJwtPayload
-} from './jwt.js';
-import { ConsoleEmailService } from './email-service.js';
+} from './jwt';
+import { ConsoleEmailService } from './email-service';
 
 /**
  * Extended configuration with rate limiting

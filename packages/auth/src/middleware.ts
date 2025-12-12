@@ -1,5 +1,5 @@
-import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from './jwt.js';
-import type { JwtPayload } from './types.js';
+import { verifyJwt, verifyJwtWithRotation, importPublicKey, parseJwtUnsafe } from './jwt';
+import type { JwtPayload } from './types';
 
 // WebSocket subprotocol prefix for access tokens
 const WS_TOKEN_PREFIX = 'lmz.access-token.';
@@ -143,103 +143,6 @@ export async function createAuthMiddleware(config: AuthMiddlewareConfig): Promis
   const publicKeys = await Promise.all(
     config.publicKeysPem.filter(Boolean).map(pem => importPublicKey(pem))
   );
-  
-  if (publicKeys.length === 0) {
-    throw new Error('At least one public key must be provided for auth middleware');
-  }
-  
-  return async (request: Request, _context: HookContext): Promise<Response | Request | undefined> => {
-    // Extract Bearer token
-    const token = extractBearerToken(request);
-    
-    if (!token) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_request',
-        'Missing Authorization header with Bearer token'
-      );
-    }
-    
-    // Verify JWT with rotation support
-    let payload: JwtPayload | null;
-    
-    if (publicKeys.length === 1) {
-      payload = await verifyJwt(token, publicKeys[0]);
-    } else {
-      payload = await verifyJwtWithRotation(token, publicKeys);
-    }
-    
-    if (!payload) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token is invalid or expired'
-      );
-    }
-    
-    // Validate audience (if configured)
-    if (config.audience && payload.aud !== config.audience) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token audience mismatch'
-      );
-    }
-    
-    // Validate issuer (if configured)
-    if (config.issuer && payload.iss !== config.issuer) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token issuer mismatch'
-      );
-    }
-    
-    // Validate subject claim exists
-    if (!payload.sub) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token missing subject claim'
-      );
-    }
-    
-    // Create auth context
-    const authContext: AuthContext = {
-      userId: payload.sub,
-      payload
-    };
-    
-    // Return enhanced request
-    return enhanceRequest(request, authContext);
-  };
-}
-
-/**
- * Create auth middleware synchronously from pre-imported CryptoKey objects.
- * 
- * Use this when you've already imported the public keys and want to avoid
- * the async initialization of createAuthMiddleware.
- * 
- * @example
- * ```typescript
- * const blueKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
- * const greenKey = await importPublicKey(env.JWT_PUBLIC_KEY_GREEN);
- * 
- * const authMiddleware = createAuthMiddlewareSync({
- *   publicKeys: [blueKey, greenKey],
- *   realm: 'MyApp'
- * });
- * ```
- */
-export function createAuthMiddlewareSync(config: {
-  publicKeys: CryptoKey[];
-  realm?: string;
-  audience?: string;
-  issuer?: string;
-}): (request: Request, context: HookContext) => Promise<Response | Request | undefined> {
-  const realm = config.realm || 'Lumenize';
-  const publicKeys = config.publicKeys;
   
   if (publicKeys.length === 0) {
     throw new Error('At least one public key must be provided for auth middleware');

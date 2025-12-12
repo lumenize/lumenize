@@ -4,15 +4,16 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
+- [ ] 
+
+## Lumenize Mesh
+
 - [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
   - Wraps `routeDORequest` but requires instance **names** only (no ids)
   - `routeDORequest` keeps `doInstanceNameOrId` for low-level flexibility
   - Will likely become the **only** way people connect into the mesh
   - Includes auth middleware + gateway routing
   - Some LumenizeClient/Gateway testing may be deferred until this is working
-
-
-## Lumenize Mesh
 
 - [ ] Add method annotations to distinguish three types of methods in classes extending LumenizeClient, LumenizeBase, or LumenizeWorker, where appropriate:
   - `@inbound`, `@downstream`, or `@callable` — Methods meant to be called by mesh nodes pushing to the client (server → client)

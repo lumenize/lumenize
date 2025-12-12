@@ -1,4 +1,4 @@
-import type { EmailService } from './types.js';
+import type { EmailService } from './types';
 
 /**
  * No-op email service that logs instead of sending
