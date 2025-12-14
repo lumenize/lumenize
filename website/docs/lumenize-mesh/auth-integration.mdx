@@ -382,6 +382,208 @@ function getTabId(): string {
 }
 ```
 
+## Call Context Propagation {#call-context}
+
+In a zero-trust mesh, every node must be able to verify who originated a request — not just who made the immediate call. Lumenize propagates authentication context through the entire call chain.
+
+### The Problem
+
+When DocumentDO calls SpellCheckWorker, SpellCheckWorker needs to know:
+- **Immediate caller**: DocumentDO (for routing responses)
+- **Original auth**: Alice's credentials (for access control)
+
+Without propagation, SpellCheckWorker would only see DocumentDO as the caller and couldn't verify Alice's permissions.
+
+### The Solution: `this.lmz.callContext`
+
+Every mesh node can access `this.lmz.callContext` during method execution:
+
+```typescript
+type CallChainNode = {
+  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+  bindingName?: string;
+  instanceNameOrId?: string;
+};
+
+interface CallContext {
+  // Full call chain: [origin, ..., priorCaller, caller]
+  // Each hop appends itself to the chain
+  callChain: CallChainNode[];
+  
+  // This node (receiving the call)
+  callee: CallChainNode;
+  
+  // Propagated from origin (preserved through entire chain)
+  originAuth?: {
+    userId?: string;
+    sessionId?: string;
+    claims?: Record<string, any>;
+  };
+  
+  // Convenience getters (computed from callChain)
+  get origin(): CallChainNode;      // callChain[0] - who started this
+  get caller(): CallChainNode;      // callChain.at(-1) - immediate caller
+  get priorCaller(): CallChainNode | undefined;  // callChain.at(-2)
+}
+```
+
+**Common access patterns:**
+```typescript
+const ctx = this.lmz.callContext;
+
+ctx.origin          // Who started this call chain?
+ctx.caller          // Who just called me?
+ctx.originAuth      // What are the original user's credentials?
+
+// Advanced: full chain for debugging/auditing
+ctx.callChain       // [Gateway, DocumentDO, SpellCheckWorker]
+
+// Circuit detection (prevent infinite loops)
+ctx.callChain.some(n => n.instanceNameOrId === this.lmz.instanceNameOrId)
+```
+
+### How It Works
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ 1. Client calls DocumentDO via Gateway                               │
+│    Envelope: { callChain: [Gateway], callee: DocumentDO, originAuth }│
+└──────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│ 2. DocumentDO.update() executes                                      │
+│    ctx.origin === Gateway ✓                                          │
+│    ctx.caller === Gateway ✓ (same as origin on first hop)            │
+│    ctx.originAuth.userId === 'alice' ✓                               │
+│    Makes sub-call to SpellCheckWorker...                             │
+└──────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│ 3. this.lmz.callRaw() appends self to callChain                      │
+│    Envelope: { callChain: [Gateway, DocumentDO], callee: SpellCheck }│
+└──────────────────────────────────────────────────────────────────────┘
+                                   ↓
+┌──────────────────────────────────────────────────────────────────────┐
+│ 4. SpellCheckWorker.check() executes                                 │
+│    ctx.origin === Gateway ✓                                          │
+│    ctx.caller === DocumentDO ✓                                       │
+│    ctx.priorCaller === Gateway ✓                                     │
+│    ctx.callChain === [Gateway, DocumentDO] ✓                         │
+│    ctx.originAuth.userId === 'alice' ✓                               │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Usage Example
+
+```typescript
+class SpellCheckWorker extends LumenizeWorker {
+  async check(content: string): Promise<SpellError[]> {
+    const ctx = this.lmz.callContext;
+    
+    // Verify original user has permission (not just immediate caller)
+    if (!ctx?.originAuth?.claims?.canSpellCheck) {
+      throw new Error('User not authorized for spell check');
+    }
+    
+    // Log for audit trail
+    console.log(`Spell check requested by ${ctx.originAuth.userId}`);
+    console.log(`Called via ${ctx.caller.bindingName}/${ctx.caller.instanceNameOrId}`);
+    console.log(`Full call path: ${ctx.callChain.map(n => n.bindingName).join(' → ')}`);
+    
+    // Proceed with spell check...
+    const response = await fetch('https://api.spellcheck.example/check', {
+      method: 'POST',
+      body: JSON.stringify({ text: content })
+    });
+    return response.json();
+  }
+}
+```
+
+### Race Safety
+
+Multiple concurrent requests to the same DO instance could interleave at `await` points. Lumenize uses `AsyncLocalStorage` internally to ensure each request sees its own `callContext` — even when requests overlap:
+
+```
+Request A arrives → sets context A
+Request A awaits  → yields
+Request B arrives → sets context B
+Request A resumes → still sees context A ✓ (not B!)
+```
+
+This is handled automatically — you just access `this.lmz.callContext` and get the correct context for your request.
+
+### Security: Immutable & Trust Model
+
+**callContext is frozen (immutable)**
+
+To prevent accidental or malicious modification, `callContext` is deep-frozen when created:
+
+```typescript
+ctx.originAuth.claims.isAdmin = true;
+// TypeError: Cannot assign to read only property 'isAdmin'
+```
+
+This ensures that code within a node cannot modify auth claims before making sub-calls.
+
+**Trust model**
+
+Lumenize Mesh operates on a **trusted node** model:
+
+| What's Trusted | What's Verified |
+|----------------|-----------------|
+| Nodes in your mesh (your code) | Token signatures at gateway entry |
+| callContext propagation | Nothing after initial auth* |
+
+*For high-security scenarios where you don't fully trust intermediate nodes, use signed tokens:
+
+```typescript
+interface CallContext {
+  // ... callChain, callee ...
+  
+  originAuthToken?: string;  // Signed JWT - verifiable by any node
+  originAuth?: { ... };       // Parsed claims (convenience cache)
+}
+```
+
+Then verify independently:
+
+```typescript
+class SensitiveDO extends LumenizeDO {
+  transferFunds(amount: number) {
+    const ctx = this.lmz.callContext;
+    
+    // Don't trust parsed claims alone - verify the token!
+    const verified = await verifyJWT(ctx.originAuthToken, this.env.JWT_PUBLIC_KEY);
+    if (!verified.claims.canTransfer) {
+      throw new Error('Not authorized for transfers');
+    }
+    // ... proceed
+  }
+}
+```
+
+**When to verify tokens independently:**
+- Financial operations
+- Data deletion
+- Permission changes
+- Cross-tenant operations
+
+For most operations, the frozen `originAuth` from a trusted mesh is sufficient.
+
+### Automatic vs Manual Propagation
+
+**Automatic**: When you call `this.lmz.call()` or `this.lmz.callRaw()` from inside a method handler, the outgoing envelope includes the full `callContext` — caller (this node), callee (target), and `originAuth` (propagated from current context).
+
+**Manual override**: If you need to make a call with different auth (e.g., service-to-service with elevated privileges), you can override:
+
+```typescript
+// Future API (not yet implemented)
+this.lmz.call('TARGET_DO', 'instance', chain, handler, {
+  overrideAuth: { claims: { isServiceCall: true } }
+});
+```
+
 ## Next Steps
 
 - [Client API Reference](./client-api) — Complete API documentation

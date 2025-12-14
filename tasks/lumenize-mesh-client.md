@@ -230,8 +230,82 @@ function createLumenizeRouter(
 - `updateAccessToken()` for token refresh
 - `onTokenExpiring` callback before expiry
 - Gateway stores token in WebSocket attachment for verification
-- Authentication info included in call envelope metadata (for zero-trust propagation)
+- Authentication info propagated via `this.lmz.callContext` (zero-trust call chain)
+- `this.lmz.callContext` available in all method handlers
 - Example: Subscription token validation pattern (subscriber provides token, publisher validates)
+
+**Technical Design: Call Context Propagation**
+
+Zero-trust requires every node to verify the original caller's permissions, not just the immediate caller. This is achieved via `this.lmz.callContext`:
+
+```typescript
+type CallChainNode = { type, bindingName, instanceNameOrId };
+
+interface CallContext {
+  callChain: CallChainNode[];  // [origin, ..., priorCaller, caller]
+  callee: CallChainNode;       // This node
+  originAuth?: { userId, sessionId, claims };
+  
+  // Convenience getters (computed from callChain)
+  get origin(): CallChainNode;       // callChain[0]
+  get caller(): CallChainNode;       // callChain.at(-1)
+  get priorCaller(): CallChainNode;  // callChain.at(-2)
+}
+```
+
+**Implementation approach**:
+
+1. **Envelope carries callContext**: `CallEnvelope.metadata` contains `{ callChain, callee, originAuth }` — exposed via `this.lmz.callContext` with convenience getters
+2. **AsyncLocalStorage for race safety**: Multiple concurrent requests to a DO could interleave at `await` points. Use Node.js `AsyncLocalStorage` (supported in Workers since 2023) to isolate each request's context:
+   ```typescript
+   // In __executeOperation:
+   return callContextStorage.run(callContext, async () => {
+     return await this.__executeChain(operationChain);
+   });
+   ```
+3. **Automatic propagation in callRaw()**: When making sub-calls, append self to callChain:
+   ```typescript
+   const currentContext = callContextStorage.getStore();
+   const thisNode = { type: this.type, bindingName: this.bindingName, instanceNameOrId: this.instanceNameOrId };
+   const metadata = {
+     callChain: [...(currentContext?.callChain ?? []), thisNode],
+     callee: { type: calleeType, bindingName, instanceNameOrId },
+     originAuth: currentContext?.originAuth,  // Propagated from origin!
+   };
+   ```
+4. **Getter on LmzApi**: `this.lmz.callContext` reads from AsyncLocalStorage with convenience getters:
+   ```typescript
+   get callContext(): CallContext | undefined {
+     const ctx = callContextStorage.getStore();
+     if (!ctx) return undefined;
+     return {
+       ...ctx,
+       get origin() { return ctx.callChain[0]; },
+       get caller() { return ctx.callChain.at(-1); },
+       get priorCaller() { return ctx.callChain.at(-2); },
+     };
+   }
+   ```
+
+**Why AsyncLocalStorage**: Without it, if Request A sets `this.lmz.callContext = A`, then awaits, Request B could set `this.lmz.callContext = B`, and when A resumes it would see B's context. AsyncLocalStorage prevents this race condition.
+
+**Why callChain array**: Provides full call history for debugging/auditing, security verification (did call come through expected path?), and circuit detection (prevent infinite loops). Convenience getters (`origin`, `caller`, `priorCaller`) make common cases simple.
+
+**Security: Freeze callContext**: Deep-freeze the callContext when setting it in AsyncLocalStorage to prevent accidental or malicious modification:
+```typescript
+// In __executeOperation:
+const frozenContext = Object.freeze({
+  callChain: Object.freeze(callChain.map(n => Object.freeze({...n}))),
+  callee: Object.freeze({...callee}),
+  originAuth: originAuth ? deepFreeze(originAuth) : undefined,
+  get origin() { return this.callChain[0]; },
+  get caller() { return this.callChain.at(-1); },
+  get priorCaller() { return this.callChain.at(-2); },
+});
+callContextStorage.run(frozenContext, async () => { ... });
+```
+
+**Trust model**: Nodes in the mesh are trusted. The frozen callContext prevents bugs, not malicious nodes. For high-security operations (financial, data deletion), verify `originAuthToken` (signed JWT) independently rather than trusting parsed `originAuth` claims.
 
 ### Phase 7: Client-to-Client Communication
 **Goal**: Enable LumenizeClient → LumenizeClient calls

@@ -66,6 +66,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
+- [ ] Audit all docs and internal identifiers to favor `callContext` over `metadata` or `meta` where referring to the user-facing API
+  - `envelope.metadata` is the transport layer field containing `{ callChain, callee, originAuth }`
+  - `this.lmz.callContext` exposes this with convenience getters: `origin`, `caller`, `priorCaller`
+  - Ensure docs consistently use "callContext" when describing what users access
+  - Check `lmz-api.ts`, `CallEnvelope` interface, and any JSDoc comments
+
 - [ ] Review/edit the new docs for through Phase 4:
   - [x] structured-clone
   - [x] maps and sets

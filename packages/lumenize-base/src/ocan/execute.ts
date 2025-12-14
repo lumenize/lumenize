@@ -162,6 +162,9 @@ async function resolveNestedOperations(
   for (const arg of args) {
     if (isNestedOperationMarker(arg)) {
       // Execute the nested operation chain and use its result
+      if (!arg.__operationChain) {
+        throw new Error('Invalid nested operation marker: missing __operationChain');
+      }
       const nestedResult = await executeOperationChain(
         arg.__operationChain,
         target,
@@ -179,8 +182,11 @@ async function resolveNestedOperations(
       const resolvedObj: any = {};
       for (const [key, value] of Object.entries(arg)) {
         if (isNestedOperationMarker(value)) {
+          if (!value.__operationChain) {
+            throw new Error('Invalid nested operation marker: missing __operationChain');
+          }
           resolvedObj[key] = await executeOperationChain(
-            (value as NestedOperationMarker).__operationChain,
+            value.__operationChain,
             target,
             config
           );

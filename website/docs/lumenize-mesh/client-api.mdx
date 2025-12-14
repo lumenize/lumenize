@@ -153,6 +153,18 @@ interface LmzClientApi {
   readonly instanceNameOrId?: string;
   
   /**
+   * Context from the current incoming call (if any).
+   * Contains full call chain, callee identity, and propagated auth.
+   * Only available during method execution from an incoming mesh call.
+   * 
+   * Convenience getters: `origin`, `caller`, `priorCaller` (from callChain)
+   * Full chain: `callChain` for debugging/auditing/circuit detection
+   * 
+   * See [Auth Integration](./auth-integration#call-context) for details.
+   */
+  readonly callContext?: CallContext;
+  
+  /**
    * Make a call to a mesh node (async/await pattern).
    * Returns when the remote method completes.
    * Prefer `call()` with continuations for actor-model style.

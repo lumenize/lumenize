@@ -110,18 +110,43 @@ DO and Worker instances don't know their own binding names. DO instances don't k
 
 ### Zero Trust
 
+Every node in the mesh is responsible for its own access control. Authentication information flows through the entire call chain via `this.lmz.callContext`.
+
 #### Authentication
 
-LumenizeClient integrates with `@lumenize/auth`. Tokens are passed via WebSocket subprotocol — no URL exposure, no header limitations. See [Auth Integration](./auth-integration) for token refresh patterns.
+LumenizeClient integrates with `@lumenize/auth`. Tokens are passed via WebSocket subprotocol — no URL exposure, no header limitations. See [Auth Integration](./auth-integration) for token refresh patterns and call context propagation.
 
-We propogate that authentication information, using the same metadata sub-object in the call envelope that we use to auto-propogate node identity, with every call from a LumenizeClient. It's up to the LumenizeDO instances to include the appropriate authentication information on sub-calls but we provide those mechanisms.
+#### Call Context Propagation
+
+When a client makes a call, authentication info is included in the call envelope. This context **automatically propagates** through the entire call chain:
+
+```
+Client (alice) → DocumentDO → SpellCheckWorker
+                     ↓              ↓
+            callContext has    callContext has
+            alice's auth       alice's auth (propagated!)
+```
+
+Every node can access `this.lmz.callContext` to see who originated the request and make access control decisions. See [Auth Integration](./auth-integration#call-context) for details.
 
 #### Access Control
 
-However, authentication is only part of the story. It's useless unless it's used to control access. We provide easy-to-use mechanisms and examples on how to do this. For instance, for every subscription, the client provides a subscription-specific access token. Only updates that include that token will be accepted.
+Authentication is only useful if it's used to control access. Each node inspects `this.lmz.callContext` and decides whether to allow the operation:
+
+```typescript
+class DocumentDO extends LumenizeDO {
+  update(changes: DocumentChange) {
+    const ctx = this.lmz.callContext;
+    if (!ctx?.originAuth?.claims?.canEdit) {
+      throw new Error('Not authorized to edit');
+    }
+    // ... apply changes
+  }
+}
+```
 
 [TODO: Example of using a subscription-specific token]
-[TODO: Example showing LumenizeOrg style access control using the automatic authentication information metadata in calls (MAYBE NOT UNTIL WE BUILD LUMENIZE_BAAS)]
+[TODO: Example showing LumenizeOrg style access control]
 
 ## The `this.lmz` API
 
