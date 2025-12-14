@@ -214,8 +214,13 @@ ws.onclose = (event) => {
 When the refresh token expires, the automatic refresh will fail with a 401. Handle this via `onConnectionError`:
 
 ```typescript
-const client = createLumenizeClient({
-  // ...
+class MyClient extends LumenizeClient {
+  // ... handler methods
+}
+
+const client = new MyClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
   onConnectionError: (error) => {
     if (error.message.includes('401') || error.message.includes('Session expired')) {
       // Refresh token expired - must re-authenticate
@@ -400,7 +405,7 @@ Every mesh node can access `this.lmz.callContext` during method execution:
 
 ```typescript
 type CallChainNode = {
-  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient' | 'LumenizeClientGateway';
   bindingName?: string;
   instanceNameOrId?: string;
 };
@@ -564,12 +569,113 @@ class SensitiveDO extends LumenizeDO {
 ```
 
 **When to verify tokens independently:**
-- Financial operations
-- Data deletion
-- Permission changes
-- Cross-tenant operations
+- Calling untrusted components (service bindings, user-provided components, etc.)
+- Whenever you want extra security:
+  - Cross-tenant operations
+  - Financial scenarios
+  - Etc.
 
 For most operations, the frozen `originAuth` from a trusted mesh is sufficient.
+
+## Access Control {#access-control}
+
+Lumenize provides **two complementary levels** of access control. Use them together for defense-in-depth.
+
+### Two Levels of Access Control
+
+| Level | Mechanism | Best For |
+|-------|-----------|----------|
+| **Class-wide** | `onBeforeExecuteCall()` hook | Universal policies (auth required, rate limiting, audit logging) |
+| **Method-specific** | `this.lmz.callContext` in method body | Fine-grained permission checks |
+
+### When to Use Which
+
+**Use class-wide (`onBeforeExecuteCall`) for:**
+- Ensuring all calls are authenticated
+- Rejecting calls from untrusted sources (e.g., peer clients)
+- Audit logging every incoming call
+- Rate limiting per-origin
+- Fail-closed security (reject by default, explicitly allow)
+
+**Use method-specific for:**
+- Permission checks unique to that method (e.g., "canEditDocument")
+- Role-based access for specific operations
+- Business logic that varies by action
+
+**Example: Both levels working together:**
+
+```typescript
+class DocumentDO extends LumenizeDO {
+  // Class-wide: ensure all callers are authenticated
+  onBeforeExecuteCall(callContext: CallContext) {
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+    
+    // Log for audit trail
+    console.log(`[audit] ${callContext.originAuth.userId} calling via ${callContext.caller.bindingName}`);
+  }
+  
+  // Method-specific: check document permissions
+  update(changes: DocumentChange) {
+    const ctx = this.lmz.callContext;
+    
+    // Check document-specific permission
+    if (!this.canEdit(ctx.originAuth.userId)) {
+      throw new Error('Not authorized to edit this document');
+    }
+    
+    // Proceed with update...
+  }
+  
+  // Read-only method - different permission check
+  getContent(): string {
+    const ctx = this.lmz.callContext;
+    
+    if (!this.canView(ctx.originAuth.userId)) {
+      throw new Error('Not authorized to view this document');
+    }
+    
+    return this.#content;
+  }
+}
+```
+
+### The `onBeforeExecuteCall` Hook
+
+Every mesh node (LumenizeDO, LumenizeWorker, LumenizeClient) can implement this lifecycle hook:
+
+```typescript
+/**
+ * Called before any incoming RPC method is executed.
+ * Throw to reject the call; return normally to allow.
+ * 
+ * @param callContext - Full context of the incoming call
+ */
+onBeforeExecuteCall(callContext: CallContext): void | Promise<void>;
+```
+
+**Behavior:**
+- Called before the continuation is executed
+- If it throws, the call is rejected (error returned to caller)
+- If it returns normally (or resolves), the call proceeds
+- Has access to full `callContext` (origin, caller, originAuth, callChain)
+
+**Example: Role-based access for entire DO:**
+
+```typescript
+class AdminDO extends LumenizeDO {
+  onBeforeExecuteCall(callContext: CallContext) {
+    if (!callContext.originAuth?.claims?.isAdmin) {
+      throw new Error('Admin access required');
+    }
+  }
+  
+  // All methods in this class require admin role
+  deleteUser(userId: string) { /* ... */ }
+  resetDatabase() { /* ... */ }
+}
+```
 
 ### Automatic vs Manual Propagation
 
@@ -578,7 +684,6 @@ For most operations, the frozen `originAuth` from a trusted mesh is sufficient.
 **Manual override**: If you need to make a call with different auth (e.g., service-to-service with elevated privileges), you can override:
 
 ```typescript
-// Future API (not yet implemented)
 this.lmz.call('TARGET_DO', 'instance', chain, handler, {
   overrideAuth: { claims: { isServiceCall: true } }
 });

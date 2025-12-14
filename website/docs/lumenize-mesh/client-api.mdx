@@ -9,21 +9,7 @@ Complete API reference for creating and using LumenizeClient instances.
 
 ## Creating a Client
 
-### Factory Function (Recommended)
-
-```typescript
-import { createLumenizeClient } from '@lumenize/mesh';
-
-const client = createLumenizeClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  accessToken: jwt
-});
-```
-
-### Class-Based (For Extending)
-
-Using the document editing example:
+Extend `LumenizeClient` to define methods that mesh nodes can call on your client:
 
 ```typescript
 import { LumenizeClient } from '@lumenize/mesh';
@@ -33,6 +19,11 @@ class EditorClient extends LumenizeClient {
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
+  
+  // Called for collaborative cursor updates
+  handleCursorUpdate(userId: string, position: Position) {
+    this.cursors.set(userId, position);
+  }
 }
 
 using client = new EditorClient({
@@ -41,6 +32,8 @@ using client = new EditorClient({
   accessToken: jwt
 });
 ```
+
+**Why extend a class?** In the Lumenize Mesh, clients are full peers that can receive incoming calls. Mesh nodes call methods on your client via `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ctn<YourClient>().yourMethod(...))`. You must define those methods on your class.
 
 ## Configuration
 
@@ -372,13 +365,97 @@ notifyCollaborators(change: DocumentChange) {
 }
 ```
 
+## Access Control
+
+LumenizeClient supports the same two-level access control as DOs and Workers. See [Auth Integration: Access Control](./auth-integration#access-control) for full details.
+
+### Two Levels
+
+| Level | Mechanism | Best For |
+|-------|-----------|----------|
+| **Class-wide** | `onBeforeExecuteCall()` hook | Universal policies (reject peer calls, audit logging) |
+| **Method-specific** | `this.lmz.callContext` in method body | Fine-grained permission checks |
+
+### Default: Peer Calls Rejected
+
+By default, `LumenizeClient` rejects calls from other clients (peer-to-peer calls). This is a security measure — most applications don't need client-to-client communication, and enabling it increases attack surface.
+
+The base class implements:
+
+```typescript
+class LumenizeClient {
+  // Default: reject peer-to-peer calls
+  onBeforeExecuteCall(callContext: CallContext) {
+    if (callContext.origin.type === 'LumenizeClient') {
+      throw new Error('Peer-to-peer calls not allowed');
+    }
+  }
+}
+```
+
+With this default:
+- ✅ Calls from DOs and Workers are allowed
+- ❌ Calls from other clients are rejected
+
+### Opting In to Peer Communication
+
+For collaborative features (e.g., direct peer-to-peer cursors, voice/video signaling), override `onBeforeExecuteCall`:
+
+```typescript
+class CollaborativeClient extends LumenizeClient {
+  // Override: allow peer calls from known collaborators
+  onBeforeExecuteCall(callContext: CallContext) {
+    if (callContext.origin.type === 'LumenizeClient') {
+      // Allow peers, but only for authenticated users
+      if (!callContext.originAuth?.userId) {
+        throw new Error('Authentication required for peer calls');
+      }
+      // Optionally: check if peer is in allowed list
+      // if (!this.allowedPeers.has(callContext.originAuth.userId)) {
+      //   throw new Error('Peer not in collaborator list');
+      // }
+    }
+  }
+  
+  // Now other clients can call this method
+  handlePeerCursor(userId: string, position: Position) {
+    this.cursors.set(userId, position);
+  }
+}
+```
+
+### Method-Specific Access Control
+
+For fine-grained checks within individual methods:
+
+```typescript
+class EditorClient extends LumenizeClient {
+  handleDocumentChange(change: DocumentChange) {
+    const ctx = this.lmz.callContext;
+    
+    // Only accept changes from the document we're subscribed to
+    if (ctx?.caller.instanceNameOrId !== this.documentId) {
+      console.warn('Ignoring change from unexpected source');
+      return;
+    }
+    
+    this.editor.applyChange(change);
+  }
+}
+```
+
 ## Error Handling
 
 ### Connection Errors
 
 ```typescript
-const client = createLumenizeClient({
-  // ...
+class MyClient extends LumenizeClient {
+  // ... handler methods
+}
+
+const client = new MyClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
   onConnectionError: (error) => {
     console.error('Connection error:', error.message);
     showConnectionErrorUI();
@@ -412,8 +489,13 @@ handleContentLoaded(result: string | Error) {
 ### Connection State Handling
 
 ```typescript
-const client = createLumenizeClient({
-  // ...
+class MyClient extends LumenizeClient {
+  // ... handler methods
+}
+
+const client = new MyClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
   onConnectionStateChange: (state) => {
     switch (state) {
       case 'connecting':
@@ -493,22 +575,13 @@ function getTabId(): string {
   return tabId;
 }
 
-const client = createLumenizeClient({
+class MyClient extends LumenizeClient {
+  // ... handler methods
+}
+
+const client = new MyClient({
+  baseUrl: 'wss://app.example.com',
   instanceName: `${userId}.${getTabId()}`
-});
-```
-
-### Page Visibility
-
-Consider disconnecting when the page is hidden to save resources:
-
-```typescript
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    client.disconnect();
-  } else {
-    client.connect();
-  }
 });
 ```
 
@@ -518,6 +591,10 @@ Each tab should have its own client with a unique instance name. This ensures:
 - Each tab has its own Gateway DO
 - Notifications can target specific tabs
 - Collaborative cursors are per-tab
+
+It's not necessary to disconnect when tabs are hidden or hibernated. The first time an call from upstream is made to this tab, the caller will be notified that the client is disconnected. For the planned subscription functionality, the subscription will be dropped and no further attempts to update it from upstream will be attempted.
+
+There are two kinds of disconnected states. A short disconnect due to network failure/transition, and one where you've been disconnected long enough for subscriptions to have been dropped. For the latter case, the client will receive the `onSubscriptionsLost` callback (see [Subscription Loss](#subscription-loss) above). For a UI with multiple state subscriptions, we recommend that you delegate resubscribing to the active UI elements by having them listen to this event.
 
 ## TypeScript Types
 

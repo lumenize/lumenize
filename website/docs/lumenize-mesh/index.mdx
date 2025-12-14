@@ -131,10 +131,23 @@ Every node can access `this.lmz.callContext` to see who originated the request a
 
 #### Access Control
 
-Authentication is only useful if it's used to control access. Each node inspects `this.lmz.callContext` and decides whether to allow the operation:
+Lumenize provides **two levels** of access control:
+
+| Level | Mechanism | Best For |
+|-------|-----------|----------|
+| **Class-wide** | `onBeforeExecuteCall()` hook | Universal policies (auth required, reject peer calls) |
+| **Method-specific** | `this.lmz.callContext` in method body | Fine-grained permission checks |
 
 ```typescript
 class DocumentDO extends LumenizeDO {
+  // Class-wide: all callers must be authenticated
+  onBeforeExecuteCall(callContext: CallContext) {
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+  }
+  
+  // Method-specific: check document permissions
   update(changes: DocumentChange) {
     const ctx = this.lmz.callContext;
     if (!ctx?.originAuth?.claims?.canEdit) {
@@ -144,6 +157,8 @@ class DocumentDO extends LumenizeDO {
   }
 }
 ```
+
+See [Auth Integration: Access Control](./auth-integration#access-control) for complete documentation.
 
 [TODO: Example of using a subscription-specific token]
 [TODO: Example showing LumenizeOrg style access control]
@@ -383,3 +398,9 @@ client.lmz.call(
   client.ctn<OtherClient>().handleCollabCursor({ x: 100, y: 200 })
 );
 ```
+
+:::caution Security Note
+**Peer-to-peer calls are rejected by default.** `LumenizeClient` implements `onBeforeExecuteCall` to reject calls from other clients. This minimizes attack surface for applications that don't need client-to-client communication.
+
+To enable peer calls for collaborative features, override `onBeforeExecuteCall` in your client class. See [Client API: Access Control](./client-api#access-control) for details.
+:::

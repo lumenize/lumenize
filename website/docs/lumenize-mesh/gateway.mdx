@@ -307,6 +307,75 @@ async webSocketMessage(ws: WebSocket, message: string) {
 }
 ```
 
+## Trust Boundary {#trust-boundary}
+
+The Gateway is the **trust boundary** between untrusted clients and the trusted mesh. Clients cannot fake their identity because the Gateway controls what goes into `callContext`.
+
+### Key Principle
+
+> **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
+
+The Gateway already knows who the client is from the JWT verified at connection time.
+
+### What's Controlled Where
+
+| Client Controls | Gateway Verifies (from JWT) |
+|-----------------|----------------------------|
+| What to call (continuation) | Who they are (identity) |
+| Target binding/instance | Their claims/permissions |
+| Method arguments | `originAuth` |
+
+### Implementation
+
+When forwarding a client's call to the mesh, the Gateway builds `callContext` from **verified sources only**:
+
+```typescript
+async webSocketMessage(ws: WebSocket, message: string) {
+  const msg = JSON.parse(message);
+  
+  if (msg.type === '__call') {
+    // From client message: ONLY the continuation (what to call)
+    const { binding, instance, chain, callId } = msg;
+    
+    // From WebSocket attachment: verified identity (set at connection time)
+    const attachment = ws.deserializeAttachment();
+    
+    // Build callContext from VERIFIED sources, not from message!
+    const clientNode = {
+      type: 'LumenizeClient',
+      instanceNameOrId: attachment.verifiedInstanceName  // From JWT
+    };
+    
+    const originAuth = {
+      userId: attachment.verifiedUserId,    // From JWT
+      claims: attachment.verifiedClaims,    // From JWT
+    };
+    
+    // Even if the client sent fake originAuth in msg, we ignore it
+    // and use only the verified data from the attachment
+  }
+}
+```
+
+### Why This Matters
+
+A malicious client might send:
+
+```json
+{
+  "type": "__call",
+  "originAuth": { "userId": "admin", "claims": { "isAdmin": true } },
+  "fakeIdentity": "someone-else",
+  "chain": [...]
+}
+```
+
+The Gateway ignores all identity fields and uses only:
+1. The continuation (`chain`) — what to call
+2. Verified identity from WebSocket attachment — who's calling
+
+This ensures that `callContext.originAuth` in downstream nodes always reflects the **actual authenticated user**, not whatever the client claimed.
+
 ## Cost Analysis
 
 | Scenario | Storage Cost | Compute Cost |
