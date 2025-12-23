@@ -5,7 +5,7 @@ description: Durable Objects, Workers, and browser clients as peers in an actor-
 
 # Lumenize Mesh
 
-The **Lumenize Mesh** is an actor-model network where nodes communicate via `this.lmz.call()`. Each node is a **true peer** — able to both make and receive calls.
+The **Lumenize Mesh** is an actor-model network where nodes communicate via `this.lmz.call()`. Each node is a **true peer** — able to both make and receive calls. While Cloudflare's native RPC is also actor-like, Lumenize Mesh adds critical security, race-condition safety, and de✨light✨fulness.
 
 ## Lumenize Mesh "Actor" Nodes
 
@@ -106,7 +106,7 @@ flowchart TB
 
 ### Automatic Identity Propagation
 
-DO and Worker instances don't know their own binding names. DO instances don't know their instance name (i.e. `getByName('my-instance')`) while they do know their id. This is problematic, because it makes it impossible for a caller to say, "Hey, do this thing for me and when you are done, call me back at this address." However, while the callee doesn't know its own identity, anything calling it, by definition, must know its identity. So we leverage that necessity to automatically propogate identity throughout the mesh. Every call into the mesh as well as every call within the mesh includes the callee identity information and every node stores that for use in making its own calls.
+DO and Worker instances don't know their own binding names. DO instances don't know their instance name (i.e. `getByName('my-instance')`) while they do know their id. Without knowing their own full identity, it is impossible for a caller to say, "Hey, do this thing for me and when you are done, call me back at this address." On the other hand, while the callee doesn't inherently know its own identity, anything calling it, by necessity, must know its identity. So we leverage that necessity to automatically propagate identity throughout the mesh. Every call into the mesh as well as every call within the mesh includes the callee identity information and every node stores that to use when it needs to provide some other node with a return address.
 
 ### Zero Trust
 
@@ -114,7 +114,7 @@ Every node in the mesh is responsible for its own access control. Authentication
 
 #### Authentication
 
-LumenizeClient integrates with `@lumenize/auth`. Tokens are passed via WebSocket subprotocol — no URL exposure, no header limitations. See [Auth Integration](./auth-integration) for token refresh patterns and call context propagation.
+LumenizeClient integrates with `@lumenize/auth`. On connection, access tokens are passed via WebSocket subprotocol and refresh tokens are in a cookie — no URL exposure, no header limitations. If connection is successful, the Gateway stores the authentication and "session" information in an attachment associated with the connection. After that, it's added to the envelope for each call from the client. JWT token expiration is checked on each call coming in through a LumenizeClientGateway so other mesh nodes don't ever need to reconfirm authentication. See [Auth Integration](./auth-integration) for token refresh patterns and call context propagation.
 
 #### Call Context Propagation
 
@@ -131,30 +131,50 @@ Every node can access `this.lmz.callContext` to see who originated the request a
 
 #### Access Control
 
-Lumenize provides **two levels** of access control:
+Lumenize provides **secure-by-default** defense-in-depth:
 
-| Level | Mechanism | Best For |
-|-------|-----------|----------|
-| **Class-wide** | `onBeforeExecuteCall()` hook | Universal policies (auth required, reject peer calls) |
-| **Method-specific** | `this.lmz.callContext` in method body | Fine-grained permission checks |
+| Layer | Mechanism | What It Does |
+|-------|-----------|--------------|
+| **Capability Trust** | Automatic | Once an Entry Point passes `@mesh(handler)` check, the returned object's public interface is fully trusted for that chain. (Note: every nested call on `this` is treated as a separate Entry Point). |
+| **Class-wide** | `onBeforeCall()` hook | Focuses on WHO can call (auth, audit, rate limiting). Can also populate `callContext.state`. |
+| **Method Exposure** | `@mesh(handler?)` | **Required Entry Point**. The mandatory "gate" that grants a caller access to an object. |
 
 ```typescript
+import { LumenizeDO, mesh } from '@lumenize/mesh';
+
 class DocumentDO extends LumenizeDO {
-  // Class-wide: all callers must be authenticated
-  onBeforeExecuteCall(callContext: CallContext) {
+  // Class-level: all callers must be authenticated
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);  // Maintains base default restrictions
     if (!callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
+
+    // 💡 Tip: Populate callContext.state for use in @mesh handlers or methods
+    callContext.state.user = this.ctx.storage.kv.get(`user-${callContext.originAuth.userId}`);
   }
   
-  // Method-specific: check document permissions
-  update(changes: DocumentChange) {
-    const ctx = this.lmz.callContext;
-    if (!ctx?.originAuth?.claims?.canEdit) {
-      throw new Error('Not authorized to edit');
+  // ✅ Exposed + Custom permission check
+  @mesh((callContext) => {
+    // Use the user already fetched in onBeforeCall
+    if (!callContext.state.user.canEdit) {
+      throw new Error('Edit permission required');
     }
+  })
+  update(changes: DocumentChange) {
     // ... apply changes
   }
+  
+  // ✅ Exposed to mesh + default class-level auth
+  @mesh
+  getContent(): string {
+    return this.#content;
+  }
+
+  // ❌ NOT EXPOSED (missing @mesh)
+  _internalHelper() { /* ... */ }
+  handler() { /* ... */ }
+  #jsPrivate() { /* ... */ }
 }
 ```
 
@@ -183,9 +203,9 @@ These properties are populated automatically via [identity propagation](#automat
 
 ```typescript
 this.lmz.call(
-  'DOCUMENT_DO',                                    // Binding name
-  documentId,                                       // Instance name (undefined for Workers)
-  this.ctn<DocumentDO>().update(changes)            // Remote continuation
+  'DOCUMENT_DO',                          // Binding name
+  documentId,                             // Instance name or id (undefined for Workers)
+  this.ctn<DocumentDO>().update(changes)  // Remote continuation
 );
 ```
 
@@ -209,18 +229,18 @@ handleSpellCheckResult(result: SpellError[] | Error) {
 }
 ```
 
-**Passing context to handlers** — include additional data alongside `$result`:
+**Passing context to handlers** — include additional data alongside `$result` in any parameter position:
 
 ```typescript
 this.lmz.call(
   'DOCUMENT_DO',
   documentId,
   this.ctn<DocumentDO>().getContent(),
-  this.ctn().handleContent(this.ctn().$result, documentId, userId)
+  this.ctn().handleContent(documentId, this.ctn().$result, userId)
 );
 
 // Handler receives result + context
-handleContent(content: string | Error, documentId: string, userId: string) {
+handleContent(documentId: string, content: string | Error, userId: string) {
   // ...
 }
 ```
@@ -252,6 +272,7 @@ import { LumenizeDO } from '@lumenize/mesh';
 
 class DocumentDO extends LumenizeDO {
   // Called by clients to update the document
+  @mesh
   update(changes: DocumentChange) {
     const content = this.ctx.storage.kv.get('content') ?? '';
     const newContent = applyChanges(content, changes);
@@ -296,6 +317,7 @@ Conceptual stateless proxy to external service. Note: to avoid DO wall-clock bil
 import { LumenizeWorker } from '@lumenize/mesh';
 
 class SpellCheckWorker extends LumenizeWorker {
+  @mesh
   async check(content: string): Promise<SpellError[]> {
     const response = await fetch('https://api.spellcheck.example/check', {
       method: 'POST',
@@ -315,6 +337,7 @@ import { LumenizeClient } from '@lumenize/mesh';
 
 class EditorClient extends LumenizeClient {  
   // Called by DocumentDO when content changes
+  @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
@@ -345,7 +368,7 @@ client.lmz.call(
 The browser/Node.js mesh participant with automatic connection management:
 
 - **Auto-reconnect**: Reconnects automatically after network glitches
-- **Re-subscribe on reconnect**: After the 5-second grace period, clients must re-subscribe to any DO subscriptions (the Gateway notifies DOs with `ClientDisconnectedError` so they can clean up)
+- **Re-subscribe after grace period**: After the 5-second grace period, clients must re-subscribe to any DO subscriptions (the Gateway notifies DOs with `ClientDisconnectedError` so they can clean up)
 - **Resource cleanup**: Use `using` keyword for automatic disposal
 
 ```typescript
@@ -358,6 +381,7 @@ using client = new EditorClient({
 // Only called when reconnecting AFTER grace period expired
 // (Gateway informs client when subscriptions are lost)
 client.onSubscriptionsLost = () => {
+  // TODO: Refactor after we add explicit subscription support
   client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().subscribe());
 };
 ```
@@ -367,30 +391,42 @@ client.onSubscriptionsLost = () => {
 The LumenizeClientGateway is a **zero-storage Durable Object** that bridges the mesh and WebSocket clients:
 
 - **1:1 relationship**: Each LumenizeClient connects to its own gateway instance
-- **Call proxying**: Calls pass through without the gateway to another mesh destination
+- **Call proxying**: Calls pass through the gateway to another mesh destination
 - **Zero cost when idle**: No storage = no charges when client is disconnected
-- **Graceful reconnection**: 5-second grace period for network glitches
-- **Presence tracking**: After grace period, responds to callers with `ClientDisconnectedError` so they can clean up subscriptions
+- **Graceful reconnection**: Handle short-term (< 5s) network glitches
+- **Connection feedback**: After grace period, callers get `ClientDisconnectedError` so they can clean up subscriptions/resources
 
 ### How Gateway Routing Works
 
-1. Client connects to Gateway DO at `LUMENIZE_CLIENT_GATEWAY/${userId}.${tabId}`
+1. Client connects to Gateway DO at `.../LUMENIZE_CLIENT_GATEWAY/${userId}.${tabId}`
 2. Gateway accepts hibernatable WebSocket connection
 3. Outgoing calls from client → WebSocket → Gateway → Target DO/Worker
 4. Incoming calls to client: Source DO → Gateway → WebSocket → Client
 
 ### Client-to-Client Communication
 
-LumenizeClients can call each other through the mesh:
+:::caution Security Note
+**Peer-to-peer calls are rejected by default.** `LumenizeClient` implements `onBeforeCall` to reject calls from other clients. This minimizes attack surface for applications that don't need client-to-client communication.
+:::
+
+You enable peer calls for collaborative features by overriding `onBeforeCall` in your client class. Then LumenizeClients can call each other through the mesh:
 
 ```
 Client A  →  Gateway A  →  Gateway B  →  Client B
    ↑                                         │
-   └─────────────────────────────────────────┘
+   └──────── Gateway A  ←  Gateway B  ←──────┘
                     ~60ms round-trip
 ```
 
 ```typescript
+// Override LumenizeClient default onBeforeCall
+onBeforeCall(callContext: CallContext) {
+  // Don't call super.onBeforeCall()
+  if (!callContext.originAuth?.userId) {
+    throw new Error('Authentication required');
+  }
+}
+
 // From Client A: Call Client B
 client.lmz.call(
   'LUMENIZE_CLIENT_GATEWAY',
@@ -399,8 +435,4 @@ client.lmz.call(
 );
 ```
 
-:::caution Security Note
-**Peer-to-peer calls are rejected by default.** `LumenizeClient` implements `onBeforeExecuteCall` to reject calls from other clients. This minimizes attack surface for applications that don't need client-to-client communication.
-
-To enable peer calls for collaborative features, override `onBeforeExecuteCall` in your client class. See [Client API: Access Control](./client-api#access-control) for details.
-:::
+See [Client API: Access Control](./client-api#access-control) for details.

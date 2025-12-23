@@ -6,7 +6,7 @@
 
 ## Goal
 
-Add browser/Node.js clients as first-class participants in the Lumenize Mesh, enabling bidirectional RPC between browser clients and Cloudflare DOs/Workers.
+Add browser/Node.js clients as first-class participants in the Lumenize Mesh, enabling bidirectional calls between browser clients and other Lumenize Mesh nodes (LumenizeDO, LumenizeWorker).
 
 ## Design Principles
 
@@ -14,19 +14,19 @@ Add browser/Node.js clients as first-class participants in the Lumenize Mesh, en
 2. **Zero Storage Gateway**: LumenizeClientGateway uses NO DO storage - state derived from WebSockets + alarms only
 3. **Full Mesh Peers**: Clients can call any mesh node and receive calls from any mesh node
 4. **1:1 Gateway-Client**: Each client connects to its own Gateway DO instance
-5. **Auth Integrated**: Uses existing `@lumenize/auth` token patterns
+5. **Auth Integrated**: Uses `@lumenize/auth` token patterns
 
 ## Key Decisions
 
 See docs for full API details:
 - **Mesh Overview**: `/website/docs/lumenize-mesh/index.mdx`
 - **Client API**: `/website/docs/lumenize-mesh/client-api.mdx`
-- **Gateway Internals**: `/website/docs/lumenize-mesh/gateway.mdx`
+- **Gateway Details**: `/website/docs/lumenize-mesh/gateway.mdx`
 - **Auth Integration**: `/website/docs/lumenize-mesh/auth-integration.mdx`
 
 ### Gateway-Client Relationship
 - Gateway is 1:1 with a **connection**, not a user
-- Same user can have multiple clients (one per tab recommended)
+- Same user can have multiple clients (one per tab, multiple browsers, browser+node.js, etc.)
 - Client "name" becomes Gateway DO name (e.g., `${userId}.${tabId}`)
 
 ### Gateway State Machine (No Storage)
@@ -36,10 +36,43 @@ State derived from `this.ctx.getWebSockets()` + `this.ctx.getAlarm()`:
 |-----------------|------------|-------|----------|
 | Has connection | Any | Connected | Forward calls immediately |
 | Empty | Pending | Grace Period | Buffer/wait for reconnect (5s) |
-| Empty | None | Disconnected | Reject calls with "not connected" |
+| Empty | None | Disconnected | Throw ClientDisconnectedError |
 
-### Gateway `__executeOperation` Is a Proxy
+### Gateway `__executeOperation` Acts As a Proxy
 Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forwards chains to the client over WebSocket and returns the response.
+
+### `this.lmz.call` Security Model
+
+**Problem**: The current OCAN execution allows arbitrary property traversal. A malicious chain like `this.ctn().ctx.storage.kv.get('secret')` would access internal state.
+
+**Solution**: Defense-in-depth with a **secure-by-default** model (explicit opt-in):
+
+1. **Capability-Based Trust (Automatic)**
+   - The **first** method in an RPC chain must be authorized via `@mesh` or `@mesh(handler)`.
+   - Once authorized, the caller is granted access to the **entire public interface** (methods and properties) of the returned object for the duration of that continuation chain.
+   - **Important Nuance**: In **nesting** (e.g., `multiply(add(1, 2), 10)`), every method called on `this` (`multiply` and `add`) must have an `@mesh` decorator. In **chaining** (e.g., `getPanel().reset()`), only the first method (`getPanel`) needs `@mesh`.
+   - **True Privacy**: Use `#private` for actual security. Convention-based `_` or `__` methods are public in JavaScript and will be accessible if an object is returned.
+
+2. **Class-level `onBeforeCall(callContext)` hook**
+   - Override in your class for class-wide policies.
+   - WHO can call: authentication, audit logging, rate limiting.
+   - LumenizeClient default: reject peer calls from other LumenizeClients.
+
+3. **Method Exposure (@mesh) — Entry Point Only**
+   - Mandatory opt-in for the **first** method in an RPC chain.
+   - Subsequent methods in a chain (fluent APIs) are trusted as "authorized returns" from the first call.
+   - **Exception**: Methods used as local callbacks (handlers) in a continuation authored by the node itself do not require `@mesh` because they are part of a trusted continuation chain.
+
+**Execution Flow**:
+```
+Class onBeforeCall → Entry Point Check (@mesh) → Execute Chain (Trusted Returns)
+```
+
+**Implementation Notes**:
+- Use a decorator to mark methods as mesh-callable.
+- `executeOperationChain()` checks for this marker before execution.
+- Blocked names stored in `Set` for O(1) lookup.
+- Decorator metadata stored via `Reflect.defineMetadata()`.
 
 ## Implementation Phases
 
@@ -115,7 +148,7 @@ Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forward
 
 **Implementation Notes** (not in user docs):
 
-1. **AsyncLocalStorage for race safety**: Use Node.js `AsyncLocalStorage` (supported in Workers since 2023) to isolate each request's context across `await` points.
+1. **AsyncLocalStorage for race safety**: Use Node.js `AsyncLocalStorage` (supported in Workers since 2023) to isolate each request's context across calls.
 
 2. **Freeze callContext**: Deep-freeze the callContext when setting it to prevent accidental modification:
    ```typescript
@@ -203,6 +236,19 @@ packages/mesh/
 2. **Offline queue behavior**: `callRaw()` fails immediately when disconnected; `call()` without handler is fire-and-forget.
 
 3. **Gateway alarm/attachment storage**: Both use Cloudflare infrastructure, not DO SQLite - no storage charges.
+
+## Confirm with Code Review, vitest-pool-workers Testing, or Live Testing
+
+- [ ] (live) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
+- [ ] (search and review) `blockConcurrency` is not used by call. I mistakenly did that for the current implementation because I didn't realize we could get fire and forget behavior with simple use of Promise/then/catch
+- [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
+- [ ] (review) Malicious user can't control the callContext contents from a LumenizeClient. It must be determined at the Gateway
+- [ ] (vitest-pool) `this.lmz.callContext` is the same for continuations as for the original call even when there is a round-trip remote call.
+- [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
+- [ ] (review and vitest-pool) Clients must be authenticated
+- [ ] (vitest-pool) Trusted return capability security model allows you to return an interface for just admins. Similarly, it should not allow the use of root-level methods without an @mesh decorator in nested conditions. For example, `multiply(subtract(4, 3), add(2, 1))` should only work if `multiply`, `subtract`, and `add` all have @mesh annotations that allow them.
+- [ ] (vitest-pool) lmz.callContext is has the correct information even when there is deeply interlieved operations ongoing.
+- [ ] (vitest-pool) Verify that `callContext` is fully serializable and can be captured in a continuation to survive DO hibernation.
 
 ## References
 

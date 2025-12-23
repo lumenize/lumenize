@@ -176,6 +176,7 @@ const sidebars: SidebarsConfig = {
       label: 'Concepts',
       items: [
         'concepts/continuations',
+        'concepts/managing-context',
       ],
     },
 
@@ -291,6 +292,18 @@ const sidebars: SidebarsConfig = {
         ...(typedocFetchSidebar && typedocFetchSidebar.length > 0
           ? [wrapInApiReference(typedocFetchSidebar, 'API Reference')]
           : []),
+      ],
+    },
+
+    // Lumenize Mesh
+    {
+      type: 'category',
+      label: 'Lumenize Mesh',
+      items: [
+        'lumenize-mesh/index',
+        'lumenize-mesh/auth-integration',
+        'lumenize-mesh/client-api',
+        'lumenize-mesh/gateway',
       ],
     },
 

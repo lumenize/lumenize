@@ -16,11 +16,13 @@ import { LumenizeClient } from '@lumenize/mesh';
 
 class EditorClient extends LumenizeClient {
   // Called by DocumentDO when content changes
+  @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
   
   // Called for collaborative cursor updates
+  @mesh
   handleCursorUpdate(userId: string, position: Position) {
     this.cursors.set(userId, position);
   }
@@ -332,18 +334,21 @@ Define methods on your client class that mesh nodes can call:
 ```typescript
 class EditorClient extends LumenizeClient {
   // Called by DocumentDO when content changes
+  @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
     // No return = fire-and-forget from server's perspective
   }
   
   // Called for collaborative cursor updates
+  @mesh
   handleCursorUpdate(userId: string, position: Position) {
     this.cursors.set(userId, position);
     this.renderCursors();
   }
   
   // Called to get this client's cursor (returns a value)
+  @mesh
   getCursorPosition(): Position {
     return this.editor.getCursorPosition();
   }
@@ -367,14 +372,14 @@ notifyCollaborators(change: DocumentChange) {
 
 ## Access Control
 
-LumenizeClient supports the same two-level access control as DOs and Workers. See [Auth Integration: Access Control](./auth-integration#access-control) for full details.
+LumenizeClient has the same **secure-by-default** model as DOs and Workers. See [Auth Integration: Access Control](./auth-integration#access-control) for full details.
 
-### Two Levels
+### Security Layers
 
-| Level | Mechanism | Best For |
-|-------|-----------|----------|
-| **Class-wide** | `onBeforeExecuteCall()` hook | Universal policies (reject peer calls, audit logging) |
-| **Method-specific** | `this.lmz.callContext` in method body | Fine-grained permission checks |
+1. **Chain Validation** (automatic) — Only single method calls allowed.
+2. **Class-level `onBeforeCall`** — Override for class-wide policies.
+3. **Method Exposure** (required) — Only methods decorated with `@mesh` are callable.
+4. **Method-level `@mesh(handler)`** — Decorator parameter for per-method policies.
 
 ### Default: Peer Calls Rejected
 
@@ -385,7 +390,7 @@ The base class implements:
 ```typescript
 class LumenizeClient {
   // Default: reject peer-to-peer calls
-  onBeforeExecuteCall(callContext: CallContext) {
+  onBeforeCall(callContext: CallContext) {
     if (callContext.origin.type === 'LumenizeClient') {
       throw new Error('Peer-to-peer calls not allowed');
     }
@@ -399,50 +404,61 @@ With this default:
 
 ### Opting In to Peer Communication
 
-For collaborative features (e.g., direct peer-to-peer cursors, voice/video signaling), override `onBeforeExecuteCall`:
+For collaborative features (e.g., direct peer-to-peer cursors, voice/video signaling), override `onBeforeCall` **and** decorate methods with `@mesh`:
 
 ```typescript
+import { LumenizeClient, mesh } from '@lumenize/mesh';
+
 class CollaborativeClient extends LumenizeClient {
   // Override: allow peer calls from known collaborators
-  onBeforeExecuteCall(callContext: CallContext) {
+  onBeforeCall(callContext: CallContext) {
+    // Note: NOT calling super.onBeforeCall() because we WANT to allow peers
     if (callContext.origin.type === 'LumenizeClient') {
       // Allow peers, but only for authenticated users
       if (!callContext.originAuth?.userId) {
         throw new Error('Authentication required for peer calls');
       }
-      // Optionally: check if peer is in allowed list
-      // if (!this.allowedPeers.has(callContext.originAuth.userId)) {
-      //   throw new Error('Peer not in collaborator list');
-      // }
     }
   }
   
-  // Now other clients can call this method
+  // ✅ Exposed + Callable by peers
+  @mesh
   handlePeerCursor(userId: string, position: Position) {
     this.cursors.set(userId, position);
   }
 }
 ```
 
-### Method-Specific Access Control
+### Method-Level Access Control
 
-For fine-grained checks within individual methods:
+Use the `@mesh(handler)` parameter for per-method checks:
 
 ```typescript
+import { LumenizeClient, mesh } from '@lumenize/mesh';
+
 class EditorClient extends LumenizeClient {
-  handleDocumentChange(change: DocumentChange) {
-    const ctx = this.lmz.callContext;
-    
-    // Only accept changes from the document we're subscribed to
-    if (ctx?.caller.instanceNameOrId !== this.documentId) {
-      console.warn('Ignoring change from unexpected source');
-      return;
+  // Class-level: allow calls from DOs only (default rejects peers)
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext); // Maintain peer rejection
+    // additional custom logic...
+  }
+  
+  // ✅ Exposed + Method-level check: only accept changes from our document
+  @mesh((callContext, methodName, args) => {
+    if (callContext.caller.instanceNameOrId !== this.documentId) {
+      throw new Error('Change from unexpected source');
     }
-    
+  })
+  handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
+  
+  // ✅ Exposed + Class-level check only
+  @mesh
+  handleNotification(message: string) {
+    this.showNotification(message);
+  }
 }
-```
 
 ## Error Handling
 

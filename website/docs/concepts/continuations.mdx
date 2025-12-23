@@ -16,16 +16,16 @@ this.lmz.call(REMOTE_DO, 'instance-id', remote, local);
 
 Continuations:
 
-- Are Serializable so can be pushed into storage, an alarms handler, or sent over the wire to be executed in some other Durable Object or Worker.
-- Can carry arbitrary data that supports almost all types (Dates, Map, Set, cycles, aliases, etc.). This allows you to restore context and pick up where you left of when returning from an asynchronous operation
-- Provide an alternative to using `async`/`await`, which can be problematic for Durable Object's consistency guarantees.
-- Provide type safety, so you get development-time feedback if you have the method/property name or signature wrong.
-- Are built with JavaScript Proxy objects and serialize to a well-defined, `JSON.strinigify`-friendly operation chaining and nesting (OCAN) object. 
+- Are Serializable so can be pushed into storage, an alarms handler, or sent over the wire to be executed in some other Durable Object or Worker
+- Can carry arbitrary data that supports almost all types (Dates, Map, Set, cycles, aliases, etc.) allowing you to restore context and continue where you previously left off
+- Provide an alternative to using `async`/`await`, which can be problematic for Durable Object's consistency guarantees
+- Provide type safety, so you get development-time feedback if you have the method/property name or signature wrong
+- Are built with JavaScript Proxy objects and serialize to a well-defined, `JSON.strinigify`-friendly operation chaining and nesting (OCAN) object
 - Can encapsulate multiple method calls and property accesses and where the output of one operation can be used in another
 
 ## The `this.ctn()` Factory
 
-Components that extend `LumenizeBase`, `LumenizeWorker`, or `LumenizeClient` has access to `this.ctn()`, which creates continuation chains:
+Components that extend `LumenizeBase`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`, which creates continuation chains:
 
 ```typescript @skip-check
 // Simple method call
@@ -54,7 +54,7 @@ The special `$result` property marks where the async operation's result should b
 this.ctn().handleFetchResult(this.ctn().$result)
 
 // You can use it anywhere in the arguments
-this.ctn().processWithContext(metadata, this.ctn().$result, timestamp)
+this.ctn().processWithContext(context, this.ctn().$result, timestamp)
 ```
 
 ### Result Types
@@ -83,6 +83,36 @@ handleRemoteResult(result: any | Error) {
   // Success - use the result
   console.log('Got:', result);
 }
+```
+
+## Recursive Validation (Lumenize Mesh)
+
+Under the [Lumenize Mesh security model](/docs/lumenize-mesh/auth-integration#access-control), every step in a continuation chain is validated independently when sent over the wire. This enables secure "Sub-Target" patterns:
+
+```typescript @skip-check
+class DocumentDO extends LumenizeDO {
+  @mesh
+  getAdminPanel() {
+    // Returns a sub-object with its own security
+    return new AdminPanel(this);
+  }
+}
+
+class AdminPanel extends LumenizeSubTarget {
+  onBeforeCall(callContext: CallContext) {
+    if (!callContext.originAuth?.claims?.isAdmin) {
+      throw new Error("Admin access required");
+    }
+  }
+
+  @mesh
+  deleteHistory() { ... }
+}
+
+// Chaining across targets:
+// 1. getAdminPanel() is checked against DocumentDO (@mesh check)
+// 2. Resulting AdminPanel is checked (onBeforeCall + @mesh check)
+this.ctn<DocumentDO>().getAdminPanel().deleteHistory()
 ```
 
 ## Common Patterns

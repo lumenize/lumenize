@@ -38,6 +38,7 @@ Using the document editing example from the overview:
 import { LumenizeClient } from '@lumenize/mesh';
 
 class EditorClient extends LumenizeClient {
+  @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
@@ -307,6 +308,7 @@ class EditorClient extends LumenizeClient {
   editor: EditorInstance;
   documentId: string;
   
+  @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
@@ -413,17 +415,25 @@ type CallChainNode = {
 interface CallContext {
   // Full call chain: [origin, ..., priorCaller, caller]
   // Each hop appends itself to the chain
-  callChain: CallChainNode[];
+  readonly callChain: CallChainNode[];
   
   // This node (receiving the call)
-  callee: CallChainNode;
+  readonly callee: CallChainNode;
   
   // Propagated from origin (preserved through entire chain)
-  originAuth?: {
+  readonly originAuth?: {
     userId?: string;
     sessionId?: string;
     claims?: Record<string, any>;
   };
+
+  /**
+   * Local request state.
+   * Use this mutable object to share data between onBeforeCall, 
+   * @mesh handlers, and method bodies.
+   * Not propagated to outgoing mesh calls.
+   */
+  state: Record<string, any>;
   
   // Convenience getters (computed from callChain)
   get origin(): CallChainNode;      // callChain[0] - who started this
@@ -520,16 +530,21 @@ This is handled automatically — you just access `this.lmz.callContext` and get
 
 ### Security: Immutable & Trust Model
 
-**callContext is frozen (immutable)**
+**callContext wire-data is frozen (immutable)**
 
-To prevent accidental or malicious modification, `callContext` is deep-frozen when created:
+To prevent accidental modification of the call context, the core fields (`callChain`, `callee`, `originAuth`) are deep-frozen when created.
+
+**Local state is mutable**
+
+Use `callContext.state` as a scratchpad for the duration of the request. This allows `onBeforeCall` to calculate data once and share it with downstream handlers and methods.
 
 ```typescript
-ctx.originAuth.claims.isAdmin = true;
-// TypeError: Cannot assign to read only property 'isAdmin'
-```
+// Inside onBeforeCall
+callContext.state.user = await this.db.users.get(callContext.originAuth.userId);
 
-This ensures that code within a node cannot modify auth claims before making sub-calls.
+// Inside @mesh handler
+if (!callContext.state.user.isActive) throw new Error('User inactive');
+```
 
 **Trust model**
 
@@ -579,101 +594,211 @@ For most operations, the frozen `originAuth` from a trusted mesh is sufficient.
 
 ## Access Control {#access-control}
 
-Lumenize provides **two complementary levels** of access control. Use them together for defense-in-depth.
+Lumenize provides a **secure-by-default** defense-in-depth security model with multiple layers of protection.
 
-### Two Levels of Access Control
+### RPC Security Model
 
-| Level | Mechanism | Best For |
-|-------|-----------|----------|
-| **Class-wide** | `onBeforeExecuteCall()` hook | Universal policies (auth required, rate limiting, audit logging) |
-| **Method-specific** | `this.lmz.callContext` in method body | Fine-grained permission checks |
+Incoming RPC calls are validated **before** any code executes:
 
-### When to Use Which
+**1. Capability-Based Trust (Automatic)**
 
-**Use class-wide (`onBeforeExecuteCall`) for:**
-- Ensuring all calls are authenticated
-- Rejecting calls from untrusted sources (e.g., peer clients)
-- Audit logging every incoming call
-- Rate limiting per-origin
-- Fail-closed security (reject by default, explicitly allow)
+Lumenize Mesh uses a **Trusted Return** model. The first method in a chain must be authorized via `@mesh`. Once authorized, the caller is granted access to the **entire public interface** (methods and properties) of the returned object for the remainder of that chain.
 
-**Use method-specific for:**
-- Permission checks unique to that method (e.g., "canEditDocument")
-- Role-based access for specific operations
-- Business logic that varies by action
+**Important Nuance: Chaining vs. Nesting**
 
-**Example: Both levels working together:**
+*   **Chaining** (`this.ctn().a().b()`): Only `a()` is checked for `@mesh`. `b()` is trusted as a return of `a()`.
+*   **Nesting** (`this.ctn().a(this.ctn().b())`): Both `a()` and `b()` are checked for `@mesh` because they are both top-level calls on `this`.
+
+```typescript
+// ✅ Allowed: chaining methods and properties
+// 1. getAuthorInfo() is authorized via @mesh
+// 2. The returned 'AuthorInfo' object is fully trusted for this chain
+this.ctn<DocumentDO>().getAuthorInfo().author.name
+
+// ✅ Allowed: nested method calls
+// BOTH multiply() and add() must have @mesh decorators.
+this.ctn<Calculator>().multiply(this.ctn().add(2, 3), 10)
+
+// ⚠️ Use #private for true security
+// The Mesh only blocks true JavaScript private members (#).
+// Public members (including those starting with _ or __) 
+// are accessible if an object is returned.
+this.ctn<DocumentDO>().getInternalContext()._dangerZone() // Accessible!
+```
+
+**True Privacy vs. Convention:**
+
+| Prefix | Meaning | Mesh Access | Security |
+|--------|---------|-------------|----------|
+| `method()` | Public | ✅ Allowed | None (Public API) |
+| `_method()` | Internal | ✅ Allowed | **Soft** (Convention only) |
+| `__method()`| Framework| ✅ Allowed | **Soft** (Convention only) |
+| `#method()` | Private | ❌ Blocked | **Hard** (Runtime enforced) |
+
+### Entry Points vs. Handlers {#entry-points-vs-handlers}
+
+**Method naming convention:**
+
+| Prefix | Meaning | Spontaneous (API) | Callback (Handler) | Local Access |
+|--------|---------|-------------------|-------------------|--------------|
+| `method()` | Public | ✅ If `@mesh` | ✅ Always | ✅ Yes |
+| `_method()` | Internal | ❌ Blocked | ✅ Always | ✅ Yes |
+| `__method()` | Framework | ❌ Blocked | ✅ Always | ✅ Yes |
+| `#method()` | Private | ❌ Blocked | ❌ Blocked | ❌ No |
+
+### Layers of Access Control
+
+After a call passes automatic validation, two optional hooks provide fine-grained control:
+
+| Layer | Mechanism | Scope | Best For |
+|-------|-----------|-------|----------|
+| **1. Class-wide** | `onBeforeCall()` method | All methods | WHO can call (auth, audit, rate limiting). |
+| **2. Method Exposure** | `@mesh(handler?)` decorator | Single method | **Required**. Opt-in to expose method **and** optionally run per-method auth. |
+
+### Execution Flow
+
+```
+Incoming RPC Call
+        ↓
+┌─────────────────────────────┐
+│ 1. Chain Validation         │ ← Automatic (method calls only)
+└─────────────────────────────┘
+        ↓ (reject if invalid)
+┌─────────────────────────────┐
+│ 2. Class-level onBeforeCall │ ← Optional (hook on your class)
+│    - Authentication check   │
+│    - Audit logging          │
+└─────────────────────────────┘
+        ↓ (reject if throws)
+┌─────────────────────────────┐
+│ 3. Entry Point Check (@mesh)│ ← Required for the FIRST method
+│    - @mesh(handler) check   │ ← Optional per-method auth
+└─────────────────────────────┘
+        ↓ (reject if not decorated or handler throws)
+┌─────────────────────────────┐
+│ 4. Execute Chain            │ ← Sub-methods are trusted returns
+└─────────────────────────────┘
+```
+
+### Class-Level `onBeforeCall` Hook
+
+Override this method for class-wide policies (the "WHO" check):
 
 ```typescript
 class DocumentDO extends LumenizeDO {
-  // Class-wide: ensure all callers are authenticated
-  onBeforeExecuteCall(callContext: CallContext) {
+  /**
+   * Called before any RPC method executes.
+   * Throw to reject; return to allow.
+   */
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext); // Maintain base restrictions
+    
+    // Require authentication for all methods
     if (!callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
-    
-    // Log for audit trail
-    console.log(`[audit] ${callContext.originAuth.userId} calling via ${callContext.caller.bindingName}`);
   }
   
-  // Method-specific: check document permissions
+  @mesh
+  getContent(): string { ... }
+}
+```
+
+### Method-Level `@mesh(handler)` Decorator
+
+Use the decorator parameter for per-method policies (the "WHAT" check):
+
+```typescript
+import { LumenizeDO, mesh } from '@lumenize/mesh';
+
+class DocumentDO extends LumenizeDO {
+  // Class-level: all callers must be authenticated
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);
+    
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+  }
+  
+  // ✅ Exposed + Permission check
+  @mesh((callContext, methodName, args) => {
+    if (!callContext.originAuth?.claims?.canEdit) {
+      throw new Error('Edit permission required');
+    }
+  })
   update(changes: DocumentChange) {
-    const ctx = this.lmz.callContext;
-    
-    // Check document-specific permission
-    if (!this.canEdit(ctx.originAuth.userId)) {
-      throw new Error('Not authorized to edit this document');
-    }
-    
-    // Proceed with update...
+    this.applyChanges(changes);
   }
   
-  // Read-only method - different permission check
+  // ✅ Exposed + Class-level auth only
+  @mesh
   getContent(): string {
-    const ctx = this.lmz.callContext;
-    
-    if (!this.canView(ctx.originAuth.userId)) {
-      throw new Error('Not authorized to view this document');
-    }
-    
     return this.#content;
   }
 }
 ```
 
-### The `onBeforeExecuteCall` Hook
-
-Every mesh node (LumenizeDO, LumenizeWorker, LumenizeClient) can implement this lifecycle hook:
+### Decorator Signature
 
 ```typescript
 /**
- * Called before any incoming RPC method is executed.
- * Throw to reject the call; return normally to allow.
+ * Method-level mesh exposure and access control.
  * 
- * @param callContext - Full context of the incoming call
+ * @param handler - (Optional) Called before method execution
+ *   - callContext: Full call context (origin, caller, originAuth, callChain)
+ *   - methodName: Name of the method being called
+ *   - args: Arguments passed to the method
+ *   - Throw to reject; return to allow
  */
-onBeforeExecuteCall(callContext: CallContext): void | Promise<void>;
+function mesh(
+  handler?: (callContext: CallContext, methodName: string, args: any[]) => void | Promise<void>
+): MethodDecorator;
 ```
 
-**Behavior:**
-- Called before the continuation is executed
-- If it throws, the call is rejected (error returned to caller)
-- If it returns normally (or resolves), the call proceeds
-- Has access to full `callContext` (origin, caller, originAuth, callChain)
-
-**Example: Role-based access for entire DO:**
+### Complete Example
 
 ```typescript
-class AdminDO extends LumenizeDO {
-  onBeforeExecuteCall(callContext: CallContext) {
-    if (!callContext.originAuth?.claims?.isAdmin) {
-      throw new Error('Admin access required');
+import { LumenizeDO, mesh } from '@lumenize/mesh';
+
+class DocumentDO extends LumenizeDO {
+  // === Class-level: WHO can call ===
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);
+    
+    // All callers must be authenticated
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
     }
   }
   
-  // All methods in this class require admin role
-  deleteUser(userId: string) { /* ... */ }
-  resetDatabase() { /* ... */ }
+  // === Method-level: WHAT they can do ===
+  
+  // Editors can update
+  @mesh((ctx) => {
+    if (!ctx.originAuth?.claims?.canEdit) {
+      throw new Error('Edit permission required');
+    }
+  })
+  update(changes: DocumentChange) {
+    this.applyChanges(changes);
+  }
+  
+  // Anyone authenticated can read
+  @mesh
+  getContent(): string {
+    return this.#content;
+  }
+  
+  // Only admins can delete
+  @mesh((ctx) => {
+    if (!ctx.originAuth?.claims?.isAdmin) {
+      throw new Error('Admin access required');
+    }
+  })
+  delete() {
+    this.ctx.storage.deleteAll();
+  }
 }
 ```
 

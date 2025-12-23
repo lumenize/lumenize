@@ -4,9 +4,16 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] 
+- [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
+- [ ] Related to above, find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
 
 ## Lumenize Mesh
+
+- [ ] Implement onStart with auto blockConcurrencyWhile
+- [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
+- [ ] Document our identity propogation as better than init(). init() breaks the mold of just access don't create DOs.
+
+- [ ] Implment generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
 
 - [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
   - Wraps `routeDORequest` but requires instance **names** only (no ids)
