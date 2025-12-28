@@ -5,24 +5,26 @@ description: Durable Objects, Workers, and browser clients as peers in an actor-
 
 # Lumenize Mesh
 
-The **Lumenize Mesh** is an actor-model network where nodes communicate via `this.lmz.call()`. Each node is a **true peer** — able to both make and receive calls. While Cloudflare's native RPC is also actor-like, Lumenize Mesh adds critical security, race-condition safety, and de✨light✨fulness.
+The **Lumenize Mesh** is an actor-model network where Durable Objects, Workers, and browser clients communicate as **true peers** via `this.lmz.call()`. While Cloudflare's native RPC is also actor-like, Lumenize Mesh adds critical security, race-condition safety, and de✨light✨fulness.
 
-## Lumenize Mesh "Actor" Nodes
+## Node Types
+
+Every participant in the mesh extends one of these base classes:
 
 | Node Type | Runs In | Storage | Use Case |
 |-----------|---------|---------|----------|
-| **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side capability |
-| **LumenizeWorker** | Cloudflare Worker | none | Stateless server-side capability |
+| **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side logic |
+| **LumenizeWorker** | Cloudflare Worker | None | Stateless server-side logic |
 | **LumenizeClient** | Browser/Node.js | Local | Client applications |
 
-## Other Lumenize Mesh Elements
+Supporting infrastructure:
 
-| Element | Type | Use Case |
-|---------|------|----------|
-| **LumenizeClientGateway** | Cloudflare DO | Bridges client ↔ mesh (zero storage) |
+| Element | Type | Purpose |
+|---------|------|---------|
+| **LumenizeClientGateway** | Cloudflare DO | Bridges WebSocket clients ↔ mesh (zero storage) |
 | **createLumenizeRouter** | Factory function | Creates Worker fetch handler with auth + gateway routing |
 
-## Illustration
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -34,7 +36,6 @@ flowchart TB
     subgraph cloud[" ☁️ Cloudflare "]
         direction TB
         
-        %% Top row: LumenizeDO DOs and LumenizeWorkers
         subgraph mesh[" "]
             direction LR
             Workspace["Workspace<br/><small>acme-corp</small>"]
@@ -44,7 +45,6 @@ flowchart TB
             Spell2(("SpellCheck"))
         end
         
-        %% Gateways (inside cloud)
         subgraph gatewaysA[" "]
             GwA(["Gateway<br/><small>alice.tab1</small>"])
         end
@@ -55,23 +55,17 @@ flowchart TB
             GwB1 ~~~ GwB2
         end
         
-        %% Mesh interconnections - Workspace manages all docs
         Workspace <--> Doc1
         Workspace <--> Doc2
         Doc1 <--> Spell1
         Doc2 <--> Spell2
         
-        %% Gateway to workspace connections
         GwA <--> Workspace
         GwB1 <--> Workspace
         GwB2 <--> Workspace
         
-        %% Gateway to document connections
-        %% Alice works on draft-2
         GwA <--> Doc2
-        %% Bob tab1 collaborates with Alice on draft-2
         GwB1 <--> Doc2
-        %% Bob tab2 works alone on draft-1
         GwB2 <--> Doc1
     end
 
@@ -81,12 +75,10 @@ flowchart TB
         ClientB1 ~~~ ClientB2
     end
     
-    %% WebSocket connections - B first to influence layout
     GwB1 <-->|WebSocket| ClientB1
     GwB2 <-->|WebSocket| ClientB2
     GwA <-->|WebSocket| ClientA
     
-    %% Styling
     classDef workspaceDO fill:#6366f1,stroke:#4f46e5,color:#fff
     classDef documentDO fill:#a855f7,stroke:#9333ea,color:#fff
     classDef spellWorker fill:#10b981,stroke:#059669,color:#fff
@@ -102,23 +94,22 @@ flowchart TB
     class mesh,gatewaysA,gatewaysB,browserA,browserB invisible
 ```
 
-## Concepts
+---
+
+## Core Concepts
 
 ### Automatic Identity Propagation
 
-DO and Worker instances don't know their own binding names. DO instances don't know their instance name (i.e. `getByName('my-instance')`) while they do know their id. Without knowing their own full identity, it is impossible for a caller to say, "Hey, do this thing for me and when you are done, call me back at this address." On the other hand, while the callee doesn't inherently know its own identity, anything calling it, by necessity, must know its identity. So we leverage that necessity to automatically propagate identity throughout the mesh. Every call into the mesh as well as every call within the mesh includes the callee identity information and every node stores that to use when it needs to provide some other node with a return address.
+Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Each node stores this information on first contact, enabling it to provide return addresses for callbacks.
 
-### Zero Trust
+```typescript @skip-check
+// DocumentDO doesn't know it's "DOCUMENT_DO" / "draft-1" until someone calls it
+// After the first call, it can tell other nodes: "call me back at DOCUMENT_DO/draft-1"
+```
 
-Every node in the mesh is responsible for its own access control. Authentication information flows through the entire call chain via `this.lmz.callContext`.
+### Call Context
 
-#### Authentication
-
-LumenizeClient integrates with `@lumenize/auth`. On connection, access tokens are passed via WebSocket subprotocol and refresh tokens are in a cookie — no URL exposure, no header limitations. If connection is successful, the Gateway stores the authentication and "session" information in an attachment associated with the connection. After that, it's added to the envelope for each call from the client. JWT token expiration is checked on each call coming in through a LumenizeClientGateway so other mesh nodes don't ever need to reconfirm authentication. See [Auth Integration](./auth-integration) for token refresh patterns and call context propagation.
-
-#### Call Context Propagation
-
-When a client makes a call, authentication info is included in the call envelope. This context **automatically propagates** through the entire call chain:
+Every mesh call carries **context** that propagates through the entire call chain:
 
 ```
 Client (alice) → DocumentDO → SpellCheckWorker
@@ -127,312 +118,131 @@ Client (alice) → DocumentDO → SpellCheckWorker
             alice's auth       alice's auth (propagated!)
 ```
 
-Every node can access `this.lmz.callContext` to see who originated the request and make access control decisions. See [Auth Integration](./auth-integration#call-context) for details.
+Access context in any mesh node via `this.lmz.callContext`:
 
-#### Access Control
+```typescript @skip-check
+@mesh
+updateDocument(changes: DocumentChange) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  const caller = this.lmz.callContext.caller;
+  // Make decisions based on who's calling
+}
+```
 
-Lumenize provides **secure-by-default** defense-in-depth:
+**Hibernation-safe** (for DOs): Call context is automatically captured in continuations. Even if a DO hibernates during a long-running operation, your handler receives the correct context when it executes.
 
-| Layer | Mechanism | What It Does |
-|-------|-----------|--------------|
-| **Capability Trust** | Automatic | Once an Entry Point passes `@mesh(handler)` check, the returned object's public interface is fully trusted for that chain. (Note: every nested call on `this` is treated as a separate Entry Point). |
-| **Class-wide** | `onBeforeCall()` hook | Focuses on WHO can call (auth, audit, rate limiting). Can also populate `callContext.state`. |
-| **Method Exposure** | `@mesh(handler?)` | **Required Entry Point**. The mandatory "gate" that grants a caller access to an object. |
+See [Managing Context](./managing-context) for the full guide.
 
-```typescript
-import { LumenizeDO, mesh } from '@lumenize/mesh';
+### Zero Trust Security
 
+Every node is responsible for its own access control. Lumenize provides **secure-by-default** defense-in-depth:
+
+| Layer | Mechanism | Purpose |
+|-------|-----------|---------|
+| **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
+| **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
+| **Capability Trust** | Automatic | Returned objects are trusted for that chain |
+
+```typescript @skip-check
 class DocumentDO extends LumenizeDO {
-  // Class-level: all callers must be authenticated
+  // Class-level: require authentication for all calls
   onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);  // Maintains base default restrictions
+    super.onBeforeCall(callContext);
     if (!callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
-
-    // 💡 Tip: Populate callContext.state for use in @mesh handlers or methods
-    callContext.state.user = this.ctx.storage.kv.get(`user-${callContext.originAuth.userId}`);
   }
   
-  // ✅ Exposed + Custom permission check
+  // Entry point: exposed to mesh, can add method-specific checks
   @mesh((callContext) => {
-    // Use the user already fetched in onBeforeCall
     if (!callContext.state.user.canEdit) {
       throw new Error('Edit permission required');
     }
   })
   update(changes: DocumentChange) {
-    // ... apply changes
-  }
-  
-  // ✅ Exposed to mesh + default class-level auth
-  @mesh
-  getContent(): string {
-    return this.#content;
+    // Safe to execute - auth and permissions verified
   }
 
-  // ❌ NOT EXPOSED (missing @mesh)
-  _internalHelper() { /* ... */ }
-  handler() { /* ... */ }
-  #jsPrivate() { /* ... */ }
+  // NOT exposed - missing @mesh decorator
+  #internalHelper() { /* ... */ }
 }
 ```
 
-See [Auth Integration: Access Control](./auth-integration#access-control) for complete documentation.
+**Key insight**: Only methods decorated with `@mesh` are entry points. Once authorized, the returned object's public interface is trusted for that call chain (capability-based trust).
 
-[TODO: Example of using a subscription-specific token]
-[TODO: Example showing LumenizeOrg style access control]
+See [Auth Integration](./auth-integration) for complete security documentation.
+
+### Continuations
+
+Continuations describe work to be done elsewhere or later. They enable type-safe, serializable method chains:
+
+```typescript @skip-check
+// Describe what to call on a remote DO
+const remote = this.ctn<DocumentDO>().getContent();
+
+// Describe what to do locally when the result arrives
+const handler = this.ctn().handleContent(this.ctn().$result);
+
+// Make the call
+this.lmz.call('DOCUMENT_DO', 'draft-1', remote, handler);
+```
+
+Continuations:
+- Are **serializable** — can be stored, sent over the wire, survive hibernation
+- Are **type-safe** — TypeScript checks method names and signatures
+- **Capture context** — `callContext` is automatically preserved
+
+See [Continuations](./continuations) for the full guide.
+
+---
 
 ## The `this.lmz` API
 
-Every mesh node (LumenizeDO, LumenizeWorker, LumenizeClient) has access to `this.lmz` — the unified API for identity and communication.
+Every mesh node has access to `this.lmz` — the unified API for identity and communication.
 
 ### Identity
 
-```typescript
-this.lmz.type          // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
-this.lmz.bindingName   // e.g., 'DOCUMENT_DO' (auto-propagated from caller)
-this.lmz.instanceName  // e.g., 'draft-1' (auto-propagated from caller)
+```typescript @skip-check
+this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
+this.lmz.bindingName    // e.g., 'DOCUMENT_DO' (auto-propagated)
+this.lmz.instanceName   // e.g., 'draft-1' (auto-propagated, DOs only)
+this.lmz.callContext    // Current request's context (during handler execution)
 ```
-
-These properties are populated automatically via [identity propagation](#automatic-identity-propagation). Your node knows who it is because a prior caller told it.
 
 ### Making Calls
 
-**Fire-and-forget** — no response handler:
+```typescript @skip-check
+// Fire-and-forget
+this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes));
 
-```typescript
-this.lmz.call(
-  'DOCUMENT_DO',                          // Binding name
-  documentId,                             // Instance name or id (undefined for Workers)
-  this.ctn<DocumentDO>().update(changes)  // Remote continuation
-);
-```
-
-**With response handler** — handle the result locally:
-
-```typescript
+// With response handler
 this.lmz.call(
   'SPELLCHECK_WORKER',
   undefined,
-  this.ctn<SpellCheckWorker>().check(content),      // Remote continuation
-  this.ctn().handleSpellCheckResult()               // Local handler continuation
-);
-
-// Handler receives result OR Error
-handleSpellCheckResult(result: SpellError[] | Error) {
-  if (result instanceof Error) {
-    console.error('Spell check failed:', result);
-    return;
-  }
-  this.applySpellErrors(result);
-}
-```
-
-**Passing context to handlers** — include additional data alongside `$result` in any parameter position:
-
-```typescript
-this.lmz.call(
-  'DOCUMENT_DO',
-  documentId,
-  this.ctn<DocumentDO>().getContent(),
-  this.ctn().handleContent(documentId, this.ctn().$result, userId)
-);
-
-// Handler receives result + context
-handleContent(documentId: string, content: string | Error, userId: string) {
-  // ...
-}
-```
-
-### Building Continuations
-
-Use `this.ctn<T>()` to build type-safe continuations. See [Continuations](/docs/concepts/continuations) for the full guide.
-
-```typescript
-// Type-safe method chain on remote node
-this.ctn<DocumentDO>().update(changes)
-
-// Self-referencing for handlers
-this.ctn().handleResult(this.ctn().$result)
-
-// The $result placeholder is replaced with actual result at runtime
-```
-
-## Quick Start
-
-This example builds the document editing app shown in the illustration above.
-
-### 1. Define a Document DO (LumenizeDO)
-
-Stateful server-side logic with persistent storage:
-
-```typescript
-import { LumenizeDO } from '@lumenize/mesh';
-
-class DocumentDO extends LumenizeDO {
-  // Called by clients to update the document
-  @mesh
-  update(changes: DocumentChange) {
-    const content = this.ctx.storage.kv.get('content') ?? '';
-    const newContent = applyChanges(content, changes);
-    this.ctx.storage.kv.put('content', newContent);
-    
-    // Notify all connected clients about the change
-    this.notifyCollaborators(changes);
-    
-    // Trigger spell check
-    this.lmz.call(
-      'SPELLCHECK_WORKER',
-      undefined,  // Workers don't have instance names
-      this.ctn<SpellCheckWorker>().check(newContent),
-      this.ctn().handleSpellCheckResult()
-    );
-  }
-  
-  // Response handler for spell check results
-  handleSpellCheckResult(errors: SpellError[]) {
-    this.ctx.storage.kv.put('spellErrors', errors);
-    this.notifyCollaborators({ type: 'spell_errors', errors });
-  }
-  
-  // Push changes to all collaborators
-  notifyCollaborators(change: DocumentChange) {
-    for (const clientId of this.getConnectedClients()) {
-      this.lmz.call(
-        'LUMENIZE_CLIENT_GATEWAY',
-        clientId,
-        this.ctn<EditorClient>().handleDocumentChange(change)
-      );
-    }
-  }
-}
-```
-
-### 2. Define a SpellCheck Worker (LumenizeWorker)
-
-Conceptual stateless proxy to external service. Note: to avoid DO wall-clock billing, use `this.svc.fetch.proxy()` or refactor as two one-way calls.
-
-```typescript
-import { LumenizeWorker } from '@lumenize/mesh';
-
-class SpellCheckWorker extends LumenizeWorker {
-  @mesh
-  async check(content: string): Promise<SpellError[]> {
-    const response = await fetch('https://api.spellcheck.example/check', {
-      method: 'POST',
-      body: JSON.stringify({ text: content }),
-    });
-    return response.json();
-  }
-}
-```
-
-### 3. Define a Client (LumenizeClient)
-
-Browser-side mesh participant:
-
-```typescript
-import { LumenizeClient } from '@lumenize/mesh';
-
-class EditorClient extends LumenizeClient {  
-  // Called by DocumentDO when content changes
-  @mesh
-  handleDocumentChange(change: DocumentChange) {
-    this.editor.applyChange(change);
-  }
-}
-```
-
-### 4. Connect and Edit
-
-```typescript
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  accessToken: jwt,
-});
-
-// User types in the editor - send changes to the document
-client.lmz.call(
-  'DOCUMENT_DO',
-  documentId,
-  client.ctn<DocumentDO>().update({ type: 'insert', text: 'Hello' })
+  this.ctn<SpellCheckWorker>().check(content),
+  this.ctn().handleResult(this.ctn().$result)
 );
 ```
 
-[TODO: Either remove LumenizeClient and LumenizeClientGateway sections below or add other mesh actors and elements (LumenizeDO, etc.)]
+See **[Making Calls](./calls)** for all patterns including cost optimization and error handling.
 
-## LumenizeClient
+---
 
-The browser/Node.js mesh participant with automatic connection management:
+## Getting Started
 
-- **Auto-reconnect**: Reconnects automatically after network glitches
-- **Re-subscribe after grace period**: After the 5-second grace period, clients must re-subscribe to any DO subscriptions (the Gateway notifies DOs with `ClientDisconnectedError` so they can clean up)
-- **Resource cleanup**: Use `using` keyword for automatic disposal
+Ready to build? See the **[Getting Started Guide](./getting-started)** for a hands-on tutorial building a collaborative document editor.
 
-```typescript
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  accessToken: jwt,
-});
+## Reference Documentation
 
-// Only called when reconnecting AFTER grace period expired
-// (Gateway informs client when subscriptions are lost)
-client.onSubscriptionsLost = () => {
-  // TODO: Refactor after we add explicit subscription support
-  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().subscribe());
-};
-```
+- **[Making Calls](./calls)** — All call patterns, cost optimization, error handling
+- **[LumenizeDO](./lumenize-do)** — Stateful server-side nodes with SQL/KV storage
+- **[LumenizeWorker](./lumenize-worker)** — Stateless server-side nodes
+- **[LumenizeClient](./lumenize-client)** — Browser/Node.js client nodes
+- **[Gateway Internals](./gateway)** — How client-mesh bridging works
+- **[Auth Integration](./auth-integration)** — Authentication and access control
+- **[Creating Plugins](./creating-plugins)** — Build your own NADIS services
 
-## LumenizeClientGateway
+## Concept Deep Dives
 
-The LumenizeClientGateway is a **zero-storage Durable Object** that bridges the mesh and WebSocket clients:
-
-- **1:1 relationship**: Each LumenizeClient connects to its own gateway instance
-- **Call proxying**: Calls pass through the gateway to another mesh destination
-- **Zero cost when idle**: No storage = no charges when client is disconnected
-- **Graceful reconnection**: Handle short-term (< 5s) network glitches
-- **Connection feedback**: After grace period, callers get `ClientDisconnectedError` so they can clean up subscriptions/resources
-
-### How Gateway Routing Works
-
-1. Client connects to Gateway DO at `.../LUMENIZE_CLIENT_GATEWAY/${userId}.${tabId}`
-2. Gateway accepts hibernatable WebSocket connection
-3. Outgoing calls from client → WebSocket → Gateway → Target DO/Worker
-4. Incoming calls to client: Source DO → Gateway → WebSocket → Client
-
-### Client-to-Client Communication
-
-:::caution Security Note
-**Peer-to-peer calls are rejected by default.** `LumenizeClient` implements `onBeforeCall` to reject calls from other clients. This minimizes attack surface for applications that don't need client-to-client communication.
-:::
-
-You enable peer calls for collaborative features by overriding `onBeforeCall` in your client class. Then LumenizeClients can call each other through the mesh:
-
-```
-Client A  →  Gateway A  →  Gateway B  →  Client B
-   ↑                                         │
-   └──────── Gateway A  ←  Gateway B  ←──────┘
-                    ~60ms round-trip
-```
-
-```typescript
-// Override LumenizeClient default onBeforeCall
-onBeforeCall(callContext: CallContext) {
-  // Don't call super.onBeforeCall()
-  if (!callContext.originAuth?.userId) {
-    throw new Error('Authentication required');
-  }
-}
-
-// From Client A: Call Client B
-client.lmz.call(
-  'LUMENIZE_CLIENT_GATEWAY',
-  `${otherUserId}.${otherTabId}`,
-  client.ctn<OtherClient>().handleCollabCursor({ x: 100, y: 200 })
-);
-```
-
-See [Client API: Access Control](./client-api#access-control) for details.
+- **[Continuations](./continuations)** — How operation chains work under the hood
+- **[Managing Context](./managing-context)** — Framework vs. application context

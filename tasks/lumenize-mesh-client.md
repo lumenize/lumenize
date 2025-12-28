@@ -20,9 +20,15 @@ Add browser/Node.js clients as first-class participants in the Lumenize Mesh, en
 
 See docs for full API details:
 - **Mesh Overview**: `/website/docs/lumenize-mesh/index.mdx`
-- **Client API**: `/website/docs/lumenize-mesh/client-api.mdx`
+- **Getting Started**: `/website/docs/lumenize-mesh/getting-started.mdx`
+- **LumenizeDO Reference**: `/website/docs/lumenize-mesh/lumenize-do.mdx`
+- **LumenizeWorker Reference**: `/website/docs/lumenize-mesh/lumenize-worker.mdx`
+- **LumenizeClient Reference**: `/website/docs/lumenize-mesh/lumenize-client.mdx`
 - **Gateway Details**: `/website/docs/lumenize-mesh/gateway.mdx`
 - **Auth Integration**: `/website/docs/lumenize-mesh/auth-integration.mdx`
+- **Creating Plugins**: `/website/docs/lumenize-mesh/creating-plugins.mdx`
+
+**Note**: Documentation was restructured on 2025-12-28. Old `lumenize-base/` and `auth/` docs are archived in `/website/docs/_archived/`.
 
 ### Gateway-Client Relationship
 - Gateway is 1:1 with a **connection**, not a user
@@ -73,21 +79,38 @@ Class onBeforeCall → Entry Point Check (@mesh) → Execute Chain (Trusted Retu
 - `executeOperationChain()` checks for this marker before execution.
 - Blocked names stored in `Set` for O(1) lookup.
 - Decorator metadata stored via `Reflect.defineMetadata()`.
+- **Guard signature**: `@mesh((callContext, instance?) => void)`. The decorator always passes the instance as the second parameter. Simple guards can ignore it; guards needing instance state use it. This avoids the arrow-function-`this`-binding footgun.
 
 ## Implementation Phases
 
-### Phase 0: Rename Package
-**Goal**: Rename `@lumenize/lumenize-base` to `@lumenize/mesh`
+### Phase 0: Documentation Restructure & Package Rename
+**Goal**: Consolidate all mesh documentation and rename `@lumenize/lumenize-base` to `@lumenize/mesh`
 
-**Tasks**:
+**Documentation Tasks** (DONE):
+- [x] Restructure `website/docs/lumenize-mesh/` with Option D structure (Concepts → Tutorial → References)
+- [x] Create `index.mdx` (concepts only)
+- [x] Create `getting-started.mdx` (progressive tutorial)
+- [x] Create `lumenize-do.mdx` (full reference with NADIS from old lumenize-base)
+- [x] Create `lumenize-worker.mdx` (reference)
+- [x] Rename `client-api.mdx` → `lumenize-client.mdx`
+- [x] Expand `auth-integration.mdx` with full auth package content
+- [x] Move `creating-plugins.mdx` to mesh folder
+- [x] Archive old `lumenize-base/` and `auth/` docs to `_archived/`
+- [x] Update `sidebars.ts` for new structure
+
+**Package Rename Tasks** (PENDING):
 - [ ] Rename directory `packages/lumenize-base/` → `packages/mesh/`
 - [ ] Rename file `lumenize-base.ts` → `lumenize-do.ts`
 - [ ] Rename class `LumenizeBase` → `LumenizeDO` across codebase
 - [ ] Update `package.json` name to `@lumenize/mesh`
 - [ ] Update all imports across the monorepo
 - [ ] Update TypeDoc config in `website/docusaurus.config.ts`
-- [ ] Update sidebar references in `website/sidebars.ts`
-- [ ] Merge `website/docs/lumenize-base/` content into `website/docs/lumenize-mesh/`
+
+**LumenizeDO Lifecycle Hook** (PENDING):
+- [ ] Add `onStart()` lifecycle hook to `LumenizeDO` base class
+- [ ] Call from base constructor wrapped in `blockConcurrencyWhile`
+- [ ] Allows async initialization (migrations, setup) without race conditions
+- [ ] Users should NOT write custom constructors — use `onStart()` instead
 
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation
@@ -260,7 +283,7 @@ packages/mesh/
 
 ## Resolved Questions
 
-1. **LumenizeRouter scope**: Factory function with smart mesh defaults. Deferred - not blocking for MVP.
+1. **LumenizeRouter scope**: `createLumenizeRouter` factory function with smart mesh defaults. Referenced in `index.mdx` supporting infrastructure table. Implementation deferred - not blocking for MVP.
 
 2. **Offline queue behavior**: `callRaw()` fails immediately when disconnected; `call()` without handler is fire-and-forget.
 
@@ -498,6 +521,7 @@ class LumenizeClient {
 - [ ] (vitest-pool) Verify that `callContext` is automatically captured in continuations and survives DO hibernation without manual user intervention.
 - [ ] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
 - [ ] LumenizeDO and LumenizeWorker are upgraded to support the new access control model
+- [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
 
 ## References
 

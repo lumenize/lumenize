@@ -25,7 +25,7 @@ Continuations:
 
 ## The `this.ctn()` Factory
 
-Components that extend `LumenizeBase`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`, which creates continuation chains:
+Components that extend `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`, which creates continuation chains:
 
 ```typescript @skip-check
 // Simple method call
@@ -66,22 +66,21 @@ If you don't check for `Error`, your handler might crash when operations fail. A
 Handlers receive a **union type** of the expected result and `Error`:
 
 ```typescript @skip-check
-// For fetch operations
-handleFetchResult(result: ResponseSync | Error) {
+// Typed result from a remote DO
+handleUserData(result: UserData | Error) {
   if (result instanceof Error) {
-    // Network failure, timeout, etc.
+    // Remote call failed (network, timeout, method threw, etc.)
+    console.error('Failed to get user:', result.message);
     return;
   }
   
-  // Success - process the response
-  // ResponseSync has synchronous methods for json() and text()
-  const data = result.json();
+  // Success - result is typed as UserData
+  console.log('Got user:', result.name);
 }
 
-// For DO-to-DO calls
-handleRemoteResult(result: any | Error) {
+// Untyped result (when you don't know the return type)
+handleRemoteResult(result: unknown | Error) {
   if (result instanceof Error) {
-    // Remote DO threw an error
     return;
   }
   
@@ -95,7 +94,7 @@ handleRemoteResult(result: any | Error) {
 ### 1. Simple Callback
 
 ```typescript @skip-check
-class MyDO extends LumenizeBase {
+class MyDO extends LumenizeDO {
   startWork() {
     // this.lmz.call is synchronous on the caller side
     this.lmz.call(
@@ -121,7 +120,7 @@ class MyDO extends LumenizeBase {
 ### 2. Chaining Operations
 
 ```typescript @skip-check
-class MyDO extends LumenizeBase {
+class MyDO extends LumenizeDO {
   processData(url: string) {
     // this.svc.fetch.proxy is synchronous
     this.svc.fetch.proxy(
@@ -153,7 +152,7 @@ class MyDO extends LumenizeBase {
 ### 3. Context Preservation
 
 ```typescript @skip-check
-class MyDO extends LumenizeBase {
+class MyDO extends LumenizeDO {
   fetchForUser(userId: string, url: string) {
     const timestamp = Date.now();
     
@@ -189,3 +188,8 @@ Continuations use Lumenize's **operation chaining and nesting (OCAN)** See [Lume
 - ✅ Use chaining and nesting so more work can be done in a single round trip
 - ✅ Preserve context by passing it as arguments
 - ❌ Don't use `async` handlers (breaks consistency model)
+
+## See Also
+
+- **[Making Calls](./calls)** — Practical patterns for `this.lmz.call()`
+- **[Managing Context](./managing-context)** — Framework vs. application context

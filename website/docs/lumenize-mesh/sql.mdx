@@ -8,12 +8,50 @@ description: Type-safe SQL queries with automatic parameter binding
 The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage.
 
 :::tip Core Utility
-This is a small (~10 lines), universally useful utility from `@lumenize/core` that's automatically available via NADIS when using LumenizeBase.
+This is a small (~10 lines), universally useful utility from `@lumenize/core` that's automatically available via NADIS when using LumenizeDO.
 :::
 
 ## Basic Usage
 
-### Standalone Usage
+When using `LumenizeDO`, `sql` is automatically available via NADIS:
+
+```typescript @skip-check
+import '@lumenize/core';  // Registers sql in this.svc
+import { LumenizeDO } from '@lumenize/mesh';
+
+class ProductDO extends LumenizeDO<Env> {
+  // Initialize schema (runs once, safely wrapped in blockConcurrencyWhile)
+  async onStart() {
+    this.svc.sql`
+      CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        price REAL NOT NULL,
+        stock INTEGER DEFAULT 0
+      )
+    `;
+  }
+
+  addProduct(id: string, name: string, price: number, stock: number = 0) {
+    this.svc.sql`
+      INSERT INTO products (id, name, price, stock)
+      VALUES (${id}, ${name}, ${price}, ${stock})
+    `;
+    return { id, name, price, stock };
+  }
+
+  getProduct(id: string) {
+    const rows = this.svc.sql`SELECT * FROM products WHERE id = ${id}`;
+    return rows[0];
+  }
+}
+```
+
+See [LumenizeDO documentation](./lumenize-do) for complete NADIS examples.
+
+### Standalone Usage (Without LumenizeDO)
+
+For vanilla Durable Objects without the Lumenize Mesh, create a private field:
 
 ```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
 import { sql } from '@lumenize/core';
@@ -24,7 +62,6 @@ class ProductDO extends DurableObject {
 
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    // Run migrations in constructor
     this.#sql`
       CREATE TABLE IF NOT EXISTS products (
         id TEXT PRIMARY KEY,
@@ -36,34 +73,13 @@ class ProductDO extends DurableObject {
   }
 ```
 
-### Using with LumenizeBase
-
-When using `@lumenize/lumenize-base`, `sql` is automatically injected via NADIS:
-
-```typescript @skip-check
-import '@lumenize/core';  // Registers sql in this.svc
-import { LumenizeBase } from '@lumenize/lumenize-base';
-
-class ProductDO extends LumenizeBase<any> {
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
-    // Use this.svc.sql instead of #sql
-    this.svc.sql`
-      CREATE TABLE IF NOT EXISTS products (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        price REAL NOT NULL
-      )
-    `;
-  }
-}
-```
-
-See [@lumenize/lumenize-base documentation](/docs/lumenize-base) for complete NADIS examples.
-
 ## Template Literal Parameters
 
-Parameters are automatically bound and SQL-injection safe:
+Parameters are automatically bound and SQL-injection safe.
+
+:::note Examples Use Standalone Style
+The validated examples below use `this.#sql` (standalone pattern) for test compatibility. **LumenizeDO users**: substitute `this.svc.sql` everywhere you see `this.#sql`.
+:::
 
 ```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
   addProduct(id: string, name: string, price: number, stock: number = 0) {
@@ -206,10 +222,8 @@ const result = sql`SELECT * FROM products WHERE id = ${productId}`;
 ## See Also
 
 - [Cloudflare SQLite Storage](https://developers.cloudflare.com/durable-objects/api/storage/#sql) - Official storage API docs
-- [@lumenize/lumenize-base](/docs/lumenize-base) - Auto-injection via NADIS
+- [LumenizeDO](./lumenize-do) - Auto-injection via NADIS
 - [@lumenize/alarms](/docs/alarms) - Uses SQL for persistence
-
-
 
 
 

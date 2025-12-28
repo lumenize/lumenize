@@ -1,184 +1,504 @@
 ---
 title: Auth Integration
-description: Token handling patterns for LumenizeClient
+description: JWT authentication, access control, and callContext propagation in the mesh
 ---
 
 # Auth Integration
 
-LumenizeClient integrates with `@lumenize/auth` for seamless JWT authentication over WebSocket connections.
+The Lumenize Mesh integrates with `@lumenize/auth` for secure, passwordless authentication via magic links and JWT tokens.
 
-## How It Works
+## Overview
 
-### Token Delivery via Subprotocol
-Browsers don't allow custom headers on WebSocket connections. `LumenizeClient` uses the WebSocket subprotocol mechanism to pass JWT tokens securely:
-
-```
-Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
-```
-
-The server:
-1. Extracts the token from the `lmz.access-token.{jwt}` protocol.
-2. Verifies the JWT signature and expiration.
-3. Accepts with `Sec-WebSocket-Protocol: lmz` (the primary protocol).
-
-### Token Lifetime
-- **Access tokens**: Short-lived (e.g., 15 minutes), passed with every connection attempt.
-- **Refresh tokens**: Long-lived (e.g., 30 days), stored securely in HTTP-only cookies, used to obtain new access tokens.
+| Feature | Description |
+|---------|-------------|
+| **Passwordless** | Magic link email login (no passwords to manage) |
+| **Secure JWTs** | Ed25519 signed tokens with key rotation support |
+| **Refresh rotation** | Automatic token refresh with revocation |
+| **Rate limiting** | Built-in protection against abuse |
+| **WebSocket auth** | Token passing via subprotocol headers |
+| **Middleware** | Drop-in hooks for HTTP and WebSocket routes |
 
 ---
 
-## Configuration
+## Installation & Setup
 
-### Client Configuration
-Authentication is configured during client instantiation.
+### 1. Install
 
-```typescript
-import { LumenizeClient } from '@lumenize/mesh';
-
-class EditorClient extends LumenizeClient {
-  @mesh
-  handleDocumentChange(change: DocumentChange) {
-    this.editor.applyChange(change);
-  }
-}
-
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  
-  // Initial access token
-  accessToken: accessToken,
-  
-  // Token refresh is automatic!
-  // Client parses JWT expiry and refreshes ~30s before expiration.
-  refreshEndpoint: '/auth/refresh-token'  // Default
-});
+```bash @skip-check
+npm install @lumenize/auth @lumenize/mesh @lumenize/utils
 ```
 
-### Server Configuration
-Use `createWebSocketAuthMiddleware` in your Worker's `fetch` handler:
+### 2. Generate Ed25519 Key Pair
 
-```typescript
-import { createWebSocketAuthMiddleware } from '@lumenize/auth';
+```bash @skip-check
+# Generate private key
+openssl genpkey -algorithm ed25519 -out private.pem
+
+# Extract public key
+openssl pkey -in private.pem -pubout -out public.pem
+
+# View keys (copy to .dev.vars)
+cat private.pem | tr '\n' '\\n' && echo
+cat public.pem | tr '\n' '\\n' && echo
+```
+
+### 3. Configure `.dev.vars`
+
+```bash @skip-check
+JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\nMC4CAQAw..."
+JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\nMCowBQYD..."
+ACTIVE_JWT_KEY="BLUE"
+```
+
+### 4. Configure `wrangler.jsonc`
+
+```jsonc @skip-check
+{
+  "name": "my-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "LUMENIZE_AUTH", "class_name": "LumenizeAuth" },
+      { "name": "LUMENIZE_CLIENT_GATEWAY", "class_name": "LumenizeClientGateway" },
+      { "name": "DOCUMENT_DO", "class_name": "DocumentDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LumenizeAuth", "DocumentDO"] }
+  ]
+}
+```
+
+### 5. Set Up Worker with Auth Middleware
+
+```typescript @skip-check
+import { LumenizeAuth, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
+import { routeDORequest } from '@lumenize/utils';
+
+export { LumenizeAuth };
 
 export default {
-  async fetch(request: Request, env: Env) {
-    const wsAuthMiddleware = await createWebSocketAuthMiddleware({
-      publicKeysPem: [env.JWT_PUBLIC_KEY]
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Auth routes - public (no middleware)
+    const authResponse = await routeDORequest(request, env, {
+      prefix: 'auth',
+      cors: true
     });
-    
+    if (authResponse) return authResponse;
+
+    // Create auth middleware
+    const httpAuth = await createAuthMiddleware({
+      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
+    });
+    const wsAuth = await createWebSocketAuthMiddleware({
+      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
+    });
+
+    // Protected routes - with auth middleware
     return routeDORequest(request, env, {
-      // Verify token on WebSocket upgrade
-      onBeforeConnect: wsAuthMiddleware
-    });
+      onBeforeRequest: httpAuth,
+      onBeforeConnect: wsAuth,
+      cors: true
+    }) ?? new Response('Not Found', { status: 404 });
   }
 };
 ```
 
 ---
 
-## Token Refresh Flow
+## Login Flow
 
-The `LumenizeClient` handles token refresh **automatically** without any callbacks or manual intervention:
+Magic link authentication works as follows:
 
-1.  **Monitor**: It parses the initial JWT to determine expiration.
-2.  **Timer**: It sets an internal timer for ~30 seconds before expiry.
-3.  **Refresh**: It makes an HTTP POST to the `refreshEndpoint` with `credentials: 'include'`.
-4.  **Update**: It updates the internal token for future reconnection attempts and continues the session.
+```mermaid
+sequenceDiagram
+    participant User
+    participant Worker
+    participant AuthDO
+    participant Email
+    
+    User->>Worker: POST /auth/email-magic-link {email}
+    Worker->>AuthDO: Forward request
+    AuthDO->>Email: Send magic link
+    AuthDO->>Worker: {message: "Check email"}
+    Worker->>User: Response
+    
+    Note over User: User clicks email link
+    
+    User->>Worker: GET /auth/magic-link?token=...&state=...
+    Worker->>AuthDO: Validate token
+    AuthDO->>Worker: {access_token, Set-Cookie: refresh-token}
+    Worker->>User: JWT + refresh cookie
+```
 
-If the automatic refresh fails (e.g., because the refresh token cookie has expired), the client fires `onConnectionError` with a 401 error.
+### Request Magic Link
+
+```typescript @skip-check
+const response = await fetch('/auth/email-magic-link', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email: 'user@example.com' })
+});
+// Returns: { message: "Check your email for the magic link", expires_in: 1800 }
+```
+
+### Validate Magic Link
+
+When the user clicks the link in their email:
+
+```json @skip-check
+{
+  "access_token": "eyJhbGciOiJFZERTQSIs...",
+  "token_type": "Bearer",
+  "expires_in": 900
+}
+```
+
+Plus a `Set-Cookie` header with the refresh token (HttpOnly, Secure, SameSite=Strict).
+
+---
+
+## WebSocket Authentication
+
+### Token Delivery via Subprotocol
+
+Browsers don't allow custom headers on WebSocket connections. `LumenizeClient` uses the subprotocol mechanism:
+
+```
+Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
+```
+
+The server:
+1. Extracts the token from `lmz.access-token.{jwt}`
+2. Verifies JWT signature and expiration
+3. Accepts with `Sec-WebSocket-Protocol: lmz`
+
+### Client Configuration
+
+```typescript @skip-check
+using client = new EditorClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  accessToken: accessToken,
+  refreshEndpoint: '/auth/refresh-token'  // Default
+});
+```
+
+### Automatic Token Refresh
+
+`LumenizeClient` handles refresh automatically:
+
+1. **Monitor**: Parses JWT to determine expiration
+2. **Timer**: Sets timer for ~30 seconds before expiry
+3. **Refresh**: POSTs to `refreshEndpoint` with `credentials: 'include'`
+4. **Update**: Updates internal token for future reconnections
+
+If refresh fails (e.g., refresh token expired), `onConnectionError` fires with a 401 error.
+
+---
+
+## Identity in the Mesh
+
+### `callContext.originAuth`
+
+Once authenticated, your identity propagates through the entire call chain:
+
+```typescript @skip-check
+// In any mesh node
+@mesh
+updateDocument(changes: DocumentChange) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  const claims = this.lmz.callContext.originAuth?.claims;
+  
+  // Identity is the ORIGINAL caller's, even through multiple hops
+}
+```
+
+**Call chain example:**
+```
+Client (alice) → DocumentDO → ValidationWorker → NotificationDO
+                    ↓              ↓                  ↓
+            originAuth has   originAuth has    originAuth has
+            alice's auth     alice's auth      alice's auth (propagated!)
+```
+
+### Context Preservation
+
+`callContext` (including `originAuth`) is automatically captured in continuations. Even if a DO hibernates during a long-running operation, your handler receives the correct context.
+
+See [Managing Context](./managing-context) for the full guide.
+
+---
+
+## Access Control
+
+### Three-Layer Security Model
+
+| Layer | Mechanism | Purpose |
+|-------|-----------|---------|
+| **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
+| **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
+| **Capability Trust** | Automatic | Returned objects trusted for that chain |
+
+### Class-Level: `onBeforeCall()`
+
+Override to enforce class-wide policies:
+
+```typescript @skip-check
+class ProtectedDO extends LumenizeDO<Env> {
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);
+
+    // Require authentication
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+  }
+}
+```
+
+### Method-Level: `@mesh` Guard
+
+```typescript @skip-check
+@mesh((callContext) => {
+  if (!callContext.originAuth?.claims?.isAdmin) {
+    throw new Error('Admin only');
+  }
+})
+adminMethod() {
+  // Only admins reach here
+}
+```
+
+### Reusable Guards
+
+```typescript @skip-check
+function requireRole(role: string) {
+  return (callContext: CallContext) => {
+    const roles = callContext.originAuth?.claims?.roles ?? [];
+    if (!roles.includes(role)) {
+      throw new Error(`Role ${role} required`);
+    }
+  };
+}
+
+@mesh(requireRole('editor'))
+editDocument(changes: DocumentChange) { /* ... */ }
+
+@mesh(requireRole('admin'))
+deleteDocument() { /* ... */ }
+```
+
+### State-Based Access
+
+Use `callContext.state` for middleware to pass computed access data:
+
+```typescript @skip-check
+// In middleware
+async onBeforeRequest(request, callContext) {
+  const user = await loadUserFromDatabase(callContext.originAuth.userId);
+  callContext.state.user = user;
+  callContext.state.permissions = await computePermissions(user);
+}
+
+// In method guard
+@mesh((callContext) => {
+  if (!callContext.state.permissions.canEdit) {
+    throw new Error('Edit permission required');
+  }
+})
+editDocument(changes: DocumentChange) { /* ... */ }
+```
+
+---
+
+## HTTP Route Protection
+
+### Creating Middleware
+
+```typescript @skip-check
+import { createAuthMiddleware } from '@lumenize/auth';
+
+const httpAuth = await createAuthMiddleware({
+  publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN],
+  audience: 'https://myapp.com',
+  issuer: 'https://myapp.com'
+});
+```
+
+### Using with routeDORequest
+
+```typescript @skip-check
+return routeDORequest(request, env, {
+  onBeforeRequest: httpAuth,
+  cors: true
+});
+```
+
+The middleware:
+1. Extracts Bearer token from `Authorization` header
+2. Verifies JWT signature (tries all provided keys for rotation)
+3. Validates expiration, audience, issuer
+4. On success: Enhances request with `X-Auth-User-Id` and `X-Auth-Verified` headers
+5. On failure: Returns 401 with `WWW-Authenticate` header
+
+---
+
+## Key Rotation
+
+Zero-downtime key rotation with BLUE/GREEN keys:
+
+1. **Normal operation**: Sign with BLUE, verify with BLUE
+2. **Rotate keys**:
+   - Generate new GREEN key pair
+   - Add `JWT_PRIVATE_KEY_GREEN` and `JWT_PUBLIC_KEY_GREEN` to secrets
+   - Add GREEN public key to middleware: `publicKeysPem: [BLUE, GREEN]`
+   - Set `ACTIVE_JWT_KEY="GREEN"` to start signing with GREEN
+3. **After all BLUE tokens expire**: Remove BLUE keys from middleware
+
+```typescript @skip-check
+// During rotation: accept tokens signed with either key
+const middleware = await createAuthMiddleware({
+  publicKeysPem: [
+    env.JWT_PUBLIC_KEY_BLUE,   // Active key
+    env.JWT_PUBLIC_KEY_GREEN   // Fallback during rotation
+  ]
+});
+```
 
 ---
 
 ## Error Handling
 
-### Token Expiration
-There are two scenarios for expiration:
-
-1.  **At Connection Time**: If the provided `accessToken` is already expired or invalid, `onConnectionError` fires immediately.
-2.  **During an Active Session**: If the Gateway detects that the token has expired, it closes the WebSocket with code `4401`. The client will automatically attempt to refresh and reconnect.
-
 ### Auth Close Codes
-The Gateway uses standard close codes to signal authentication issues:
 
-| Code | Meaning | Recommended Action |
-|------|---------|--------------------|
+The Gateway uses standard WebSocket close codes for auth issues:
+
+| Code | Meaning | Action |
+|------|---------|--------|
 | `4400` | No token provided | Redirect to login |
 | `4401` | Token expired | Refresh and reconnect (automatic) |
 | `4403` | Invalid token/signature | Redirect to login |
+
+### Client Error Handling
+
+```typescript @skip-check
+using client = new EditorClient({
+  accessToken,
+  onConnectionError: (error) => {
+    if (error.message.includes('401')) {
+      window.location.href = '/login';
+    }
+  }
+});
+```
 
 ---
 
 ## Security Best Practices
 
 ### 1. Token Storage
-*   **Access Token**: Keep in memory only. `LumenizeClient` stores this in a private field. Never store access tokens in `localStorage`.
-*   **Refresh Token**: Use **HTTP-only, Secure, SameSite=Strict** cookies. This protects the session from XSS attacks.
+
+- **Access Token**: Keep in memory only. Never store in `localStorage`
+- **Refresh Token**: HTTP-only, Secure, SameSite=Strict cookies
 
 ### 2. URL Safety
-Never pass tokens in WebSocket URLs (e.g., `wss://app.com?token=...`). URLs are often logged by proxies and servers. Always use the subprotocol mechanism.
+
+Never pass tokens in WebSocket URLs:
+```
+❌ wss://app.com?token=...  // Logged by proxies!
+✅ Use subprotocol mechanism
+```
 
 ### 3. Identity Validation
-The Gateway automatically validates that the user ID in the JWT matches the `instanceName` prefix to prevent impersonation. This means a user with ID `user-123` cannot connect to a Gateway DO named `user-456.tab-1`.
 
----
-## Authentication in the Mesh
+The Gateway validates that the JWT's user ID matches the `instanceName` prefix, preventing impersonation:
+- User `alice` can connect to `alice.tab1`
+- User `alice` cannot connect to `bob.tab1`
 
-Once authenticated, your identity is automatically propagated to every node you call.
+### 4. Short-Lived Tokens
 
-### `originAuth`
-Mesh nodes receive your identity through the `this.lmz.callContext.originAuth` property. This contains the `userId` and any `claims` you included in the JWT.
+Default token lifetimes:
+- **Access token**: 15 minutes (configurable)
+- **Refresh token**: 30 days (configurable)
 
-```typescript
-// Inside a server-side DO
-@mesh
-update(data: any) {
-  const { userId, claims } = this.lmz.callContext.originAuth;
-  if (!claims.canEdit) throw new Error("Unauthorized");
-  // ...
-}
-```
-
-See the [Mesh Overview: Zero Trust](./index#zero-trust) for details on propagation and access control.
+Shorter access tokens = less damage if stolen.
 
 ---
 
-## Complete Example
+## API Reference
 
-```typescript
-// editor-auth.ts
-import { LumenizeClient, mesh } from '@lumenize/mesh';
+### Auth Endpoints
 
-class EditorClient extends LumenizeClient {
-  @mesh
-  handleDocumentChange(change: DocumentChange) {
-    this.editor.applyChange(change);
-  }
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/auth/enter` | GET | Login instructions |
+| `/auth/email-magic-link` | POST | Request magic link (body: `{email}`) |
+| `/auth/magic-link` | GET | Validate magic link and login |
+| `/auth/refresh-token` | POST | Refresh access token (uses cookie) |
+| `/auth/logout` | POST | Revoke refresh token |
 
-  onSubscriptionsLost = () => {
-    this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
-  };
-}
+### Middleware Functions
 
-export async function initApp(accessToken: string, userId: string) {
-  using client = new EditorClient({
-    baseUrl: 'wss://app.example.com',
-    instanceName: `${userId}.${getTabId()}`,
-    accessToken,
-    onConnectionError: (error) => {
-      if (error.message.includes('401')) {
-        window.location.href = '/login';
-      }
-    }
-  });
+```typescript @skip-check
+// HTTP auth
+const httpAuth = await createAuthMiddleware({
+  publicKeysPem: string[],
+  audience?: string,
+  issuer?: string
+});
 
-  // Mesh calls are now authenticated
-  client.lmz.call('DOCUMENT_DO', 'doc-1', client.ctn<DocumentDO>().subscribe());
-}
+// WebSocket auth
+const wsAuth = await createWebSocketAuthMiddleware({
+  publicKeysPem: string[]
+});
 ```
 
-## Next Steps
+### JWT Utilities
 
-- [Mesh Overview](./index) — Concepts and `CallContext` details
-- [Client API Reference](./client-api) — Complete API documentation
-- [Gateway Internals](./gateway) — Architecture and trust boundaries
+```typescript @skip-check
+import {
+  signJwt,
+  verifyJwt,
+  verifyJwtWithRotation,
+  importPrivateKey,
+  importPublicKey,
+  parseJwtUnsafe
+} from '@lumenize/auth';
+```
+
+### WebSocket Utilities
+
+```typescript @skip-check
+import {
+  extractWebSocketToken,
+  verifyWebSocketToken,
+  getTokenTtl,
+  WS_CLOSE_CODES
+} from '@lumenize/auth';
+```
+
+---
+
+## Test Mode
+
+For development, add `?_test=true` to get the magic link directly:
+
+```typescript @skip-check
+const response = await fetch('/auth/email-magic-link?_test=true', {
+  method: 'POST',
+  body: JSON.stringify({ email: 'test@example.com' })
+});
+// Returns: { message: "Magic link generated (test mode)", magic_link: "..." }
+```
+
+Requires `AUTH_TEST_MODE="true"` in environment.
+
+---
+
+## See Also
+
+- **[Managing Context](./managing-context)** — How callContext propagates
+- **[LumenizeClient](./lumenize-client)** — Client-side token handling
+- **[Gateway Internals](./gateway)** — Trust boundaries

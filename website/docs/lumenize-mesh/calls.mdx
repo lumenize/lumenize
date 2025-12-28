@@ -1,0 +1,252 @@
+---
+title: Making Calls
+description: Patterns for mesh communication with this.lmz.call()
+---
+
+# Making Calls
+
+Every mesh node communicates via `this.lmz.call()`. This guide covers the patterns for different scenarios.
+
+## Basic Patterns
+
+### Fire-and-Forget
+
+Send a message without waiting for a response:
+
+```typescript @skip-check
+this.lmz.call(
+  'DOCUMENT_DO',                          // Binding name
+  'draft-1',                              // Instance name (undefined for Workers)
+  this.ctn<DocumentDO>().notifyUpdate(change)
+);
+```
+
+**Use when:** You don't need the result, or the callee will call you back separately.
+
+### With Response Handler
+
+Execute a local handler when the remote call completes:
+
+```typescript @skip-check
+this.lmz.call(
+  'VALIDATION_WORKER',
+  undefined,                                        // Workers have no instance
+  this.ctn<ValidationWorker>().validate(data),      // Remote continuation
+  this.ctn().handleValidationResult(this.ctn().$result)  // Local handler
+);
+
+handleValidationResult(result: ValidationResult | Error) {
+  if (result instanceof Error) {
+    console.error('Validation failed:', result);
+    return;
+  }
+  this.applyValidation(result);
+}
+```
+
+**Use when:** You need the result but want to stay synchronous (no `await`).
+
+### With Additional Context
+
+Pass extra data to your handler alongside the result:
+
+```typescript @skip-check
+this.lmz.call(
+  'DOCUMENT_DO',
+  documentId,
+  this.ctn<DocumentDO>().getContent(),
+  this.ctn().handleContent(documentId, this.ctn().$result, userId)
+);
+
+handleContent(documentId: string, content: string | Error, userId: string) {
+  if (content instanceof Error) return;
+  // documentId and userId are available alongside the result
+  this.cache.set(`${userId}:${documentId}`, content);
+}
+```
+
+**Use when:** Your handler needs context that won't be available when it executes (especially important for hibernation scenarios).
+
+---
+
+## Cost Optimization: Two One-Way Calls
+
+When a DO calls an external API, Cloudflare bills for **wall-clock time** — even while waiting for the response. For long-running calls (recommended for >10s, consider for >2s), use the "two one-way call" pattern to shift the wait to a Worker (which only bills CPU time).
+
+```typescript @skip-check
+// In DocumentDO — initiates the call, returns immediately
+@mesh
+triggerExternalProcess(documentId: string) {
+  this.lmz.call(
+    'EXTERNAL_API_WORKER',
+    undefined,
+    this.ctn<ExternalApiWorker>().process(
+      documentId,
+      this.lmz.bindingName,    // Return address
+      this.lmz.instanceName
+    )
+  );
+  // DO returns immediately — no wall-clock charges while waiting
+}
+
+// In ExternalApiWorker — makes the slow call, sends result back
+@mesh
+async process(documentId: string, returnBinding: string, returnInstance: string) {
+  // Worker waits here — CPU-only billing, not wall-clock
+  const result = await this.callSlowExternalApi(documentId);
+
+  // Call back to DO with result
+  this.lmz.call(
+    returnBinding,
+    returnInstance,
+    this.ctn<DocumentDO>().handleProcessResult(documentId, result)
+  );
+}
+```
+
+:::tip When to Use
+| Call Duration | Recommendation |
+|---------------|----------------|
+| < 2 seconds | Direct call is fine |
+| 2-10 seconds | Consider two one-way if frequent |
+| > 10 seconds | Strongly recommend two one-way |
+:::
+
+---
+
+## Operation Chaining
+
+Chain multiple operations in a single round trip:
+
+```typescript @skip-check
+// All three methods execute on the remote DO, result of last is returned
+this.lmz.call(
+  'DOCUMENT_DO',
+  id,
+  this.ctn<DocumentDO>().validate().save().getRevision(),
+  this.ctn().handleRevision(this.ctn().$result)
+);
+```
+
+**Use when:** You have a sequence of operations that should execute atomically on the callee.
+
+---
+
+## Error Handling
+
+Results can be `Error` — **always check before using**:
+
+```typescript @skip-check
+handleResult(result: SomeType | Error) {
+  if (result instanceof Error) {
+    // Handle failure
+    console.error('Call failed:', result.message);
+    return;
+  }
+  // Safe to use result
+  this.processResult(result);
+}
+```
+
+### Error Types
+
+| Error | Cause |
+|-------|-------|
+| Method threw | Remote method threw an exception |
+| Network/timeout | Connection issues, especially for clients |
+| `ClientDisconnectedError` | Target client is not connected |
+
+---
+
+## Calling Different Node Types
+
+### DO → DO
+
+```typescript @skip-check
+this.lmz.call('OTHER_DO', 'instance-name', this.ctn<OtherDO>().method());
+```
+
+### DO → Worker
+
+```typescript @skip-check
+this.lmz.call('WORKER_BINDING', undefined, this.ctn<MyWorker>().method());
+```
+
+### DO → Client (via Gateway)
+
+```typescript @skip-check
+this.lmz.call(
+  'LUMENIZE_CLIENT_GATEWAY',
+  clientInstanceName,  // e.g., 'alice.tab1'
+  this.ctn<EditorClient>().handleUpdate(change)
+);
+```
+
+### Client → DO
+
+```typescript @skip-check
+this.lmz.call('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().update(change));
+```
+
+---
+
+## Context Preservation
+
+Call context (`this.lmz.callContext`) is automatically captured in continuations. Even if a DO hibernates while waiting for a response, your handler receives the correct context:
+
+```typescript @skip-check
+@mesh
+triggerSlowOperation() {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`User ${userId} triggered operation`);
+
+  this.lmz.call(
+    'SLOW_WORKER',
+    undefined,
+    this.ctn<SlowWorker>().process(),
+    this.ctn().handleResult(this.ctn().$result)
+  );
+}
+
+// Even if DO hibernated, callContext is restored
+handleResult(result: ProcessResult | Error) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`Operation completed for user ${userId}`);
+}
+```
+
+See [Managing Context](./managing-context) for details.
+
+---
+
+## The `this.lmz` API Reference
+
+### Identity Properties
+
+```typescript @skip-check
+this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
+this.lmz.bindingName    // e.g., 'DOCUMENT_DO' (auto-propagated)
+this.lmz.instanceName   // e.g., 'draft-1' (DOs only, undefined for Workers)
+this.lmz.callContext    // Current request's context (during handler execution)
+```
+
+### `call()` Signature
+
+```typescript @skip-check
+this.lmz.call(
+  bindingName: string,           // Target's binding name
+  instanceName: string | undefined,  // Target's instance (undefined for Workers)
+  remoteContinuation: Continuation,  // What to execute on target
+  localHandler?: Continuation    // Optional: what to execute locally with result
+);
+```
+
+---
+
+## See Also
+
+- **[Continuations](./continuations)** — How continuations work under the hood
+- **[Managing Context](./managing-context)** — Framework vs. application context
+- **[LumenizeDO](./lumenize-do)** — DO-specific patterns
+- **[LumenizeWorker](./lumenize-worker)** — Worker-specific patterns
+

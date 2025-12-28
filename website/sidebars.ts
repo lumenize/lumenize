@@ -10,7 +10,6 @@ let typedocTestingSidebar: any[] = [];
 let typedocFetchSidebar: any[] = [];
 let typedocStructuredCloneSidebar: any[] = [];
 let typedocAlarmsSidebar: any[] = [];
-let typedocLumenizeBaseSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -52,13 +51,6 @@ try {
   console.log('✅ Loaded alarms sidebar, items:', typedocAlarmsSidebar?.length);
 } catch (e) {
   console.warn('⚠️  TypeDoc alarms sidebar not yet generated, using empty sidebar');
-}
-
-try {
-  typedocLumenizeBaseSidebar = require('./docs/lumenize-base/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded lumenize-base sidebar, items:', typedocLumenizeBaseSidebar?.length);
-} catch (e) {
-  console.warn('⚠️  TypeDoc lumenize-base sidebar not yet generated, using empty sidebar');
 }
 
 /**
@@ -170,13 +162,42 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'introduction',
 
-    // Concepts
+    // Lumenize Mesh - Primary documentation for the framework
     {
       type: 'category',
-      label: 'Concepts',
+      label: 'Lumenize Mesh',
       items: [
-        'concepts/continuations',
-        'concepts/managing-context',
+        'lumenize-mesh/index',
+        'lumenize-mesh/getting-started',
+        'lumenize-mesh/calls',
+        {
+          type: 'category',
+          label: 'Node Types',
+          items: [
+            'lumenize-mesh/lumenize-do',
+            'lumenize-mesh/lumenize-worker',
+            'lumenize-mesh/lumenize-client',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Built-in Services',
+          items: [
+            'lumenize-mesh/sql',
+            'lumenize-mesh/debug',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Concepts',
+          items: [
+            'lumenize-mesh/continuations',
+            'lumenize-mesh/managing-context',
+          ],
+        },
+        'lumenize-mesh/creating-plugins',
+        'lumenize-mesh/auth-integration',
+        'lumenize-mesh/gateway',
       ],
     },
 
@@ -295,33 +316,7 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Lumenize Mesh
-    {
-      type: 'category',
-      label: 'Lumenize Mesh',
-      items: [
-        'lumenize-mesh/index',
-        'lumenize-mesh/auth-integration',
-        'lumenize-mesh/client-api',
-        'lumenize-mesh/gateway',
-      ],
-    },
-
-    // LumenizeBase
-    {
-      type: 'category',
-      label: 'LumenizeBase',
-      items: [
-        'lumenize-base/index',
-        'lumenize-base/creating-plugins',
-        'lumenize-base/sql',
-        'lumenize-base/debug',
-        ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
-          ? [wrapInApiReference(typedocLumenizeBaseSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-
+    // Alarms
     {
       type: 'category',
       label: 'Alarms',
@@ -333,24 +328,12 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Auth
-    {
-      type: 'category',
-      label: 'Auth',
-      items: [
-        'auth/index',
-      ],
-    },
-
-    // Lumenize
+    // Lumenize (umbrella package)
     {
       type: 'category',
       label: 'Lumenize',
       items: [
         'lumenize/introduction',
-        // ...(typedocLumenizeSidebar && typedocLumenizeSidebar.length > 0
-        //   ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
-        //   : []),
       ],
     },
 

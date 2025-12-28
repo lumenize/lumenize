@@ -1,0 +1,403 @@
+---
+title: Creating NADIS Plugins
+description: Build your own services for automatic injection into LumenizeDO
+---
+
+# Creating NADIS Plugins
+
+NADIS (Not A DI System) provides zero-boilerplate service injection for `LumenizeDO`. This guide shows you how to create your own plugins.
+
+## Overview
+
+NADIS plugins automatically inject services via `this.svc`. Creating your own requires:
+
+1. **Extend `NadisPlugin`** (or create a factory function)
+2. **Register with NADIS** using `NadisPlugin.register()`
+3. **Add TypeScript types** via declaration merging
+
+The result: Zero-boilerplate dependency injection with full type safety.
+
+---
+
+## Quick Start
+
+```typescript @skip-check
+import { NadisPlugin } from '@lumenize/mesh';
+
+export class MyPlugin extends NadisPlugin {
+  greet(name: string) {
+    return `Hello, ${name}!`;
+  }
+}
+
+// TypeScript declaration merging for type safety
+declare global {
+  interface LumenizeServices {
+    myPlugin: MyPlugin;
+  }
+}
+
+// Register with NADIS
+NadisPlugin.register('myPlugin', (doInstance) => new MyPlugin(doInstance));
+```
+
+Use it in any DO:
+
+```typescript @skip-check
+import '@lumenize/my-plugin';  // Side-effect import
+import { LumenizeDO } from '@lumenize/mesh';
+
+class MyDO extends LumenizeDO {
+  greet() {
+    return this.svc.myPlugin.greet('World');  // Fully typed!
+  }
+}
+```
+
+---
+
+## Pattern 1: Class-Based Plugins
+
+Best for services that need state, complex logic, or access to other services.
+
+### Basic Class Plugin
+
+```typescript @skip-check
+import { NadisPlugin } from '@lumenize/mesh';
+
+export class CachePlugin extends NadisPlugin {
+  get(key: string): string | undefined {
+    return this.ctx.storage.kv.get(key);
+  }
+
+  set(key: string, value: string): void {
+    this.ctx.storage.kv.put(key, value);
+  }
+}
+
+declare global {
+  interface LumenizeServices {
+    cache: CachePlugin;
+  }
+}
+
+NadisPlugin.register('cache', (doInstance) => new CachePlugin(doInstance));
+```
+
+### What `NadisPlugin` Provides
+
+Extending `NadisPlugin` gives you:
+
+- **`this.doInstance`** — Reference to the DO instance
+- **`this.ctx`** — Direct access to `DurableObjectState` (storage, alarms, etc.)
+- **`this.svc`** — Access to other NADIS services
+- **`NadisPlugin.register()`** — Static helper for registration
+
+### Accessing Other Services
+
+Your plugin can depend on other NADIS services:
+
+```typescript @skip-check
+import '@lumenize/core';    // Ensure sql is available
+import { NadisPlugin } from '@lumenize/mesh';
+
+export class UserPlugin extends NadisPlugin {
+  constructor(doInstance: any) {
+    super(doInstance);
+    
+    // Eager dependency validation - fails at construction
+    if (!this.svc.sql) {
+      throw new Error('UserPlugin requires @lumenize/core to be imported');
+    }
+  }
+
+  getUser(id: number) {
+    return this.svc.sql`SELECT * FROM users WHERE id = ${id}`[0];
+  }
+
+  saveUser(id: number, name: string) {
+    this.svc.sql`INSERT INTO users (id, name) VALUES (${id}, ${name})`;
+  }
+}
+
+declare global {
+  interface LumenizeServices {
+    users: UserPlugin;
+  }
+}
+
+NadisPlugin.register('users', (doInstance) => new UserPlugin(doInstance));
+```
+
+---
+
+## Pattern 2: Function-Based Plugins
+
+For simple utilities that don't need state:
+
+```typescript @skip-check
+import { NadisPlugin } from '@lumenize/mesh';
+
+export function createFormatter(doInstance: any) {
+  return {
+    formatDate(date: Date): string {
+      return date.toISOString();
+    },
+    
+    formatNumber(num: number): string {
+      return num.toLocaleString();
+    }
+  };
+}
+
+declare global {
+  interface LumenizeServices {
+    formatter: ReturnType<typeof createFormatter>;
+  }
+}
+
+NadisPlugin.register('formatter', (doInstance) => createFormatter(doInstance));
+```
+
+---
+
+## TypeScript Declaration Merging
+
+The only required boilerplate is declaration merging for type safety:
+
+```typescript @skip-check
+declare global {
+  interface LumenizeServices {
+    yourPlugin: YourPluginType;
+  }
+}
+```
+
+This enables:
+- Full IntelliSense in your IDE
+- Compile-time type checking
+- No `as any` casting needed
+
+**Why required?** TypeScript can't automatically infer what properties exist on `this.svc` from runtime registration.
+
+---
+
+## Plugin Guidelines
+
+### 1. Standalone Usage Required
+
+Every NADIS plugin **must** work standalone (without `LumenizeDO`):
+
+```typescript @skip-check
+// Direct instantiation works
+const plugin = new MyPlugin(doInstance);
+plugin.doSomething();
+
+// NADIS auto-injection also works
+class MyDO extends LumenizeDO {
+  someMethod() {
+    this.svc.myPlugin.doSomething();  // Same plugin!
+  }
+}
+```
+
+### 2. Eager Dependency Validation
+
+Validate dependencies in your constructor:
+
+```typescript @skip-check
+constructor(doInstance: any) {
+  super(doInstance);
+  
+  if (!this.svc.sql || !this.svc.alarms) {
+    throw new Error('MyPlugin requires @lumenize/core and @lumenize/alarms');
+  }
+}
+```
+
+**Why eager?** Fail fast at construction time, not when a method is first called.
+
+### 3. Use Side-Effect Imports
+
+Plugins register themselves via side effects:
+
+```typescript @skip-check
+// In your plugin's index.ts
+export { MyPlugin } from './my-plugin';
+
+// Side-effect: Register with NADIS
+import './my-plugin';
+```
+
+Consumers import for side effects:
+
+```typescript @skip-check
+import '@lumenize/my-plugin';  // Registers with NADIS
+```
+
+### 4. Document Dependencies
+
+If your plugin requires other plugins:
+
+```typescript @skip-check
+/**
+ * UserPlugin - User management for Durable Objects
+ * 
+ * **Dependencies:**
+ * - @lumenize/core (for sql)
+ * 
+ * **Usage:**
+ * ```typescript
+ * import '@lumenize/core';
+ * import '@lumenize/my-plugin';
+ * ```
+ */
+export class UserPlugin extends NadisPlugin {
+  // ...
+}
+```
+
+---
+
+## Advanced Patterns
+
+### Namespaced Services
+
+For plugins with multiple related methods:
+
+```typescript @skip-check
+export class FetchPlugin extends NadisPlugin {
+  proxy(url: string, continuation: any): string {
+    // DO-Worker architecture for cost savings
+  }
+
+  direct(url: string): Promise<Response> {
+    // Direct fetch from DO
+  }
+}
+
+declare global {
+  interface LumenizeServices {
+    fetch: FetchPlugin;
+  }
+}
+
+// Usage: this.svc.fetch.proxy() or this.svc.fetch.direct()
+```
+
+### Private Implementation Details
+
+Use `#private` fields for internal state:
+
+```typescript @skip-check
+export class MyPlugin extends NadisPlugin {
+  #cache = new Map<string, any>();
+
+  get(key: string) {
+    if (this.#cache.has(key)) {
+      return this.#cache.get(key);
+    }
+    
+    const value = this.ctx.storage.kv.get(key);
+    this.#cache.set(key, value);
+    return value;
+  }
+}
+```
+
+### Plugin Configuration
+
+Accept configuration via constructor:
+
+```typescript @skip-check
+export class CachePlugin extends NadisPlugin {
+  #ttl: number;
+
+  constructor(doInstance: any, options?: { ttl?: number }) {
+    super(doInstance);
+    this.#ttl = options?.ttl ?? 3600;
+  }
+}
+
+// Register with configuration
+NadisPlugin.register('cache', (doInstance) => 
+  new CachePlugin(doInstance, { ttl: 7200 })
+);
+```
+
+---
+
+## Testing Your Plugin
+
+Test plugins standalone, without NADIS:
+
+```typescript @skip-check
+import { describe, test, expect } from 'vitest';
+import { MyPlugin } from '../src/my-plugin';
+
+describe('MyPlugin', () => {
+  test('works standalone', () => {
+    const mockDO = {
+      ctx: {
+        storage: {
+          kv: {
+            get: (key: string) => 'value',
+            put: (key: string, value: any) => {}
+          }
+        }
+      }
+    };
+
+    const plugin = new MyPlugin(mockDO);
+    expect(plugin.get('key')).toBe('value');
+  });
+});
+```
+
+For integration testing with NADIS, extend `LumenizeDO` in your tests.
+
+---
+
+## Real-World Examples
+
+### Simple Function-Based
+
+**[@lumenize/core](/docs/core)** — `sql` and `debug` functions
+
+- Pattern: Factory functions that return utilities
+- When to use: Simple helpers with no state
+
+### Class-Based with Dependencies
+
+**[@lumenize/alarms](/docs/alarms)** — Alarm scheduling
+
+- Pattern: Class extending `NadisPlugin`, depends on `sql`
+- When to use: Stateful services with dependencies
+
+### Complex Multi-Method Plugin
+
+**[@lumenize/fetch](/docs/fetch)** — External API calls
+
+- Pattern: Class with multiple public methods (`proxy`, `direct`)
+- When to use: Related functionality under one namespace
+
+---
+
+## How NADIS Works
+
+NADIS uses three simple mechanisms:
+
+1. **Service Registration**: Packages register factory functions in a global registry on import
+2. **Type Safety**: TypeScript declaration merging provides autocomplete and type checking
+3. **Lazy Resolution**: `LumenizeDO` uses a Proxy to lazily instantiate services when first accessed, then caches them
+
+No decorators, no reflection, no complex DI containers.
+
+---
+
+## See Also
+
+- **[LumenizeDO](./lumenize-do)** — Using NADIS services
+- **[@lumenize/core](/docs/core)** — SQL and debug services
+- **[@lumenize/alarms](/docs/alarms)** — Alarm scheduling
+

@@ -1,0 +1,497 @@
+---
+title: LumenizeDO
+description: Stateful Durable Objects as mesh nodes with NADIS auto-injection
+---
+
+# LumenizeDO
+
+`LumenizeDO` is the base class for **stateful mesh nodes** running as Cloudflare Durable Objects. It combines:
+
+- **Mesh integration** — `this.lmz` API for identity and communication
+- **NADIS auto-injection** — Zero-boilerplate service injection via `this.svc`
+- **Access control** — `@mesh` decorator and `onBeforeCall()` hooks
+
+## Installation
+
+```bash @skip-check
+npm install @lumenize/mesh @lumenize/core
+```
+
+---
+
+## Quick Start
+
+```typescript @skip-check
+import '@lumenize/core';  // Registers sql in this.svc
+import { LumenizeDO, mesh } from '@lumenize/mesh';
+
+class UsersDO extends LumenizeDO<Env> {
+  // Lifecycle hook for initialization (runs once, wrapped in blockConcurrencyWhile)
+  async onStart() {
+    this.svc.sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `;
+  }
+
+  @mesh
+  addUser(email: string): { id: string; email: string } {
+    const id = crypto.randomUUID();
+    this.svc.sql`
+      INSERT INTO users (id, email, created_at)
+      VALUES (${id}, ${email}, ${Date.now()})
+    `;
+    return { id, email };
+  }
+
+  @mesh
+  getUser(id: string) {
+    const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
+    return rows[0];
+  }
+}
+```
+
+:::tip No Custom Constructors
+Use `onStart()` for initialization instead of writing a custom constructor. The base class calls `onStart()` wrapped in `blockConcurrencyWhile`, ensuring your setup completes before any requests are processed. This prevents race conditions that can occur with async operations in Durable Objects.
+:::
+
+---
+
+## Mesh API (`this.lmz`)
+
+Every `LumenizeDO` has access to `this.lmz` — the unified API for mesh communication.
+
+### Identity Properties
+
+```typescript @skip-check
+this.lmz.type           // 'LumenizeDO'
+this.lmz.bindingName    // e.g., 'USERS_DO' (auto-propagated from first call)
+this.lmz.instanceName   // e.g., 'user-123' (auto-propagated from first call)
+this.lmz.callContext    // Current request's context (during handler execution)
+```
+
+:::note Auto-Propagation
+DOs don't inherently know their binding name. The first mesh call to a DO includes this information in the envelope. After that, the DO can provide return addresses for callbacks.
+:::
+
+### Making Calls
+
+```typescript @skip-check
+// Fire-and-forget to another DO
+this.lmz.call(
+  'DOCUMENT_DO',
+  'draft-1',
+  this.ctn<DocumentDO>().notifyUpdate(change)
+);
+
+// With response handler
+this.lmz.call(
+  'VALIDATION_WORKER',
+  undefined,
+  this.ctn<ValidationWorker>().validate(data),
+  this.ctn().handleValidationResult(this.ctn().$result)
+);
+```
+
+### Call Context
+
+Access the current call's context within any `@mesh` handler:
+
+```typescript @skip-check
+@mesh
+updateDocument(changes: DocumentChange) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  const caller = this.lmz.callContext.caller;
+  const calledAs = this.lmz.callContext.calledAs;
+
+  console.log(`${userId} called from ${caller.bindingName}`);
+}
+```
+
+**Context properties:**
+- `originAuth` — Authentication info from the original caller (propagated through chain)
+- `caller` — The immediate caller's identity
+- `calledAs` — How this DO was addressed (binding + instance name)
+- `state` — Custom state object (for middleware to pass data)
+
+---
+
+## Access Control
+
+DOs can enforce access control at two levels:
+
+```typescript @skip-check
+class ProtectedDO extends LumenizeDO<Env> {
+  // Class-level: runs before every mesh call
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+    // DOs can use storage for rate limiting
+    const key = `rate:${callContext.originAuth.userId}`;
+    const count = this.ctx.storage.kv.get(key) ?? 0;
+    if (count > 100) throw new Error('Rate limit exceeded');
+    this.ctx.storage.kv.put(key, count + 1);
+  }
+
+  // Method-level: @mesh marks entry points, optional guard for fine-grained control
+  @mesh((callContext) => {
+    if (!callContext.state.user.isAdmin) throw new Error('Admin only');
+  })
+  adminMethod() { /* ... */ }
+}
+```
+
+See [Auth Integration](./auth-integration#access-control) for the complete security model including reusable guards and capability-based trust.
+
+---
+
+## NADIS Auto-Injection
+
+NADIS (Not A DI System) provides **zero-boilerplate dependency injection** via `this.svc`.
+
+### How It Works
+
+1. **Import a service package** — Side-effect import registers the service
+2. **Use via `this.svc`** — Services are lazily instantiated and cached
+3. **TypeScript knows** — Declaration merging provides full type safety
+
+```typescript @skip-check
+import '@lumenize/core';    // Registers sql, debug
+import '@lumenize/alarms';  // Registers alarms
+
+class MyDO extends LumenizeDO<Env> {
+  doSomething() {
+    this.svc.sql`SELECT * FROM items`;  // ✅ Auto-injected
+    this.svc.alarms.schedule(60, 'handler', {});  // ✅ Auto-injected
+    this.svc.debug('MyDO').info('Something happened');  // ✅ Auto-injected
+  }
+}
+```
+
+### Available Services
+
+| Package | Service | Purpose |
+|---------|---------|---------|
+| `@lumenize/core` | `sql` | SQL template literal tag |
+| `@lumenize/core` | `debug` | Scoped, filterable logging |
+| `@lumenize/alarms` | `alarms` | Alarm scheduling |
+| `@lumenize/fetch` | `fetch` | Proxy fetch (cost optimization) |
+
+### Service: `sql` Template Literal
+
+```typescript @skip-check
+import '@lumenize/core';
+
+// SELECT
+const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
+
+// INSERT
+this.svc.sql`INSERT INTO users (id, email) VALUES (${id}, ${email})`;
+
+// UPDATE
+this.svc.sql`UPDATE users SET email = ${newEmail} WHERE id = ${id}`;
+
+// DELETE
+this.svc.sql`DELETE FROM users WHERE id = ${id}`;
+```
+
+Parameters are automatically bound and SQL-injection safe.
+
+### Service: `debug` Logging
+
+```typescript @skip-check
+import '@lumenize/core';
+
+const log = this.svc.debug('MyDO.myMethod');
+
+log.debug('Detailed info', { data: someData });
+log.info('Milestone reached', { count: 42 });
+log.warn('Expected issue', { reason: 'timeout' });
+log.error('Failed!', { error: err });  // Always outputs (never filtered)
+```
+
+Control via `DEBUG` environment variable:
+```bash @skip-check
+DEBUG=*                     # Everything
+DEBUG=MyDO.*                # All MyDO methods
+DEBUG=MyDO.myMethod:info    # Only info+ for this method
+```
+
+### Service: `alarms` Scheduling
+
+```typescript @skip-check
+import '@lumenize/alarms';
+
+// Schedule work
+const schedule = await this.svc.alarms.schedule(
+  60,           // Seconds from now
+  'handleTask', // Handler method name
+  { userId: '123' }  // Payload
+);
+
+// Cancel if needed
+await this.svc.alarms.cancel(schedule.id);
+
+// In your DO: delegate the alarm
+async alarm() {
+  await this.svc.alarms.alarm();
+}
+```
+
+---
+
+## Continuations
+
+Create type-safe continuations with `this.ctn<T>()`:
+
+```typescript @skip-check
+// Remote continuation (what to call elsewhere)
+const remote = this.ctn<OtherDO>().someMethod(arg1, arg2);
+
+// Local continuation (what to call on this instance)
+const handler = this.ctn().handleResult(this.ctn().$result);
+
+// Use in call
+this.lmz.call('OTHER_DO', 'instance', remote, handler);
+```
+
+### The `$result` Placeholder
+
+`this.ctn().$result` is a placeholder that gets replaced with the actual result (or `Error`) when the continuation executes:
+
+```typescript @skip-check
+@mesh
+doSomething() {
+  this.lmz.call(
+    'VALIDATOR',
+    undefined,
+    this.ctn<Validator>().validate(data),
+    this.ctn().handleValidation(data.id, this.ctn().$result)
+  );
+}
+
+handleValidation(dataId: string, result: ValidationResult | Error) {
+  if (result instanceof Error) {
+    this.markFailed(dataId, result.message);
+    return;
+  }
+  this.markValidated(dataId, result);
+}
+```
+
+### Context Preservation
+
+Continuations automatically capture `callContext` at serialization time. Even if the DO hibernates while waiting for a response, your handler receives the correct context:
+
+```typescript @skip-check
+@mesh
+triggerSlowOperation(documentId: string) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`User ${userId} triggered operation`);
+
+  // This might take > 10 seconds, DO might hibernate
+  this.lmz.call(
+    'SLOW_WORKER',
+    undefined,
+    this.ctn<SlowWorker>().process(documentId),
+    this.ctn().handleSlowResult(this.ctn().$result)
+  );
+}
+
+handleSlowResult(result: ProcessResult | Error) {
+  // callContext is restored - same userId available
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`Operation completed for user ${userId}`);
+}
+```
+
+---
+
+## Storage Patterns
+
+### Synchronous Storage
+
+Always use synchronous storage APIs:
+
+```typescript @skip-check
+// ✅ Correct - synchronous
+this.ctx.storage.kv.put('key', value);
+const value = this.ctx.storage.kv.get('key');
+this.ctx.storage.kv.delete('key');
+
+// ❌ Wrong - legacy async (never use)
+await this.ctx.storage.put('key', value);
+```
+
+:::warning Compatibility Date
+Requires `compatibility_date: "2025-09-12"` or later in wrangler.jsonc.
+:::
+
+### SQL vs KV
+
+| Use Case | API |
+|----------|-----|
+| Simple key-value | `ctx.storage.kv.get/put/delete` |
+| Structured/queryable data | `this.svc.sql` |
+| Complex queries, JOINs | `this.svc.sql` |
+
+### Keep Methods Synchronous
+
+**Critical rule**: Keep mesh handler methods synchronous to maintain Cloudflare's consistency guarantees.
+
+```typescript @skip-check
+// ✅ Correct - synchronous
+@mesh
+updateUser(id: string, email: string) {
+  this.svc.sql`UPDATE users SET email = ${email} WHERE id = ${id}`;
+}
+
+// ❌ Wrong - async breaks consistency
+@mesh
+async updateUser(id: string, email: string) {
+  await somePromise();  // Input gate may close!
+  this.svc.sql`UPDATE ...`;  // Race condition possible
+}
+```
+
+**Exceptions** (these methods may be async):
+- `fetch()` — HTTP handler
+- `alarm()` — Scheduled tasks
+- `webSocketMessage()`, `webSocketClose()`, `webSocketError()` — WebSocket handlers
+
+---
+
+## HTTP Handling
+
+`LumenizeDO` receives mesh calls, but can also handle HTTP directly:
+
+```typescript @skip-check
+class MyDO extends LumenizeDO<Env> {
+  async fetch(request: Request): Promise<Response> {
+    // Check for mesh call first
+    const meshResponse = await this.handleMeshRequest(request);
+    if (meshResponse) return meshResponse;
+
+    // Handle regular HTTP
+    const url = new URL(request.url);
+    if (url.pathname === '/status') {
+      return new Response(JSON.stringify({ status: 'ok' }));
+    }
+
+    return new Response('Not Found', { status: 404 });
+  }
+}
+```
+
+---
+
+## Testing
+
+Test DOs using `@lumenize/testing`:
+
+```typescript @skip-check
+import { describe, test, expect } from 'vitest';
+import { createTestDO } from '@lumenize/testing';
+import { UsersDO } from '../src/users-do';
+
+describe('UsersDO', () => {
+  test('adds and retrieves users', async () => {
+    const stub = await createTestDO(UsersDO, env);
+
+    const user = await stub.addUser('test@example.com');
+    expect(user.email).toBe('test@example.com');
+
+    const retrieved = await stub.getUser(user.id);
+    expect(retrieved.email).toBe('test@example.com');
+  });
+});
+```
+
+---
+
+## API Reference
+
+### Class: `LumenizeDO<EnvType>`
+
+**Constructor:**
+```typescript @skip-check
+constructor(ctx: DurableObjectState, env: EnvType)
+```
+*Do not override — use `onStart()` for initialization.*
+
+**Properties:**
+- `ctx: DurableObjectState` — Cloudflare DO state
+- `env: EnvType` — Worker environment bindings
+- `svc: LumenizeServices` — Auto-injected NADIS services
+- `lmz: LmzApi` — Mesh communication API
+
+**Overridable Methods:**
+- `onStart()` — Async initialization hook (runs once, wrapped in `blockConcurrencyWhile`)
+- `onBeforeCall(callContext: CallContext)` — Hook for class-wide access control
+- `fetch(request: Request)` — HTTP request handler
+
+**Inherited Methods:**
+- `ctn<T>()` — Create typed continuation builder
+- `handleMeshRequest(request: Request)` — Process mesh call from HTTP
+
+### Decorator: `@mesh`
+
+```typescript @skip-check
+@mesh                         // Basic entry point
+@mesh(guardFunction)          // With access control guard
+```
+
+Guard function signature:
+```typescript @skip-check
+(callContext: CallContext) => void | Promise<void>
+// Throw to deny access
+```
+
+### Interface: `CallContext`
+
+```typescript @skip-check
+interface CallContext {
+  origin: {
+    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+    bindingName: string;
+    instanceNameOrId?: string;
+  };
+  originAuth?: {
+    userId: string;
+    // ... other auth claims
+  };
+  caller: {
+    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+    bindingName: string;
+    instanceNameOrId?: string;
+  };
+  calledAs: {
+    bindingName: string;
+    instanceName: string;
+  };
+  state: Record<string, any>;  // Middleware state
+}
+```
+
+**Context properties:**
+- `origin` — The original caller at the start of the chain (propagated through hops)
+- `originAuth` — Authentication info from the original caller
+- `caller` — The immediate caller's identity (may differ from origin in multi-hop chains)
+- `calledAs` — How this node was addressed
+- `state` — Mutable object for middleware to pass computed data
+
+---
+
+## See Also
+
+- **[Getting Started](./getting-started)** — Build a complete app
+- **[LumenizeWorker](./lumenize-worker)** — Stateless mesh nodes
+- **[Creating Plugins](./creating-plugins)** — Build custom NADIS services
+- **[Continuations](./continuations)** — Deep dive on operation chains
+

@@ -35,7 +35,7 @@ The Gateway instance name matches the client's `instanceName` configuration.
 
 ### Transparent Proxying
 
-Gateway doesn't interpret the calls passing through it — it simply forwards them from the callee to the caller using Workers RPC if the callee is a Cloudflare-hosted node or using WebSockets messages if it is not. This keeps Gateway simple and allows clients to define any methods they want.
+Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSockets messages. This keeps Gateway simple and allows clients to define any methods they want.
 
 ### Implications
 
@@ -98,22 +98,10 @@ Gateway verifies token expiration on each incoming message using the stored `tok
 
 When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates.
 
-## Trust Boundary
+## Trust Demilitarized Zone (DMZ)
 
-The Gateway is the **trust boundary** between untrusted clients and the trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
+The Gateway is the **trust DMZ** between less trusted clients and more trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
 
-This ensures that `callContext.originAuth` in downstream nodes always reflects the **actual authenticated user**, not whatever the client claimed.
-
-### What's Controlled Where
-
-| Client Controls | Gateway Verifies (from JWT) |
-|-----------------|----------------------------|
-| What to call (continuation) | Who they are (identity) |
-| Target binding/instance | Their claims/permissions |
-| Method arguments | `originAuth` |
-
-### Key Principle
+This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed.
 
 > **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
-
-The Gateway already knows who the client is from the JWT verified at connection time.

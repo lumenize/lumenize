@@ -117,7 +117,7 @@ If you are building your own hibernation-safe functionality outside the mesh, yo
 import { getOperationChain } from '@lumenize/mesh';
 import { stringify } from '@lumenize/structured-clone';
 
-// 1. Get the serializable OCAN chain (includes captured callContext)
+// 1. Get the serializable operation chain (includes captured callContext)
 const chain = getOperationChain(this.ctn().myHandler(data));
 
 // 2. Stringify it (supports Dates, Maps, Sets, etc.)
@@ -147,7 +147,3 @@ Continuation handlers are **synchronous** by design. When a remote call complete
 
 By following this strategy, you get the best of both worlds: the zero-boilerplate convenience of a mesh and the rock-solid reliability of type-safe, synchronous Durable Objects.
 
-## Further Reading
-*   [Continuations Guide](./continuations) - Deep dive into continuation patterns
-*   [Lumenize Mesh: Auth Integration](../lumenize-mesh/auth-integration) - How Call Context works
-*   [Durable Objects Consistency](../guides/do-consistency) - Understanding consistency guarantees

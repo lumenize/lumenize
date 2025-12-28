@@ -8,7 +8,7 @@ description: "Scoped, filterable debug logging optimized for the JSON filter cap
 A de✨light✨ful scoped debug logging system inspired by npm's `debug` package with JSON output that works perfectly with Cloudflare's observability dashboard.
 
 :::tip Core Utility
-This utility is used internally by Lumenize and is also available for your own logging needs. It's part of `@lumenize/core` and automatically available via NADIS when using LumenizeBase.
+This utility is used internally by Lumenize and is also available for your own logging needs. It's part of `@lumenize/core` and automatically available via NADIS when using LumenizeDO.
 :::
 
 ## Features
@@ -17,7 +17,7 @@ This utility is used internally by Lumenize and is also available for your own l
 - **Level support**: `debug`, `info`, `warn`, and `error` levels
 - **JSON output**: Structured logs integrate seamlessly with Cloudflare's observability dashboard
 - **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
-- **NADIS integration**: Use standalone or auto-inject into `LumenizeBase` via `this.svc.debug`
+- **NADIS integration**: Use standalone or auto-inject into `LumenizeDO` via `this.svc.debug`
 - **⚠️ Error level never filtered**: `log.error()` always outputs regardless of filter settings
 
 ## Installation
@@ -28,13 +28,13 @@ npm install @lumenize/core
 
 ## Quick Start
 
-### In Durable Objects (LumenizeBase)
+### In Durable Objects (LumenizeDO)
 
 ```typescript @check-example('packages/core/debug/test/for-docs/quick-start-lumenize-base.test.ts')
 import '@lumenize/core';  // Registers in this.svc
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 
-class ChatRoom extends LumenizeBase<Env> {
+class ChatRoom extends LumenizeDO<Env> {
   // ...
   onRequest(request: Request) {
     const log = this.svc.debug('ChatRoom.onRequest');
@@ -152,7 +152,7 @@ The debug system provides a simple, type-safe logging interface:
 
 ```typescript @skip-check
 // Create logger
-const log = this.svc.debug('MyDO.myMethod');  // LumenizeBase
+const log = this.svc.debug('MyDO.myMethod');  // LumenizeDO
 const log = debug(this)('MyDO.myMethod');     // Vanilla DO
 const log = debug({ env })('Worker.router');  // Worker
 
@@ -201,7 +201,7 @@ Differences:
 - **Error level**: Never filtered - always outputs
 - **JSON output**: Structured objects (vs. plain text)
 - **Cloudflare-optimized**: No colors, no TTY detection
-- **NADIS integration**: Auto-injection in LumenizeBase
+- **NADIS integration**: Auto-injection in LumenizeDO
 
 
 

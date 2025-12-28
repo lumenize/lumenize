@@ -1,0 +1,371 @@
+---
+title: LumenizeWorker
+description: Stateless Workers as mesh nodes for external API calls and compute tasks
+---
+
+# LumenizeWorker
+
+`LumenizeWorker` is the base class for **stateless mesh nodes** running as Cloudflare Workers. Use it for:
+
+- **External API calls** — Proxy third-party services without DO wall-clock billing
+- **Compute-intensive tasks** — CPU-bound work that doesn't need state
+- **Fan-out/fan-in** — Distribute work across multiple Workers
+- **Validation/transformation** — Process data without persistence
+
+## Installation
+
+```bash @skip-check
+npm install @lumenize/mesh
+```
+
+---
+
+## Quick Start
+
+```typescript @skip-check
+import { LumenizeWorker, mesh } from '@lumenize/mesh';
+
+export class SpellCheckWorker extends LumenizeWorker<Env> {
+  @mesh
+  async check(content: string): Promise<SpellError[]> {
+    const response = await fetch('https://api.spellcheck.example/check', {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.env.SPELLCHECK_API_KEY}`
+      },
+      body: JSON.stringify({ text: content }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Spell check failed: ${response.status}`);
+    }
+
+    return response.json();
+  }
+}
+```
+
+:::note No Initialization Needed
+Workers are stateless — no storage, no persistent state. Unlike `LumenizeDO`, there's no `onStart()` lifecycle hook or initialization needed. Just define your `@mesh` methods.
+:::
+
+---
+
+## Key Differences from LumenizeDO
+
+| Aspect | LumenizeDO | LumenizeWorker |
+|--------|------------|----------------|
+| **Storage** | SQL/KV via `ctx.storage` | None |
+| **Instance** | Named instances | Single global instance |
+| **Consistency** | Strong | N/A (stateless) |
+| **Async** | Methods should be sync | Async allowed (no consistency concern) |
+| **NADIS** | Full (`this.svc`) | Partial (no storage-dependent services) |
+| **Cost** | Wall-clock billing | CPU-only billing |
+
+### No Instance Name
+
+Workers don't have instances. When calling a Worker, pass `undefined` for the instance name:
+
+```typescript @skip-check
+// From a DO calling a Worker
+this.lmz.call(
+  'VALIDATION_WORKER',
+  undefined,                                    // No instance name
+  this.ctn<ValidationWorker>().validate(data)
+);
+```
+
+### Async Methods Allowed
+
+Unlike DOs, Workers don't have consistency constraints, so async methods are fine:
+
+```typescript @skip-check
+class MyWorker extends LumenizeWorker<Env> {
+  @mesh
+  async processData(data: InputData): Promise<OutputData> {
+    // Async operations are safe here
+    const external = await fetch('https://api.example.com/process');
+    const transformed = await this.transformAsync(data, external);
+    return transformed;
+  }
+}
+```
+
+---
+
+## Mesh API (`this.lmz`)
+
+Workers have the same `this.lmz` API as DOs:
+
+### Identity Properties
+
+```typescript @skip-check
+this.lmz.type           // 'LumenizeWorker'
+this.lmz.bindingName    // e.g., 'SPELLCHECK_WORKER'
+this.lmz.instanceName   // Always undefined for Workers
+this.lmz.callContext    // Current request's context
+```
+
+### Making Calls
+
+Workers can call DOs, other Workers, or Clients:
+
+```typescript @skip-check
+class OrchestrationWorker extends LumenizeWorker<Env> {
+  @mesh
+  async process(documentId: string, content: string): Promise<ProcessResult> {
+    // Call DO to store result
+    this.lmz.call(
+      'DOCUMENT_DO',
+      documentId,
+      this.ctn<DocumentDO>().storeProcessedContent(content)
+    );
+
+    // Return result to caller
+    return { status: 'processed', documentId };
+  }
+}
+```
+
+### Call Context
+
+Access context in any `@mesh` handler:
+
+```typescript @skip-check
+@mesh
+async processWithContext(data: InputData): Promise<OutputData> {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  
+  // Include user context in external call
+  const response = await fetch('https://api.example.com/process', {
+    method: 'POST',
+    headers: {
+      'X-User-Id': userId ?? 'anonymous',
+    },
+    body: JSON.stringify(data),
+  });
+
+  return response.json();
+}
+```
+
+---
+
+## Access Control
+
+Workers use the same access control patterns as DOs — `onBeforeCall()` for class-wide policies and `@mesh(guard)` for method-level checks:
+
+```typescript @skip-check
+class ProtectedWorker extends LumenizeWorker<Env> {
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+  }
+
+  @mesh((callContext) => {
+    if (!callContext.state.user.hasPremium) throw new Error('Premium required');
+  })
+  async generateReport(data: ReportInput): Promise<Report> { /* ... */ }
+}
+```
+
+See [Auth Integration](./auth-integration#access-control) for the complete security model.
+
+---
+
+## Common Patterns
+
+### External API Proxy
+
+The most common use case — call external APIs without DO wall-clock costs:
+
+```typescript @skip-check
+class EmailWorker extends LumenizeWorker<Env> {
+  @mesh
+  async sendEmail(to: string, subject: string, body: string): Promise<SendResult> {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.env.SENDGRID_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: 'noreply@myapp.com' },
+        subject,
+        content: [{ type: 'text/plain', value: body }],
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Email send failed: ${error}`);
+    }
+
+    return { success: true, messageId: response.headers.get('X-Message-Id') };
+  }
+}
+```
+
+### Compute-Intensive Tasks
+
+Offload CPU-bound work from DOs:
+
+```typescript @skip-check
+class ImageProcessingWorker extends LumenizeWorker<Env> {
+  @mesh
+  async processImage(imageData: ArrayBuffer): Promise<ProcessedImage> {
+    // CPU-intensive operations
+    const thumbnail = await this.generateThumbnail(imageData);
+    const metadata = await this.extractMetadata(imageData);
+    const optimized = await this.optimize(imageData);
+
+    return { thumbnail, metadata, optimized };
+  }
+}
+```
+
+### Fan-Out/Fan-In
+
+Distribute work across multiple parallel calls:
+
+```typescript @skip-check
+class AggregatorWorker extends LumenizeWorker<Env> {
+  @mesh
+  async aggregate(sources: string[]): Promise<AggregatedData> {
+    // Fan-out: fetch from all sources in parallel
+    const promises = sources.map(source => 
+      fetch(source).then(r => r.json())
+    );
+
+    const results = await Promise.allSettled(promises);
+
+    // Fan-in: combine results
+    const successful = results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+      .map(r => r.value);
+
+    return { 
+      data: successful, 
+      failed: results.length - successful.length 
+    };
+  }
+}
+```
+
+### Two One-Way Call Pattern
+
+For long-running external calls (>10s recommended, consider for >2s), use the "two one-way call" pattern: DO fires-and-forgets to Worker, Worker calls back with result. This shifts wall-clock billing from the DO to CPU-only billing on the Worker.
+
+See [Making Calls: Cost Optimization](./calls#cost-optimization-two-one-way-calls) for the full pattern and guidance.
+
+---
+
+## NADIS Services
+
+Workers have access to NADIS services that don't require DO storage:
+
+```typescript @skip-check
+import '@lumenize/core';
+
+export class SpellCheckWorker extends LumenizeWorker<Env> {
+  @mesh
+  async check(content: string): Promise<SpellError[]> {
+    const log = this.svc.debug('SpellCheckWorker.check');
+    log.info('Checking content', { length: content.length });
+
+    const response = await fetch('https://api.spellcheck.example/check', {
+      method: 'POST',
+      body: JSON.stringify({ text: content }),
+    });
+
+    const errors = await response.json();
+    log.info('Check complete', { errorCount: errors.length });
+    return errors;
+  }
+}
+```
+
+**Available services:**
+- `debug` — Scoped logging
+- Other non-storage services
+
+**Not available:**
+- `sql` — Requires DO storage
+- `alarms` — Requires DO storage
+
+---
+
+## Worker Entry Point Setup
+
+Workers are exported from your main entry file and handle HTTP routing:
+
+```typescript @skip-check
+// src/index.ts
+import { LumenizeAuth } from '@lumenize/auth';
+import { routeDORequest } from '@lumenize/utils';
+import { DocumentDO } from './document-do';
+import { SpellCheckWorker } from './spellcheck-worker';
+
+// Export all classes that need bindings (DOs and Workers)
+export { LumenizeAuth, DocumentDO, SpellCheckWorker };
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Route to DOs
+    const response = await routeDORequest(request, env, { cors: true });
+    if (response) return response;
+
+    // Direct Worker endpoint (if needed)
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/worker/')) {
+      // Handle Worker-specific HTTP endpoints
+    }
+
+    return new Response('Not Found', { status: 404 });
+  }
+};
+```
+
+---
+
+## API Reference
+
+### Class: `LumenizeWorker<EnvType>`
+
+**Constructor:**
+```typescript @skip-check
+constructor(env: EnvType)
+```
+
+**Properties:**
+- `env: EnvType` — Worker environment bindings
+- `svc: LumenizeServices` — Auto-injected NADIS services (subset)
+- `lmz: LmzApi` — Mesh communication API
+
+**Overridable Methods:**
+- `onBeforeCall(callContext: CallContext)` — Hook for class-wide access control
+
+**Inherited Methods:**
+- `ctn<T>()` — Create typed continuation builder
+
+### Decorator: `@mesh`
+
+Same as LumenizeDO:
+
+```typescript @skip-check
+@mesh                         // Basic entry point
+@mesh(guardFunction)          // With access control guard
+```
+
+---
+
+## See Also
+
+- **[LumenizeDO](./lumenize-do)** — Stateful mesh nodes
+- **[Getting Started](./getting-started)** — Complete example using Workers
+- **[Auth Integration](./auth-integration)** — Securing Worker endpoints
+
