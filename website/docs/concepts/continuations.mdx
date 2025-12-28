@@ -7,7 +7,7 @@ description: Non-blocking async operations with type-safe callbacks for Durable 
 
 A **Continuation** is a **description of work** that gets executed in some other place or time usually during/after some native async operation.
 
-Here is an example of how Lumenize's built-in remote procedure call uses them:
+Here is an example of how Lumenize Mesh's `this.lmz.call` uses them:
 ```
 const remote = this.ctn<RemoteDO>().getUserData(userId);
 const local = this.ctn().handleResult(remote);
@@ -16,12 +16,12 @@ this.lmz.call(REMOTE_DO, 'instance-id', remote, local);
 
 Continuations:
 
-- Are Serializable so can be pushed into storage, an alarms handler, or sent over the wire to be executed in some other Durable Object or Worker
+- Are serializable so can be pushed into storage, an alarms handler, or sent over the wire to be executed in some other Durable Object or Worker
 - Can carry arbitrary data that supports almost all types (Dates, Map, Set, cycles, aliases, etc.) allowing you to restore context and continue where you previously left off
 - Provide an alternative to using `async`/`await`, which can be problematic for Durable Object's consistency guarantees
 - Provide type safety, so you get development-time feedback if you have the method/property name or signature wrong
 - Are built with JavaScript Proxy objects and serialize to a well-defined, `JSON.strinigify`-friendly operation chaining and nesting (OCAN) object
-- Can encapsulate multiple method calls and property accesses and where the output of one operation can be used in another
+- Can encapsulate multiple method calls and property accesses where the output of one operation can be used in another
 
 ## The `this.ctn()` Factory
 
@@ -42,7 +42,7 @@ this.ctn().updateUser(userId, this.ctn().$result, timestamp)
 
 1. **`this.ctn()`** returns a Proxy object
 2. Each method/property access builds an **operation chain**
-3. The chain is serialized and stored
+3. The chain can be serialized and sent over the wire or stored as needed
 4. When the async operation completes, the chain is executed with the result
 
 ## The `$result` Placeholder
@@ -59,18 +59,23 @@ this.ctn().processWithContext(context, this.ctn().$result, timestamp)
 
 ### Result Types
 
+:::warning Important
+If you don't check for `Error`, your handler might crash when operations fail. Always use `if (result instanceof Error)` at the start of handlers.
+:::
+
 Handlers receive a **union type** of the expected result and `Error`:
 
 ```typescript @skip-check
 // For fetch operations
-handleFetchResult(result: Response | Error) {
+handleFetchResult(result: ResponseSync | Error) {
   if (result instanceof Error) {
     // Network failure, timeout, etc.
     return;
   }
   
   // Success - process the response
-  const data = await result.text();
+  // ResponseSync has synchronous methods for json() and text()
+  const data = result.json();
 }
 
 // For DO-to-DO calls
@@ -85,59 +90,30 @@ handleRemoteResult(result: any | Error) {
 }
 ```
 
-## Recursive Validation (Lumenize Mesh)
-
-Under the [Lumenize Mesh security model](/docs/lumenize-mesh/auth-integration#access-control), every step in a continuation chain is validated independently when sent over the wire. This enables secure "Sub-Target" patterns:
-
-```typescript @skip-check
-class DocumentDO extends LumenizeDO {
-  @mesh
-  getAdminPanel() {
-    // Returns a sub-object with its own security
-    return new AdminPanel(this);
-  }
-}
-
-class AdminPanel extends LumenizeSubTarget {
-  onBeforeCall(callContext: CallContext) {
-    if (!callContext.originAuth?.claims?.isAdmin) {
-      throw new Error("Admin access required");
-    }
-  }
-
-  @mesh
-  deleteHistory() { ... }
-}
-
-// Chaining across targets:
-// 1. getAdminPanel() is checked against DocumentDO (@mesh check)
-// 2. Resulting AdminPanel is checked (onBeforeCall + @mesh check)
-this.ctn<DocumentDO>().getAdminPanel().deleteHistory()
-```
-
 ## Common Patterns
 
 ### 1. Simple Callback
 
 ```typescript @skip-check
 class MyDO extends LumenizeBase {
-  async startWork() {
-    await call(
-      this,
+  startWork() {
+    // this.lmz.call is synchronous on the caller side
+    this.lmz.call(
       'REMOTE_DO',
       'instance-id',
-      this.ctn().remoteMethod(arg),
+      this.ctn<RemoteDO>().remoteMethod(arg),
       this.ctn().handleResult(this.ctn().$result)
     );
   }
   
   handleResult(result: any | Error) {
     if (result instanceof Error) {
-      console.error('Call failed:', result);
+      console.error('Call failed:', result.message);
       return;
     }
     
     console.log('Got result:', result);
+    this.ctx.storage.kv.put('lastResult', result);
   }
 }
 ```
@@ -146,9 +122,9 @@ class MyDO extends LumenizeBase {
 
 ```typescript @skip-check
 class MyDO extends LumenizeBase {
-  async processData(url: string) {
-    await proxyFetchWorker(
-      this,
+  processData(url: string) {
+    // this.svc.fetch.proxy is synchronous
+    this.svc.fetch.proxy(
       url,
       // Chain: fetch → parse → validate → save
       this.ctn()
@@ -158,9 +134,9 @@ class MyDO extends LumenizeBase {
     );
   }
   
-  parseResponse(result: Response | Error) {
+  parseResponse(result: ResponseSync | Error) {
     if (result instanceof Error) throw result;
-    return result.json();
+    return result.json(); // ResponseSync has sync json()
   }
   
   validateData(data: any) {
@@ -178,27 +154,23 @@ class MyDO extends LumenizeBase {
 
 ```typescript @skip-check
 class MyDO extends LumenizeBase {
-  async fetchForUser(userId: string, url: string) {
+  fetchForUser(userId: string, url: string) {
     const timestamp = Date.now();
     
-    await proxyFetchWorker(
-      this,
+    this.svc.fetch.proxy(
       url,
       // Capture context in the continuation
       this.ctn().handleUserData(userId, this.ctn().$result, timestamp)
     );
   }
   
-  handleUserData(userId: string, result: Response | Error, timestamp: number) {
+  handleUserData(userId: string, result: ResponseSync | Error, timestamp: number) {
     if (result instanceof Error) {
-      this.ctx.storage.kv.put(`user:${userId}:error`, {
-        error: result.message,
-        timestamp
-      });
+      console.error('Fetch failed:', result.message);
       return;
     }
     
-    const data = await result.json();
+    const data = result.json();
     this.ctx.storage.kv.put(`user:${userId}:data`, {
       data,
       timestamp
@@ -209,71 +181,11 @@ class MyDO extends LumenizeBase {
 
 ## Under the Hood
 
-Continuations use **operation chaining** internally—method calls are recorded as a chain of operations that can be serialized, stored, and later executed with results injected:
-
-1. **Proxy Factory**: `this.ctn()` returns a Proxy that records operations
-2. **Serialization**: The operation chain is serialized via `structured-clone`
-3. **Storage**: Stored in DO storage until the result arrives
-4. **Deserialization**: Chain is deserialized when result arrives
-5. **Execution**: Chain is executed with `$result` replaced by actual result
-
-This ensures:
-- ✅ **Type safety**: TypeScript validates the method chains
-- ✅ **Serialization**: Chains survive DO eviction/restart
-- ✅ **Consistency**: Handlers execute synchronously (no race conditions)
-- ✅ **Flexibility**: Complex flows without callback hell
-
-:::info For Power Users
-The operation chaining pattern is also exposed in [Lumenize RPC](/docs/rpc/operation-chaining-and-nesting) where it enables batching multiple client operations into a single round trip. While the user-facing API differs, the underlying serialization mechanism is shared.
-:::
-
-## Error Handling
-
-Always check for `Error` in your handlers:
-
-```typescript @skip-check
-handleResult(result: any | Error) {
-  // Guard clause pattern (recommended)
-  if (result instanceof Error) {
-    console.error('Operation failed:', result.message);
-    // Handle error, notify user, retry, etc.
-    return;
-  }
-  
-  // Success path - TypeScript knows result is not an Error here
-  this.ctx.storage.kv.put('result', result);
-}
-```
-
-:::warning Important
-If you don't check for `Error`, your handler might crash when operations fail. Always use `if (result instanceof Error)` at the start of handlers.
-:::
+Continuations use Lumenize's **operation chaining and nesting (OCAN)** See [Lumenize RPC](/docs/rpc/operation-chaining-and-nesting) for a deep dive. While the user-facing API differs, the underlying serialization mechanism is shared.
 
 ## Best Practices
 
-### ✅ Do
-
-- Check for `Error` first in every handler
-- Keep handlers synchronous (no `async` unless wrapped in `ctx.waitUntil`)
-- Use descriptive handler names
-- Chain related operations together
-- Preserve context by passing it as arguments
-
-### ❌ Don't
-
-- Don't use `async` handlers (breaks consistency)
-- Don't ignore errors (check `instanceof Error`)
-- Don't store sensitive data in continuation chains (they're serialized)
-- Don't create circular references (serialization will fail)
-
-## Next Steps
-
-- **[@lumenize/lumenize-base](/docs/lumenize-base/index)** - DO-to-DO communication with `this.lmz.call()`
-- **[@lumenize/alarms](/docs/alarms/index)** - Scheduled tasks with continuations
-- **[@lumenize/fetch](/docs/fetch/index)** - External fetches with continuations
-
-
-
-
-
-
+- ✅ Check for `Error` first in every handler
+- ✅ Use chaining and nesting so more work can be done in a single round trip
+- ✅ Preserve context by passing it as arguments
+- ❌ Don't use `async` handlers (breaks consistency model)

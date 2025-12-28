@@ -19,9 +19,7 @@ LumenizeClientGateway uses **no DO storage operations**:
 Instead, state is derived from:
 - `this.ctx.getWebSockets()` — Active WebSocket connections
 - `this.ctx.getAlarm()` — Pending reconnection grace period
-- `ws.deserializeAttachment()` — Per-connection metadata
-
-**Cost implications**: When a client disconnects (and the grace period expires), the Gateway can be evicted from memory with zero charges. Creating and destroying Gateways is essentially free.
+- `ws.deserializeAttachment()` — Per-connection context
 
 ### 1:1 Gateway-Client Relationship
 
@@ -37,218 +35,39 @@ The Gateway instance name matches the client's `instanceName` configuration.
 
 ### Transparent Proxying
 
-Gateway doesn't interpret the calls passing through it — it simply:
-1. Receives calls from the mesh
-2. Forwards them over WebSocket to the client
-3. Returns the response to the caller
+Gateway doesn't interpret the calls passing through it — it simply forwards them from the callee to the caller using Workers RPC if the callee is a Cloudflare-hosted node or using WebSockets messages if it is not. This keeps Gateway simple and allows clients to define any methods they want.
 
-This keeps Gateway simple and allows clients to define any methods they want.
+### Implications
 
-## State Machine
+- **Cost**: 
+  - **Decreases**. Charges are only incurred when actively processing messages. 
+  - **Increases**. On the other hand, the use of a Gateway increases request count charges.
+  
+- **Ephemerality**: While the same client must reconnect with the same id to preserve subscriptions, resubscribing is expected frequently and there is no downside when a new tab/browser/nodejs instance/etc. connects with a different randomly generated tabId.
+  
+- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be several hundred milliseconds, but a hop in the same data center is typically less than ten milliseconds.
+  
+- **Complexity**:
+  - **More complex**. A single client connecting to a single DO over a reconnecting WebSocket connection is simpler.
+  - **Simpler**. Having a client address look exactly like the address of other nodes in the mesh enables the simpler true-peer mental-model. Clients are not only coded like other mesh nodes, they are addressed in the same way. The upstream vs downstream distinction disappears. Moreover, once a client needs to communicate with two or more DOs, the need to maintain multiple connections erases the simplicity advantage of the single-DO use case.
 
-Gateway state is **derived**, not stored. On every wake, it checks:
+## Derived Connection State
+
+Gateway state is **derived**, not stored. On every message, it checks:
 
 | `getWebSockets()` | `getAlarm()` | State | Behavior |
 |-------------------|--------------|-------|----------|
 | Has connection | Any | **Connected** | Forward calls immediately |
 | Empty | Pending | **Grace Period** | Wait for reconnect (up to 5s) |
-| Empty | None | **Disconnected** | Reject calls with "not connected" |
-
-### State Transitions
-
-```
-                    ┌─────────────────────────────────────┐
-                    │                                     │
-                    ▼                                     │
-    ┌──────────┐   connect  ┌───────────┐   disconnect    │
-    │Disconnect│ ─────────→ │ Connected │ ────────────────┘
-    └──────────┘            └───────────┘        │
-         ▲                        │              │
-         │                        │              ▼
-         │                        │    ┌──────────────┐
-         │                        │    │ Grace Period │
-         │                        │    │   (5 sec)    │
-         │                        │    └──────────────┘
-         │                        │              │
-         │    timeout             │   reconnect  │
-         └────────────────────────┼──────────────┘
-                                  │
-                              (back to Connected)
-```
-
-## Connection Lifecycle
-
-### Client Connects
-
-```typescript
-// 1. Client initiates WebSocket connection
-const ws = new WebSocket(url, [
-  'lmz',                           // Primary protocol
-  `lmz.access-token.${jwt}`,       // Auth token (smuggled)
-  `lmz.client-id.${clientId}`      // Client identifier
-]);
-
-// 2. Gateway receives upgrade request
-async fetch(request: Request): Promise<Response> {
-  // Verify auth token from subprotocol
-  const token = extractWebSocketToken(request);
-  
-  // Accept hibernatable WebSocket
-  const pair = new WebSocketPair();
-  this.ctx.acceptWebSocket(pair[1]);
-  
-  // Store metadata in attachment (not DO storage!)
-  pair[1].serializeAttachment({
-    userId: payload.sub,
-    connectedAt: Date.now(),
-    token
-  });
-  
-  return new Response(null, {
-    status: 101,
-    headers: { 'Sec-WebSocket-Protocol': 'lmz' }
-  });
-}
-```
-
-### Client Disconnects
-
-```typescript
-async webSocketClose(ws: WebSocket, code: number, reason: string) {
-  // Set 5-second grace period alarm
-  await this.ctx.storage.setAlarm(Date.now() + 5000);
-  
-  // Note: If client reconnects before alarm, state goes back to Connected
-}
-
-async alarm() {
-  // Grace period expired — client didn't reconnect
-  // Gateway can now be evicted (no action needed)
-  // Any incoming calls will see "disconnected" state
-}
-```
-
-### Client Reconnects (Within Grace Period)
-
-```typescript
-async fetch(request: Request): Promise<Response> {
-  // ... handle WebSocket upgrade ...
-  
-  // Cancel grace period alarm if pending
-  const pendingAlarm = await this.ctx.storage.getAlarm();
-  if (pendingAlarm) {
-    await this.ctx.storage.deleteAlarm();
-  }
-  
-  // State is now "Connected" again
-}
-```
-
-## Call Handling
-
-### Outgoing Calls (Client → Mesh)
-
-```typescript
-async webSocketMessage(ws: WebSocket, message: string) {
-  const envelope = JSON.parse(message);
-  
-  if (envelope.type === '__call') {
-    // Client is making a call to a mesh node
-    const { binding, instance, chain, callId } = envelope;
-    
-    try {
-      // Forward to target DO/Worker
-      const result = await this.lmz.callRaw(binding, instance, chain);
-      
-      // Send response back to client
-      ws.send(JSON.stringify({
-        type: '__response',
-        callId,
-        success: true,
-        result
-      }));
-    } catch (error) {
-      ws.send(JSON.stringify({
-        type: '__response',
-        callId,
-        success: false,
-        error: serializeError(error)
-      }));
-    }
-  }
-}
-```
-
-### Incoming Calls (Mesh → Client)
-
-```typescript
-// Called by mesh nodes via: this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)
-async __executeOperation(envelope: CallEnvelope): Promise<any> {
-  const ws = this.ctx.getWebSockets()[0];
-  
-  if (!ws) {
-    // Check if in grace period
-    const alarm = await this.ctx.storage.getAlarm();
-    if (alarm) {
-      // Wait for reconnect (with timeout)
-      await this.#waitForReconnect();
-      // Retry getting WebSocket
-      const ws = this.ctx.getWebSockets()[0];
-      if (!ws) {
-        throw new Error('Client did not reconnect in time');
-      }
-    } else {
-      throw new Error('Client not connected');
-    }
-  }
-  
-  // Forward to client and await response
-  return await this.#forwardToClient(ws, envelope);
-}
-
-async #forwardToClient(ws: WebSocket, envelope: CallEnvelope): Promise<any> {
-  const callId = crypto.randomUUID();
-  
-  // Send call to client
-  ws.send(JSON.stringify({
-    type: '__incomingCall',
-    callId,
-    chain: envelope.chain
-  }));
-  
-  // Wait for response (with timeout)
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Client call timed out'));
-    }, 30000);
-    
-    // Response handling via webSocketMessage
-    this.#pendingCalls.set(callId, { resolve, reject, timeout });
-  });
-}
-```
+| Empty | None | **Disconnected** | Reject calls with `ClientDisconnectedError` |
 
 ## WebSocket Attachments
 
-Attachments store per-connection metadata **without using DO storage**:
+Attachments store per-connection context **without using DO storage**. When a client connects, the Gateway verifies their JWT and stores the identity (userId, claims) in an attachment associated with the hibernatable WebSocket.
 
-```typescript
-// When accepting connection
-ws.serializeAttachment({
-  userId: 'user-123',
-  connectedAt: Date.now(),
-  token: jwt,
-  tokenExp: payload.exp
-});
-
-// When handling messages
-const attachment = ws.deserializeAttachment();
-if (attachment.tokenExp < Date.now() / 1000) {
-  ws.close(4401, 'Token expired');
-}
-```
-
-Attachments persist across DO hibernation — when the DO wakes up, you can read the attachment from any active WebSocket.
+This mechanism ensures:
+- **Hibernation Safety**: Attachments persist across DO hibernation. When the DO wakes up to handle a message, it can immediately access the verified identity from the active WebSocket.
+- **Zero Storage Cost**: No KV or SQL operations are needed to maintain connection state.
 
 ## Why Not Extend LumenizeDO?
 
@@ -265,57 +84,25 @@ For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `D
 
 ### Client Not Connected
 
-```typescript
-// From DocumentDO trying to notify a disconnected collaborator:
-notifyCollaborators(change: DocumentChange) {
-  for (const clientId of this.getConnectedClients()) {
-    try {
-      this.lmz.call(
-        'LUMENIZE_CLIENT_GATEWAY',
-        clientId,
-        this.ctn<EditorClient>().handleDocumentChange(change)
-      );
-    } catch (error) {
-      if (error.message === 'Client not connected') {
-        // Remove from collaborators list
-        this.removeClient(clientId);
-      }
-    }
-  }
-}
-```
+If a mesh node attempts to call a client that is disconnected (and its grace period has expired), the caller receives a `ClientDisconnectedError`.
 
 ### Client Call Timeout
 
-Gateway enforces a 30-second timeout for client responses. If the client doesn't respond in time, the calling mesh node receives an error.
+While other mesh nodes can take longer to respond to a call, the Gateway enforces a 30-second timeout for client responses. If the client doesn't respond in time, the connection is closed and a `ClientDisconnectedError` is returned to the caller.
 
 ### Token Expiration
 
-Gateway can verify token expiration on each incoming message using the stored `tokenExp` in the WebSocket attachment:
+Gateway verifies token expiration on each incoming message using the stored `tokenExp` in the WebSocket attachment. If the token is expired, the connection is closed with a `4401` code and 'Token expired' message.
 
-```typescript
-async webSocketMessage(ws: WebSocket, message: string) {
-  const attachment = ws.deserializeAttachment();
-  
-  // Check if token expired
-  if (attachment.tokenExp && attachment.tokenExp < Date.now() / 1000) {
-    ws.close(4401, 'Token expired');
-    return;
-  }
-  
-  // Process message...
-}
-```
+### Resubscribing
 
-## Trust Boundary {#trust-boundary}
+When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates.
 
-The Gateway is the **trust boundary** between untrusted clients and the trusted mesh. Clients cannot fake their identity because the Gateway controls what goes into `callContext`.
+## Trust Boundary
 
-### Key Principle
+The Gateway is the **trust boundary** between untrusted clients and the trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
 
-> **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
-
-The Gateway already knows who the client is from the JWT verified at connection time.
+This ensures that `callContext.originAuth` in downstream nodes always reflects the **actual authenticated user**, not whatever the client claimed.
 
 ### What's Controlled Where
 
@@ -325,70 +112,8 @@ The Gateway already knows who the client is from the JWT verified at connection 
 | Target binding/instance | Their claims/permissions |
 | Method arguments | `originAuth` |
 
-### Implementation
+### Key Principle
 
-When forwarding a client's call to the mesh, the Gateway builds `callContext` from **verified sources only**:
+> **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
 
-```typescript
-async webSocketMessage(ws: WebSocket, message: string) {
-  const msg = JSON.parse(message);
-  
-  if (msg.type === '__call') {
-    // From client message: ONLY the continuation (what to call)
-    const { binding, instance, chain, callId } = msg;
-    
-    // From WebSocket attachment: verified identity (set at connection time)
-    const attachment = ws.deserializeAttachment();
-    
-    // Build callContext from VERIFIED sources, not from message!
-    const clientNode = {
-      type: 'LumenizeClient',
-      instanceNameOrId: attachment.verifiedInstanceName  // From JWT
-    };
-    
-    const originAuth = {
-      userId: attachment.verifiedUserId,    // From JWT
-      claims: attachment.verifiedClaims,    // From JWT
-    };
-    
-    // Even if the client sent fake originAuth in msg, we ignore it
-    // and use only the verified data from the attachment
-  }
-}
-```
-
-### Why This Matters
-
-A malicious client might send:
-
-```json
-{
-  "type": "__call",
-  "originAuth": { "userId": "admin", "claims": { "isAdmin": true } },
-  "fakeIdentity": "someone-else",
-  "chain": [...]
-}
-```
-
-The Gateway ignores all identity fields and uses only:
-1. The continuation (`chain`) — what to call
-2. Verified identity from WebSocket attachment — who's calling
-
-This ensures that `callContext.originAuth` in downstream nodes always reflects the **actual authenticated user**, not whatever the client claimed.
-
-## Cost Analysis
-
-| Scenario | Storage Cost | Compute Cost |
-|----------|--------------|--------------|
-| Client connected, idle | None | Hibernation only |
-| Client connected, active | None | Message handling |
-| Client disconnected (grace period) | Alarm only* | None |
-| Client disconnected (expired) | None | None |
-
-*Alarms use Cloudflare's alarm system, not DO SQLite — minimal/no additional charges.
-
-## Next Steps
-
-- [Client API Reference](./client-api) — LumenizeClient API documentation
-- [Auth Integration](./auth-integration) — Token handling patterns
-
+The Gateway already knows who the client is from the JWT verified at connection time.

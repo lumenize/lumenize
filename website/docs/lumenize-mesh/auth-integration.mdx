@@ -10,29 +10,27 @@ LumenizeClient integrates with `@lumenize/auth` for seamless JWT authentication 
 ## How It Works
 
 ### Token Delivery via Subprotocol
-
-Browsers don't allow custom headers on WebSocket connections. LumenizeClient uses the WebSocket subprotocol mechanism to pass JWT tokens:
+Browsers don't allow custom headers on WebSocket connections. `LumenizeClient` uses the WebSocket subprotocol mechanism to pass JWT tokens securely:
 
 ```
 Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
 ```
 
 The server:
-1. Extracts the token from the `lmz.access-token.{jwt}` protocol
-2. Verifies the JWT signature and expiration
-3. Accepts with `Sec-WebSocket-Protocol: lmz` (the primary protocol)
-4. Stores token metadata in WebSocket attachment for per-message verification
+1. Extracts the token from the `lmz.access-token.{jwt}` protocol.
+2. Verifies the JWT signature and expiration.
+3. Accepts with `Sec-WebSocket-Protocol: lmz` (the primary protocol).
 
 ### Token Lifetime
+- **Access tokens**: Short-lived (e.g., 15 minutes), passed with every connection attempt.
+- **Refresh tokens**: Long-lived (e.g., 30 days), stored securely in HTTP-only cookies, used to obtain new access tokens.
 
-- **Access tokens**: 15 minutes (short-lived, passed with every connection)
-- **Refresh tokens**: 30 days (stored securely, used to get new access tokens)
+---
 
-## Basic Setup
+## Configuration
 
 ### Client Configuration
-
-Using the document editing example from the overview:
+Authentication is configured during client instantiation.
 
 ```typescript
 import { LumenizeClient } from '@lumenize/mesh';
@@ -46,30 +44,27 @@ class EditorClient extends LumenizeClient {
 
 using client = new EditorClient({
   baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${getTabId()}`,
+  instanceName: `${userId}.${tabId}`,
   
   // Initial access token
   accessToken: accessToken,
   
-  // Token refresh handled automatically!
-  // Client parses JWT expiry, refreshes ~30s before expiration
-  // using HTTP-only refresh token cookie
-  refreshEndpoint: '/auth/refresh-token'  // This is the default
+  // Token refresh is automatic!
+  // Client parses JWT expiry and refreshes ~30s before expiration.
+  refreshEndpoint: '/auth/refresh-token'  // Default
 });
 ```
 
 ### Server Configuration
-
-Use `createWebSocketAuthMiddleware` in your Worker:
+Use `createWebSocketAuthMiddleware` in your Worker's `fetch` handler:
 
 ```typescript
 import { createWebSocketAuthMiddleware } from '@lumenize/auth';
-import { routeDORequest } from '@lumenize/utils';
 
 export default {
   async fetch(request: Request, env: Env) {
     const wsAuthMiddleware = await createWebSocketAuthMiddleware({
-      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
+      publicKeysPem: [env.JWT_PUBLIC_KEY]
     });
     
     return routeDORequest(request, env, {
@@ -80,743 +75,110 @@ export default {
 };
 ```
 
+---
+
 ## Token Refresh Flow
 
-Token refresh is **automatic** — LumenizeClient handles it internally:
+The `LumenizeClient` handles token refresh **automatically** without any callbacks or manual intervention:
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│                                                               │
-│   Client                    Server                            │
-│     │                          │                              │
-│     │  Connect with token      │                              │
-│     ├─────────────────────────→│                              │
-│     │                          │ Verify JWT                   │
-│     │         Connected        │                              │
-│     │←─────────────────────────┤                              │
-│     │                          │                              │
-│     │     ... 14 minutes ...   │                              │
-│     │                          │                              │
-│     │ (internal: token expiring soon)                         │
-│     │                          │                              │
-│     │  POST /auth/refresh-token (with cookie)                 │
-│     ├─────────────────────────→│                              │
-│     │          new accessToken │                              │
-│     │←─────────────────────────┤                              │
-│     │                          │                              │
-│     │ (internal: update token) │                              │
-│     │                          │                              │
-│     │     ... continues ...    │                              │
-│                                                               │
-└───────────────────────────────────────────────────────────────┘
-```
+1.  **Monitor**: It parses the initial JWT to determine expiration.
+2.  **Timer**: It sets an internal timer for ~30 seconds before expiry.
+3.  **Refresh**: It makes an HTTP POST to the `refreshEndpoint` with `credentials: 'include'`.
+4.  **Update**: It updates the internal token for future reconnection attempts and continues the session.
 
-No callback needed — the client:
-1. Parses JWT to determine expiration time
-2. Sets internal timer for ~30 seconds before expiry
-3. Makes HTTP POST to `refreshEndpoint` with `credentials: 'include'`
-4. Updates internal token and continues
+If the automatic refresh fails (e.g., because the refresh token cookie has expired), the client fires `onConnectionError` with a 401 error.
 
-## Gateway Token Verification
-
-LumenizeClientGateway verifies tokens in two places:
-
-### 1. On Connection (via Middleware)
-
-```typescript
-// Worker routes to Gateway with verified auth context
-onBeforeConnect: async (request, context) => {
-  const result = await wsAuthMiddleware(request, context);
-  // Returns enhanced request with X-Auth-User-Id header
-  return result;
-}
-```
-
-### 2. On Each Message (via Attachment)
-
-```typescript
-// In LumenizeClientGateway
-async webSocketMessage(ws: WebSocket, message: string) {
-  const attachment = ws.deserializeAttachment();
-  
-  // Check if token has expired
-  if (attachment.tokenExp && attachment.tokenExp < Date.now() / 1000) {
-    ws.close(4401, 'Token expired');
-    return;
-  }
-  
-  // Process message...
-}
-```
-
-## Token Storage
-
-### Access Token
-
-Stored in memory (private field). Never persisted to localStorage or cookies. Managed automatically by LumenizeClient.
-
-```typescript
-// Inside LumenizeClient (internal)
-#accessToken: string | null = null;
-// Updated automatically during refresh
-```
-
-### Refresh Token
-
-Use HTTP-only cookies (recommended):
-
-```typescript
-// Login response sets cookie
-Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict; Path=/auth
-
-// Client refresh request includes cookie automatically
-fetch('/auth/refresh-token', {
-  method: 'POST',
-  credentials: 'include'
-});
-```
+---
 
 ## Error Handling
 
-### Token Expired During Connection
+### Token Expiration
+There are two scenarios for expiration:
+
+1.  **At Connection Time**: If the provided `accessToken` is already expired or invalid, `onConnectionError` fires immediately.
+2.  **During an Active Session**: If the Gateway detects that the token has expired, it closes the WebSocket with code `4401`. The client will automatically attempt to refresh and reconnect.
+
+### Auth Close Codes
+The Gateway uses standard close codes to signal authentication issues:
+
+| Code | Meaning | Recommended Action |
+|------|---------|--------------------|
+| `4400` | No token provided | Redirect to login |
+| `4401` | Token expired | Refresh and reconnect (automatic) |
+| `4403` | Invalid token/signature | Redirect to login |
+
+---
+
+## Security Best Practices
+
+### 1. Token Storage
+*   **Access Token**: Keep in memory only. `LumenizeClient` stores this in a private field. Never store access tokens in `localStorage`.
+*   **Refresh Token**: Use **HTTP-only, Secure, SameSite=Strict** cookies. This protects the session from XSS attacks.
+
+### 2. URL Safety
+Never pass tokens in WebSocket URLs (e.g., `wss://app.com?token=...`). URLs are often logged by proxies and servers. Always use the subprotocol mechanism.
+
+### 3. Identity Validation
+The Gateway automatically validates that the user ID in the JWT matches the `instanceName` prefix to prevent impersonation. This means a user with ID `user-123` cannot connect to a Gateway DO named `user-456.tab-1`.
+
+---
+## Authentication in the Mesh
+
+Once authenticated, your identity is automatically propagated to every node you call.
+
+### `originAuth`
+Mesh nodes receive your identity through the `this.lmz.callContext.originAuth` property. This contains the `userId` and any `claims` you included in the JWT.
 
 ```typescript
-client.onConnectionError = (error) => {
-  if (error.message.includes('401')) {
-    // Token was invalid/expired at connection time
-    redirectToLogin();
-  }
-};
-```
-
-### Token Expires During Session
-
-The Gateway closes the WebSocket with code `4401`:
-
-```typescript
-client.onConnectionStateChange = (state) => {
-  if (state === 'disconnected') {
-    // Check if we were kicked due to auth
-    // The close event will have code 4401
-  }
-};
-
-// Or handle via WebSocket close event
-ws.onclose = (event) => {
-  if (event.code === 4401) {
-    // Token expired - try to refresh and reconnect
-    refreshAndReconnect();
-  }
-};
-```
-
-### Refresh Token Expired
-
-When the refresh token expires, the automatic refresh will fail with a 401. Handle this via `onConnectionError`:
-
-```typescript
-class MyClient extends LumenizeClient {
-  // ... handler methods
-}
-
-const client = new MyClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  onConnectionError: (error) => {
-    if (error.message.includes('401') || error.message.includes('Session expired')) {
-      // Refresh token expired - must re-authenticate
-      redirectToLogin();
-    }
-  }
-});
-```
-
-The client will automatically attempt refresh and surface the error if it fails.
-
-## WebSocket Close Codes
-
-LumenizeClientGateway uses custom close codes for auth errors:
-
-| Code | Meaning | Client Action |
-|------|---------|---------------|
-| `4400` | No token | Redirect to login |
-| `4401` | Token expired | Refresh and reconnect |
-| `4403` | Invalid token | Redirect to login |
-
-```typescript
-import { WS_CLOSE_CODES } from '@lumenize/auth';
-
-// WS_CLOSE_CODES.TOKEN_EXPIRED === 4401
-// WS_CLOSE_CODES.UNAUTHORIZED === 4403
-// WS_CLOSE_CODES.NO_TOKEN === 4400
-```
-
-## Security Considerations
-
-### Token in URL (Avoid)
-
-Never put tokens in WebSocket URLs:
-
-```typescript
-// ❌ BAD - Token in URL, logged everywhere
-const ws = new WebSocket(`wss://app.com/gateway?token=${jwt}`);
-
-// ✅ GOOD - Token in subprotocol, not logged
-const ws = new WebSocket(url, ['lmz', `lmz.access-token.${jwt}`]);
-```
-
-### Token Storage (Client-Side)
-
-```typescript
-// ❌ BAD - Accessible to XSS
-localStorage.setItem('accessToken', jwt);
-
-// ✅ GOOD - Memory only, not accessible to XSS
-let accessToken = jwt; // Closure variable
-```
-
-### Gateway Identity Validation
-
-The Gateway instance name should include the user ID to prevent impersonation:
-
-```typescript
-// Instance name format: userId.tabId
-const instanceName = `${userId}.${tabId}`;
-
-// Gateway can verify caller matches instance
-async fetch(request: Request) {
-  const authUserId = request.headers.get('X-Auth-User-Id');
-  const instanceUserId = this.lmz.instanceName?.split('.')[0];
-  
-  if (authUserId !== instanceUserId) {
-    return new Response('Unauthorized', { status: 403 });
-  }
+// Inside a server-side DO
+@mesh
+update(data: any) {
+  const { userId, claims } = this.lmz.callContext.originAuth;
+  if (!claims.canEdit) throw new Error("Unauthorized");
   // ...
 }
 ```
 
-## Complete Example
+See the [Mesh Overview: Zero Trust](./index#zero-trust) for details on propagation and access control.
 
-Using the document editing example:
+---
+
+## Complete Example
 
 ```typescript
 // editor-auth.ts
-import { LumenizeClient } from '@lumenize/mesh';
+import { LumenizeClient, mesh } from '@lumenize/mesh';
 
-// Define the editor client with handlers
 class EditorClient extends LumenizeClient {
-  editor: EditorInstance;
-  documentId: string;
-  
   @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
   }
-  
-  // Re-subscribe after grace period expires
+
   onSubscriptionsLost = () => {
     this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
   };
 }
 
-// App state
-let client: EditorClient | null = null;
-let userId = '';
-
-export async function login(email: string): Promise<void> {
-  // Request magic link
-  await fetch('/auth/email-magic-link', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email })
-  });
-}
-
-export async function handleMagicLinkCallback(token: string): Promise<void> {
-  // Exchange magic link for tokens
-  const response = await fetch(`/auth/magic-link?token=${token}`);
-  const { accessToken, user } = await response.json();
-  
-  userId = user.id;
-  
-  // Create authenticated editor client
-  // Token refresh is automatic via HTTP-only cookie!
-  client = new EditorClient({
+export async function initApp(accessToken: string, userId: string) {
+  using client = new EditorClient({
     baseUrl: 'wss://app.example.com',
     instanceName: `${userId}.${getTabId()}`,
     accessToken,
-    // refreshEndpoint: '/auth/refresh-token'  // default
-    
     onConnectionError: (error) => {
-      if (error.message.includes('401') || error.message.includes('Session expired')) {
-        logout();
+      if (error.message.includes('401')) {
+        window.location.href = '/login';
       }
     }
   });
+
+  // Mesh calls are now authenticated
+  client.lmz.call('DOCUMENT_DO', 'doc-1', client.ctn<DocumentDO>().subscribe());
 }
-
-export async function openDocument(documentId: string): Promise<void> {
-  if (!client) throw new Error('Not authenticated');
-  
-  client.documentId = documentId;
-  
-  // Subscribe to document updates
-  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().subscribe());
-}
-
-export async function logout(): Promise<void> {
-  // Disconnect client
-  client?.disconnect();
-  client = null;
-  
-  // Clear server session
-  await fetch('/auth/logout', {
-    method: 'POST',
-    credentials: 'include'
-  });
-  
-  userId = '';
-  window.location.href = '/login';
-}
-
-function getTabId(): string {
-  let tabId = sessionStorage.getItem('tabId');
-  if (!tabId) {
-    tabId = crypto.randomUUID();
-    sessionStorage.setItem('tabId', tabId);
-  }
-  return tabId;
-}
-```
-
-## Call Context Propagation {#call-context}
-
-In a zero-trust mesh, every node must be able to verify who originated a request — not just who made the immediate call. Lumenize propagates authentication context through the entire call chain.
-
-### The Problem
-
-When DocumentDO calls SpellCheckWorker, SpellCheckWorker needs to know:
-- **Immediate caller**: DocumentDO (for routing responses)
-- **Original auth**: Alice's credentials (for access control)
-
-Without propagation, SpellCheckWorker would only see DocumentDO as the caller and couldn't verify Alice's permissions.
-
-### The Solution: `this.lmz.callContext`
-
-Every mesh node can access `this.lmz.callContext` during method execution:
-
-```typescript
-type CallChainNode = {
-  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient' | 'LumenizeClientGateway';
-  bindingName?: string;
-  instanceNameOrId?: string;
-};
-
-interface CallContext {
-  // Full call chain: [origin, ..., priorCaller, caller]
-  // Each hop appends itself to the chain
-  readonly callChain: CallChainNode[];
-  
-  // This node (receiving the call)
-  readonly callee: CallChainNode;
-  
-  // Propagated from origin (preserved through entire chain)
-  readonly originAuth?: {
-    userId?: string;
-    sessionId?: string;
-    claims?: Record<string, any>;
-  };
-
-  /**
-   * Local request state.
-   * Use this mutable object to share data between onBeforeCall, 
-   * @mesh handlers, and method bodies.
-   * Not propagated to outgoing mesh calls.
-   */
-  state: Record<string, any>;
-  
-  // Convenience getters (computed from callChain)
-  get origin(): CallChainNode;      // callChain[0] - who started this
-  get caller(): CallChainNode;      // callChain.at(-1) - immediate caller
-  get priorCaller(): CallChainNode | undefined;  // callChain.at(-2)
-}
-```
-
-**Common access patterns:**
-```typescript
-const ctx = this.lmz.callContext;
-
-ctx.origin          // Who started this call chain?
-ctx.caller          // Who just called me?
-ctx.originAuth      // What are the original user's credentials?
-
-// Advanced: full chain for debugging/auditing
-ctx.callChain       // [Gateway, DocumentDO, SpellCheckWorker]
-
-// Circuit detection (prevent infinite loops)
-ctx.callChain.some(n => n.instanceNameOrId === this.lmz.instanceNameOrId)
-```
-
-### How It Works
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ 1. Client calls DocumentDO via Gateway                               │
-│    Envelope: { callChain: [Gateway], callee: DocumentDO, originAuth }│
-└──────────────────────────────────────────────────────────────────────┘
-                                   ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│ 2. DocumentDO.update() executes                                      │
-│    ctx.origin === Gateway ✓                                          │
-│    ctx.caller === Gateway ✓ (same as origin on first hop)            │
-│    ctx.originAuth.userId === 'alice' ✓                               │
-│    Makes sub-call to SpellCheckWorker...                             │
-└──────────────────────────────────────────────────────────────────────┘
-                                   ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│ 3. this.lmz.callRaw() appends self to callChain                      │
-│    Envelope: { callChain: [Gateway, DocumentDO], callee: SpellCheck }│
-└──────────────────────────────────────────────────────────────────────┘
-                                   ↓
-┌──────────────────────────────────────────────────────────────────────┐
-│ 4. SpellCheckWorker.check() executes                                 │
-│    ctx.origin === Gateway ✓                                          │
-│    ctx.caller === DocumentDO ✓                                       │
-│    ctx.priorCaller === Gateway ✓                                     │
-│    ctx.callChain === [Gateway, DocumentDO] ✓                         │
-│    ctx.originAuth.userId === 'alice' ✓                               │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-### Usage Example
-
-```typescript
-class SpellCheckWorker extends LumenizeWorker {
-  async check(content: string): Promise<SpellError[]> {
-    const ctx = this.lmz.callContext;
-    
-    // Verify original user has permission (not just immediate caller)
-    if (!ctx?.originAuth?.claims?.canSpellCheck) {
-      throw new Error('User not authorized for spell check');
-    }
-    
-    // Log for audit trail
-    console.log(`Spell check requested by ${ctx.originAuth.userId}`);
-    console.log(`Called via ${ctx.caller.bindingName}/${ctx.caller.instanceNameOrId}`);
-    console.log(`Full call path: ${ctx.callChain.map(n => n.bindingName).join(' → ')}`);
-    
-    // Proceed with spell check...
-    const response = await fetch('https://api.spellcheck.example/check', {
-      method: 'POST',
-      body: JSON.stringify({ text: content })
-    });
-    return response.json();
-  }
-}
-```
-
-### Race Safety
-
-Multiple concurrent requests to the same DO instance could interleave at `await` points. Lumenize uses `AsyncLocalStorage` internally to ensure each request sees its own `callContext` — even when requests overlap:
-
-```
-Request A arrives → sets context A
-Request A awaits  → yields
-Request B arrives → sets context B
-Request A resumes → still sees context A ✓ (not B!)
-```
-
-This is handled automatically — you just access `this.lmz.callContext` and get the correct context for your request.
-
-### Security: Immutable & Trust Model
-
-**callContext wire-data is frozen (immutable)**
-
-To prevent accidental modification of the call context, the core fields (`callChain`, `callee`, `originAuth`) are deep-frozen when created.
-
-**Local state is mutable**
-
-Use `callContext.state` as a scratchpad for the duration of the request. This allows `onBeforeCall` to calculate data once and share it with downstream handlers and methods.
-
-```typescript
-// Inside onBeforeCall
-callContext.state.user = await this.db.users.get(callContext.originAuth.userId);
-
-// Inside @mesh handler
-if (!callContext.state.user.isActive) throw new Error('User inactive');
-```
-
-**Trust model**
-
-Lumenize Mesh operates on a **trusted node** model:
-
-| What's Trusted | What's Verified |
-|----------------|-----------------|
-| Nodes in your mesh (your code) | Token signatures at gateway entry |
-| callContext propagation | Nothing after initial auth* |
-
-*For high-security scenarios where you don't fully trust intermediate nodes, use signed tokens:
-
-```typescript
-interface CallContext {
-  // ... callChain, callee ...
-  
-  originAuthToken?: string;  // Signed JWT - verifiable by any node
-  originAuth?: { ... };       // Parsed claims (convenience cache)
-}
-```
-
-Then verify independently:
-
-```typescript
-class SensitiveDO extends LumenizeDO {
-  transferFunds(amount: number) {
-    const ctx = this.lmz.callContext;
-    
-    // Don't trust parsed claims alone - verify the token!
-    const verified = await verifyJWT(ctx.originAuthToken, this.env.JWT_PUBLIC_KEY);
-    if (!verified.claims.canTransfer) {
-      throw new Error('Not authorized for transfers');
-    }
-    // ... proceed
-  }
-}
-```
-
-**When to verify tokens independently:**
-- Calling untrusted components (service bindings, user-provided components, etc.)
-- Whenever you want extra security:
-  - Cross-tenant operations
-  - Financial scenarios
-  - Etc.
-
-For most operations, the frozen `originAuth` from a trusted mesh is sufficient.
-
-## Access Control {#access-control}
-
-Lumenize provides a **secure-by-default** defense-in-depth security model with multiple layers of protection.
-
-### RPC Security Model
-
-Incoming RPC calls are validated **before** any code executes:
-
-**1. Capability-Based Trust (Automatic)**
-
-Lumenize Mesh uses a **Trusted Return** model. The first method in a chain must be authorized via `@mesh`. Once authorized, the caller is granted access to the **entire public interface** (methods and properties) of the returned object for the remainder of that chain.
-
-**Important Nuance: Chaining vs. Nesting**
-
-*   **Chaining** (`this.ctn().a().b()`): Only `a()` is checked for `@mesh`. `b()` is trusted as a return of `a()`.
-*   **Nesting** (`this.ctn().a(this.ctn().b())`): Both `a()` and `b()` are checked for `@mesh` because they are both top-level calls on `this`.
-
-```typescript
-// ✅ Allowed: chaining methods and properties
-// 1. getAuthorInfo() is authorized via @mesh
-// 2. The returned 'AuthorInfo' object is fully trusted for this chain
-this.ctn<DocumentDO>().getAuthorInfo().author.name
-
-// ✅ Allowed: nested method calls
-// BOTH multiply() and add() must have @mesh decorators.
-this.ctn<Calculator>().multiply(this.ctn().add(2, 3), 10)
-
-// ⚠️ Use #private for true security
-// The Mesh only blocks true JavaScript private members (#).
-// Public members (including those starting with _ or __) 
-// are accessible if an object is returned.
-this.ctn<DocumentDO>().getInternalContext()._dangerZone() // Accessible!
-```
-
-**True Privacy vs. Convention:**
-
-| Prefix | Meaning | Mesh Access | Security |
-|--------|---------|-------------|----------|
-| `method()` | Public | ✅ Allowed | None (Public API) |
-| `_method()` | Internal | ✅ Allowed | **Soft** (Convention only) |
-| `__method()`| Framework| ✅ Allowed | **Soft** (Convention only) |
-| `#method()` | Private | ❌ Blocked | **Hard** (Runtime enforced) |
-
-### Entry Points vs. Handlers {#entry-points-vs-handlers}
-
-**Method naming convention:**
-
-| Prefix | Meaning | Spontaneous (API) | Callback (Handler) | Local Access |
-|--------|---------|-------------------|-------------------|--------------|
-| `method()` | Public | ✅ If `@mesh` | ✅ Always | ✅ Yes |
-| `_method()` | Internal | ❌ Blocked | ✅ Always | ✅ Yes |
-| `__method()` | Framework | ❌ Blocked | ✅ Always | ✅ Yes |
-| `#method()` | Private | ❌ Blocked | ❌ Blocked | ❌ No |
-
-### Layers of Access Control
-
-After a call passes automatic validation, two optional hooks provide fine-grained control:
-
-| Layer | Mechanism | Scope | Best For |
-|-------|-----------|-------|----------|
-| **1. Class-wide** | `onBeforeCall()` method | All methods | WHO can call (auth, audit, rate limiting). |
-| **2. Method Exposure** | `@mesh(handler?)` decorator | Single method | **Required**. Opt-in to expose method **and** optionally run per-method auth. |
-
-### Execution Flow
-
-```
-Incoming RPC Call
-        ↓
-┌─────────────────────────────┐
-│ 1. Chain Validation         │ ← Automatic (method calls only)
-└─────────────────────────────┘
-        ↓ (reject if invalid)
-┌─────────────────────────────┐
-│ 2. Class-level onBeforeCall │ ← Optional (hook on your class)
-│    - Authentication check   │
-│    - Audit logging          │
-└─────────────────────────────┘
-        ↓ (reject if throws)
-┌─────────────────────────────┐
-│ 3. Entry Point Check (@mesh)│ ← Required for the FIRST method
-│    - @mesh(handler) check   │ ← Optional per-method auth
-└─────────────────────────────┘
-        ↓ (reject if not decorated or handler throws)
-┌─────────────────────────────┐
-│ 4. Execute Chain            │ ← Sub-methods are trusted returns
-└─────────────────────────────┘
-```
-
-### Class-Level `onBeforeCall` Hook
-
-Override this method for class-wide policies (the "WHO" check):
-
-```typescript
-class DocumentDO extends LumenizeDO {
-  /**
-   * Called before any RPC method executes.
-   * Throw to reject; return to allow.
-   */
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext); // Maintain base restrictions
-    
-    // Require authentication for all methods
-    if (!callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-  }
-  
-  @mesh
-  getContent(): string { ... }
-}
-```
-
-### Method-Level `@mesh(handler)` Decorator
-
-Use the decorator parameter for per-method policies (the "WHAT" check):
-
-```typescript
-import { LumenizeDO, mesh } from '@lumenize/mesh';
-
-class DocumentDO extends LumenizeDO {
-  // Class-level: all callers must be authenticated
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
-    
-    if (!callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-  }
-  
-  // ✅ Exposed + Permission check
-  @mesh((callContext, methodName, args) => {
-    if (!callContext.originAuth?.claims?.canEdit) {
-      throw new Error('Edit permission required');
-    }
-  })
-  update(changes: DocumentChange) {
-    this.applyChanges(changes);
-  }
-  
-  // ✅ Exposed + Class-level auth only
-  @mesh
-  getContent(): string {
-    return this.#content;
-  }
-}
-```
-
-### Decorator Signature
-
-```typescript
-/**
- * Method-level mesh exposure and access control.
- * 
- * @param handler - (Optional) Called before method execution
- *   - callContext: Full call context (origin, caller, originAuth, callChain)
- *   - methodName: Name of the method being called
- *   - args: Arguments passed to the method
- *   - Throw to reject; return to allow
- */
-function mesh(
-  handler?: (callContext: CallContext, methodName: string, args: any[]) => void | Promise<void>
-): MethodDecorator;
-```
-
-### Complete Example
-
-```typescript
-import { LumenizeDO, mesh } from '@lumenize/mesh';
-
-class DocumentDO extends LumenizeDO {
-  // === Class-level: WHO can call ===
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
-    
-    // All callers must be authenticated
-    if (!callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-  }
-  
-  // === Method-level: WHAT they can do ===
-  
-  // Editors can update
-  @mesh((ctx) => {
-    if (!ctx.originAuth?.claims?.canEdit) {
-      throw new Error('Edit permission required');
-    }
-  })
-  update(changes: DocumentChange) {
-    this.applyChanges(changes);
-  }
-  
-  // Anyone authenticated can read
-  @mesh
-  getContent(): string {
-    return this.#content;
-  }
-  
-  // Only admins can delete
-  @mesh((ctx) => {
-    if (!ctx.originAuth?.claims?.isAdmin) {
-      throw new Error('Admin access required');
-    }
-  })
-  delete() {
-    this.ctx.storage.deleteAll();
-  }
-}
-```
-
-### Automatic vs Manual Propagation
-
-**Automatic**: When you call `this.lmz.call()` or `this.lmz.callRaw()` from inside a method handler, the outgoing envelope includes the full `callContext` — caller (this node), callee (target), and `originAuth` (propagated from current context).
-
-**Manual override**: If you need to make a call with different auth (e.g., service-to-service with elevated privileges), you can override:
-
-```typescript
-this.lmz.call('TARGET_DO', 'instance', chain, handler, {
-  overrideAuth: { claims: { isServiceCall: true } }
-});
 ```
 
 ## Next Steps
 
+- [Mesh Overview](./index) — Concepts and `CallContext` details
 - [Client API Reference](./client-api) — Complete API documentation
-- [Gateway Internals](./gateway) — How LumenizeClientGateway works
-- [@lumenize/auth](/docs/auth) — Server-side authentication
-
+- [Gateway Internals](./gateway) — Architecture and trust boundaries

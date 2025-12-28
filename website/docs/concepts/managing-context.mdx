@@ -72,7 +72,7 @@ handleResult(result: any | Error, startTime: number) {
 | **Best For** | Auth, Identity, Trace IDs | Business IDs, Timestamps, Retry counts |
 | **Type Safety** | ❌ Runtime access (`any`) | ✅ Compile-time typed |
 | **Explicitness** | ❌ Implicit/Global | ✅ Explicit/Parameters |
-| **Hibernation** | ❌ **Lost** on DO restart | ⚠️ **Only if** using a persisted service |
+| **Hibernation** | ✅ **Automatic** (captured in continuations) | ✅ **Automatic** (serialized with continuation) |
 | **DO Consistency**| ⚠️ Risk if handlers use `await` | ✅ Safe (encourages sync handlers) |
 
 ---
@@ -81,44 +81,43 @@ handleResult(result: any | Error, startTime: number) {
 
 Durable Objects can hibernate (evict from memory) at any time, especially during long-running asynchronous operations like the **"Two One-Way Call"** pattern used in `@lumenize/fetch`.
 
-### The Hibernation Rule
-*   **`this.lmz.callContext`** is in-memory only. It is lost if the DO hibernates.
-*   **`this.lmz.call()`** by default is also lost if the DO hibernates while waiting for a response.
-*   **Continuations** are just objects. They are only "hibernation-safe" if they are used with a service that explicitly persists them to storage (like `@lumenize/alarms`).
+### Automatic Context Preservation
 
-### How to Persist Context
-If you are building a long-running process that must survive hibernation (e.g., waiting for a multi-minute download or a human approval), you should use the **explicit persistence** pattern:
-
-1.  **Capture the context** as an argument in your continuation.
-2.  **Use a persisted service** like `@lumenize/alarms` to "park" the continuation in storage.
+Lumenize **automatically captures `callContext`** when you create a continuation. When the continuation executes (even after hibernation), the context is restored before your handler runs.
 
 ```typescript
-// 1. Capture the callContext in the continuation.
-// Passing it to svc.alarms.schedule stores the entire chain 
-// (including arguments) in the DO's SQL storage.
-this.svc.alarms.schedule(
-  60, // delay in seconds
-  this.ctn().handleCompletion(this.lmz.callContext) 
+// You write this - no manual context capture needed!
+this.lmz.call(
+  'TARGET_DO',
+  id,
+  this.ctn<TargetDO>().longRunningProcess(),
+  this.ctn().handleResult(this.ctn().$result)
 );
 
-// ... DO hibernates ... 
-// ... Alarm fires later ...
+// ... DO hibernates during the long-running call ...
+// ... Result arrives later ...
 
-// 2. The handler receives the persisted context.
-handleCompletion(originalContext: CallContext) {
-  // originalContext was restored from storage!
-  const userId = originalContext.originAuth?.userId;
+// Your handler runs with callContext automatically restored
+handleResult(result: any | Error) {
+  // this.lmz.callContext is correct! No manual capture required.
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`Result for ${userId}:`, result);
 }
 ```
 
+This "just works" because:
+1. When `this.ctn()` is serialized for dispatch, it snapshots the current `callContext`.
+2. When the continuation executes, the context is restored before your handler runs.
+3. `this.lmz.callContext` reads from this restored context.
+
 ### Manual Persistence (For Power Users)
-If you are building your own hibernation-safe functionality, you can manually serialize a continuation using the internal utilities:
+If you are building your own hibernation-safe functionality outside the mesh, you can manually serialize a continuation using the internal utilities:
 
 ```typescript
-import { getOperationChain } from '@lumenize/lumenize-base';
+import { getOperationChain } from '@lumenize/mesh';
 import { stringify } from '@lumenize/structured-clone';
 
-// 1. Get the serializable OCAN chain
+// 1. Get the serializable OCAN chain (includes captured callContext)
 const chain = getOperationChain(this.ctn().myHandler(data));
 
 // 2. Stringify it (supports Dates, Maps, Sets, etc.)

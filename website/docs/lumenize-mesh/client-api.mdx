@@ -35,161 +35,37 @@ using client = new EditorClient({
 });
 ```
 
-**Why extend a class?** In the Lumenize Mesh, clients are full peers that can receive incoming calls. Mesh nodes call methods on your client via `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ctn<YourClient>().yourMethod(...))`. You must define those methods on your class.
+**Why extend a class?** In a word, "consistency". All nodes in the Lumenize Mesh, including nodes hosted outside of Cloudflare (aka "clients"), are full peers that can make and receive calls. All Lumenize Mesh nodes are defined by extending the appropriate base class. Mesh nodes call methods on clients via `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ctn<YourClient>().yourMethod(...))`. You must define those methods on your subclass.
 
 ## Configuration
 
-### LumenizeClientConfig
+The `LumenizeClient` constructor takes a configuration object.
 
-```typescript
-interface LumenizeClientConfig {
-  /**
-   * Base URL for WebSocket connection.
-   * Must use wss:// for production.
-   * @example 'wss://app.example.com'
-   */
-  baseUrl: string;
-  
-  /**
-   * Gateway DO binding name.
-   * @default 'LUMENIZE_CLIENT_GATEWAY'
-   */
-  gatewayBinding?: string;
-  
-  /**
-   * Instance name — becomes the Gateway DO name.
-   * Recommended format: `${userId}.${tabId}`
-   * 
-   * The tabId should be unique per browser tab (stored in sessionStorage).
-   * @example 'user-123.tab-abc'
-   */
-  instanceName: string;
-  
-  /**
-   * Initial JWT access token for authentication.
-   * Passed via WebSocket subprotocol (not in URL).
-   */
-  accessToken?: string;
-  
-  /**
-   * Endpoint for token refresh.
-   * Client automatically refreshes ~30s before expiration using
-   * HTTP-only refresh token cookie.
-   * @default '/auth/refresh-token'
-   */
-  refreshEndpoint?: string;
-  
-  /**
-   * Called when connection state changes.
-   */
-  onConnectionStateChange?: (state: ConnectionState) => void;
-  
-  /**
-   * Called when a connection error occurs.
-   * This is for connection-level errors, not call errors.
-   */
-  onConnectionError?: (error: Error) => void;
+### Connection & Identity
+- **`baseUrl`**: Base URL for WebSocket connection. (e.g., `wss://app.example.com`).
+- **`instanceName`**: Your unique client identifier (becomes the Gateway DO name). Recommended format: `${userId}.${tabId}`.
+- **`gatewayBinding`**: (Optional) Gateway DO binding name. Defaults to `LUMENIZE_CLIENT_GATEWAY`.
 
-  // Note: No onMessage callback - all mesh→client communication
-  // goes through method calls via this.lmz.call()
-  
-  /**
-   * Request timeout in milliseconds.
-   * @default 30000 (30 seconds)
-   */
-  timeout?: number;
-  
-  /**
-   * Whether to auto-reconnect on connection drop.
-   * @default true
-   */
-  autoReconnect?: boolean;
-  
-  /**
-   * Custom WebSocket class (for testing or polyfills).
-   * @default globalThis.WebSocket
-   */
-  WebSocketClass?: typeof WebSocket;
-}
+### Authentication
+- **`accessToken`**: Initial JWT access token.
+- **`refreshEndpoint`**: (Optional) Endpoint for token refresh using refresh token stored in a cookie. Defaults to `/auth/refresh-token`.
 
-type ConnectionState = 
-  | 'disconnected'
-  | 'connecting' 
-  | 'connected'
-  | 'reconnecting';
-```
+### Lifecycle Callbacks
+- **`onConnectionStateChange`**: Called with `connecting`, `connected`, `reconnecting`, or `disconnected`.
+- **`onConnectionError`**: Called when a connection-level error occurs.
+- **`onSubscriptionsLost`**: Called when reconnecting after the grace period has expired (see [Subscription Loss](#subscription-loss)).
 
-## Instance Properties
+---
 
-### `lmz`
+## The `lmz` API
 
-Access to Lumenize Mesh infrastructure:
+The `this.lmz` property provides the same identity and communication API found in Durable Objects and Workers.
 
-```typescript
-interface LmzClientApi {
-  /**
-   * Always 'LumenizeClient' for clients.
-   */
-  readonly type: 'LumenizeClient';
-  
-  /**
-   * Gateway binding name (e.g., 'LUMENIZE_CLIENT_GATEWAY').
-   */
-  readonly bindingName?: string;
-  
-  /**
-   * Client instance name (becomes Gateway DO name).
-   */
-  readonly instanceName?: string;
-  
-  /**
-   * Alias for instanceName (for API consistency with LumenizeDO).
-   */
-  readonly instanceNameOrId?: string;
-  
-  /**
-   * Context from the current incoming call (if any).
-   * Contains full call chain, callee identity, and propagated auth.
-   * Only available during method execution from an incoming mesh call.
-   * 
-   * Convenience getters: `origin`, `caller`, `priorCaller` (from callChain)
-   * Full chain: `callChain` for debugging/auditing/circuit detection
-   * 
-   * See [Auth Integration](./auth-integration#call-context) for details.
-   */
-  readonly callContext?: CallContext;
-  
-  /**
-   * Make a call to a mesh node (async/await pattern).
-   * Returns when the remote method completes.
-   * Prefer `call()` with continuations for actor-model style.
-   * 
-   * @param binding - Target binding name (e.g., 'DOCUMENT_DO')
-   * @param instance - Target instance name/id (undefined for Workers)
-   * @param chain - Operation chain from this.ctn()
-   */
-  callRaw(
-    binding: string,
-    instance: string | undefined,
-    chain: OperationChain
-  ): Promise<any>;
-  
-  /**
-   * Call a mesh node with continuation pattern (preferred).
-   * 
-   * @param binding - Target binding name
-   * @param instance - Target instance name/id
-   * @param remote - Remote continuation (what to execute on target)
-   * @param handler - Optional handler continuation (what to execute locally when done)
-   */
-  call(
-    binding: string,
-    instance: string | undefined,
-    remote: Continuation<any>,
-    handler?: Continuation<any>
-  ): void;
-}
-```
+### Unique Client Behavior
+*   **Automatic Connection**: The WebSocket connection is established as soon as the client is instantiated. You do not need to call `connect()` manually.
+*   **Call Context**: `this.lmz.callContext` is only available during the execution of a method called by a remote node (an "Entry Point").
+
+See the [Mesh Overview](/docs/lumenize-mesh/#the-thislmz-api) for the full `lmz` API reference.
 
 ### `connectionState`
 
@@ -207,14 +83,7 @@ if (client.connectionState === 'connected') {
 ## Instance Methods
 
 ### `ctn<T>()`
-
-Create a continuation for building operation chains:
-
-```typescript
-ctn<T = this>(): Continuation<T>;
-```
-
-Usage:
+Create a type-safe continuation for building operation chains.
 
 ```typescript
 // Build a continuation for a remote method
@@ -224,162 +93,71 @@ client.lmz.call(
   client.ctn<DocumentDO>().getContent(),
   client.ctn().handleContentLoaded(client.ctn().$result)
 );
-
-// Chain multiple operations in a single call
-client.lmz.call(
-  'DOCUMENT_DO',
-  documentId,
-  client.ctn<DocumentDO>()
-    .loadContent()
-    .transform()
-    .validate()
-);
 ```
 
-### `connect()`
+### `connect()` and `disconnect()`
+The connection is automatically established upon instantiation and will reconnect during network disruptions or when the browser tab "wakes up" (e.g., the user returns to a backgrounded or suspended tab). Use `disconnect()` to manually close the connection. If the client is disconnected, calling `connect()` will manually re-establish the connection.
 
-Establish WebSocket connection to Gateway:
-
-```typescript
-async connect(): Promise<void>;
-```
-
-Connection is **lazy** — it's automatically established on first `call()` if not already connected. Call `connect()` explicitly if you want to establish the connection early.
+### Resource Cleanup
+Use the `using` keyword for automatic resource cleanup. When the scope exits, the client will automatically disconnect.
 
 ```typescript
-// Explicit connection
-await client.connect();
-console.log(client.connectionState); // 'connected'
-```
-
-### `disconnect()`
-
-Close WebSocket connection:
-
-```typescript
-disconnect(): void;
-```
-
-After disconnecting, calls will fail until reconnected. If `autoReconnect` is true, the client will attempt to reconnect on the next call.
-
-### `[Symbol.dispose]()`
-
-Resource cleanup for `using` syntax:
-
-```typescript
-// Automatically disconnects when scope exits
 {
   using client = new EditorClient(config);
-  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().update(changes));
-} // client.disconnect() called automatically
+  // ...
+} // disconnects here
 ```
 
-## Making Calls
+## Making and Receiving Calls
 
-### Fire-and-Forget
+The `LumenizeClient` enables full bidirectional communication. You can both make calls to the mesh and receive calls from other nodes.
 
-No response handler — just send and move on:
-
-```typescript
-// Send document update
-client.lmz.call(
-  'DOCUMENT_DO',
-  documentId,
-  client.ctn<DocumentDO>().update({ type: 'insert', text: 'Hello' })
-);
-```
-
-### With Response Handler
-
-Pass a second continuation to handle the result:
-
-```typescript
-// Load document content
-client.lmz.call(
-  'DOCUMENT_DO',
-  documentId,
-  client.ctn<DocumentDO>().getContent(),
-  client.ctn().handleContentLoaded(client.ctn().$result)
-);
-
-// Handler method in EditorClient
-handleContentLoaded(content: string) {
-  this.editor.setContent(content);
-}
-```
-
-### Passing Context to Handlers
-
-Include additional context alongside `$result`:
-
-```typescript
-// Request spell check with document context
-client.lmz.call(
-  'SPELLCHECK_WORKER',
-  undefined,  // Workers don't have instance names
-  client.ctn<SpellCheckWorker>().check(content),
-  client.ctn().handleSpellCheckResult(client.ctn().$result, documentId)
-);
-
-// Handler receives both result and context
-handleSpellCheckResult(errors: SpellError[], documentId: string) {
-  this.showSpellErrors(documentId, errors);
-}
-```
-
-## Receiving Calls
-
-Define methods on your client class that mesh nodes can call:
+### Receiving Calls
+Define methods on your client class and decorate them with `@mesh`. These become **Entry Points** that other mesh nodes can call.
 
 ```typescript
 class EditorClient extends LumenizeClient {
-  // Called by DocumentDO when content changes
+  // Called by a DO to push updates
   @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
-    // No return = fire-and-forget from server's perspective
-  }
-  
-  // Called for collaborative cursor updates
-  @mesh
-  handleCursorUpdate(userId: string, position: Position) {
-    this.cursors.set(userId, position);
-    this.renderCursors();
-  }
-  
-  // Called to get this client's cursor (returns a value)
-  @mesh
-  getCursorPosition(): Position {
-    return this.editor.getCursorPosition();
   }
 }
 ```
 
-From DocumentDO (pushing updates to clients):
+### Making Calls
+Use `this.lmz.call()` to communicate with server-side DOs, Workers, or even other clients provided you [override `onBeforeCall` to allow client-to-client calls](#opting-in-to-peer-communication).
 
 ```typescript
-// In DocumentDO - notify all collaborators
-notifyCollaborators(change: DocumentChange) {
-  for (const clientId of this.getConnectedClients()) {
-    this.lmz.call(
-      'LUMENIZE_CLIENT_GATEWAY',
-      clientId,
-      this.ctn<EditorClient>().handleDocumentChange(change)
-    );
-  }
-}
+// 1. Fire-and-forget
+client.lmz.call('DOCUMENT_DO', id, client.ctn<DocumentDO>().update(change));
+
+// 2. With a local handler for the result
+client.lmz.call(
+  'DOCUMENT_DO', 
+  id, 
+  client.ctn<DocumentDO>().getContent(),
+  client.ctn().handleContent(client.ctn().$result)
+);
+
+// 3. Chaining operations in one round trip
+client.lmz.call(
+  'DOCUMENT_DO',
+  id,
+  client.ctn<DocumentDO>().validate().save().getRevision()
+);
 ```
 
 ## Access Control
 
 LumenizeClient has the same **secure-by-default** model as DOs and Workers. See [Auth Integration: Access Control](./auth-integration#access-control) for full details.
 
-### Security Layers
+### Implementing Access Control
 
-1. **Chain Validation** (automatic) — Only single method calls allowed.
-2. **Class-level `onBeforeCall`** — Override for class-wide policies.
-3. **Method Exposure** (required) — Only methods decorated with `@mesh` are callable.
-4. **Method-level `@mesh(handler)`** — Decorator parameter for per-method policies.
+- **Class-level `onBeforeCall`** — Override for class-wide policies (focuses on WHO has any access).
+- **Method Exposure** (required) — Only methods decorated with `@mesh` are Entry Points.
+- **Method-level `@mesh(handler)`** — Optional `handler` can enforce per-method policies (allows for some users to have different access).
+- **Capability Trust** (automatic) — Once an Entry Point is authorized, the returned object's public interface is trusted for that call chain. So, only the handler for `isAdmin()` is checked when calling `isAdmin().doAdminOnlyThing()`.
 
 ### Default: Peer Calls Rejected
 
@@ -463,123 +241,72 @@ class EditorClient extends LumenizeClient {
 ## Error Handling
 
 ### Connection Errors
+Handle network-level failures via `onConnectionError`:
 
 ```typescript
-class MyClient extends LumenizeClient {
-  // ... handler methods
+onConnectionError: (error) => {
+  console.error('Network failure:', error.message);
+  showOfflineBanner();
 }
-
-const client = new MyClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  onConnectionError: (error) => {
-    console.error('Connection error:', error.message);
-    showConnectionErrorUI();
-  }
-});
 ```
 
 ### Call Errors
-
-`call` returns an `Error` object on failure. Check the type in your handler:
+Mesh calls return an `Error` object on failure. Check the type in your handler:
 
 ```typescript
-// Handler receives result OR Error
 handleContentLoaded(result: string | Error) {
   if (result instanceof Error) {
     if (result.message === 'Client not connected') {
       this.showOfflineMessage();
-    } else if (result.message.includes('timeout')) {
-      this.showRetryButton();
     } else {
-      console.error('Call error:', result);
+      console.error('Call failed:', result.message);
     }
     return;
   }
   
-  // Success case
   this.editor.setContent(result);
 }
 ```
 
-### Connection State Handling
+## Reconnection & Subscriptions
+
+Lumenize handles the complexities of flaky mobile networks and tab hibernation automatically.
+
+### Connection State Management
+Use `onConnectionStateChange` to update your application UI:
 
 ```typescript
-class MyClient extends LumenizeClient {
-  // ... handler methods
-}
-
-const client = new MyClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
+using client = new MyClient({
   onConnectionStateChange: (state) => {
-    switch (state) {
-      case 'connecting':
-        showConnectingSpinner();
-        break;
-      case 'connected':
-        hideSpinner();
-        enableFeatures();
-        break;
-      case 'reconnecting':
-        showReconnectingBanner();
-        break;
-      case 'disconnected':
-        disableFeatures();
-        break;
-    }
+    const isOnline = state === 'connected';
+    const isPending = state === 'connecting' || state === 'reconnecting';
+    updateUI({ isOnline, isPending });
   }
 });
 ```
 
-## Reconnection & Subscriptions
+### Grace Period & Subscription Loss
+When a client disconnects, the mesh maintains its state for a **5-second grace period**. If the client reconnects within this window, all subscriptions remain active.
 
-### Grace Period
-
-When a client disconnects, the Gateway waits **5 seconds** before cleaning up. If the client reconnects within this grace period:
-- Subscriptions remain valid
-- No re-subscription needed
-- `onSubscriptionsLost` is **not** called
-
-### Subscription Loss
-
-If the client reconnects **after** the grace period:
-1. Gateway informs the client that subscriptions were lost
-2. Client receives this info in the WebSocket handshake response
-3. `onSubscriptionsLost` callback fires
-4. Client must re-subscribe to any DOs it was subscribed to
+If a client is disconnected for longer than 5 seconds, other mesh nodes may clean up resources. When the client eventually reconnects, it is notified that its subscriptions may have been lost via the `onSubscriptionsLost` callback. Best practice is to re-subscribe:
 
 ```typescript
 class EditorClient extends LumenizeClient {
-  documentId: string;
-  
   onSubscriptionsLost = () => {
-    // Called only when reconnecting after grace period expired
-    // Re-subscribe to the document we were editing
+    // Re-establish mesh state after a long disconnect
     this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
   };
 }
 ```
 
-### How It Works
-
-The Gateway is the source of truth for subscription state:
-
-1. **Client disconnects** → Gateway sets alarm for 5 seconds
-2. **Within grace period**: Client reconnects, alarm cancelled, subscriptions intact
-3. **After grace period**: Alarm fires, Gateway notifies subscribed DOs with `ClientDisconnectedError`, cleans up
-4. **Late reconnect**: Gateway tells client "subscriptions lost" in handshake, client calls `onSubscriptionsLost`
-
-This design ensures:
-- Brief network glitches don't cause subscription churn
-- DOs can clean up stale subscriptions
-- Clients know when to re-subscribe
+---
 
 ## Browser Considerations
 
 ### Tab Identity
+Each browser tab should have its own `LumenizeClient` with a unique `instanceName`. This allows the mesh to target specific tabs for notifications and collaborative features. 
 
-Generate a unique tab ID and store it in sessionStorage:
+We recommend generating a `tabId` and storing it in `sessionStorage`:
 
 ```typescript
 function getTabId(): string {
@@ -591,40 +318,14 @@ function getTabId(): string {
   return tabId;
 }
 
-class MyClient extends LumenizeClient {
-  // ... handler methods
-}
-
-const client = new MyClient({
+using client = new MyClient({
   baseUrl: 'wss://app.example.com',
   instanceName: `${userId}.${getTabId()}`
 });
 ```
 
-### Multiple Tabs
+### Hibernation and Backgrounding
+It is not necessary to manually disconnect when tabs are hidden or hibernated. `LumenizeClient` automatically senses when a tab is "woken up" by the browser and will immediately attempt to re-establish the connection.
 
-Each tab should have its own client with a unique instance name. This ensures:
-- Each tab has its own Gateway DO
-- Notifications can target specific tabs
-- Collaborative cursors are per-tab
-
-It's not necessary to disconnect when tabs are hidden or hibernated. The first time an call from upstream is made to this tab, the caller will be notified that the client is disconnected. For the planned subscription functionality, the subscription will be dropped and no further attempts to update it from upstream will be attempted.
-
-There are two kinds of disconnected states. A short disconnect due to network failure/transition, and one where you've been disconnected long enough for subscriptions to have been dropped. For the latter case, the client will receive the `onSubscriptionsLost` callback (see [Subscription Loss](#subscription-loss) above). For a UI with multiple state subscriptions, we recommend that you delegate resubscribing to the active UI elements by having them listen to this event.
-
-## TypeScript Types
-
-```typescript
-import type { 
-  LumenizeClient,
-  LumenizeClientConfig,
-  ConnectionState,
-  Continuation
-} from '@lumenize/mesh';
-```
-
-## Next Steps
-
-- [Gateway Internals](./gateway) — How LumenizeClientGateway works
-- [Auth Integration](./auth-integration) — Token handling patterns
-
+*   **Within 5 seconds**: The connection is restored seamlessly.
+*   **After 5 seconds**: The connection is restored, and the `onSubscriptionsLost` callback is triggered to allow your UI to re-sync.
