@@ -84,7 +84,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   @mesh
   subscribe() {
-    const clientId = this.lmz.callContext.caller.instanceNameOrId;
+    const clientId = this.lmz.callContext.caller.instanceName;
     if (clientId) {
       this.#subscribers.add(clientId);
     }
@@ -92,13 +92,13 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   @mesh
   unsubscribe() {
-    const clientId = this.lmz.callContext.caller.instanceNameOrId;
+    const clientId = this.lmz.callContext.caller.instanceName;
     if (clientId) {
       this.#subscribers.delete(clientId);
     }
   }
 
-  // Internal: handle spell check results
+  // Response handler — no @mesh needed (see tip below)
   handleSpellCheckResult(errors: SpellError[] | Error) {
     if (errors instanceof Error) {
       console.error('Spell check failed:', errors);
@@ -139,6 +139,10 @@ export class DocumentDO extends LumenizeDO<Env> {
 - `this.lmz.call()` makes fire-and-forget and request/response calls
 - `this.ctn<T>()` builds type-safe continuations for remote methods
 - `this.svc.sql` provides NADIS-injected SQL access
+
+:::tip Response Handlers Don't Need @mesh
+Notice that `handleSpellCheckResult` lacks the `@mesh` decorator. Response handlers in continuations you author yourself (via `this.ctn().myHandler(...)`) don't need `@mesh` — the framework trusts that you're calling your own methods. Only methods that external mesh nodes call as **entry points** need the decorator.
+:::
 
 ---
 

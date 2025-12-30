@@ -81,6 +81,24 @@ Class onBeforeCall → Entry Point Check (@mesh) → Execute Chain (Trusted Retu
 - Decorator metadata stored via `Reflect.defineMetadata()`.
 - **Guard signature**: `@mesh((callContext, instance?) => void)`. The decorator always passes the instance as the second parameter. Simple guards can ignore it; guards needing instance state use it. This avoids the arrow-function-`this`-binding footgun.
 
+**MeshAccessError**:
+Thrown when a method lacks the `@mesh` decorator. This is a framework-level check for misconfigured entry points.
+
+```typescript
+class MeshAccessError extends Error {
+  method: string;           // e.g., 'transform'
+  node: {                   // The node that rejected the call
+    type: string;
+    bindingName: string;
+    instanceNameOrId?: string;
+  };
+}
+```
+
+Example: `MeshAccessError: Method 'transform' is not exposed via @mesh decorator on DOCUMENT_DO/draft-1`
+
+**Note**: Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves domain-specific error types (e.g., `AuthenticationError`, `PermissionDeniedError`) so callers can handle them appropriately.
+
 ## Implementation Phases
 
 ### Phase 0: Documentation Restructure & Package Rename
@@ -216,6 +234,13 @@ Class onBeforeCall → Entry Point Check (@mesh) → Execute Chain (Trusted Retu
    ```
 
 6. **Trust model**: Nodes in the mesh are trusted. Freezing prevents bugs, not malicious nodes. For high-security operations, verify `originAuthToken` (signed JWT) independently.
+
+7. **Token Refresh Failure Handling**:
+   - Token refresh is an HTTP operation that runs in parallel to WebSocket messages
+   - When refresh fails, fire `onTokenRefreshFailure` callback (separate from `onConnectionError`)
+   - Do NOT force-close the WebSocket — let in-flight calls complete naturally
+   - The WebSocket will eventually close when Gateway rejects expired token (4401 close code)
+   - Developer handles redirect to login in their `onTokenRefreshFailure` callback
 
 ### Phase 7: Client-to-Client Communication
 **Goal**: Enable LumenizeClient → LumenizeClient calls

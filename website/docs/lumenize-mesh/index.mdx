@@ -5,7 +5,7 @@ description: Durable Objects, Workers, and browser clients as peers in an actor-
 
 # Lumenize Mesh
 
-The **Lumenize Mesh** is an actor-model network where Durable Objects, Workers, and browser clients communicate as **true peers** via `this.lmz.call()`. While Cloudflare's native RPC is also actor-like, Lumenize Mesh adds critical security, race-condition safety, and de✨light✨fulness.
+While Cloudflare's Workers and Durable Objects with Workers RPC is actor-like, **Lumenize Mesh** extends the model all the way to the browser and other clients running outside Cloudflare while adding critical security, race-condition safety, and de✨light✨fulness.
 
 ## Node Types
 
@@ -15,16 +15,16 @@ Every participant in the mesh extends one of these base classes:
 |-----------|---------|---------|----------|
 | **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side logic |
 | **LumenizeWorker** | Cloudflare Worker | None | Stateless server-side logic |
-| **LumenizeClient** | Browser/Node.js | Local | Client applications |
+| **LumenizeClient** | Browser/Node.js/Bun | Local | Client applications |
 
 Supporting infrastructure:
 
 | Element | Type | Purpose |
 |---------|------|---------|
-| **LumenizeClientGateway** | Cloudflare DO | Bridges WebSocket clients ↔ mesh (zero storage) |
+| **[LumenizeClientGateway](./gateway)** | Cloudflare DO | Bridges WebSocket clients ↔ mesh (zero storage) |
 | **createLumenizeRouter** | Factory function | Creates Worker fetch handler with auth + gateway routing |
 
-## Architecture
+## Illustration
 
 ```mermaid
 flowchart TB
@@ -102,11 +102,6 @@ flowchart TB
 
 Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Each node stores this information on first contact, enabling it to provide return addresses for callbacks.
 
-```typescript @skip-check
-// DocumentDO doesn't know it's "DOCUMENT_DO" / "draft-1" until someone calls it
-// After the first call, it can tell other nodes: "call me back at DOCUMENT_DO/draft-1"
-```
-
 ### Call Context
 
 Every mesh call carries **context** that propagates through the entire call chain:
@@ -129,7 +124,7 @@ updateDocument(changes: DocumentChange) {
 }
 ```
 
-**Hibernation-safe** (for DOs): Call context is automatically captured in continuations. Even if a DO hibernates during a long-running operation, your handler receives the correct context when it executes.
+**Hibernation-safe** (for DOs): Call context is automatically captured in continuations. For long running remote calls, your handler can be configured to store the continuation so even if a DO hibernates during, your handler receives the correct context no matter how much later it executes.
 
 See [Managing Context](./managing-context) for the full guide.
 

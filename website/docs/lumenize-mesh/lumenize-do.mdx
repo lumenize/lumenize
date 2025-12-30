@@ -55,8 +55,8 @@ class UsersDO extends LumenizeDO<Env> {
 }
 ```
 
-:::tip No Custom Constructors
-Use `onStart()` for initialization instead of writing a custom constructor. The base class calls `onStart()` wrapped in `blockConcurrencyWhile`, ensuring your setup completes before any requests are processed. This prevents race conditions that can occur with async operations in Durable Objects.
+:::warning Don't Write Custom Constructors
+Always use `async onStart()` for initialization — it's automatically wrapped in `blockConcurrencyWhile` so it's guaranteed to complete before the DO does anything else.
 :::
 
 ---
@@ -460,7 +460,7 @@ interface CallContext {
   origin: {
     type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
     bindingName: string;
-    instanceNameOrId?: string;
+    instanceName?: string;
   };
   originAuth?: {
     userId: string;
@@ -469,7 +469,7 @@ interface CallContext {
   caller: {
     type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
     bindingName: string;
-    instanceNameOrId?: string;
+    instanceName?: string;
   };
   calledAs: {
     bindingName: string;
@@ -484,7 +484,7 @@ interface CallContext {
 - `originAuth` — Authentication info from the original caller
 - `caller` — The immediate caller's identity (may differ from origin in multi-hop chains)
 - `calledAs` — How this node was addressed
-- `state` — Mutable object for middleware to pass computed data
+- `state` — Mutable object for passing computed data through the call chain. Starts as `{}` for each incoming call; typically populated in `onBeforeCall()` (e.g., to attach user records or permissions) but could be added by anything. Isolated per-request via AsyncLocalStorage.
 
 ---
 

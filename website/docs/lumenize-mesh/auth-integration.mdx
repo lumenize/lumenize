@@ -194,7 +194,27 @@ using client = new EditorClient({
 3. **Refresh**: POSTs to `refreshEndpoint` with `credentials: 'include'`
 4. **Update**: Updates internal token for future reconnections
 
-If refresh fails (e.g., refresh token expired), `onConnectionError` fires with a 401 error.
+### Handling Refresh Failure
+
+If refresh fails (e.g., refresh token expired), `onTokenRefreshFailure` fires:
+
+```typescript @skip-check
+using client = new EditorClient({
+  accessToken,
+  onTokenRefreshFailure: (error) => {
+    // Token refresh failed — session expired
+    // In-flight WebSocket calls can still complete
+    // Redirect to login when ready
+    showSessionExpiredModal(() => {
+      window.location.href = '/login';
+    });
+  }
+});
+```
+
+:::note Separate from Connection Errors
+`onTokenRefreshFailure` is distinct from `onConnectionError`. Token refresh happens via HTTP in parallel to WebSocket messages. When refresh fails, the WebSocket stays open for in-flight calls to complete naturally. The connection will eventually close when the Gateway rejects the expired token (4401 close code).
+:::
 
 ---
 
@@ -240,6 +260,8 @@ See [Managing Context](./managing-context) for the full guide.
 | **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
 | **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
 | **Capability Trust** | Automatic | Returned objects trusted for that chain |
+
+When a method lacks the `@mesh` decorator, callers receive a `MeshAccessError`. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Types](./calls#error-types) for details.
 
 ### Class-Level: `onBeforeCall()`
 
@@ -292,14 +314,24 @@ deleteDocument() { /* ... */ }
 
 ### State-Based Access
 
-Use `callContext.state` for middleware to pass computed access data:
+The `callContext.state` object is a mutable `Record<string, any>` that:
+- Starts **empty** (`{}`) for each incoming mesh call
+- Is typically **populated in `onBeforeCall()`** after verifying authentication
+- **Persists through the call chain** — method guards and handlers see the same state
+- Is **isolated per-request** via AsyncLocalStorage (concurrent calls don't interfere)
+
+Use it to attach computed data (like user records or permissions) so method guards don't need to re-fetch:
 
 ```typescript @skip-check
-// In middleware
-async onBeforeRequest(request, callContext) {
-  const user = await loadUserFromDatabase(callContext.originAuth.userId);
+// In onBeforeCall — runs once per incoming call
+onBeforeCall(callContext: CallContext) {
+  super.onBeforeCall(callContext);
+  if (!callContext.originAuth?.userId) throw new Error('Auth required');
+  
+  // Populate state for use by method guards
+  const user = this.loadUser(callContext.originAuth.userId);
   callContext.state.user = user;
-  callContext.state.permissions = await computePermissions(user);
+  callContext.state.permissions = this.computePermissions(user);
 }
 
 // In method guard
@@ -310,6 +342,10 @@ async onBeforeRequest(request, callContext) {
 })
 editDocument(changes: DocumentChange) { /* ... */ }
 ```
+
+:::note Per-Request Isolation
+Each request gets its own `callContext` instance with its own `state` object, even when multiple requests hit the same DO concurrently. This isolation is provided by AsyncLocalStorage under the hood — you don't need to worry about concurrent requests overwriting each other's state.
+:::
 
 ---
 
@@ -387,9 +423,12 @@ The Gateway uses standard WebSocket close codes for auth issues:
 using client = new EditorClient({
   accessToken,
   onConnectionError: (error) => {
-    if (error.message.includes('401')) {
-      window.location.href = '/login';
-    }
+    // WebSocket connection failed (network issues, etc.)
+    showOfflineBanner();
+  },
+  onTokenRefreshFailure: (error) => {
+    // HTTP token refresh failed — session expired
+    window.location.href = '/login';
   }
 });
 ```

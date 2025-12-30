@@ -7,8 +7,8 @@ description: Type-safe SQL queries with automatic parameter binding
 
 The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage.
 
-:::tip Core Utility
-This is a small (~10 lines), universally useful utility from `@lumenize/core` that's automatically available via NADIS when using LumenizeDO.
+:::tip Built-in Service
+This small (~10 lines) utility is automatically available via `this.svc.sql` in any `LumenizeDO`. No additional imports needed.
 :::
 
 ## Basic Usage
@@ -16,7 +16,6 @@ This is a small (~10 lines), universally useful utility from `@lumenize/core` th
 When using `LumenizeDO`, `sql` is automatically available via NADIS:
 
 ```typescript @skip-check
-import '@lumenize/core';  // Registers sql in this.svc
 import { LumenizeDO } from '@lumenize/mesh';
 
 class ProductDO extends LumenizeDO<Env> {
@@ -51,7 +50,7 @@ See [LumenizeDO documentation](./lumenize-do) for complete NADIS examples.
 
 ### Standalone Usage (Without LumenizeDO)
 
-For vanilla Durable Objects without the Lumenize Mesh, create a private field:
+For vanilla Durable Objects without the Lumenize Mesh, import `sql` directly and create a private field:
 
 ```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
 import { sql } from '@lumenize/core';
@@ -224,8 +223,6 @@ const result = sql`SELECT * FROM products WHERE id = ${productId}`;
 - [Cloudflare SQLite Storage](https://developers.cloudflare.com/durable-objects/api/storage/#sql) - Official storage API docs
 - [LumenizeDO](./lumenize-do) - Auto-injection via NADIS
 - [@lumenize/alarms](/docs/alarms) - Uses SQL for persistence
-
-
 
 
 

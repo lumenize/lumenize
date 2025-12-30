@@ -41,6 +41,10 @@ using client = new EditorClient({
 });
 ```
 
+:::info `using` Keyword (TypeScript 5.2+)
+The `using` keyword ensures the client automatically disconnects when the scope exits. It's TC39's [Explicit Resource Management](https://www.typescriptlang.org/docs/handbook/release-notes/typescript-5-2.html#using-declarations-and-explicit-resource-management) — think of it as `try/finally` for cleanup.
+:::
+
 **Why extend a class?** In a word, "consistency". All nodes in the Lumenize Mesh are full peers that can make and receive calls. You define incoming call handlers as `@mesh` methods on your subclass.
 
 ---
@@ -55,7 +59,7 @@ The `LumenizeClient` constructor takes a configuration object:
 |--------|------|-------------|
 | `baseUrl` | `string` | Base URL for WebSocket connection (e.g., `wss://app.example.com`) |
 | `instanceName` | `string` | Unique client identifier. Recommended: `${userId}.${tabId}` |
-| `gatewayBinding` | `string?` | Gateway DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY` |
+| `gatewayBinding` | `string?` | [Gateway](./gateway) DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY` |
 
 ### Authentication
 
@@ -69,7 +73,8 @@ The `LumenizeClient` constructor takes a configuration object:
 | Option | Type | Description |
 |--------|------|-------------|
 | `onConnectionStateChange` | `(state) => void` | Called with `connecting`, `connected`, `reconnecting`, or `disconnected` |
-| `onConnectionError` | `(error) => void` | Called when connection-level error occurs |
+| `onConnectionError` | `(error) => void` | Called when WebSocket connection error occurs |
+| `onTokenRefreshFailure` | `(error) => void` | Called when token refresh fails (e.g., refresh token expired) |
 | `onSubscriptionsLost` | `() => void` | Called when reconnecting after grace period expired |
 
 ---
@@ -113,6 +118,32 @@ Define `@mesh` methods for incoming calls from mesh nodes:
 
 ```typescript @skip-check
 class EditorClient extends LumenizeClient {
+  @mesh
+  handleDocumentChange(change: DocumentChange) {
+    this.editor.applyChange(change);
+  }
+}
+```
+
+### Local vs Mesh Calls
+
+Methods on your client class can be called two ways:
+
+| Call Origin | Example | Access Control |
+|-------------|---------|----------------|
+| **Local** (your browser code) | `client.sendChange(change)` | No checks — direct method call |
+| **Mesh** (from DO/Worker) | Via `this.lmz.call()` to Gateway | `@mesh` decorator required |
+
+This means you can have both public methods for your UI and `@mesh` methods for the mesh on the same class:
+
+```typescript @skip-check
+class EditorClient extends LumenizeClient {
+  // Called by your browser code — no @mesh needed
+  sendChange(change: DocumentChange) {
+    this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().update(change));
+  }
+
+  // Called by mesh nodes — requires @mesh
   @mesh
   handleDocumentChange(change: DocumentChange) {
     this.editor.applyChange(change);
@@ -221,7 +252,7 @@ Guards needing instance state receive the instance as a second parameter:
 
 ```typescript @skip-check
 @mesh((callContext, instance: EditorClient) => {
-  if (callContext.caller.instanceNameOrId !== instance.documentId) {
+  if (callContext.caller.instanceName !== instance.documentId) {
     throw new Error('Change from unexpected source');
   }
 })
@@ -360,9 +391,40 @@ interface LumenizeClientConfig {
   refreshEndpoint?: string;
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;
+  onTokenRefreshFailure?: (error: Error) => void;
   onSubscriptionsLost?: () => void;
 }
 ```
+
+---
+
+## Testing
+
+`LumenizeClient` accepts a `WebSocket` constructor option, enabling integration testing without running a separate server:
+
+```typescript @skip-check
+import { Browser } from '@lumenize/testing';
+
+it('tests client-DO communication', async () => {
+  const browser = new Browser();  // Cookie simulation, CORS support
+  
+  using client = new EditorClient({
+    baseUrl: 'wss://example.com',
+    instanceName: 'test-user.tab1',
+    accessToken: testJwt,
+    WebSocket: browser.WebSocket,  // Inject testing WebSocket
+  });
+  
+  // Test interactions...
+});
+```
+
+The `Browser` class provides:
+- **Cookie simulation** — Critical for testing token refresh flows
+- **Realistic CORS behavior** — Catches preflight issues before production
+- **Injectable WebSocket** — Connects through `vitest-pool-workers` to real DO instances
+
+See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns including multi-user scenarios and authentication testing.
 
 ---
 

@@ -7,8 +7,8 @@ description: "Scoped, filterable debug logging optimized for the JSON filter cap
 
 A de✨light✨ful scoped debug logging system inspired by npm's `debug` package with JSON output that works perfectly with Cloudflare's observability dashboard.
 
-:::tip Core Utility
-This utility is used internally by Lumenize and is also available for your own logging needs. It's part of `@lumenize/core` and automatically available via NADIS when using LumenizeDO.
+:::tip Built-in Service
+This utility is used internally by Lumenize and is also available for your own logging needs. It's automatically available via `this.svc.debug` in `LumenizeDO`, `LumenizeWorker`, and `LumenizeClient`. No additional imports needed.
 :::
 
 ## Features
@@ -17,21 +17,20 @@ This utility is used internally by Lumenize and is also available for your own l
 - **Level support**: `debug`, `info`, `warn`, and `error` levels
 - **JSON output**: Structured logs integrate seamlessly with Cloudflare's observability dashboard
 - **Zero-cost when disabled**: Early exit via `enabled` flag - no string interpolation or object creation
-- **NADIS integration**: Use standalone or auto-inject into `LumenizeDO` via `this.svc.debug`
+- **NADIS integration**: Automatically available via `this.svc.debug` in all mesh node types
 - **⚠️ Error level never filtered**: `log.error()` always outputs regardless of filter settings
 
 ## Installation
 
 ```bash @skip-check
-npm install @lumenize/core
+npm install @lumenize/mesh
 ```
 
 ## Quick Start
 
-### In Durable Objects (LumenizeDO)
+### In LumenizeDO
 
 ```typescript @check-example('packages/core/debug/test/for-docs/quick-start-lumenize-base.test.ts')
-import '@lumenize/core';  // Registers in this.svc
 import { LumenizeDO } from '@lumenize/mesh';
 
 class ChatRoom extends LumenizeDO<Env> {
@@ -58,10 +57,41 @@ class ChatRoom extends LumenizeDO<Env> {
 }
 ```
 
-### In Vanilla Durable Objects
+### In LumenizeWorker
+
+```typescript @skip-check
+import { LumenizeWorker } from '@lumenize/mesh';
+
+class SpellCheckWorker extends LumenizeWorker<Env> {
+  @mesh
+  check(text: string) {
+    const log = this.svc.debug('SpellCheckWorker.check');
+    log.debug('Checking text', { length: text.length });
+    // ...
+  }
+}
+```
+
+### In LumenizeClient
+
+```typescript @skip-check
+import { LumenizeClient } from '@lumenize/mesh';
+
+class EditorClient extends LumenizeClient<Env> {
+  onDocumentUpdate(changes: Change[]) {
+    const log = this.svc.debug('EditorClient.onDocumentUpdate');
+    log.debug('Received changes', { count: changes.length });
+    // ...
+  }
+}
+```
+
+### Standalone Usage (Without Lumenize Mesh)
+
+For vanilla Durable Objects or Workers, import `debug` directly:
 
 ```typescript @check-example('packages/core/debug/test/for-docs/quick-start-vanilla-do.test.ts')
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/mesh';
 import { DurableObject } from 'cloudflare:workers';
 
 class MyDO extends DurableObject {
@@ -74,10 +104,10 @@ class MyDO extends DurableObject {
 }
 ```
 
-### In Workers (outside DOs)
+### In Vanilla Workers (Without LumenizeWorker)
 
 ```typescript @check-example('packages/core/debug/test/for-docs/quick-start-worker.test.ts')
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/mesh';
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -152,9 +182,9 @@ The debug system provides a simple, type-safe logging interface:
 
 ```typescript @skip-check
 // Create logger
-const log = this.svc.debug('MyDO.myMethod');  // LumenizeDO
+const log = this.svc.debug('MyDO.myMethod');  // LumenizeDO, LumenizeWorker, LumenizeClient
 const log = debug(this)('MyDO.myMethod');     // Vanilla DO
-const log = debug({ env })('Worker.router');  // Worker
+const log = debug({ env })('Worker.router');  // Vanilla Worker
 
 // Log at different levels
 log.debug(message: string, data?: any);  // Most verbose
@@ -201,9 +231,7 @@ Differences:
 - **Error level**: Never filtered - always outputs
 - **JSON output**: Structured objects (vs. plain text)
 - **Cloudflare-optimized**: No colors, no TTY detection
-- **NADIS integration**: Auto-injection in LumenizeDO
-
-
+- **NADIS integration**: Auto-injection in all mesh node types (LumenizeDO, LumenizeWorker, LumenizeClient)
 
 
 

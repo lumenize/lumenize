@@ -4,16 +4,39 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
+- [ ] Merge `sql` and `debug` utilities from `@lumenize/core` into `@lumenize/mesh`
+  - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
+  - `debug` makes sense for all three node types — available via `this.svc.debug` in LumenizeDO, LumenizeWorker, LumenizeClient
+  - Docs already reflect this (for mesh nodes, just import the base class — `this.svc.*` handles the rest)
+  - Also export `sql` and `debug` directly from `@lumenize/mesh` for standalone/vanilla usage
 - [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 - [ ] Related to above, find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
 
 ## Lumenize Mesh
 
+- [ ] Create `website/docs/lumenize-mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient
+  - Similar to `/docs/testing/agents.mdx` but for mesh clients
+  - Show multi-user scenarios with separate `Browser` instances
+  - Token refresh testing with cookie simulation
+  - RPC access to DO internals for verification
+  - Document `WebSocket` injection pattern (LumenizeClient must support this like AgentClient does)
 - [ ] Implement onStart with auto blockConcurrencyWhile
 - [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
 - [ ] Document our identity propogation as better than init(). init() breaks the mold of just access don't create DOs.
 
 - [ ] Implment generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
+
+- [ ] Add `{ twoOneWayCalls: true }` option to `this.lmz.call()` config parameter
+  - Opt-in two one-way call mode for cost optimization on known slow operations
+  - Caller gets immediate ACK, real response comes via callback
+  - Useful for external API calls where you don't want DO wall-clock billing while waiting
+
+- [ ] Consider auto-switch to two one-way mode
+  - The original use case for this is when a caller is waiting on a Gateway response but the client is in the 5 second grace period, but this could be useful in general. For the Gateway situation, the callee knows it's a long running operation and could immediately respond with "switching to two one-way calls".
+  - For other scenarios, the callee would have to notice that the handler was taking a long time to resolve and send the "switching to two one-way calls" message. How long?
+  - Caller infrastructure recognizes this and waits for callback instead of blocking
+  - Prevents cascading latency when multiple DOs call the same just-disconnected client
+  - More complex but elegant — only pays the cost when needed
 
 - [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
   - Wraps `routeDORequest` but requires instance **names** only (no ids)
