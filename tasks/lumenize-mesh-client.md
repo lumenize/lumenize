@@ -441,6 +441,28 @@ async __executeOperation(envelope: CallEnvelope): Promise<any> {
   return await this.#forwardToClient(ws, envelope);
 }
 
+// Implementation note: #waitForReconnect() uses setTimeout to race against grace period expiration.
+// This is an exception to our "no setTimeout in DOs" rule because:
+// 1. It's timing out an in-flight operation, not scheduling future work
+// 2. The alarm already marks when grace period ends; setTimeout lets us wait up to that point
+// 3. Alternative approaches (polling getAlarm, alarm notifying pending calls) are more complex
+async #waitForReconnect(): Promise<void> {
+  const alarm = await this.ctx.storage.getAlarm();
+  if (!alarm) throw new ClientDisconnectedError();
+
+  const remainingMs = alarm - Date.now();
+  if (remainingMs <= 0) throw new ClientDisconnectedError();
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new ClientDisconnectedError());
+    }, remainingMs);
+
+    // When client reconnects, webSocketOpen clears pending waiters
+    this.#pendingReconnectWaiters.push({ resolve, timeout });
+  });
+}
+
 async #forwardToClient(ws: WebSocket, envelope: CallEnvelope): Promise<any> {
   const callId = crypto.randomUUID();
   

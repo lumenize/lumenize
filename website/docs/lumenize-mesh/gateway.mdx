@@ -5,7 +5,7 @@ description: How LumenizeClientGateway bridges the mesh and WebSocket clients
 
 # LumenizeClientGateway
 
-LumenizeClientGateway is a **zero-storage Durable Object** that bridges the Lumenize Mesh and browser clients. It extends `DurableObject` directly (not `LumenizeDO`) to avoid any storage operations.
+LumenizeClientGateway is a **zero-storage Durable Object** that bridges mesh nodes that are running outside of Cloudflare (browser/node.js/etc.) into the Lumenize Mesh. It extends `DurableObject` directly, not `LumenizeDO`, to avoid any storage operations.
 
 ## Design Principles
 
@@ -21,9 +21,11 @@ Instead, state is derived from:
 - `this.ctx.getAlarm()` — Pending reconnection grace period
 - `ws.deserializeAttachment()` — Per-connection context
 
+This zero-storage design is foundational. Clients can use whatever identifiers make sense for their application, and when those identifiers become stale — a tab closes, a session ends, a user logs out — there's no cleanup required. Abandoned Gateway instances incur no ongoing costs and leave no orphaned data. 
+
 ### 1:1 Gateway-Client Relationship
 
-Each LumenizeClient connects to **its own** Gateway instance. Using the document editing example:
+Each LumenizeClient connects to **its own** Gateway instance. Using the document editing example from the [Getting Started Guide](./getting-started):
 
 ```
 Alice's browser (alice.tab1) → Gateway DO "alice.tab1"
@@ -35,7 +37,7 @@ The Gateway instance name matches the client's `instanceName` configuration.
 
 ### Transparent Proxying
 
-Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSockets messages. This keeps Gateway simple and allows clients to define any methods they want.
+Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSockets messages. This keeps Gateway simple and allows clients to act as true peers by defining any methods they want just like `LumenizeDO` and `LumenizeWorker` mesh nodes.
 
 ### Implications
 
@@ -45,7 +47,7 @@ Gateway doesn't interpret the calls passing through it — it simply forwards th
   
 - **Ephemerality**: While the same client must reconnect with the same id to preserve subscriptions, resubscribing is expected frequently and there is no downside when a new tab/browser/nodejs instance/etc. connects with a different randomly generated tabId.
   
-- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be several hundred milliseconds, but a hop in the same data center is typically less than ten milliseconds.
+- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be several hundred milliseconds, but a hop in the same data center is typically less than ten milliseconds.
   
 - **Complexity**:
   - **More complex**. A single client connecting to a single DO over a reconnecting WebSocket connection is simpler.
@@ -84,7 +86,11 @@ For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `D
 
 ### Client Not Connected
 
-If a mesh node attempts to call a client that is disconnected (and its grace period has expired), the caller receives a `ClientDisconnectedError`.
+If a mesh node attempts to call a client that is disconnected and its grace period has expired, the caller receives a `ClientDisconnectedError`.
+
+### Grace Period Expires
+
+If the call arrives during the grace period, Gateway waits for the client to reconnect. If the grace period expires before reconnection, the caller receives `ClientDisconnectedError`.
 
 ### Client Call Timeout
 
@@ -96,7 +102,7 @@ Gateway verifies token expiration on each incoming message using the stored `tok
 
 ### Resubscribing
 
-When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates.
+When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates — see [Handling Subscription Loss](./lumenize-client#handling-subscription-loss) for the client-side pattern.
 
 ## Trust Demilitarized Zone (DMZ)
 
