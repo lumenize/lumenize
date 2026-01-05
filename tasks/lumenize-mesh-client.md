@@ -130,6 +130,13 @@ Example: `MeshAccessError: Method 'transform' is not exposed via @mesh decorator
 - [ ] Allows async initialization (migrations, setup) without race conditions
 - [ ] Users should NOT write custom constructors — use `onStart()` instead
 
+**Core Utilities Consolidation** (PENDING):
+- [ ] Merge `sql` and `debug` utilities from `@lumenize/core` into `@lumenize/mesh`
+  - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
+  - `debug` makes sense for all three node types — available via `this.svc.debug`
+  - For mesh nodes, just import the base class — `this.svc.*` handles the rest (no separate `@lumenize/core` import needed)
+  - Also export `sql` and `debug` directly from `@lumenize/mesh` for standalone/vanilla usage
+
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation
 
@@ -235,12 +242,11 @@ Example: `MeshAccessError: Method 'transform' is not exposed via @mesh decorator
 
 6. **Trust model**: Nodes in the mesh are trusted. Freezing prevents bugs, not malicious nodes. For high-security operations, verify `originAuthToken` (signed JWT) independently.
 
-7. **Token Refresh Failure Handling**:
-   - Token refresh is an HTTP operation that runs in parallel to WebSocket messages
-   - When refresh fails, fire `onTokenRefreshFailure` callback (separate from `onConnectionError`)
-   - Do NOT force-close the WebSocket — let in-flight calls complete naturally
-   - The WebSocket will eventually close when Gateway rejects expired token (4401 close code)
-   - Developer handles redirect to login in their `onTokenRefreshFailure` callback
+7. **Authentication Error Handling**:
+   - `onAuthenticationError` fires for all auth failures: token refresh failed, initial connection rejected (401/403), mid-session token expiration (4401 close code)
+   - Separate from `onConnectionError` which handles network-level WebSocket errors
+   - Token refresh is HTTP in parallel to WebSocket — when it fails, WebSocket stays open for in-flight calls
+   - Developer handles redirect to login in their `onAuthenticationError` callback
 
 ### Phase 7: Client-to-Client Communication
 **Goal**: Enable LumenizeClient → LumenizeClient calls

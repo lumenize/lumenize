@@ -1,9 +1,9 @@
 ---
-title: Auth Integration
+title: Authentication & Access Control
 description: JWT authentication, access control, and callContext propagation in the mesh
 ---
 
-# Auth Integration
+# Authentication & Access Control
 
 The Lumenize Mesh integrates with `@lumenize/auth` for secure, passwordless authentication via magic links and JWT tokens.
 
@@ -194,17 +194,15 @@ using client = new EditorClient({
 3. **Refresh**: POSTs to `refreshEndpoint` with `credentials: 'include'`
 4. **Update**: Updates internal token for future reconnections
 
-### Handling Refresh Failure
+### Handling Authentication Errors
 
-If refresh fails (e.g., refresh token expired), `onTokenRefreshFailure` fires:
+If authentication fails (token refresh failed, connection rejected, or session expired), `onAuthenticationError` fires:
 
 ```typescript @skip-check
 using client = new EditorClient({
   accessToken,
-  onTokenRefreshFailure: (error) => {
-    // Token refresh failed — session expired
-    // In-flight WebSocket calls can still complete
-    // Redirect to login when ready
+  onAuthenticationError: (error) => {
+    // Authentication failed — redirect to login
     showSessionExpiredModal(() => {
       window.location.href = '/login';
     });
@@ -213,7 +211,7 @@ using client = new EditorClient({
 ```
 
 :::note Separate from Connection Errors
-`onTokenRefreshFailure` is distinct from `onConnectionError`. Token refresh happens via HTTP in parallel to WebSocket messages. When refresh fails, the WebSocket stays open for in-flight calls to complete naturally. The connection will eventually close when the Gateway rejects the expired token (4401 close code).
+`onAuthenticationError` is distinct from `onConnectionError`. Authentication errors include token refresh failures (HTTP), initial connection rejection (401/403), and mid-session token expiration (4401 close code). Network-level WebSocket errors go to `onConnectionError`.
 :::
 
 ---
@@ -423,11 +421,11 @@ The Gateway uses standard WebSocket close codes for auth issues:
 using client = new EditorClient({
   accessToken,
   onConnectionError: (error) => {
-    // WebSocket connection failed (network issues, etc.)
+    // WebSocket connection failed (network issues)
     showOfflineBanner();
   },
-  onTokenRefreshFailure: (error) => {
-    // HTTP token refresh failed — session expired
+  onAuthenticationError: (error) => {
+    // Authentication failed — redirect to login
     window.location.href = '/login';
   }
 });

@@ -133,8 +133,27 @@ Only these lifecycle entrypoint methods should be `async`:
 DOs can be evicted from memory at any time:
 - **Fetch from storage** at start of each request/message handler
 - **Persist changes** before returning from handler
-- **Minimize instance variables** - only store `this.ctx`, `this.env`, or expensive transformations
 - **Don't rely on in-memory state** persisting between requests
+
+### Instance Variable Rule (CRITICAL)
+
+**Never use instance variables for mutable application state** — always store that in `ctx.storage`.
+
+Instance variables are only safe for:
+- **Statically initialized utilities**: `#log = debug(this)('MyDO')` ✅
+- **Ephemeral caches** where storage is the source of truth ✅
+- **Configuration set once** in constructor/onStart ✅
+
+**Wrong** (state won't survive eviction):
+```typescript
+#subscribers = new Set<string>();  // ❌ Mutable state as instance variable
+```
+
+**Right** (state in storage):
+```typescript
+#getSubscribers() { return this.ctx.storage.kv.get('subscribers') ?? new Set(); }
+#saveSubscribers(s: Set<string>) { this.ctx.storage.kv.put('subscribers', s); }
+```
 
 ---
 
@@ -197,6 +216,9 @@ await vi.waitFor(async () => {
 
 ### Philosophy
 Documentation quality is ensured by custom Docusaurus tooling that guarantees all code examples are tested and working. The website at https://lumenize.com is the single source of truth.
+
+### Style
+- **Prefer inline links** over "See Also" or "Next Steps" sections at the end of files — sidebar ordering handles navigation and end-of-file link sections get stale without anyone noticing.
 
 ### Where Documentation Lives
 - **Website docs**: `/website/docs/[package-name]/*.mdx` - All user-facing documentation

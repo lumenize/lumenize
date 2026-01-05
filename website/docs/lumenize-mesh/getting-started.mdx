@@ -3,6 +3,8 @@ title: Getting Started
 description: Build a collaborative document editor with the Lumenize Mesh
 ---
 
+import MeshArchitectureDiagram from '../_partials/_mesh-architecture-diagram.mdx';
+
 # Getting Started
 
 This tutorial builds a **collaborative document editor** using all mesh node types. By the end, you'll have:
@@ -11,10 +13,23 @@ This tutorial builds a **collaborative document editor** using all mesh node typ
 - A `SpellCheckWorker` that checks spelling via an external API
 - An `EditorClient` that runs in the browser and receives real-time updates
 
+## What You'll Build
+
+With the exception of the Workspace LumenizeDO, which we leave as a potential exercise for the reader, we will flesh out the nodes in this diagram:
+
+<MeshArchitectureDiagram />
+
+**Call flows:**
+1. **User edits** → Client → Gateway → DocumentDO
+2. **DocumentDO notifies** → Gateway → Client (real-time update)
+3. **DocumentDO spell checks** → SpellCheckWorker → DocumentDO → Gateway → Client
+
+---
+
 ## Prerequisites
 
 ```bash @skip-check
-npm install @lumenize/mesh @lumenize/core @lumenize/auth @lumenize/utils
+npm install @lumenize/mesh @lumenize/auth @lumenize/utils
 ```
 
 ---
@@ -25,109 +40,84 @@ npm install @lumenize/mesh @lumenize/core @lumenize/auth @lumenize/utils
 
 ```typescript @skip-check
 // src/document-do.ts
-import '@lumenize/core';
-import { LumenizeDO, mesh } from '@lumenize/mesh';
-
-interface DocumentChange {
-  type: 'insert' | 'delete';
-  position: number;
-  text?: string;
-  length?: number;
-}
+import { LumenizeDO, mesh, type CallContext } from '@lumenize/mesh';
+import type { SpellCheckWorker, SpellFinding } from './spellcheck-worker';
+import type { EditorClient } from './editor-client';
 
 export class DocumentDO extends LumenizeDO<Env> {
-  #subscribers = new Set<string>();
-
-  // Initialize schema (runs once, safely wrapped in blockConcurrencyWhile)
-  async onStart() {
-    this.svc.sql`
-      CREATE TABLE IF NOT EXISTS documents (
-        id TEXT PRIMARY KEY,
-        content TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-      )
-    `;
-  }
-
   // Require authentication for all mesh calls
   onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
+    super.onBeforeCall(callContext);  // For now, this is a no-op
     if (!callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
   }
 
   @mesh
-  update(changes: DocumentChange) {
-    // Apply changes to storage
-    const content = this.ctx.storage.kv.get('content') ?? '';
-    const newContent = this.#applyChanges(content, changes);
-    this.ctx.storage.kv.put('content', newContent);
-    this.ctx.storage.kv.put('updated_at', Date.now());
+  update(content: string) {
+    this.ctx.storage.kv.put('content', content);
 
-    // Notify all subscribers
-    this.#notifySubscribers(changes);
+    // Notify all subscribers with new content
+    this.#broadcastContent(content);
 
-    // Trigger spell check (fire-and-forget)
+    // Trigger spell check
     this.lmz.call(
       'SPELLCHECK_WORKER',
       undefined,
-      this.ctn<SpellCheckWorker>().check(newContent),
+      this.ctn<SpellCheckWorker>().check(content),
       this.ctn().handleSpellCheckResult(this.ctn().$result)
     );
   }
 
   @mesh
-  getContent(): string {
-    return this.ctx.storage.kv.get('content') ?? '';
-  }
-
-  @mesh
-  subscribe() {
+  subscribe(): string {
     const clientId = this.lmz.callContext.caller.instanceName;
     if (clientId) {
-      this.#subscribers.add(clientId);
+      const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+      subscribers.add(clientId);
+      this.ctx.storage.kv.put('subscribers', subscribers);
     }
+    return this.ctx.storage.kv.get('content') ?? '';
   }
 
   @mesh
   unsubscribe() {
     const clientId = this.lmz.callContext.caller.instanceName;
     if (clientId) {
-      this.#subscribers.delete(clientId);
+      const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+      subscribers.delete(clientId);
+      this.ctx.storage.kv.put('subscribers', subscribers);
     }
   }
 
-  // Response handler — no @mesh needed (see tip below)
-  handleSpellCheckResult(errors: SpellError[] | Error) {
-    if (errors instanceof Error) {
-      console.error('Spell check failed:', errors);
+  // Response handler — no @mesh needed (see Design Insights below)
+  handleSpellCheckResult(findings: SpellFinding[] | Error) {
+    if (findings instanceof Error) {
+      console.error('Spell check failed:', findings);
       return;
     }
-    this.ctx.storage.kv.put('spellErrors', errors);
-    this.#notifySubscribers({ type: 'spell_errors', errors });
+    this.#broadcastSpellFindings(findings);
   }
 
-  // Internal: notify all connected clients
-  #notifySubscribers(change: any) {
-    for (const clientId of this.#subscribers) {
+  #broadcastContent(content: string) {
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    for (const clientId of subscribers) {
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
-        this.ctn<EditorClient>().handleDocumentChange(change)
+        this.ctn<EditorClient>().handleContentUpdate(content)
       );
     }
   }
 
-  #applyChanges(content: string, changes: DocumentChange): string {
-    // Simplified - real implementation would handle operational transforms
-    if (changes.type === 'insert') {
-      return content.slice(0, changes.position) + 
-             changes.text + 
-             content.slice(changes.position);
-    } else {
-      return content.slice(0, changes.position) + 
-             content.slice(changes.position + (changes.length ?? 0));
+  #broadcastSpellFindings(findings: SpellFinding[]) {
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    for (const clientId of subscribers) {
+      this.lmz.call(
+        'LUMENIZE_CLIENT_GATEWAY',
+        clientId,
+        this.ctn<EditorClient>().handleSpellFindings(findings)
+      );
     }
   }
 }
@@ -136,25 +126,29 @@ export class DocumentDO extends LumenizeDO<Env> {
 **Key patterns:**
 - `onBeforeCall()` enforces authentication at the class level
 - `@mesh` decorator exposes methods as entry points
-- `this.lmz.call()` makes fire-and-forget and request/response calls
+- `this.lmz.call()` makes fire-and-forget or request/response calls
 - `this.ctn<T>()` builds type-safe continuations for remote methods
-- `this.svc.sql` provides NADIS-injected SQL access
 
-:::tip Response Handlers Don't Need @mesh
-Notice that `handleSpellCheckResult` lacks the `@mesh` decorator. Response handlers in continuations you author yourself (via `this.ctn().myHandler(...)`) don't need `@mesh` — the framework trusts that you're calling your own methods. Only methods that external mesh nodes call as **entry points** need the decorator.
-:::
+### Design Insights
+
+| Pattern | Why It Matters |
+|---------|----------------|
+| No `async`/`await` | Continuations describe work; framework handles timing. Avoids race conditions. |
+| No instance variables | State in storage survives hibernation/eviction. Reads are cached and cheap (writes cost 10,000x more). |
+| Response handlers skip `@mesh` | Framework trusts your own continuations — only entry points need the decorator. |
+| `@mesh(guard)` not shown | Fine-grained permissions per method. See [Security](./security#method-level-guards). |
 
 ---
 
 ## Step 2: Define the Spell Check Worker
 
-`LumenizeWorker` is for **stateless server-side logic**. It's perfect for proxying external APIs or compute-intensive tasks.
+`LumenizeWorker` is for **stateless server-side logic**. It's perfect for proxying external APIs, compute-intensive tasks, or offloading fanout.
 
 ```typescript @skip-check
 // src/spellcheck-worker.ts
 import { LumenizeWorker, mesh } from '@lumenize/mesh';
 
-export interface SpellError {
+export interface SpellFinding {
   word: string;
   position: number;
   suggestions: string[];
@@ -162,7 +156,7 @@ export interface SpellError {
 
 export class SpellCheckWorker extends LumenizeWorker<Env> {
   @mesh
-  async check(content: string): Promise<SpellError[]> {
+  async check(content: string): Promise<SpellFinding[]> {
     // Call external spell check API
     const response = await fetch('https://api.spellcheck.example/check', {
       method: 'POST',
@@ -182,10 +176,9 @@ export class SpellCheckWorker extends LumenizeWorker<Env> {
 **Key patterns:**
 - Workers can be `async` — they don't have the same consistency constraints as DOs
 - Workers have no instance name (pass `undefined` to `lmz.call`)
-- Workers can make external HTTP calls directly
 
 :::tip Cost Optimization
-For long-running external calls, consider using `@lumenize/fetch` with the "two one-way call" pattern to avoid DO wall-clock billing while waiting for the response.
+For long-running external calls, consider using `@lumenize/fetch` with the "two one-way call" pattern to avoid DO wall-clock billing while waiting for long-running (>2s) responses.
 :::
 
 ---
@@ -196,64 +189,61 @@ For long-running external calls, consider using `@lumenize/fetch` with the "two 
 
 ```typescript @skip-check
 // src/editor-client.ts
-import { LumenizeClient, mesh } from '@lumenize/mesh';
-
-interface DocumentChange {
-  type: string;
-  [key: string]: any;
-}
+import { LumenizeClient, mesh, type LumenizeClientConfig } from '@lumenize/mesh';
+import type { DocumentDO } from './document-do';
+import type { SpellFinding } from './spellcheck-worker';
 
 export class EditorClient extends LumenizeClient {
   #editor: any; // Your editor instance
   #documentId: string;
 
-  constructor(config: LumenizeClientConfig & { editor: any; documentId: string }) {
+  constructor(config: LumenizeClientConfig, editor: any, documentId: string) {
     super(config);
-    this.#editor = config.editor;
-    this.#documentId = config.documentId;
+    this.#editor = editor;
+    this.#documentId = documentId;
+
+    // Subscribe and load initial content
+    this.#subscribe();
   }
 
-  // Called by DocumentDO when content changes
+  // Called by DocumentDO when another user edits the document
   @mesh
-  handleDocumentChange(change: DocumentChange) {
-    if (change.type === 'spell_errors') {
-      this.#editor.highlightErrors(change.errors);
-    } else {
-      this.#editor.applyChange(change);
-    }
+  handleContentUpdate(content: string) {
+    this.#editor.setContent(content);
+  }
+
+  // Called by DocumentDO with spell check results
+  @mesh
+  handleSpellFindings(findings: SpellFinding[]) {
+    this.#editor.highlightFindings(findings);
   }
 
   // Called when reconnecting after grace period expired
   onSubscriptionsLost = () => {
-    // Re-subscribe to the document
-    this.lmz.call(
-      'DOCUMENT_DO',
-      this.#documentId,
-      this.ctn<DocumentDO>().subscribe()
-    );
+    this.#subscribe();
   };
 
   // Public method for your UI to call
-  sendChange(change: DocumentChange) {
+  saveContent(content: string) {
     this.lmz.call(
       'DOCUMENT_DO',
       this.#documentId,
-      this.ctn<DocumentDO>().update(change)
+      this.ctn<DocumentDO>().update(content)
     );
   }
 
-  loadDocument() {
+  #subscribe() {
     this.lmz.call(
       'DOCUMENT_DO',
       this.#documentId,
-      this.ctn<DocumentDO>().getContent(),
-      this.ctn().handleContentLoaded(this.ctn().$result)
+      this.ctn<DocumentDO>().subscribe(),
+      this.ctn().#handleSubscribeResult(this.ctn().$result)
     );
   }
 
-  handleContentLoaded(content: string | Error) {
+  #handleSubscribeResult(content: string | Error) {
     if (content instanceof Error) {
-      console.error('Failed to load document:', content);
+      console.error('Failed to subscribe:', content);
       return;
     }
     this.#editor.setContent(content);
@@ -263,15 +253,59 @@ export class EditorClient extends LumenizeClient {
 
 **Key patterns:**
 - Extend `LumenizeClient` and define `@mesh` methods for incoming calls
-- `onSubscriptionsLost` handles reconnection after the 5-second grace period
+- `onSubscriptionsLost` handles resubscription. This is only called if auto-reconnect is unsuccessful within the 5-second grace period
 - The client can call any mesh node using the same `this.lmz.call()` API
 - Results can be `Error` — always check before using
 
 ---
 
-## Step 4: Set Up the Worker Entry Point
+## Step 4: Connect from the Browser
 
-The Worker routes requests to DOs and handles authentication:
+```typescript @skip-check
+// In your browser application
+import { EditorClient } from './editor-client';
+
+async function initEditor(accessToken: string, userId: string, documentId: string) {
+  const editor = createYourEditor(); // Your editor library
+
+  // Create and connect the client
+  using client = new EditorClient(
+    {
+      baseUrl: 'wss://collab-editor.your-cloudflare-account.workers.dev',
+      instanceName: `${userId}.${getTabId()}`,
+      accessToken,
+      onConnectionStateChange: (state) => {
+        updateConnectionIndicator(state);
+      },
+      onAuthenticationError: () => {
+        redirectToLogin();
+      }
+    },
+    editor,
+    documentId
+  );
+
+  // Wire up editor changes
+  editor.onChange = (change) => {
+    client.saveContent(change);
+  };
+}
+
+function getTabId(): string {
+  let tabId = sessionStorage.getItem('tabId');
+  if (!tabId) {
+    tabId = crypto.randomUUID();
+    sessionStorage.setItem('tabId', tabId);
+  }
+  return tabId;
+}
+```
+
+---
+
+## Step 5: Set Up the Worker Entry Point
+
+The Worker routes requests to DOs and handles authentication. See [Security](./security) for details on token handling and key rotation.
 
 ```typescript @skip-check
 // src/index.ts
@@ -292,13 +326,10 @@ export default {
     });
     if (authResponse) return authResponse;
 
-    // Create auth middleware
-    const httpAuth = await createAuthMiddleware({
-      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-    });
-    const wsAuth = await createWebSocketAuthMiddleware({
-      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-    });
+    // Create auth middleware (accepts BLUE and/or GREEN keys for rotation)
+    const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+    const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
+    const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
 
     // Protected routes
     return routeDORequest(request, env, {
@@ -310,9 +341,13 @@ export default {
 };
 ```
 
+:::note Coming Soon
+`createLumenizeRouter` will provide this setup with sensible defaults, reducing the boilerplate above to a single function call.
+:::
+
 ---
 
-## Step 5: Configure wrangler.jsonc
+## Step 6: Configure wrangler.jsonc
 
 ```jsonc @skip-check
 {
@@ -334,102 +369,14 @@ export default {
     }
   ],
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["LumenizeAuth", "DocumentDO"] }
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LumenizeAuth", "DocumentDO", "LumenizeClientGateway"]
+    }
   ]
 }
 ```
 
-:::note Binding Types
-- **Durable Objects** use `durable_objects.bindings` — each has named instances
-- **Workers** use `services` — stateless, no instance name (pass `undefined` to `lmz.call`)
-- **Gateway** needs no migration — it uses zero storage
-
+:::note `SpellCheckWorker`
 The `SpellCheckWorker` is a [named entrypoint](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`.
 :::
-
----
-
-## Step 6: Connect from the Browser
-
-```typescript @skip-check
-// In your browser application
-import { EditorClient } from './editor-client';
-
-async function initEditor(accessToken: string, userId: string, documentId: string) {
-  const editor = createYourEditor(); // Your editor library
-
-  // Create and connect the client
-  using client = new EditorClient({
-    baseUrl: 'wss://collab-editor.your-account.workers.dev',
-    instanceName: `${userId}.${getTabId()}`,
-    accessToken,
-    editor,
-    documentId,
-    onConnectionStateChange: (state) => {
-      updateConnectionIndicator(state);
-    },
-    onConnectionError: (error) => {
-      if (error.message.includes('401')) {
-        redirectToLogin();
-      }
-    }
-  });
-
-  // Subscribe to updates and load content
-  client.lmz.call('DOCUMENT_DO', documentId, client.ctn<DocumentDO>().subscribe());
-  client.loadDocument();
-
-  // Wire up editor changes
-  editor.onChange = (change) => {
-    client.sendChange(change);
-  };
-}
-
-function getTabId(): string {
-  let tabId = sessionStorage.getItem('tabId');
-  if (!tabId) {
-    tabId = crypto.randomUUID();
-    sessionStorage.setItem('tabId', tabId);
-  }
-  return tabId;
-}
-```
-
----
-
-## What You've Built
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        ☁️ Cloudflare                                │
-│                                                                     │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────────────┐   │
-│  │ DocumentDO  │◄───►│ SpellCheck  │     │ LumenizeClientGateway│   │
-│  │ (draft-1)   │     │   Worker    │     │   (alice.tab1)       │   │
-│  └─────────────┘     └─────────────┘     └──────────┬───────────┘   │
-│         ▲                                           │               │
-│         │                                           │               │
-│         └───────────────────────────────────────────┘               │
-│                              ▲                                      │
-└──────────────────────────────│──────────────────────────────────────┘
-                               │ WebSocket
-                    ┌──────────▼──────────┐
-                    │    EditorClient     │
-                    │    (Browser)        │
-                    └─────────────────────┘
-```
-
-**Call flows:**
-1. **User edits** → Client → Gateway → DocumentDO
-2. **DocumentDO notifies** → Gateway → Client (real-time update)
-3. **DocumentDO spell checks** → SpellCheckWorker → DocumentDO → Gateway → Client
-
----
-
-## Next Steps
-
-- **[LumenizeDO Reference](./lumenize-do)** — Full API, NADIS plugins, storage patterns
-- **[LumenizeClient Reference](./lumenize-client)** — Connection lifecycle, access control
-- **[Auth Integration](./auth-integration)** — Token refresh, WebSocket auth, callContext
-- **[Gateway Internals](./gateway)** — Zero-storage design, grace periods
-

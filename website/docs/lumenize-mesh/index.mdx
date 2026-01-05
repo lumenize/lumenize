@@ -3,6 +3,8 @@ title: Lumenize Mesh
 description: Durable Objects, Workers, and browser clients as peers in an actor-model network
 ---
 
+import MeshArchitectureDiagram from '../_partials/_mesh-architecture-diagram.mdx';
+
 # Lumenize Mesh
 
 While Cloudflare's Workers and Durable Objects with Workers RPC is actor-like, **Lumenize Mesh** extends the model all the way to the browser and other clients running outside Cloudflare while adding critical security, race-condition safety, and de✨light✨fulness.
@@ -22,85 +24,21 @@ Supporting infrastructure:
 | Element | Type | Purpose |
 |---------|------|---------|
 | **[LumenizeClientGateway](./gateway)** | Cloudflare DO | Bridges WebSocket clients ↔ mesh (zero storage) |
-| **createLumenizeRouter** | Factory function | Creates Worker fetch handler with auth + gateway routing |
+| **createLumenizeRouter** (coming soon)| Factory function | Creates Worker fetch handler with auth + gateway routing |
 
 ## Illustration
 
-```mermaid
-flowchart TB
-
-    subgraph browserA[" "]
-        ClientA[/"Client<br/><small>alice.tab1</small>"/]
-    end
-
-    subgraph cloud[" ☁️ Cloudflare "]
-        direction TB
-        
-        subgraph mesh[" "]
-            direction LR
-            Workspace["Workspace<br/><small>acme-corp</small>"]
-            Doc1["Document<br/><small>draft-1</small>"]
-            Doc2["Document<br/><small>draft-2</small>"]
-            Spell1(("SpellCheck"))
-            Spell2(("SpellCheck"))
-        end
-        
-        subgraph gatewaysA[" "]
-            GwA(["Gateway<br/><small>alice.tab1</small>"])
-        end
-        
-        subgraph gatewaysB[" "]
-            GwB1(["Gateway<br/><small>bob.tab1</small>"])
-            GwB2(["Gateway<br/><small>bob.tab2</small>"])
-            GwB1 ~~~ GwB2
-        end
-        
-        Workspace <--> Doc1
-        Workspace <--> Doc2
-        Doc1 <--> Spell1
-        Doc2 <--> Spell2
-        
-        GwA <--> Workspace
-        GwB1 <--> Workspace
-        GwB2 <--> Workspace
-        
-        GwA <--> Doc2
-        GwB1 <--> Doc2
-        GwB2 <--> Doc1
-    end
-
-    subgraph browserB[" "]
-        ClientB1[/"Client<br/><small>bob.tab1</small>"/]
-        ClientB2[/"Client<br/><small>bob.tab2</small>"/]
-        ClientB1 ~~~ ClientB2
-    end
-    
-    GwB1 <-->|WebSocket| ClientB1
-    GwB2 <-->|WebSocket| ClientB2
-    GwA <-->|WebSocket| ClientA
-    
-    classDef workspaceDO fill:#6366f1,stroke:#4f46e5,color:#fff
-    classDef documentDO fill:#a855f7,stroke:#9333ea,color:#fff
-    classDef spellWorker fill:#10b981,stroke:#059669,color:#fff
-    classDef gateway fill:#f59e0b,stroke:#d97706,color:#fff
-    classDef client fill:#ec4899,stroke:#db2777,color:#fff
-    classDef invisible fill:none,stroke:none
-    
-    class Workspace workspaceDO
-    class Doc1,Doc2 documentDO
-    class Spell1,Spell2 spellWorker
-    class GwA,GwB1,GwB2 gateway
-    class ClientA,ClientB1,ClientB2 client
-    class mesh,gatewaysA,gatewaysB,browserA,browserB invisible
-```
+<MeshArchitectureDiagram />
 
 ---
 
 ## Core Concepts
 
+All mesh nodes have access to `this.lmz` — the unified API for identity and communication (see [full reference](#the-thislmz-api) below).
+
 ### Automatic Identity Propagation
 
-Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Each node stores this information on first contact, enabling it to provide return addresses for callbacks.
+Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Callees store this information on first contact, enabling them to provide return addresses for callbacks, logging, etc.
 
 ### Call Context
 
@@ -124,48 +62,7 @@ updateDocument(changes: DocumentChange) {
 }
 ```
 
-**Hibernation-safe** (for DOs): Call context is automatically captured in continuations. For long running remote calls, your handler can be configured to store the continuation so even if a DO hibernates during, your handler receives the correct context no matter how much later it executes.
-
-See [Managing Context](./managing-context) for the full guide.
-
-### Zero Trust Security
-
-Every node is responsible for its own access control. Lumenize provides **secure-by-default** defense-in-depth:
-
-| Layer | Mechanism | Purpose |
-|-------|-----------|---------|
-| **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
-| **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
-| **Capability Trust** | Automatic | Returned objects are trusted for that chain |
-
-```typescript @skip-check
-class DocumentDO extends LumenizeDO {
-  // Class-level: require authentication for all calls
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
-    if (!callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-  }
-  
-  // Entry point: exposed to mesh, can add method-specific checks
-  @mesh((callContext) => {
-    if (!callContext.state.user.canEdit) {
-      throw new Error('Edit permission required');
-    }
-  })
-  update(changes: DocumentChange) {
-    // Safe to execute - auth and permissions verified
-  }
-
-  // NOT exposed - missing @mesh decorator
-  #internalHelper() { /* ... */ }
-}
-```
-
-**Key insight**: Only methods decorated with `@mesh` are entry points. Once authorized, the returned object's public interface is trusted for that call chain (capability-based trust).
-
-See [Auth Integration](./auth-integration) for complete security documentation.
+**Hibernation-safe** (for DOs): For long-running remote calls, capture context explicitly by passing it as continuation parameters. See [Managing Context](./managing-context) for the full guide.
 
 ### Continuations
 
@@ -183,11 +80,75 @@ this.lmz.call('DOCUMENT_DO', 'draft-1', remote, handler);
 ```
 
 Continuations:
-- Are **serializable** — can be stored, sent over the wire, survive hibernation
+- Are **serializable** — can be stored, sent over the wire, persist to storage
 - Are **type-safe** — TypeScript checks method names and signatures
-- **Capture context** — `callContext` is automatically preserved
+- **Carry context** — pass what you need as parameters for hibernation safety
+- **Avoid race conditions** — designed to work with Durable Objects concurrency model
 
 See [Continuations](./continuations) for the full guide.
+
+### Zero Trust Security
+
+Every node is responsible for its own access control. Lumenize provides **secure-by-default** defense-in-depth:
+
+| Layer | Mechanism | Purpose |
+|-------|-----------|---------|
+| **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
+| **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
+| **Capability Trust** | Automatic | Returned objects are trusted for that chain |
+
+```typescript @skip-check
+class AdminCapabilities {
+  #instance: DocumentDO;
+
+  constructor(instance: DocumentDO) {
+    this.#instance = instance;
+  }
+
+  forceReset() {
+    this.#instance.ctx.storage.deleteAll();
+  }
+}
+
+class DocumentDO extends LumenizeDO {
+  // Class-wide: require authentication for all calls
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+  }
+  
+  // Entry Point: exposed to mesh
+  @mesh
+  getContent() { /* ... */ }
+
+  // Capability Trust: returned object's public interface is trusted for that call chain
+  // Example: `this.ctn().admin().forceReset()`
+  @mesh((callContext) => {
+    if (!callContext.state.user.isAdmin) {
+      throw new Error('Admin permission required');
+    }
+  })
+  admin() {
+    return new AdminCapabilities(this);
+  }
+
+  // NOT exposed - missing @mesh decorator
+  #internalHelper() { /* ... */ }
+  anotherHelper() { /* ... */ }
+}
+```
+
+See [Security](./security) for complete security documentation.
+
+### Rich Type Support All the Way to the Browser
+
+Parameters and return values support all Workers RPC types (except streams): objects with cycles, aliases, `Date`, `Error` with cause chains, `Map`, `Set`, `ArrayBuffer`, `Uint8Array`, and more.
+
+Unlike Workers RPC, this capability extends **all the way to the browser** — the same rich types work seamlessly between `LumenizeDO`, `LumenizeWorker`, and `LumenizeClient`.
+
+See [@lumenize/structured-clone](/docs/structured-clone) for the complete type support table.
 
 ---
 
@@ -200,7 +161,7 @@ Every mesh node has access to `this.lmz` — the unified API for identity and co
 ```typescript @skip-check
 this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
 this.lmz.bindingName    // e.g., 'DOCUMENT_DO' (auto-propagated)
-this.lmz.instanceName   // e.g., 'draft-1' (auto-propagated, DOs only)
+this.lmz.instanceName   // e.g., 'draft-1' (auto-propagated, undefined for LumenizeWorker)
 this.lmz.callContext    // Current request's context (during handler execution)
 ```
 
@@ -234,7 +195,7 @@ Ready to build? See the **[Getting Started Guide](./getting-started)** for a han
 - **[LumenizeWorker](./lumenize-worker)** — Stateless server-side nodes
 - **[LumenizeClient](./lumenize-client)** — Browser/Node.js client nodes
 - **[Gateway Internals](./gateway)** — How client-mesh bridging works
-- **[Auth Integration](./auth-integration)** — Authentication and access control
+- **[Security](./security)** — Authentication and access control
 - **[Creating Plugins](./creating-plugins)** — Build your own NADIS services
 
 ## Concept Deep Dives

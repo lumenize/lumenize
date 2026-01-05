@@ -307,6 +307,7 @@ npm install --save-dev @lumenize/package-name
 #### What NOT to Include in Documentation
 
 - **Never create temporary docs** in package directories (`IMPLEMENTATION.md`, `FEATURE_GUIDE.md`, etc.)
+- **No "See Also" or "Next Steps" sections** at the end of files — use inline links instead. The sidebar ordering handles navigation and end-of-file link sections get stale without anyone noticing.
 - **Exclude internal communication content**:
   - Testing details (unless user-facing testing utilities)
   - Compatibility matrices
@@ -508,5 +509,24 @@ If implementing a capability inspired by external code (similar API but not copi
 DOs can be evicted from memory at any time. Design accordingly:
 - **Fetch from storage** at start of each request/message handler
 - **Persist changes** before returning from handler
-- **Minimize instance variables** - only store `this.ctx`, `this.env`, or expensive transformations
 - **Don't rely on in-memory state** persisting between requests
+
+### Instance Variable Rule (CRITICAL)
+
+**Never use instance variables for mutable application state** — always store that in `ctx.storage`.
+
+Instance variables are only safe for:
+- **Statically initialized utilities**: `#log = debug(this)('MyDO')` ✅
+- **Ephemeral caches** where storage is the source of truth ✅
+- **Configuration set once** in constructor/onStart ✅
+
+**Wrong** (state won't survive eviction):
+```typescript
+#subscribers = new Set<string>();  // ❌ Mutable state as instance variable
+```
+
+**Right** (state in storage):
+```typescript
+#getSubscribers() { return this.ctx.storage.kv.get('subscribers') ?? new Set(); }
+#saveSubscribers(s: Set<string>) { this.ctx.storage.kv.put('subscribers', s); }
+```

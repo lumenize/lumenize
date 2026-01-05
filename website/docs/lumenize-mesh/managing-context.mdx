@@ -72,7 +72,7 @@ handleResult(result: any | Error, startTime: number) {
 | **Best For** | Auth, Identity, Trace IDs | Business IDs, Timestamps, Retry counts |
 | **Type Safety** | ❌ Runtime access (`any`) | ✅ Compile-time typed |
 | **Explicitness** | ❌ Implicit/Global | ✅ Explicit/Parameters |
-| **Hibernation** | ✅ **Automatic** (captured in continuations) | ✅ **Automatic** (serialized with continuation) |
+| **Hibernation** | ⚠️ Lost if DO hibernates | ✅ **Survives** (if passed as parameters) |
 | **DO Consistency**| ⚠️ Risk if handlers use `await` | ✅ Safe (encourages sync handlers) |
 
 ---
@@ -81,51 +81,52 @@ handleResult(result: any | Error, startTime: number) {
 
 Durable Objects can hibernate (evict from memory) at any time, especially during long-running asynchronous operations like the **"Two One-Way Call"** pattern used in `@lumenize/fetch`.
 
-### Automatic Context Preservation
+### Context During Normal Calls
 
-Lumenize **automatically captures `callContext`** when you create a continuation. When the continuation executes (even after hibernation), the context is restored before your handler runs.
+For typical `this.lmz.call()` operations, `callContext` is available in your handler because both execute in the same async context:
 
 ```typescript
-// You write this - no manual context capture needed!
 this.lmz.call(
-  'TARGET_DO',
-  id,
-  this.ctn<TargetDO>().longRunningProcess(),
+  'VALIDATION_WORKER',
+  undefined,
+  this.ctn<ValidationWorker>().validate(data),
   this.ctn().handleResult(this.ctn().$result)
 );
 
-// ... DO hibernates during the long-running call ...
-// ... Result arrives later ...
-
-// Your handler runs with callContext automatically restored
+// callContext is available here
 handleResult(result: any | Error) {
-  // this.lmz.callContext is correct! No manual capture required.
   const userId = this.lmz.callContext.originAuth?.userId;
   console.log(`Result for ${userId}:`, result);
 }
 ```
 
-This "just works" because:
-1. When `this.ctn()` is serialized for dispatch, it snapshots the current `callContext`.
-2. When the continuation executes, the context is restored before your handler runs.
-3. `this.lmz.callContext` reads from this restored context.
+### Hibernation Risk
 
-### Manual Persistence (For Power Users)
-If you are building your own hibernation-safe functionality outside the mesh, you can manually serialize a continuation using the internal utilities:
+If a DO hibernates while waiting for a response, the in-flight call is lost — your handler never executes. This affects `this.lmz.call()` with a handler continuation.
+
+For hibernation-safe patterns:
+- Use **[Two One-Way Calls](./calls#cost-optimization-two-one-way-calls)** — the DO returns immediately, nothing to lose
+- Use **[@lumenize/alarms](/docs/alarms)** — persists continuations to storage with automatic context capture
+
+### Manual Persistence (Power Users)
+
+If you're building your own hibernation-safe patterns outside the standard tools, explicitly serialize and store the continuation:
 
 ```typescript
 import { getOperationChain } from '@lumenize/mesh';
 import { stringify } from '@lumenize/structured-clone';
 
-// 1. Get the serializable operation chain (includes captured callContext)
+// getOperationChain captures callContext automatically
 const chain = getOperationChain(this.ctn().myHandler(data));
 
-// 2. Stringify it (supports Dates, Maps, Sets, etc.)
+// Stringify it (supports Dates, Maps, Sets, etc.)
 const serialized = stringify(chain);  // Necessary for SQL. Optional for KV
 
-// 3. Save to your own SQL or KV storage
+// Save to storage - THIS is what makes it hibernation-safe
 this.ctx.storage.kv.put('my-key', serialized);
 ```
+
+The key insight: `getOperationChain()` captures `callContext` at the moment you call it. But that capture only survives hibernation if YOU store it somewhere. The framework doesn't do that automatically.
 
 ---
 

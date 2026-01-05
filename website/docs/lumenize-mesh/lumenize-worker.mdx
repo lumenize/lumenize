@@ -172,7 +172,7 @@ class ProtectedWorker extends LumenizeWorker<Env> {
 }
 ```
 
-See [Auth Integration](./auth-integration#access-control) for the complete security model.
+See [Security](./security#access-control) for the complete security model.
 
 ---
 
@@ -269,8 +269,6 @@ See [Making Calls: Cost Optimization](./calls#cost-optimization-two-one-way-call
 Workers have access to NADIS services that don't require DO storage:
 
 ```typescript @skip-check
-import '@lumenize/core';
-
 export class SpellCheckWorker extends LumenizeWorker<Env> {
   @mesh
   async check(content: string): Promise<SpellError[]> {
@@ -367,5 +365,5 @@ Same as LumenizeDO:
 
 - **[LumenizeDO](./lumenize-do)** — Stateful mesh nodes
 - **[Getting Started](./getting-started)** — Complete example using Workers
-- **[Auth Integration](./auth-integration)** — Securing Worker endpoints
+- **[Security](./security)** — Securing Worker endpoints
 

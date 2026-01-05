@@ -74,7 +74,7 @@ The `LumenizeClient` constructor takes a configuration object:
 |--------|------|-------------|
 | `onConnectionStateChange` | `(state) => void` | Called with `connecting`, `connected`, `reconnecting`, or `disconnected` |
 | `onConnectionError` | `(error) => void` | Called when WebSocket connection error occurs |
-| `onTokenRefreshFailure` | `(error) => void` | Called when token refresh fails (e.g., refresh token expired) |
+| `onAuthenticationError` | `(error) => void` | Called on any authentication failure (token refresh failed, connection rejected, session expired) |
 | `onSubscriptionsLost` | `() => void` | Called when reconnecting after grace period expired |
 
 ---
@@ -261,7 +261,7 @@ handleDocumentChange(change: DocumentChange) {
 }
 ```
 
-See [Auth Integration](./auth-integration#access-control) for the complete security model including reusable guards.
+See [Security](./security#access-control) for the complete security model including reusable guards.
 
 ---
 
@@ -391,7 +391,7 @@ interface LumenizeClientConfig {
   refreshEndpoint?: string;
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;
-  onTokenRefreshFailure?: (error: Error) => void;
+  onAuthenticationError?: (error: Error) => void;
   onSubscriptionsLost?: () => void;
 }
 ```
@@ -431,6 +431,6 @@ See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns 
 ## See Also
 
 - **[Getting Started](./getting-started)** — Build a complete app
-- **[Auth Integration](./auth-integration)** — Token handling and security
+- **[Security](./security)** — Token handling and security
 - **[Gateway Internals](./gateway)** — How client-mesh bridging works
 

@@ -14,7 +14,7 @@ description: Stateful Durable Objects as mesh nodes with NADIS auto-injection
 ## Installation
 
 ```bash @skip-check
-npm install @lumenize/mesh @lumenize/core
+npm install @lumenize/mesh
 ```
 
 ---
@@ -22,7 +22,6 @@ npm install @lumenize/mesh @lumenize/core
 ## Quick Start
 
 ```typescript @skip-check
-import '@lumenize/core';  // Registers sql in this.svc
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 
 class UsersDO extends LumenizeDO<Env> {
@@ -147,7 +146,7 @@ class ProtectedDO extends LumenizeDO<Env> {
 }
 ```
 
-See [Auth Integration](./auth-integration#access-control) for the complete security model including reusable guards and capability-based trust.
+See [Security](./security#access-control) for the complete security model including reusable guards and capability-based trust.
 
 ---
 
@@ -162,7 +161,6 @@ NADIS (Not A DI System) provides **zero-boilerplate dependency injection** via `
 3. **TypeScript knows** — Declaration merging provides full type safety
 
 ```typescript @skip-check
-import '@lumenize/core';    // Registers sql, debug
 import '@lumenize/alarms';  // Registers alarms
 
 class MyDO extends LumenizeDO<Env> {
@@ -178,16 +176,14 @@ class MyDO extends LumenizeDO<Env> {
 
 | Package | Service | Purpose |
 |---------|---------|---------|
-| `@lumenize/core` | `sql` | SQL template literal tag |
-| `@lumenize/core` | `debug` | Scoped, filterable logging |
+| `@lumenize/mesh` | `sql` | SQL template literal tag (LumenizeDO only) |
+| `@lumenize/mesh` | `debug` | Scoped, filterable logging |
 | `@lumenize/alarms` | `alarms` | Alarm scheduling |
 | `@lumenize/fetch` | `fetch` | Proxy fetch (cost optimization) |
 
 ### Service: `sql` Template Literal
 
 ```typescript @skip-check
-import '@lumenize/core';
-
 // SELECT
 const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
 
@@ -206,8 +202,6 @@ Parameters are automatically bound and SQL-injection safe.
 ### Service: `debug` Logging
 
 ```typescript @skip-check
-import '@lumenize/core';
-
 const log = this.svc.debug('MyDO.myMethod');
 
 log.debug('Detailed info', { data: someData });

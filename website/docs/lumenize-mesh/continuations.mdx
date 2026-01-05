@@ -159,6 +159,35 @@ const result = executeOperationChain(chain, targetObject);
 
 ---
 
+## Continuations as First-Class Values
+
+Since continuations are serializable data, you can pass them to helper methods. This is useful for broadcast patterns:
+
+```typescript @skip-check
+class DocumentDO extends LumenizeDO<Env> {
+  // Reusable broadcast helper that accepts any continuation
+  #broadcast(continuation: OperationChain) {
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    for (const clientId of subscribers) {
+      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation);
+    }
+  }
+
+  // Usage with different message types
+  #notifyContentChange(content: string) {
+    this.#broadcast(this.ctn<EditorClient>().handleContentUpdate(content));
+  }
+
+  #notifySpellFindings(findings: SpellFinding[]) {
+    this.#broadcast(this.ctn<EditorClient>().handleSpellFindings(findings));
+  }
+}
+```
+
+This pattern works because `this.ctn<T>().method(args)` returns a Proxy object, which is just a plain data structure (an `OperationChain`) that can be passed around, stored, or sent over the wire.
+
+---
+
 ## Best Practices
 
 - ✅ Use `this.ctn<T>()` for type safety on remote calls

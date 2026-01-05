@@ -196,7 +196,7 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'lumenize-mesh/creating-plugins',
-        'lumenize-mesh/auth-integration',
+        'lumenize-mesh/security',
         'lumenize-mesh/gateway',
       ],
     },

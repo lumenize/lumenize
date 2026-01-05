@@ -53,7 +53,7 @@ See [LumenizeDO documentation](./lumenize-do) for complete NADIS examples.
 For vanilla Durable Objects without the Lumenize Mesh, import `sql` directly and create a private field:
 
 ```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
-import { sql } from '@lumenize/core';
+import { sql } from '@lumenize/mesh';
 import { DurableObject } from 'cloudflare:workers';
 
 class ProductDO extends DurableObject {
@@ -187,7 +187,7 @@ The `sql` template literal is **tiny** (~10 lines of code) and provides:
 
 The implementation is a simple wrapper that:
 ```typescript @skip-check
-// Simplified implementation (actual code is in @lumenize/core)
+// Simplified implementation (actual code is in @lumenize/mesh)
 export function sql(doInstance: any) {
   return (strings: TemplateStringsArray, ...values: any[]) => {
     const query = strings.join('?');

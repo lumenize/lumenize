@@ -98,16 +98,15 @@ Extending `NadisPlugin` gives you:
 Your plugin can depend on other NADIS services:
 
 ```typescript @skip-check
-import '@lumenize/core';    // Ensure sql is available
 import { NadisPlugin } from '@lumenize/mesh';
 
 export class UserPlugin extends NadisPlugin {
   constructor(doInstance: any) {
     super(doInstance);
-    
+
     // Eager dependency validation - fails at construction
     if (!this.svc.sql) {
-      throw new Error('UserPlugin requires @lumenize/core to be imported');
+      throw new Error('UserPlugin requires sql service (only available in LumenizeDO)');
     }
   }
 
@@ -210,7 +209,7 @@ constructor(doInstance: any) {
   super(doInstance);
   
   if (!this.svc.sql || !this.svc.alarms) {
-    throw new Error('MyPlugin requires @lumenize/core and @lumenize/alarms');
+    throw new Error('MyPlugin requires sql and alarms services');
   }
 }
 ```
@@ -242,13 +241,12 @@ If your plugin requires other plugins:
 ```typescript @skip-check
 /**
  * UserPlugin - User management for Durable Objects
- * 
+ *
  * **Dependencies:**
- * - @lumenize/core (for sql)
- * 
+ * - sql (built-in, LumenizeDO only)
+ *
  * **Usage:**
  * ```typescript
- * import '@lumenize/core';
  * import '@lumenize/my-plugin';
  * ```
  */
@@ -287,23 +285,33 @@ declare global {
 
 ### Private Implementation Details
 
-Use `#private` fields for internal state:
+Use `#private` fields for stateless utilities or ephemeral caches:
 
 ```typescript @skip-check
 export class MyPlugin extends NadisPlugin {
+  // Ephemeral read-through cache (repopulated after DO eviction)
   #cache = new Map<string, any>();
 
   get(key: string) {
     if (this.#cache.has(key)) {
       return this.#cache.get(key);
     }
-    
+
     const value = this.ctx.storage.kv.get(key);
     this.#cache.set(key, value);
     return value;
   }
 }
 ```
+
+:::warning Instance Variable Rule
+DOs can be evicted from memory at any time. Never use instance variables for **mutable application state** — always store that in `ctx.storage`.
+
+Instance variables are only safe for:
+- Statically initialized utilities (e.g., `#log = debug(this)('MyPlugin')`)
+- Ephemeral caches where storage is the source of truth (like above)
+- Configuration set once in constructor (e.g., `#ttl = options?.ttl ?? 3600`)
+:::
 
 ### Plugin Configuration
 
@@ -362,7 +370,7 @@ For integration testing with NADIS, extend `LumenizeDO` in your tests.
 
 ### Simple Function-Based
 
-**[@lumenize/core](/docs/core)** — `sql` and `debug` functions
+**`sql` and `debug`** (built into `@lumenize/mesh`)
 
 - Pattern: Factory functions that return utilities
 - When to use: Simple helpers with no state
@@ -398,6 +406,6 @@ No decorators, no reflection, no complex DI containers.
 ## See Also
 
 - **[LumenizeDO](./lumenize-do)** — Using NADIS services
-- **[@lumenize/core](/docs/core)** — SQL and debug services
+- **[SQL Reference](./sql)** — SQL template literal tag
 - **[@lumenize/alarms](/docs/alarms)** — Alarm scheduling
 

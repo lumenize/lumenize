@@ -5,7 +5,11 @@ description: Patterns for mesh communication with this.lmz.call()
 
 # Making Calls
 
-Every mesh node communicates via `this.lmz.call()`. This guide covers the patterns for different scenarios.
+Every mesh node communicates via `this.lmz.call()`. Any node type can call any other — DOs, Workers, and clients are true peers in the mesh. However, keep in mind:
+
+- **Calling a Worker**: Use `undefined` as the `instanceName` parameter (every call to a Worker creates a new instance)
+- **Calling a client**: The `bindingName` is always `'LUMENIZE_CLIENT_GATEWAY'` (unless you've customized it)
+- **Client-to-client calls**: Disabled by default. See [Opting In to Peer Communication](./lumenize-client#opting-in-to-peer-communication) to enable.
 
 ## Basic Patterns
 
@@ -44,7 +48,9 @@ handleValidationResult(result: ValidationResult | Error) {
 }
 ```
 
-**Use when:** You need the result but want to stay synchronous (no `await`).
+**Use when:** You need the result
+
+**`await` under the covers:** Eventhough there is no await in the example, there is one under the covers. This will open input gates so another request can be initiated before the handler is called. It will also keep a DO in wall clock billing time. See the two one-way calls pattern below to avoid this. 
 
 ### With Additional Context
 
@@ -65,70 +71,160 @@ handleContent(documentId: string, content: string | Error, userId: string) {
 }
 ```
 
-**Use when:** Your handler needs context that won't be available when it executes (especially important for hibernation scenarios).
+**Use when:** Your handler needs identifying context, for instance, when you make the same call multiple times and need the handler to know for which call it is processing
 
 ---
 
 ## Cost Optimization: Two One-Way Calls
 
-When a DO calls an external API, Cloudflare bills for **wall-clock time** — even while waiting for the response. For long-running calls (recommended for >10s, consider for >2s), use the "two one-way call" pattern to shift the wait to a Worker (which only bills CPU time).
+When a DO calls an external API, Cloudflare bills for **wall-clock time** — even while waiting for the response. For long-running calls, use the "two one-way call" pattern to shift the wait to a Worker (which only bills CPU time). This incurs additional request charges so the break even point is around 500ms. With the added latency and complexity, it's generally not worth it unless you have a lot of calls over 1 second in duration.
 
 ```typescript @skip-check
 // In DocumentDO — initiates the call, returns immediately
 @mesh
-triggerExternalProcess(documentId: string) {
+generateSummary() {
+  const content = this.ctx.storage.kv.get('content');
+  const clientId = this.lmz.callContext.caller.instanceName;  // Capture requesting client
   this.lmz.call(
-    'EXTERNAL_API_WORKER',
+    'LLM_WORKER',
     undefined,
-    this.ctn<ExternalApiWorker>().process(
-      documentId,
-      this.lmz.bindingName,    // Return address
-      this.lmz.instanceName
-    )
+    this.ctn<LlmWorker>().summarize(content, clientId)
   );
   // DO returns immediately — no wall-clock charges while waiting
 }
 
-// In ExternalApiWorker — makes the slow call, sends result back
+// In LlmWorker — makes the slow LLM call, sends result back
 @mesh
-async process(documentId: string, returnBinding: string, returnInstance: string) {
+async summarize(content: string, clientId: string) {
   // Worker waits here — CPU-only billing, not wall-clock
-  const result = await this.callSlowExternalApi(documentId);
+  const summary = await this.callLlmApi(content);
 
-  // Call back to DO with result
+  // Call back to the DO using callContext
+  const caller = this.lmz.callContext.caller;
   this.lmz.call(
-    returnBinding,
-    returnInstance,
-    this.ctn<DocumentDO>().handleProcessResult(documentId, result)
+    caller.bindingName,
+    caller.instanceName,
+    this.ctn<DocumentDO>().handleSummary(summary, clientId)  // Pass clientId through
+  );
+}
+
+// Back in DocumentDO — sends result to the requesting client
+@mesh
+handleSummary(summary: string, clientId: string) {
+  this.lmz.call(
+    'LUMENIZE_CLIENT_GATEWAY',
+    clientId,
+    this.ctn<EditorClient>().handleSummary(summary)
   );
 }
 ```
 
-:::tip When to Use
-| Call Duration | Recommendation |
-|---------------|----------------|
-| < 2 seconds | Direct call is fine |
-| 2-10 seconds | Consider two one-way if frequent |
-| > 10 seconds | Strongly recommend two one-way |
-:::
+### Variation: Worker Responds Directly to Client
+
+Skip the return hop through the DO — the Worker sends results directly to the client:
+
+```typescript @skip-check
+// In DocumentDO — passes clientId, won't see the response
+@mesh
+generateSummary() {
+  const content = this.ctx.storage.kv.get('content');
+  const clientId = this.lmz.callContext.caller.instanceName;
+  this.lmz.call(
+    'LLM_WORKER',
+    undefined,
+    this.ctn<LlmWorker>().summarize(content, clientId)
+  );
+}
+
+// In LlmWorker — sends result directly to client, bypassing DO
+@mesh
+async summarize(content: string, clientId: string) {
+  const summary = await this.callLlmApi(content);
+
+  // Send directly to the client
+  this.lmz.call(
+    'LUMENIZE_CLIENT_GATEWAY',
+    clientId,
+    this.ctn<EditorClient>().handleSummary(summary)
+  );
+}
+```
+
+**Trade-off**: Saves one hop, but the DO loses visibility into the response.
+
+### Variation: Client Calls Worker Directly
+
+For operations that don't need DO state, the client can call the Worker directly:
+
+```typescript @skip-check
+// In EditorClient — calls Worker directly
+requestSummary(content: string) {
+  this.lmz.call(
+    'LLM_WORKER',
+    undefined,
+    this.ctn<LlmWorker>().summarize(content)
+  );
+}
+
+// In LlmWorker — caller is the client, respond directly
+@mesh
+async summarize(content: string) {
+  const summary = await this.callLlmApi(content);
+
+  const caller = this.lmz.callContext.caller;
+  this.lmz.call(
+    caller.bindingName,   // 'LUMENIZE_CLIENT_GATEWAY'
+    caller.instanceName,  // e.g., 'alice.tab1'
+    this.ctn<EditorClient>().handleSummary(summary)
+  );
+}
+```
+
+**Trade-off**: Fewest hops, but bypasses DO entirely — no DO-level state access, Worker must be able to accomplish required auth, logging, etc.
 
 ---
 
 ## Operation Chaining
 
-Chain multiple operations in a single round trip:
+Chain multiple operations in a single round trip.
+
+Chaining is particularly useful for the [Capability Trust](./security#capability-trust) pattern — get a restricted interface, then call methods on it:
 
 ```typescript @skip-check
-// All three methods execute on the remote DO, result of last is returned
+// Only admins can get the admin interface; once granted, its methods are trusted
 this.lmz.call(
   'DOCUMENT_DO',
   id,
-  this.ctn<DocumentDO>().validate().save().getRevision(),
-  this.ctn().handleRevision(this.ctn().$result)
+  this.ctn<DocumentDO>().admin().forceReset()
 );
 ```
 
-**Use when:** You have a sequence of operations that should execute atomically on the callee.
+All chained operations execute in a single round trip.
+
+**Use when:** You have a sequence of operations that should execute on the callee, particularly when using capability-based access control.
+
+---
+
+## Operation Nesting
+
+Nest operations so the result of one becomes the argument to another:
+
+```typescript @skip-check
+// Inner operations execute first, results feed into outer operation
+this.lmz.call(
+  'CALCULATOR_DO',
+  'calc-1',
+  this.ctn<CalculatorDO>().add(
+    this.ctn<CalculatorDO>().add(1, 10),      // Returns 11
+    this.ctn<CalculatorDO>().add(100, 1000)   // Returns 1100
+  ),  // add(11, 1100) = 1111
+  this.ctn().handleResult(this.ctn().$result)
+);
+```
+
+All nested operations execute in a single round trip. The framework resolves dependencies and executes in the correct order.
+
+**Use when:** You need to compose operations where outputs feed into inputs.
 
 ---
 
@@ -177,100 +273,42 @@ Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they p
 :::
 
 :::info Error Serialization
-Errors are serialized/deserialized across the wire using `@lumenize/structured-clone`. The `message`, `name`, and `stack` properties are preserved. Custom error subclasses become plain `Error` objects but retain their message.
+Errors are serialized/deserialized across the wire using `@lumenize/structured-clone`. The `message`, `name`, `stack`, and custom properties are preserved. Custom error subclasses can retain their type if [registered globally](/docs/structured-clone#errors-and-error-subclasses); otherwise they become plain `Error` objects (but still preserve `name` and custom properties).
 :::
-
----
-
-## Calling Different Node Types
-
-### DO → DO
-
-```typescript @skip-check
-this.lmz.call('OTHER_DO', 'instance-name', this.ctn<OtherDO>().method());
-```
-
-### DO → Worker
-
-```typescript @skip-check
-this.lmz.call('WORKER_BINDING', undefined, this.ctn<MyWorker>().method());
-```
-
-### DO → Client (via Gateway)
-
-```typescript @skip-check
-this.lmz.call(
-  'LUMENIZE_CLIENT_GATEWAY',
-  clientInstanceName,  // e.g., 'alice.tab1'
-  this.ctn<EditorClient>().handleUpdate(change)
-);
-```
-
-### Client → DO
-
-```typescript @skip-check
-this.lmz.call('DOCUMENT_DO', documentId, this.ctn<DocumentDO>().update(change));
-```
 
 ---
 
 ## Context Preservation
 
-Call context (`this.lmz.callContext`) is automatically captured in continuations. Even if a DO hibernates while waiting for a response, your handler receives the correct context:
+Call context (`this.lmz.callContext`) is available in your handler when using `this.lmz.call()`:
 
 ```typescript @skip-check
 @mesh
-triggerSlowOperation() {
+triggerOperation() {
   const userId = this.lmz.callContext.originAuth?.userId;
   console.log(`User ${userId} triggered operation`);
 
   this.lmz.call(
-    'SLOW_WORKER',
+    'VALIDATION_WORKER',
     undefined,
-    this.ctn<SlowWorker>().process(),
+    this.ctn<ValidationWorker>().validate(data),
     this.ctn().handleResult(this.ctn().$result)
   );
 }
 
-// Even if DO hibernated, callContext is restored
-handleResult(result: ProcessResult | Error) {
+// callContext is available in the handler
+handleResult(result: ValidationResult | Error) {
   const userId = this.lmz.callContext.originAuth?.userId;
-  console.log(`Operation completed for user ${userId}`);
+  console.log(`Validation completed for user ${userId}`);
 }
 ```
 
-See [Managing Context](./managing-context) for details.
+:::warning Hibernation
+If a DO hibernates while waiting for a response (possible during long-running calls), the in-flight call is lost — your handler never executes.
 
----
+For hibernation-safe patterns:
+- Use **[Two One-Way Calls](#cost-optimization-two-one-way-calls)** — the DO returns immediately, so there's nothing to lose
+- Use **[@lumenize/alarms](/docs/alarms)** — persists continuations to storage with automatic context capture
+:::
 
-## The `this.lmz` API Reference
-
-### Identity Properties
-
-```typescript @skip-check
-this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
-this.lmz.bindingName    // e.g., 'DOCUMENT_DO' (auto-propagated)
-this.lmz.instanceName   // e.g., 'draft-1' (DOs only, undefined for Workers)
-this.lmz.callContext    // Current request's context (during handler execution)
-```
-
-### `call()` Signature
-
-```typescript @skip-check
-this.lmz.call(
-  bindingName: string,           // Target's binding name
-  instanceName: string | undefined,  // Target's instance (undefined for Workers)
-  remoteContinuation: Continuation,  // What to execute on target
-  localHandler?: Continuation    // Optional: what to execute locally with result
-);
-```
-
----
-
-## See Also
-
-- **[Continuations](./continuations)** — How continuations work under the hood
-- **[Managing Context](./managing-context)** — Framework vs. application context
-- **[LumenizeDO](./lumenize-do)** — DO-specific patterns
-- **[LumenizeWorker](./lumenize-worker)** — Worker-specific patterns
-
+See [Managing Context](./managing-context) for the full context strategy.

@@ -4,15 +4,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Merge `sql` and `debug` utilities from `@lumenize/core` into `@lumenize/mesh`
-  - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
-  - `debug` makes sense for all three node types — available via `this.svc.debug` in LumenizeDO, LumenizeWorker, LumenizeClient
-  - Docs already reflect this (for mesh nodes, just import the base class — `this.svc.*` handles the rest)
-  - Also export `sql` and `debug` directly from `@lumenize/mesh` for standalone/vanilla usage
 - [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 - [ ] Related to above, find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
 
 ## Lumenize Mesh
+
+- [ ] In lumenize-auth.ts, The #extractCookie method uses cookie.trim().split('=') and destructures only the first two elements. If a cookie value contains = characters (valid in cookies), only the portion before the first = is returned. For example, a cookie "name=abc=def" would return "abc" instead of "abc=def". While current tokens use base64UrlEncode which strips = padding, this implementation is fragile and could cause authentication failures if the token format changes or if this code is reused elsewhere.
 
 - [ ] Create `website/docs/lumenize-mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient
   - Similar to `/docs/testing/agents.mdx` but for mesh clients
@@ -44,6 +41,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Will likely become the **only** way people connect into the mesh
   - Includes auth middleware + gateway routing
   - Some LumenizeClient/Gateway testing may be deferred until this is working
+  - Update getting-started.mdx to use it
 
 - [ ] Add method annotations to distinguish three types of methods in classes extending LumenizeClient, LumenizeBase, or LumenizeWorker, where appropriate:
   - `@inbound`, `@downstream`, or `@callable` — Methods meant to be called by mesh nodes pushing to the client (server → client)
@@ -62,6 +60,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] mcp
 - [ ] per-resource sync
+- [ ] Fanout broadcase service
+      The first "tier" should actually be instantiating the class in the originator of the fan-out. The subsequent tiers would be armies of stand-alone LumenizeWorkers. You'd pass the list of receipients and the message into the local instance, and it would figure out how to tier it. We'd have to do experiments and update the learning periodically as Cloudflare evolved things to determine the optimal number of nodes to fan out to in each tier. 
+
+      Maybe an algorithm like this. If it were between 64 and 4,096 (64^2) nodes, then take the square root, so 8 to 64 fanout in each tier. Any list shorter than 64 gets done in one shot. Between 4,096 and 262,144 (64^3), it would be three tiers of 8 to 64 each taking the cube root of the count. I doubt we want to even allow up to 262,144 but maybe 10,000 is possible?
 
 
 ## Testing & Quality
@@ -95,6 +97,19 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 
 ## Documentation
+
+- [ ] Add "Why continuations help with race conditions" explanation
+  - The key insight: continuations make temporal gaps **explicit** rather than hidden in awaits
+  - With async/await, you can accidentally read-await-write and create races
+  - With continuations, the "this happens later" part is structurally visible
+  - You can still have race conditions, but you're not accidentally creating them
+  - Could be a section in continuations.mdx or a standalone concurrency guide
+
+- [ ] Add optimistic concurrency example to calls.mdx or a new concurrency patterns doc
+  - Show version/timestamp checking pattern
+  - Read state + version, do work, check version hasn't changed before writing
+  - Retry or fail strategies
+  - More advanced topic — don't clutter basic docs
 
 - [ ] Audit all docs and internal identifiers to favor `callContext` over `metadata` or `meta` where referring to the user-facing API
   - `envelope.metadata` is the transport layer field containing `{ callChain, callee, originAuth }`
