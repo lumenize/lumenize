@@ -5,7 +5,7 @@ description: How Lumenize's type-safe, serializable operation chains work under 
 
 # Continuations
 
-A **Continuation** is a **description of work** that gets executed in some other place or time — usually during or after some native async operation.
+A **Continuation** is a **description of work** that gets executed in some other place or time — usually during or after some native async operation like a call or alarm.
 
 ```typescript @skip-check
 const remote = this.ctn<RemoteDO>().getUserData(userId);
@@ -21,10 +21,9 @@ this.lmz.call('REMOTE_DO', 'instance-id', remote, local);
 
 Continuations solve several problems in Durable Objects:
 
-1. **Serializable** — Can be stored, sent over the wire, or survive hibernation
+1. **Serializable** — Can be sent over the wire or stored and then restored after  hibernation/eviction
 2. **Type-safe** — TypeScript checks method names and signatures at compile time
-3. **No `await` needed** — Avoid `async`/`await` which can break DO consistency guarantees
-4. **Context capture** — `callContext` is automatically preserved across hibernation
+3. **No `await` needed** — Avoid `async`/`await` which can break DO consistency guarantees. While race conditions are still possible, the explicitness and the fact that handlers need not be declared `async` reduces the likelihood you will do so accidentally.
 
 ---
 
@@ -33,16 +32,16 @@ Continuations solve several problems in Durable Objects:
 Components extending `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`:
 
 ```typescript @skip-check
-// Typed: TypeScript knows RemoteDO's methods
+// Typesafe: TypeScript knows RemoteDO's methods
 this.ctn<RemoteDO>().someMethod(arg)
 
-// Untyped: for local handlers on this instance
+// Default: uses local class type when no generic provided
 this.ctn().myHandler(this.ctn().$result)
 
 // Chaining: multiple operations in sequence
 this.ctn<RemoteDO>().validate().save().getRevision()
 
-// Nesting: output of one operation feeds another
+// Nesting: output of one operation feeds another in one round trip
 this.ctn<RemoteDO>().multiply(this.ctn<RemoteDO>().add(1, 2), 10)
 ```
 
@@ -51,11 +50,11 @@ this.ctn<RemoteDO>().multiply(this.ctn<RemoteDO>().add(1, 2), 10)
 The special `$result` property marks where the async operation's result should be injected:
 
 ```typescript @skip-check
-this.ctn().handleResult(this.ctn().$result)
-//                      ^^^^^^^^^^^^^^^^^ replaced with actual result (or Error)
+this.ctn().handleResult(context1, this.ctn().$result, context2)
+//                                ^^^^^^^^^^^^^^^^^^ replaced with result (or Error)
 ```
 
-You can use `$result` anywhere in the arguments — it's just a marker that gets substituted at execution time.
+You can use `$result` anywhere in the arguments — it's just a marker that gets substituted at execution time. If the call throws, then the result is that Error. Alternatively, you can `catch` and make `$result` be something like `{ result, err }`.
 
 ---
 
@@ -63,13 +62,7 @@ You can use `$result` anywhere in the arguments — it's just a marker that gets
 
 ### 1. Proxy-Based Chain Building
 
-`this.ctn()` returns a JavaScript `Proxy`. Each property access or method call records an operation:
-
-```typescript @skip-check
-this.ctn<UserDO>().getProfile(userId).formatName()
-```
-
-This builds an **operation chain**: `[{ method: 'getProfile', args: ['user-123'] }, { method: 'formatName', args: [] }]`
+`this.ctn()` returns a JavaScript `Proxy`. Each property access or method call adds an operation to the continuations operation chain.
 
 ### 2. Serialization
 
@@ -87,7 +80,7 @@ When you pass a continuation to `this.lmz.call()`, it's serialized using `@lumen
 ```
 
 This can be:
-- Sent over the wire to another DO/Worker
+- Sent over the wire to another DO/Worker/Client
 - Stored in SQLite for later execution
 - Passed to an alarm handler
 
@@ -108,7 +101,7 @@ for (const op of chain.ops) {
 return result;
 ```
 
-Before execution, `callContext` is restored from the captured snapshot — ensuring your handler sees the correct auth and context even after hibernation.
+Before execution, `callContext` is restored from the captured snapshot — ensuring your handler sees the correct auth and context even when the execution is on another node. Similarly, you can [explicitly store/restore the serialized form](./managing-context#manual-persistence-power-users) to add resiliency through hibernation/eviction.
 
 ---
 
@@ -123,19 +116,7 @@ Continuations use **OCAN** (Operation Chaining And Nesting) — a serialization 
 | **Mixed** | `a(b().c()).d()` — arbitrary combinations |
 | **Placeholders** | `$result` — substitute async results |
 
-For the full specification, see [@lumenize/rpc: Operation Chaining and Nesting](/docs/rpc/operation-chaining-and-nesting).
-
----
-
-## Context Capture
-
-Continuations automatically capture `callContext` at serialization time (when `getOperationChain()` is called internally). This means:
-
-- If a DO hibernates while waiting for a response, the handler still receives the original context
-- No manual context passing needed for auth/identity
-- The captured context is the **source of truth** — it overrides any ambient context during execution
-
-See [Managing Context](./managing-context) for the full context propagation model.
+For the full specification, see [@lumenize/rpc: Operation Chaining and Nesting](/docs/rpc/operation-chaining-and-nesting). Note, however, that batching is not automatically supported for Lumenize Mesh. After using the old Lumenize RPC for a while, we found that defining methods on the callee to do batch operations was a better approach for production code. It remains in the old Lumenize RPC because it's useful for testing situations.
 
 ---
 
@@ -146,16 +127,20 @@ For power users who need direct access to the serialized form:
 ```typescript @skip-check
 import { getOperationChain, executeOperationChain } from '@lumenize/mesh';
 
-// Extract the serializable operation chain
+// Extract the serializable operation chain (captures callContext automatically)
 const chain = getOperationChain(this.ctn<SomeDO>().method(arg));
 
-// Store it
+// Store it — KV handles Dates, Maps, Sets, cycles, etc. natively
 this.ctx.storage.kv.put('pendingWork', chain);
 
-// Later, execute it
-const chain = this.ctx.storage.kv.get('pendingWork');
-const result = executeOperationChain(chain, targetObject);
+// Later, retrieve and execute it
+const storedChain = this.ctx.storage.kv.get('pendingWork');
+const result = executeOperationChain(storedChain, targetObject);
 ```
+
+Note: For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone`.
+
+For hibernation-safe persistence patterns, see [Manual Persistence](./managing-context#manual-persistence-power-users) in the context guide.
 
 ---
 
@@ -194,11 +179,3 @@ This pattern works because `this.ctn<T>().method(args)` returns a Proxy object, 
 - ✅ Check for `Error` first in every handler (see [Error Handling](./calls#error-handling))
 - ✅ Use chaining to reduce round trips
 - ❌ Don't use `async` handlers — breaks DO consistency model
-
----
-
-## See Also
-
-- **[Making Calls](./calls)** — Practical patterns for `this.lmz.call()`
-- **[Managing Context](./managing-context)** — Framework vs. application context
-- **[@lumenize/rpc: OCAN](/docs/rpc/operation-chaining-and-nesting)** — Full OCAN specification

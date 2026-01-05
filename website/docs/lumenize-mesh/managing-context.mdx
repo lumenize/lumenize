@@ -114,19 +114,17 @@ If you're building your own hibernation-safe patterns outside the standard tools
 
 ```typescript
 import { getOperationChain } from '@lumenize/mesh';
-import { stringify } from '@lumenize/structured-clone';
 
 // getOperationChain captures callContext automatically
 const chain = getOperationChain(this.ctn().myHandler(data));
 
-// Stringify it (supports Dates, Maps, Sets, etc.)
-const serialized = stringify(chain);  // Necessary for SQL. Optional for KV
-
-// Save to storage - THIS is what makes it hibernation-safe
-this.ctx.storage.kv.put('my-key', serialized);
+// Save to storage — KV handles Dates, Maps, Sets, cycles, etc. natively
+this.ctx.storage.kv.put('my-key', chain);
 ```
 
-The key insight: `getOperationChain()` captures `callContext` at the moment you call it. But that capture only survives hibernation if YOU store it somewhere. The framework doesn't do that automatically.
+For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone`.
+
+**Key insight**: `getOperationChain()` captures `callContext` at the moment you call it. But that capture only survives hibernation if YOU store it somewhere. The framework doesn't do that automatically.
 
 ---
 

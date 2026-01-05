@@ -5,11 +5,16 @@ description: Patterns for mesh communication with this.lmz.call()
 
 # Making Calls
 
-Every mesh node communicates via `this.lmz.call()`. Any node type can call any other — DOs, Workers, and clients are true peers in the mesh. However, keep in mind:
+Every mesh node communicates via `this.lmz.call()`. Any node type can call any other — DOs, Workers, and clients are true peers in the mesh.
 
+However, keep in mind these nuances:
 - **Calling a Worker**: Use `undefined` as the `instanceName` parameter (every call to a Worker creates a new instance)
 - **Calling a client**: The `bindingName` is always `'LUMENIZE_CLIENT_GATEWAY'` (unless you've customized it)
 - **Client-to-client calls**: Disabled by default. See [Opting In to Peer Communication](./lumenize-client#opting-in-to-peer-communication) to enable.
+
+:::warning Avoid using Cloudflare-native Workers RPC
+Use `this.lmz.call()` instead of Cloudflare's native Workers RPC. It provides automatic context propagation, access control mechanisms, and works seamlessly with browser clients.
+:::
 
 ## Basic Patterns
 
@@ -307,8 +312,9 @@ handleResult(result: ValidationResult | Error) {
 If a DO hibernates while waiting for a response (possible during long-running calls), the in-flight call is lost — your handler never executes.
 
 For hibernation-safe patterns:
-- Use **[Two One-Way Calls](#cost-optimization-two-one-way-calls)** — the DO returns immediately, so there's nothing to lose
-- Use **[@lumenize/alarms](/docs/alarms)** — persists continuations to storage with automatic context capture
+- **[Manual persistence](./managing-context#manual-persistence-power-users)** — store/restore the continuation yourself using `getOperationChain()` and storage
+- **[Two One-Way Calls](#cost-optimization-two-one-way-calls)** — pass the handler context (or full continuation) along with the call and return it when called back
+- **[@lumenize/alarms](/docs/alarms)** — automatically persists continuations to storage with context capture and restoration
 :::
 
 See [Managing Context](./managing-context) for the full context strategy.
