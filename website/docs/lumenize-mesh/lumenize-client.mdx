@@ -270,6 +270,36 @@ No manual handling needed. `LumenizeClient` automatically:
 
 ---
 
+## Testing
+
+`LumenizeClient` accepts a `WebSocket` constructor option, enabling integration testing without running a separate server:
+
+```typescript @skip-check
+import { Browser } from '@lumenize/testing';
+
+it('tests client-DO communication', async () => {
+  const browser = new Browser();  // Cookie simulation, CORS support
+
+  using client = new EditorClient({
+    baseUrl: 'wss://example.com',
+    instanceName: 'test-user.tab1',
+    accessToken: testJwt,
+    WebSocket: browser.WebSocket,  // Inject testing WebSocket
+  });
+
+  // Test interactions...
+});
+```
+
+The `Browser` class provides:
+- **Cookie simulation** — Critical for testing token refresh flows
+- **Realistic CORS behavior** — Catches preflight issues before production
+- **Injectable WebSocket Polyfill** — Connects through `vitest-pool-workers` to real DO instances
+
+See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns including multi-user scenarios and authentication testing.
+
+---
+
 ## API Reference
 
 ### Class: `LumenizeClient`
@@ -324,33 +354,3 @@ interface AuthenticationError extends Error {
   reason: string; // Close reason from Gateway
 }
 ```
-
----
-
-## Testing
-
-`LumenizeClient` accepts a `WebSocket` constructor option, enabling integration testing without running a separate server:
-
-```typescript @skip-check
-import { Browser } from '@lumenize/testing';
-
-it('tests client-DO communication', async () => {
-  const browser = new Browser();  // Cookie simulation, CORS support
-  
-  using client = new EditorClient({
-    baseUrl: 'wss://example.com',
-    instanceName: 'test-user.tab1',
-    accessToken: testJwt,
-    WebSocket: browser.WebSocket,  // Inject testing WebSocket
-  });
-  
-  // Test interactions...
-});
-```
-
-The `Browser` class provides:
-- **Cookie simulation** — Critical for testing token refresh flows
-- **Realistic CORS behavior** — Catches preflight issues before production
-- **Injectable WebSocket Polyfill** — Connects through `vitest-pool-workers` to real DO instances
-
-See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns including multi-user scenarios and authentication testing.

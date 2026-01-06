@@ -1,15 +1,11 @@
 ---
 title: LumenizeDO
-description: Stateful Durable Objects as mesh nodes with NADIS auto-injection
+description: Stateful Durable Objects as mesh nodes
 ---
 
 # LumenizeDO
 
-`LumenizeDO` is the base class for **stateful mesh nodes** running as Cloudflare Durable Objects. It combines:
-
-- **Mesh integration** — `this.lmz` API for identity and communication
-- **NADIS auto-injection** — Zero-boilerplate service injection via `this.svc`
-- **Access control** — `@mesh` decorator and `onBeforeCall()` hooks
+`LumenizeDO` is the base class for **stateful mesh nodes** running as Cloudflare Durable Objects.
 
 ## Installation
 
@@ -71,28 +67,6 @@ Always use `async onStart()` for initialization — it's automatically wrapped i
 
 See [Mesh API](./mesh-api) for full documentation.
 
-### DO-Specific: Rate Limiting with Storage
-
-DOs can use persistent storage for stateful access control patterns like rate limiting:
-
-```typescript @skip-check
-class ProtectedDO extends LumenizeDO<Env> {
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
-    if (!callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-    // DOs can use storage for rate limiting
-    const key = `rate:${callContext.originAuth.userId}`;
-    const count = this.ctx.storage.kv.get(key) ?? 0;
-    if (count > 100) throw new Error('Rate limit exceeded');
-    this.ctx.storage.kv.put(key, count + 1);
-  }
-}
-```
-
-See [Security](./security#access-control) for the complete security model.
-
 ---
 
 ## NADIS Auto-Injection
@@ -101,28 +75,26 @@ NADIS (Not A DI System) provides **zero-boilerplate dependency injection** via `
 
 ### How It Works
 
-1. **Import a service package** — Side-effect import registers the service
-2. **Use via `this.svc`** — Services are lazily instantiated and cached
-3. **TypeScript knows** — Declaration merging provides full type safety
+Services are accessed via `this.svc`. Some are built-in, others require a side-effect import:
 
 ```typescript @skip-check
-import '@lumenize/alarms';  // Registers alarms
+import '@lumenize/alarms';  // Side-effect import registers alarms
 
 class MyDO extends LumenizeDO<Env> {
   doSomething() {
-    this.svc.sql`SELECT * FROM items`;  // ✅ Auto-injected
-    this.svc.alarms.schedule(60, 'handler', {});  // ✅ Auto-injected
+    this.svc.sql`SELECT * FROM items`;  // ✅ Built-in (no import needed)
+    this.svc.alarms.schedule(60, this.ctn().handleTask({ id: 1 }));  // ✅ Requires import above
   }
 }
 ```
 
 ### Available Services
 
-| Package | Service | Purpose |
-|---------|---------|---------|
-| `@lumenize/mesh` | `sql` | SQL template literal tag (LumenizeDO only) |
-| `@lumenize/alarms` | `alarms` | Alarm scheduling |
-| `@lumenize/fetch` | `fetch` | Proxy fetch (cost optimization) |
+| Package | Service | Import Required | Purpose |
+|---------|---------|-----------------|---------|
+| `@lumenize/mesh` | `sql` | No (built-in) | SQL template literal tag |
+| `@lumenize/alarms` | `alarms` | Yes | Alarm scheduling |
+| `@lumenize/fetch` | `fetch` | Yes | Proxy fetch (cost optimization) |
 
 :::note Logging
 For debug logging, use the standalone `@lumenize/debug` package — see [Debug](./debug). It's not a NADIS service because it works cross-platform (Workers, Node.js, browsers).
@@ -131,41 +103,35 @@ For debug logging, use the standalone `@lumenize/debug` package — see [Debug](
 ### Service: `sql` Template Literal
 
 ```typescript @skip-check
-// SELECT
 const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
-
-// INSERT
 this.svc.sql`INSERT INTO users (id, email) VALUES (${id}, ${email})`;
-
-// UPDATE
-this.svc.sql`UPDATE users SET email = ${newEmail} WHERE id = ${id}`;
-
-// DELETE
-this.svc.sql`DELETE FROM users WHERE id = ${id}`;
 ```
 
-Parameters are automatically bound and SQL-injection safe.
+Parameters are automatically bound and SQL-injection safe. See **[SQL Template Literal](./sql)** for complex queries, pagination, and standalone usage.
 
 ### Service: `alarms` Scheduling
 
 ```typescript @skip-check
 import '@lumenize/alarms';
 
-// Schedule work
-const schedule = await this.svc.alarms.schedule(
-  60,           // Seconds from now
-  'handleTask', // Handler method name
-  { userId: '123' }  // Payload
+// Schedule with continuations (type-safe!)
+const schedule = this.svc.alarms.schedule(
+  60,  // Seconds from now
+  this.ctn().handleTask({ userId: '123' })
 );
 
 // Cancel if needed
-await this.svc.alarms.cancel(schedule.id);
+this.svc.alarms.cancelSchedule(schedule.id);
 
-// In your DO: delegate the alarm
-async alarm() {
-  await this.svc.alarms.alarm();
+// Handler method
+handleTask(payload: { userId: string }) {
+  console.log('Task for user:', payload.userId);
 }
 ```
+
+No `alarm()` boilerplate required — LumenizeDO handles it automatically.
+
+See [Alarms](/docs/alarms) for cron scheduling, recurring tasks, and advanced patterns.
 
 ---
 
@@ -176,10 +142,13 @@ async alarm() {
 Always use synchronous storage APIs:
 
 ```typescript @skip-check
-// ✅ Correct - synchronous
+// ✅ Correct - synchronous KV
 this.ctx.storage.kv.put('key', value);
 const value = this.ctx.storage.kv.get('key');
 this.ctx.storage.kv.delete('key');
+
+// ✅ Correct - this.svc.sql uses synchronous ctx.storage.sql.exec under the covers
+const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
 
 // ❌ Wrong - legacy async (never use)
 await this.ctx.storage.put('key', value);
@@ -189,85 +158,59 @@ await this.ctx.storage.put('key', value);
 Requires `compatibility_date: "2025-09-12"` or later in wrangler.jsonc.
 :::
 
-### SQL vs KV
-
-| Use Case | API |
-|----------|-----|
-| Simple key-value | `ctx.storage.kv.get/put/delete` |
-| Structured/queryable data | `this.svc.sql` |
-| Complex queries, JOINs | `this.svc.sql` |
-
 ### Keep Methods Synchronous
 
-**Critical rule**: Keep mesh handler methods synchronous to maintain Cloudflare's consistency guarantees.
+**Critical rule**: Keep mesh handler methods synchronous to take advantage of DO's consistency model (input gates).
 
 ```typescript @skip-check
-// ✅ Correct - synchronous
+// ✅ Correct - synchronous read-modify-write
 @mesh
-updateUser(id: string, email: string) {
-  this.svc.sql`UPDATE users SET email = ${email} WHERE id = ${id}`;
+addSubscriber(userId: string) {
+  const subscribers = this.ctx.storage.kv.get('subscribers') ?? [];
+  subscribers.push(userId);
+  this.ctx.storage.kv.put('subscribers', subscribers);
 }
 
-// ❌ Wrong - async breaks consistency
+// ❌ Wrong - async/await risks race condition
 @mesh
-async updateUser(id: string, email: string) {
-  await somePromise();  // Input gate may close!
-  this.svc.sql`UPDATE ...`;  // Race condition possible
+async addSubscriber(userId: string) {
+  const subscribers = this.ctx.storage.kv.get('subscribers') ?? [];  // ['alice']
+  await somePromise();  // Input gate opens! Another call adds 'bob' → ['alice', 'bob']
+  subscribers.push(userId);  // Our stale copy: ['alice', 'charlie']
+  this.ctx.storage.kv.put('subscribers', subscribers);  // Overwrites — 'bob' is lost!
 }
 ```
 
-**Exceptions** (these methods may be async):
-- `fetch()` — HTTP handler
-- `alarm()` — Scheduled tasks
-- `webSocketMessage()`, `webSocketClose()`, `webSocketError()` — WebSocket handlers
-
----
-
-## HTTP Handling
-
-`LumenizeDO` receives mesh calls, but can also handle HTTP directly:
-
-```typescript @skip-check
-class MyDO extends LumenizeDO<Env> {
-  async fetch(request: Request): Promise<Response> {
-    // Check for mesh call first
-    const meshResponse = await this.handleMeshRequest(request);
-    if (meshResponse) return meshResponse;
-
-    // Handle regular HTTP
-    const url = new URL(request.url);
-    if (url.pathname === '/status') {
-      return new Response(JSON.stringify({ status: 'ok' }));
-    }
-
-    return new Response('Not Found', { status: 404 });
-  }
-}
-```
+In the wrong example, the `await` opens the input gate, allowing another request to modify the array. When we `put` our stale copy, we overwrite changes made by the other request.
 
 ---
 
 ## Testing
 
-Test DOs using `@lumenize/testing`:
+Test DOs using `@lumenize/testing`. The key feature is **tunneling** — direct access to DO internals from your test:
 
 ```typescript @skip-check
-import { describe, test, expect } from 'vitest';
-import { createTestDO } from '@lumenize/testing';
+import { it, expect } from 'vitest';
+import { createTestingClient } from '@lumenize/testing';
 import { UsersDO } from '../src/users-do';
 
-describe('UsersDO', () => {
-  test('adds and retrieves users', async () => {
-    const stub = await createTestDO(UsersDO, env);
+it('adds and retrieves users', async () => {
+  using client = createTestingClient<typeof UsersDO>('USERS_DO', 'test-instance');
 
-    const user = await stub.addUser('test@example.com');
-    expect(user.email).toBe('test@example.com');
+  // Setup: pre-populate storage directly
+  await client.ctx.storage.put('initialized', true);
 
-    const retrieved = await stub.getUser(user.id);
-    expect(retrieved.email).toBe('test@example.com');
-  });
+  // Exercise: call methods via RPC
+  const user = await client.addUser('test@example.com');
+  expect(user.email).toBe('test@example.com');
+
+  // Verify: inspect storage directly
+  const rows = await client.ctx.storage.sql.exec('SELECT * FROM users').toArray();
+  expect(rows).toHaveLength(1);
 });
 ```
+
+See **[@lumenize/testing](/docs/testing/usage)** for complete patterns including Browser simulation, WebSocket testing, and multi-instance scenarios.
 
 ---
 
@@ -290,20 +233,8 @@ constructor(ctx: DurableObjectState, env: EnvType)
 **Overridable Methods:**
 - `onStart()` — Async initialization hook (runs once, wrapped in `blockConcurrencyWhile`)
 - `onBeforeCall(callContext: CallContext)` — Hook for class-wide access control
-- `fetch(request: Request)` — HTTP request handler
 
 **Inherited Methods:**
 - `ctn<T>()` — Create typed continuation builder
-- `handleMeshRequest(request: Request)` — Process mesh call from HTTP
 
 See [Mesh API](./mesh-api#api-reference) for shared types (`@mesh`, `CallContext`, `LmzApi`).
-
----
-
-## See Also
-
-- **[Getting Started](./getting-started)** — Build a complete app
-- **[LumenizeWorker](./lumenize-worker)** — Stateless mesh nodes
-- **[Creating Plugins](./creating-plugins)** — Build custom NADIS services
-- **[Continuations](./continuations)** — Deep dive on operation chains
-

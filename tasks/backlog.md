@@ -99,6 +99,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
+- [ ] Update all references from `LumenizeBase` to `LumenizeDO` across docs (alarms/index.mdx, etc.)
+
 - [ ] Add "Why continuations help with race conditions" explanation
   - The key insight: continuations make temporal gaps **explicit** rather than hidden in awaits
   - With async/await, you can accidentally read-await-write and create races

@@ -218,15 +218,16 @@ const result = sql`SELECT * FROM products WHERE id = ${productId}`;
 - **Type-safe** - TypeScript checks your template literals
 - **SQL injection protection** - All values automatically escaped
 
-## See Also
+:::tip Direct Storage Access
+`this.svc.sql` (and the standalone `sql()`) returns results as an array, which loads all rows into memory. For pagination, large result sets, or streaming, use the underlying API directly:
 
-- [Cloudflare SQLite Storage](https://developers.cloudflare.com/durable-objects/api/storage/#sql) - Official storage API docs
-- [LumenizeDO](./lumenize-do) - Auto-injection via NADIS
-- [@lumenize/alarms](/docs/alarms) - Uses SQL for persistence
-
-
-
-
-
-
-
+```typescript @skip-check
+const cursor = this.ctx.storage.sql.exec(
+  'SELECT * FROM users WHERE active = ? LIMIT ? OFFSET ?',
+  true, 10, 20
+);
+for (const row of cursor) {
+  // Process rows without loading all into memory
+}
+```
+:::
