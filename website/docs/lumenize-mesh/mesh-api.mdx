@@ -7,8 +7,6 @@ description: Core APIs shared by all mesh node types
 
 All mesh node types — [LumenizeDO](./lumenize-do), [LumenizeWorker](./lumenize-worker), and [LumenizeClient](./lumenize-client) — share a common API for mesh communication. This page documents those shared interfaces.
 
----
-
 ## The `this.lmz` API
 
 Every mesh node has access to `this.lmz` — the unified API for mesh communication.
@@ -74,8 +72,6 @@ updateDocument(changes: DocumentChange) {
 - `calledAs` — How this node was addressed (binding + instance name)
 - `state` — Custom state object (for middleware to pass data)
 
----
-
 ## The `@mesh` Decorator
 
 The `@mesh` decorator marks methods as entry points for mesh calls. Methods without `@mesh` cannot be called from outside the node.
@@ -118,8 +114,6 @@ Guard function signature:
 
 See [Security: Guards with Instance Access](./security#guards-with-instance-access) for guards that need instance state.
 
----
-
 ## The `onBeforeCall()` Hook
 
 Override `onBeforeCall()` for class-wide access control that runs before every mesh call:
@@ -145,8 +139,6 @@ class ProtectedDO extends LumenizeDO<Env> {
 | Method-level | `@mesh(guard)` | Fine-grained permissions |
 
 See [Security](./security#access-control) for the complete security model.
-
----
 
 ## Continuations
 
@@ -214,8 +206,6 @@ handleSlowResult(result: ProcessResult | Error) {
 ```
 
 See [Continuations](./continuations) for deep dive on operation chains.
-
----
 
 ## API Reference
 

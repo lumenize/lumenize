@@ -18,8 +18,6 @@ The Lumenize Mesh integrates with `@lumenize/auth` for secure, passwordless auth
 | **WebSocket auth** | Token passing via subprotocol headers |
 | **Middleware** | Drop-in hooks for HTTP and WebSocket routes |
 
----
-
 ## Installation & Setup
 
 ### 1. Install
@@ -105,8 +103,6 @@ export default {
 };
 ```
 
----
-
 ## Login Flow
 
 Magic link authentication works as follows:
@@ -156,8 +152,6 @@ When the user clicks the link in their email:
 ```
 
 Plus a `Set-Cookie` header with the refresh token (HttpOnly, Secure, SameSite=Strict).
-
----
 
 ## WebSocket Authentication
 
@@ -225,8 +219,6 @@ using client = new EditorClient({
 `onAuthenticationError` is distinct from `onConnectionError`. Authentication errors include token refresh failures (HTTP), initial connection rejection (401/403), and mid-session token expiration (4401 close code). Network-level WebSocket errors go to `onConnectionError`.
 :::
 
----
-
 ## Identity in the Mesh
 
 ### `callContext.originAuth`
@@ -257,8 +249,6 @@ Client (alice) → DocumentDO → ValidationWorker → NotificationDO
 `callContext` (including `originAuth`) is automatically captured in continuations. Even if a DO hibernates during a long-running operation, your handler receives the correct context.
 
 See [Managing Context](./managing-context) for the full guide.
-
----
 
 ## Access Control
 
@@ -371,8 +361,6 @@ editDocument(changes: DocumentChange) { /* ... */ }
 Each request gets its own `callContext` instance with its own `state` object, even when multiple requests hit the same DO concurrently. This isolation is provided by AsyncLocalStorage under the hood — you don't need to worry about concurrent requests overwriting each other's state.
 :::
 
----
-
 ## HTTP Route Protection
 
 ### Creating Middleware
@@ -403,8 +391,6 @@ The middleware:
 4. On success: Enhances request with `X-Auth-User-Id` and `X-Auth-Verified` headers
 5. On failure: Returns 401 with `WWW-Authenticate` header
 
----
-
 ## Key Rotation
 
 Zero-downtime key rotation with BLUE/GREEN keys:
@@ -426,8 +412,6 @@ const middleware = await createAuthMiddleware({
   ]
 });
 ```
-
----
 
 ## Error Handling
 
@@ -452,8 +436,6 @@ using client = new EditorClient({
   }
 });
 ```
-
----
 
 ## Security Best Practices
 
@@ -483,8 +465,6 @@ Default token lifetimes:
 - **Refresh token**: 30 days (configurable)
 
 Shorter access tokens = less damage if stolen.
-
----
 
 ## API Reference
 
@@ -538,8 +518,6 @@ import {
 } from '@lumenize/auth';
 ```
 
----
-
 ## Test Mode
 
 For development, add `?_test=true` to get the magic link directly:
@@ -553,8 +531,6 @@ const response = await fetch('/auth/email-magic-link?_test=true', {
 ```
 
 Requires `AUTH_TEST_MODE="true"` in environment.
-
----
 
 ## See Also
 

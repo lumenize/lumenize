@@ -13,8 +13,6 @@ description: Browser and Node.js clients as full mesh peers
 npm install @lumenize/mesh
 ```
 
----
-
 ## Quick Start
 
 For a complete tutorial building a collaborative document editor, see the [Getting Started Guide](./getting-started). Here's the essence:
@@ -43,8 +41,6 @@ using client = new EditorClient({
 ```
 
 Extend `LumenizeClient` and define `@mesh` methods for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`.
-
----
 
 ## Configuration
 
@@ -77,8 +73,6 @@ The `LumenizeClient` constructor takes a configuration object:
 | `onConnectionError` | `(error) => void` | Low-level WebSocket errors (rarely actionable) |
 | `onAuthenticationError` | `(error: AuthenticationError) => void` | Called on auth failure with `code` and `reason` from Gateway close |
 | `onSubscriptionsLost` | `() => void` | Called after reconnection if grace period had expired |
-
----
 
 ## Mesh API
 
@@ -116,8 +110,6 @@ class EditorClient extends LumenizeClient {
   }
 }
 ```
-
----
 
 ## Connection Lifecycle
 
@@ -164,8 +156,6 @@ if (client.connectionState === 'connected') {
 }
 ```
 
----
-
 ## Access Control
 
 LumenizeClient has a similar **secure-by-default** model as DOs and Workers. The exception is that calls from other clients are rejected by default:
@@ -203,8 +193,6 @@ Add guards to individual methods using the `@mesh` decorator with a guard functi
 
 See [Security](./security#access-control) for guard patterns including [instance access](./security#guards-with-instance-access) and reusable guards.
 
----
-
 ## Reconnection & Subscription Loss
 
 LumenizeClient handles flaky networks and tab hibernation automatically.
@@ -229,8 +217,6 @@ class EditorClient extends LumenizeClient {
 }
 ```
 
----
-
 ## Error Handling
 
 ### Authentication Errors
@@ -253,8 +239,6 @@ See [Security: Auth Close Codes](./security#auth-close-codes) for the full list.
 
 See [Making Calls: Error Handling](./calls#error-handling) for handling errors in call responses.
 
----
-
 ## Browser Considerations
 
 ### Tab Identity
@@ -267,8 +251,6 @@ No manual handling needed. `LumenizeClient` automatically:
 - Detects when a tab is "woken up"
 - Immediately attempts reconnection
 - Receives subscription status from Gateway and triggers `onSubscriptionsLost` if needed
-
----
 
 ## Testing
 
@@ -297,8 +279,6 @@ The `Browser` class provides:
 - **Injectable WebSocket Polyfill** — Connects through `vitest-pool-workers` to real DO instances
 
 See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns including multi-user scenarios and authentication testing.
-
----
 
 ## API Reference
 

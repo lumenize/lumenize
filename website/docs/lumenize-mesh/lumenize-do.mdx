@@ -13,8 +13,6 @@ description: Stateful Durable Objects as mesh nodes
 npm install @lumenize/mesh
 ```
 
----
-
 ## Quick Start
 
 ```typescript @skip-check
@@ -54,8 +52,6 @@ class UsersDO extends LumenizeDO<Env> {
 Always use `async onStart()` for initialization — it's automatically wrapped in `blockConcurrencyWhile` so it's guaranteed to complete before the DO does anything else.
 :::
 
----
-
 ## Mesh API
 
 `LumenizeDO` shares the standard [Mesh API](./mesh-api) with all node types:
@@ -66,8 +62,6 @@ Always use `async onStart()` for initialization — it's automatically wrapped i
 - **`this.ctn<T>()`** — Create type-safe continuations
 
 See [Mesh API](./mesh-api) for full documentation.
-
----
 
 ## NADIS Auto-Injection
 
@@ -133,8 +127,6 @@ No `alarm()` boilerplate required — LumenizeDO handles it automatically.
 
 See [Alarms](/docs/alarms) for cron scheduling, recurring tasks, and advanced patterns.
 
----
-
 ## Storage Patterns
 
 ### Synchronous Storage
@@ -183,8 +175,6 @@ async addSubscriber(userId: string) {
 
 In the wrong example, the `await` opens the input gate, allowing another request to modify the array. When we `put` our stale copy, we overwrite changes made by the other request.
 
----
-
 ## Testing
 
 Test DOs using `@lumenize/testing`. The key feature is **tunneling** — direct access to DO internals from your test:
@@ -211,8 +201,6 @@ it('adds and retrieves users', async () => {
 ```
 
 See **[@lumenize/testing](/docs/testing/usage)** for complete patterns including Browser simulation, WebSocket testing, and multi-instance scenarios.
-
----
 
 ## API Reference
 

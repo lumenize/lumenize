@@ -17,8 +17,6 @@ NADIS plugins automatically inject services via `this.svc`. Creating your own re
 
 The result: Zero-boilerplate dependency injection with full type safety.
 
----
-
 ## Quick Start
 
 ```typescript @skip-check
@@ -53,8 +51,6 @@ class MyDO extends LumenizeDO {
   }
 }
 ```
-
----
 
 ## Pattern 1: Class-Based Plugins
 
@@ -128,8 +124,6 @@ declare global {
 NadisPlugin.register('users', (doInstance) => new UserPlugin(doInstance));
 ```
 
----
-
 ## Pattern 2: Function-Based Plugins
 
 For simple utilities that don't need state:
@@ -158,8 +152,6 @@ declare global {
 NadisPlugin.register('formatter', (doInstance) => createFormatter(doInstance));
 ```
 
----
-
 ## TypeScript Declaration Merging
 
 The only required boilerplate is declaration merging for type safety:
@@ -178,8 +170,6 @@ This enables:
 - No `as any` casting needed
 
 **Why required?** TypeScript can't automatically infer what properties exist on `this.svc` from runtime registration.
-
----
 
 ## Plugin Guidelines
 
@@ -254,8 +244,6 @@ export class UserPlugin extends NadisPlugin {
   // ...
 }
 ```
-
----
 
 ## Advanced Patterns
 
@@ -333,8 +321,6 @@ NadisPlugin.register('cache', (doInstance) =>
 );
 ```
 
----
-
 ## Testing Your Plugin
 
 Test plugins standalone, without NADIS:
@@ -364,8 +350,6 @@ describe('MyPlugin', () => {
 
 For integration testing with NADIS, extend `LumenizeDO` in your tests.
 
----
-
 ## Real-World Examples
 
 ### Simple Function-Based
@@ -388,8 +372,6 @@ For integration testing with NADIS, extend `LumenizeDO` in your tests.
 
 - Pattern: Class with multiple public methods (`proxy`, `direct`)
 - When to use: Related functionality under one namespace
-
----
 
 ## How NADIS Works
 

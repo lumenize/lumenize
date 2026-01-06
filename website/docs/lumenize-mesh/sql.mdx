@@ -5,15 +5,13 @@ description: Type-safe SQL queries with automatic parameter binding
 
 # SQL Template Literal
 
-The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage.
+The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage. It gives you the readable `${value}` interpolation syntax of native template strings, but with automatic parameter binding that prevents SQL injection.
 
 :::tip Built-in Service
 This small (~10 lines) utility is automatically available via `this.svc.sql` in any `LumenizeDO`. No additional imports needed.
 :::
 
 ## Basic Usage
-
-When using `LumenizeDO`, `sql` is automatically available via NADIS:
 
 ```typescript @skip-check
 import { LumenizeDO } from '@lumenize/mesh';
@@ -46,57 +44,10 @@ class ProductDO extends LumenizeDO<Env> {
 }
 ```
 
-See [LumenizeDO documentation](./lumenize-do) for complete NADIS examples.
-
-### Standalone Usage (Without LumenizeDO)
-
-For vanilla Durable Objects without the Lumenize Mesh, import `sql` directly and create a private field:
-
-```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
-import { sql } from '@lumenize/mesh';
-import { DurableObject } from 'cloudflare:workers';
-
-class ProductDO extends DurableObject {
-  #sql = sql(this);
-
-  constructor(ctx: DurableObjectState, env: any) {
-    super(ctx, env);
-    this.#sql`
-      CREATE TABLE IF NOT EXISTS products (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        price REAL NOT NULL,
-        stock INTEGER DEFAULT 0
-      )
-    `;
-  }
-```
-
 ## Template Literal Parameters
 
-Parameters are automatically bound and SQL-injection safe.
-
-:::note Examples Use Standalone Style
-The validated examples below use `this.#sql` (standalone pattern) for test compatibility. **LumenizeDO users**: substitute `this.svc.sql` everywhere you see `this.#sql`.
-:::
-
-```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
-  addProduct(id: string, name: string, price: number, stock: number = 0) {
-    this.#sql`
-      INSERT INTO products (id, name, price, stock)
-      VALUES (${id}, ${name}, ${price}, ${stock})
-    `;
-    return { id, name, price, stock };
-  }
-
-  getProduct(id: string) {
-    const rows = this.#sql`SELECT * FROM products WHERE id = ${id}`;
-    return rows[0];
-  }
-```
-
-The template literal tag:
-1. Safely escapes all interpolated values
+Parameters are automatically bound and SQL-injection safe. The template literal tag:
+1. Safely binds all interpolated values as query parameters
 2. Prevents SQL injection attacks
 3. Handles strings, numbers, and other primitive types automatically
 
@@ -106,7 +57,7 @@ The `sql` function returns an array of result rows. Each row is a plain JavaScri
 
 ```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
   getLowStockProducts(threshold: number = 10) {
-    return this.#sql`
+    return this.svc.sql`
       SELECT id, name, stock FROM products 
       WHERE stock < ${threshold}
       ORDER BY stock ASC
@@ -122,70 +73,35 @@ Example return value:
 ]
 ```
 
-## Complex Queries
+## When to Use the Native SQL API
 
-You can use the full power of SQLite:
+Any SQL query you can run with `this.ctx.storage.sql.exec()`, you can run with `this.svc.sql`—JOINs, aggregations, updates, deletes, etc. However, `this.svc.sql` returns a simple array, so you lose access to cursor features like streaming, `rowsRead`/`rowsWritten`, `raw()`, etc. So:
+
+**Use `this.svc.sql`** for every-day queries with relatively small return sets:
+- Readable `${value}` interpolation instead of `?` placeholders
+- Automatic parameter binding prevents SQL injection
+- Returns results as an array for easy manipulation
+
+**Use `this.ctx.storage.sql.exec()` directly** when you need:
+- **Streaming/cursors** - process rows without loading all into memory
+- **Large result sets** - pagination with LIMIT/OFFSET
+- **Metadata** - access to `rowsRead`, `rowsWritten`, etc.
+- **Raw mode** - returns arrays instead of objects (no repeated column names)
 
 ```typescript @skip-check
-// JOINs
-const results = this.#sql`
-  SELECT orders.id, products.name, orders.quantity
-  FROM orders
-  JOIN products ON orders.product_id = products.id
-  WHERE orders.user_id = ${userId}
-`;
-
-// Aggregations
-const stats = this.#sql`
-  SELECT 
-    COUNT(*) as total,
-    AVG(price) as avg_price,
-    SUM(stock) as total_stock
-  FROM products
-`;
-
-// Updates
-this.#sql`
-  UPDATE products 
-  SET stock = stock - ${quantity}
-  WHERE id = ${productId}
-`;
-
-// Deletes
-this.#sql`
-  DELETE FROM products 
-  WHERE stock = 0 AND last_updated < ${cutoffDate}
-`;
-```
-
-## API Reference
-
-### `sql(doInstance)`
-
-Factory function that creates a SQL template literal tag bound to a Durable Object instance.
-
-**Parameters:**
-- `doInstance` - The Durable Object instance (typically `this`)
-
-**Returns:**
-A template literal tag function that executes SQL queries and returns an array of result rows.
-
-**Example:**
-```typescript @skip-check
-const sql = sql(this);  // Create the tag
-const rows = sql`SELECT * FROM users WHERE id = ${userId}`;  // Execute query
+const cursor = this.ctx.storage.sql.exec(
+  'SELECT * FROM logs WHERE timestamp > ? LIMIT ? OFFSET ?',
+  cutoffDate, pageSize, offset
+);
+for (const row of cursor) {
+  // Process rows one at a time
+}
+console.log(`Rows read: ${cursor.rowsRead}`);
 ```
 
 ## Implementation Details
 
-The `sql` template literal is **tiny** (~10 lines of code) and provides:
-
-1. **Automatic parameter binding** - Interpolated values are safely bound as SQL parameters
-2. **Direct storage access** - Uses `ctx.storage.sql.exec()` under the hood
-3. **Array results** - Returns results as plain JavaScript arrays of objects
-4. **Stateless factory** - `sql(this)` returns a bound function you can reuse
-
-The implementation is a simple wrapper that:
+The implementation is a tiny (~10 lines of code) wrapper:
 ```typescript @skip-check
 // Simplified implementation (actual code is in @lumenize/mesh)
 export function sql(doInstance: any) {
@@ -195,39 +111,3 @@ export function sql(doInstance: any) {
   };
 }
 ```
-
-This pattern enables both standalone usage and automatic injection via NADIS.
-
-## Why Use This?
-
-**vs Raw Storage API:**
-```typescript @skip-check
-// ❌ Raw API - verbose, error-prone
-const result = [...ctx.storage.sql.exec(
-  'SELECT * FROM products WHERE id = ?',
-  productId
-)];
-
-// ✅ SQL template literal - clean, safe
-const result = sql`SELECT * FROM products WHERE id = ${productId}`;
-```
-
-**Benefits:**
-- **Cleaner syntax** - Looks like natural SQL
-- **Automatic binding** - No manual `?` placeholders
-- **Type-safe** - TypeScript checks your template literals
-- **SQL injection protection** - All values automatically escaped
-
-:::tip Direct Storage Access
-`this.svc.sql` (and the standalone `sql()`) returns results as an array, which loads all rows into memory. For pagination, large result sets, or streaming, use the underlying API directly:
-
-```typescript @skip-check
-const cursor = this.ctx.storage.sql.exec(
-  'SELECT * FROM users WHERE active = ? LIMIT ? OFFSET ?',
-  true, 10, 20
-);
-for (const row of cursor) {
-  // Process rows without loading all into memory
-}
-```
-:::

@@ -24,15 +24,11 @@ With the exception of the Workspace LumenizeDO, which we leave as a potential ex
 2. **DocumentDO notifies** → Gateway → Client (real-time update)
 3. **DocumentDO spell checks** → SpellCheckWorker → DocumentDO → Gateway → Client
 
----
-
 ## Prerequisites
 
 ```bash @skip-check
 npm install @lumenize/mesh @lumenize/auth @lumenize/utils
 ```
-
----
 
 ## Step 1: Define the Document DO
 
@@ -138,8 +134,6 @@ export class DocumentDO extends LumenizeDO<Env> {
 | Response handlers skip `@mesh` | Framework trusts your own continuations — only entry points need the decorator. |
 | `@mesh(guard)` not shown | Fine-grained permissions per method. See [Security](./security#method-level-guards). |
 
----
-
 ## Step 2: Define the Spell Check Worker
 
 `LumenizeWorker` is for **stateless server-side logic**. It's perfect for proxying external APIs, compute-intensive tasks, or offloading fanout.
@@ -180,8 +174,6 @@ export class SpellCheckWorker extends LumenizeWorker<Env> {
 :::tip Cost Optimization
 For long-running external calls, consider using `@lumenize/fetch` with the "two one-way call" pattern to avoid DO wall-clock billing while waiting for long-running (>2s) responses.
 :::
-
----
 
 ## Step 3: Define the Browser Client
 
@@ -257,8 +249,6 @@ export class EditorClient extends LumenizeClient {
 - The client can call any mesh node using the same `this.lmz.call()` API
 - Results can be `Error` — always check before using
 
----
-
 ## Step 4: Connect from the Browser
 
 ```typescript @skip-check
@@ -301,8 +291,6 @@ function getTabId(): string {
 }
 ```
 
----
-
 ## Step 5: Set Up the Worker Entry Point
 
 The Worker routes requests to DOs and handles authentication. See [Security](./security) for details on token handling and key rotation.
@@ -344,8 +332,6 @@ export default {
 :::note Coming Soon
 `createLumenizeRouter` will provide this setup with sensible defaults, reducing the boilerplate above to a single function call.
 :::
-
----
 
 ## Step 6: Configure wrangler.jsonc
 

@@ -11,8 +11,6 @@ Lumenize uses a **Dual-Context Strategy** to handle this problem:
 1. **Framework Context (`AsyncLocalStorage`)**: For infrastructure data like identity and auth.
 2. **Application Context (Continuations)**: For your specific business logic and data flow.
 
----
-
 ## 1. Framework Context (`AsyncLocalStorage`)
 
 Lumenize uses Node.js's `AsyncLocalStorage` under the hood to manage **Call Context**. This ensures that properties like `this.lmz.callContext` are always accurate for the current request, even across multiple asynchronous hops.
@@ -30,8 +28,6 @@ doSomething() {
   const user = this.lmz.callContext.originAuth?.userId;
 }
 ```
-
----
 
 ## 2. Application Context (Continuations)
 
@@ -63,8 +59,6 @@ handleResult(result: any | Error, startTime: number) {
 }
 ```
 
----
-
 ## Side-by-Side Comparison
 
 | Feature | AsyncLocalStorage (Infrastructure) | Continuations (Application) |
@@ -74,8 +68,6 @@ handleResult(result: any | Error, startTime: number) {
 | **Explicitness** | ❌ Implicit/Global | ✅ Explicit/Parameters |
 | **Hibernation** | ⚠️ Lost if DO hibernates | ✅ **Survives** (if passed as parameters) |
 | **DO Consistency**| ⚠️ Risk if handlers use `await` | ✅ Safe (encourages sync handlers) |
-
----
 
 ## Hibernation & Long-Running Operations
 
@@ -126,8 +118,6 @@ For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clo
 
 **Key insight**: `getOperationChain()` captures `callContext` at the moment you call it. But that capture only survives hibernation if YOU store it somewhere. The framework doesn't do that automatically.
 
----
-
 ## Why This Matters for Durable Objects
 
 Durable Objects are designed around **single-threaded consistency**. The choice of context management directly impacts this:
@@ -137,8 +127,6 @@ Every time you `await` in a Durable Object, you yield execution. This opens the 
 
 ### The "Continuation" Advantage
 Continuation handlers are **synchronous** by design. When a remote call completes, Lumenize executes your handler immediately. Because there is no `await` inside the handler, no other request can interleave, ensuring your mutations are atomic and safe.
-
----
 
 ## Conclusion: The Golden Rule
 

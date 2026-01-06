@@ -15,8 +15,6 @@ this.lmz.call('REMOTE_DO', 'instance-id', remote, local);
 
 **For practical patterns**, see **[Making Calls](./calls)** — this document focuses on how continuations work under the hood.
 
----
-
 ## Why Continuations?
 
 Continuations solve several problems in Durable Objects:
@@ -24,8 +22,6 @@ Continuations solve several problems in Durable Objects:
 1. **Serializable** — Can be sent over the wire or stored and then restored after  hibernation/eviction
 2. **Type-safe** — TypeScript checks method names and signatures at compile time
 3. **No `await` needed** — Avoid `async`/`await` which can break DO consistency guarantees. While race conditions are still possible, the explicitness and the fact that handlers need not be declared `async` reduces the likelihood you will do so accidentally.
-
----
 
 ## The `this.ctn()` Factory
 
@@ -55,8 +51,6 @@ this.ctn().handleResult(context1, this.ctn().$result, context2)
 ```
 
 You can use `$result` anywhere in the arguments — it's just a marker that gets substituted at execution time. If the call throws, then the result is that Error. Alternatively, you can `catch` and make `$result` be something like `{ result, err }`.
-
----
 
 ## How It Works
 
@@ -103,8 +97,6 @@ return result;
 
 Before execution, `callContext` is restored from the captured snapshot — ensuring your handler sees the correct auth and context even when the execution is on another node. Similarly, you can [explicitly store/restore the serialized form](./managing-context#manual-persistence-power-users) to add resiliency through hibernation/eviction.
 
----
-
 ## OCAN: Operation Chaining And Nesting
 
 Continuations use **OCAN** (Operation Chaining And Nesting) — a serialization format that supports:
@@ -117,8 +109,6 @@ Continuations use **OCAN** (Operation Chaining And Nesting) — a serialization 
 | **Placeholders** | `$result` — substitute async results |
 
 For the full specification, see [@lumenize/rpc: Operation Chaining and Nesting](/docs/rpc/operation-chaining-and-nesting). Note, however, that batching is not automatically supported for Lumenize Mesh. After using the old Lumenize RPC for a while, we found that defining methods on the callee to do batch operations was a better approach for production code. It remains in the old Lumenize RPC because it's useful for testing situations.
-
----
 
 ## Manual Serialization (Advanced)
 
@@ -141,8 +131,6 @@ const result = executeOperationChain(storedChain, targetObject);
 Note: For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone`.
 
 For hibernation-safe persistence patterns, see [Manual Persistence](./managing-context#manual-persistence-power-users) in the context guide.
-
----
 
 ## Continuations as First-Class Values
 
@@ -170,8 +158,6 @@ class DocumentDO extends LumenizeDO<Env> {
 ```
 
 This pattern works because `this.ctn<T>().method(args)` returns a Proxy object, which is just a plain data structure (an `OperationChain`) that can be passed around, stored, or sent over the wire.
-
----
 
 ## Best Practices
 

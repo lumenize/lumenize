@@ -78,8 +78,6 @@ handleContent(documentId: string, content: string | Error, userId: string) {
 
 **Use when:** Your handler needs identifying context, for instance, when you make the same call multiple times and need the handler to know for which call it is processing
 
----
-
 ## Cost Optimization: Two One-Way Calls
 
 When a DO calls an external API, Cloudflare bills for **wall-clock time** — even while waiting for the response. For long-running calls, use the "two one-way call" pattern to shift the wait to a Worker (which only bills CPU time). This incurs additional request charges so the break even point is around 500ms. With the added latency and complexity, it's generally not worth it unless you have a lot of calls over 1 second in duration.
@@ -187,8 +185,6 @@ async summarize(content: string) {
 
 **Trade-off**: Fewest hops, but bypasses DO entirely — no DO-level state access, Worker must be able to accomplish required auth, logging, etc.
 
----
-
 ## Operation Chaining
 
 Chain multiple operations in a single round trip.
@@ -207,8 +203,6 @@ this.lmz.call(
 All chained operations execute in a single round trip.
 
 **Use when:** You have a sequence of operations that should execute on the callee, particularly when using capability-based access control.
-
----
 
 ## Operation Nesting
 
@@ -230,8 +224,6 @@ this.lmz.call(
 All nested operations execute in a single round trip. The framework resolves dependencies and executes in the correct order.
 
 **Use when:** You need to compose operations where outputs feed into inputs.
-
----
 
 ## Error Handling
 
@@ -280,8 +272,6 @@ Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they p
 :::info Error Serialization
 Errors are serialized/deserialized across the wire using `@lumenize/structured-clone`. The `message`, `name`, `stack`, and custom properties are preserved. Custom error subclasses can retain their type if [registered globally](/docs/structured-clone#errors-and-error-subclasses); otherwise they become plain `Error` objects (but still preserve `name` and custom properties).
 :::
-
----
 
 ## Context Preservation
 
