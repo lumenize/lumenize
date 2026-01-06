@@ -111,3 +111,73 @@ The Gateway is the **trust DMZ** between less trusted clients and more trusted m
 This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed.
 
 > **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
+
+## Wire Protocol
+
+The Gateway and Client communicate over WebSocket using JSON messages. Each message has a `type` field that determines how it's processed.
+
+:::note Serialization Format
+The `chain` and `result` fields use [@lumenize/structured-clone](/docs/structured-clone)'s `stringify()` format, which preprocesses values before JSON encoding. This preserves rich types (Dates, Maps, Sets, circular references, custom classes) but is not human-readable. See [Structured Clone: Serialization](/docs/structured-clone#serialization) for details.
+:::
+
+### Message Types
+
+| Type | Direction | Purpose |
+|------|-----------|---------|
+| `call` | Client→Gateway | Client initiating a mesh call |
+| `call_response` | Gateway→Client | Response to a client-initiated call |
+| `incoming_call` | Gateway→Client | Mesh node calling the client |
+| `incoming_call_response` | Client→Gateway | Client's response to an incoming call |
+| `connection_status` | Gateway→Client | Post-handshake status (sent immediately after connection) |
+
+### Message Formats
+
+**`call`** — Client initiating a call to a mesh node:
+```json @skip-check
+{
+  "type": "call",
+  "callId": "uuid",
+  "binding": "DOCUMENT_DO",
+  "instance": "doc-123",
+  "chain": { /* serialized operation chain */ }
+}
+```
+
+**`call_response`** — Gateway returning the result:
+```json @skip-check
+{
+  "type": "call_response",
+  "callId": "uuid",
+  "success": true,
+  "result": { /* or error if success: false */ }
+}
+```
+
+**`incoming_call`** — Mesh node calling the client:
+```json @skip-check
+{
+  "type": "incoming_call",
+  "callId": "uuid",
+  "chain": { /* serialized operation chain */ }
+}
+```
+
+**`incoming_call_response`** — Client responding to incoming call:
+```json @skip-check
+{
+  "type": "incoming_call_response",
+  "callId": "uuid",
+  "success": true,
+  "result": { /* or error if success: false */ }
+}
+```
+
+**`connection_status`** — Sent by Gateway immediately after WebSocket handshake:
+```json @skip-check
+{
+  "type": "connection_status",
+  "subscriptionsLost": false
+}
+```
+
+When `subscriptionsLost` is `true`, the client's `onSubscriptionsLost` callback fires after the connection is established, prompting resubscription to any active data streams.

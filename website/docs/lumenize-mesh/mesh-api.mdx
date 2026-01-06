@@ -1,0 +1,283 @@
+---
+title: Mesh API
+description: Core APIs shared by all mesh node types
+---
+
+# Mesh API
+
+All mesh node types — [LumenizeDO](./lumenize-do), [LumenizeWorker](./lumenize-worker), and [LumenizeClient](./lumenize-client) — share a common API for mesh communication. This page documents those shared interfaces.
+
+---
+
+## The `this.lmz` API
+
+Every mesh node has access to `this.lmz` — the unified API for mesh communication.
+
+### Identity Properties
+
+```typescript @skip-check
+this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
+this.lmz.bindingName    // e.g., 'USERS_DO', 'SPELLCHECK_WORKER', 'LUMENIZE_CLIENT_GATEWAY'
+this.lmz.instanceName   // e.g., 'user-123' (undefined for Workers)
+this.lmz.callContext    // Current request's context (during handler execution)
+```
+
+| Node Type | `type` | `instanceName` |
+|-----------|--------|----------------|
+| LumenizeDO | `'LumenizeDO'` | Named instance (e.g., `'user-123'`) |
+| LumenizeWorker | `'LumenizeWorker'` | Always `undefined` |
+| LumenizeClient | `'LumenizeClient'` | Client identifier (e.g., `'alice.tab1'`) |
+
+:::note Auto-Propagation
+DOs don't inherently know their binding name. The first mesh call to a DO includes this information in the envelope. After that, the DO can provide return addresses for callbacks.
+:::
+
+### Making Calls
+
+```typescript @skip-check
+// Fire-and-forget
+this.lmz.call(
+  'DOCUMENT_DO',
+  'draft-1',
+  this.ctn<DocumentDO>().notifyUpdate(change)
+);
+
+// With response handler
+this.lmz.call(
+  'VALIDATION_WORKER',
+  undefined,  // Workers don't have instances
+  this.ctn<ValidationWorker>().validate(data),
+  this.ctn().handleValidationResult(this.ctn().$result)
+);
+```
+
+See [Making Calls](./calls) for all patterns including response handlers, chaining, nesting, and error handling.
+
+### Call Context
+
+Access the current call's context within any `@mesh` handler:
+
+```typescript @skip-check
+@mesh
+updateDocument(changes: DocumentChange) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  const caller = this.lmz.callContext.caller;
+  const calledAs = this.lmz.callContext.calledAs;
+
+  console.log(`${userId} called from ${caller.bindingName}`);
+}
+```
+
+**Context properties:**
+- `originAuth` — Authentication info from the original caller (propagated through chain)
+- `caller` — The immediate caller's identity
+- `calledAs` — How this node was addressed (binding + instance name)
+- `state` — Custom state object (for middleware to pass data)
+
+---
+
+## The `@mesh` Decorator
+
+The `@mesh` decorator marks methods as entry points for mesh calls. Methods without `@mesh` cannot be called from outside the node.
+
+```typescript @skip-check
+import { LumenizeDO, mesh } from '@lumenize/mesh';
+
+class DocumentDO extends LumenizeDO<Env> {
+  @mesh
+  getContent(): string {
+    return this.content;
+  }
+
+  @mesh((callContext) => {
+    if (!callContext.state.user.isAdmin) throw new Error('Admin only');
+  })
+  deleteDocument() {
+    // Only admins can reach here
+  }
+
+  // NOT exposed — missing @mesh decorator
+  internalHelper() { /* ... */ }
+}
+```
+
+### Guard Functions
+
+Guards run before the method and can reject calls:
+
+```typescript @skip-check
+@mesh                         // Basic entry point (no guard)
+@mesh(guardFunction)          // With access control guard
+```
+
+Guard function signature:
+```typescript @skip-check
+(callContext: CallContext, instance?: T) => void | Promise<void>
+// Throw to deny access. Instance parameter is optional.
+```
+
+See [Security: Guards with Instance Access](./security#guards-with-instance-access) for guards that need instance state.
+
+---
+
+## The `onBeforeCall()` Hook
+
+Override `onBeforeCall()` for class-wide access control that runs before every mesh call:
+
+```typescript @skip-check
+class ProtectedDO extends LumenizeDO<Env> {
+  onBeforeCall(callContext: CallContext) {
+    super.onBeforeCall(callContext);  // Call super for default behavior
+    if (!callContext.originAuth?.userId) {
+      throw new Error('Authentication required');
+    }
+  }
+
+  @mesh
+  sensitiveMethod() { /* ... */ }
+}
+```
+
+**When to use each:**
+| Level | Mechanism | Purpose |
+|-------|-----------|---------|
+| Class-wide | `onBeforeCall()` | WHO can call (auth, rate limiting) |
+| Method-level | `@mesh(guard)` | Fine-grained permissions |
+
+See [Security](./security#access-control) for the complete security model.
+
+---
+
+## Continuations
+
+Create type-safe continuations with `this.ctn<T>()`:
+
+```typescript @skip-check
+// Remote continuation (what to call elsewhere)
+const remote = this.ctn<OtherDO>().someMethod(arg1, arg2);
+
+// Local continuation (what to call on this instance)
+const handler = this.ctn().handleResult(this.ctn().$result);
+
+// Use in call
+this.lmz.call('OTHER_DO', 'instance', remote, handler);
+```
+
+### The `$result` Placeholder
+
+`this.ctn().$result` is a placeholder that gets replaced with the actual result (or `Error`) when the continuation executes:
+
+```typescript @skip-check
+@mesh
+doSomething() {
+  this.lmz.call(
+    'VALIDATOR',
+    undefined,
+    this.ctn<Validator>().validate(data),
+    this.ctn().handleValidation(data.id, this.ctn().$result)
+  );
+}
+
+handleValidation(dataId: string, result: ValidationResult | Error) {
+  if (result instanceof Error) {
+    this.markFailed(dataId, result.message);
+    return;
+  }
+  this.markValidated(dataId, result);
+}
+```
+
+### Context Preservation
+
+Continuations automatically capture `callContext` at serialization time. Even if a DO hibernates while waiting for a response, your handler receives the correct context:
+
+```typescript @skip-check
+@mesh
+triggerSlowOperation(documentId: string) {
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`User ${userId} triggered operation`);
+
+  // This might take > 10 seconds, DO might hibernate
+  this.lmz.call(
+    'SLOW_WORKER',
+    undefined,
+    this.ctn<SlowWorker>().process(documentId),
+    this.ctn().handleSlowResult(this.ctn().$result)
+  );
+}
+
+handleSlowResult(result: ProcessResult | Error) {
+  // callContext is restored — same userId available
+  const userId = this.lmz.callContext.originAuth?.userId;
+  console.log(`Operation completed for user ${userId}`);
+}
+```
+
+See [Continuations](./continuations) for deep dive on operation chains.
+
+---
+
+## API Reference
+
+### Interface: `CallContext`
+
+```typescript @skip-check
+interface CallContext {
+  origin: {
+    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+    bindingName: string;
+    instanceName?: string;
+  };
+  originAuth?: {
+    userId: string;
+    // ... other auth claims
+  };
+  caller: {
+    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+    bindingName: string;
+    instanceName?: string;
+  };
+  calledAs: {
+    bindingName: string;
+    instanceName: string;
+  };
+  state: Record<string, any>;  // Middleware state
+}
+```
+
+**Context properties:**
+- `origin` — The original caller at the start of the chain (propagated through hops)
+- `originAuth` — Authentication info from the original caller
+- `caller` — The immediate caller's identity (may differ from origin in multi-hop chains)
+- `calledAs` — How this node was addressed
+- `state` — Mutable object for passing computed data through the call chain. Starts as `{}` for each incoming call; typically populated in `onBeforeCall()` (e.g., to attach user records or permissions). Isolated per-request via AsyncLocalStorage.
+
+### Decorator: `@mesh`
+
+```typescript @skip-check
+@mesh                         // Basic entry point
+@mesh(guardFunction)          // With access control guard
+```
+
+Guard function signature:
+```typescript @skip-check
+(callContext: CallContext, instance?: T) => void | Promise<void>
+// Throw to deny access. Instance parameter is optional.
+```
+
+### Interface: `LmzApi`
+
+```typescript @skip-check
+interface LmzApi {
+  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+  bindingName: string;
+  instanceName?: string;
+  callContext: CallContext;  // Only valid during handler execution
+  call(
+    binding: string,
+    instanceName: string | undefined,
+    continuation: Continuation,
+    responseHandler?: Continuation
+  ): void;
+}
+```

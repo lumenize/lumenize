@@ -60,72 +60,23 @@ Always use `async onStart()` for initialization — it's automatically wrapped i
 
 ---
 
-## Mesh API (`this.lmz`)
+## Mesh API
 
-Every `LumenizeDO` has access to `this.lmz` — the unified API for mesh communication.
+`LumenizeDO` shares the standard [Mesh API](./mesh-api) with all node types:
 
-### Identity Properties
+- **`this.lmz`** — Identity properties and `call()` for mesh communication
+- **`@mesh` decorator** — Mark methods as mesh entry points
+- **`onBeforeCall()`** — Class-wide access control hook
+- **`this.ctn<T>()`** — Create type-safe continuations
 
-```typescript @skip-check
-this.lmz.type           // 'LumenizeDO'
-this.lmz.bindingName    // e.g., 'USERS_DO' (auto-propagated from first call)
-this.lmz.instanceName   // e.g., 'user-123' (auto-propagated from first call)
-this.lmz.callContext    // Current request's context (during handler execution)
-```
+See [Mesh API](./mesh-api) for full documentation.
 
-:::note Auto-Propagation
-DOs don't inherently know their binding name. The first mesh call to a DO includes this information in the envelope. After that, the DO can provide return addresses for callbacks.
-:::
+### DO-Specific: Rate Limiting with Storage
 
-### Making Calls
-
-```typescript @skip-check
-// Fire-and-forget to another DO
-this.lmz.call(
-  'DOCUMENT_DO',
-  'draft-1',
-  this.ctn<DocumentDO>().notifyUpdate(change)
-);
-
-// With response handler
-this.lmz.call(
-  'VALIDATION_WORKER',
-  undefined,
-  this.ctn<ValidationWorker>().validate(data),
-  this.ctn().handleValidationResult(this.ctn().$result)
-);
-```
-
-### Call Context
-
-Access the current call's context within any `@mesh` handler:
-
-```typescript @skip-check
-@mesh
-updateDocument(changes: DocumentChange) {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  const caller = this.lmz.callContext.caller;
-  const calledAs = this.lmz.callContext.calledAs;
-
-  console.log(`${userId} called from ${caller.bindingName}`);
-}
-```
-
-**Context properties:**
-- `originAuth` — Authentication info from the original caller (propagated through chain)
-- `caller` — The immediate caller's identity
-- `calledAs` — How this DO was addressed (binding + instance name)
-- `state` — Custom state object (for middleware to pass data)
-
----
-
-## Access Control
-
-DOs can enforce access control at two levels:
+DOs can use persistent storage for stateful access control patterns like rate limiting:
 
 ```typescript @skip-check
 class ProtectedDO extends LumenizeDO<Env> {
-  // Class-level: runs before every mesh call
   onBeforeCall(callContext: CallContext) {
     super.onBeforeCall(callContext);
     if (!callContext.originAuth?.userId) {
@@ -137,16 +88,10 @@ class ProtectedDO extends LumenizeDO<Env> {
     if (count > 100) throw new Error('Rate limit exceeded');
     this.ctx.storage.kv.put(key, count + 1);
   }
-
-  // Method-level: @mesh marks entry points, optional guard for fine-grained control
-  @mesh((callContext) => {
-    if (!callContext.state.user.isAdmin) throw new Error('Admin only');
-  })
-  adminMethod() { /* ... */ }
 }
 ```
 
-See [Security](./security#access-control) for the complete security model including reusable guards and capability-based trust.
+See [Security](./security#access-control) for the complete security model.
 
 ---
 
@@ -167,7 +112,6 @@ class MyDO extends LumenizeDO<Env> {
   doSomething() {
     this.svc.sql`SELECT * FROM items`;  // ✅ Auto-injected
     this.svc.alarms.schedule(60, 'handler', {});  // ✅ Auto-injected
-    this.svc.debug('MyDO').info('Something happened');  // ✅ Auto-injected
   }
 }
 ```
@@ -177,9 +121,12 @@ class MyDO extends LumenizeDO<Env> {
 | Package | Service | Purpose |
 |---------|---------|---------|
 | `@lumenize/mesh` | `sql` | SQL template literal tag (LumenizeDO only) |
-| `@lumenize/mesh` | `debug` | Scoped, filterable logging |
 | `@lumenize/alarms` | `alarms` | Alarm scheduling |
 | `@lumenize/fetch` | `fetch` | Proxy fetch (cost optimization) |
+
+:::note Logging
+For debug logging, use the standalone `@lumenize/debug` package — see [Debug](./debug). It's not a NADIS service because it works cross-platform (Workers, Node.js, browsers).
+:::
 
 ### Service: `sql` Template Literal
 
@@ -199,24 +146,6 @@ this.svc.sql`DELETE FROM users WHERE id = ${id}`;
 
 Parameters are automatically bound and SQL-injection safe.
 
-### Service: `debug` Logging
-
-```typescript @skip-check
-const log = this.svc.debug('MyDO.myMethod');
-
-log.debug('Detailed info', { data: someData });
-log.info('Milestone reached', { count: 42 });
-log.warn('Expected issue', { reason: 'timeout' });
-log.error('Failed!', { error: err });  // Always outputs (never filtered)
-```
-
-Control via `DEBUG` environment variable:
-```bash @skip-check
-DEBUG=*                     # Everything
-DEBUG=MyDO.*                # All MyDO methods
-DEBUG=MyDO.myMethod:info    # Only info+ for this method
-```
-
 ### Service: `alarms` Scheduling
 
 ```typescript @skip-check
@@ -235,73 +164,6 @@ await this.svc.alarms.cancel(schedule.id);
 // In your DO: delegate the alarm
 async alarm() {
   await this.svc.alarms.alarm();
-}
-```
-
----
-
-## Continuations
-
-Create type-safe continuations with `this.ctn<T>()`:
-
-```typescript @skip-check
-// Remote continuation (what to call elsewhere)
-const remote = this.ctn<OtherDO>().someMethod(arg1, arg2);
-
-// Local continuation (what to call on this instance)
-const handler = this.ctn().handleResult(this.ctn().$result);
-
-// Use in call
-this.lmz.call('OTHER_DO', 'instance', remote, handler);
-```
-
-### The `$result` Placeholder
-
-`this.ctn().$result` is a placeholder that gets replaced with the actual result (or `Error`) when the continuation executes:
-
-```typescript @skip-check
-@mesh
-doSomething() {
-  this.lmz.call(
-    'VALIDATOR',
-    undefined,
-    this.ctn<Validator>().validate(data),
-    this.ctn().handleValidation(data.id, this.ctn().$result)
-  );
-}
-
-handleValidation(dataId: string, result: ValidationResult | Error) {
-  if (result instanceof Error) {
-    this.markFailed(dataId, result.message);
-    return;
-  }
-  this.markValidated(dataId, result);
-}
-```
-
-### Context Preservation
-
-Continuations automatically capture `callContext` at serialization time. Even if the DO hibernates while waiting for a response, your handler receives the correct context:
-
-```typescript @skip-check
-@mesh
-triggerSlowOperation(documentId: string) {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  console.log(`User ${userId} triggered operation`);
-
-  // This might take > 10 seconds, DO might hibernate
-  this.lmz.call(
-    'SLOW_WORKER',
-    undefined,
-    this.ctn<SlowWorker>().process(documentId),
-    this.ctn().handleSlowResult(this.ctn().$result)
-  );
-}
-
-handleSlowResult(result: ProcessResult | Error) {
-  // callContext is restored - same userId available
-  const userId = this.lmz.callContext.originAuth?.userId;
-  console.log(`Operation completed for user ${userId}`);
 }
 ```
 
@@ -434,51 +296,7 @@ constructor(ctx: DurableObjectState, env: EnvType)
 - `ctn<T>()` — Create typed continuation builder
 - `handleMeshRequest(request: Request)` — Process mesh call from HTTP
 
-### Decorator: `@mesh`
-
-```typescript @skip-check
-@mesh                         // Basic entry point
-@mesh(guardFunction)          // With access control guard
-```
-
-Guard function signature:
-```typescript @skip-check
-(callContext: CallContext) => void | Promise<void>
-// Throw to deny access
-```
-
-### Interface: `CallContext`
-
-```typescript @skip-check
-interface CallContext {
-  origin: {
-    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
-    bindingName: string;
-    instanceName?: string;
-  };
-  originAuth?: {
-    userId: string;
-    // ... other auth claims
-  };
-  caller: {
-    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
-    bindingName: string;
-    instanceName?: string;
-  };
-  calledAs: {
-    bindingName: string;
-    instanceName: string;
-  };
-  state: Record<string, any>;  // Middleware state
-}
-```
-
-**Context properties:**
-- `origin` — The original caller at the start of the chain (propagated through hops)
-- `originAuth` — Authentication info from the original caller
-- `caller` — The immediate caller's identity (may differ from origin in multi-hop chains)
-- `calledAs` — How this node was addressed
-- `state` — Mutable object for passing computed data through the call chain. Starts as `{}` for each incoming call; typically populated in `onBeforeCall()` (e.g., to attach user records or permissions) but could be added by anything. Isolated per-request via AsyncLocalStorage.
+See [Mesh API](./mesh-api#api-reference) for shared types (`@mesh`, `CallContext`, `LmzApi`).
 
 ---
 

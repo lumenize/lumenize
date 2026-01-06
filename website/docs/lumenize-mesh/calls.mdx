@@ -274,7 +274,7 @@ handleResult(result: SomeType | Error) {
 ```
 
 :::note Guard Errors Pass Through
-Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `AuthenticationError`) so you can handle them appropriately.
+Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `PermissionDeniedError`, `QuotaExceededError`) so you can handle them appropriately.
 :::
 
 :::info Error Serialization

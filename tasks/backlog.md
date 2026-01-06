@@ -55,6 +55,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     2. JSDoc annotations for documentation/intent (maybe?)
     3. Custom lint rules for compile-time checks (maybe?)
 
+- [ ] Consider expanding NADIS to LumenizeClient and/or LumenizeWorker. Right now, I can't think of a compelling reason for it. Alarms, sql, and fetch.proxy are all DO specific. However, debug is not.
 
 ## LumenizeBase NADIS modules
 

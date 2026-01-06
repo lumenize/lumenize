@@ -177,18 +177,30 @@ The server:
 ### Client Configuration
 
 ```typescript @skip-check
+// Fresh login — pass the token you just received
 using client = new EditorClient({
   baseUrl: 'wss://app.example.com',
   instanceName: `${userId}.${tabId}`,
-  accessToken: accessToken,
-  refreshEndpoint: '/auth/refresh-token'  // Default
+  accessToken: accessToken
+});
+
+// Page refresh — let client fetch token via refresh endpoint
+using client = new EditorClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`
+  // accessToken omitted — fetched automatically via refreshEndpoint
 });
 ```
 
-### Automatic Token Refresh
+### Token Acquisition & Refresh
 
-`LumenizeClient` handles refresh automatically:
+`LumenizeClient` handles tokens automatically:
 
+**Initial connection:**
+- If `accessToken` provided → use it for WebSocket connection
+- If `accessToken` omitted → POST to `refreshEndpoint` first to get token (uses refresh cookie)
+
+**Ongoing refresh:**
 1. **Monitor**: Parses JWT to determine expiration
 2. **Timer**: Sets timer for ~30 seconds before expiry
 3. **Refresh**: POSTs to `refreshEndpoint` with `credentials: 'include'`
@@ -200,12 +212,11 @@ If authentication fails (token refresh failed, connection rejected, or session e
 
 ```typescript @skip-check
 using client = new EditorClient({
-  accessToken,
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
   onAuthenticationError: (error) => {
-    // Authentication failed — redirect to login
-    showSessionExpiredModal(() => {
-      window.location.href = '/login';
-    });
+    console.log('Auth failed:', error.code, error.reason);
+    window.location.href = '/login';
   }
 });
 ```
@@ -288,6 +299,21 @@ class ProtectedDO extends LumenizeDO<Env> {
 })
 adminMethod() {
   // Only admins reach here
+}
+```
+
+### Guards with Instance Access
+
+Guards that need instance state receive the instance as a second parameter. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
+
+```typescript @skip-check
+@mesh((callContext, instance: DocumentDO) => {
+  if (!instance.allowedEditors.has(callContext.originAuth?.userId)) {
+    throw new Error('Not an allowed editor');
+  }
+})
+updateDocument(changes: DocumentChange) {
+  // Only allowed editors reach here
 }
 ```
 
@@ -420,12 +446,8 @@ The Gateway uses standard WebSocket close codes for auth issues:
 ```typescript @skip-check
 using client = new EditorClient({
   accessToken,
-  onConnectionError: (error) => {
-    // WebSocket connection failed (network issues)
-    showOfflineBanner();
-  },
   onAuthenticationError: (error) => {
-    // Authentication failed — redirect to login
+    console.log('Auth failed:', error.code, error.reason);
     window.location.href = '/login';
   }
 });

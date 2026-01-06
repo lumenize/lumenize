@@ -94,85 +94,20 @@ class MyWorker extends LumenizeWorker<Env> {
 
 ---
 
-## Mesh API (`this.lmz`)
+## Mesh API
 
-Workers have the same `this.lmz` API as DOs:
+`LumenizeWorker` shares the standard [Mesh API](./mesh-api) with all node types:
 
-### Identity Properties
+- **`this.lmz`** — Identity properties and `call()` for mesh communication
+- **`@mesh` decorator** — Mark methods as mesh entry points
+- **`onBeforeCall()`** — Class-wide access control hook
+- **`this.ctn<T>()`** — Create type-safe continuations
 
-```typescript @skip-check
-this.lmz.type           // 'LumenizeWorker'
-this.lmz.bindingName    // e.g., 'SPELLCHECK_WORKER'
-this.lmz.instanceName   // Always undefined for Workers
-this.lmz.callContext    // Current request's context
-```
+See [Mesh API](./mesh-api) for full documentation.
 
-### Making Calls
-
-Workers can call DOs, other Workers, or Clients:
-
-```typescript @skip-check
-class OrchestrationWorker extends LumenizeWorker<Env> {
-  @mesh
-  async process(documentId: string, content: string): Promise<ProcessResult> {
-    // Call DO to store result
-    this.lmz.call(
-      'DOCUMENT_DO',
-      documentId,
-      this.ctn<DocumentDO>().storeProcessedContent(content)
-    );
-
-    // Return result to caller
-    return { status: 'processed', documentId };
-  }
-}
-```
-
-### Call Context
-
-Access context in any `@mesh` handler:
-
-```typescript @skip-check
-@mesh
-async processWithContext(data: InputData): Promise<OutputData> {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  
-  // Include user context in external call
-  const response = await fetch('https://api.example.com/process', {
-    method: 'POST',
-    headers: {
-      'X-User-Id': userId ?? 'anonymous',
-    },
-    body: JSON.stringify(data),
-  });
-
-  return response.json();
-}
-```
-
----
-
-## Access Control
-
-Workers use the same access control patterns as DOs — `onBeforeCall()` for class-wide policies and `@mesh(guard)` for method-level checks:
-
-```typescript @skip-check
-class ProtectedWorker extends LumenizeWorker<Env> {
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
-    if (!callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-  }
-
-  @mesh((callContext) => {
-    if (!callContext.state.user.hasPremium) throw new Error('Premium required');
-  })
-  async generateReport(data: ReportInput): Promise<Report> { /* ... */ }
-}
-```
-
-See [Security](./security#access-control) for the complete security model.
+:::note Worker Identity
+For Workers, `this.lmz.instanceName` is always `undefined` since Workers are stateless singletons.
+:::
 
 ---
 
@@ -264,15 +199,17 @@ See [Making Calls: Cost Optimization](./calls#cost-optimization-two-one-way-call
 
 ---
 
-## NADIS Services
+## Logging
 
-Workers have access to NADIS services that don't require DO storage:
+For debug logging in Workers, use the standalone `@lumenize/debug` package:
 
 ```typescript @skip-check
+import { debug } from '@lumenize/debug';
+
 export class SpellCheckWorker extends LumenizeWorker<Env> {
   @mesh
   async check(content: string): Promise<SpellError[]> {
-    const log = this.svc.debug('SpellCheckWorker.check');
+    const log = debug('SpellCheckWorker.check');
     log.info('Checking content', { length: content.length });
 
     const response = await fetch('https://api.spellcheck.example/check', {
@@ -287,13 +224,11 @@ export class SpellCheckWorker extends LumenizeWorker<Env> {
 }
 ```
 
-**Available services:**
-- `debug` — Scoped logging
-- Other non-storage services
+See [Debug](./debug) for configuration and filtering options.
 
-**Not available:**
-- `sql` — Requires DO storage
-- `alarms` — Requires DO storage
+:::note No NADIS for Workers
+Workers don't have access to NADIS services (`this.svc`) since all current NADIS services (sql, alarms, fetch) require DO storage.
+:::
 
 ---
 
@@ -341,7 +276,6 @@ constructor(env: EnvType)
 
 **Properties:**
 - `env: EnvType` — Worker environment bindings
-- `svc: LumenizeServices` — Auto-injected NADIS services (subset)
 - `lmz: LmzApi` — Mesh communication API
 
 **Overridable Methods:**
@@ -350,14 +284,7 @@ constructor(env: EnvType)
 **Inherited Methods:**
 - `ctn<T>()` — Create typed continuation builder
 
-### Decorator: `@mesh`
-
-Same as LumenizeDO:
-
-```typescript @skip-check
-@mesh                         // Basic entry point
-@mesh(guardFunction)          // With access control guard
-```
+See [Mesh API](./mesh-api#api-reference) for shared types (`@mesh`, `CallContext`, `LmzApi`).
 
 ---
 

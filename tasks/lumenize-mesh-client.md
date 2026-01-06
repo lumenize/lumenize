@@ -97,7 +97,35 @@ class MeshAccessError extends Error {
 
 Example: `MeshAccessError: Method 'transform' is not exposed via @mesh decorator on DOCUMENT_DO/draft-1`
 
-**Note**: Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves domain-specific error types (e.g., `AuthenticationError`, `PermissionDeniedError`) so callers can handle them appropriately.
+**Note**: Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves domain-specific error types (e.g., `PermissionDeniedError`, `QuotaExceededError`) so callers can handle them appropriately.
+
+### Debug: Standalone Package, Not NADIS
+
+**Decision (2025-01-05)**: `@lumenize/debug` is a standalone cross-platform package, NOT a NADIS service.
+
+**Rationale**:
+- All other NADIS services (sql, alarms, fetch) require DO storage — debug does not
+- Debug should work in Cloudflare Workers, Node.js, Bun, AND browsers
+- Making it standalone keeps NADIS cleanly "DO services only"
+- No external dependencies (not wrapping npm `debug`) for security and maintenance reasons
+
+**Configuration Auto-Detection**:
+The debug module auto-detects the environment and reads `DEBUG` from the appropriate source:
+- **Cloudflare Workers**: `env?.DEBUG`
+- **Node.js/Bun**: `process?.env?.DEBUG`
+- **Browser**: `localStorage?.getItem('DEBUG')`
+
+**Design Notes**:
+- Use uppercase `DEBUG` consistently across all environments (deviation from npm `debug` which uses lowercase)
+- JSON output for Cloudflare observability dashboard queryability
+- Zero dependencies, no colors, no TTY detection
+
+**Usage**:
+```typescript
+import { debug } from '@lumenize/debug';
+const log = debug('MyDO.myMethod');
+log.info('Something happened', { data });
+```
 
 ## Implementation Phases
 
@@ -131,11 +159,11 @@ Example: `MeshAccessError: Method 'transform' is not exposed via @mesh decorator
 - [ ] Users should NOT write custom constructors — use `onStart()` instead
 
 **Core Utilities Consolidation** (PENDING):
-- [ ] Merge `sql` and `debug` utilities from `@lumenize/core` into `@lumenize/mesh`
+- [ ] Merge `sql` utility from `@lumenize/core` into `@lumenize/mesh`
   - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
-  - `debug` makes sense for all three node types — available via `this.svc.debug`
   - For mesh nodes, just import the base class — `this.svc.*` handles the rest (no separate `@lumenize/core` import needed)
-  - Also export `sql` and `debug` directly from `@lumenize/mesh` for standalone/vanilla usage
+  - Also export `sql` directly from `@lumenize/mesh` for standalone/vanilla usage
+- [ ] Publish `@lumenize/debug` as a standalone cross-platform package (see Debug decision below)
 
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation
@@ -364,22 +392,44 @@ async webSocketClose(ws: WebSocket, code: number, reason: string) {
 
 // 4. Grace period expired — client didn't reconnect
 async alarm() {
-  // Grace period expired — client didn't reconnect
-  // Gateway can now be evicted (no action needed)
-  // Any incoming calls will see "disconnected" state
+  // Set marker alarm (far future) to indicate subscriptions were lost
+  // 100 years - no ongoing cost for pending alarms (only charged on setAlarm call)
+  const MARKER_OFFSET_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+  await this.ctx.storage.setAlarm(Date.now() + MARKER_OFFSET_MS);
 }
 
-// 5. Client Reconnects (Within Grace Period)
+// 5. Client Reconnects — Determine subscription state
 async fetch(request: Request): Promise<Response> {
   // ... handle WebSocket upgrade ...
-  
-  // Cancel grace period alarm if pending
-  const pendingAlarm = await this.ctx.storage.getAlarm();
-  if (pendingAlarm) {
-    await this.ctx.storage.deleteAlarm();
+
+  // Determine subscription state from alarm
+  const subscriptionsLost = this.#determineSubscriptionState();
+
+  // Send connection status to client immediately after handshake
+  ws.send(JSON.stringify({
+    type: 'connection_status',
+    subscriptionsLost
+  }));
+}
+
+#determineSubscriptionState(): boolean {
+  const GRACE_PERIOD_MS = 5000;
+  const alarm = this.ctx.storage.getAlarm();  // sync API
+
+  if (alarm === null) {
+    // Fresh connection (never disconnected)
+    return false;
   }
-  
-  // State is now "Connected" again
+
+  if (alarm > Date.now() + GRACE_PERIOD_MS) {
+    // Marker alarm — grace period had expired
+    this.ctx.storage.deleteAlarm();
+    return true;
+  }
+
+  // Alarm still in grace period range — subscriptions intact
+  this.ctx.storage.deleteAlarm();
+  return false;
 }
 ```
 
@@ -448,19 +498,32 @@ async __executeOperation(envelope: CallEnvelope): Promise<any> {
 // 3. Alternative approaches (polling getAlarm, alarm notifying pending calls) are more complex
 async #waitForReconnect(): Promise<void> {
   const alarm = await this.ctx.storage.getAlarm();
-  if (!alarm) throw new ClientDisconnectedError();
+  if (!alarm) {
+    this.#markSubscriptionsLost();
+    throw new ClientDisconnectedError();
+  }
 
   const remainingMs = alarm - Date.now();
-  if (remainingMs <= 0) throw new ClientDisconnectedError();
+  if (remainingMs <= 0) {
+    this.#markSubscriptionsLost();
+    throw new ClientDisconnectedError();
+  }
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
+      this.#markSubscriptionsLost();
       reject(new ClientDisconnectedError());
     }, remainingMs);
 
     // When client reconnects, webSocketOpen clears pending waiters
     this.#pendingReconnectWaiters.push({ resolve, timeout });
   });
+}
+
+#markSubscriptionsLost() {
+  // Set marker alarm so client knows subscriptions were lost when it reconnects
+  const MARKER_OFFSET_MS = 100 * 365 * 24 * 60 * 60 * 1000;
+  this.ctx.storage.setAlarm(Date.now() + MARKER_OFFSET_MS);
 }
 
 async #forwardToClient(ws: WebSocket, envelope: CallEnvelope): Promise<any> {
