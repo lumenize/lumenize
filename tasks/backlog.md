@@ -4,6 +4,22 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
+- [ ] Refactor to use `using` keyword for Workers RPC stubs (Explicit Resource Management)
+  - Cloudflare added support in Feb 2025: https://developers.cloudflare.com/changelog/2025-02-28-wrangler-v4-rc/#the-using-keyword-from-explicit-resource-management
+  - **Why it matters**: Without `using`, stubs held in wall-clock billing mode
+  - **Pattern**: `using` is lexically scoped (NOT reference-counted like WeakMap). Disposal happens when the declaring scope exits, regardless of who holds references. Therefore, `using` must be at the **call site**, not inside helper functions that return stubs.
+  - **Changes needed**:
+    1. `packages/utils/src/get-do-stub.ts` — Add JSDoc explaining callers SHOULD use `using`:
+       ```typescript
+       /**
+        * Caller SHOULD use `using` for automatic disposal to enable DO hibernation:
+        * ```typescript
+        * using stub = getDOStub(namespace, id);
+        * ```
+        */
+       ```
+    2. `packages/utils/src/route-do-request.ts:320` — Change to `using stub = getDOStub(...)`
+    3. `packages/lumenize-base/src/lmz-api.ts:375` and `:578` — Change to `using stub = getDOStub(...)`
 - [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 - [ ] Related to above, find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
 
@@ -22,6 +38,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Document our identity propogation as better than init(). init() breaks the mold of just access don't create DOs.
 
 - [ ] Implment generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
+
+- [ ] Verify that two-one-way calls already preserve callContext automatically
+  - **Suspicion**: When Target receives a call, `this.lmz.callContext` is Origin's context. When Target calls back using `this.lmz.call()`, it should serialize the *current* callContext (which is Origin's) and send it. Origin's handler should then have the original callContext restored.
+  - If this works, it's a documentation clarification, not a feature
+  - If it doesn't work, consider: (a) fixing the framework to always forward current callContext, or (b) adding an explicit `{ echoCallContext: true }` option
+  - Key insight: callContext is already serialized for outbound calls. No storage needed. Works for any node type (Workers, DOs, etc.)
 
 - [ ] Add `{ twoOneWayCalls: true }` option to `this.lmz.call()` config parameter
   - Opt-in two one-way call mode for cost optimization on known slow operations

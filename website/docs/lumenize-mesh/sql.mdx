@@ -1,11 +1,11 @@
 ---
-title: "SQL Template Literal"
+title: "SQL Tagged Template Literal"
 description: Type-safe SQL queries with automatic parameter binding
 ---
 
-# SQL Template Literal
+# SQL Tagged Template Literal
 
-The `sql` template literal tag provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage. It gives you the readable `${value}` interpolation syntax of native template strings, but with automatic parameter binding that prevents SQL injection.
+The `sql` tagged template literal provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage. It gives you the readable `${value}` interpolation syntax of template literals, but with automatic parameter binding that prevents SQL injection.
 
 :::tip Built-in Service
 This small (~10 lines) utility is automatically available via `this.svc.sql` in any `LumenizeDO`. No additional imports needed.
@@ -44,9 +44,9 @@ class ProductDO extends LumenizeDO<Env> {
 }
 ```
 
-## Template Literal Parameters
+## Template Substitution Expressions
 
-Parameters are automatically bound and SQL-injection safe. The template literal tag:
+Template Substitution Expressions (e.g. `${id}`) are automatically bound and SQL-injection safe. The template literal tag:
 1. Safely binds all interpolated values as query parameters
 2. Prevents SQL injection attacks
 3. Handles strings, numbers, and other primitive types automatically
@@ -101,13 +101,14 @@ console.log(`Rows read: ${cursor.rowsRead}`);
 
 ## Implementation Details
 
-The implementation is a tiny (~10 lines of code) wrapper:
+This utility uses a [tagged template literal](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#tagged_templates)—a function that receives the template's string parts and interpolated values separately and can return whatever it wants:
+
 ```typescript @skip-check
-// Simplified implementation (actual code is in @lumenize/mesh)
-export function sql(doInstance: any) {
-  return (strings: TemplateStringsArray, ...values: any[]) => {
-    const query = strings.join('?');
-    return [...doInstance.ctx.storage.sql.exec(query, ...values)];
-  };
-}
+// this.svc.sql`SELECT * FROM users WHERE id = ${id}`
+// The tag function receives:
+//   strings: ['SELECT * FROM users WHERE id = ', '']
+//   values: [id]
+// And transforms them into:
+const query = strings.join('?');  // 'SELECT * FROM users WHERE id = ?'
+return [...this.ctx.storage.sql.exec(query, ...values)];
 ```

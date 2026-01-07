@@ -1,81 +1,70 @@
 ---
 title: Managing Context
-description: Understanding the Dual-Context Strategy in Lumenize - AsyncLocalStorage vs. Continuations
+description: Understanding the Dual-Context Strategy in Lumenize - Call Context vs. Continuations
 ---
 
 # Managing Context
 
-When working with asynchronous operations in Durable Objects, you often need to maintain **context**—information from the call site that needs to be available when the async operation completes.
+When making calls in to another place or time, you often need to maintain **context**: information from the call site that must be available for the callee to accomplish its work.
 
-Lumenize uses a **Dual-Context Strategy** to handle this problem:
-1. **Framework Context (`AsyncLocalStorage`)**: For infrastructure data like identity and auth.
+Lumenize uses a **Dual-Context Strategy** to handle this:
+1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including node type and auth as well as custom annotations added by middleware like the `onBeforeCall` auth hook to assist with later access control decisions like made in the `@mesh` handler.
 2. **Application Context (Continuations)**: For your specific business logic and data flow.
 
-## 1. Framework Context (`AsyncLocalStorage`)
+## 1. Call Context (`this.lmz.callContext`)
 
-Lumenize uses Node.js's `AsyncLocalStorage` under the hood to manage **Call Context**. This ensures that properties like `this.lmz.callContext` are always accurate for the current request, even across multiple asynchronous hops.
+Lumenize automatically propagates **Call Context** across any call chain. `this.lmz.callContext` is always accurate for the current request—even when calls chain through multiple mesh nodes, when local continuation handlers execute later, when using two-one-way call patterns, or when alarms fire.
 
-### Why we use it for Infrastructure
-*   **Magic-Free Consistency**: You don't have to manually pass auth tokens or caller IDs into every single function. They are "just there" when you need them.
-*   **Race-Safe**: Even when multiple requests to the same DO interleave at `await` points, `AsyncLocalStorage` ensures each request sees its own unique context.
-*   **Zero Boilerplate**: Framework-level data is propagated automatically by the mesh.
+### Why We Do This
+- **Zero Boilerplate**: You don't have to manually pass auth tokens, caller IDs, etc. into every single function. They are "just there" when you need them.
+- **Race-Safe**: Even when multiple requests to the same mesh node interleave, each request sees its own unique context.
 
 ```typescript
 // Any method, anywhere in your call chain
 @mesh
 doSomething() {
-  // Always correct for the current request, thanks to AsyncLocalStorage
+  // Always correct for the current request
   const user = this.lmz.callContext.originAuth?.userId;
 }
 ```
 
+:::note Implementation Detail
+Under the hood, `this.lmz.callContext` uses Node.js's confusingly named `AsyncLocalStorage` to maintain context across hops through space and time. There is no reason to use it directly in Lumenize Mesh. Just use `this.lmz.callContext`.
+:::
+
 ## 2. Application Context (Continuations)
 
-While `AsyncLocalStorage` is great for infrastructure, Lumenize strongly recommends using **Continuations** for your own application data.
-
-### The Problem with ALH for Applications
-If you try to use `AsyncLocalStorage` for your business logic (like passing a `requestId` or `startTime`), you run into several issues:
-1.  **Type Safety**: ALH stores are typically untyped (`any`).
-2.  **Explicitness**: It creates "magic global state" that is hard to trace during debugging.
-3.  **Consistency Risk**: ALH encourages using `async/await` in your handlers, which breaks Durable Object input/output gates and leads to race conditions.
-
-### The Better Way: Continuations
-Continuations capture context using standard JavaScript closures and pass them as explicit parameters to your handlers.
+While `this.lmz.callContext` is great, you should use extra parameters in your [continuations](./continuations) for your own application context. Alternatively, for DOs and Clients, you could store such context locally and merely pass the key for such data into the continuation.
 
 ```typescript
-// 1. Capture context at the call site
-const startTime = Date.now();
-
 this.lmz.call(
-  'TARGET_DO', 
-  id, 
-  this.ctn<TargetDO>().process(),
-  this.ctn().handleResult(startTime) // capture context
+  'VALIDATION_WORKER',
+  undefined,
+  this.ctn<ValidationWorker>().validate(data),
+  this.ctn().handleValidation(documentId, this.ctn().$result) // $result can go anywhere
 );
 
-// 2. Access context in the handler - fully typed and explicit
-handleResult(result: any | Error, startTime: number) {
-  console.log(`Operation took ${Date.now() - startTime}ms`);
+handleValidation(documentId: string, result: ValidationResult | Error) {
+  if (result instanceof Error) {
+    console.log(`Validation failed for ${documentId}:`, result.message);
+    return;
+  }
+  console.log(`Document ${documentId} is valid`);
 }
 ```
 
 ## Side-by-Side Comparison
 
-| Feature | AsyncLocalStorage (Infrastructure) | Continuations (Application) |
+|  | `this.lmz.callContext` | Continuations Parameters |
 | :--- | :--- | :--- |
-| **Best For** | Auth, Identity, Trace IDs | Business IDs, Timestamps, Retry counts |
-| **Type Safety** | ❌ Runtime access (`any`) | ✅ Compile-time typed |
-| **Explicitness** | ❌ Implicit/Global | ✅ Explicit/Parameters |
-| **Hibernation** | ⚠️ Lost if DO hibernates | ✅ **Survives** (if passed as parameters) |
-| **DO Consistency**| ⚠️ Risk if handlers use `await` | ✅ Safe (encourages sync handlers) |
+| **Use For** | Auth, Identity, Trace IDs | Entity IDs, Full Entity Values, Retry counts, etc.|
+| **Type Safety** | Typed by framework | Checks your types |
+| **Passivity** | Automatic | Explicit parameters |
+| **Hibernation/Eviction** | Rehydrated for each handler execution  | Automatically stored by alarms; manual storage needed for custom patterns |
 
-## Hibernation & Long-Running Operations
+## Context During Normal Calls
 
-Durable Objects can hibernate (evict from memory) at any time, especially during long-running asynchronous operations like the **"Two One-Way Call"** pattern used in `@lumenize/fetch`.
-
-### Context During Normal Calls
-
-For typical `this.lmz.call()` operations, `callContext` is available in your handler because both execute in the same async context:
+For typical `this.lmz.call()` operations, `callContext` is available in your handler because both execute within the same request:
 
 ```typescript
 this.lmz.call(
@@ -92,17 +81,17 @@ handleResult(result: any | Error) {
 }
 ```
 
-### Hibernation Risk
+## Eviction/Hibernation Risk
 
-If a DO hibernates while waiting for a response, the in-flight call is lost — your handler never executes. This affects `this.lmz.call()` with a handler continuation.
+If a node hibernates/evicts while `await`ing a response, the local handler might never execute.
 
-For hibernation-safe patterns:
-- Use **[Two One-Way Calls](./calls#cost-optimization-two-one-way-calls)** — the DO returns immediately, nothing to lose
-- Use **[@lumenize/alarms](/docs/alarms)** — persists continuations to storage with automatic context capture
+For restart-safe patterns:
+- Use **[Two One-Way Calls](./calls#cost-optimization-two-one-way-calls)** — both kinds of contexts are fully contained in the outgoing call. When the call back is made, it'll reawaken the instance. The `lmz.callContext` is automatically restored, and you can include whatever context you want in the callback.
+- Use **[@lumenize/alarms](/docs/alarms)** — persists alarm handler continuation including `lmz.callContext` and your continuation parameters to storage so they are available when the alarm triggers.
 
-### Manual Persistence (Power Users)
+## Manual Persistence (Power Users)
 
-If you're building your own hibernation-safe patterns outside the standard tools, explicitly serialize and store the continuation:
+If you're building your own restart-safe patterns outside the standard tools, you may want to explicitly serialize and store the continuation:
 
 ```typescript
 import { getOperationChain } from '@lumenize/mesh';
@@ -114,23 +103,8 @@ const chain = getOperationChain(this.ctn().myHandler(data));
 this.ctx.storage.kv.put('my-key', chain);
 ```
 
-For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone`.
+For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone` on the operation chain before saving. All structured-cloneable types (Dates, Maps, cycles, etc.) are stringified.
 
-**Key insight**: `getOperationChain()` captures `callContext` at the moment you call it. But that capture only survives hibernation if YOU store it somewhere. The framework doesn't do that automatically.
+## Conclusion
 
-## Why This Matters for Durable Objects
-
-Durable Objects are designed around **single-threaded consistency**. The choice of context management directly impacts this:
-
-### The "Await" Quirk
-Every time you `await` in a Durable Object, you yield execution. This opens the input "gate" and allows other requests to enter. If your handler is `async`, you risk data corruption if you don't carefully manage state transitions.
-
-### The "Continuation" Advantage
-Continuation handlers are **synchronous** by design. When a remote call completes, Lumenize executes your handler immediately. Because there is no `await` inside the handler, no other request can interleave, ensuring your mutations are atomic and safe.
-
-## Conclusion: The Golden Rule
-
-> **"Let Lumenize handle the Mesh context via `this.lmz`; handle your own application context via `.ctn().handler(context)`."**
-
-By following this strategy, you get the best of both worlds: the zero-boilerplate convenience of a mesh and the rock-solid reliability of type-safe, synchronous Durable Objects.
-
+> **"Let Lumenize handle call context via `this.lmz.callContext`; handle your own application context via `.ctn().handler(myData)`."**

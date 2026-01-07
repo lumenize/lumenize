@@ -102,13 +102,22 @@ import { ulidFactory } from 'ulid-workers';
 const ulid = ulidFactory({ monotonic: true });
 const id = ulid();
 ```
-**Never use `Date.now()` for IDs** - it doesn't advance during DO execution and causes collisions.
+**Never use `Date.now()` in Cloudflare contexts** - the clock doesn't advance during execution. Examples: IDs will collide, elapsed-time calculations are meaningless.
 
 ---
 
 ## Cloudflare Durable Objects
 
-> **See CLOUDFLARE_DO_GUIDE.md** for detailed explanations.
+### Wall-Clock Billing vs Hibernation (Important Distinction)
+
+**Wall-clock billing mode**: The DO is actively billed for elapsed time, even when not processing. Triggered by:
+- `await`ing remote calls, fetches, or any I/O
+- `setTimeout()` / `setInterval()`
+- Holding Workers RPC stubs (use `using` keyword to release promptly)
+
+**Hibernation**: DO eviction from memory after ~10 seconds of inactivity *outside* wall-clock billing mode. This is a *consequence* of avoiding wall-clock billing, not the primary concern.
+
+**Key insight**: Even busy DOs that never hibernate benefit from avoiding wall-clock billing—you're not billed for gaps between requests when not in wall-clock billing mode.
 
 ### Storage APIs
 - **ALWAYS use synchronous storage**: `ctx.storage.kv.*` or `ctx.storage.sql.*`
@@ -126,7 +135,9 @@ Only these lifecycle entrypoint methods should be `async`:
 - `this.ctx.waitUntil()`
 - Any `await` statements
 
-**Why**: `async` breaks Cloudflare's input/output gate mechanism → race conditions and data corruption
+**Why**:
+1. `async` breaks Cloudflare's input/output gate mechanism → race conditions and data corruption
+2. `await` keeps the DO in wall-clock billing mode (see above)
 
 ### Instance Lifecycle
 
@@ -293,7 +304,6 @@ All scripts are in `/scripts/`:
 
 ## Reference Files
 
-- `CLOUDFLARE_DO_GUIDE.md` - Detailed Durable Objects concepts
 - `DOCUMENTATION-WORKFLOW.md` - Full documentation process
 - `tasks/README.md` - Task management template and usage
 - `.dev.vars.example` - Template for environment variables
