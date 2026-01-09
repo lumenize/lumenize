@@ -268,11 +268,11 @@ Override to enforce class-wide policies:
 
 ```typescript @skip-check
 class ProtectedDO extends LumenizeDO<Env> {
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
+  onBeforeCall() {
+    super.onBeforeCall();
 
     // Require authentication
-    if (!callContext.originAuth?.userId) {
+    if (!this.lmz.callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
   }
@@ -282,8 +282,8 @@ class ProtectedDO extends LumenizeDO<Env> {
 ### Method-Level: `@mesh` Guard
 
 ```typescript @skip-check
-@mesh((callContext) => {
-  if (!callContext.originAuth?.claims?.isAdmin) {
+@mesh((instance: MyDO) => {
+  if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
     throw new Error('Admin only');
   }
 })
@@ -294,11 +294,12 @@ adminMethod() {
 
 ### Guards with Instance Access
 
-Guards that need instance state receive the instance as a second parameter. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
+Guards receive the instance, providing access to both instance state and call context. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
 
 ```typescript @skip-check
-@mesh((callContext, instance: DocumentDO) => {
-  if (!instance.allowedEditors.has(callContext.originAuth?.userId)) {
+@mesh((instance: DocumentDO) => {
+  const userId = instance.lmz.callContext.originAuth?.userId;
+  if (!instance.allowedEditors.has(userId)) {
     throw new Error('Not an allowed editor');
   }
 })
@@ -311,8 +312,8 @@ updateDocument(changes: DocumentChange) {
 
 ```typescript @skip-check
 function requireRole(role: string) {
-  return (callContext: CallContext) => {
-    const roles = callContext.originAuth?.claims?.roles ?? [];
+  return (instance: { lmz: LmzApi }) => {
+    const roles = instance.lmz.callContext.originAuth?.claims?.roles ?? [];
     if (!roles.includes(role)) {
       throw new Error(`Role ${role} required`);
     }
@@ -338,10 +339,11 @@ Use it to attach computed data (like user records or permissions) so method guar
 
 ```typescript @skip-check
 // In onBeforeCall — runs once per incoming call
-onBeforeCall(callContext: CallContext) {
-  super.onBeforeCall(callContext);
+onBeforeCall() {
+  super.onBeforeCall();
+  const callContext = this.lmz.callContext;
   if (!callContext.originAuth?.userId) throw new Error('Auth required');
-  
+
   // Populate state for use by method guards
   const user = this.loadUser(callContext.originAuth.userId);
   callContext.state.user = user;
@@ -349,8 +351,8 @@ onBeforeCall(callContext: CallContext) {
 }
 
 // In method guard
-@mesh((callContext) => {
-  if (!callContext.state.permissions.canEdit) {
+@mesh((instance: MyDO) => {
+  if (!instance.lmz.callContext.state.permissions.canEdit) {
     throw new Error('Edit permission required');
   }
 })

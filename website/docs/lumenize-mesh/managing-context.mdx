@@ -8,15 +8,15 @@ description: Understanding the Dual-Context Strategy in Lumenize - Call Context 
 When making calls in to another place or time, you often need to maintain **context**: information from the call site that must be available for the callee to accomplish its work.
 
 Lumenize uses a **Dual-Context Strategy** to handle this:
-1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including node type and auth as well as custom annotations added by middleware like the `onBeforeCall` auth hook to assist with later access control decisions like made in the `@mesh` handler.
+1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations added by middleware, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh` handler.
 2. **Application Context (Continuations)**: For your specific business logic and data flow.
 
 ## 1. Call Context (`this.lmz.callContext`)
 
-Lumenize automatically propagates **Call Context** across any call chain. `this.lmz.callContext` is always accurate for the current request—even when calls chain through multiple mesh nodes, when local continuation handlers execute later, when using two-one-way call patterns, or when alarms fire.
+Lumenize automatically propagates **Call Context** across any call chain (e.g., Client → DO → Worker → DO). `this.lmz.callContext` is always accurate for the current request—even when calls chain through multiple mesh nodes, when local continuation handlers execute later, when using two-one-way call patterns, or when alarms fire.
 
 ### Why We Do This
-- **Zero Boilerplate**: You don't have to manually pass auth tokens, caller IDs, etc. into every single function. They are "just there" when you need them.
+- **Zero Boilerplate**: You don't have to manually pass identity, calling node type, etc. into every single function. They are "just there" when you need them.
 - **Race-Safe**: Even when multiple requests to the same mesh node interleave, each request sees its own unique context.
 
 ```typescript
@@ -32,9 +32,15 @@ doSomething() {
 Under the hood, `this.lmz.callContext` uses Node.js's confusingly named `AsyncLocalStorage` to maintain context across hops through space and time. There is no reason to use it directly in Lumenize Mesh. Just use `this.lmz.callContext`.
 :::
 
+### Where Identity Enters the Mesh
+
+User identity (`callContext.originAuth`) enters the mesh **only** through [LumenizeClient](./lumenize-client) via [LumenizeGateway](./gateway). The Gateway verifies the JWT and populates `originAuth` with the verified claims — the actual token is never propagated. Both `origin` and `originAuth` are immutable throughout the chain; intermediate nodes cannot modify them.
+
+For the complete `CallContext` interface — including which fields are immutable, per-hop, or mutable — see [Mesh API: CallContext](./mesh-api#interface-callcontext).
+
 ## 2. Application Context (Continuations)
 
-While `this.lmz.callContext` is great, you should use extra parameters in your [continuations](./continuations) for your own application context. Alternatively, for DOs and Clients, you could store such context locally and merely pass the key for such data into the continuation.
+While `this.lmz.callContext` is great for mesh-oriented context, you should use extra parameters in your [continuations](./continuations) for your own application context. Alternatively, for DOs and other nodes with storage capability, you could store such context locally and merely pass the key for such data into the continuation.
 
 ```typescript
 this.lmz.call(
@@ -53,37 +59,9 @@ handleValidation(documentId: string, result: ValidationResult | Error) {
 }
 ```
 
-## Side-by-Side Comparison
-
-|  | `this.lmz.callContext` | Continuations Parameters |
-| :--- | :--- | :--- |
-| **Use For** | Auth, Identity, Trace IDs | Entity IDs, Full Entity Values, Retry counts, etc.|
-| **Type Safety** | Typed by framework | Checks your types |
-| **Passivity** | Automatic | Explicit parameters |
-| **Hibernation/Eviction** | Rehydrated for each handler execution  | Automatically stored by alarms; manual storage needed for custom patterns |
-
-## Context During Normal Calls
-
-For typical `this.lmz.call()` operations, `callContext` is available in your handler because both execute within the same request:
-
-```typescript
-this.lmz.call(
-  'VALIDATION_WORKER',
-  undefined,
-  this.ctn<ValidationWorker>().validate(data),
-  this.ctn().handleResult(this.ctn().$result)
-);
-
-// callContext is available here
-handleResult(result: any | Error) {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  console.log(`Result for ${userId}:`, result);
-}
-```
-
 ## Eviction/Hibernation Risk
 
-If a node hibernates/evicts while `await`ing a response, the local handler might never execute.
+Context is maintained in most cases, but if a node hibernates/evicts while `await`ing a response, the local handler might never execute.
 
 For restart-safe patterns:
 - Use **[Two One-Way Calls](./calls#cost-optimization-two-one-way-calls)** — both kinds of contexts are fully contained in the outgoing call. When the call back is made, it'll reawaken the instance. The `lmz.callContext` is automatically restored, and you can include whatever context you want in the callback.

@@ -170,8 +170,9 @@ For collaborative features (cursors, voice/video signaling, etc.), override `onB
 
 ```typescript @skip-check
 class CollaborativeClient extends LumenizeClient {
-  onBeforeCall(callContext: CallContext) {
+  onBeforeCall() {
     // Note: NOT calling super.onBeforeCall() — we WANT to allow peers
+    const callContext = this.lmz.callContext;
     if (callContext.origin.type === 'LumenizeClient') {
       // Allow peers, but require authentication
       if (!callContext.originAuth?.userId) {
@@ -179,7 +180,7 @@ class CollaborativeClient extends LumenizeClient {
       }
     }
   }
-  
+
   @mesh
   handlePeerCursor(userId: string, position: Position) {
     this.cursors.set(userId, position);
@@ -189,7 +190,7 @@ class CollaborativeClient extends LumenizeClient {
 
 ### Method-Level Guards
 
-Add guards to individual methods using the `@mesh` decorator with a guard function. Guards can access instance state via a second parameter.
+Add guards to individual methods using the `@mesh` decorator with a guard function. Guards receive the instance, providing access to both instance state and call context.
 
 See [Security](./security#access-control) for guard patterns including [instance access](./security#guards-with-instance-access) and reusable guards.
 
@@ -300,7 +301,7 @@ constructor(config: LumenizeClientConfig)
 - `[Symbol.dispose]()` — Auto-cleanup (enables `using` keyword)
 
 **Overridable Methods:**
-- `onBeforeCall(callContext: CallContext)` — Class-wide access control
+- `onBeforeCall()` — Class-wide access control (access context via `this.lmz.callContext`)
 
 See [Mesh API](./mesh-api#api-reference) for shared types (`@mesh`, `CallContext`, `LmzApi`).
 

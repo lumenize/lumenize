@@ -110,21 +110,21 @@ class AdminCapabilities {
 
 class DocumentDO extends LumenizeDO {
   // Class-wide: require authentication for all calls
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);
-    if (!callContext.originAuth?.userId) {
+  onBeforeCall() {
+    super.onBeforeCall();
+    if (!this.lmz.callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
   }
-  
+
   // Entry Point: exposed to mesh
   @mesh
   getContent() { /* ... */ }
 
   // Capability Trust: returned object's public interface is trusted for that call chain
   // Example: `this.ctn().admin().forceReset()`
-  @mesh((callContext) => {
-    if (!callContext.state.user.isAdmin) {
+  @mesh((instance: DocumentDO) => {
+    if (!instance.lmz.callContext.state.user.isAdmin) {
       throw new Error('Admin permission required');
     }
   })

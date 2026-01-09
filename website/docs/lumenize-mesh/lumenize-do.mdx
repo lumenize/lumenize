@@ -220,7 +220,7 @@ constructor(ctx: DurableObjectState, env: EnvType)
 
 **Overridable Methods:**
 - `onStart()` — Async initialization hook (runs once, wrapped in `blockConcurrencyWhile`)
-- `onBeforeCall(callContext: CallContext)` — Hook for class-wide access control
+- `onBeforeCall()` — Hook for class-wide access control (access context via `this.lmz.callContext`)
 
 **Inherited Methods:**
 - `ctn<T>()` — Create typed continuation builder

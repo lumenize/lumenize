@@ -36,15 +36,15 @@ npm install @lumenize/mesh @lumenize/auth @lumenize/utils
 
 ```typescript @skip-check
 // src/document-do.ts
-import { LumenizeDO, mesh, type CallContext } from '@lumenize/mesh';
+import { LumenizeDO, mesh } from '@lumenize/mesh';
 import type { SpellCheckWorker, SpellFinding } from './spellcheck-worker';
 import type { EditorClient } from './editor-client';
 
 export class DocumentDO extends LumenizeDO<Env> {
   // Require authentication for all mesh calls
-  onBeforeCall(callContext: CallContext) {
-    super.onBeforeCall(callContext);  // For now, this is a no-op
-    if (!callContext.originAuth?.userId) {
+  onBeforeCall() {
+    super.onBeforeCall();  // For now, this is a no-op
+    if (!this.lmz.callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
   }

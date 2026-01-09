@@ -265,7 +265,7 @@ constructor(env: EnvType)
 - `lmz: LmzApi` — Mesh communication API
 
 **Overridable Methods:**
-- `onBeforeCall(callContext: CallContext)` — Hook for class-wide access control
+- `onBeforeCall()` — Hook for class-wide access control (access context via `this.lmz.callContext`)
 
 **Inherited Methods:**
 - `ctn<T>()` — Create typed continuation builder
