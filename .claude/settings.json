@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm install:*)",
+      "WebFetch(domain:vite.dev)",
+      "WebFetch(domain:tailwindcss.com)",
+      "WebFetch(domain:daisyui.com)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:jurisjs.com)"
+    ]
+  }
+}

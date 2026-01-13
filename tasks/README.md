@@ -2,59 +2,73 @@
 
 ## Structure
 
-- **`backlog.md`** - Small tasks and ideas for when you have time
+- **`backlog.md`** - Small tasks and ideas
 - **`[project-name].md`** - Active multi-phase projects
-- **`decisions/`** - Research findings and technical decisions
 - **`archive/`** - Completed projects (for reference)
 
-## Usage
+## Templates
 
-### Starting a New Project
+### Docs-First Task File
 
-Create a new task file:
-```bash
-# tasks/new-feature.md
-```
+For user-facing API changes. MDX documentation dominates; task file holds implementation details.
 
-Use this template:
 ```markdown
 # [Project Name]
 
-**Status**: Active | Blocked | Complete
-**Started**: YYYY-MM-DD
+**Status**: Design Complete | In Progress | Complete
+**Design Document**: `/website/docs/[package]/[feature].mdx`
 
 ## Goal
-[One sentence description]
+[One sentence - what capability are we adding?]
 
-## Phases
+## Design Principles (See MDX for Details)
+1. [Key principle 1]
+2. [Key principle 2]
+
+## Prerequisites
+- [ ] Design documented in MDX
+- [ ] API finalized with maintainer
+
+## Implementation Phases
 
 ### Phase 1: [Name]
-- [ ] Step 1
-- [ ] Step 2
+**Goal**: [What this achieves]
 
-**Notes**: 
-- Decision: [Why we chose X over Y]
+**Success Criteria**:
+- [ ] [Criterion 1]
+- [ ] [Criterion 2]
+
+### Phase 2: [Name]
+...
 ```
 
-### Completing a Project
+### Implementation-First Task File
+
+For internal work (refactoring, bug fixes, tooling).
+
+```markdown
+# [Project Name]
+
+## Objective
+[Brief description]
+
+## Phase 1: [Name]
+**Goal**: [What this achieves]
+
+**Success Criteria**:
+- [What indicates completion]
+
+## Phase 2: [Name]
+...
+
+## Notes
+- Design decisions
+- Trade-offs
+```
+
+## Completing a Project
 
 Move to archive:
 ```bash
 mv tasks/completed-feature.md tasks/archive/
 ```
-
-### Recording Decisions
-
-Document research or technical decisions in `decisions/`:
-```bash
-# tasks/decisions/technology-choice.md
-```
-
-## AI Integration
-
-AI coding assistants (via `.cursorrules`) are configured to:
-- Look for task files when starting work
-- Update checkboxes as work progresses
-- Ask "Ready to proceed?" between phases
-- Add notes about decisions made
-

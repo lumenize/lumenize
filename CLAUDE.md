@@ -1,65 +1,36 @@
 # Lumenize Project Context
 
-## Overview
-
-Lumenize is a collection of liberally licensed (MIT) and more restrictively licensed (BSI-1.1) open-source packages targeting Cloudflare's Durable Objects, which are part of Cloudflare's Workers edge computing platform. There are two complementary but distinct goals:
-1. Provide a de✨light✨ful suite of packages that any developer can use to build scalable, high-quality, and maintainable products (MIT licensed).
-2. Build the ultimate framework for vibe coding enterprise or B2B SaaS software products in a rapid and secure manner. It will be BSI-1.1 licensed, available to enterprises via commercial licenses, and offered as a platform as a service (PaaS) with generous free tier.
-
-## Guiding Principles
-
-- **Quality**:
-  - Code quality achieved via high test coverage: Branch >80%, Statement >90%
-  - Documentation quality achieved via custom Docusaurus tooling that ensures examples always work (see Documentation section)
-- **Opinionated where it matters. Flexible where it counts**: For example, the LumenizeBase class is minimal but opinionated about best practices while also providing a flexible plugin system to extend functionality along with batteries-included plugins for common use cases.
-- **No foot-guns**: Vibe coders are experts in their field, but not necessarily coding or operations. Lumenize makes it easy for both the product creator AND the LLM they are using to follow best practices.
-- **Security**: Authentication and access control are built-in and on by default. You have to jump through hoops to avoid them.
+Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain experts but not necessarily experienced developers—prioritize clear patterns and guard against footguns. Security is on by default. Test coverage targets: Branch >80%, Statement >90%.
 
 ---
 
-## Critical Rules (Never Do This)
+## Critical Rules
 
-### Always
-- Use **npm** only (never pnpm or yarn)
-- Use **`#` prefix** for private class members (not TypeScript `private`)
-- Use **synchronous storage** (`ctx.storage.kv.*` or `ctx.storage.sql.*`)
-- Use **`wrangler types`** to auto-generate `worker-configuration.d.ts`
-- Use **`compatibility_date: "2025-09-12"`** or later
-- Use **root `.dev.vars`** (gitignored, auto-symlinked via postinstall)
-- Put docs in **`/website/docs/`** `.mdx` files only
+- **npm only** - never use pnpm or yarn
+- **`#` prefix for private members** - never use TypeScript `private` keyword
+- **Synchronous storage only** - use `ctx.storage.kv.*` or `ctx.storage.sql.*`, never legacy async API (`ctx.storage.put/get`)
+- **Auto-generate Env interface** - run `wrangler types`, never manually define it
+- **`compatibility_date: "2025-09-12"`** or later in wrangler.jsonc
+- **Secrets in root `.dev.vars`** - gitignored, auto-symlinked via postinstall; never commit secrets or put them in source code
+- **Docs in `/website/docs/`** - only `.mdx` files, never create temp docs elsewhere
 
-### Never
-- **NEVER use pnpm or yarn** - only npm
-- **NEVER use TypeScript `private`** - use `#` prefix instead
-- **NEVER use async storage** - only `ctx.storage.kv.*` or `ctx.storage.sql.*` (not `ctx.storage.put/get`)
-- **NEVER manually define Env interface** - `wrangler types` auto-generates it
-- **NEVER use wrangler compatibility_date before "2025-09-12"**
-- **NEVER commit secrets** - use root `.dev.vars` (gitignored)
-- **NEVER create temp docs** - only `/website/docs/` `.mdx` files
-- **NEVER put secrets, tokens, API keys, or credentials directly in source code files**
+---
+
+## Claude Code Configuration
+
+- **`.claude/settings.json`** - Pre-approved permissions for common operations (committed to git)
+- **`.claude/settings.local.json`** - Personal overrides (gitignored, takes precedence)
 
 ---
 
 ## Development Workflow
 
-We use task files in the `tasks/` directory to track work:
-- **`tasks/backlog.md`** - Small tasks and ideas for casual coding time
-- **`tasks/[project-name].md`** - Active multi-phase projects with detailed plans
-- **`tasks/decisions/`** - Research findings and technical decisions
-- **`tasks/archive/`** - Completed projects for reference
+Task files live in `tasks/`. Use `/task-management` to choose docs-first or implementation-first workflow.
 
-### General Development Rules
-- When we change our minds on the plan from learning of earlier steps, propose updates to the task file.
-- Provide clear summaries of what was implemented after each step.
-- Explain design decisions and trade-offs.
-- After each step/phase, ask for code review before proceeding. Ask "Ready to proceed with [next step/phase]?" after completing each step or phase.
-- API changes: Mark one test as `.only` to verify the new pattern works, then update remaining tests.
-
-### Workflow Selection
-
-**Ask: "Will this change how a developer uses this package?"**
-- If YES → Use **docs-first workflow** (design API in MDX first)
-- If NO → Use **implementation-first workflow**
+### Related Commands
+- `/task-management` - Docs-first vs implementation-first workflows
+- `/api-refactor` - Incremental API changes with `.only` pattern
+- `/release-workflow` - Publish packages to npm
 
 ---
 
@@ -75,95 +46,40 @@ We use task files in the `tasks/` directory to track work:
 
 ## Coding Style
 
-### Private Members
-```typescript
-// Always use JavaScript private fields
-class MyClass {
-  #privateField = 'secret';
-  #privateMethod() { return this.#privateField; }
-}
-```
-
-### Type System: Rule of Wire Separation
-- Use **TypeScript types** for transient in-memory constructs
-- Use **TypeBox schemas** for any structure that crosses process, network, or persistence boundaries
-
-### Imports
-- If the item is exported from the package's `index.ts`, use `import { something } from '@lumenize/some-package'`
-- Only use relative imports (`./some-file.ts`) for items NOT exported from `index.ts` within the same package
-
-### ID Generation
-```typescript
-// For unique IDs in Workers/DOs
-const id = crypto.randomUUID();
-
-// For ordered IDs (sorting by creation time)
-import { ulidFactory } from 'ulid-workers';
-const ulid = ulidFactory({ monotonic: true });
-const id = ulid();
-```
-**Never use `Date.now()` in Cloudflare contexts** - the clock doesn't advance during execution. Examples: IDs will collide, elapsed-time calculations are meaningless.
+- **Type system**: TypeScript types for in-memory; TypeBox schemas for wire/persistence boundaries
+- **Imports**: Use `'@lumenize/some-package'` for exported items; relative imports only for non-exported items within same package
+- **IDs**: Use `crypto.randomUUID()` for unique IDs, `ulid-workers` for ordered IDs. Never use `Date.now()` in Cloudflare (clock doesn't advance during execution)
+- **JSDoc examples**: 1-2 lines max; for longer examples, link to `/website/docs/...`
 
 ---
 
 ## Cloudflare Durable Objects
 
-### Wall-Clock Billing vs Hibernation (Important Distinction)
+### Wall-Clock Billing
+DO is billed for elapsed time when: `await`ing I/O, using `setTimeout`/`setInterval`, or holding RPC stubs (use `using` keyword). Avoid these to minimize costs.
 
-**Wall-clock billing mode**: The DO is actively billed for elapsed time, even when not processing. Triggered by:
-- `await`ing remote calls, fetches, or any I/O
-- `setTimeout()` / `setInterval()`
-- Holding Workers RPC stubs (use `using` keyword to release promptly)
+### Storage
+Always use synchronous storage (`ctx.storage.kv.*` or `ctx.storage.sql.*`), never legacy async API.
 
-**Hibernation**: DO eviction from memory after ~10 seconds of inactivity *outside* wall-clock billing mode. This is a *consequence* of avoiding wall-clock billing, not the primary concern.
+### Keep Methods Synchronous
+Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async`. Never use `setTimeout`, `setInterval`, `waitUntil`, or `await` in business logic—breaks input/output gates and triggers wall-clock billing.
 
-**Key insight**: Even busy DOs that never hibernate benefit from avoiding wall-clock billing—you're not billed for gaps between requests when not in wall-clock billing mode.
+### Instance Variables
+**Never use instance variables for mutable state**—DOs can be evicted anytime. Always use `ctx.storage.kv` or `ctx.storage.sql`.
 
-### Storage APIs
-- **ALWAYS use synchronous storage**: `ctx.storage.kv.*` or `ctx.storage.sql.*`
-- **NEVER use legacy async API**: `ctx.storage.put()`, `ctx.storage.get()`, etc.
+Safe uses: statically initialized utilities, ephemeral caches (storage is source of truth), config set once in constructor.
 
-### Keep DO Methods Synchronous
-
-Only these lifecycle entrypoint methods should be `async`:
-- `fetch()` - HTTP request handler
-- `webSocketMessage()`, `webSocketClose()`, `webSocketError()` - WebSocket handlers
-- `alarm()` - Scheduled tasks
-
-**Never use in DO business logic handlers**:
-- `setTimeout()` / `setInterval()`
-- `this.ctx.waitUntil()`
-- Any `await` statements
-
-**Why**:
-1. `async` breaks Cloudflare's input/output gate mechanism → race conditions and data corruption
-2. `await` keeps the DO in wall-clock billing mode (see above)
-
-### Instance Lifecycle
-
-DOs can be evicted from memory at any time:
-- **Fetch from storage** at start of each request/message handler
-- **Persist changes** before returning from handler
-- **Don't rely on in-memory state** persisting between requests
-
-### Instance Variable Rule (CRITICAL)
-
-**Never use instance variables for mutable application state** — always store that in `ctx.storage`.
-
-Instance variables are only safe for:
-- **Statically initialized utilities**: `#log = debug(this)('MyDO')` ✅
-- **Ephemeral caches** where storage is the source of truth ✅
-- **Configuration set once** in constructor/onStart ✅
-
-**Wrong** (state won't survive eviction):
 ```typescript
-#subscribers = new Set<string>();  // ❌ Mutable state as instance variable
-```
+// Wrong: state won't survive eviction
+#subscribers = new Set<string>();
+subscribe(id: string) { this.#subscribers.add(id); }
 
-**Right** (state in storage):
-```typescript
-#getSubscribers() { return this.ctx.storage.kv.get('subscribers') ?? new Set(); }
-#saveSubscribers(s: Set<string>) { this.ctx.storage.kv.put('subscribers', s); }
+// Right: state in storage
+subscribe(id: string) {
+  const subs = this.ctx.storage.kv.get('subscribers') ?? new Set();
+  subs.add(id);
+  this.ctx.storage.kv.put('subscribers', subs);
+}
 ```
 
 ---
@@ -207,18 +123,13 @@ Instance variables are only safe for:
 - Pattern A (simple): `wrangler.jsonc` in package root, single vitest project
 - Pattern B (multi-environment): `test/{environment}/wrangler.jsonc` for separate Node.js/Workers environments
 
-### API Refactoring Pattern
-1. Mark **one test** as `.only` to verify the new pattern
-2. Once working, update remaining tests
-3. Remove `.only` before committing
-
-### Prefer `vi.waitFor` Over `setTimeout`
+### Use `vi.waitFor`, Never `setTimeout`
 ```typescript
 // Good: Retries until condition met
 await vi.waitFor(async () => {
   const status = await client.taskStatus;
   expect(status).toBe('complete');
-}, { timeout: 1000 });
+});
 ```
 
 ---
@@ -235,38 +146,42 @@ Documentation quality is ensured by custom Docusaurus tooling that guarantees al
 - **Website docs**: `/website/docs/[package-name]/*.mdx` - All user-facing documentation
 - **Package README.md**: Minimal - name, tagline, link to website, key features, installation
 
-### Documentation Tooling
-1. **`doc-testing`** - Literate programming plugin (code with markdown comments)
-2. **`check-examples`** - Validates code blocks against passing tests
-
 ### Code Example Validation
-```typescript
-// In .mdx file:
+
+In `.mdx` files, use the `@check-example` annotation to link code blocks to tests:
+
+````markdown
 ```typescript @check-example('packages/rpc/test/for-docs/basic-usage.test.ts')
 const result = await client.echo('Hello');
 expect(result).toBe('DO echoed: Hello');
 ```
+````
 
 - Use `// ...` or `/* ... */` to skip boilerplate
 - **Never use `@skip-check`** for executable code examples (only for bash commands, etc.)
 
-### 5-Phase Documentation Workflow
-1. **Phase 1**: Narrative & Pedagogy First (draft with `@skip-check`)
-2. **Phase 2**: Make Examples Real (create `test/for-docs/` tests)
-3. **Phase 3**: Fast Validation Loop (`npm run check-examples`)
-4. **Phase 4**: API Documentation (TypeDoc)
-5. **Phase 5**: Full Build & Polish (`npm run build`)
+### Documentation Workflow
+1. **Narrative First**: Draft in `.mdx` with `@skip-check`
+2. **Make Examples Real**: Create `test/for-docs/` tests
+3. **Validate**: Run `npm run check-examples`
+4. **Build**: Run `npm run build` from `/website`
 
-See `/documentation-workflow` command for details.
+---
+
+## MCP Servers
+
+The project uses MCP (Model Context Protocol) servers to extend Claude's capabilities:
+- **Cloudflare MCP** - Direct access to Cloudflare APIs for D1, KV, R2, Workers, and documentation search
 
 ---
 
 ## NPM Package Management
 
+### Minimize External Dependencies
+- Favor copy-paste with attribution over adding a dependency for <1000 SLOC.
+
 ### Before Installing
 - Ask permission before installing any npm packages
-- Check if functionality can be implemented in <100 SLOC
-- Use only well-known, well-maintained packages
 - Verify permissive licenses (MIT, Apache-2.0, BSD-3-Clause, ISC)
 
 ### Package Selection
@@ -283,27 +198,16 @@ When copying liberally-licensed code (<1000 SLOC):
 
 ## Publishing and Releases
 
-### Development vs. Production Builds
-- **Development**: No build step - source runs directly via vitest's transpilation
-- **Publish**: Scripts modify `package.json` to point to `dist/`, then revert after publish
+All packages publish together with synchronized versions. Use `/release-workflow` for the process.
 
-### Release Process
-All scripts are in `/scripts/`:
-- `release-dry-run.sh` - Always run first
-- `release.sh` - Actual publish
-- `build-packages.sh` - TypeScript compilation
-- `prepare-for-publish.sh` - Modify package.json for publish
-- `restore-dev-mode.sh` - Revert to dev mode
-
-### Synchronized Versioning
-- All packages published together with the same version number
-- Prevents version drift and dependency mismatches
-- Favor breaking changes over technical debt (increment major semver)
+- **Development**: No build step. .ts source runs directly
+- **Publish**: Scripts modify `package.json` to point to `dist/`, then revert
+- **Breaking changes**: Favor over technical debt; increment major semver
 
 ---
 
 ## Reference Files
 
-- `DOCUMENTATION-WORKFLOW.md` - Full documentation process
-- `tasks/README.md` - Task management template and usage
+- `.claude/settings.json` - Claude Code permissions configuration
 - `.dev.vars.example` - Template for environment variables
+- `tasks/README.md` - Task management templates
