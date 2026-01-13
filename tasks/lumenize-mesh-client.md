@@ -59,8 +59,8 @@ Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forward
    - **Important Nuance**: In **nesting** (e.g., `multiply(add(1, 2), 10)`), every method called on `this` (`multiply` and `add`) must have an `@mesh` decorator. In **chaining** (e.g., `getPanel().reset()`), only the first method (`getPanel`) needs `@mesh`.
    - **True Privacy**: Use `#private` for actual security. Convention-based `_` or `__` methods are public in JavaScript and will be accessible if an object is returned.
 
-2. **Class-level `onBeforeCall(callContext)` hook**
-   - Override in your class for class-wide policies.
+2. **Class-level `onBeforeCall()` hook**
+   - Override in your class for class-wide policies (access context via `this.lmz.callContext`).
    - WHO can call: authentication, audit logging, rate limiting.
    - LumenizeClient default: reject peer calls from other LumenizeClients.
 
@@ -79,25 +79,16 @@ Class onBeforeCall → Entry Point Check (@mesh) → Execute Chain (Trusted Retu
 - `executeOperationChain()` checks for this marker before execution.
 - Blocked names stored in `Set` for O(1) lookup.
 - Decorator metadata stored via `Reflect.defineMetadata()`.
-- **Guard signature**: `@mesh((callContext, instance?) => void)`. The decorator always passes the instance as the second parameter. Simple guards can ignore it; guards needing instance state use it. This avoids the arrow-function-`this`-binding footgun.
+- **Guard signature**: `@mesh((instance) => void)`. Guards receive the instance, providing access to both `instance.lmz.callContext` and instance state. This avoids the arrow-function-`this`-binding footgun.
 
-**MeshAccessError**:
-Thrown when a method lacks the `@mesh` decorator. This is a framework-level check for misconfigured entry points.
+**No `MeshAccessError` (Decision 2025-01-12)**:
+Calling a method that lacks the `@mesh` decorator behaves the same as calling a method that doesn't exist — a generic "method not found" error.
 
-```typescript
-class MeshAccessError extends Error {
-  method: string;           // e.g., 'transform'
-  node: {                   // The node that rejected the call
-    type: string;
-    bindingName: string;
-    instanceNameOrId?: string;
-  };
-}
-```
+**Rationale**: Distinguishing "exists but not exposed" from "doesn't exist" only helps attackers probe the API. During development, you'll see the error and realize you forgot `@mesh`. No need to reveal which methods exist but aren't exposed.
 
-Example: `MeshAccessError: Method 'transform' is not exposed via @mesh decorator on DOCUMENT_DO/draft-1`
-
-**Note**: Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves domain-specific error types (e.g., `PermissionDeniedError`, `QuotaExceededError`) so callers can handle them appropriately.
+**Error Handling**:
+- **Method not found** (generic) — covers both "doesn't exist" and "exists but no `@mesh`"
+- **Guards/onBeforeCall** — errors thrown pass through unchanged, preserving domain-specific types (e.g., `PermissionDeniedError`, `QuotaExceededError`)
 
 ### Debug: Standalone Package, Not NADIS
 
@@ -163,6 +154,10 @@ log.info('Something happened', { data });
   - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
   - For mesh nodes, just import the base class — `this.svc.*` handles the rest (no separate `@lumenize/core` import needed)
   - Also export `sql` directly from `@lumenize/mesh` for standalone/vanilla usage
+- [ ] Merge `@lumenize/auth` into `@lumenize/mesh`
+  - Authentication is inherently tied to the mesh (Gateway is the trust boundary that validates JWTs and populates `originAuth`)
+  - packages/rpc is being deprecated as standalone (only serves as base for packages/testing), so auth loses its other consumer
+  - Simpler mental model — one package for mesh communication including authentication
 - [ ] Publish `@lumenize/debug` as a standalone cross-platform package (see Debug decision below)
 
 ### Phase 1: Design Documentation (Docs-First)
@@ -303,7 +298,7 @@ log.info('Something happened', { data });
 | OCAN/Continuations | `mesh/src/ocan/` | Direct import |
 | CallEnvelope format | `mesh/src/lmz-api.ts` | Shared types |
 | WebSocket transport | `rpc/src/websocket-rpc-transport.ts` | **Fork** (~200 lines) |
-| Auth middleware | `auth/src/middleware.ts` | Use directly |
+| Auth middleware | `mesh/src/auth/` | Direct import (merged from packages/auth) |
 
 ### WebSocket Transport: Fork from RPC
 
@@ -642,5 +637,5 @@ class LumenizeClient {
 ## References
 
 - Design docs: `/website/docs/lumenize-mesh/`
-- `packages/rpc/src/websocket-rpc-transport.ts` - Transport patterns  
-- `packages/auth/src/middleware.ts` - Auth middleware
+- `packages/rpc/src/websocket-rpc-transport.ts` - Transport patterns
+- `packages/mesh/src/auth/` - Auth middleware (after merge from packages/auth)

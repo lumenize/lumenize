@@ -129,6 +129,7 @@ The `chain` and `result` fields use [@lumenize/structured-clone](/docs/structure
 | `incoming_call` | Gateway→Client | Mesh node calling the client |
 | `incoming_call_response` | Client→Gateway | Client's response to an incoming call |
 | `connection_status` | Gateway→Client | Post-handshake status (sent immediately after connection) |
+| `token-update` | Client→Gateway | Refresh access token without reconnecting |
 
 ### Message Formats
 
@@ -181,3 +182,13 @@ The `chain` and `result` fields use [@lumenize/structured-clone](/docs/structure
 ```
 
 When `subscriptionsLost` is `true`, the client's `onSubscriptionsLost` callback fires after the connection is established, prompting resubscription to any active data streams.
+
+**`token-update`** — Client sending a refreshed access token:
+```json @skip-check
+{
+  "type": "token-update",
+  "accessToken": "eyJhbGciOiJFZERTQSIs..."
+}
+```
+
+Gateway validates the token and updates the WebSocket attachment. If validation fails, Gateway closes the connection with `4403` (invalid token).

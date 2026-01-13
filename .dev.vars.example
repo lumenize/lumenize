@@ -41,11 +41,20 @@ DEBUG=
 
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
-# BLUE key pair (active signing key)
-JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
 
-# GREEN key pair (for key rotation)
-# JWT_PRIVATE_KEY_GREEN=
-# JWT_PUBLIC_KEY_GREEN=
+# | Day | Action        | Set PRIMARY_JWT_KEY to |
+# |-----|---------------|------------------------|
+# |   0 | Initial setup | BLUE                   |
+# |  90 | Replace GREEN | GREEN                  |
+# | 180 | Replace BLUE  | BLUE                   |
+# | 270 | Replace GREEN | GREEN                  |
 
+# BLUE key pair (test keys - not for production)
+JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KEY-----\n"
+JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
+
+# GREEN key pair (for rotation testing - test keys, not for production)
+JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KEY-----\n"
+JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
+
+PRIMARY_JWT_KEY="BLUE"

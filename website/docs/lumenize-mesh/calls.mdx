@@ -245,25 +245,11 @@ handleResult(result: SomeType | Error) {
 
 | Error | Cause |
 |-------|-------|
-| `MeshAccessError` | Method lacks `@mesh` decorator |
+| Method not found | Method doesn't exist or lacks `@mesh` decorator |
 | Guard/`onBeforeCall` threw | Your access control code rejected the call |
 | Method threw | Remote method threw an exception |
 | Network/timeout | Connection issues, especially for clients |
 | `ClientDisconnectedError` | Target client is not connected |
-
-#### `MeshAccessError`
-
-Thrown when a method lacks the `@mesh` decorator — a framework-level check for misconfigured entry points:
-
-```typescript @skip-check
-handleResult(result: SomeType | Error) {
-  if (result instanceof MeshAccessError) {
-    console.error(`Method '${result.method}' is not exposed on ${result.node.bindingName}`);
-    return;
-  }
-  // ...
-}
-```
 
 :::note Guard Errors Pass Through
 Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `PermissionDeniedError`, `QuotaExceededError`) so you can handle them appropriately.

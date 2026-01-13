@@ -91,7 +91,7 @@ Every node is responsible for its own access control. Lumenize provides **secure
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
-| **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
+| **Class-wide** | `onBeforeCall()` hook | WHO can call (authentication) |
 | **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
 | **Capability Trust** | Automatic | Returned objects are trusted for that chain |
 

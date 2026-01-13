@@ -5,7 +5,7 @@ description: JWT authentication, access control, and callContext propagation in 
 
 # Authentication & Access Control
 
-The Lumenize Mesh integrates with `@lumenize/auth` for secure, passwordless authentication via magic links and JWT tokens.
+Lumenize Mesh includes built-in support for secure, passwordless authentication via magic links and JWT tokens. It also provides facilities for access control.
 
 ## Overview
 
@@ -14,96 +14,66 @@ The Lumenize Mesh integrates with `@lumenize/auth` for secure, passwordless auth
 | **Passwordless** | Magic link email login (no passwords to manage) |
 | **Secure JWTs** | Ed25519 signed tokens with key rotation support |
 | **Refresh rotation** | Automatic token refresh with revocation |
-| **Rate limiting** | Built-in protection against abuse |
-| **WebSocket auth** | Token passing via subprotocol headers |
-| **Middleware** | Drop-in hooks for HTTP and WebSocket routes |
+| **WebSocket support** | Token dance designed to work with connection/message flows |
 
-## Installation & Setup
+:::info Using a different auth provider?
+The mesh reads identity from HTTP headers set by auth middleware — it doesn't care *how* you authenticate. If you prefer Auth0, Clerk, or a custom solution, see [Integrating Alternative Auth](#integrating-alternative-auth) for the header spec.
+:::
 
-### 1. Install
+:::note Access Token vs Refresh Token
+**Access tokens** are short-lived (15 min) and kept in memory — if stolen, damage is time-limited. **Refresh tokens** are long-lived (30 days) and stored in HTTP-only cookies — JavaScript can't access them, protecting against XSS. This is the standard [OAuth 2.0 refresh token pattern](https://oauth.net/2/refresh-tokens/).
+:::
 
-```bash @skip-check
-npm install @lumenize/auth @lumenize/mesh @lumenize/utils
+## WebSocket Authentication
+
+Unlike HTTP where each request carries its own token, WebSocket connections are long-lived. Here's how Lumenize handles it:
+
+1. **Connect**: Access token sent once during upgrade (via subprotocol header)
+2. **Store**: Gateway saves token in connection attachment — not sent with each message
+3. **Check expiry**: Gateway verifies stored token hasn't expired on each call
+4. **Proactive refresh**: ~30s before expiration, client refreshes via HTTP and sends new token via [`token-update`](./gateway#message-types) message — Gateway validates and updates attachment in place (no reconnect)
+5. **Fallback**: If token expires anyway, Gateway closes with `4401` — client refreshes and reconnects automatically
+
+This keeps the token off the wire except during initial connection and refresh, while providing truly seamless rotation.
+
+### Token Delivery via Subprotocol
+
+Browsers don't allow custom headers on WebSocket connections, which is where the access token is usually provided. `LumenizeClient` smuggles it in as part of an alternative in the WebSocket subprotocol list during connection/reconnection:
+
+```
+Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
 ```
 
-### 2. Generate Ed25519 Key Pair
+The server:
+1. Extracts the token from `lmz.access-token.{jwt}`
+2. Verifies JWT signature and expiration
+3. Stores verified claims in the WebSocket attachment (for later expiry checks)
+4. Responds with `Sec-WebSocket-Protocol: lmz` — browsers require the server to accept at least one requested subprotocol, so `lmz` is the "real" one while `lmz.access-token.*` is the smuggled payload
 
-```bash @skip-check
-# Generate private key
-openssl genpkey -algorithm ed25519 -out private.pem
+### Client Configuration
 
-# Extract public key
-openssl pkey -in private.pem -pubout -out public.pem
+See [LumenizeClient: Authentication](./lumenize-client#authentication) for configuration options including `accessToken` and `refreshEndpoint`.
 
-# View keys (copy to .dev.vars)
-cat private.pem | tr '\n' '\\n' && echo
-cat public.pem | tr '\n' '\\n' && echo
-```
+### Handling Authentication Errors
 
-### 3. Configure `.dev.vars`
-
-```bash @skip-check
-JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\nMC4CAQAw..."
-JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\nMCowBQYD..."
-ACTIVE_JWT_KEY="BLUE"
-```
-
-### 4. Configure `wrangler.jsonc`
-
-```jsonc @skip-check
-{
-  "name": "my-app",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-09-12",
-  "durable_objects": {
-    "bindings": [
-      { "name": "LUMENIZE_AUTH", "class_name": "LumenizeAuth" },
-      { "name": "LUMENIZE_CLIENT_GATEWAY", "class_name": "LumenizeClientGateway" },
-      { "name": "DOCUMENT_DO", "class_name": "DocumentDO" }
-    ]
-  },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["LumenizeAuth", "DocumentDO"] }
-  ]
-}
-```
-
-### 5. Set Up Worker with Auth Middleware
+If authentication fails (token refresh failed, connection rejected, or session expired), `onAuthenticationError` fires:
 
 ```typescript @skip-check
-import { LumenizeAuth, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
-import { routeDORequest } from '@lumenize/utils';
-
-export { LumenizeAuth };
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Auth routes - public (no middleware)
-    const authResponse = await routeDORequest(request, env, {
-      prefix: 'auth',
-      cors: true
-    });
-    if (authResponse) return authResponse;
-
-    // Create auth middleware
-    const httpAuth = await createAuthMiddleware({
-      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-    });
-    const wsAuth = await createWebSocketAuthMiddleware({
-      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-    });
-
-    // Protected routes - with auth middleware
-    return routeDORequest(request, env, {
-      onBeforeRequest: httpAuth,
-      onBeforeConnect: wsAuth,
-      cors: true
-    }) ?? new Response('Not Found', { status: 404 });
+using client = new EditorClient({
+  baseUrl: 'wss://app.example.com',
+  instanceName: `${userId}.${tabId}`,
+  onAuthenticationError: (error) => {
+    console.log('Auth failed:', error.code, error.reason);
+    window.location.href = '/login';  // redirect
   }
-};
+});
 ```
 
-## Login Flow
+:::note Separate from Connection Errors
+`onAuthenticationError` is distinct from `onConnectionError`. Authentication errors include token refresh failures (HTTP), initial connection rejection (401/403), and mid-session token expiration (4401 close code). Network-level WebSocket errors go to `onConnectionError`.
+:::
+
+## Magic Link Login Flow
 
 Magic link authentication works as follows:
 
@@ -113,15 +83,15 @@ sequenceDiagram
     participant Worker
     participant AuthDO
     participant Email
-    
+
     User->>Worker: POST /auth/email-magic-link {email}
     Worker->>AuthDO: Forward request
     AuthDO->>Email: Send magic link
     AuthDO->>Worker: {message: "Check email"}
     Worker->>User: Response
-    
+
     Note over User: User clicks email link
-    
+
     User->>Worker: GET /auth/magic-link?token=...&state=...
     Worker->>AuthDO: Validate token
     AuthDO->>Worker: {access_token, Set-Cookie: refresh-token}
@@ -139,7 +109,7 @@ const response = await fetch('/auth/email-magic-link', {
 // Returns: { message: "Check your email for the magic link", expires_in: 1800 }
 ```
 
-### Validate Magic Link
+### Validate Magic Link & Get Tokens
 
 When the user clicks the link in their email:
 
@@ -147,108 +117,11 @@ When the user clicks the link in their email:
 {
   "access_token": "eyJhbGciOiJFZERTQSIs...",
   "token_type": "Bearer",
-  "expires_in": 900
+  "expires_in": 900  // 15 minutes
 }
 ```
 
 Plus a `Set-Cookie` header with the refresh token (HttpOnly, Secure, SameSite=Strict).
-
-## WebSocket Authentication
-
-### Token Delivery via Subprotocol
-
-Browsers don't allow custom headers on WebSocket connections. `LumenizeClient` uses the subprotocol mechanism:
-
-```
-Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
-```
-
-The server:
-1. Extracts the token from `lmz.access-token.{jwt}`
-2. Verifies JWT signature and expiration
-3. Accepts with `Sec-WebSocket-Protocol: lmz`
-
-### Client Configuration
-
-```typescript @skip-check
-// Fresh login — pass the token you just received
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  accessToken: accessToken
-});
-
-// Page refresh — let client fetch token via refresh endpoint
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`
-  // accessToken omitted — fetched automatically via refreshEndpoint
-});
-```
-
-### Token Acquisition & Refresh
-
-`LumenizeClient` handles tokens automatically:
-
-**Initial connection:**
-- If `accessToken` provided → use it for WebSocket connection
-- If `accessToken` omitted → POST to `refreshEndpoint` first to get token (uses refresh cookie)
-
-**Ongoing refresh:**
-1. **Monitor**: Parses JWT to determine expiration
-2. **Timer**: Sets timer for ~30 seconds before expiry
-3. **Refresh**: POSTs to `refreshEndpoint` with `credentials: 'include'`
-4. **Update**: Updates internal token for future reconnections
-
-### Handling Authentication Errors
-
-If authentication fails (token refresh failed, connection rejected, or session expired), `onAuthenticationError` fires:
-
-```typescript @skip-check
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  onAuthenticationError: (error) => {
-    console.log('Auth failed:', error.code, error.reason);
-    window.location.href = '/login';
-  }
-});
-```
-
-:::note Separate from Connection Errors
-`onAuthenticationError` is distinct from `onConnectionError`. Authentication errors include token refresh failures (HTTP), initial connection rejection (401/403), and mid-session token expiration (4401 close code). Network-level WebSocket errors go to `onConnectionError`.
-:::
-
-## Identity in the Mesh
-
-### `callContext.originAuth`
-
-Once authenticated, your identity propagates through the entire call chain:
-
-```typescript @skip-check
-// In any mesh node
-@mesh
-updateDocument(changes: DocumentChange) {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  const claims = this.lmz.callContext.originAuth?.claims;
-  
-  // Identity is the ORIGINAL caller's, even through multiple hops
-}
-```
-
-**Call chain example:**
-```
-Client (alice) → DocumentDO → ValidationWorker → NotificationDO
-                    ↓              ↓                  ↓
-            originAuth has   originAuth has    originAuth has
-            alice's auth     alice's auth      alice's auth (propagated!)
-```
-
-### Context Preservation
-
-`callContext` (including `originAuth`) is automatically captured in continuations. Even if a DO hibernates during a long-running operation, your handler receives the correct context.
-
-See [Managing Context](./managing-context) for the full guide.
 
 ## Access Control
 
@@ -256,11 +129,11 @@ See [Managing Context](./managing-context) for the full guide.
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
-| **Class-wide** | `onBeforeCall()` hook | WHO can call (auth, rate limiting) |
+| **Class-wide** | `onBeforeCall()` hook | WHO can call (authentication) |
 | **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
 | **Capability Trust** | Automatic | Returned objects trusted for that chain |
 
-When a method lacks the `@mesh` decorator, callers receive a `MeshAccessError`. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Types](./calls#error-types) for details.
+Methods without the `@mesh` decorator behave as if they don't exist — callers receive a generic error. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Handling](./calls#error-handling) for details.
 
 ### Class-Level: `onBeforeCall()`
 
@@ -281,7 +154,10 @@ class ProtectedDO extends LumenizeDO<Env> {
 
 ### Method-Level: `@mesh` Guard
 
+Guards receive the instance, providing access to both call context and instance state. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
+
 ```typescript @skip-check
+// Check call context (e.g., claims)
 @mesh((instance: MyDO) => {
   if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
     throw new Error('Admin only');
@@ -290,13 +166,8 @@ class ProtectedDO extends LumenizeDO<Env> {
 adminMethod() {
   // Only admins reach here
 }
-```
 
-### Guards with Instance Access
-
-Guards receive the instance, providing access to both instance state and call context. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
-
-```typescript @skip-check
+// Check instance state
 @mesh((instance: DocumentDO) => {
   const userId = instance.lmz.callContext.originAuth?.userId;
   if (!instance.allowedEditors.has(userId)) {
@@ -331,8 +202,8 @@ deleteDocument() { /* ... */ }
 
 The `callContext.state` object is a mutable `Record<string, any>` that:
 - Starts **empty** (`{}`) for each incoming mesh call
-- Is typically **populated in `onBeforeCall()`** after verifying authentication
-- **Persists through the call chain** — method guards and handlers see the same state
+- **Persists through the call chain** — method guards and handlers see the same state even when the call chain hops from mesh node to mesh node
+- Is often **populated in `onBeforeCall()`** after verifying authentication, but can be added to by any call in the call chain
 - Is **isolated per-request** via AsyncLocalStorage (concurrent calls don't interfere)
 
 Use it to attach computed data (like user records or permissions) so method guards don't need to re-fetch:
@@ -363,58 +234,6 @@ editDocument(changes: DocumentChange) { /* ... */ }
 Each request gets its own `callContext` instance with its own `state` object, even when multiple requests hit the same DO concurrently. This isolation is provided by AsyncLocalStorage under the hood — you don't need to worry about concurrent requests overwriting each other's state.
 :::
 
-## HTTP Route Protection
-
-### Creating Middleware
-
-```typescript @skip-check
-import { createAuthMiddleware } from '@lumenize/auth';
-
-const httpAuth = await createAuthMiddleware({
-  publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN],
-  audience: 'https://myapp.com',
-  issuer: 'https://myapp.com'
-});
-```
-
-### Using with routeDORequest
-
-```typescript @skip-check
-return routeDORequest(request, env, {
-  onBeforeRequest: httpAuth,
-  cors: true
-});
-```
-
-The middleware:
-1. Extracts Bearer token from `Authorization` header
-2. Verifies JWT signature (tries all provided keys for rotation)
-3. Validates expiration, audience, issuer
-4. On success: Enhances request with `X-Auth-User-Id` and `X-Auth-Verified` headers
-5. On failure: Returns 401 with `WWW-Authenticate` header
-
-## Key Rotation
-
-Zero-downtime key rotation with BLUE/GREEN keys:
-
-1. **Normal operation**: Sign with BLUE, verify with BLUE
-2. **Rotate keys**:
-   - Generate new GREEN key pair
-   - Add `JWT_PRIVATE_KEY_GREEN` and `JWT_PUBLIC_KEY_GREEN` to secrets
-   - Add GREEN public key to middleware: `publicKeysPem: [BLUE, GREEN]`
-   - Set `ACTIVE_JWT_KEY="GREEN"` to start signing with GREEN
-3. **After all BLUE tokens expire**: Remove BLUE keys from middleware
-
-```typescript @skip-check
-// During rotation: accept tokens signed with either key
-const middleware = await createAuthMiddleware({
-  publicKeysPem: [
-    env.JWT_PUBLIC_KEY_BLUE,   // Active key
-    env.JWT_PUBLIC_KEY_GREEN   // Fallback during rotation
-  ]
-});
-```
-
 ## Error Handling
 
 ### Auth Close Codes
@@ -427,46 +246,223 @@ The Gateway uses standard WebSocket close codes for auth issues:
 | `4401` | Token expired | Refresh and reconnect (automatic) |
 | `4403` | Invalid token/signature | Redirect to login |
 
-### Client Error Handling
+## Installation & Setup
+
+### 1. Install
+
+```bash @skip-check
+npm install @lumenize/mesh @lumenize/utils
+```
+
+### 2. Generate Ed25519 Key Pair
+
+```bash @skip-check
+# Generate and display private key (copy for next step)
+openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
+```
+
+This outputs both keys to the console. Copy each (including the `-----BEGIN/END-----` lines) for the next step.
+
+### 3. Configure Environment Variables
+
+Generate two key pairs (BLUE and GREEN) for zero-downtime key rotation. Run the command from step 2 twice.
+
+**Local development** (`.dev.vars`):
+```bash @skip-check
+JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\nMC4CAQAw..."
+JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\nMCowBQYD..."
+JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4CAQAw..."
+JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCowBQYD..."
+PRIMARY_JWT_KEY="BLUE"
+```
+
+**Production** (changes take effect on next deploy):
+```bash @skip-check
+# Secrets (never visible in dashboard, can only be replaced)
+wrangler secret put JWT_PRIVATE_KEY_BLUE
+wrangler secret put JWT_PUBLIC_KEY_BLUE
+wrangler secret put JWT_PRIVATE_KEY_GREEN
+wrangler secret put JWT_PUBLIC_KEY_GREEN
+
+# Variables (visible and editable in dashboard)
+wrangler vars put PRIMARY_JWT_KEY
+```
+
+See [Key Rotation](#key-rotation) for how to rotate keys without downtime.
+
+### 4. Configure `wrangler.jsonc`
+
+```jsonc @skip-check
+{
+  "name": "my-app",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": ["nodejs_compat"],  // Required for AsyncLocalStorage
+  "durable_objects": {
+    "bindings": [
+      // Lumenize infrastructure (use as-is)
+      { "name": "LUMENIZE_AUTH", "class_name": "LumenizeAuth" },
+      { "name": "LUMENIZE_CLIENT_GATEWAY", "class_name": "LumenizeClientGateway" },
+      // Your DOs (extend LumenizeDO)
+      { "name": "DOCUMENT_DO", "class_name": "DocumentDO" },
+      // ...
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["LumenizeAuth", "LumenizeClientGateway", "DocumentDO", /* ... */ ] }
+  ]
+}
+```
+
+### 5. Set Up Worker with Auth Middleware
 
 ```typescript @skip-check
-using client = new EditorClient({
-  accessToken,
-  onAuthenticationError: (error) => {
-    console.log('Auth failed:', error.code, error.reason);
-    window.location.href = '/login';
+import { LumenizeAuth, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/mesh';
+import { routeDORequest } from '@lumenize/utils';
+
+export { LumenizeAuth };
+
+// Allowlist your app's origins (server-side rejection for disallowed origins)
+const cors = { origin: ['https://app.example.com', 'https://admin.example.com'] };
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Auth routes - public (no middleware)
+    const authResponse = await routeDORequest(request, env, {
+      prefix: 'auth',
+      cors
+    });
+    if (authResponse) return authResponse;
+
+    // Create auth middleware (accepts tokens signed with either key)
+    const httpAuth = await createAuthMiddleware({
+      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
+    });
+    const wsAuth = await createWebSocketAuthMiddleware({
+      publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
+    });
+
+    // Protected routes - with auth middleware
+    return routeDORequest(request, env, {
+      onBeforeRequest: httpAuth,
+      onBeforeConnect: wsAuth,
+      cors
+    }) ?? new Response('Not Found', { status: 404 });
   }
-});
+};
 ```
 
-## Security Best Practices
+The middleware:
+1. Extracts Bearer token from `Authorization` header (HTTP) or subprotocol (WebSocket)
+2. Verifies JWT signature (tries primary key first, then secondary for rotation)
+3. Validates expiration
+4. On success: Enhances request with `X-Auth-User-Id` and `X-Auth-Claims` headers
+5. On failure: Returns 401 (HTTP) or closes with 4401/4403 (WebSocket)
 
-### 1. Token Storage
+See [`routeDORequest`](/docs/utils/route-do-request) or [CORS Support](/docs/utils/cors-support) for advanced options.
 
-- **Access Token**: Keep in memory only. Never store in `localStorage`
-- **Refresh Token**: HTTP-only, Secure, SameSite=Strict cookies
+## Key Rotation
 
-### 2. URL Safety
+Zero-downtime key rotation using interleaved BLUE/GREEN keys. Both keys always exist; `PRIMARY_JWT_KEY` controls which one signs new tokens. Verification tries primary first, then secondary.
 
-Never pass tokens in WebSocket URLs:
+**Every 90 days:**
+
+1. Generate a new key pair (see [step 2 in Installation](#2-generate-ed25519-key-pair))
+2. Replace the **secondary** key's secrets
+3. Switch `PRIMARY_JWT_KEY` to the newly replaced key (making it primary)
+
+```bash @skip-check
+# Example: BLUE is primary, GREEN is secondary — replacing GREEN
+wrangler secret put JWT_PRIVATE_KEY_GREEN   # Paste new private key
+wrangler secret put JWT_PUBLIC_KEY_GREEN    # Paste new public key
+# Deploy happens automatically or via wrangler deploy
+
+wrangler vars put PRIMARY_JWT_KEY           # Enter: GREEN (now primary)
 ```
-❌ wss://app.com?token=...  // Logged by proxies!
-✅ Use subprotocol mechanism
+
+Note secret and vars changes do not take effect until your next deploy.
+
+**Timeline example** (6-month max key age):
+
+| Day | Action | Set PRIMARY_JWT_KEY to |
+|-----|--------|------------------------|
+| 0 | Initial setup | BLUE |
+| 90 | Replace GREEN | GREEN |
+| 180 | Replace BLUE | BLUE |
+| 270 | Replace GREEN | GREEN |
+
+**Why this works**: By the time you replace a key, it's been secondary for 90 days. Since refresh tokens live only 30 days, all tokens signed with that key expired 60+ days ago.
+
+## Integrating Alternative Auth
+
+The mesh reads identity from HTTP headers — it doesn't care how authentication happens. If you're using Auth0, Clerk, Supabase Auth, or a custom solution, your middleware just needs to set the right headers.
+
+### Header Contract
+
+| Header | Required | Description |
+|--------|----------|-------------|
+| `X-Auth-User-Id` | Yes | Verified user ID (typically from JWT `sub` claim) |
+| `X-Auth-Claims` | No | JSON-encoded object with additional claims |
+
+The presence of `X-Auth-User-Id` indicates successful authentication. If missing, the request is treated as unauthenticated.
+
+### How Headers Map to callContext
+
+```typescript @skip-check
+// Your middleware sets headers
+request.headers.set('X-Auth-User-Id', 'user-123');
+request.headers.set('X-Auth-Claims', JSON.stringify({
+  roles: ['editor'],
+  orgId: 'org-456'
+}));
+
+// In your mesh handlers, access via callContext
+@mesh
+someMethod() {
+  const { originAuth } = this.lmz.callContext;
+  console.log(originAuth.userId);        // 'user-123'
+  console.log(originAuth.claims.roles);  // ['editor']
+  console.log(originAuth.claims.orgId);  // 'org-456'
+}
 ```
 
-### 3. Identity Validation
+### Example: Auth0 Integration
 
-The Gateway validates that the JWT's user ID matches the `instanceName` prefix, preventing impersonation:
-- User `alice` can connect to `alice.tab1`
-- User `alice` cannot connect to `bob.tab1`
+```typescript @skip-check
+import { jwtVerify } from 'jose';
 
-### 4. Short-Lived Tokens
+async function auth0Middleware(request: Request, env: Env): Promise<Request | Response> {
+  const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+  if (!token) return new Response('Unauthorized', { status: 401 });
 
-Default token lifetimes:
-- **Access token**: 15 minutes (configurable)
-- **Refresh token**: 30 days (configurable)
+  try {
+    const { payload } = await jwtVerify(token, env.AUTH0_PUBLIC_KEY, {
+      issuer: `https://${env.AUTH0_DOMAIN}/`,
+      audience: env.AUTH0_AUDIENCE
+    });
 
-Shorter access tokens = less damage if stolen.
+    const enhanced = new Request(request);
+    enhanced.headers.set('X-Auth-User-Id', payload.sub);
+    enhanced.headers.set('X-Auth-Claims', JSON.stringify({
+      roles: payload['https://myapp.com/roles'] ?? [],
+      email: payload.email
+    }));
+    return enhanced;
+  } catch {
+    return new Response('Invalid token', { status: 401 });
+  }
+}
+```
+
+### WebSocket Considerations
+
+For WebSocket connections, you have two options:
+
+1. **Use subprotocol token delivery** — Your auth middleware extracts the token from `lmz.access-token.{jwt}` in the `Sec-WebSocket-Protocol` header (same pattern as `@lumenize/auth`)
+
+2. **Query parameter fallback** — Pass the token as `?token={jwt}` during the WebSocket upgrade (less secure, but simpler)
+
+Either way, your middleware must verify the token and store the user identity in the WebSocket attachment for the Gateway to access on subsequent messages.
 
 ## API Reference
 
@@ -506,7 +502,7 @@ import {
   importPrivateKey,
   importPublicKey,
   parseJwtUnsafe
-} from '@lumenize/auth';
+} from '@lumenize/mesh';
 ```
 
 ### WebSocket Utilities
@@ -517,7 +513,7 @@ import {
   verifyWebSocketToken,
   getTokenTtl,
   WS_CLOSE_CODES
-} from '@lumenize/auth';
+} from '@lumenize/mesh';
 ```
 
 ## Test Mode
@@ -533,9 +529,3 @@ const response = await fetch('/auth/email-magic-link?_test=true', {
 ```
 
 Requires `AUTH_TEST_MODE="true"` in environment.
-
-## See Also
-
-- **[Managing Context](./managing-context)** — How callContext propagates
-- **[LumenizeClient](./lumenize-client)** — Client-side token handling
-- **[Gateway Internals](./gateway)** — Trust boundaries

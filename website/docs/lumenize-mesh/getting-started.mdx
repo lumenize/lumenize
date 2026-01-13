@@ -27,7 +27,7 @@ With the exception of the Workspace LumenizeDO, which we leave as a potential ex
 ## Prerequisites
 
 ```bash @skip-check
-npm install @lumenize/mesh @lumenize/auth @lumenize/utils
+npm install @lumenize/mesh @lumenize/utils
 ```
 
 ## Step 1: Define the Document DO
@@ -293,11 +293,11 @@ function getTabId(): string {
 
 ## Step 5: Set Up the Worker Entry Point
 
-The Worker routes requests to DOs and handles authentication. See [Security](./security) for details on token handling and key rotation.
+The Worker routes requests to DOs and handles authentication. See [Security: Installation & Setup](./security#installation--setup) for key generation, environment variables, and production configuration.
 
 ```typescript @skip-check
 // src/index.ts
-import { LumenizeAuth, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
+import { LumenizeAuth, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/mesh';
 import { routeDORequest } from '@lumenize/utils';
 import { DocumentDO } from './document-do';
 import { SpellCheckWorker } from './spellcheck-worker';
@@ -305,12 +305,15 @@ import { SpellCheckWorker } from './spellcheck-worker';
 export { LumenizeAuth, DocumentDO, SpellCheckWorker };
 // Note: LumenizeClientGateway is exported from @lumenize/mesh
 
+// Allowlist your app's origins
+const cors = { origin: ['https://app.example.com'] };
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Auth routes - public (no middleware)
     const authResponse = await routeDORequest(request, env, {
       prefix: 'auth',
-      cors: true
+      cors
     });
     if (authResponse) return authResponse;
 
@@ -323,7 +326,7 @@ export default {
     return routeDORequest(request, env, {
       onBeforeRequest: httpAuth,
       onBeforeConnect: wsAuth,
-      cors: true
+      cors
     }) ?? new Response('Not Found', { status: 404 });
   }
 };

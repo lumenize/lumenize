@@ -27,6 +27,38 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] In lumenize-auth.ts, The #extractCookie method uses cookie.trim().split('=') and destructures only the first two elements. If a cookie value contains = characters (valid in cookies), only the portion before the first = is returned. For example, a cookie "name=abc=def" would return "abc" instead of "abc=def". While current tokens use base64UrlEncode which strips = padding, this implementation is fragile and could cause authentication failures if the token format changes or if this code is reused elsewhere.
 
+- [ ] Add rate limiting support in LumenizeClientGateway
+  - Use instance variables for counters (not storage — too expensive)
+  - If traffic is high enough to need rate limiting, Gateway won't hibernate anyway, so in-memory counters work
+  - Consider: requests per second, requests per minute, configurable thresholds
+  - On limit exceeded: close connection with appropriate code or reject calls
+
+- [ ] Enforce instanceName format for reconnection hijacking prevention
+  - **Threat**: During 5-second grace period after disconnect, attacker with valid JWT could connect to victim's instanceName and receive their messages
+  - **Fix**: Gateway validates `instanceName.startsWith(userId + ".")` on connection
+  - No AuthDO call needed — userId already in verified JWT claims
+  - Reject with `4403` if mismatch
+  - **Trade-off**: Enforces `{userId}.{tabId}` naming convention; apps wanting different schemes need custom validation
+  - Consider making the validation function configurable for flexibility
+
+- [ ] Validate userId unchanged on `token-update` message
+  - **Threat**: Attacker with MitM or XSS injects `token-update` with different user's token, hijacking session identity
+  - **Fix**: Gateway compares new token's userId with current attachment's userId; reject with `4403` if different
+  - Simple check, low implementation cost
+
+- [ ] Add admin token revocation endpoint to LumenizeAuth
+  - Endpoint like `DELETE /auth/users/:userId/sessions` to revoke all refresh tokens for a user
+  - Requires super-admin concept (not yet implemented)
+  - Use case: user device stolen, employee leaves, suspicious activity
+  - Implementation: `DELETE FROM refresh_tokens WHERE user_id = ${userId}`
+
+- [ ] Evolve LumenizeAuth schema for multi-email users (Nebula prep)
+  - Current: 1:1 user↔email (`users.email` column)
+  - Future: 1:many via separate `user_emails` table
+  - Support verified/unverified emails, primary email designation
+  - Domain extraction for enterprise domain restrictions (e.g., `@acme.com` only)
+  - Discovery flow: existing user adds new email, links to same account
+
 - [ ] Create `website/docs/lumenize-mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient
   - Similar to `/docs/testing/agents.mdx` but for mesh clients
   - Show multi-user scenarios with separate `Browser` instances
@@ -45,7 +77,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - If it doesn't work, consider: (a) fixing the framework to always forward current callContext, or (b) adding an explicit `{ echoCallContext: true }` option
   - Key insight: callContext is already serialized for outbound calls. No storage needed. Works for any node type (Workers, DOs, etc.)
 
-- [ ] Add `{ twoOneWayCalls: true }` option to `this.lmz.call()` config parameter
+- [ ] Run experiment to confirm that 
+
+- [ ] Add `{ twoOneWayCalls: true }` option to `this.lmz.call()` config parameter [LM: This may be outdated. You can just do a fire and forget on the caller side and then call back independently on the callee side.
   - Opt-in two one-way call mode for cost optimization on known slow operations
   - Caller gets immediate ACK, real response comes via callback
   - Useful for external API calls where you don't want DO wall-clock billing while waiting
@@ -120,6 +154,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 
 ## Documentation
+
+- [ ] Consider removing "Token Delivery via Subprotocol" implementation detail from security.mdx after LumenizeClient implementation is complete
 
 - [ ] Update all references from `LumenizeBase` to `LumenizeDO` across docs (alarms/index.mdx, etc.)
 
