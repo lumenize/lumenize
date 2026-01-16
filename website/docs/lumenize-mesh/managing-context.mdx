@@ -45,6 +45,41 @@ Client (alice) → DocumentDO → ValidationWorker → NotificationDO
 
 For the complete `CallContext` interface — including which fields are immutable, per-hop, or mutable — see [Mesh API: CallContext](./mesh-api#interface-callcontext).
 
+### Using `state` for Tracing
+
+The mutable `callContext.state` property is ideal for distributed tracing. Populate it in `onBeforeCall` and accumulate data as calls flow through the mesh:
+
+```typescript @skip-check
+// In your base class or each node's onBeforeCall
+onBeforeCall() {
+  super.onBeforeCall();
+
+  // Start a trace if this is a new chain
+  if (!this.lmz.callContext.state.traceId) {
+    this.lmz.callContext.state.traceId = crypto.randomUUID();
+    const caller = this.lmz.callContext.caller;
+    this.lmz.callContext.state.spans = [{
+      node: `${caller.bindingName}:${caller.instanceName}`
+    }];
+  }
+
+  // Add this node as a span
+  this.lmz.callContext.state.spans.push({
+    node: `${this.lmz.bindingName}:${this.lmz.instanceName}`
+  });
+}
+```
+
+Since `state` propagates across the entire call chain, you get a complete trace without external infrastructure. At chain end, log or store the accumulated spans.
+
+### When Call Chains Break
+
+Call context is automatically maintained when one mesh call triggers another or when a local continuation is called. However, certain events, like alarm(s) in LumenizeDO, and browser events in LumenizeClient start **new chains** with fresh context:
+
+:::tip use `newChain` to proactively break call chain
+Call chain extension may not be desirable in all cases, for instance in fan-out patterns where you don't want tracing to bleed across recipients. For these cases, use `{ newChain: true }` — see [Breaking Call Chains](./calls#breaking-call-chains).
+:::
+
 ## 2. Application Context (Continuations)
 
 While `this.lmz.callContext` is great for mesh-oriented context, you should use extra parameters in your [continuations](./continuations) for your own application context. Alternatively, for DOs and other nodes with storage capability, you could store such context locally and merely pass the key for such data into the continuation.

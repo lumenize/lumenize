@@ -12,9 +12,21 @@ However, keep in mind these nuances:
 - **Calling a client**: The `bindingName` is always `'LUMENIZE_CLIENT_GATEWAY'` (unless you've customized it)
 - **Client-to-client calls**: Disabled by default. See [Opting In to Peer Communication](./lumenize-client#opting-in-to-peer-communication) to enable.
 
-:::warning Avoid using Cloudflare-native Workers RPC
-Use `this.lmz.call()` instead of Cloudflare's native Workers RPC. It provides automatic context propagation, access control mechanisms, and works seamlessly with browser clients.
-:::
+## Why Not Just Use Workers RPC?
+
+Cloudflare's native Workers RPC is the transport layer for Lumenize's in-Cloudflare calls. However, Lumenize Mesh provides capabilities that RPC alone cannot:
+
+| Capability | Workers RPC | Lumenize Mesh |
+|------------|-------------|---------------|
+| **Identity propogation** | None — must use an `init()` pattern | Automatic 
+| **Call context** | None — must pass manually | Automatic `callContext` with `origin`, `originAuth`, `caller`, `state` |
+| **Consistent Robust Type Support** | Cap'n Web is subset | Date, Set, Map, cycles, aliases, etc. |
+| **Browser clients** | Not supported | Full peer with same type support |
+| **Access control** | Manual per-method | `@mesh` guards + `onBeforeCall` hooks |
+| **Uniform API** | Different patterns for DO vs Cap'n Web | Same `this.lmz.call()` everywhere |
+| **Sychronous** | Async - Higher risk of race conditions | Lower risk of race conditions |
+
+**We strongly recommend that you use Lumenize Mesh for all in-mesh calls**. Only when you are calling a non-mesh node (raw DO, Worker, or RpcTarget) should you drop down to Workers RPC.
 
 ## Basic Patterns
 
@@ -294,3 +306,20 @@ For hibernation-safe patterns:
 :::
 
 See [Managing Context](./managing-context) for the full context strategy.
+
+## Breaking Call Chains
+
+Sometimes, like in fan-out scenarios, you want to explicitly start a fresh call context rather than continue it across a multi-hop call chain. Use the `{ newChain: true }` option:
+
+```typescript @skip-check
+// Fan-out to subscribers — each gets a fresh context
+for (const subscriberId of subscribers) {
+  this.lmz.call(
+    'LUMENIZE_CLIENT_GATEWAY',
+    subscriberId,
+    this.ctn<EditorClient>().handleUpdate(change),
+    undefined,
+    { newChain: true }  // Subscribers don't receive caller's context
+  );
+}
+```

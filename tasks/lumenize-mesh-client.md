@@ -25,10 +25,10 @@ See docs for full API details:
 - **LumenizeWorker Reference**: `/website/docs/lumenize-mesh/lumenize-worker.mdx`
 - **LumenizeClient Reference**: `/website/docs/lumenize-mesh/lumenize-client.mdx`
 - **Gateway Details**: `/website/docs/lumenize-mesh/gateway.mdx`
-- **Auth Integration**: `/website/docs/lumenize-mesh/auth-integration.mdx`
+- **Security & Auth**: `/website/docs/lumenize-mesh/security.mdx`
 - **Creating Plugins**: `/website/docs/lumenize-mesh/creating-plugins.mdx`
 
-**Note**: Documentation was restructured on 2025-12-28. Old `lumenize-base/` and `auth/` docs are archived in `/website/docs/_archived/`.
+**Note**: Documentation was restructured on 2025-12-28. Old `lumenize-base/` docs are archived in `/website/docs/_archived/`. Auth docs restored to `/website/docs/auth/` (2025-01-14).
 
 ### Gateway-Client Relationship
 - Gateway is 1:1 with a **connection**, not a user
@@ -149,15 +149,44 @@ log.info('Something happened', { data });
 - [ ] Allows async initialization (migrations, setup) without race conditions
 - [ ] Users should NOT write custom constructors — use `onStart()` instead
 
+**@lumenize/auth Magic Link Flow Fix** (PENDING):
+The current implementation is broken for real-world use:
+- Magic link click is a browser navigation, not a fetch
+- `/auth/magic-link` returns JSON, which the browser just displays as raw text
+- URL routing with `prefix: 'auth'` doesn't work — `routeDORequest` requires binding/instance in URL
+
+Fix:
+- [ ] Add `createAuthRoutes` factory function in `@lumenize/auth`
+  - Wraps `routeDORequest` with URL rewriting (`/auth/magic-link` → `/auth/lumenize-auth/default/magic-link`)
+  - Config: `prefix` (default: '/auth'), `binding` (default: 'LUMENIZE_AUTH'), `instance` (default: 'default')
+  - Required: `redirect` — where to redirect after magic link validation
+  - Optional: `cors` — passed through to `routeDORequest`
+- [ ] Add `redirect` to `LumenizeAuth.configure()` — required, no default
+- [ ] Change `/auth/magic-link` endpoint to return redirect (302) instead of JSON
+  - Sets refresh token cookie
+  - Redirects to configured `redirect`
+  - Access token obtained via refresh-on-load pattern (SPA calls `/auth/refresh-token`)
+- [ ] Update `/website/docs/auth/index.mdx` — new flow, remove misleading language
+- [ ] Update `/website/docs/lumenize-mesh/getting-started.mdx` — use `createAuthRoutes`, show refresh-on-load pattern
+
+**@lumenize/auth Rate Limiting Fix** (PENDING):
+- [ ] Refactor rate limiting in `LumenizeAuth` to use instance variables instead of DO storage
+  - Current implementation uses `this.svc.sql` with a `rate_limits` table
+  - Storage writes are 10,000x more expensive than reads — unacceptable for rate limiting
+  - Rate limiting is ephemeral by nature; if DO evicts, limits reset (acceptable — if traffic is low enough to hibernate, it's not exceeding any reasonable rate limit)
+  - Use `#rateLimits: Map<string, { count: number, windowStart: number }>` instance variable
+  - This is the one valid exception to the "no instance variables for mutable state" rule
+
 **Core Utilities Consolidation** (PENDING):
 - [ ] Merge `sql` utility from `@lumenize/core` into `@lumenize/mesh`
   - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
   - For mesh nodes, just import the base class — `this.svc.*` handles the rest (no separate `@lumenize/core` import needed)
   - Also export `sql` directly from `@lumenize/mesh` for standalone/vanilla usage
-- [ ] Merge `@lumenize/auth` into `@lumenize/mesh`
-  - Authentication is inherently tied to the mesh (Gateway is the trust boundary that validates JWTs and populates `originAuth`)
-  - packages/rpc is being deprecated as standalone (only serves as base for packages/testing), so auth loses its other consumer
-  - Simpler mental model — one package for mesh communication including authentication
+- [x] ~~Merge `@lumenize/auth` into `@lumenize/mesh`~~ **REVISED (2025-01-14)**: Keep `@lumenize/auth` as separate package
+  - The coupling is minimal: just two headers (`X-Auth-User-Id`, `X-Auth-Claims`)
+  - Users with existing auth (Auth0, Clerk, custom) only need the header contract
+  - Separation of concerns — auth is a distinct domain from mesh communication
+  - See `/website/docs/lumenize-mesh/security.mdx` for integration details and Auth0 example
 - [ ] Publish `@lumenize/debug` as a standalone cross-platform package (see Debug decision below)
 
 ### Phase 1: Design Documentation (Docs-First)
@@ -630,9 +659,13 @@ class LumenizeClient {
 - [ ] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator.
 - [ ] (vitest-pool) lmz.callContext has the correct information even when there are deeply interleaved operations ongoing (ALS isolation).
 - [ ] (vitest-pool) Verify that `callContext` is automatically captured in continuations and survives DO hibernation without manual user intervention.
+- [ ] (vitest-pool) Verify that `callContext.state` modifications in DO2 are visible in DO1's continuation after the call returns.
 - [ ] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
 - [ ] LumenizeDO and LumenizeWorker are upgraded to support the new access control model
 - [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
+- [ ] Messages are queued when the client is in a reconnection grace period. Also, they should queue in a situation where the tab reawakens, the client sends a message and that triggers the reconnection. We may be monitoring the tab sleep/awake events and try the reconnection proactively. We want to keep that feature so messages sent from the mesh reach the client. However, we want to test multiple different timings to assure robustness. Needs analysis.
+- [ ] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth).
+- [ ] Verify that when the access token expires, it tries the refresh token before calling onAuthenticationError
 
 ## References
 

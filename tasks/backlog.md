@@ -91,6 +91,24 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Prevents cascading latency when multiple DOs call the same just-disconnected client
   - More complex but elegant — only pays the cost when needed
 
+- [ ] Consider further decoupling LumenizeClient token refresh from `@lumenize/auth`
+  - Current design: `refresh: string | () => Promise<string>` (docs updated 2025-01-14)
+  - String form: POST to endpoint, expects `{ access_token }` response (default: `/auth/refresh-token`)
+  - Function form: Custom refresh logic returning token string directly
+  - Consider: Should function form also support returning `{ access_token, expires_in }` for proactive refresh timing?
+  - Consider: Should we support additional response shapes for string form (configurable field name)?
+
+- [ ] Proactive token refresh without reconnection
+  - Currently: Token expiration causes Gateway to close with 4401, client refreshes and reconnects
+  - Future: Client proactively refreshes ~30s before expiration and updates Gateway attachment without reconnecting
+  - Approach: HTTP POST to Gateway (via Worker middleware) to update originAuth in WebSocket attachment
+    - Client POST to refresh endpoint → gets new access_token
+    - Client POST to `/gateway/{instanceName}/refresh-identity` (or similar)
+    - Worker middleware verifies token, sets X-Auth-User-Id/X-Auth-Claims headers
+    - Gateway receives verified headers via Workers RPC, updates attachment
+  - Benefits: Seamless rotation without brief `reconnecting` state, avoids reconnection overhead
+  - Complexity: Requires new Gateway endpoint and client coordination
+
 - [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
   - Wraps `routeDORequest` but requires instance **names** only (no ids)
   - `routeDORequest` keeps `doInstanceNameOrId` for low-level flexibility
@@ -154,6 +172,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 
 ## Documentation
+
+- [ ] Review `@lumenize/auth` API Reference section for what should be public vs internal
+  - RPC Methods: `configure()` and `setEmailService()` — only used in tests, not production
+  - JWT Utilities: `signJwt`, `verifyJwt`, `verifyJwtWithRotation`, `importPrivateKey`, `importPublicKey`, `parseJwtUnsafe` — which are truly needed by users?
+  - WebSocket Utilities: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES` — internal implementation details?
+  - Email Services: `ConsoleEmailService`, `HttpEmailService`, `MockEmailService`, `createDefaultEmailService` — verify all 4 are implemented and tested; likely some are stubs
+  - Email service implementation is incomplete — expect this to change before finalizing docs
 
 - [ ] Consider removing "Token Delivery via Subprotocol" implementation detail from security.mdx after LumenizeClient implementation is complete
 

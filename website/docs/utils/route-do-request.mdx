@@ -239,12 +239,28 @@ async fetch(request: Request, env: Env): Promise<Response> {
 }
 ```
 
+## Routing Context Headers
+
+`routeDORequest` automatically adds headers that tell the DO how it was accessed:
+
+| Header | Description |
+|--------|-------------|
+| `X-Lumenize-DO-Binding-Name` | The binding name used to access this DO (e.g., `DOCUMENT_DO`) |
+| `X-Lumenize-DO-Instance-Name-Or-Id` | The instance name or ID from the URL path |
+
+These headers are essential for Lumenize Mesh — DOs need to know their binding and instance name to participate in mesh calls. They're also useful for logging, debugging, and any DO that needs to know its own identity.
+
+When `agentCompatibility` is enabled, the headers use Agent/PartyKit naming instead:
+- `x-partykit-namespace` (instead of binding name)
+- `x-partykit-room` (instead of instance name)
+
 ## Key Features
 
 - **Case-insensitive binding name matching** - Flexible naming conventions
 - **Automatic ID detection** - Handles both named instances and unique IDs
 - **Hooks** - Authenticate, validate, or enhance requests before they reach DOs
 - **Prefix support** - Scope routing to specific URL paths
+- **Routing context headers** - DOs automatically learn their binding and instance name
 - **Hono-style behavior** - Returns `undefined` if request doesn't match
 - **Standard Cloudflare naming** - No confusing party/agent/room terminology
 - **Robust CORS support** - allowlist and custom function in addition to true/false

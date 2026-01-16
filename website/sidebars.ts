@@ -201,6 +201,15 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
+    // Auth
+    {
+      type: 'category',
+      label: 'Auth',
+      items: [
+        'auth/index',
+      ],
+    },
+
     // Testing
     {
       type: 'category',

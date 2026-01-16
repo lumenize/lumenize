@@ -255,15 +255,14 @@ export class EditorClient extends LumenizeClient {
 // In your browser application
 import { EditorClient } from './editor-client';
 
-async function initEditor(accessToken: string, userId: string, documentId: string) {
+function initEditor(documentId: string) {
   const editor = createYourEditor(); // Your editor library
 
   // Create and connect the client
+  // baseUrl defaults to current origin, refresh defaults to /auth/refresh-token
   using client = new EditorClient(
     {
-      baseUrl: 'wss://collab-editor.your-cloudflare-account.workers.dev',
-      instanceName: `${userId}.${getTabId()}`,
-      accessToken,
+      instanceName: `${getUserId()}.${getTabId()}`,
       onConnectionStateChange: (state) => {
         updateConnectionIndicator(state);
       },
@@ -291,13 +290,59 @@ function getTabId(): string {
 }
 ```
 
-## Step 5: Set Up the Worker Entry Point
+When `accessToken` is omitted, `LumenizeClient` automatically calls the `refresh` endpoint to get a token before connecting. This uses the refresh cookie that was set when the user clicked the magic link.
 
-The Worker routes requests to DOs and handles authentication. See [Security: Installation & Setup](./security#installation--setup) for key generation, environment variables, and production configuration.
+## Step 5: Set Up Authentication
+
+The mesh uses `@lumenize/auth` for passwordless authentication with magic link login. This step sets up the keys and environment.
+
+### Generate Ed25519 Key Pairs
+
+Run twice. Once for each pair (BLUE and GREEN):
+
+```bash @skip-check
+# Generate and display private key (copy for next step)
+openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
+```
+
+### Configure Secrets and Variables
+
+**Secrets** (set via `wrangler secret put`, each prompts interactively):
+
+```bash @skip-check
+# Primary key pair (signs new tokens)
+wrangler secret put JWT_PRIVATE_KEY_BLUE
+wrangler secret put JWT_PUBLIC_KEY_BLUE
+
+# Secondary key pair (can be empty initially — used for zero-downtime rotation)
+wrangler secret put JWT_PRIVATE_KEY_GREEN
+wrangler secret put JWT_PUBLIC_KEY_GREEN
+```
+
+Paste each key (including `-----BEGIN/END-----` lines) when prompted.
+
+Set `PRIMARY_JWT_KEY` to `BLUE` in the dashboard or wrangler.jsonc/wrangler.toml
+
+:::tip Key Rotation
+The BLUE/GREEN pattern allows zero-downtime key rotation. See [@lumenize/auth: Key Rotation](/docs/auth#key-rotation) for the procedure.
+:::
+
+### Install Auth Package
+
+```bash @skip-check
+npm install @lumenize/auth
+```
+
+## Step 6: Set Up the Worker Entry Point
 
 ```typescript @skip-check
 // src/index.ts
-import { LumenizeAuth, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/mesh';
+import {
+  LumenizeAuth,
+  createAuthRoutes,
+  createAuthMiddleware,
+  createWebSocketAuthMiddleware
+} from '@lumenize/auth';
 import { routeDORequest } from '@lumenize/utils';
 import { DocumentDO } from './document-do';
 import { SpellCheckWorker } from './spellcheck-worker';
@@ -310,11 +355,12 @@ const cors = { origin: ['https://app.example.com'] };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    // Auth routes - public (no middleware)
-    const authResponse = await routeDORequest(request, env, {
-      prefix: 'auth',
+    // Auth routes - public, clean URLs (/auth/magic-link, /auth/refresh-token, etc.)
+    const authRoutes = createAuthRoutes(env, {
+      redirect: '/app',  // Where to redirect after magic link
       cors
     });
+    const authResponse = await authRoutes(request);
     if (authResponse) return authResponse;
 
     // Create auth middleware (accepts BLUE and/or GREEN keys for rotation)
@@ -332,11 +378,7 @@ export default {
 };
 ```
 
-:::note Coming Soon
-`createLumenizeRouter` will provide this setup with sensible defaults, reducing the boilerplate above to a single function call.
-:::
-
-## Step 6: Configure wrangler.jsonc
+## Step 7: Configure wrangler.jsonc
 
 ```jsonc @skip-check
 {

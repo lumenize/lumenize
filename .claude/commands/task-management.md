@@ -20,11 +20,23 @@
 
 **Key**: MDX dominates. Task file holds implementation details, not user-facing API.
 
+**Especially valuable for:**
+- Multi-component flows (browser ↔ server ↔ external services)
+- User-facing APIs where ergonomics matter
+- Integration points between systems
+- Anything involving redirects, callbacks, or multi-step handshakes
+
 ### If NO → Implementation-First
 1. Add to `tasks/backlog.md` (small) or create `tasks/[project-name].md` (multi-phase)
 2. Define phases with goals + success criteria
 3. Implement, updating task file as you go
 4. Archive when complete
+
+**Better suited for:**
+- Internal utilities and helpers
+- Algorithms where the interface is already clear
+- Refactoring with stable external API
+- Bug fixes
 
 ---
 

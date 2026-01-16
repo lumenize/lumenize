@@ -337,8 +337,8 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     headers.set("x-partykit-namespace", doBindingNameSegment);
   } else {
     // Standard Lumenize mode uses normalized binding name
-    headers.set("x-lumenize-do-instance-name-or-id", doInstanceNameOrId);
-    headers.set("x-lumenize-do-binding-name", bindingName);
+    headers.set("X-Lumenize-DO-Instance-Name-Or-Id", doInstanceNameOrId);
+    headers.set("X-Lumenize-DO-Binding-Name", bindingName);
   }
   
   // Create new request with added headers

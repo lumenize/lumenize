@@ -127,6 +127,8 @@ Manage project tasks using two complementary workflows: docs-first for user-faci
 - ✅ Adding major features to packages
 - ✅ Creating new public methods/services
 - ✅ Changing existing user-facing behavior
+- ✅ Multi-component flows (browser ↔ server ↔ external services)
+- ✅ Anything involving redirects, callbacks, or multi-step handshakes
 
 **Use Implementation-First When**:
 - ✅ Refactoring internal code (no API changes)

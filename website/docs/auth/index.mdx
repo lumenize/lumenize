@@ -1,0 +1,333 @@
+---
+title: Auth
+description: Magic link authentication for Cloudflare Durable Objects and Lumenize Mesh
+---
+
+# Auth
+
+Passwordless authentication for Cloudflare Durable Objects with magic link login, JWT access tokens, and refresh token rotation. It serves as the default authentication for Lumenize Mesh.
+
+| Feature | Description |
+|---------|-------------|
+| **Passwordless** | Magic link email login (no passwords to manage) |
+| **Secure JWTs** | Ed25519 signed tokens with key rotation support |
+| **Refresh rotation** | Automatic token refresh with revocation |
+| **Rate limiting** | Built-in protection against abuse |
+| **WebSocket auth** | Token passing via subprotocol headers |
+| **Middleware** | Drop-in `routeDORequest` hooks for protected routes |
+
+## Getting Started
+
+For a complete setup walkthrough including key generation, environment configuration, and Worker setup, see [Lumenize Mesh: Getting Started](/docs/lumenize-mesh/getting-started#step-5-set-up-authentication).
+
+## Installation
+
+```bash @skip-check
+npm install @lumenize/auth
+```
+
+## Login Flow (LumenizeClient)
+
+```mermaid
+sequenceDiagram
+    box Browser
+        participant App
+        participant Client as LumenizeClient
+    end
+    participant Worker
+    participant AuthDO
+
+    rect rgba(200, 220, 240, 0.3)
+        Note over App,AuthDO: 1. Request magic link
+        App->>Worker: POST /auth/email-magic-link {email}
+        Worker->>AuthDO: Forward request
+        Note over AuthDO: Send email
+        AuthDO->>Worker: { message: "Check email" }
+        Worker->>App: Response
+    end
+
+    rect rgba(240, 220, 200, 0.3)
+        Note over App,AuthDO: 2. User clicks link, exchanges one-time token for refresh token
+        App->>Worker: GET /auth/magic-link?token=...
+        Worker->>AuthDO: Validate one-time token
+        AuthDO->>Worker: Set-Cookie + 302 redirect
+        Worker->>App: Redirect to redirect (set refresh_token cookie)
+        App->>Client: Create client
+    end
+
+    rect rgba(200, 240, 200, 0.3)
+        Note over Client,AuthDO: 3. Automatic access token fetch
+        Client->>Worker: POST /auth/refresh-token (cookie)
+        Worker->>AuthDO: Validate refresh token
+        AuthDO->>Worker: { access_token, expires_in }
+        Worker->>Client: Access token
+    end
+```
+
+### Request Magic Link Containing One-time Token
+
+```typescript @skip-check
+const response = await fetch('/auth/email-magic-link', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ email: 'user@example.com' })
+});
+// Returns: { message: "Check your email for the magic link", expires_in: 1800 }
+```
+
+### Exchange One-time Token for Refresh Token Cookie
+
+When the user clicks the magic link, the server validates the token, sets the refresh token cookie, and redirects to your app.
+
+**With LumenizeClient** (recommended): Token management is automatic with sensible defaults:
+
+```typescript @skip-check
+using client = new EditorClient({
+  instanceName: `${userId}.${tabId}`,
+  // baseUrl defaults to current origin, refresh defaults to /auth/refresh-token
+  onAuthenticationError: () => redirectToLogin()
+});
+```
+
+`LumenizeClient` handles token acquisition, refresh before expiration, and reconnection. See [LumenizeClient: Authentication](/docs/lumenize-mesh/lumenize-client#authentication).
+
+**Manual token management** (for non-Lumenize Mesh use):
+
+```typescript @skip-check
+// On app load, get access token using the refresh token cookie
+const response = await fetch('/auth/refresh-token', { method: 'POST' });
+if (!response.ok) {  // 401 if refresh token has expired
+  window.location.href = '/login';
+} else {
+  const { access_token } = await response.json();
+  // ...
+}
+```
+
+### Logout
+
+```typescript @skip-check
+await fetch('/auth/logout', {
+  method: 'POST'
+});
+// Refresh token cookie is cleared
+```
+
+## WebSocket Authentication
+
+If you are using LumenizeClient, this is done for you, but if not, smuggle the token in via the WebSocket subprotocol list:
+
+```javascript @skip-check
+// Client-side
+const ws = new WebSocket(url, ['lmz', `lmz.access-token.${accessToken}`]);
+```
+
+Use `createWebSocketAuthMiddleware` on the server:
+
+```typescript @skip-check
+import { createWebSocketAuthMiddleware } from '@lumenize/auth';
+
+const wsAuth = await createWebSocketAuthMiddleware({
+  publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
+});
+
+const response = await routeDORequest(request, env, {
+  onBeforeConnect: wsAuth
+});
+```
+
+## Key Rotation
+
+The package auth middleware supports zero-downtime key rotation using BLUE/GREEN key pairs by accepting an array of public keys for verification. Tokens are verified against each key until one succeeds, enabling seamless rotation:
+
+```typescript @skip-check
+const authMiddleware = await createAuthMiddleware({
+  publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
+});
+```
+
+### Secrets and Variables
+
+**Secrets**
+
+To generate use:
+```bash @skip-check
+# Generate and display private key (copy for next step)
+openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
+```
+
+Set in the dashboard or via command line with:
+
+```bash @skip-check
+# Primary key pair (signs new tokens)
+wrangler secret put JWT_PRIVATE_KEY_BLUE
+wrangler secret put JWT_PUBLIC_KEY_BLUE
+
+# Secondary key pair (verifies old tokens during rotation)
+wrangler secret put JWT_PRIVATE_KEY_GREEN
+wrangler secret put JWT_PUBLIC_KEY_GREEN
+```
+
+Paste each key (including `-----BEGIN/END-----` lines) when prompted.
+
+**Variable**
+
+Set `PRIMARY_JWT_KEY` to `BLUE` in the dashboard or wrangler.jsonc/wrangler.toml
+
+### Rotation Procedure
+
+Every 3 months for 6 month lifetime, do the following:
+1. **Generate new key pair** for the secondary slot (GREEN if BLUE is primary) using 
+2. **Switch primary** — change `PRIMARY_JWT_KEY` (to GREEN if BLUE is primary)
+3. **Deploy** — environment variables/secrets only become active on deploy
+
+## Test Mode
+
+For development, add `?_test=true` to get the magic link directly:
+
+```typescript @skip-check
+const response = await fetch('/auth/email-magic-link?_test=true', {
+  method: 'POST',
+  body: JSON.stringify({ email: 'test@example.com' })
+});
+// Returns: { message: "Magic link generated (test mode)", magic_link: "..." }
+```
+
+Requires `AUTH_TEST_MODE="true"` in environment.
+
+## Worker Setup
+
+Use `createAuthRoutes` to expose auth endpoints with clean URLs:
+
+```typescript @skip-check
+import { createAuthRoutes, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
+import { routeDORequest } from '@lumenize/utils';
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Auth routes - public, clean URLs (/auth/magic-link, /auth/refresh-token, etc.)
+    const authRoutes = createAuthRoutes(env, {
+      redirect: '/app',  // Required: where to redirect after magic link
+      // prefix: '/auth',           // Default: '/auth'
+      // binding: 'LUMENIZE_AUTH',  // Default: 'LUMENIZE_AUTH'
+      // instance: 'default',       // Default: 'default'
+      cors: { origin: ['https://app.example.com'] }
+    });
+    const authResponse = await authRoutes(request);
+    if (authResponse) return authResponse;
+
+    // Protected routes use middleware
+    const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+    const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
+    const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
+
+    return routeDORequest(request, env, {
+      onBeforeRequest: httpAuth,
+      onBeforeConnect: wsAuth,
+      cors: { origin: ['https://app.example.com'] }
+    }) ?? new Response('Not Found', { status: 404 });
+  }
+};
+```
+
+## API Reference
+
+### LumenizeAuth DO
+
+**HTTP Endpoints:**
+
+| Endpoint | Method | Response |
+|----------|--------|----------|
+| `/auth/email-magic-link` | POST | `{ message, expires_in }` |
+| `/auth/magic-link` | GET | 302 redirect to `redirect` (sets `refresh_token` cookie) |
+| `/auth/refresh-token` | POST | `{ access_token, expires_in }` |
+| `/auth/logout` | POST | `{ message }` (clears `refresh_token` cookie) |
+
+### Routing Function
+
+```typescript @skip-check
+const authRoutes = createAuthRoutes(env, {
+  redirect: string,              // Required: redirect destination after magic link
+  prefix?: string,                  // Default: '/auth'
+  binding?: string,                 // Default: 'LUMENIZE_AUTH'
+  instance?: string,                // Default: 'default'
+  cors?: CorsConfig                 // Optional: CORS configuration
+});
+```
+
+### Middleware Functions
+
+```typescript @skip-check
+// HTTP auth (for protected routes)
+const httpAuth = await createAuthMiddleware({
+  publicKeysPem: string[],
+  audience?: string,
+  issuer?: string
+});
+
+// WebSocket auth (for protected routes)
+const wsAuth = await createWebSocketAuthMiddleware({
+  publicKeysPem: string[],
+  audience?: string,
+  issuer?: string
+});
+```
+
+---
+
+## Internal Use (TODO: may be out of date)
+
+### RPC Methods
+
+- `getUserById(userId)` - Look up user by ID
+- `getUserByEmail(email)` - Look up user by email
+- `configure(options)` - Set auth configuration (including `redirect`)
+- `setEmailService(service)` - Set email provider
+
+### JWT Utilities
+
+```typescript @skip-check
+import {
+  signJwt,
+  verifyJwt,
+  verifyJwtWithRotation,
+  importPrivateKey,
+  importPublicKey,
+  parseJwtUnsafe
+} from '@lumenize/auth';
+```
+
+### WebSocket Utilities
+
+```typescript @skip-check
+import {
+  extractWebSocketToken,
+  verifyWebSocketToken,
+  getTokenTtl,
+  WS_CLOSE_CODES
+} from '@lumenize/auth';
+```
+
+### Email Services
+
+- `ConsoleEmailService` - Logs to console (development)
+- `HttpEmailService` - Sends via HTTP POST
+- `MockEmailService` - Collects emails in memory (testing)
+- `createDefaultEmailService(env)` - Factory for default service
+
+### Configuration
+
+Configure the Auth DO programmatically:
+
+```typescript @skip-check
+const stub = env.LUMENIZE_AUTH.getByName('default');
+await stub.configure({
+  redirect: '/',  // Required: where to redirect after magic link
+  issuer: 'https://myapp.com',
+  audience: 'https://api.myapp.com',
+  accessTokenTtl: 900,      // 15 minutes (default)
+  refreshTokenTtl: 2592000, // 30 days (default)
+  magicLinkTtl: 1800,       // 30 minutes (default)
+  rateLimitPerHour: 5       // 5 requests per email per hour (default)
+});
+```

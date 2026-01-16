@@ -25,18 +25,9 @@ class EditorClient extends LumenizeClient {
   }
 }
 
-// Fresh login — pass the token you just received
+// Minimal config — baseUrl defaults to origin, refresh defaults to /auth/refresh-token
 using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
-  instanceName: `${userId}.${tabId}`,
-  accessToken: jwt
-});
-
-// Page refresh — let client fetch token via refresh endpoint (cookie-based)
-using client = new EditorClient({
-  baseUrl: 'wss://app.example.com',
   instanceName: `${userId}.${tabId}`
-  // accessToken omitted — will be fetched automatically
 });
 ```
 
@@ -48,31 +39,33 @@ The `LumenizeClient` constructor takes a configuration object:
 
 ### Connection & Identity
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `baseUrl` | `string` | Base URL for WebSocket connection (e.g., `wss://app.example.com`) |
-| `instanceName` | `string` | Unique client identifier. Recommended: `${userId}.${tabId}` |
-| `gatewayBinding` | `string?` | [Gateway](./gateway) DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY` |
+- **`baseUrl`**: `string?` — Base URL for WebSocket connection. Default: current origin in browsers (e.g., `https://` → `wss://`). Required in Node.js.
+- **`instanceName`**: `string` — Unique client identifier. Recommended: `${userId}.${tabId}`
+- **`gatewayBinding`**: `string?` — [Gateway](./gateway) DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY`
 
 ### Authentication
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `accessToken` | `string?` | Initial JWT access token. If omitted, fetched via `refreshEndpoint` on connect. |
-| `refreshEndpoint` | `string?` | Token refresh endpoint. Default: `/auth/refresh-token` |
+- **`refresh`**: `string | () => Promise<string>` — Token refresh source. String = endpoint URL (POST, expects `{ access_token }`). Function = custom refresh logic. Default: `/auth/refresh-token`
+- **`accessToken`**: `string?` — Initial JWT access token. If omitted, fetched via `refresh` as needed which is the recommended configuration.
 
-**Token acquisition behavior:**
-- **`accessToken` provided**: Use it for initial connection (fresh login scenario)
-- **`accessToken` omitted**: Hit `refreshEndpoint` first to get token (page refresh scenario where refresh cookie is still valid)
+**Custom refresh example** (for non-standard auth providers):
+```typescript @skip-check
+using client = new EditorClient({
+  instanceName: `${userId}.${tabId}`,
+  refresh: async () => {
+    const response = await fetch('/my/custom/refresh');  // Cookies sent automatically (same-origin)
+    const data = await response.json();
+    return data.token;  // Return just the access token string
+  }
+});
+```
 
 ### Lifecycle Callbacks
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `onConnectionStateChange` | `(state) => void` | Called with `connecting`, `connected`, `reconnecting`, or `disconnected` |
-| `onConnectionError` | `(error) => void` | Low-level WebSocket errors (rarely actionable) |
-| `onAuthenticationError` | `(error: AuthenticationError) => void` | Called on auth failure with `code` and `reason` from Gateway close |
-| `onSubscriptionsLost` | `() => void` | Called after reconnection if grace period had expired |
+- **`onConnectionStateChange`**: `(state) => void` — Called with `connecting`, `connected`, `reconnecting`, or `disconnected`
+- **`onAuthenticationError`**: `(error: AuthenticationError) => void` — Called when re-login required (not for routine token refresh)
+- **`onSubscriptionsLost`**: `() => void` — Called after reconnection if grace period had expired
+- **`onConnectionError`**: `(error) => void` — Low-level WebSocket errors (rarely actionable)
 
 ## Mesh API
 
@@ -92,7 +85,7 @@ Methods on your client class can be called two ways:
 | Call Origin | Example | Access Control |
 |-------------|---------|----------------|
 | **Local** (your browser code) | `client.sendChange(change)` | No checks — direct method call |
-| **Mesh** (from DO/Worker) | Via `this.lmz.call()` to Gateway | `@mesh` decorator required |
+| **Mesh** (from DO/Worker) | `this.lmz.call()` via Gateway | `@mesh` decorator required |
 
 This means you can have both public methods for your UI and `@mesh` decorated methods for the mesh on the same class:
 
@@ -119,7 +112,7 @@ The WebSocket connection is established automatically upon instantiation. You do
 
 ### Resource Cleanup
 
-Use the `using` keyword for automatic cleanup:
+Use the `using` keyword for automatic cleanup as soon as it leaves scope:
 
 ```typescript @skip-check
 {
@@ -128,7 +121,7 @@ Use the `using` keyword for automatic cleanup:
 } // disconnects here
 ```
 
-Or call `disconnect()` manually:
+Or call `disconnect()`/`[Symbol.dispose]()` manually:
 
 ```typescript @skip-check
 client.disconnect();
@@ -158,10 +151,10 @@ if (client.connectionState === 'connected') {
 
 ## Access Control
 
-LumenizeClient has a similar **secure-by-default** model as DOs and Workers. The exception is that calls from other clients are rejected by default:
+LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The exception is that calls from other clients are rejected by default:
 
 With this default:
-- ✅ Calls from DOs and Workers are allowed
+- ✅ Calls from LumenizeDOs and LumenizeWorkers are allowed
 - ❌ Calls from other clients are rejected
 
 ### Opting In to Client-to-Client Communication
@@ -222,12 +215,16 @@ class EditorClient extends LumenizeClient {
 
 ### Authentication Errors
 
-When authentication fails, the Gateway closes the connection with a specific close code (4400, 4401, 4403). `LumenizeClient` translates these into `onAuthenticationError` calls:
+Token expiration (4401) is handled automatically — refresh and reconnect happen transparently. `onAuthenticationError` only fires when the user must re-login:
 
 ```typescript @skip-check
 using client = new EditorClient({
   accessToken,
   onAuthenticationError: (error) => {
+    // Only fires when re-login is required:
+    // - Refresh token expired (HTTP 401)
+    // - (unlikely, but just in case) Invalid token signature (4403)
+    // - (unlikely, but just in case) No token provided (4400)
     console.log('Auth failed:', error.code, error.reason);
     window.location.href = '/login';
   }
@@ -277,7 +274,7 @@ it('tests client-DO communication', async () => {
 The `Browser` class provides:
 - **Cookie simulation** — Critical for testing token refresh flows
 - **Realistic CORS behavior** — Catches preflight issues before production
-- **Injectable WebSocket Polyfill** — Connects through `vitest-pool-workers` to real DO instances
+- **Injectable WebSocket Polyfill** — Connects through `vitest-pool-workers` to DO instances running in `vitest-workers-pool`
 
 See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns including multi-user scenarios and authentication testing.
 
@@ -297,8 +294,8 @@ constructor(config: LumenizeClientConfig)
 **Methods:**
 - `ctn<T>()` — Create typed continuation builder
 - `connect()` — Manually reconnect
-- `disconnect()` — Close connection
-- `[Symbol.dispose]()` — Auto-cleanup (enables `using` keyword)
+- `disconnect()` — Close connection and clear internal state
+- `[Symbol.dispose]()` — Calls `disconnect()` (enables `using` keyword)
 
 **Overridable Methods:**
 - `onBeforeCall()` — Class-wide access control (access context via `this.lmz.callContext`)
@@ -315,11 +312,11 @@ type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnect
 
 ```typescript @skip-check
 interface LumenizeClientConfig {
-  baseUrl: string;
+  baseUrl?: string;  // default: current origin in browsers; required in Node.js
   instanceName: string;
   gatewayBinding?: string;  // default: LUMENIZE_CLIENT_GATEWAY
-  accessToken?: string;  // If omitted, fetched via refreshEndpoint
-  refreshEndpoint?: string;
+  accessToken?: string;  // If omitted, fetched via refresh
+  refresh?: string | (() => Promise<string>);  // default: /auth/refresh-token
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;  // Rarely actionable
   onAuthenticationError?: (error: AuthenticationError) => void;
