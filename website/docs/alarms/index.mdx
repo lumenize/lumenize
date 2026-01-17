@@ -12,7 +12,7 @@ De✨light✨ful alarm scheduling for Cloudflare Durable Objects using [continua
 - **[Continuations](/docs/lumenize-mesh/continuations)** - Type-safe, serializable task handlers
 - **Multiple schedules** - Specific time, seconds from now, or cron expressions
 - **SQL persistence** - Survives DO eviction and restarts
-- **Auto-injection** - Automatically available via NADIS when using LumenizeBase
+- **Auto-injection** - Automatically available via NADIS when using LumenizeDO
 - **Testing support** - Manual alarm triggering for tests
 
 ## Installation
@@ -44,10 +44,10 @@ this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
 ## Quick Start
 
 ```typescript @skip-check
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 import '@lumenize/alarms'; // Registers alarms service
 
-class MyDO extends LumenizeBase<Env> {
+class MyDO extends LumenizeDO<Env> {
   async fetch(request: Request): Promise<Response> {
     // Schedule a task 60 seconds from now
     this.svc.alarms.schedule(
@@ -68,17 +68,17 @@ class MyDO extends LumenizeBase<Env> {
 
 ## Setup Your Durable Object
 
-### Usage with LumenizeBase (Recommended)
+### Usage with LumenizeDO (Recommended)
 
-When using `@lumenize/lumenize-base`, alarms are automatically available via `this.svc`:
+When using `@lumenize/mesh`, alarms are automatically available via `this.svc`:
 
 ```typescript @skip-check
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 import '@lumenize/core';    // Registers sql in this.svc
 import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
 
-class MyDO extends LumenizeBase<Env> {
-  // No boilerplate required - LumenizeBase handles alarm() delegation
+class MyDO extends LumenizeDO<Env> {
+  // No boilerplate required - LumenizeDO handles alarm() delegation
   
   async scheduleTask(userId: string, data: any) {
     const schedule = this.svc.alarms.schedule(
@@ -98,7 +98,7 @@ class MyDO extends LumenizeBase<Env> {
 ```
 
 :::tip No Alarm Boilerplate
-`LumenizeBase` automatically delegates the `alarm()` handler to `@lumenize/alarms` - no setup required!
+`LumenizeDO` automatically delegates the `alarm()` handler to `@lumenize/alarms` - no setup required!
 :::
 
 ## Scheduling Tasks
@@ -162,7 +162,7 @@ this.svc.alarms.schedule(
 ### Simple Handlers
 
 ```typescript @skip-check
-class MyDO extends LumenizeBase {
+class MyDO extends LumenizeDO {
   async scheduleTasks() {
     // No arguments
     this.svc.alarms.schedule(30, this.ctn().simpleTask());
@@ -189,7 +189,7 @@ class MyDO extends LumenizeBase {
 Capture context by passing it as arguments to your continuation:
 
 ```typescript @skip-check
-class SessionDO extends LumenizeBase {
+class SessionDO extends LumenizeDO {
   async scheduleUserReminder(userId: string, message: string) {
     const scheduledAt = Date.now();
     
@@ -221,7 +221,7 @@ class SessionDO extends LumenizeBase {
 Build complex workflows by chaining operations:
 
 ```typescript @skip-check
-class WorkflowDO extends LumenizeBase {
+class WorkflowDO extends LumenizeDO {
   async startWorkflow(data: any) {
     this.svc.alarms.schedule(
       60,
@@ -352,7 +352,7 @@ All cron schedules use UTC. Convert local times to UTC when scheduling.
 ### Conditional Execution
 
 ```typescript @skip-check
-class SmartDO extends LumenizeBase {
+class SmartDO extends LumenizeDO {
   async scheduleConditionalTask() {
     this.svc.alarms.schedule(
       60,
@@ -381,7 +381,7 @@ class SmartDO extends LumenizeBase {
 ### Retry with Backoff
 
 ```typescript @skip-check
-class ResilientDO extends LumenizeBase {
+class ResilientDO extends LumenizeDO {
   async startWithRetry(url: string, maxRetries = 3) {
     this.svc.alarms.schedule(
       5, // Initial delay
@@ -419,7 +419,7 @@ class ResilientDO extends LumenizeBase {
 ### State Machine with Alarms
 
 ```typescript @skip-check
-class StateMachineDO extends LumenizeBase {
+class StateMachineDO extends LumenizeDO {
   async startStateMachine(data: any) {
     // Initial state
     this.ctx.storage.kv.put('state', 'init');
@@ -579,7 +579,7 @@ See the [TypeDoc API Reference](/docs/alarms/api) for complete type information.
 ## Next Steps
 
 - **[Continuations](/docs/lumenize-mesh/continuations)** - Understanding the continuation pattern
-- **[LumenizeBase](/docs/lumenize-base/index)** - DO-to-DO communication with `this.lmz.call()`
+- **[LumenizeDO](/docs/lumenize-base/index)** - DO-to-DO communication with `this.lmz.call()`
 - **[Fetch](/docs/fetch/index)** - External API calls with continuations
 - **[Testing](/docs/testing/alarm-simulation)** - Testing alarms without waiting
 

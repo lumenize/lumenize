@@ -397,7 +397,7 @@ export interface WebSocketTokenVerifyResult {
  * 
  * @example
  * ```typescript
- * class MyDO extends LumenizeBase {
+ * class MyDO extends LumenizeDO {
  *   #publicKeys: CryptoKey[] = [];
  *   
  *   async webSocketMessage(ws: WebSocket, message: string) {

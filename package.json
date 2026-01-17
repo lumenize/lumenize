@@ -16,7 +16,7 @@
     "prepare": "chmod +x scripts/*.sh",
     "postinstall": "./scripts/setup-symlinks.sh",
     "types": "./scripts/generate-types.sh",
-    "test:code": "npm run test -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils -w @lumenize/proxy-fetch",
+    "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",
     "type-check": "npm run type-check -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils",

@@ -1,8 +1,8 @@
 import '@lumenize/fetch';       // Registers fetch in this.svc
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 import { FetchExecutorEntrypoint } from '@lumenize/fetch';
 import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
-import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
+import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
 
 // Export FetchExecutorEntrypoint for service binding
 export { FetchExecutorEntrypoint };
@@ -11,7 +11,7 @@ export { FetchExecutorEntrypoint };
  * Test DO for proxyFetch
  * Uses alarms for timeout handling
  */
-export class _TestSimpleDO extends LumenizeBase {
+export class _TestSimpleDO extends LumenizeDO {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
     this.lmz.init({ bindingName: 'TEST_SIMPLE_DO' });

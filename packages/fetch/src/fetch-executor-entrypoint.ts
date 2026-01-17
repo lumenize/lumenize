@@ -22,9 +22,9 @@
  */
 
 import { debug } from '@lumenize/core';
-import { LumenizeWorker } from '@lumenize/lumenize-base';
+import { LumenizeWorker } from '@lumenize/mesh';
 import { ResponseSync } from '@lumenize/structured-clone';
-import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
+import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
 import type { FetchMessage } from './fetch';
 
 const DEFAULT_TIMEOUT = 30000;

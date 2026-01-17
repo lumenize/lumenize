@@ -9,7 +9,7 @@
 import '@lumenize/core';    // Side-effect import for NADIS registration (sql, debug)
 import '@lumenize/alarms';  // Side-effect import for NADIS registration (alarms)
 import { debug, type DebugLogger } from '@lumenize/core';
-import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeBase } from '@lumenize/lumenize-base';
+import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
 import type { ProxyFetchWorkerOptions } from './types';
 import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
@@ -33,9 +33,9 @@ export interface FetchMessage {
  * @example
  * ```typescript
  * import '@lumenize/fetch';  // Registers fetch in this.svc
- * import { LumenizeBase } from '@lumenize/lumenize-base';
+ * import { LumenizeDO } from '@lumenize/mesh';
  * 
- * class MyDO extends LumenizeBase<Env> {
+ * class MyDO extends LumenizeDO<Env> {
  *   constructor(ctx: DurableObjectState, env: Env) {
  *     super(ctx, env);
  *     this.lmz.init({ bindingName: 'MY_DO' });
@@ -77,7 +77,7 @@ export class Fetch extends NadisPlugin {
    * Make an external fetch request using DO-Worker architecture.
    * 
    * **Setup Required**:
-   * 1. Your DO must extend `LumenizeBase`
+   * 1. Your DO must extend `LumenizeDO`
    * 2. Call `this.lmz.init({ bindingName })` in constructor
    * 3. Import `@lumenize/fetch` (registers NADIS plugin)
    * 4. Export `FetchExecutorEntrypoint` from your worker
@@ -226,7 +226,7 @@ export class Fetch extends NadisPlugin {
 
   /**
    * Internal handler for proxy fetch results (both success and timeout paths).
-   * This replaces the monkey-patched __handleProxyFetchResult on LumenizeBase prototype.
+   * This replaces the monkey-patched __handleProxyFetchResult on LumenizeDO prototype.
    * 
    * Called by:
    * - Worker executor on success (with response)

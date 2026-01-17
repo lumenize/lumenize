@@ -1,10 +1,11 @@
-import '@lumenize/core';
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { debug } from '@lumenize/core';
+import { LumenizeDO } from '@lumenize/mesh';
+import { routeDORequest, type CorsOptions } from '@lumenize/utils';
 import { ALL_SCHEMAS } from './schemas';
 import type { AuthEnv, User, MagicLink, RefreshToken, LoginResponse, AuthError, AuthConfig, EmailService } from './types';
-import { 
-  generateRandomString, 
-  generateUuid, 
+import {
+  generateRandomString,
+  generateUuid,
   hashString,
   signJwt,
   importPrivateKey,
@@ -13,24 +14,28 @@ import {
 import { ConsoleEmailService } from './email-service';
 
 /**
- * Extended configuration with rate limiting
- */
-interface AuthConfigExtended extends AuthConfig {
-  /** Max magic link requests per email per hour (default: 5) */
-  rateLimitPerHour?: number;
-}
-
-/**
  * Default configuration values
+ * Note: redirect is intentionally undefined - it must be set via configure()
  */
-const DEFAULT_CONFIG: Required<AuthConfigExtended> = {
+const DEFAULT_CONFIG: Omit<Required<AuthConfig>, 'redirect' | 'cors'> & { redirect: string | undefined; cors: undefined } = {
   issuer: 'https://lumenize.local',
   audience: 'https://lumenize.local',
   accessTokenTtl: 900, // 15 minutes
   refreshTokenTtl: 2592000, // 30 days
   magicLinkTtl: 1800, // 30 minutes
   rateLimitPerHour: 5, // 5 requests per hour per email
+  prefix: '/auth',
+  gatewayBindingName: 'LUMENIZE_AUTH',
+  instanceName: 'default',
+  cors: undefined,
+  redirect: undefined, // Must be configured - DO returns 'not_configured' if missing
 };
+
+/**
+ * Error code returned when LumenizeAuth needs configuration.
+ * Used by createAuthRoutes to trigger lazy initialization.
+ */
+export const AUTH_NOT_CONFIGURED_ERROR = 'not_configured';
 
 /**
  * LumenizeAuth - Durable Object for authentication
@@ -44,9 +49,10 @@ const DEFAULT_CONFIG: Required<AuthConfigExtended> = {
  * - POST /auth/refresh-token - Refresh access token
  * - POST /auth/logout - Revoke refresh token
  */
-export class LumenizeAuth extends LumenizeBase<AuthEnv> {
+export class LumenizeAuth extends LumenizeDO<AuthEnv> {
+  #debug = debug(this);
   #schemaInitialized = false;
-  #config: Required<AuthConfigExtended> = DEFAULT_CONFIG;
+  #config: Required<AuthConfig> | null = null; // null until configure() called
   #emailService: EmailService = new ConsoleEmailService();
 
   /**
@@ -73,9 +79,15 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
 
   /**
    * Configure auth settings
+   *
+   * Must be called before auth endpoints can be used.
+   * createAuthRoutes handles this automatically via lazy initialization.
    */
-  configure(config: Partial<AuthConfigExtended>): void {
-    this.#config = { ...DEFAULT_CONFIG, ...config };
+  configure(config: AuthConfig): void {
+    if (!config.redirect) {
+      throw new Error('redirect is required in auth config');
+    }
+    this.#config = { ...DEFAULT_CONFIG, ...config } as Required<AuthConfig>;
   }
 
   /**
@@ -95,36 +107,41 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
     // Ensure schema exists
     this.#ensureSchema();
 
+    // Check config is set - if not, return error so Worker can call configure() and retry
+    if (!this.#config) {
+      return this.#errorResponse(503, AUTH_NOT_CONFIGURED_ERROR, 'Auth DO not configured. Call configure() first.');
+    }
+
     const url = new URL(request.url);
     const path = url.pathname;
 
-    const log = this.svc.debug('lmz.auth.LumenizeAuth');
+    const log = this.#debug('lmz.auth.LumenizeAuth');
 
     try {
       // Route to appropriate handler
       if (path.endsWith('/enter') && request.method === 'GET') {
         return this.#handleEnter(request);
       }
-      
+
       if (path.endsWith('/email-magic-link') && request.method === 'POST') {
         return await this.#handleEmailMagicLink(request, url);
       }
-      
+
       if (path.endsWith('/magic-link') && request.method === 'GET') {
         return await this.#handleMagicLink(request, url);
       }
-      
+
       if (path.endsWith('/refresh-token') && request.method === 'POST') {
         return await this.#handleRefreshToken(request);
       }
-      
+
       if (path.endsWith('/logout') && request.method === 'POST') {
         return await this.#handleLogout(request);
       }
 
       return new Response('Not Found', { status: 404 });
     } catch (error) {
-      log.error('Auth error', { 
+      log.error('Auth error', {
         error: error instanceof Error ? error.message : String(error),
         path,
         method: request.method
@@ -160,8 +177,10 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
    * Body: { email: string }
    */
   async #handleEmailMagicLink(request: Request, url: URL): Promise<Response> {
+    const config = this.#config!;
+
     let email: string;
-    
+
     try {
       const body = await request.json() as { email?: string };
       email = body.email?.toLowerCase().trim() || '';
@@ -174,14 +193,14 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
     }
 
     // Rate limiting check
-    if (!this.#checkRateLimit(email)) {
+    if (!this.#checkRateLimit(email, config)) {
       return this.#errorResponse(429, 'rate_limit_exceeded', 'Too many requests. Please try again later.');
     }
-    
+
     // Generate magic link token and state
     const token = generateRandomString(32);
     const state = generateRandomString(32);
-    const expiresAt = Date.now() + (this.#config.magicLinkTtl * 1000);
+    const expiresAt = Date.now() + (config.magicLinkTtl * 1000);
 
     // Store magic link
     this.svc.sql`
@@ -195,12 +214,12 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
 
     // Check for test mode - return magic link in response instead of sending email
     const isTestMode = this.env.AUTH_TEST_MODE === 'true' && url.searchParams.get('_test') === 'true';
-    
+
     if (isTestMode) {
       return Response.json({
         message: 'Magic link generated (test mode)',
         magic_link: magicLinkUrl,
-        expires_in: this.#config.magicLinkTtl
+        expires_in: config.magicLinkTtl
       });
     }
 
@@ -208,17 +227,17 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
     try {
       await this.#emailService.send(email, magicLinkUrl);
     } catch (error) {
-      const log = this.svc.debug('lmz.auth.LumenizeAuth');
-      log.error('Failed to send magic link email', { 
+      const log = this.#debug('lmz.auth.LumenizeAuth');
+      log.error('Failed to send magic link email', {
         error: error instanceof Error ? error.message : String(error),
-        email 
+        email
       });
       // Still return success to prevent email enumeration attacks
     }
 
     return Response.json({
       message: 'Check your email for the magic link',
-      expires_in: this.#config.magicLinkTtl
+      expires_in: config.magicLinkTtl
     });
   }
 
@@ -227,6 +246,8 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
    * Query params: magic-link-token, state
    */
   async #handleMagicLink(_request: Request, url: URL): Promise<Response> {
+    const config = this.#config!;
+
     const token = url.searchParams.get('magic-link-token');
     const state = url.searchParams.get('state');
 
@@ -275,22 +296,16 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
       UPDATE users SET last_login_at = ${Date.now()} WHERE id = ${user.id}
     `;
 
-    // Generate tokens
-    const accessToken = await this.#generateAccessToken(user.id);
-    const refreshToken = await this.#generateRefreshToken(user.id);
+    // Generate refresh token (access token obtained via /refresh-token after redirect)
+    const refreshToken = await this.#generateRefreshToken(user.id, config);
 
-    // Return response with refresh token in cookie
-    const response: LoginResponse = {
-      access_token: accessToken,
-      token_type: 'Bearer',
-      expires_in: this.#config.accessTokenTtl
-    };
-
-    return new Response(JSON.stringify(response), {
-      status: 200,
+    // Return 302 redirect with refresh token in cookie
+    // Browser navigates to redirect URL, then SPA calls /refresh-token to get access token
+    return new Response(null, {
+      status: 302,
       headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
+        'Location': config.redirect,
+        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken, config)
       }
     });
   }
@@ -299,6 +314,8 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
    * POST /auth/refresh-token - Refresh access token using refresh token from cookie
    */
   async #handleRefreshToken(request: Request): Promise<Response> {
+    const config = this.#config!;
+
     const cookieHeader = request.headers.get('Cookie') || '';
     const refreshToken = this.#extractCookie(cookieHeader, 'refresh-token');
 
@@ -338,20 +355,20 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
     `;
 
     // Generate new tokens
-    const newAccessToken = await this.#generateAccessToken(storedToken.user_id);
-    const newRefreshToken = await this.#generateRefreshToken(storedToken.user_id);
+    const newAccessToken = await this.#generateAccessToken(storedToken.user_id, config);
+    const newRefreshToken = await this.#generateRefreshToken(storedToken.user_id, config);
 
     const response: LoginResponse = {
       access_token: newAccessToken,
       token_type: 'Bearer',
-      expires_in: this.#config.accessTokenTtl
+      expires_in: config.accessTokenTtl
     };
 
     return new Response(JSON.stringify(response), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Set-Cookie': this.#createRefreshTokenCookie(newRefreshToken)
+        'Set-Cookie': this.#createRefreshTokenCookie(newRefreshToken, config)
       }
     });
   }
@@ -457,10 +474,10 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
   /**
    * Generate a signed JWT access token
    */
-  async #generateAccessToken(userId: string): Promise<string> {
+  async #generateAccessToken(userId: string, config: Required<AuthConfig>): Promise<string> {
     const activeKey = this.env.ACTIVE_JWT_KEY || 'BLUE';
-    const privateKeyPem = activeKey === 'GREEN' 
-      ? this.env.JWT_PRIVATE_KEY_GREEN 
+    const privateKeyPem = activeKey === 'GREEN'
+      ? this.env.JWT_PRIVATE_KEY_GREEN
       : this.env.JWT_PRIVATE_KEY_BLUE;
 
     if (!privateKeyPem) {
@@ -468,12 +485,12 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
     }
 
     const privateKey = await importPrivateKey(privateKeyPem);
-    
+
     const payload = createJwtPayload({
-      issuer: this.#config.issuer,
-      audience: this.#config.audience,
+      issuer: config.issuer,
+      audience: config.audience,
       subject: userId,
-      expiresInSeconds: this.#config.accessTokenTtl
+      expiresInSeconds: config.accessTokenTtl
     });
 
     return signJwt(payload, privateKey, activeKey);
@@ -482,11 +499,11 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
   /**
    * Generate a refresh token and store its hash
    */
-  async #generateRefreshToken(userId: string): Promise<string> {
+  async #generateRefreshToken(userId: string, config: Required<AuthConfig>): Promise<string> {
     const token = generateRandomString(32);
     const tokenHash = await hashString(token);
     const now = Date.now();
-    const expiresAt = now + (this.#config.refreshTokenTtl * 1000);
+    const expiresAt = now + (config.refreshTokenTtl * 1000);
 
     this.svc.sql`
       INSERT INTO refresh_tokens (token_hash, user_id, expires_at, created_at, revoked)
@@ -499,8 +516,8 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
   /**
    * Create a secure cookie for the refresh token
    */
-  #createRefreshTokenCookie(token: string): string {
-    const maxAge = this.#config.refreshTokenTtl;
+  #createRefreshTokenCookie(token: string, config: Required<AuthConfig>): string {
+    const maxAge = config.refreshTokenTtl;
     return `refresh-token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
   }
 
@@ -531,7 +548,7 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
    * Check and update rate limit for an email
    * Returns true if request is allowed, false if rate limited
    */
-  #checkRateLimit(email: string): boolean {
+  #checkRateLimit(email: string, config: Required<AuthConfig>): boolean {
     const key = `rate:${email}`;
     const now = Date.now();
     const windowMs = 60 * 60 * 1000; // 1 hour in milliseconds
@@ -563,7 +580,7 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
     }
 
     // Check if under limit
-    if (record.count < this.#config.rateLimitPerHour) {
+    if (record.count < config.rateLimitPerHour) {
       // Increment count
       this.svc.sql`
         UPDATE rate_limits SET count = count + 1 WHERE key = ${key}
@@ -585,5 +602,107 @@ export class LumenizeAuth extends LumenizeBase<AuthEnv> {
       headers: { 'Content-Type': 'application/json' }
     });
   }
+}
+
+/**
+ * Creates an auth routes handler that wraps routeDORequest with URL rewriting.
+ *
+ * Translates clean auth URLs to proper DO routing paths:
+ * - `/auth/magic-link` → `/auth/LUMENIZE_AUTH/default/magic-link`
+ * - `/auth/refresh-token` → `/auth/LUMENIZE_AUTH/default/refresh-token`
+ *
+ * Handles lazy initialization: if the DO returns 'not_configured' error,
+ * calls `configure()` and retries the request. This happens only on the first
+ * request after DO eviction, so normal operation has zero overhead.
+ *
+ * @example
+ * ```typescript
+ * const authRoutes = createAuthRoutes(env, {
+ *   redirect: '/app',
+ *   cors: { origin: ['https://app.example.com'] }
+ * });
+ *
+ * const authResponse = await authRoutes(request);
+ * if (authResponse) return authResponse;
+ * ```
+ */
+export function createAuthRoutes(
+  env: AuthEnv,
+  options: AuthConfig
+): (request: Request) => Promise<Response | undefined> {
+  const {
+    prefix = '/auth',
+    gatewayBindingName = 'LUMENIZE_AUTH',
+    instanceName = 'default',
+    cors,
+  } = options;
+
+  // Normalize prefix (ensure starts with /, no trailing /)
+  const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
+  const cleanPrefix = normalizedPrefix.endsWith('/')
+    ? normalizedPrefix.slice(0, -1)
+    : normalizedPrefix;
+
+  return async (request: Request): Promise<Response | undefined> => {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // Check if this is an auth route
+    if (!path.startsWith(cleanPrefix + '/') && path !== cleanPrefix) {
+      return undefined;
+    }
+
+    // Extract the endpoint path after the prefix
+    // e.g., "/auth/magic-link" → "magic-link"
+    const endpointPath = path.slice(cleanPrefix.length + 1) || '';
+
+    // Rewrite URL to include binding and instance name
+    // "/auth/magic-link" → "/auth/LUMENIZE_AUTH/default/magic-link"
+    const rewrittenPath = `${cleanPrefix}/${gatewayBindingName}/${instanceName}/${endpointPath}`;
+    const rewrittenUrl = new URL(request.url);
+    rewrittenUrl.pathname = rewrittenPath;
+
+    // Create new request with rewritten URL
+    const rewrittenRequest = new Request(rewrittenUrl.toString(), request);
+
+    // Route to DO
+    let response = await routeDORequest(rewrittenRequest, env, {
+      prefix: cleanPrefix,
+      cors: cors as CorsOptions,
+    });
+
+    if (!response) {
+      return undefined;
+    }
+
+    // Check for 'not_configured' error - indicates DO needs lazy initialization
+    if (response.status === 503) {
+      // Clone response to read body without consuming
+      const clonedResponse = response.clone();
+      try {
+        const body = await clonedResponse.json() as { error?: string };
+        if (body.error === AUTH_NOT_CONFIGURED_ERROR) {
+          // Configure the DO with full options
+          const doNamespace = env[gatewayBindingName as keyof AuthEnv] as DurableObjectNamespace;
+          if (doNamespace) {
+            const stub = doNamespace.get(doNamespace.idFromName(instanceName));
+            await (stub as any).configure(options);
+          }
+
+          // Retry the original request
+          // Need to create a fresh request since the original may have been consumed
+          const retryRequest = new Request(rewrittenUrl.toString(), request);
+          response = await routeDORequest(retryRequest, env, {
+            prefix: cleanPrefix,
+            cors: cors as CorsOptions,
+          });
+        }
+      } catch {
+        // Not JSON or other error - return original response
+      }
+    }
+
+    return response ?? undefined;
+  };
 }
 

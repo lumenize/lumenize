@@ -7,7 +7,7 @@
 import '@lumenize/core';  // Side-effect import for NADIS registration (sql, debug)
 import { parseCronExpression } from 'cron-schedule';
 import { debug, type sql as sqlType, type DebugLogger } from '@lumenize/core';
-import { NadisPlugin, getOperationChain, type OperationChain } from '@lumenize/lumenize-base';
+import { NadisPlugin, getOperationChain, type OperationChain } from '@lumenize/mesh';
 import { preprocess, parse } from '@lumenize/structured-clone';
 import { ulidFactory } from 'ulid-workers';
 import type { Schedule } from './types.js';
@@ -31,9 +31,9 @@ function getNextCronTime(cron: string): Date {
  * With LumenizeBase (recommended - auto-injected):
  * ```typescript
  * import '@lumenize/alarms';  // Registers alarms in this.svc
- * import { LumenizeBase } from '@lumenize/lumenize-base';
+ * import { LumenizeDO } from '@lumenize/mesh';
  * 
- * class MyDO extends LumenizeBase<Env> {
+ * class MyDO extends LumenizeDO<Env> {
  *   async alarm() {
  *     await this.svc.alarms.alarm();
  *   }

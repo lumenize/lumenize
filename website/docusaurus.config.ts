@@ -202,24 +202,24 @@ const config: Config = {
           hideBreadcrumbs: true,
         },
       ],
-      [
-        'docusaurus-plugin-typedoc',
-        {
-          id: 'lumenize-base',
-          entryPoints: ['../packages/lumenize-base/src/index.ts'],
-          tsconfig: '../packages/lumenize-base/tsconfig.build.json',
-          out: 'docs/lumenize-base/api',
-          sidebar: {
-            autoConfiguration: true,
-          },
-          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
-          excludeInternal: true,
-          excludeExternals: true,
-          excludePrivate: true,
-          readme: 'none',
-          hideBreadcrumbs: true,
-        },
-      ],
+      // Note: @lumenize/mesh docs are now hand-written in website/docs/lumenize-mesh/
+      // TypeDoc auto-generation disabled in favor of curated documentation
+      // [
+      //   'docusaurus-plugin-typedoc',
+      //   {
+      //     id: 'mesh',
+      //     entryPoints: ['../packages/mesh/src/index.ts'],
+      //     tsconfig: '../packages/mesh/tsconfig.build.json',
+      //     out: 'docs/lumenize-mesh/api',
+      //     sidebar: { autoConfiguration: true },
+      //     plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+      //     excludeInternal: true,
+      //     excludeExternals: true,
+      //     excludePrivate: true,
+      //     readme: 'none',
+      //     hideBreadcrumbs: true,
+      //   },
+      // ],
       // Doc-test plugin - generates docs from test files
       [
         docTestPlugin,

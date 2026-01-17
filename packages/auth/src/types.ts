@@ -68,18 +68,31 @@ export interface EmailService {
 
 /**
  * Auth configuration options
+ * Used by both createAuthRoutes and LumenizeAuth.configure()
  */
 export interface AuthConfig {
-  /** Issuer identifier for JWTs (e.g., your app URL) */
-  issuer: string;
-  /** Audience identifier for JWTs (e.g., your API URL) */
-  audience: string;
+  /** URL to redirect to after magic link validation (REQUIRED) */
+  redirect: string;
+  /** Issuer identifier for JWTs (default: 'https://lumenize.local') */
+  issuer?: string;
+  /** Audience identifier for JWTs (default: 'https://lumenize.local') */
+  audience?: string;
   /** Access token expiration in seconds (default: 900 = 15 minutes) */
   accessTokenTtl?: number;
   /** Refresh token expiration in seconds (default: 2592000 = 30 days) */
   refreshTokenTtl?: number;
   /** Magic link expiration in seconds (default: 1800 = 30 minutes) */
   magicLinkTtl?: number;
+  /** Max magic link requests per email per hour (default: 5) */
+  rateLimitPerHour?: number;
+  /** URL prefix for auth endpoints (default: '/auth') */
+  prefix?: string;
+  /** DO binding name (default: 'LUMENIZE_AUTH') */
+  gatewayBindingName?: string;
+  /** DO instance name (default: 'default') */
+  instanceName?: string;
+  /** CORS configuration for auth endpoints */
+  cors?: AuthCorsOptions;
 }
 
 /**
@@ -118,4 +131,14 @@ export interface AuthError {
   error: string;
   error_description?: string;
 }
+
+/**
+ * CORS configuration for auth routes
+ */
+export type AuthCorsOptions =
+  | false // No CORS headers
+  | true // Permissive: echo any Origin
+  | { origin: string[] } // Whitelist of allowed origins
+  | { origin: (origin: string, request: Request) => boolean }; // Custom validation function
+
 

@@ -6,11 +6,11 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import '@lumenize/core';    // Registers sql in this.svc
 import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 import type { Schedule } from '@lumenize/alarms';
 
 // Example: Task scheduling DO
-class TaskSchedulerDO extends LumenizeBase<any> {
+class TaskSchedulerDO extends LumenizeDO<any> {
   executedTasks: Array<{ name: string; time: number }> = [];
 
   // Schedule a task - seconds from now

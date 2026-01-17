@@ -30,7 +30,7 @@
   "dependencies": {
     "@lumenize/core": "*",
     "@lumenize/debug": "*",
-    "@lumenize/lumenize-base": "*",
+    "@lumenize/mesh": "*",
     "@lumenize/structured-clone": "*",
     "cron-schedule": "^5.0.1",
     "ulid-workers": "^2.1.0"

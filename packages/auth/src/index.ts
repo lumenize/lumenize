@@ -4,8 +4,8 @@
  * Provides magic link login, JWT access tokens, and refresh token rotation.
  */
 
-// Main Auth DO class
-export { LumenizeAuth } from './lumenize-auth';
+// Main Auth DO class and routing
+export { LumenizeAuth, createAuthRoutes, AUTH_NOT_CONFIGURED_ERROR } from './lumenize-auth';
 
 // JWT utilities
 export { 
@@ -49,7 +49,7 @@ export {
 } from './middleware';
 
 // Types
-export type { 
+export type {
   User,
   MagicLink,
   RefreshToken,
@@ -59,7 +59,8 @@ export type {
   AuthConfig,
   AuthEnv,
   LoginResponse,
-  AuthError
+  AuthError,
+  AuthCorsOptions
 } from './types';
 
 // Schemas (for reference/customization)

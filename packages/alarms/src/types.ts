@@ -1,4 +1,4 @@
-import type { OperationChain } from '@lumenize/lumenize-base';
+import type { OperationChain } from '@lumenize/mesh';
 
 /**
  * Represents a scheduled task within a Durable Object.

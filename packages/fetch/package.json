@@ -44,7 +44,7 @@
   "dependencies": {
     "@lumenize/alarms": "*",
     "@lumenize/core": "*",
-    "@lumenize/lumenize-base": "*",
+    "@lumenize/mesh": "*",
     "@lumenize/structured-clone": "^0.17.0",
     "@lumenize/test-endpoints": "^0.17.0",
     "@lumenize/utils": "^0.17.0"

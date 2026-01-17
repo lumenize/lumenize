@@ -2,14 +2,14 @@
 import { Env } from 'cloudflare:test';
 import '@lumenize/core';    // Registers sql in this.svc
 import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 import type { Schedule } from '../src/alarms';
 
 // Export DOs for documentation examples
 export { TaskSchedulerDO } from './for-docs/basic-usage.test';
 export { MyDO as LumenizeBasePatternDO } from './for-docs/lumenize-base-pattern.test';
 
-export class AlarmDO extends LumenizeBase<Env> {
+export class AlarmDO extends LumenizeDO<Env> {
   executedAlarms: Array<{ payload: any }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {

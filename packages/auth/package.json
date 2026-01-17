@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "@lumenize/core": "*",
-    "@lumenize/lumenize-base": "*",
+    "@lumenize/mesh": "*",
     "@lumenize/utils": "*"
   },
   "peerDependencies": {

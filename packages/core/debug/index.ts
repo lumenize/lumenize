@@ -1,18 +1,19 @@
 /**
- * Debug - Scoped debug logging for Cloudflare Durable Objects
- * 
- * Part of @lumenize/core. Provides structured, filterable debug logging optimized 
- * for Cloudflare's JSON log dashboard. Inspired by npm's `debug` package with 
- * level support (debug, info, warn, error).
- * 
- * Server-side (NADIS-enabled):
+ * Debug - Scoped debug logging for Cloudflare Workers and Durable Objects
+ *
+ * Provides structured, filterable debug logging optimized for Cloudflare's
+ * JSON log dashboard. Inspired by npm's `debug` package with level support
+ * (debug, info, warn, error).
+ *
+ * Usage:
  * ```typescript
- * import '@lumenize/core';  // Registers in this.svc
- * import { LumenizeBase } from '@lumenize/lumenize-base';
- * 
- * class MyDO extends LumenizeBase<Env> {
+ * import { debug } from '@lumenize/core';
+ *
+ * class MyDO extends DurableObject<Env> {
+ *   #log = debug(this);
+ *
  *   myMethod() {
- *     const log = this.svc.debug('lmz.proxy-fetch.ProxyFetchDO');
+ *     const log = this.#log('lmz.my-do.MyDO');
  *     log.debug('processing request', { url, method });
  *     log.info('milestone reached', { step: 3 });
  *     log.warn('retry limit reached', { retryCount: 5 });
@@ -20,7 +21,7 @@
  *   }
  * }
  * ```
- * 
+ *
  * Configuration via environment variables:
  * - `DEBUG=lmz.proxy-fetch` - Enable all levels for proxy-fetch and children
  * - `DEBUG=lmz.proxy-fetch:warn` - Only warn level for proxy-fetch
@@ -30,21 +31,19 @@
  * IMPORTANT: error() level ALWAYS outputs, regardless of DEBUG filter.
  */
 
-import { NadisPlugin } from '@lumenize/lumenize-base';
 import { createMatcher } from './pattern-matcher';
 import { DebugLoggerImpl } from './logger';
 import type { DebugLogger } from './types';
 
 /**
  * Create debug logger factory
- * 
- * This function is the NADIS service entrypoint. It reads the DEBUG
- * environment variable and creates a factory function for creating
- * namespaced loggers.
- * 
+ *
+ * Reads the DEBUG environment variable and creates a factory function
+ * for creating namespaced loggers.
+ *
  * @param withEnv - Object with env property (DO instance, Worker context, or plain object)
  * @returns Factory function for creating debug loggers
- * 
+ *
  * @see [Debug Documentation](/docs/core/debug) for complete usage examples and configuration
  */
 export function debug(withEnv: any): (namespace: string) => DebugLogger {
@@ -77,15 +76,3 @@ export function debug(withEnv: any): (namespace: string) => DebugLogger {
 
 // Export types for external use
 export type { DebugLogger, DebugLevel, DebugOptions, DebugLogOutput } from './types';
-
-// TypeScript declaration merging for type safety
-// This augments the global LumenizeServices interface so TypeScript knows
-// about this.svc.debug when you import this package
-declare global {
-  interface LumenizeServices {
-    debug: ReturnType<typeof debug>;
-  }
-}
-
-// Register service in NADIS registry
-NadisPlugin.register('debug', (withEnv) => debug(withEnv));

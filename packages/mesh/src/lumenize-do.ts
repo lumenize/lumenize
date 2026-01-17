@@ -3,6 +3,7 @@ import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, 
 import { postprocess, parse } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
 import { createLmzApiForDO, type LmzApi } from './lmz-api.js';
+import { debug } from '@lumenize/debug';
 
 /**
  * Continuation type with $result marker for explicit result placement.
@@ -49,12 +50,60 @@ export type Continuation<T> = T & { $result: any };
  * ```
  */
 export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
+  #debug = debug(this as any);
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
   #lmzApi: LmzApi | null = null;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+
+    // Call onStart() wrapped in blockConcurrencyWhile if subclass defines it
+    // This ensures initialization completes before any other operations
+    if (this.onStart !== LumenizeDO.prototype.onStart) {
+      ctx.blockConcurrencyWhile(async () => {
+        try {
+          await this.onStart();
+        } catch (error) {
+          const log = this.#debug('lmz.mesh.LumenizeDO.onStart');
+          log.error('onStart() failed', {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+          throw error;
+        }
+      });
+    }
+  }
+
+  /**
+   * Lifecycle hook for async initialization
+   *
+   * Override this method to perform initialization that needs to complete
+   * before the DO handles any requests. Common uses:
+   * - Database schema migrations (`CREATE TABLE IF NOT EXISTS`)
+   * - Loading configuration from storage
+   * - Setting up initial state
+   *
+   * This method is automatically wrapped in `blockConcurrencyWhile`, ensuring
+   * it completes before fetch(), alarm(), or any RPC calls are processed.
+   *
+   * @example
+   * ```typescript
+   * class UsersDO extends LumenizeDO<Env> {
+   *   async onStart() {
+   *     this.svc.sql`
+   *       CREATE TABLE IF NOT EXISTS users (
+   *         id TEXT PRIMARY KEY,
+   *         name TEXT NOT NULL
+   *       )
+   *     `;
+   *   }
+   * }
+   * ```
+   */
+  async onStart(): Promise<void> {
+    // Default: no-op. Subclasses override this for initialization.
   }
 
   /**
@@ -88,7 +137,12 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
       this.__initFromHeaders(request.headers);
     } catch (error) {
       // Initialization errors indicate misconfiguration
+      const log = this.#debug('lmz.mesh.LumenizeDO.fetch');
       const message = error instanceof Error ? error.message : String(error);
+      log.error('Initialization from headers failed', {
+        error: message,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return new Response(message, { status: 500 });
     }
 
@@ -224,13 +278,20 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
   async __executeOperation(envelope: any): Promise<any> {
+    const log = this.#debug('lmz.mesh.LumenizeDO.__executeOperation');
+
     // 1. Validate envelope version
     if (!envelope.version || envelope.version !== 1) {
-      throw new Error(
+      const error = new Error(
         `Unsupported RPC envelope version: ${envelope.version}. ` +
         `This version of LumenizeDO only supports v1 envelopes. ` +
         `Old-style calls without envelopes are no longer supported.`
       );
+      log.error('Unsupported envelope version', {
+        receivedVersion: envelope.version,
+        supportedVersion: 1,
+      });
+      throw error;
     }
 
     // 2. Auto-initialize from callee metadata if present
@@ -281,59 +342,59 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * ```
    */
   async __receiveResult(workType: string, workId: string, preprocessedResult: any): Promise<void> {
-    const log = (globalThis as any).__lumenizeDebug?.(this.ctx)?.('lmz.base.__receiveResult');
+    const log = this.#debug('lmz.mesh.LumenizeDO.__receiveResult');
 
     // 1. Idempotency check - prevent duplicate result processing
     const processedKey = `__lmz_result_processed:${workType}:${workId}`;
     const alreadyProcessed = this.ctx.storage.kv.get(processedKey);
-    
+
     if (alreadyProcessed !== undefined) {
-      log?.error?.('Duplicate result received - race condition detected', {
+      log.error('Duplicate result received - race condition detected', {
         workId,
         workType,
         firstProcessedAt: alreadyProcessed,
-        duplicateNote: 'Race between successful delivery and timeout (expected in rare cases)'
+        duplicateNote: 'Race between successful delivery and timeout (expected in rare cases)',
       });
       return; // Ignore duplicate
     }
-    
+
     // Mark as processed BEFORE executing continuation (prevents race)
     this.ctx.storage.kv.put(processedKey, Date.now());
-    
+
     // 2. Get stored continuation
     const pendingKey = `__lmz_${workType}_pending:${workId}`;
     const pendingData = this.ctx.storage.kv.get(pendingKey) as { continuation: any } | undefined;
-    
+
     if (!pendingData) {
-      log?.warn?.('No pending continuation found', { workId, workType });
+      log.warn('No pending continuation found', { workId, workType });
       return;
     }
-    
+
     try {
       // 3. Deserialize continuation and result (REUSE: structured-clone)
       const continuation = postprocess(pendingData.continuation);
       const result = postprocess(preprocessedResult);
-      
+
       // 4. Inject result into continuation (REUSE: OCAN)
       const chainWithResult = replaceNestedOperationMarkers(continuation, result);
-      
+
       // 5. Execute continuation (REUSE: OCAN)
       await executeOperationChain(chainWithResult, this);
-      
+
       // 6. Clean up pending continuation
       this.ctx.storage.kv.delete(pendingKey);
-      
+
       // Clean up processed marker after 5 minutes (prevents storage bloat)
       setTimeout(() => {
         this.ctx.storage.kv.delete(processedKey);
       }, 5 * 60 * 1000);
-      
+
     } catch (error) {
-      log?.error?.('Continuation execution failed', {
+      log.error('Continuation execution failed', {
         workId,
         workType,
         error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
       });
       // Note: Pending continuation stays in storage for manual investigation
       // Processed marker stays to prevent re-execution
@@ -372,7 +433,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
     }
 
     this.#svcProxy = new Proxy({} as LumenizeServices, {
-      get: (target, prop: string) => {
+      get: (_target, prop: string) => {
         // Return cached instance if available
         if (this.#serviceCache.has(prop)) {
           return this.#serviceCache.get(prop);
@@ -380,16 +441,22 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
         // Try to resolve the service from module scope
         const service = this.#resolveService(prop);
-        
+
         if (service) {
           this.#serviceCache.set(prop, service);
           return service;
         }
 
-        throw new Error(
+        const log = this.#debug('lmz.mesh.LumenizeDO.svc');
+        const error = new Error(
           `Service '${prop}' not found. Did you import the NADIS package? ` +
           `Example: import '@lumenize/${prop}';`
         );
+        log.error('NADIS service not found', {
+          service: prop,
+          hint: `import '@lumenize/${prop}';`,
+        });
+        throw error;
       },
     }) as LumenizeServices;
 

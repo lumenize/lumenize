@@ -1,5 +1,3 @@
-import { NadisPlugin } from '@lumenize/lumenize-base';
-
 /**
  * SQL template literal tag for Durable Object storage.
  * 
@@ -33,9 +31,9 @@ import { NadisPlugin } from '@lumenize/lumenize-base';
  * ```typescript
  * import '@lumenize/core';  // Registers sql in this.svc
  * // You could also do this: import { sql } from '@lumenize/core';
- * import { LumenizeBase } from '@lumenize/lumenize-base';
+ * import { LumenizeDO } from '@lumenize/mesh';
  * 
- * class MyDO extends LumenizeBase<Env> {
+ * class MyDO extends LumenizeDO<Env> {
  *   async getUser(id: string) {
  *     const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
  *     return rows[0];
@@ -71,4 +69,9 @@ declare global {
 }
 
 // Register service in NADIS registry
-NadisPlugin.register('sql', (doInstance) => sql(doInstance));
+// Note: We register directly to globalThis to avoid circular dependency with @lumenize/mesh
+// The NadisPlugin.register() method does the same thing internally
+if (!(globalThis as any).__lumenizeServiceRegistry) {
+  (globalThis as any).__lumenizeServiceRegistry = {};
+}
+(globalThis as any).__lumenizeServiceRegistry['sql'] = (doInstance: any) => sql(doInstance);

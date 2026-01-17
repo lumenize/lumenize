@@ -166,13 +166,13 @@ log.info('Something happened', { data });
 - [x] Archive old `lumenize-base/` and `auth/` docs to `_archived/`
 - [x] Update `sidebars.ts` for new structure
 
-**Package Rename Tasks** (PENDING):
-- [ ] Rename directory `packages/lumenize-base/` → `packages/mesh/`
-- [ ] Rename file `lumenize-base.ts` → `lumenize-do.ts`
-- [ ] Rename class `LumenizeBase` → `LumenizeDO` across codebase
-- [ ] Update `package.json` name to `@lumenize/mesh`
-- [ ] Update all imports across the monorepo
-- [ ] Update TypeDoc config in `website/docusaurus.config.ts`
+**Package Rename Tasks** (DONE):
+- [x] Rename directory `packages/lumenize-base/` → `packages/mesh/`
+- [x] Rename file `lumenize-base.ts` → `lumenize-do.ts`
+- [x] Rename class `LumenizeBase` → `LumenizeDO` across codebase
+- [x] Update `package.json` name to `@lumenize/mesh`
+- [x] Update all imports across the monorepo
+- [x] Update TypeDoc config in `website/docusaurus.config.ts` (disabled auto-gen, using hand-written docs)
 
 ### Phase 0: Tweaks to Existing Code Before Implementing Client/Gateway
 

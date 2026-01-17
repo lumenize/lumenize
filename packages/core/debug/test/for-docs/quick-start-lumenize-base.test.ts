@@ -1,20 +1,22 @@
 /**
- * Documentation example: Quick Start - In Durable Objects (LumenizeBase)
+ * Documentation example: Quick Start - In Durable Objects (LumenizeDO)
  * Tests the example from website/docs/core/debug.mdx
  */
 
-import '@lumenize/core';  // Registers in this.svc
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { debug } from '@lumenize/core';
+import { LumenizeDO } from '@lumenize/mesh';
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 
-export class ChatRoom extends LumenizeBase<Env> {
+export class ChatRoom extends LumenizeDO<Env> {
+  #debug = debug(this);
+
   fetch(request: Request) {
     return this.onRequest(request);
   }
-  
+
   onRequest(request: Request) {
-    const log = this.svc.debug('ChatRoom.onRequest');
+    const log = this.#debug('ChatRoom.onRequest');
     
     log.debug('Processing request', { 
       method: request.method,

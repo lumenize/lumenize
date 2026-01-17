@@ -1,7 +1,7 @@
 // Import NADIS packages to register services
 import '@lumenize/core';
 
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO } from '@lumenize/mesh';
 
 // Export ProductDO for documentation examples
 export { ProductDO } from './sql/test/for-docs/basic-usage.test';
@@ -11,7 +11,7 @@ export { ChatRoom } from './debug/test/for-docs/quick-start-lumenize-base.test';
 export { MyDO } from './debug/test/for-docs/quick-start-vanilla-do.test';
 
 // Test DO for SQL tests
-export class TestDO extends LumenizeBase<any> {
+export class TestDO extends LumenizeDO<any> {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
   }
@@ -93,8 +93,10 @@ export class TestDO extends LumenizeBase<any> {
 }
 
 // Test DO for Debug tests
-export class DebugTestDO extends LumenizeBase<any> {
-  #log = this.svc.debug('lmz.test.DebugTestDO');
+import { debug } from '@lumenize/core';
+
+export class DebugTestDO extends LumenizeDO<any> {
+  #log = debug(this)('lmz.test.DebugTestDO');
 
   testBasicLogging() {
     this.#log.debug('Debug message', { level: 'debug' });
@@ -124,8 +126,8 @@ export class DebugTestDO extends LumenizeBase<any> {
   }
 
   // Note: testNamespaceMatch removed - it tested internal implementation details
-  // (pattern-matcher), not the user-facing NADIS API. Users interact with debug()
-  // via this.svc.debug, not pattern matching internals.
+  // (pattern-matcher), not the user-facing API. Users interact with debug()
+  // via `debug(this)('namespace')`, not pattern matching internals.
 }
 
 // Default worker export

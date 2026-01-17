@@ -26,6 +26,14 @@
       {
         "name": "NADIS_PLUGIN_TEST_DO",
         "class_name": "NadisPluginTestDO"
+      },
+      {
+        "name": "ONSTART_TEST_DO",
+        "class_name": "OnStartTestDO"
+      },
+      {
+        "name": "ONSTART_ERROR_DO",
+        "class_name": "OnStartErrorDO"
       }
     ]
   },
@@ -41,6 +49,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["NadisPluginTestDO"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["OnStartTestDO", "OnStartErrorDO"]
     }
   ]
 }

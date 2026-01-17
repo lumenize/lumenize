@@ -282,6 +282,60 @@ export class TestDO extends LumenizeDO<Env> {
   }
 }
 
+// Test DO that uses onStart() lifecycle hook
+export class OnStartTestDO extends LumenizeDO<Env> {
+  // Track whether onStart was called
+  #onStartCalled = false;
+
+  async onStart() {
+    // Store a flag in storage to prove onStart ran
+    this.ctx.storage.kv.put('__test_onstart_called', true);
+
+    // Create a table (common use case for onStart)
+    this.svc.sql`
+      CREATE TABLE IF NOT EXISTS onstart_test (
+        id TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `;
+
+    this.#onStartCalled = true;
+  }
+
+  // Test helper: Check if onStart was called
+  wasOnStartCalled(): boolean {
+    return this.#onStartCalled;
+  }
+
+  // Test helper: Check storage flag
+  getOnStartFlag(): boolean | undefined {
+    return this.ctx.storage.kv.get('__test_onstart_called') as boolean | undefined;
+  }
+
+  // Test helper: Insert into the table created by onStart
+  insertValue(id: string, value: string): void {
+    this.svc.sql`INSERT INTO onstart_test (id, value) VALUES (${id}, ${value})`;
+  }
+
+  // Test helper: Get value from the table
+  getValue(id: string): { id: string; value: string } | undefined {
+    const rows = this.svc.sql`SELECT * FROM onstart_test WHERE id = ${id}`;
+    return rows[0] as { id: string; value: string } | undefined;
+  }
+}
+
+// Test DO that throws in onStart()
+export class OnStartErrorDO extends LumenizeDO<Env> {
+  async onStart() {
+    throw new Error('Intentional onStart error for testing');
+  }
+
+  // This should never be reachable if onStart fails
+  getValue(): string {
+    return 'should-not-reach';
+  }
+}
+
 // Test Worker class for Worker-to-DO and Worker-to-Worker tests
 export class TestWorker extends LumenizeWorker<Env> {
   // Store last received envelope for inspection
