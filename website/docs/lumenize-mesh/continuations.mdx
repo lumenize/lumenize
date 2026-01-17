@@ -50,7 +50,7 @@ this.ctn().handleResult(context1, this.ctn().$result, context2)
 //                                ^^^^^^^^^^^^^^^^^^ replaced with result (or Error)
 ```
 
-You can use `$result` anywhere in the arguments — it's just a marker that gets substituted at execution time. If the call throws, then the result is that Error. Alternatively, you can `catch` and make `$result` be something like `{ result, err }`.
+You can use `$result` anywhere in the arguments — it's just a marker that gets substituted at execution time. If the remote method throws, `$result` becomes that `Error` instance, so your handler should always check `if (result instanceof Error)` first.
 
 ## How It Works
 

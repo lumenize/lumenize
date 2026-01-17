@@ -43,7 +43,7 @@ import type { EditorClient } from './editor-client';
 export class DocumentDO extends LumenizeDO<Env> {
   // Require authentication for all mesh calls
   onBeforeCall() {
-    super.onBeforeCall();  // For now, this is a no-op
+    super.onBeforeCall();  // Always call super for forward compatibility
     if (!this.lmz.callContext.originAuth?.userId) {
       throw new Error('Authentication required');
     }
@@ -229,11 +229,12 @@ export class EditorClient extends LumenizeClient {
       'DOCUMENT_DO',
       this.#documentId,
       this.ctn<DocumentDO>().subscribe(),
-      this.ctn().#handleSubscribeResult(this.ctn().$result)
+      this.ctn().handleSubscribeResult(this.ctn().$result)
     );
   }
 
-  #handleSubscribeResult(content: string | Error) {
+  // Response handler for #subscribe() — no @mesh needed (framework trusts your own continuations)
+  handleSubscribeResult(content: string | Error) {
     if (content instanceof Error) {
       console.error('Failed to subscribe:', content);
       return;
@@ -343,12 +344,12 @@ import {
   createAuthMiddleware,
   createWebSocketAuthMiddleware
 } from '@lumenize/auth';
+import { LumenizeClientGateway } from '@lumenize/mesh';
 import { routeDORequest } from '@lumenize/utils';
 import { DocumentDO } from './document-do';
 import { SpellCheckWorker } from './spellcheck-worker';
 
-export { LumenizeAuth, DocumentDO, SpellCheckWorker };
-// Note: LumenizeClientGateway is exported from @lumenize/mesh
+export { LumenizeAuth, LumenizeClientGateway, DocumentDO, SpellCheckWorker };
 
 // Allowlist your app's origins
 const cors = { origin: ['https://app.example.com'] };

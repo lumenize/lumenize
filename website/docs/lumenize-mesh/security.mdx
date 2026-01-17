@@ -218,7 +218,7 @@ The mesh requires these headers to be set by your middleware:
 | `X-Auth-User-Id` | Yes | Verified user ID (typically from JWT `sub` claim) |
 | `X-Auth-Claims` | No | JSON-encoded object with additional claims |
 
-The presence of `X-Auth-User-Id` indicates successful authentication. If authentication fails, the request should never reach the LumenizeGateway, but if for some reason it does, a missing `X-Auth-User-Id` will cause it to be rejected there.
+The presence of `X-Auth-User-Id` indicates successful authentication. If authentication fails, the request should never reach the LumenizeClientGateway, but if for some reason it does, a missing `X-Auth-User-Id` will cause it to be rejected there.
 
 Additionally, [`routeDORequest`](/docs/utils/route-do-request) automatically adds routing context headers that the mesh requires:
 
