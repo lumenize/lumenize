@@ -25,10 +25,10 @@ See docs for full API details:
 - **LumenizeWorker Reference**: `/website/docs/lumenize-mesh/lumenize-worker.mdx`
 - **LumenizeClient Reference**: `/website/docs/lumenize-mesh/lumenize-client.mdx`
 - **Gateway Details**: `/website/docs/lumenize-mesh/gateway.mdx`
-- **Security & Auth**: `/website/docs/lumenize-mesh/security.mdx`
+- **Authentication Propogation and Access Control**: `/website/docs/lumenize-mesh/security.mdx`
 - **Creating Plugins**: `/website/docs/lumenize-mesh/creating-plugins.mdx`
 
-**Note**: Documentation was restructured on 2025-12-28. Old `lumenize-base/` docs are archived in `/website/docs/_archived/`. Auth docs restored to `/website/docs/auth/` (2025-01-14).
+**Note**: Documentation was restructured on 2025-12-28. Old `lumenize-base/` docs are archived in `/website/docs/_archived/`.
 
 ### Gateway-Client Relationship
 - Gateway is 1:1 with a **connection**, not a user
@@ -45,7 +45,7 @@ State derived from `this.ctx.getWebSockets()` + `this.ctx.getAlarm()`:
 | Empty | None | Disconnected | Throw ClientDisconnectedError |
 
 ### Gateway `__executeOperation` Acts As a Proxy
-Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forwards chains to the client over WebSocket and returns the response.
+Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forwards calls from inside Cloudflare to the client over WebSocket and returns the response. Similarly, it will forward calls from its client to nodes inside Cloudflare, including other Gateways which in turn forwards them to other clients.
 
 ### `this.lmz.call` Security Model
 
@@ -57,12 +57,12 @@ Unlike LumenizeDO/LumenizeWorker which execute chains on `this`, Gateway forward
    - The **first** method in an RPC chain must be authorized via `@mesh` or `@mesh(handler)`.
    - Once authorized, the caller is granted access to the **entire public interface** (methods and properties) of the returned object for the duration of that continuation chain.
    - **Important Nuance**: In **nesting** (e.g., `multiply(add(1, 2), 10)`), every method called on `this` (`multiply` and `add`) must have an `@mesh` decorator. In **chaining** (e.g., `getPanel().reset()`), only the first method (`getPanel`) needs `@mesh`.
-   - **True Privacy**: Use `#private` for actual security. Convention-based `_` or `__` methods are public in JavaScript and will be accessible if an object is returned.
+   - **True Privacy**: Use `#private` if you want a method private. Convention-based `_` or `__` methods are public in JavaScript and will be accessible if an object is returned.
 
 2. **Class-level `onBeforeCall()` hook**
    - Override in your class for class-wide policies (access context via `this.lmz.callContext`).
-   - WHO can call: authentication, audit logging, rate limiting.
-   - LumenizeClient default: reject peer calls from other LumenizeClients.
+   - typically focuses on WHO can call: authentication, audit logging, rate limiting.
+   - LumenizeClient overidable default: reject peer calls from other LumenizeClients.
 
 3. **Method Exposure (@mesh) — Entry Point Only**
    - Mandatory opt-in for the **first** method in an RPC chain.
@@ -75,10 +75,8 @@ Class onBeforeCall → Entry Point Check (@mesh) → Execute Chain (Trusted Retu
 ```
 
 **Implementation Notes**:
-- Use a decorator to mark methods as mesh-callable.
+- Use `@mesh` decorator to mark methods as mesh-callable.
 - `executeOperationChain()` checks for this marker before execution.
-- Blocked names stored in `Set` for O(1) lookup.
-- Decorator metadata stored via `Reflect.defineMetadata()`.
 - **Guard signature**: `@mesh((instance) => void)`. Guards receive the instance, providing access to both `instance.lmz.callContext` and instance state. This avoids the arrow-function-`this`-binding footgun.
 
 **No `MeshAccessError` (Decision 2025-01-12)**:
@@ -89,6 +87,28 @@ Calling a method that lacks the `@mesh` decorator behaves the same as calling a 
 **Error Handling**:
 - **Method not found** (generic) — covers both "doesn't exist" and "exists but no `@mesh`"
 - **Guards/onBeforeCall** — errors thrown pass through unchanged, preserving domain-specific types (e.g., `PermissionDeniedError`, `QuotaExceededError`)
+
+### LumenizeAuth Config: Instance Variables, Not Storage
+
+**Decision (2025-01-17)**: `LumenizeAuth` configuration uses instance variables, not DO storage.
+
+**Problem**: `createAuthRoutes(env, { redirect, ... })` is called in the Worker's `fetch()`, but the `LumenizeAuth` DO needs that config. Options considered:
+1. Call `configure()` on every request — wasteful RPC overhead
+2. Store config in DO storage — requires version tracking for schema changes
+3. Pass config as header on every call — duplicative, though small
+4. Lazy init with retry — first request returns "NotConfigured", middleware calls `configure()`, then retries
+
+**Solution**: Option 4 with instance variables (no storage):
+- Config stored in memory only, lost on eviction
+- First request after eviction: 3 round trips (request → NotConfigured → configure() → retry)
+- Normal operation: zero overhead
+- `configure()` is idempotent, so concurrent "NotConfigured" responses are harmless
+
+**Rationale**:
+- Low-load systems hibernate → 3 round trips are an acceptable tradeoff for robustness and config evolvability
+- High-load systems don't hibernate → only pay the cost on code update or eviction for some other reason
+- No version tracking needed — deploy new code, eviction happens naturally, fresh config flows in
+- Self-healing: no storage migrations, no stale config
 
 ### Debug: Standalone Package, Not NADIS
 
@@ -120,7 +140,7 @@ log.info('Something happened', { data });
 
 ## Implementation Phases
 
-### Phase 0: Documentation Restructure & Package Rename
+### Phase -1: Documentation Restructure & Package Rename
 **Goal**: Consolidate all mesh documentation and rename `@lumenize/lumenize-base` to `@lumenize/mesh`
 
 **Documentation Tasks** (DONE):
@@ -143,25 +163,25 @@ log.info('Something happened', { data });
 - [ ] Update all imports across the monorepo
 - [ ] Update TypeDoc config in `website/docusaurus.config.ts`
 
-**LumenizeDO Lifecycle Hook** (PENDING):
+### Phase 0: Tweaks to Existing Code Before Implementing Client/Gateway
+
+**0.1 LumenizeDO Lifecycle Hook** (PENDING):
 - [ ] Add `onStart()` lifecycle hook to `LumenizeDO` base class
 - [ ] Call from base constructor wrapped in `blockConcurrencyWhile`
 - [ ] Allows async initialization (migrations, setup) without race conditions
 - [ ] Users should NOT write custom constructors — use `onStart()` instead
 
-**@lumenize/auth Magic Link Flow Fix** (PENDING):
+**0.2 @lumenize/auth Magic Link Flow Fix** (PENDING):
 The current implementation is broken for real-world use:
 - Magic link click is a browser navigation, not a fetch
 - `/auth/magic-link` returns JSON, which the browser just displays as raw text
-- URL routing with `prefix: 'auth'` doesn't work — `routeDORequest` requires binding/instance in URL
+- URL routing with `prefix: 'auth'` doesn't work — `routeDORequest` requires binding name and instance name in the URL, so /auth/logout won't work
 
 Fix:
 - [ ] Add `createAuthRoutes` factory function in `@lumenize/auth`
-  - Wraps `routeDORequest` with URL rewriting (`/auth/magic-link` → `/auth/lumenize-auth/default/magic-link`)
-  - Config: `prefix` (default: '/auth'), `binding` (default: 'LUMENIZE_AUTH'), `instance` (default: 'default')
-  - Required: `redirect` — where to redirect after magic link validation
-  - Optional: `cors` — passed through to `routeDORequest`
-- [ ] Add `redirect` to `LumenizeAuth.configure()` — required, no default
+  - Wraps `routeDORequest` with URL rewriting (`/auth/magic-link` → `/auth/${gatewayBindingName}/${instanceName}/magic-link`)
+  - Config: see website/docs/auth/index.mdx "Routing Function" section for details
+  - Passes entire config to `LumenizeAuth.configure()` via lazy init pattern (see "LumenizeAuth Config" decision above)
 - [ ] Change `/auth/magic-link` endpoint to return redirect (302) instead of JSON
   - Sets refresh token cookie
   - Redirects to configured `redirect`
@@ -169,7 +189,7 @@ Fix:
 - [ ] Update `/website/docs/auth/index.mdx` — new flow, remove misleading language
 - [ ] Update `/website/docs/lumenize-mesh/getting-started.mdx` — use `createAuthRoutes`, show refresh-on-load pattern
 
-**@lumenize/auth Rate Limiting Fix** (PENDING):
+**0.3 @lumenize/auth Rate Limiting Fix** (PENDING):
 - [ ] Refactor rate limiting in `LumenizeAuth` to use instance variables instead of DO storage
   - Current implementation uses `this.svc.sql` with a `rate_limits` table
   - Storage writes are 10,000x more expensive than reads — unacceptable for rate limiting
@@ -177,7 +197,7 @@ Fix:
   - Use `#rateLimits: Map<string, { count: number, windowStart: number }>` instance variable
   - This is the one valid exception to the "no instance variables for mutable state" rule
 
-**Core Utilities Consolidation** (PENDING):
+**0.4 Core Utilities Restructuring** (PENDING):
 - [ ] Merge `sql` utility from `@lumenize/core` into `@lumenize/mesh`
   - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
   - For mesh nodes, just import the base class — `this.svc.*` handles the rest (no separate `@lumenize/core` import needed)

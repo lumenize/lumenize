@@ -41,7 +41,7 @@ The `LumenizeClient` constructor takes a configuration object:
 
 - **`baseUrl`**: `string?` — Base URL for WebSocket connection. Default: current origin in browsers (e.g., `https://` → `wss://`). Required in Node.js.
 - **`instanceName`**: `string` — Unique client identifier. Recommended: `${userId}.${tabId}`
-- **`gatewayBinding`**: `string?` — [Gateway](./gateway) DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY`
+- **`gatewayBindingName`**: `string?` — [Gateway](./gateway) DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY`
 
 ### Authentication
 
@@ -314,7 +314,7 @@ type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnect
 interface LumenizeClientConfig {
   baseUrl?: string;  // default: current origin in browsers; required in Node.js
   instanceName: string;
-  gatewayBinding?: string;  // default: LUMENIZE_CLIENT_GATEWAY
+  gatewayBindingName?: string;  // default: LUMENIZE_CLIENT_GATEWAY
   accessToken?: string;  // If omitted, fetched via refresh
   refresh?: string | (() => Promise<string>);  // default: /auth/refresh-token
   onConnectionStateChange?: (state: ConnectionState) => void;
