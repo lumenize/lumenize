@@ -54,26 +54,19 @@ export class LumenizeAuth extends LumenizeDO<AuthEnv> {
   #schemaInitialized = false;
   #config: Required<AuthConfig> | null = null; // null until configure() called
   #emailService: EmailService = new ConsoleEmailService();
+  // Rate limiting uses instance variables, not storage (storage writes are expensive, rate limits are ephemeral)
+  #rateLimits = new Map<string, { count: number; windowStart: number }>();
 
   /**
    * Ensure database schema is created
    */
   #ensureSchema(): void {
     if (this.#schemaInitialized) return;
-    
+
     for (const schema of ALL_SCHEMAS) {
       this.ctx.storage.sql.exec(schema);
     }
-    
-    // Add rate limiting table if not exists
-    this.ctx.storage.sql.exec(`
-      CREATE TABLE IF NOT EXISTS rate_limits (
-        key TEXT PRIMARY KEY,
-        count INTEGER NOT NULL,
-        window_start INTEGER NOT NULL
-      )
-    `);
-    
+
     this.#schemaInitialized = true;
   }
 
@@ -547,44 +540,34 @@ export class LumenizeAuth extends LumenizeDO<AuthEnv> {
   /**
    * Check and update rate limit for an email
    * Returns true if request is allowed, false if rate limited
+   *
+   * Uses instance variables instead of storage - rate limiting is ephemeral.
+   * If DO evicts, limits reset (acceptable: low traffic = not hitting rate limits).
    */
   #checkRateLimit(email: string, config: Required<AuthConfig>): boolean {
-    const key = `rate:${email}`;
     const now = Date.now();
     const windowMs = 60 * 60 * 1000; // 1 hour in milliseconds
     const windowStart = now - windowMs;
 
-    // Get current rate limit record
-    const rows = this.svc.sql`
-      SELECT count, window_start FROM rate_limits WHERE key = ${key}
-    ` as Array<{ count: number; window_start: number }>;
+    const record = this.#rateLimits.get(email);
 
-    if (rows.length === 0) {
+    if (!record) {
       // No record - create one
-      this.svc.sql`
-        INSERT INTO rate_limits (key, count, window_start)
-        VALUES (${key}, 1, ${now})
-      `;
+      this.#rateLimits.set(email, { count: 1, windowStart: now });
       return true;
     }
 
-    const record = rows[0];
-
     // Check if window has expired
-    if (record.window_start < windowStart) {
+    if (record.windowStart < windowStart) {
       // Reset window
-      this.svc.sql`
-        UPDATE rate_limits SET count = 1, window_start = ${now} WHERE key = ${key}
-      `;
+      this.#rateLimits.set(email, { count: 1, windowStart: now });
       return true;
     }
 
     // Check if under limit
     if (record.count < config.rateLimitPerHour) {
       // Increment count
-      this.svc.sql`
-        UPDATE rate_limits SET count = count + 1 WHERE key = ${key}
-      `;
+      record.count++;
       return true;
     }
 

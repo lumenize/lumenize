@@ -203,10 +203,9 @@ export default {
     // Auth routes - public, clean URLs (/auth/magic-link, /auth/refresh-token, etc.)
     const authRoutes = createAuthRoutes(env, {
       redirect: '/app',  // Required: where to redirect after magic link
-      // prefix: '/auth',                      // Default: '/auth'
-      // gatewayBindingName: 'LUMENIZE_AUTH',  // Default: 'LUMENIZE_AUTH'
-      // instanceName: 'default',              // Default: 'default'
       cors: { origin: ['https://app.example.com'] }
+      // All config options are passed to Auth DO:
+      // issuer, audience, accessTokenTtl, refreshTokenTtl, magicLinkTtl, rateLimitPerHour
     });
     const authResponse = await authRoutes(request);
     if (authResponse) return authResponse;
@@ -246,7 +245,14 @@ const authRoutes = createAuthRoutes(env, {
   prefix?: string,               // Default: '/auth'
   gatewayBindingName?: string,   // Default: 'LUMENIZE_AUTH'
   instanceName?: string,         // Default: 'default'
-  cors?: CorsConfig              // Optional: CORS configuration
+  cors?: CorsConfig,             // Optional: CORS configuration
+  // JWT and token options (passed to Auth DO)
+  issuer?: string,               // Default: 'https://lumenize.local'
+  audience?: string,             // Default: 'https://lumenize.local'
+  accessTokenTtl?: number,       // Default: 900 (15 minutes)
+  refreshTokenTtl?: number,      // Default: 2592000 (30 days)
+  magicLinkTtl?: number,         // Default: 1800 (30 minutes)
+  rateLimitPerHour?: number      // Default: 5 requests per email
 });
 ```
 
@@ -270,13 +276,13 @@ const wsAuth = await createWebSocketAuthMiddleware({
 
 ---
 
-## Internal Use (TODO: may be out of date)
+## Advanced Usage
 
 ### RPC Methods on LumenizeAuth
 
 - `getUserById(userId)` - Look up user by ID
 - `getUserByEmail(email)` - Look up user by email
-- `configure(options)` - Set auth configuration (including `redirect`)
+- `configure(options)` - Set auth configuration (called automatically by `createAuthRoutes`)
 - `setEmailService(service)` - Set email provider
 
 ### JWT Utilities
@@ -312,7 +318,7 @@ import {
 
 ### Configuration
 
-Configure the Auth DO programmatically:
+When using `createAuthRoutes`, configuration is handled automatically — the options you pass are forwarded to the Auth DO on first request. If you aren't using `createAuthRoutes`, you can configure the Auth DO directly:
 
 ```typescript @skip-check
 const stub = env.LUMENIZE_AUTH.getByName('default');

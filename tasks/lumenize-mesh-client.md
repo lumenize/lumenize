@@ -176,49 +176,42 @@ log.info('Something happened', { data });
 
 ### Phase 0: Tweaks to Existing Code Before Implementing Client/Gateway
 
-**0.1 LumenizeDO Lifecycle Hook** (PENDING):
-- [ ] Add `onStart()` lifecycle hook to `LumenizeDO` base class
-- [ ] Call from base constructor wrapped in `blockConcurrencyWhile`
-- [ ] Allows async initialization (migrations, setup) without race conditions
-- [ ] Users should NOT write custom constructors — use `onStart()` instead
+**0.1 LumenizeDO Lifecycle Hook** (DONE):
+- [x] Add `onStart()` lifecycle hook to `LumenizeDO` base class
+- [x] Call from base constructor wrapped in `blockConcurrencyWhile`
+- [x] Allows async initialization (migrations, setup) without race conditions
+- [x] Users should NOT write custom constructors — use `onStart()` instead
 
-**0.2 @lumenize/auth Magic Link Flow Fix** (PENDING):
-The current implementation is broken for real-world use:
-- Magic link click is a browser navigation, not a fetch
-- `/auth/magic-link` returns JSON, which the browser just displays as raw text
-- URL routing with `prefix: 'auth'` doesn't work — `routeDORequest` requires binding name and instance name in the URL, so /auth/logout won't work
-
-Fix:
-- [ ] Add `createAuthRoutes` factory function in `@lumenize/auth`
+**0.2 @lumenize/auth Magic Link Flow Fix** (DONE):
+- [x] Add `createAuthRoutes` factory function in `@lumenize/auth`
   - Wraps `routeDORequest` with URL rewriting (`/auth/magic-link` → `/auth/${gatewayBindingName}/${instanceName}/magic-link`)
-  - Config: see website/docs/auth/index.mdx "Routing Function" section for details
-  - Passes entire config to `LumenizeAuth.configure()` via lazy init pattern (see "LumenizeAuth Config" decision above)
-- [ ] Change `/auth/magic-link` endpoint to return redirect (302) instead of JSON
+  - Passes entire `AuthConfig` to `LumenizeAuth.configure()` via lazy init pattern
+  - Single `AuthConfig` interface for all options (auth settings + routing options)
+- [x] Change `/auth/magic-link` endpoint to return redirect (302) instead of JSON
   - Sets refresh token cookie
   - Redirects to configured `redirect`
   - Access token obtained via refresh-on-load pattern (SPA calls `/auth/refresh-token`)
-- [ ] Update `/website/docs/auth/index.mdx` — new flow, remove misleading language
-- [ ] Update `/website/docs/lumenize-mesh/getting-started.mdx` — use `createAuthRoutes`, show refresh-on-load pattern
+- [x] Update `/website/docs/auth/index.mdx` — new flow, API reference shows all config options
+- [x] Update `/website/docs/lumenize-mesh/getting-started.mdx` — already uses `createAuthRoutes` correctly
 
-**0.3 @lumenize/auth Rate Limiting Fix** (PENDING):
-- [ ] Refactor rate limiting in `LumenizeAuth` to use instance variables instead of DO storage
-  - Current implementation uses `this.svc.sql` with a `rate_limits` table
-  - Storage writes are 10,000x more expensive than reads — unacceptable for rate limiting
-  - Rate limiting is ephemeral by nature; if DO evicts, limits reset (acceptable — if traffic is low enough to hibernate, it's not exceeding any reasonable rate limit)
-  - Use `#rateLimits: Map<string, { count: number, windowStart: number }>` instance variable
-  - This is the one valid exception to the "no instance variables for mutable state" rule
+**0.3 @lumenize/auth Rate Limiting Fix** (DONE):
+- [x] Refactor rate limiting in `LumenizeAuth` to use instance variables instead of DO storage
+  - Uses `#rateLimits: Map<string, { count: number; windowStart: number }>` instance variable
+  - Removed `rate_limits` SQL table creation from `#ensureSchema()`
+  - Rate limiting is ephemeral; if DO evicts, limits reset (acceptable for low-traffic scenarios)
 
-**0.4 Core Utilities Restructuring** (PENDING):
-- [ ] Merge `sql` utility from `@lumenize/core` into `@lumenize/mesh`
-  - `sql` only makes sense for LumenizeDO (DO storage) — available via `this.svc.sql`
-  - For mesh nodes, just import the base class — `this.svc.*` handles the rest (no separate `@lumenize/core` import needed)
-  - Also export `sql` directly from `@lumenize/mesh` for standalone/vanilla usage
+**0.4 Core Utilities Restructuring** (DONE):
+- [x] Merge `sql` utility from `@lumenize/core` into `@lumenize/mesh`
+  - `sql` is now built-in to LumenizeDO — always available via `this.svc.sql`
+  - No imports needed — just extend `LumenizeDO` and use `this.svc.sql`
+  - Type exported from `@lumenize/mesh` for use in other packages (e.g., `@lumenize/alarms`)
+  - Standalone usage removed — mesh is a tightly coupled system
 - [x] ~~Merge `@lumenize/auth` into `@lumenize/mesh`~~ **REVISED (2025-01-14)**: Keep `@lumenize/auth` as separate package
   - The coupling is minimal: just two headers (`X-Auth-User-Id`, `X-Auth-Claims`)
   - Users with existing auth (Auth0, Clerk, custom) only need the header contract
   - Separation of concerns — auth is a distinct domain from mesh communication
   - See `/website/docs/lumenize-mesh/security.mdx` for integration details and Auth0 example
-- [ ] Publish `@lumenize/debug` as a standalone cross-platform package (see Debug decision below)
+- [ ] Publish `@lumenize/debug` as a standalone cross-platform package (deferred to mesh publish)
 
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation

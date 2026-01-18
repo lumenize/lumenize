@@ -513,3 +513,7 @@ export { LumenizeDO as LumenizeBase };
 // Re-export the global LumenizeServices interface for convenience
 export type { LumenizeServices } from './types';
 
+// Register built-in sql service (always available on this.svc.sql for LumenizeDO subclasses)
+import { sql } from './sql';
+(globalThis as any).__lumenizeServiceRegistry['sql'] = (doInstance: any) => sql(doInstance);
+

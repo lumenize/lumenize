@@ -4,10 +4,9 @@
 // Modifications: Complete rewrite to use OCAN (Operation Chaining And Nesting),
 // NADIS dependency injection pattern, lazy table initialization, TypeScript generics
 
-import '@lumenize/core';  // Side-effect import for NADIS registration (sql, debug)
 import { parseCronExpression } from 'cron-schedule';
-import { debug, type sql as sqlType, type DebugLogger } from '@lumenize/core';
-import { NadisPlugin, getOperationChain, type OperationChain } from '@lumenize/mesh';
+import { debug, type DebugLogger } from '@lumenize/debug';
+import { NadisPlugin, getOperationChain, type OperationChain, type sql as sqlType } from '@lumenize/mesh';
 import { preprocess, parse } from '@lumenize/structured-clone';
 import { ulidFactory } from 'ulid-workers';
 import type { Schedule } from './types.js';
@@ -62,7 +61,7 @@ export class Alarms extends NadisPlugin {
     
     // Eager dependency validation - fails immediately if sql not available
     if (!this.svc.sql) {
-      throw new Error('Alarms requires @lumenize/core to be imported for sql dependency');
+      throw new Error('Alarms requires sql service (built-in to @lumenize/mesh)');
     }
     this.#sql = this.svc.sql;
     

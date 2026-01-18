@@ -14,6 +14,10 @@ export { LumenizeWorker } from './lumenize-worker';
 
 export { NadisPlugin } from './nadis-plugin';
 
+// sql is built-in and automatically available on this.svc.sql for LumenizeDO subclasses
+// Export only the type for use in other packages (e.g., @lumenize/alarms)
+export type { sql } from './sql';
+
 // Re-export Lumenize infrastructure API
 export type { LmzApi, CallEnvelope, CallOptions } from './lmz-api';
 
