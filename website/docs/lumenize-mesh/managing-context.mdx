@@ -57,13 +57,10 @@ onBeforeCall() {
   // Start a trace if this is a new chain
   if (!this.lmz.callContext.state.traceId) {
     this.lmz.callContext.state.traceId = crypto.randomUUID();
-    const caller = this.lmz.callContext.caller;
-    this.lmz.callContext.state.spans = [{
-      node: `${caller.bindingName}:${caller.instanceName}`
-    }];
   }
 
-  // Add this node as a span
+  // Add this node as a span — callChain already tracks the path!
+  this.lmz.callContext.state.spans ??= [];
   this.lmz.callContext.state.spans.push({
     node: `${this.lmz.bindingName}:${this.lmz.instanceName}`
   });
@@ -71,6 +68,10 @@ onBeforeCall() {
 ```
 
 Since `state` propagates across the entire call chain, you get a complete trace without external infrastructure. At chain end, log or store the accumulated spans.
+
+:::tip
+The `callChain` array already captures the call path (`[origin, hop1, hop2, ...]`). For simple tracing, you might not even need custom spans — just use `callChain.map(n => n.bindingName).join(' → ')`.
+:::
 
 ### When Call Chains Break
 

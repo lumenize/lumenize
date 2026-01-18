@@ -122,13 +122,13 @@ class ProtectedDO extends LumenizeDO<Env> {
 }
 ```
 
-### Method-Level: `@mesh` Guard
+### Method-Level: `@mesh.guard()`
 
 Guards receive the instance, providing access to instance state. The correct `lmz.callContext` is also available in the guard. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
 
 ```typescript @skip-check
 // Check `callContext.originAuth.claims` to determine access
-@mesh((instance: MyDO) => {
+@mesh.guard((instance: MyDO) => {
   if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
     throw new Error('Admin only');
   }
@@ -138,7 +138,7 @@ adminMethod() {
 }
 
 // Check instance state to determine access
-@mesh((instance: DocumentDO) => {
+@mesh.guard((instance: DocumentDO) => {
   const userId = instance.lmz.callContext.originAuth?.userId;
   if (!instance.allowedEditors.has(userId)) {
     throw new Error('Not an allowed editor');
@@ -161,10 +161,10 @@ function requireRole(role: string) {
   };
 }
 
-@mesh(requireRole('editor'))
+@mesh.guard(requireRole('editor'))
 editDocument(changes: DocumentChange) { /* ... */ }
 
-@mesh(requireRole('admin'))
+@mesh.guard(requireRole('admin'))
 deleteDocument() { /* ... */ }
 ```
 
@@ -193,7 +193,7 @@ onBeforeCall() {
 }
 
 // In method guard
-@mesh((instance: MyDO) => {
+@mesh.guard((instance: MyDO) => {
   if (!instance.lmz.callContext.state.permissions.canEdit) {
     throw new Error('Edit permission required');
   }

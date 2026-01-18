@@ -1,27 +1,144 @@
 import { isDurableObjectId, getDOStub } from '@lumenize/utils';
 import { preprocess } from '@lumenize/structured-clone';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
 import type { Continuation } from './lumenize-do.js';
+import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
+
+// Re-export types for convenience
+export type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth };
+
+// ============================================
+// CallContext AsyncLocalStorage
+// ============================================
+
+/**
+ * AsyncLocalStorage for call context propagation
+ *
+ * This provides request-scoped storage for CallContext, ensuring that
+ * `this.lmz.callContext` always returns the correct context even when
+ * multiple concurrent requests are being processed.
+ *
+ * @internal
+ */
+export const callContextStorage = new AsyncLocalStorage<CallContext>();
+
+/**
+ * Get the current call context from AsyncLocalStorage
+ *
+ * @returns The current CallContext, or undefined if not in a call context
+ * @internal
+ */
+export function getCurrentCallContext(): CallContext | undefined {
+  return callContextStorage.getStore();
+}
+
+/**
+ * Run a function with a specific call context
+ *
+ * @param context - The CallContext to use
+ * @param fn - The function to run
+ * @returns The result of the function
+ * @internal
+ */
+export function runWithCallContext<T>(context: CallContext, fn: () => T): T {
+  return callContextStorage.run(context, fn);
+}
+
+/**
+ * Clone the current call context for capture
+ *
+ * When capturing context for later execution (e.g., in lmz.call() handlers),
+ * we must deep clone to prevent mutations from affecting the captured snapshot.
+ *
+ * @returns A deep clone of the current CallContext, or undefined if not in a call context
+ * @internal
+ */
+export function captureCallContext(): CallContext | undefined {
+  const current = callContextStorage.getStore();
+  if (!current) return undefined;
+
+  return {
+    ...current,
+    callChain: [...current.callChain],
+    state: { ...current.state }
+  };
+}
+
+/**
+ * Build the CallContext for an outgoing call
+ *
+ * Handles both `newChain: true` (fresh context) and default (inherit + extend).
+ *
+ * @param callerIdentity - This node's identity (to add to callChain)
+ * @param calleeIdentity - The target node's identity
+ * @param options - CallOptions with newChain and state
+ * @returns CallContext to include in the envelope
+ * @internal
+ */
+export function buildOutgoingCallContext(
+  callerIdentity: NodeIdentity,
+  calleeIdentity: NodeIdentity,
+  options?: CallOptions
+): CallContext {
+  const currentContext = getCurrentCallContext();
+
+  if (options?.newChain || !currentContext) {
+    // Start a fresh chain - caller becomes the origin
+    return {
+      origin: callerIdentity,
+      originAuth: undefined,
+      callChain: [],
+      callee: calleeIdentity,
+      state: options?.state ?? {}
+    };
+  }
+
+  // Inherit and extend the current context
+  // Append this node to the call chain (so receiver knows who called them)
+  const newCallChain = [...currentContext.callChain, callerIdentity];
+
+  // Merge state if provided (options.state takes precedence on conflicts)
+  const newState = options?.state
+    ? { ...currentContext.state, ...options.state }
+    : currentContext.state;
+
+  return {
+    origin: currentContext.origin,
+    originAuth: currentContext.originAuth,
+    callChain: newCallChain,
+    callee: calleeIdentity,
+    state: newState
+  };
+}
 
 /**
  * Versioned envelope for RPC calls with automatic metadata propagation
- * 
+ *
  * Enables auto-initialization of identity across distributed DO/Worker graphs.
  * Version field allows future evolution without breaking changes.
  */
 export interface CallEnvelope {
   /** Version number for envelope format (currently 1) */
   version: 1;
-  
+
   /** Preprocessed operation chain to execute on remote DO/Worker */
   chain: any;
-  
+
+  /**
+   * Call context propagated through the mesh
+   *
+   * Contains origin, originAuth, callChain, and state.
+   * Required for all mesh calls.
+   */
+  callContext: CallContext;
+
   /** Metadata about caller and callee for auto-initialization */
   metadata?: {
     /** Information about the caller (who is making this call) */
     caller: {
-      /** Type of caller: 'LumenizeDO' (DO) or 'LumenizeWorker' (Worker) */
-      type: 'LumenizeDO' | 'LumenizeWorker';
+      /** Type of caller */
+      type: NodeType;
       /** Binding name of caller (e.g., 'USER_DO') */
       bindingName?: string;
       /** Instance name or ID of caller (DOs only, Workers are ephemeral) */
@@ -29,22 +146,14 @@ export interface CallEnvelope {
     };
     /** Information about the callee (who should receive this call) */
     callee: {
-      /** Type of callee: 'LumenizeDO' (DO) or 'LumenizeWorker' (Worker) */
-      type: 'LumenizeDO' | 'LumenizeWorker';
+      /** Type of callee */
+      type: NodeType;
       /** Binding name of callee (e.g., 'REMOTE_DO') */
       bindingName: string;
       /** Instance name or ID of callee (DOs only, undefined for Workers) */
       instanceNameOrId?: string;
     };
   };
-}
-
-/**
- * Optional configuration for RPC calls
- */
-export interface CallOptions {
-  /** Custom options (reserved for future use) */
-  [key: string]: any;
 }
 
 /**
@@ -107,14 +216,52 @@ export interface LmzApi {
   
   /**
    * Type of this DO or Worker
-   * 
+   *
    * - **LumenizeDO**: Returns `'LumenizeDO'`
    * - **LumenizeWorker**: Returns `'LumenizeWorker'`
-   * 
+   *
    * Getter-only property determined by class type.
    */
-  readonly type: 'LumenizeDO' | 'LumenizeWorker';
-  
+  readonly type: NodeType;
+
+  /**
+   * Current call context (only valid during `@mesh` handler execution)
+   *
+   * Contains origin, originAuth, callChain, and state for the current request.
+   * Uses AsyncLocalStorage internally, so concurrent requests are isolated.
+   *
+   * @throws Error if accessed outside of a mesh call context
+   *
+   * @example
+   * ```typescript
+   * @mesh
+   * updateDocument(changes: DocumentChange) {
+   *   const userId = this.lmz.callContext.originAuth?.userId;
+   *   const fullPath = this.lmz.callContext.callChain.map(n => n.bindingName).join(' → ');
+   * }
+   * ```
+   */
+  readonly callContext: CallContext;
+
+  /**
+   * Immediate caller of this request (convenience getter)
+   *
+   * Returns the last node in `callChain`, or `origin` if the chain is empty
+   * (i.e., the origin is calling this node directly).
+   *
+   * @throws Error if accessed outside of a mesh call context
+   *
+   * @example
+   * ```typescript
+   * @mesh
+   * handleRequest() {
+   *   const caller = this.lmz.caller;
+   *   console.log(`Called by ${caller.bindingName}:${caller.instanceName}`);
+   * }
+   * ```
+   */
+  readonly caller: NodeIdentity;
+
   /**
    * Convenience method to initialize multiple properties at once
    * 
@@ -157,35 +304,35 @@ export interface LmzApi {
   ): Promise<any>;
   
   /**
-   * Synchronous RPC call with continuation pattern (LumenizeDO only)
-   * 
-   * High-level method for DO-to-DO calls using continuation pattern.
-   * Returns immediately while work executes asynchronously via blockConcurrencyWhile.
-   * 
+   * Fire-and-forget RPC call with continuation pattern
+   *
+   * High-level method for DO-to-DO/Worker calls using continuation pattern.
+   * Returns immediately while work executes asynchronously in the background.
+   *
    * **Use cases**:
    * - Application code that wants actor model behavior
    * - Event handlers that need to trigger remote calls without blocking
    * - Methods that want to chain operations across DOs
    * - Fire-and-forget calls (omit handler)
-   * 
+   *
    * **Continuation pattern**:
-   * - Remote continuation: what to execute on remote DO
+   * - Remote continuation: what to execute on remote DO/Worker
    * - Handler continuation (optional): what to execute locally when result arrives
    * - Result/error automatically injected into handler via OCAN markers
-   * 
+   *
    * **Requirements**:
    * - Caller must know its own bindingName (set in constructor via `this.lmz.init()`)
    * - Continuations must be created with `this.ctn()`
-   * 
+   *
    * **Parameters**:
-   * - `calleeBindingName` - Binding name of target DO (e.g., 'REMOTE_DO')
+   * - `calleeBindingName` - Binding name of target DO/Worker (e.g., 'REMOTE_DO')
    * - `calleeInstanceNameOrId` - Instance name/ID of target DO (undefined for Workers)
    * - `remoteContinuation` - What to execute remotely (from `this.ctn<RemoteDO>()`)
    * - `handlerContinuation` - Optional: What to execute locally when done (from `this.ctn()`)
    * - `options` - Optional configuration
-   * 
+   *
    * **Returns**: void (returns immediately, handler executes asynchronously if provided)
-   * 
+   *
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
   call<T = any>(
@@ -235,7 +382,32 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     get type(): 'LumenizeDO' {
       return 'LumenizeDO';
     },
-    
+
+    get callContext(): CallContext {
+      const context = getCurrentCallContext();
+      if (!context) {
+        throw new Error(
+          'Cannot access callContext outside of a mesh call. ' +
+          'callContext is only available during @mesh handler execution.'
+        );
+      }
+      return context;
+    },
+
+    get caller(): NodeIdentity {
+      const context = getCurrentCallContext();
+      if (!context) {
+        throw new Error(
+          'Cannot access caller outside of a mesh call. ' +
+          'caller is only available during @mesh handler execution.'
+        );
+      }
+      // Return last node in callChain, or origin if chain is empty
+      return context.callChain.length > 0
+        ? context.callChain[context.callChain.length - 1]
+        : context.origin;
+    },
+
     // --- Setters ---
     
     set bindingName(value: string | undefined) {
@@ -337,38 +509,51 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     ): Promise<any> {
       // 1. Extract chain from Continuation if needed
       const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
-      
-      // 2. Gather caller metadata using this.lmz abstraction
-      const callerMetadata = {
+
+      // 2. Build caller identity for callContext
+      const callerIdentity: NodeIdentity = {
         type: this.type,
-        bindingName: this.bindingName,
-        instanceNameOrId: this.instanceNameOrId
+        bindingName: this.bindingName!,
+        instanceName: this.instanceName
       };
-      
-      // 3. Determine callee type
-      const calleeType: "LumenizeDO" | "LumenizeWorker" = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
-      
-      // 4. Build metadata
+
+      // 3. Determine callee type and build callee identity
+      const calleeType: NodeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
+      const calleeIdentity: NodeIdentity = {
+        type: calleeType,
+        bindingName: calleeBindingName,
+        instanceName: calleeInstanceNameOrId
+      };
+
+      // 4. Build callContext for outgoing call (includes callee)
+      const callContext = buildOutgoingCallContext(callerIdentity, calleeIdentity, options);
+
+      // 5. Gather metadata (legacy, for auto-init of uninitialized nodes)
       const metadata = {
-        caller: callerMetadata,
+        caller: {
+          type: this.type,
+          bindingName: this.bindingName,
+          instanceNameOrId: this.instanceNameOrId
+        },
         callee: {
           type: calleeType,
           bindingName: calleeBindingName,
           instanceNameOrId: calleeInstanceNameOrId
         }
       };
-      
-      // 5. Preprocess operation chain
+
+      // 7. Preprocess operation chain
       const preprocessedChain = preprocess(chain);
-      
-      // 6. Create versioned envelope
+
+      // 8. Create versioned envelope with callContext
       const envelope: CallEnvelope = {
         version: 1,
         chain: preprocessedChain,
+        callContext,
         metadata
       };
-      
-      // 7. Get stub based on callee type
+
+      // 9. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
         // DO: Use getDOStub from @lumenize/utils
@@ -377,8 +562,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         // Worker: Direct access to entrypoint
         stub = env[calleeBindingName];
       }
-      
-      // 8. Send to remote and return result (already postprocessed by receiver)
+
+      // 10. Send to remote and return result (already postprocessed by receiver)
       return await stub.__executeOperation(envelope);
     },
     
@@ -391,11 +576,11 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     ): void {
       // 1. Extract operation chains from continuations
       const remoteChain = getOperationChain(remoteContinuation);
-      
+
       if (!remoteChain) {
         throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
       }
-      
+
       // Extract handler chain if provided
       let handlerChain: OperationChain | undefined;
       if (handlerContinuation) {
@@ -404,7 +589,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
           throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
         }
       }
-      
+
       // 2. Validate caller knows its own binding (fail fast!)
       if (!this.bindingName) {
         throw new Error(
@@ -412,36 +597,50 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
           `Call this.lmz.init({ bindingName }) in your constructor.`
         );
       }
-      
-      // 3. Use blockConcurrencyWhile for non-blocking async work
-      ctx.blockConcurrencyWhile(async () => {
-        try {
-          // Call infrastructure layer
-          const result = await this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
-          
+
+      // 3. Capture current callContext for handler execution (deep clone!)
+      const capturedContext = captureCallContext();
+
+      // Helper to execute handler with captured context
+      const executeHandler = async (chain: OperationChain) => {
+        if (capturedContext) {
+          return runWithCallContext(capturedContext, async () => {
+            return await executeOperationChain(chain, doInstance);
+          });
+        } else {
+          return await executeOperationChain(chain, doInstance);
+        }
+      };
+
+      // 4. Fire-and-forget: use Promise.then/catch instead of blockConcurrencyWhile
+      // This returns immediately while the async work executes in the background
+      const callPromise = capturedContext
+        ? runWithCallContext(capturedContext, () =>
+            this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
+        : this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
+
+      callPromise
+        .then(async (result) => {
           // Execute handler if provided
           if (handlerChain) {
             // Substitute result into handler continuation
             const finalChain = replaceNestedOperationMarkers(handlerChain, result);
-            
-            // Execute handler locally on the DO instance
-            await executeOperationChain(finalChain, doInstance);
+            // Execute handler locally on the DO instance with captured context
+            await executeHandler(finalChain);
           }
-          
-        } catch (error) {
+        })
+        .catch(async (error) => {
           // Execute error handler if provided
           if (handlerChain) {
             // Inject Error into handler continuation
             const errorObj = error instanceof Error ? error : new Error(String(error));
             const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
-            
-            // Execute handler with error on the DO instance
-            await executeOperationChain(finalChain, doInstance);
+            // Execute handler with error on the DO instance with captured context
+            await executeHandler(finalChain);
           }
           // If no handler, silently swallow error (fire-and-forget)
-        }
-      });
-      
+        });
+
       // Returns immediately! Handler executes when result arrives (or fire-and-forget)
     },
   };
@@ -485,9 +684,34 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
     get type(): 'LumenizeWorker' {
       return 'LumenizeWorker';
     },
-    
+
+    get callContext(): CallContext {
+      const context = getCurrentCallContext();
+      if (!context) {
+        throw new Error(
+          'Cannot access callContext outside of a mesh call. ' +
+          'callContext is only available during @mesh handler execution.'
+        );
+      }
+      return context;
+    },
+
+    get caller(): NodeIdentity {
+      const context = getCurrentCallContext();
+      if (!context) {
+        throw new Error(
+          'Cannot access caller outside of a mesh call. ' +
+          'caller is only available during @mesh handler execution.'
+        );
+      }
+      // Return last node in callChain, or origin if chain is empty
+      return context.callChain.length > 0
+        ? context.callChain[context.callChain.length - 1]
+        : context.origin;
+    },
+
     // --- Setters ---
-    
+
     set bindingName(value: string | undefined) {
       if (value === undefined) {
         return; // Can't unset
@@ -537,41 +761,53 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       chainOrContinuation: OperationChain | Continuation<any>,
       options?: CallOptions
     ): Promise<any> {
-      // Implementation identical to LumenizeDO version
       // 1. Extract chain from Continuation if needed
       const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
-      
-      // 2. Gather caller metadata using this.lmz abstraction
-      const callerMetadata = {
+
+      // 2. Build caller identity for callContext
+      const callerIdentity: NodeIdentity = {
         type: this.type,
-        bindingName: this.bindingName,
-        instanceNameOrId: this.instanceNameOrId
+        bindingName: this.bindingName!,
+        instanceName: undefined // Workers don't have instance names
       };
-      
-      // 3. Determine callee type
-      const calleeType: "LumenizeDO" | "LumenizeWorker" = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
-      
-      // 4. Build metadata
+
+      // 3. Determine callee type and build callee identity
+      const calleeType: NodeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
+      const calleeIdentity: NodeIdentity = {
+        type: calleeType,
+        bindingName: calleeBindingName,
+        instanceName: calleeInstanceNameOrId
+      };
+
+      // 4. Build callContext for outgoing call (includes callee)
+      const callContext = buildOutgoingCallContext(callerIdentity, calleeIdentity, options);
+
+      // 5. Gather metadata (legacy, for auto-init of uninitialized nodes)
       const metadata = {
-        caller: callerMetadata,
+        caller: {
+          type: this.type,
+          bindingName: this.bindingName,
+          instanceNameOrId: this.instanceNameOrId
+        },
         callee: {
           type: calleeType,
           bindingName: calleeBindingName,
           instanceNameOrId: calleeInstanceNameOrId
         }
       };
-      
-      // 5. Preprocess operation chain
+
+      // 7. Preprocess operation chain
       const preprocessedChain = preprocess(chain);
-      
-      // 6. Create versioned envelope
+
+      // 8. Create versioned envelope with callContext
       const envelope: CallEnvelope = {
         version: 1,
         chain: preprocessedChain,
+        callContext,
         metadata
       };
-      
-      // 7. Get stub based on callee type
+
+      // 9. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
         // DO: Use getDOStub from @lumenize/utils
@@ -580,11 +816,11 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         // Worker: Direct access to entrypoint
         stub = env[calleeBindingName];
       }
-      
-      // 8. Send to remote and return result (already postprocessed by receiver)
+
+      // 10. Send to remote and return result (already postprocessed by receiver)
       return await stub.__executeOperation(envelope);
     },
-    
+
     async call<T = any>(
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
@@ -596,35 +832,52 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       // 1. Extract operation chains from continuations
       const remoteChain = getOperationChain(remoteContinuation);
       const handlerChain = getOperationChain(handlerContinuation);
-      
+
       if (!remoteChain) {
         throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
       }
       if (!handlerChain) {
         throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
       }
-      
+
       // 2. No binding validation for Workers (optional for them)
-      
+
+      // 3. Capture current callContext for handler execution (deep clone!)
+      const capturedContext = captureCallContext();
+
+      // Helper to execute handler with captured context
+      const executeHandler = async (chain: OperationChain) => {
+        if (capturedContext) {
+          return runWithCallContext(capturedContext, async () => {
+            return await executeOperationChain(chain, workerInstance);
+          });
+        } else {
+          return await executeOperationChain(chain, workerInstance);
+        }
+      };
+
       try {
-        // Call infrastructure layer
-        const result = await this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
-        
+        // Call infrastructure layer with captured context
+        const result = await (capturedContext
+          ? runWithCallContext(capturedContext, () =>
+              this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
+          : this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options));
+
         // Substitute result into handler continuation
         const finalChain = replaceNestedOperationMarkers(handlerChain, result);
-        
-        // Execute handler locally on the Worker instance
-        await executeOperationChain(finalChain, workerInstance);
-        
+
+        // Execute handler locally on the Worker instance with captured context
+        await executeHandler(finalChain);
+
       } catch (error) {
         // Inject Error into handler continuation
         const errorObj = error instanceof Error ? error : new Error(String(error));
         const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
-        
-        // Execute handler with error on the Worker instance
-        await executeOperationChain(finalChain, workerInstance);
+
+        // Execute handler with error on the Worker instance with captured context
+        await executeHandler(finalChain);
       }
-      
+
       // Awaits completion before returning (async signature)
     },
   };

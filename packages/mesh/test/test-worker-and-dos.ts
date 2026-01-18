@@ -4,6 +4,7 @@ import '@lumenize/alarms';
 
 import { LumenizeDO } from '../src/lumenize-do';
 import { LumenizeWorker } from '../src/lumenize-worker';
+import { mesh } from '../src/mesh-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '@lumenize/alarms';
 import { getOperationChain } from '../src/ocan/index.js';
@@ -173,11 +174,13 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Remote method that can be called via RPC
+  @mesh
   remoteEcho(value: string): string {
     return `echo: ${value}`;
   }
 
   // Remote method that returns caller identity
+  @mesh
   getCallerIdentity(): { bindingName?: string; instanceNameOrId?: string; type: string } {
     return {
       bindingName: this.lmz.bindingName,
@@ -229,11 +232,13 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Handler for successful call results
+  @mesh
   handleCallResult(result: any): void {
     this.ctx.storage.kv.put('last_call_result', result);
   }
 
   // Handler for call errors
+  @mesh
   handleCallError(error: any): void {
     this.ctx.storage.kv.put('last_call_error', error instanceof Error ? error.message : String(error));
   }
@@ -248,7 +253,105 @@ export class TestDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('last_call_error');
   }
 
+  // ============================================
+  // CallContext capture in handlers test helpers
+  // ============================================
+
+  // Test that callContext.state is captured and restored in handlers
+  // Sets a unique marker in state before calling, then verifies handler sees it
+  @mesh
+  testContextCaptureInHandler(
+    calleeBindingName: string,
+    calleeInstanceName: string,
+    stateMarker: string
+  ): void {
+    // Modify the current callContext.state with a unique marker
+    if (this.lmz.callContext) {
+      this.lmz.callContext.state['captureTest'] = stateMarker;
+    }
+
+    // Fire-and-forget call with a handler that will check the context
+    const remote = this.ctn<TestDO>().remoteEcho('capture-test');
+    this.lmz.call(
+      calleeBindingName,
+      calleeInstanceName,
+      remote,
+      // Pass the expected marker as a parameter so handler can compare
+      this.ctn().verifyCapturedContext(stateMarker, remote)
+    );
+  }
+
+  // Handler that verifies capturedContext.state matches expected marker
+  @mesh
+  verifyCapturedContext(expectedMarker: string, _remoteResult: any): void {
+    const actualMarker = this.lmz.callContext?.state?.['captureTest'];
+    const matches = actualMarker === expectedMarker;
+
+    // Store verification result
+    this.ctx.storage.kv.put('context_capture_verification', {
+      expectedMarker,
+      actualMarker,
+      matches,
+      fullContext: this.lmz.callContext
+    });
+  }
+
+  // Get context capture verification result
+  async getContextCaptureVerification() {
+    return this.ctx.storage.kv.get('context_capture_verification');
+  }
+
+  // Test interleaved calls with different markers
+  @mesh
+  testInterleavedContextCapture(
+    calleeBindingName: string,
+    calleeInstanceName: string,
+    markers: string[]
+  ): void {
+    // Make multiple calls with different markers
+    for (const marker of markers) {
+      // Each call gets its own marker in state
+      if (this.lmz.callContext) {
+        this.lmz.callContext.state['captureTest'] = marker;
+      }
+
+      const remote = this.ctn<TestDO>().remoteEcho(`interleaved-${marker}`);
+      this.lmz.call(
+        calleeBindingName,
+        calleeInstanceName,
+        remote,
+        this.ctn().recordInterleavedResult(marker, remote)
+      );
+    }
+  }
+
+  // Handler that records both expected marker and actual context marker
+  @mesh
+  recordInterleavedResult(expectedMarker: string, _remoteResult: any): void {
+    const actualMarker = this.lmz.callContext?.state?.['captureTest'];
+
+    // Append to array of results
+    const existing = this.ctx.storage.kv.get('interleaved_results') as any[] || [];
+    existing.push({
+      expectedMarker,
+      actualMarker,
+      matches: actualMarker === expectedMarker
+    });
+    this.ctx.storage.kv.put('interleaved_results', existing);
+  }
+
+  // Get interleaved results
+  async getInterleavedResults() {
+    return this.ctx.storage.kv.get('interleaved_results');
+  }
+
+  // Clear interleaved results
+  async clearInterleavedResults() {
+    this.ctx.storage.kv.delete('interleaved_results');
+  }
+
   // Remote method that throws an error
+  @mesh
   throwError(): never {
     throw new Error('Remote error for testing');
   }
@@ -279,6 +382,228 @@ export class TestDO extends LumenizeDO<Env> {
       remote,
       {} as any
     );
+  }
+
+  // ============================================
+  // CallContext test helpers
+  // ============================================
+
+  // Remote method that returns the current callContext
+  @mesh
+  getCallContext() {
+    return this.lmz.callContext;
+  }
+
+  // Remote method that returns the caller convenience getter
+  @mesh
+  getCaller() {
+    return this.lmz.caller;
+  }
+
+  // Remote method that modifies state and returns the context
+  @mesh
+  modifyStateAndGetContext(key: string, value: unknown) {
+    if (this.lmz.callContext) {
+      this.lmz.callContext.state[key] = value;
+    }
+    return this.lmz.callContext;
+  }
+
+  // Remote method that calls another DO and returns combined info
+  @mesh
+  async callAndReturnContext(
+    calleeBindingName: string,
+    calleeInstanceName: string
+  ) {
+    const myContext = this.lmz.callContext;
+    const remoteContext = await this.lmz.callRaw(
+      calleeBindingName,
+      calleeInstanceName,
+      this.ctn<TestDO>().getCallContext()
+    );
+    return {
+      myContext,
+      remoteContext
+    };
+  }
+
+  // Test state propagation through call chain
+  @mesh
+  async testStatePropagation(
+    calleeBindingName: string,
+    calleeInstanceName: string,
+    stateKey: string,
+    stateValue: unknown
+  ) {
+    // Modify state before calling
+    if (this.lmz.callContext) {
+      this.lmz.callContext.state[stateKey] = stateValue;
+    }
+
+    // Call remote and get its context (which should have our state modification)
+    const remoteContext = await this.lmz.callRaw(
+      calleeBindingName,
+      calleeInstanceName,
+      this.ctn<TestDO>().getCallContext()
+    );
+
+    return {
+      stateBeforeCall: this.lmz.callContext?.state,
+      remoteState: remoteContext?.state
+    };
+  }
+
+  // Handler that stores received callContext for inspection
+  @mesh
+  storeCallContext(): void {
+    this.ctx.storage.kv.put('last_call_context', this.lmz.callContext);
+  }
+
+  // Get stored callContext
+  async getStoredCallContext() {
+    return this.ctx.storage.kv.get('last_call_context');
+  }
+
+  // Method without @mesh decorator for testing security
+  nonMeshMethod(): string {
+    return 'should not be callable remotely';
+  }
+
+  // ============================================
+  // @mesh.guard() test helpers
+  // ============================================
+
+  // Method with guard that checks for 'admin' role in callContext.state
+  @mesh.guard((instance: TestDO) => {
+    const role = instance.lmz.callContext?.state?.['role'];
+    if (role !== 'admin') {
+      throw new Error('Guard: admin role required');
+    }
+  })
+  guardedAdminMethod(): string {
+    return 'admin-only-result';
+  }
+
+  // Method with guard that checks for any authenticated user
+  @mesh.guard((instance: TestDO) => {
+    const userId = instance.lmz.callContext?.state?.['userId'];
+    if (!userId) {
+      throw new Error('Guard: authentication required');
+    }
+  })
+  guardedAuthMethod(): string {
+    return 'authenticated-result';
+  }
+
+  // Method with async guard (to test Promise support)
+  @mesh.guard(async (instance: TestDO) => {
+    // Simulate async check
+    await Promise.resolve();
+    const token = instance.lmz.callContext?.state?.['token'];
+    if (token !== 'valid-token') {
+      throw new Error('Guard: valid token required');
+    }
+  })
+  guardedAsyncMethod(): string {
+    return 'async-guard-passed';
+  }
+
+  // Method that sets state before calling a guarded method
+  @mesh
+  async callGuardedWithState(
+    calleeBindingName: string,
+    calleeInstanceName: string,
+    stateToSet: Record<string, unknown>
+  ): Promise<any> {
+    // Set state values before calling
+    if (this.lmz.callContext) {
+      Object.assign(this.lmz.callContext.state, stateToSet);
+    }
+
+    // Call the guarded method
+    return await this.lmz.callRaw(
+      calleeBindingName,
+      calleeInstanceName,
+      this.ctn<TestDO>().guardedAdminMethod()
+    );
+  }
+
+  // Test deep interleaving of async operations within a single call
+  // This verifies ALS isolation when a single request makes multiple nested async calls
+  @mesh
+  async testDeepInterleavingContext(
+    targetBindingName: string,
+    instancePrefix: string
+  ) {
+    const results: { position: string; origin: string; expectedOrigin: string }[] = [];
+    const myOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+
+    // Record context at start
+    results.push({
+      position: 'start',
+      origin: myOrigin,
+      expectedOrigin: myOrigin
+    });
+
+    // Make multiple concurrent calls - each should preserve our callContext
+    const promises = [
+      this.lmz.callRaw(
+        targetBindingName,
+        `${instancePrefix}-target-1`,
+        this.ctn<TestDO>().getCallContext()
+      ),
+      this.lmz.callRaw(
+        targetBindingName,
+        `${instancePrefix}-target-2`,
+        this.ctn<TestDO>().getCallContext()
+      ),
+      this.lmz.callRaw(
+        targetBindingName,
+        `${instancePrefix}-target-3`,
+        this.ctn<TestDO>().getCallContext()
+      )
+    ];
+
+    // Check context mid-execution (after promises started but before awaited)
+    const midOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    results.push({
+      position: 'mid-execution',
+      origin: midOrigin,
+      expectedOrigin: myOrigin
+    });
+
+    // Await all and check context after each await point
+    const remoteContexts = await Promise.all(promises);
+
+    // Check context after await
+    const postAwaitOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    results.push({
+      position: 'post-await',
+      origin: postAwaitOrigin,
+      expectedOrigin: myOrigin
+    });
+
+    // All remote contexts should show us as their origin
+    for (let i = 0; i < remoteContexts.length; i++) {
+      results.push({
+        position: `remote-${i + 1}-saw-origin`,
+        origin: remoteContexts[i]?.origin?.instanceName || 'unknown',
+        expectedOrigin: myOrigin
+      });
+    }
+
+    // Final context check
+    const finalOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    results.push({
+      position: 'final',
+      origin: finalOrigin,
+      expectedOrigin: myOrigin
+    });
+
+    return {
+      allContextsMatch: results.every(r => r.origin === r.expectedOrigin),
+      results
+    };
   }
 }
 
@@ -484,10 +809,12 @@ export class TestWorker extends LumenizeWorker<Env> {
   }
 
   // Remote methods that can be called via RPC
+  @mesh
   workerEcho(value: string): string {
     return `worker-echo: ${value}`;
   }
 
+  @mesh
   getWorkerIdentity(): { bindingName?: string; type: string } {
     return {
       bindingName: this.lmz.bindingName,
@@ -500,13 +827,45 @@ export class TestWorker extends LumenizeWorker<Env> {
     this.lmz.instanceName = 'should-be-ignored';
     this.lmz.id = 'should-be-ignored';
     this.lmz.instanceNameOrId = 'should-be-ignored';
-    
+
     // All should remain undefined
     return (
       this.lmz.instanceName === undefined &&
       this.lmz.id === undefined &&
       this.lmz.instanceNameOrId === undefined
     );
+  }
+
+  // ============================================
+  // CallContext test helpers for Worker
+  // ============================================
+
+  @mesh
+  getCallContext() {
+    return this.lmz.callContext;
+  }
+
+  @mesh
+  getCaller() {
+    return this.lmz.caller;
+  }
+
+  // Worker that forwards call to a DO and returns both contexts
+  @mesh
+  async forwardToDO(
+    doBindingName: string,
+    doInstanceName: string
+  ) {
+    const myContext = this.lmz.callContext;
+    const doContext = await this.lmz.callRaw(
+      doBindingName,
+      doInstanceName,
+      this.ctn<TestDO>().getCallContext()
+    );
+    return {
+      workerContext: myContext,
+      doContext
+    };
   }
 }
 

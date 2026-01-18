@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { postprocess } from '@lumenize/structured-clone';
 import { newContinuation, executeOperationChain, type OperationChain } from './ocan/index.js';
-import { createLmzApiForWorker, type LmzApi } from './lmz-api.js';
+import { createLmzApiForWorker, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
 
 /**
  * Continuation type for method chaining across Workers/DOs
@@ -97,8 +97,43 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
   }
 
   /**
+   * Lifecycle hook called before each incoming mesh call is executed
+   *
+   * Override this method to:
+   * - Validate authentication/authorization based on `this.lmz.callContext`
+   * - Populate `callContext.state` with computed data
+   * - Add logging or tracing metadata
+   * - Reject unauthorized calls by throwing an error
+   *
+   * This hook is called BEFORE the operation chain is executed.
+   * The `callContext` is available via `this.lmz.callContext`.
+   *
+   * **Important**: If you override this, remember to call `await super.onBeforeCall()`
+   * to ensure any parent class logic is also executed.
+   *
+   * @example
+   * ```typescript
+   * class AuthWorker extends LumenizeWorker<Env> {
+   *   async onBeforeCall(): Promise<void> {
+   *     await super.onBeforeCall();
+   *
+   *     const { originAuth } = this.lmz.callContext;
+   *
+   *     // Only allow internal mesh calls (no client origin)
+   *     if (this.lmz.callContext.origin.type === 'LumenizeClient') {
+   *       throw new Error('Direct client access not allowed');
+   *     }
+   *   }
+   * }
+   * ```
+   */
+  async onBeforeCall(): Promise<void> {
+    // Default: no-op. Subclasses override this for authentication/authorization.
+  }
+
+  /**
    * Execute an OCAN (Operation Chaining And Nesting) operation chain on this Worker.
-   * 
+   *
    * This method enables remote DOs/Workers to call methods on this Worker via RPC.
    * Any Worker extending LumenizeWorker can receive remote calls without additional setup.
    * 
@@ -139,7 +174,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    * 
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
-  async __executeOperation(envelope: any): Promise<any> {
+  async __executeOperation(envelope: CallEnvelope): Promise<any> {
     // 1. Validate envelope version
     if (!envelope.version || envelope.version !== 1) {
       throw new Error(
@@ -149,7 +184,14 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
       );
     }
 
-    // 2. Auto-initialize from callee metadata if present
+    // 2. Validate callContext is present
+    if (!envelope.callContext) {
+      throw new Error(
+        'Missing callContext in envelope. All mesh calls must include callContext.'
+      );
+    }
+
+    // 3. Auto-initialize from callee metadata if present
     if (envelope.metadata?.callee) {
       this.lmz.init({
         bindingName: envelope.metadata.callee.bindingName,
@@ -157,10 +199,19 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
       });
     }
 
-    // 3. Postprocess and execute chain
+    // 4. Postprocess the chain
     const preprocessedChain = envelope.chain;
     const operationChain = postprocess(preprocessedChain);
-    return await this.__executeChain(operationChain);
+
+    // 5. Execute chain within callContext (makes this.lmz.callContext available)
+    // CallContext already includes callee (set by caller)
+    return await runWithCallContext(envelope.callContext, async () => {
+      // Call onBeforeCall hook for authentication/authorization
+      await this.onBeforeCall();
+
+      // Execute the operation chain
+      return await this.__executeChain(operationChain);
+    });
   }
 }
 

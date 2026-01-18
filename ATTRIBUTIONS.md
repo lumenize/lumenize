@@ -20,6 +20,15 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Author**: Cloudflare
 - **Note**: Cap'n Web uses a synchronous tuple format without cycles/aliases. We adopted the tuple approach but extended it with `["$lmz", index]` references to support cycles and aliases, and made it async to support Request/Response body reading.
 
+## @lumenize/mesh OCAN (Internal Fork)
+- **Source**: `packages/mesh/src/ocan/` (same repository)
+- **License**: MIT (internal)
+- **Used In**: `packages/rpc/src/ocan.ts` (copied and simplified)
+- **Purpose**: Operation chain execution for RPC layer without mesh decorator security requirements.
+- **Date Added**: 2026-01-18
+- **Author**: Lumenize
+- **Note**: Forked OCAN execution logic from @lumenize/mesh to decouple @lumenize/rpc. The RPC copy is simplified (no @mesh decorator checking) since RPC is used primarily for Lumenize Testing and has a different security model. This prevents mesh security changes from breaking RPC consumers.
+
 ## Cloudflare Actors - Alarms Package
 - **Source**: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms
 - **License**: Apache-2.0 (https://github.com/cloudflare/actors/blob/main/LICENSE)

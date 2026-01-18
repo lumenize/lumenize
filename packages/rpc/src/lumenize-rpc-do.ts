@@ -13,7 +13,7 @@ import { createRpcPreprocessTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
 import { debug } from '@lumenize/core';
-import { executeOperationChain, validateOperationChain } from '@lumenize/mesh';
+import { executeOperationChain, validateOperationChain } from './ocan.js';
 
 /**
  * Default RPC configuration
@@ -214,8 +214,6 @@ async function handleCallRequest(
   }
 }
 
-// validateOperationChain is now imported from @lumenize/mesh
-
 /**
  * Core RPC dispatch logic - validates, executes, and processes the result.
  * Handles both success and error cases consistently.
@@ -265,8 +263,6 @@ async function dispatchCall(
     };
   }
 }
-
-// executeOperationChain is now imported from @lumenize/core
 
 /**
  * Process incoming operations to resolve pipelined operation markers.

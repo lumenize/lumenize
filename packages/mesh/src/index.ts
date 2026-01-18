@@ -19,13 +19,22 @@ export { NadisPlugin } from './nadis-plugin';
 export type { sql } from './sql';
 
 // Re-export Lumenize infrastructure API
-export type { LmzApi, CallEnvelope, CallOptions } from './lmz-api';
+export type { LmzApi, CallEnvelope } from './lmz-api';
 
-// Re-export the global LumenizeServices interface type
-// (actual interface is built via declaration merging in each NADIS package)
-export type { LumenizeServices } from './types';
+// Re-export mesh node identity and call context types
+export type {
+  NodeType,
+  NodeIdentity,
+  OriginAuth,
+  CallContext,
+  CallOptions,
+  LumenizeServices
+} from './types';
 
 // Re-export OCAN (Operation Chaining And Nesting)
 // Actor-model communication infrastructure
 export * from './ocan/index';
 
+// @mesh decorator for marking methods as mesh-callable
+export { mesh, meshFn, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from './mesh-decorator';
+export type { MeshGuard } from './mesh-decorator';

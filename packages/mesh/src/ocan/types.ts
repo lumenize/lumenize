@@ -58,12 +58,24 @@ export interface OcanConfig {
    * @default 50
    */
   maxDepth?: number;
-  
+
   /**
    * Maximum arguments per apply operation (security limit)
    * @default 100
    */
   maxArgs?: number;
+
+  /**
+   * Require entry point method to have `@mesh` decorator
+   *
+   * When true, the first method accessed in the chain must be decorated
+   * with `@mesh`, otherwise an error is thrown. This enforces explicit
+   * security boundaries - only methods you explicitly mark as mesh-callable
+   * can be invoked remotely.
+   *
+   * @default true (secure by default)
+   */
+  requireMeshDecorator?: boolean;
 }
 
 /**

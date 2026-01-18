@@ -1,39 +1,47 @@
 import { describe, it, expect } from 'vitest';
 import { newContinuation, executeOperationChain, getOperationChain, validateOperationChain, isNestedOperationMarker } from '../index.js';
+import { mesh, meshFn } from '../../mesh-decorator.js';
 import type { OperationChain } from '../index.js';
 
-// Test target object with various methods
+// Test target object with various methods - all methods decorated with @mesh
 class TestObject {
   value = 42;
-  
+
+  @mesh
   getValue() {
     return this.value;
   }
-  
+
+  @mesh
   setValue(newValue: number) {
     this.value = newValue;
     return this;
   }
-  
+
+  @mesh
   add(a: number, b: number) {
     return a + b;
   }
-  
+
+  @mesh
   multiply(a: number, b: number) {
     return a * b;
   }
-  
+
+  @mesh
   combine(x: number, y: number) {
     return x + y;
   }
-  
+
+  @mesh
   async asyncMethod(value: number) {
     return value * 2;
   }
-  
+
+  // Nested objects with mesh-decorated method
   nested = {
     deep: {
-      method: (x: number) => x * 3
+      method: meshFn((x: number) => x * 3)
     }
   };
 }
@@ -154,7 +162,7 @@ describe('OCAN - Operation Chaining And Nesting', () => {
         { type: 'get', key: 'getValue' },
         { type: 'apply', args: [] }
       ];
-      
+
       const result = await executeOperationChain(operations, target);
       expect(result).toBe(42);
     });
@@ -375,17 +383,17 @@ describe('OCAN - Operation Chaining And Nesting', () => {
 
     it('should preserve identity when no nested markers exist', async () => {
       const target = {
-        checkIdentity: (obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr })
+        checkIdentity: meshFn((obj: object, arr: any[]) => ({ sameObj: obj, sameArr: arr }))
       };
-      
+
       const testObj = { prop: 'value' };
       const testArr = [1, 2, 3];
-      
+
       const operations: OperationChain = [
         { type: 'get', key: 'checkIdentity' },
         { type: 'apply', args: [testObj, testArr] }
       ];
-      
+
       const result = await executeOperationChain(operations, target);
       // Identity should be preserved when no markers are present
       expect(result.sameObj).toBe(testObj);

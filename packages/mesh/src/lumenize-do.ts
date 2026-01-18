@@ -2,7 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
 import { postprocess, parse } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
-import { createLmzApiForDO, type LmzApi } from './lmz-api.js';
+import { createLmzApiForDO, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { debug } from '@lumenize/debug';
 
 /**
@@ -104,6 +104,44 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    */
   async onStart(): Promise<void> {
     // Default: no-op. Subclasses override this for initialization.
+  }
+
+  /**
+   * Lifecycle hook called before each incoming mesh call is executed
+   *
+   * Override this method to:
+   * - Validate authentication/authorization based on `this.lmz.callContext`
+   * - Populate `callContext.state` with computed data (sessions, permissions)
+   * - Add logging or tracing metadata
+   * - Reject unauthorized calls by throwing an error
+   *
+   * This hook is called AFTER the DO is initialized and BEFORE the operation
+   * chain is executed. The `callContext` is available via `this.lmz.callContext`.
+   *
+   * **Important**: If you override this, remember to call `await super.onBeforeCall()`
+   * to ensure any parent class logic is also executed.
+   *
+   * @example
+   * ```typescript
+   * class SecureDocumentDO extends LumenizeDO<Env> {
+   *   async onBeforeCall(): Promise<void> {
+   *     await super.onBeforeCall();
+   *
+   *     const { origin, originAuth, state } = this.lmz.callContext;
+   *
+   *     // Require authenticated origin for client calls
+   *     if (origin.type === 'LumenizeClient' && !originAuth?.userId) {
+   *       throw new Error('Authentication required');
+   *     }
+   *
+   *     // Cache computed permissions in state for downstream nodes
+   *     state.canEdit = await this.checkEditPermission(originAuth?.userId);
+   *   }
+   * }
+   * ```
+   */
+  async onBeforeCall(): Promise<void> {
+    // Default: no-op. Subclasses override this for authentication/authorization.
   }
 
   /**
@@ -277,7 +315,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * 
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
-  async __executeOperation(envelope: any): Promise<any> {
+  async __executeOperation(envelope: CallEnvelope): Promise<any> {
     const log = this.#debug('lmz.mesh.LumenizeDO.__executeOperation');
 
     // 1. Validate envelope version
@@ -294,7 +332,16 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
       throw error;
     }
 
-    // 2. Auto-initialize from callee metadata if present
+    // 2. Validate callContext is present
+    if (!envelope.callContext) {
+      const error = new Error(
+        'Missing callContext in envelope. All mesh calls must include callContext.'
+      );
+      log.error('Missing callContext', { envelope });
+      throw error;
+    }
+
+    // 3. Auto-initialize from callee metadata if present
     if (envelope.metadata?.callee) {
       this.lmz.init({
         bindingName: envelope.metadata.callee.bindingName,
@@ -302,10 +349,19 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
       });
     }
 
-    // 3. Postprocess and execute chain
+    // 4. Postprocess the chain
     const preprocessedChain = envelope.chain;
     const operationChain = postprocess(preprocessedChain);
-    return await this.__executeChain(operationChain);
+
+    // 5. Execute chain within callContext (makes this.lmz.callContext available)
+    // CallContext already includes callee (set by caller)
+    return await runWithCallContext(envelope.callContext, async () => {
+      // Call onBeforeCall hook for authentication/authorization
+      await this.onBeforeCall();
+
+      // Execute the operation chain
+      return await this.__executeChain(operationChain);
+    });
   }
 
   /**

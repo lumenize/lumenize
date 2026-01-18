@@ -46,48 +46,52 @@ Available via `this.lmz.callContext` during any `@mesh` handler execution:
 ```typescript @skip-check
 interface CallContext {
   // Immutable — set at chain start, cannot be modified by intermediate nodes
-  origin: {
-    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
-    bindingName: string;
-    instanceName?: string;
-  };
+  origin: NodeIdentity;
+
   // Immutable — verified claims from origin's JWT (if authenticated)
   originAuth?: {
     userId: string;
-    // ... other auth claims
+    claims?: Record<string, unknown>;  // Additional JWT claims (roles, permissions, etc.)
   };
-  // Per-hop — reflects the immediate caller (changes at each hop)
-  caller: {
-    type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
-    bindingName: string;
-    instanceName?: string;
-  };
-  // Per-hop — this node's identity in the current call
-  callee: {
-    bindingName: string;
-    instanceName: string;
-  };
-  // Mutable — can be modified by onBeforeCall or any handler execution along the way
-  state: Record<string, any>;
+
+  // Full call path from origin to immediate caller (immutable array, grows at each hop)
+  callChain: NodeIdentity[];  // [origin, hop1, hop2, ...] — last element is immediate caller
+
+  // Per-hop — this node's identity (populated by receiver)
+  callee?: NodeIdentity;
+
+  // Mutable — can be modified by onBeforeCall or any handler along the way
+  state: Record<string, unknown>;
+}
+
+interface NodeIdentity {
+  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+  bindingName: string;
+  instanceName?: string;  // undefined for Workers
 }
 ```
 
 **Property summary:**
 - `origin` — Original caller at chain start. **Immutable**.
-- `originAuth` — Verified JWT claims from original caller. **Immutable**.
-- `caller` — Immediate caller. **Per-hop** — changes at each hop.
-- `callee` — This node's identity in the current call. **Per-hop**.
+- `originAuth` — Verified JWT claims from original caller. **Immutable**. Only set for authenticated LumenizeClient origins.
+- `callChain` — Full call path from origin to immediate caller. **Immutable array** — grows at each hop.
+- `callee` — This node's identity in the current call. **Per-hop** — populated by receiver from envelope metadata.
 - `state` — Middleware data. **Mutable** — starts as `{}`, typically populated in `onBeforeCall()`.
+
+**Convenience getter:**
+```typescript @skip-check
+this.lmz.caller  // Returns last element of callChain (immediate caller), or origin if chain is empty
+```
 
 For context propagation and persistence patterns, see [Managing Context](./managing-context).
 
 ## Decorator: `@mesh`
 
-Marks methods as mesh entry points. Methods without `@mesh` cannot be called from outside the node.
+Marks methods as mesh entry points. Methods without `@mesh` cannot be called from outside the node. This is the security boundary — only methods you explicitly mark can be invoked remotely.
 
 ```typescript @skip-check
 @mesh                         // Basic entry point
-@mesh(guardFunction)          // With access control guard
+@mesh.guard(guardFunction)    // With access control guard
 ```
 
 **Guard signature:**
@@ -112,7 +116,7 @@ onBeforeCall(): void
 | Level | Mechanism | Purpose |
 |-------|-----------|---------|
 | Class-wide | `onBeforeCall()` | WHO can call (authentication) |
-| Method-level | `@mesh(guard)` | Fine-grained permissions |
+| Method-level | `@mesh.guard()` | Fine-grained permissions |
 
 For the complete security model, see [Security](./security#access-control).
 

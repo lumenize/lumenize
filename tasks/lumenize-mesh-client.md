@@ -1,6 +1,6 @@
 # LumenizeClientGateway & LumenizeClient
 
-**Status**: Phase 1 - Design Documentation
+**Status**: Phase 1.5 - CallContext Infrastructure (COMPLETE)
 **Created**: 2025-12-08
 **Design Document**: `/website/docs/lumenize-mesh/`
 
@@ -221,6 +221,128 @@ log.info('Something happened', { data });
 **Success Criteria**:
 - API design approved by maintainer
 - Clear examples for common use cases
+
+### Phase 1.5: CallContext Infrastructure for LumenizeDO/LumenizeWorker
+**Goal**: Add `callContext` support to existing mesh nodes before Gateway implementation
+
+**Background**: The Gateway needs to propagate `callContext` between clients and mesh nodes. Before implementing Gateway, we need the infrastructure in LumenizeDO and LumenizeWorker to handle `callContext` in call envelopes.
+
+**CallContext Revision (2025-01-18)**:
+
+The current `CallContext` interface uses `caller` for immediate caller and doesn't track the full call chain. Per discussion, we're renaming to make the call chain explicit:
+
+**Before** (current docs):
+```typescript
+interface CallContext {
+  origin: NodeIdentity;      // Original caller at chain start
+  originAuth?: AuthClaims;   // Verified JWT claims from origin
+  caller: NodeIdentity;      // Immediate caller (per-hop)
+  callee: NodeIdentity;      // This node (per-hop)
+  state: Record<string, any>; // Mutable middleware data
+}
+```
+
+**After** (revised):
+```typescript
+interface NodeIdentity {
+  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
+  bindingName: string;
+  instanceName?: string;  // undefined for Workers
+}
+
+interface CallContext {
+  origin: NodeIdentity;           // Original caller at chain start (immutable)
+  originAuth?: {                  // Verified JWT claims from origin (immutable)
+    userId: string;
+    claims?: Record<string, any>;
+  };
+  callChain: NodeIdentity[];      // Full chain: [origin, hop1, hop2, ..., immediateCallerBeforeThis]
+                                  // Last element is immediate caller. Empty if origin is calling directly.
+  state: Record<string, any>;     // Mutable, starts as {}, propagates and accumulates
+}
+
+interface CallOptions {
+  newChain?: boolean;             // Start fresh callContext (default: false, inherits current)
+  state?: Record<string, any>;    // Initial/additional state (merged with inherited state, or used as initial if newChain)
+}
+```
+
+**Key changes**:
+- `caller` → `callChain` (array) — provides full tracing without needing `state.spans`
+- Removed `callee` — redundant, just use `this.lmz.bindingName`/`instanceName`
+- Removed `priorCaller` — subsumed by `callChain` array
+- Immediate caller is `callChain[callChain.length - 1]` (or `origin` if `callChain` is empty)
+- Gateway is NOT in `callChain` — it's an implementation detail; calls appear to come from LumenizeClient directly
+- Added `CallOptions.state` for providing initial/additional state when making calls
+
+**Helper getter** (convenience):
+```typescript
+// In LmzApi
+get caller(): NodeIdentity {
+  return this.callContext.callChain.length > 0
+    ? this.callContext.callChain[this.callContext.callChain.length - 1]
+    : this.callContext.origin;
+}
+```
+
+**Tasks**:
+
+**1.5.1 Add CallContext Types** (DONE):
+- [x] Add `NodeIdentity` interface to `@lumenize/mesh/types.ts`
+- [x] Add `CallContext` interface to `@lumenize/mesh/types.ts`
+- [x] Export from `@lumenize/mesh/index.ts`
+
+**1.5.2 Extend CallEnvelope** (DONE):
+- [x] Add `callContext: CallContext` to `CallEnvelope` interface in `lmz-api.ts`
+- [x] Update `callRaw()` to include `callContext` in envelope
+- [x] When building envelope, append current node to `callChain`
+
+**1.5.3 Add AsyncLocalStorage for CallContext** (DONE):
+- [x] Create `callContextStorage` (AsyncLocalStorage instance) in `lmz-api.ts`
+- [x] Add `callContext` getter to `LmzApi` interface that reads from ALS
+- [x] Add `caller` convenience getter to `LmzApi`
+
+**1.5.4 Update __executeOperation in LumenizeDO** (DONE):
+- [x] Extract `callContext` from envelope
+- [x] Set up ALS context before executing chain
+- [x] Require `callContext` in envelope (no backwards compat needed - mesh not yet released)
+
+**1.5.5 Update __executeOperation in LumenizeWorker** (DONE):
+- [x] Same as LumenizeDO
+
+**1.5.6 Capture CallContext in Continuations** (DONE):
+- [x] Deep clone callContext at capture time in `lmz.call()` via `captureCallContext()` in `lmz-api.ts`
+- [x] Restore captured context when executing handlers via `runWithCallContext()`
+- [x] Ensures `this.lmz.callContext` works in continuation handlers even with interleaved calls
+
+**1.5.7 Add onBeforeCall Hook** (DONE):
+- [x] Add `onBeforeCall()` method to `LumenizeDO` base class (default: no-op, calls `super.onBeforeCall()`)
+- [x] Add `onBeforeCall()` method to `LumenizeWorker` base class
+- [x] Call `onBeforeCall()` in `__executeOperation` before executing chain
+- [x] Users override to add authentication checks, populate `state`, etc.
+
+**1.5.8 Add @mesh Decorator** (DONE):
+- [x] Create `mesh` decorator function in `@lumenize/mesh`
+- [x] Decorator marks methods as mesh-callable (sets metadata on method)
+- [x] Optional guard function: `@mesh.guard((instance) => { /* throw to reject */ })`
+- [x] Update `executeOperationChain()` to check for `@mesh` marker on entry point method
+
+**1.5.9 Update Documentation** (DONE):
+- [x] Update `mesh-api.mdx` with revised `CallContext` interface
+- [x] Update `managing-context.mdx` to reflect `callChain` instead of `caller`
+- [x] Update tracing example to use `callChain` directly instead of manual `state.spans`
+- [x] Update `security.mdx` examples that reference `caller`
+- [x] Update `gateway.mdx` to document `connection_status` message purpose
+
+**1.5.10 Tests** (DONE):
+- [x] Test `callContext` propagation across DO→DO calls
+- [x] Test `callContext` propagation across DO→Worker→DO calls
+- [x] Test `callChain` accumulates correctly through multi-hop calls
+- [x] Test `state` mutations propagate and accumulate
+- [x] Test `onBeforeCall` hook is called
+- [x] Test `@mesh` decorator blocks non-decorated methods
+- [x] Test `@mesh.guard()` functions work
+- [x] Test `callContext` is restored in continuation handlers
 
 ### Phase 2: LumenizeClientGateway Implementation
 **Goal**: Zero-storage DO that proxies between mesh and WebSocket client
@@ -679,13 +801,13 @@ class LumenizeClient {
 - [ ] (vitest-pool) `this.lmz.callContext` is automatically restored for continuations (no manual capture needed) even when there is a round-trip remote call.
 - [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
 - [ ] (review and vitest-pool) Clients must be authenticated
-- [ ] (vitest-pool) Trusted return capability security model allows you to return an interface for just admins. Similarly, it should not allow the use of root-level methods without an @mesh decorator in nested conditions. For example, `multiply(subtract(4, 3), add(2, 1))` should only work if `multiply`, `subtract`, and `add` all have @mesh annotations that allow them.
+- [x] (vitest-pool) Trusted return capability security model allows you to return an interface for just admins. Similarly, it should not allow the use of root-level methods without an @mesh decorator in nested conditions. For example, `multiply(subtract(4, 3), add(2, 1))` should only work if `multiply`, `subtract`, and `add` all have @mesh annotations that allow them. **VERIFIED**: `test/call-context.test.ts` - "@mesh decorator security > blocks calls to methods without @mesh decorator"
 - [ ] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator.
-- [ ] (vitest-pool) lmz.callContext has the correct information even when there are deeply interleaved operations ongoing (ALS isolation).
-- [ ] (vitest-pool) Verify that `callContext` is automatically captured in continuations and survives DO hibernation without manual user intervention.
-- [ ] (vitest-pool) Verify that `callContext.state` modifications in DO2 are visible in DO1's continuation after the call returns.
+- [x] (vitest-pool) lmz.callContext has the correct information even when there are deeply interleaved operations ongoing (ALS isolation). **VERIFIED**: `test/call-context.test.ts` - "ALS isolation for concurrent calls > concurrent calls have isolated callContext (no cross-contamination)"
+- [x] (vitest-pool) Verify that `callContext` is automatically captured in continuations and each interleaved handler gets its own captured context (not a shared/mutated one). **VERIFIED**: `test/call-context.test.ts` - "CallContext capture in continuation handlers (Phase 1.5.6) > interleaved lmz.call() handlers each get their own captured context". Note: Handlers are in-memory Promise callbacks and will be lost on hibernation/eviction - this is inherent to the pattern. For hibernation-safe patterns, see docs.
+- [x] (vitest-pool) Verify that `callContext.state` modifications in DO2 are visible in DO1's continuation after the call returns. **VERIFIED**: `test/call-context.test.ts` - "State propagation > state modifications propagate to downstream calls"
 - [ ] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
-- [ ] LumenizeDO and LumenizeWorker are upgraded to support the new access control model
+- [x] LumenizeDO and LumenizeWorker are upgraded to support the new access control model **DONE**: Both use `requireMeshDecorator: true` and support `@mesh` decorator, `onBeforeCall()` hook, and full `CallContext` propagation
 - [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
 - [ ] Messages are queued when the client is in a reconnection grace period. Also, they should queue in a situation where the tab reawakens, the client sends a message and that triggers the reconnection. We may be monitoring the tab sleep/awake events and try the reconnection proactively. We want to keep that feature so messages sent from the mesh reach the client. However, we want to test multiple different timings to assure robustness. Needs analysis.
 - [ ] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth).
