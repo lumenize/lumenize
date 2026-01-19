@@ -458,6 +458,100 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
   });
 
+  describe('Two-one-way calls (callback pattern)', () => {
+    it('callback call PRESERVES original callContext (origin stays the same)', async () => {
+      // This tests the "two-one-way calls" pattern where:
+      // 1. Origin calls Target
+      // 2. Target processes, then independently calls back to Origin
+      //
+      // VERIFIED BEHAVIOR: The callback preserves the original callContext.
+      // When Target calls back using this.lmz.callRaw(), it serializes its
+      // CURRENT callContext (which shows Origin as origin) and sends it.
+      // This allows the full call chain to be traced back to the original requester.
+      const origin = env.TEST_DO.getByName('two-one-way-origin');
+      const target = env.TEST_DO.getByName('two-one-way-target');
+
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-origin' });
+      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-target' });
+
+      // Clear any previous results
+      await origin.clearTwoOneWayResult();
+
+      // Origin initiates the two-one-way call
+      await origin.initiateTwoOneWayCall('TEST_DO', 'two-one-way-target', 'test-marker-123');
+
+      // Wait for the callback to complete
+      await vi.waitFor(async () => {
+        const result = await origin.getTwoOneWayResult();
+        expect(result).toBeDefined();
+      });
+
+      const result = await origin.getTwoOneWayResult();
+
+      // Verify the marker was passed through
+      expect(result.marker).toBe('test-marker-123');
+
+      // Verify Target's incoming context shows Origin as origin
+      expect(result.targetIncomingContext.origin).toMatchObject({
+        type: 'LumenizeDO',
+        bindingName: 'TEST_DO',
+        instanceName: 'two-one-way-origin'
+      });
+
+      // VERIFIED: The callback's callContext preserves the ORIGINAL origin
+      // This allows tracing the full request chain back to who started it
+      expect(result.callbackContext.origin).toMatchObject({
+        type: 'LumenizeDO',
+        bindingName: 'TEST_DO',
+        instanceName: 'two-one-way-origin'  // Original origin is preserved!
+      });
+
+      // The callback's callChain should include Target (who made the callback)
+      expect(result.callbackContext.callChain).toHaveLength(1);
+      expect(result.callbackContext.callChain[0]).toMatchObject({
+        type: 'LumenizeDO',
+        bindingName: 'TEST_DO',
+        instanceName: 'two-one-way-target'
+      });
+    });
+
+    it('callContext.caller (computed from callChain) is the immediate caller', async () => {
+      // While origin is preserved for tracing, the immediate caller is
+      // the last entry in callChain (or origin if callChain is empty)
+      const origin = env.TEST_DO.getByName('two-one-way-caller-origin');
+      const target = env.TEST_DO.getByName('two-one-way-caller-target');
+
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-caller-origin' });
+      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-caller-target' });
+
+      await origin.clearTwoOneWayResult();
+      await origin.initiateTwoOneWayCall('TEST_DO', 'two-one-way-caller-target', 'caller-test');
+
+      await vi.waitFor(async () => {
+        const result = await origin.getTwoOneWayResult();
+        expect(result).toBeDefined();
+      });
+
+      const result = await origin.getTwoOneWayResult();
+
+      // Compute caller the same way the getter does: last in callChain, or origin if empty
+      const callChain = result.callbackContext.callChain;
+      const computedCaller = callChain.length > 0
+        ? callChain[callChain.length - 1]
+        : result.callbackContext.origin;
+
+      // The immediate caller should be Target (who made the callback)
+      expect(computedCaller).toMatchObject({
+        type: 'LumenizeDO',
+        bindingName: 'TEST_DO',
+        instanceName: 'two-one-way-caller-target'
+      });
+
+      // While origin remains the original requester
+      expect(result.callbackContext.origin.instanceName).toBe('two-one-way-caller-origin');
+    });
+  });
+
   describe('CallContext capture in continuation handlers (Phase 1.5.6)', () => {
     it('callContext.state is captured and restored in lmz.call() handlers', async () => {
       // This test verifies that when using fire-and-forget lmz.call(),

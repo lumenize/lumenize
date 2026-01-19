@@ -39,7 +39,7 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/core": "*",
+    "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
     "@lumenize/utils": "*"
   },

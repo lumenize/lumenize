@@ -43,7 +43,7 @@
   },
   "dependencies": {
     "@lumenize/alarms": "*",
-    "@lumenize/core": "*",
+    "@lumenize/debug": "*",
     "@lumenize/mesh": "*",
     "@lumenize/structured-clone": "^0.17.0",
     "@lumenize/test-endpoints": "^0.17.0",

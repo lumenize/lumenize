@@ -88,7 +88,7 @@ export interface OcanConfig {
  * 
  * @example
  * ```typescript
- * import type { Unprotected } from '@lumenize/core';
+ * import type { Unprotected } from '@lumenize/debug';
  * 
  * // Instead of @ts-expect-error:
  * const op = this.ctn<RemoteDO>().ctx.storage.kv.get('key');

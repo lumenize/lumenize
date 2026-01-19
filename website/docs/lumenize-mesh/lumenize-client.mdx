@@ -40,7 +40,7 @@ The `LumenizeClient` constructor takes a configuration object:
 ### Connection & Identity
 
 - **`baseUrl`**: `string?` — Base URL for WebSocket connection. Default: current origin in browsers (e.g., `https://` → `wss://`). Required in Node.js.
-- **`instanceName`**: `string` — Unique client identifier. Recommended: `${userId}.${tabId}`
+- **`instanceName`**: `string` — Unique client identifier. **Required format: `{userId}.{tabId}`** — The Gateway validates that the `userId` prefix matches the authenticated user's ID to prevent session hijacking.
 - **`gatewayBindingName`**: `string?` — [Gateway](./gateway) DO binding name. Default: `LUMENIZE_CLIENT_GATEWAY`
 
 ### Authentication
@@ -63,7 +63,7 @@ using client = new EditorClient({
 ### Lifecycle Callbacks
 
 - **`onConnectionStateChange`**: `(state) => void` — Called with `connecting`, `connected`, `reconnecting`, or `disconnected`
-- **`onAuthenticationError`**: `(error: AuthenticationError) => void` — Called when re-login required (not for routine token refresh)
+- **`onLoginRequired`**: `(error: LoginRequiredError) => void` — Called when re-login required (not for routine token refresh)
 - **`onSubscriptionsLost`**: `() => void` — Called after reconnection if grace period had expired
 - **`onConnectionError`**: `(error) => void` — Low-level WebSocket errors (rarely actionable)
 
@@ -215,17 +215,14 @@ class EditorClient extends LumenizeClient {
 
 ### Authentication Errors
 
-Token expiration (4401) is handled automatically — refresh and reconnect happen transparently. `onAuthenticationError` only fires when the user must re-login:
+Token expiration (4401) is handled automatically — refresh and reconnect happen transparently. `onLoginRequired` only fires when the user must re-login:
 
 ```typescript @skip-check
 using client = new EditorClient({
   accessToken,
-  onAuthenticationError: (error) => {
-    // Only fires when re-login is required:
-    // - Refresh token expired (HTTP 401)
-    // - (unlikely, but just in case) Invalid token signature (4403)
-    // - (unlikely, but just in case) No token provided (4400)
-    console.log('Auth failed:', error.code, error.reason);
+  onLoginRequired: (error) => {
+    // Only fires when re-login is required (refresh token expired)
+    console.log('Login required:', error.reason);
     window.location.href = '/login';
   }
 });
@@ -319,16 +316,15 @@ interface LumenizeClientConfig {
   refresh?: string | (() => Promise<string>);  // default: /auth/refresh-token
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;  // Rarely actionable
-  onAuthenticationError?: (error: AuthenticationError) => void;
+  onLoginRequired?: (error: LoginRequiredError) => void;
   onSubscriptionsLost?: () => void;
 }
 ```
 
-### Type: `AuthenticationError`
+### Type: `LoginRequiredError`
 
 ```typescript @skip-check
-interface AuthenticationError extends Error {
-  code: number;   // WebSocket close code (4400, 4401, 4403)
-  reason: string; // Close reason from Gateway
+interface LoginRequiredError extends Error {
+  reason: string; // Reason for login requirement
 }
 ```

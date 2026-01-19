@@ -58,9 +58,9 @@ a strong recommendation for Lumenize RPC.
   RPC server-side currently only runs in Cloudflare.
 - Lumenize RPC's default transport layer uses Durable Objects hibernating WebSockets.
   Cap'n Web uses non-hibernating WebSockets even when running on Durable Objects.
-- Cap'n Web supports passing functions as parameters which enable bidirection 
-  communication (although we found significant limitations). The as-yet-unreleased 
-  LumenizeBase supports server to client communications over hibernating WebSockets.
+- Cap'n Web supports passing functions as parameters which enable bidirection
+  communication (although we found significant limitations). `@lumenize/mesh`
+  supports server to client communications over hibernating WebSockets via `LumenizeClient`.
 - Cap'n Web has a ["magic `map()` method"](https://github.com/cloudflare/capnweb#the-magic-map-method) which can be used to remotely transform a value, without pulling it back locally. In Lumenize, you'd need to call a method that does the transformation.
 - Lumenize RPC provides seemless access to ctx (including storage) and env, even allowing 
   you to use env to hop from the RPC host to another DO (e.g. `client.env.DO_BINDING.getByName('instance-name').someMethod()` just works). Cap'n Web doesn't allow this.

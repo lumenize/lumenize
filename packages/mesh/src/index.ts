@@ -38,3 +38,23 @@ export * from './ocan/index';
 // @mesh decorator for marking methods as mesh-callable
 export { mesh, meshFn, isMeshCallable, getMeshGuard, MESH_CALLABLE, MESH_GUARD } from './mesh-decorator';
 export type { MeshGuard } from './mesh-decorator';
+
+// LumenizeClientGateway - WebSocket bridge for mesh clients
+export { LumenizeClientGateway, ClientDisconnectedError, GatewayMessageType } from './lumenize-client-gateway';
+export type {
+  GatewayMessage,
+  CallMessage,
+  CallResponseMessage,
+  IncomingCallMessage,
+  IncomingCallResponseMessage,
+  ConnectionStatusMessage,
+} from './lumenize-client-gateway';
+
+// LumenizeClient - Browser/Node.js client for mesh communication
+export { LumenizeClient, LoginRequiredError } from './lumenize-client';
+export type {
+  LumenizeClientConfig,
+  ConnectionState,
+  LmzApiClient,
+  Continuation as ClientContinuation,  // Alias to avoid conflict with DO's Continuation
+} from './lumenize-client';

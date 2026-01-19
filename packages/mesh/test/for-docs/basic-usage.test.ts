@@ -7,7 +7,6 @@ import { env } from 'cloudflare:test';
 import { DurableObject } from 'cloudflare:workers';
 
 // Import packages - side-effect imports register services in NADIS
-import '@lumenize/core';
 import '@lumenize/alarms';
 import { LumenizeDO } from '@lumenize/mesh';
 import type { Schedule } from '@lumenize/alarms';

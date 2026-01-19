@@ -2,6 +2,11 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { postprocess } from '@lumenize/structured-clone';
 import { newContinuation, executeOperationChain, type OperationChain } from './ocan/index.js';
 import { createLmzApiForWorker, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { ClientDisconnectedError } from './lumenize-client-gateway.js';
+
+// Register ClientDisconnectedError on globalThis for proper structured-clone serialization
+// This ensures LumenizeWorker instances can deserialize this error type when received from Gateway
+(globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
 
 /**
  * Continuation type for method chaining across Workers/DOs

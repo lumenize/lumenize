@@ -1,7 +1,6 @@
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';
-import '@lumenize/core';    // Registers sql in this.svc
-import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
+import '@lumenize/alarms';  // Registers alarms in this.svc
 import { LumenizeDO } from '@lumenize/mesh';
 import type { Schedule } from '../src/alarms';
 

@@ -6,7 +6,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/debug';
 import { env } from 'cloudflare:workers';
 
 /**

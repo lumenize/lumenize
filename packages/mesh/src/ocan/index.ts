@@ -1,5 +1,5 @@
 /**
- * @lumenize/core/ocan - Operation Chaining And Nesting
+ * @lumenize/mesh/ocan - Operation Chaining And Nesting
  * 
  * Core infrastructure for building and executing operation chains.
  * Used by @lumenize/rpc, this.lmz.call(), @lumenize/alarms, and @lumenize/proxy-fetch.

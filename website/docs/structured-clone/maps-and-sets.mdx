@@ -195,7 +195,7 @@ The same identity preservation behavior applies when using **`@lumenize/rpc`**. 
 
 ```typescript @skip-check
 // Server-side DO
-export class MyDO extends LumenizeBase {
+export class MyDO extends LumenizeDO {
   getData() {
     const keyObj = { userId: 123 };
     const map = new Map([[keyObj, "user data"]]);

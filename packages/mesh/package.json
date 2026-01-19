@@ -33,7 +33,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "@lumenize/alarms": "*",
-    "@lumenize/core": "*",
+    "@lumenize/debug": "*",
     "@vitest/coverage-istanbul": "3.2.4",
     "vitest": "3.2.4",
     "wrangler": "^4.38.0"

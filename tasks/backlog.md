@@ -33,18 +33,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Consider: requests per second, requests per minute, configurable thresholds
   - On limit exceeded: close connection with appropriate code or reject calls
 
-- [ ] Enforce instanceName format for reconnection hijacking prevention
-  - **Threat**: During 5-second grace period after disconnect, attacker with valid JWT could connect to victim's instanceName and receive their messages
-  - **Fix**: Gateway validates `instanceName.startsWith(userId + ".")` on connection
-  - No AuthDO call needed — userId already in verified JWT claims
-  - Reject with `4403` if mismatch
-  - **Trade-off**: Enforces `{userId}.{tabId}` naming convention; apps wanting different schemes need custom validation
-  - Consider making the validation function configurable for flexibility
-
-- [ ] Validate userId unchanged on `token-update` message
-  - **Threat**: Attacker with MitM or XSS injects `token-update` with different user's token, hijacking session identity
-  - **Fix**: Gateway compares new token's userId with current attachment's userId; reject with `4403` if different
-  - Simple check, low implementation cost
+- [x] Enforce instanceName format for reconnection hijacking prevention
+  - **IMPLEMENTED**: Gateway now requires instanceName format `{userId}.{tabId}` and validates userId prefix matches authenticated user
+  - Rejects with 403 if missing, malformed, or mismatched
+  - See `packages/mesh/src/lumenize-client-gateway.ts` lines 243-265
 
 - [ ] Add admin token revocation endpoint to LumenizeAuth
   - Endpoint like `DELETE /auth/users/:userId/sessions` to revoke all refresh tokens for a user
@@ -71,11 +63,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Implment generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
 
-- [ ] Verify that two-one-way calls already preserve callContext automatically
-  - **Suspicion**: When Target receives a call, `this.lmz.callContext` is Origin's context. When Target calls back using `this.lmz.call()`, it should serialize the *current* callContext (which is Origin's) and send it. Origin's handler should then have the original callContext restored.
-  - If this works, it's a documentation clarification, not a feature
-  - If it doesn't work, consider: (a) fixing the framework to always forward current callContext, or (b) adding an explicit `{ echoCallContext: true }` option
-  - Key insight: callContext is already serialized for outbound calls. No storage needed. Works for any node type (Workers, DOs, etc.)
+- [x] Verify that two-one-way calls already preserve callContext automatically
+  - **VERIFIED**: When Target calls back, callContext IS preserved. Origin remains the original requester, and Target is added to callChain. This is the intended behavior for tracing.
+  - Tests added in `packages/mesh/test/call-context.test.ts` under "Two-one-way calls (callback pattern)"
 
 - [ ] Run experiment to confirm that 
 
@@ -95,19 +85,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Current design: `refresh: string | () => Promise<string>` (docs updated 2025-01-14)
   - String form: POST to endpoint, expects `{ access_token }` response (default: `/auth/refresh-token`)
   - Function form: Custom refresh logic returning token string directly
-  - Consider: Should function form also support returning `{ access_token, expires_in }` for proactive refresh timing?
   - Consider: Should we support additional response shapes for string form (configurable field name)?
-
-- [ ] Proactive token refresh without reconnection
-  - Currently: Token expiration causes Gateway to close with 4401, client refreshes and reconnects
-  - Future: Client proactively refreshes ~30s before expiration and updates Gateway attachment without reconnecting
-  - Approach: HTTP POST to Gateway (via Worker middleware) to update originAuth in WebSocket attachment
-    - Client POST to refresh endpoint → gets new access_token
-    - Client POST to `/gateway/{instanceName}/refresh-identity` (or similar)
-    - Worker middleware verifies token, sets X-Auth-User-Id/X-Auth-Claims headers
-    - Gateway receives verified headers via Workers RPC, updates attachment
-  - Benefits: Seamless rotation without brief `reconnecting` state, avoids reconnection overhead
-  - Complexity: Requires new Gateway endpoint and client coordination
 
 - [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
   - Wraps `routeDORequest` but requires instance **names** only (no ids)

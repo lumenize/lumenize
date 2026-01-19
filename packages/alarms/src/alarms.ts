@@ -66,7 +66,7 @@ export class Alarms extends NadisPlugin {
     this.#sql = this.svc.sql;
     
     this.#storage = this.ctx.storage;
-    this.#log = debug(doInstance)('lmz.alarms.Alarms');
+    this.#log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.alarms.Alarms');
 
     // Try to initialize in blockConcurrencyWhile if we're in constructor phase
     // This will fail silently if called outside constructor (lazy init case)

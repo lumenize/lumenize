@@ -1,4 +1,4 @@
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/debug';
 import { LumenizeDO } from '@lumenize/mesh';
 import { routeDORequest, type CorsOptions } from '@lumenize/utils';
 import { ALL_SCHEMAS } from './schemas';

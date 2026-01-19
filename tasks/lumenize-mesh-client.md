@@ -1,6 +1,6 @@
 # LumenizeClientGateway & LumenizeClient
 
-**Status**: Phase 1.5 - CallContext Infrastructure (COMPLETE)
+**Status**: Phase 4 - LumenizeClient Core (IN PROGRESS)
 **Created**: 2025-12-08
 **Design Document**: `/website/docs/lumenize-mesh/`
 
@@ -344,26 +344,30 @@ get caller(): NodeIdentity {
 - [x] Test `@mesh.guard()` functions work
 - [x] Test `callContext` is restored in continuation handlers
 
-### Phase 2: LumenizeClientGateway Implementation
+### Phase 2: LumenizeClientGateway Implementation (COMPLETE)
 **Goal**: Zero-storage DO that proxies between mesh and WebSocket client
 
 **Success Criteria**:
-- Extends DurableObject directly (not LumenizeDO)
-- NO storage operations - state from getWebSockets() + getAlarm() only
-- WebSocket attachments for connection metadata
-- 5-second grace period on disconnect (via alarm)
-- `__executeOperation()` forwards to client and returns response
-- Incoming mesh calls handled when client connected
-- Graceful handling when client disconnected
+- [x] Extends DurableObject directly (not LumenizeDO)
+- [x] NO storage operations - state from getWebSockets() + getAlarm() only
+- [x] WebSocket attachments for connection metadata
+- [x] 5-second grace period on disconnect (via alarm)
+- [x] `__executeOperation()` forwards to client and returns response
+- [x] Incoming mesh calls handled when client connected
+- [x] Graceful handling when client disconnected (grace period waiting)
 
-### Phase 3: WebSocket Transport (Fork from RPC)
-**Goal**: Create mesh-specific WebSocket transport by forking from RPC
+**Implementation Details**:
+- Created `packages/mesh/src/lumenize-client-gateway.ts`
+- Added `ClientDisconnectedError` (registered with structured-clone for proper serialization)
+- Added `GatewayMessageType` constants for wire protocol
+- Gateway builds `callContext.origin` and `originAuth` from WebSocket attachment (verified sources)
+- Gateway passes `callChain` and `state` from client (trusted for tracing)
+- Tests in `packages/mesh/test/lumenize-client-gateway.test.ts`
 
-**Success Criteria**:
-- `WebSocketTransport` class in `@lumenize/mesh`
-- Forked from `rpc/src/websocket-rpc-transport.ts` (~200 lines)
-- Adapted for mesh: call envelopes, incoming calls, token refresh
-- `@lumenize/rpc` untouched (stays frozen)
+### Phase 3: WebSocket Transport (SKIPPED - merged into Phase 4)
+**Goal**: ~~Create mesh-specific WebSocket transport by forking from RPC~~
+
+**Decision**: After implementing Phase 2, we realized the transport is inherently part of the client implementation. The original plan to fork `websocket-rpc-transport.ts` as a separate step doesn't make sense - the transport patterns will be borrowed and adapted as we build LumenizeClient. Phase 1.5 already handled the call execution upgrades (callContext, OCAN fork) that keep RPC compatible.
 
 ### Phase 4: LumenizeClient Core
 **Goal**: Browser-side mesh participant with call infrastructure
@@ -374,7 +378,7 @@ get caller(): NodeIdentity {
 - `this.ctn()` for building operation chains
 - **Instant Connect**: Connection established immediately upon instantiation (not lazy)
 - Shared code with LumenizeDO where possible
-- Uses refactored WebSocket transport
+- Learn from and borrow what is useful from Lumenize RPC's websocket-transport
 
 ### Phase 5: Connection Management
 **Goal**: Robust connection lifecycle
@@ -440,11 +444,11 @@ get caller(): NodeIdentity {
 
 6. **Trust model**: Nodes in the mesh are trusted. Freezing prevents bugs, not malicious nodes. For high-security operations, verify `originAuthToken` (signed JWT) independently.
 
-7. **Authentication Error Handling**:
-   - `onAuthenticationError` fires for all auth failures: token refresh failed, initial connection rejected (401/403), mid-session token expiration (4401 close code)
+7. **Login Required Handling**:
+   - `onLoginRequired` fires when refresh token fails (HTTP 401) — user must re-login
+   - Access token expiration (4401) is handled automatically via refresh and reconnect
    - Separate from `onConnectionError` which handles network-level WebSocket errors
-   - Token refresh is HTTP in parallel to WebSocket — when it fails, WebSocket stays open for in-flight calls
-   - Developer handles redirect to login in their `onAuthenticationError` callback
+   - Developer handles redirect to login in their `onLoginRequired` callback
 
 ### Phase 7: Client-to-Client Communication
 **Goal**: Enable LumenizeClient → LumenizeClient calls
@@ -475,9 +479,9 @@ get caller(): NodeIdentity {
 | WebSocket transport | `rpc/src/websocket-rpc-transport.ts` | **Fork** (~200 lines) |
 | Auth middleware | `mesh/src/auth/` | Direct import (merged from packages/auth) |
 
-### WebSocket Transport: Fork from RPC
+### WebSocket Transport: Learn and borrow from Lumenize RPC's websocket-transport
 
-**Decision:** Fork rather than extract shared abstraction.
+**Decision:** Don't modify any dependencies of Lumenize RPC. Rather, copy.
 
 **Rationale:**
 - `@lumenize/rpc` is frozen (not deprecated, but not building new things with it)
@@ -811,7 +815,7 @@ class LumenizeClient {
 - [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
 - [ ] Messages are queued when the client is in a reconnection grace period. Also, they should queue in a situation where the tab reawakens, the client sends a message and that triggers the reconnection. We may be monitoring the tab sleep/awake events and try the reconnection proactively. We want to keep that feature so messages sent from the mesh reach the client. However, we want to test multiple different timings to assure robustness. Needs analysis.
 - [ ] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth).
-- [ ] Verify that when the access token expires, it tries the refresh token before calling onAuthenticationError
+- [ ] Verify that when the access token expires, it tries the refresh token before calling onLoginRequired
 
 ## References
 

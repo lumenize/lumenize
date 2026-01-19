@@ -267,7 +267,7 @@ function initEditor(documentId: string) {
       onConnectionStateChange: (state) => {
         updateConnectionIndicator(state);
       },
-      onAuthenticationError: () => {
+      onLoginRequired: () => {
         redirectToLogin();
       }
     },

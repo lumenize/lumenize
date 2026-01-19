@@ -34,6 +34,14 @@
       {
         "name": "ONSTART_ERROR_DO",
         "class_name": "OnStartErrorDO"
+      },
+      {
+        "name": "LUMENIZE_CLIENT_GATEWAY",
+        "class_name": "LumenizeClientGateway"
+      },
+      {
+        "name": "ECHO_DO",
+        "class_name": "EchoDO"
       }
     ]
   },
@@ -53,6 +61,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["OnStartTestDO", "OnStartErrorDO"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["EchoDO"]
     }
   ]
 }

@@ -1,5 +1,4 @@
 // Import NADIS packages to register services
-import '@lumenize/core';
 import '@lumenize/alarms';
 
 import { LumenizeDO } from '../src/lumenize-do';
@@ -9,6 +8,9 @@ import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '@lumenize/alarms';
 import { getOperationChain } from '../src/ocan/index.js';
 import { preprocess } from '@lumenize/structured-clone';
+
+// Export LumenizeClientGateway for testing
+export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
 
 // Export documentation example DOs
 export { UsersDO, NotificationsDO } from './for-docs/basic-usage.test';
@@ -605,6 +607,99 @@ export class TestDO extends LumenizeDO<Env> {
       results
     };
   }
+
+  // ============================================
+  // Two-one-way calls context preservation tests
+  // Tests that when Target calls back to Origin, the callContext reflects
+  // the new call chain (Target as origin) rather than the original.
+  // ============================================
+
+  /** Storage for callback context received */
+  #twoOneWayCallbackContext: any = null;
+
+  /**
+   * Initiates a two-one-way call pattern:
+   * 1. Origin (this) calls Target
+   * 2. Target receives, then calls back to Origin's receiveCallback method
+   * 3. Origin stores the callback's callContext for verification
+   */
+  @mesh
+  async initiateTwoOneWayCall(
+    targetBindingName: string,
+    targetInstanceName: string,
+    marker: string
+  ): Promise<void> {
+    // Call target, asking it to call us back
+    // We pass our identity so Target knows where to call back
+    await this.lmz.callRaw(
+      targetBindingName,
+      targetInstanceName,
+      this.ctn<TestDO>().handleAndCallback(
+        this.lmz.bindingName!,
+        this.lmz.instanceNameOrId!,
+        marker
+      )
+    );
+  }
+
+  /**
+   * Target receives this call, then independently calls back to Origin
+   */
+  @mesh
+  async handleAndCallback(
+    callerBindingName: string,
+    callerInstanceName: string,
+    marker: string
+  ): Promise<string> {
+    // Store my callContext when I received this call
+    const myIncomingContext = {
+      origin: this.lmz.callContext.origin,
+      caller: this.lmz.callContext.caller,
+      callChain: this.lmz.callContext.callChain,
+    };
+
+    // Now call back to the original caller
+    // This is an INDEPENDENT call, not a return value
+    // The callback's callContext should show ME (Target) as origin
+    await this.lmz.callRaw(
+      callerBindingName,
+      callerInstanceName,
+      this.ctn<TestDO>().receiveCallback(marker, myIncomingContext)
+    );
+
+    return 'callback-sent';
+  }
+
+  /**
+   * Origin receives the callback from Target
+   * Stores the callContext for later verification
+   */
+  @mesh
+  receiveCallback(marker: string, targetIncomingContext: any): void {
+    // Store the callback's callContext for verification
+    // This callContext should show Target as origin (not the original Origin)
+    this.#twoOneWayCallbackContext = {
+      marker,
+      targetIncomingContext,
+      callbackContext: {
+        origin: this.lmz.callContext.origin,
+        caller: this.lmz.callContext.caller,
+        callChain: this.lmz.callContext.callChain,
+      }
+    };
+    this.ctx.storage.kv.put('two_one_way_result', this.#twoOneWayCallbackContext);
+  }
+
+  /** Get the stored two-one-way callback result */
+  getTwoOneWayResult(): any {
+    return this.ctx.storage.kv.get('two_one_way_result') ?? this.#twoOneWayCallbackContext;
+  }
+
+  /** Clear the two-one-way result for fresh tests */
+  clearTwoOneWayResult(): void {
+    this.#twoOneWayCallbackContext = null;
+    this.ctx.storage.kv.delete('two_one_way_result');
+  }
 }
 
 // Test DO that uses onStart() lifecycle hook
@@ -869,9 +964,52 @@ export class TestWorker extends LumenizeWorker<Env> {
   }
 }
 
-// Default export for worker
+// Simple EchoDO for testing LumenizeClientGateway
+// Echoes back the input with context info
+export class EchoDO extends LumenizeDO<Env> {
+  @mesh
+  echo(message: string): { message: string; origin?: any; caller?: any } {
+    return {
+      message: `Echo: ${message}`,
+      origin: this.lmz.callContext?.origin,
+      caller: this.lmz.caller,
+    };
+  }
+
+  @mesh
+  getCallContext() {
+    return this.lmz.callContext;
+  }
+}
+
+// Import routeDORequest for e2e testing with Browser.WebSocket
+import { routeDORequest } from '@lumenize/utils';
+import { createWebSocketAuthMiddleware, createAuthMiddleware } from '@lumenize/auth';
+
+// Default export for worker - routes to DOs for e2e testing
 export default {
   async fetch(request: Request, env: Env) {
+    // For e2e tests, we need to route WebSocket connections to the Gateway
+    // The routeDORequest function matches URLs like /gateway/LUMENIZE_CLIENT_GATEWAY/{instanceName}
+    // and routes them to the appropriate DO
+
+    // Get public keys from env (from .dev.vars)
+    const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+
+    // Create auth middleware for WebSocket and HTTP requests
+    const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
+    const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
+
+    const response = await routeDORequest(request, env, {
+      prefix: 'gateway',
+      onBeforeConnect: wsAuth,
+      onBeforeRequest: httpAuth,
+    });
+
+    if (response) {
+      return response;
+    }
+
     return new Response('OK');
   },
 };

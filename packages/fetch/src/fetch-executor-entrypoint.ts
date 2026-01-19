@@ -21,7 +21,7 @@
  * 3. Origin DOs will automatically use it via RPC
  */
 
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/debug';
 import { LumenizeWorker } from '@lumenize/mesh';
 import { ResponseSync } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';

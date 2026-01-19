@@ -12,7 +12,7 @@ import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
 import { createRpcPreprocessTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/debug';
 import { executeOperationChain, validateOperationChain } from './ocan.js';
 
 /**
@@ -51,7 +51,7 @@ export async function sendDownstream(
   doInstance: any,
   payload: any
 ): Promise<void> {
-  const log = debug(doInstance)('lmz.rpc.sendDownstream');
+  const log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.rpc.sendDownstream');
   
   // Normalize to array
   const ids = Array.isArray(clientIds) ? clientIds : [clientIds];
@@ -144,7 +144,7 @@ async function handleCallRequest(
   doInstance: any,
   config: Required<RpcConfig>
 ): Promise<Response> {
-  const log = debug(doInstance)('lmz.rpc.handleCallRequest');
+  const log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.rpc.handleCallRequest');
   
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
@@ -459,7 +459,7 @@ export async function handleRpcMessage(
   doInstance: any,
   config: RpcConfig = {}
 ): Promise<boolean> {
-  const log = debug(doInstance)('lmz.rpc.handleRpcMessage');
+  const log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.rpc.handleRpcMessage');
   
   // Only handle string messages
   if (typeof message !== 'string') {

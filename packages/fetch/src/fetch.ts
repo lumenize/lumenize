@@ -6,9 +6,8 @@
  * - direct(): Direct fetch from DO (stub for future implementation)
  */
 
-import '@lumenize/core';    // Side-effect import for NADIS registration (sql, debug)
 import '@lumenize/alarms';  // Side-effect import for NADIS registration (alarms)
-import { debug, type DebugLogger } from '@lumenize/core';
+import { debug, type DebugLogger } from '@lumenize/debug';
 import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
 import type { ProxyFetchWorkerOptions } from './types';
@@ -70,7 +69,7 @@ export class Fetch extends NadisPlugin {
       throw new Error('Fetch requires @lumenize/alarms to be imported for timeout handling');
     }
     
-    this.#log = debug(doInstance)('lmz.fetch.Fetch');
+    this.#log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.fetch.Fetch');
   }
 
   /**

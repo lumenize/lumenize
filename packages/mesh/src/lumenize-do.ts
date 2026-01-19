@@ -3,7 +3,12 @@ import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, 
 import { postprocess, parse } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
 import { createLmzApiForDO, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
-import { debug } from '@lumenize/debug';
+import { debug, type DebugLogger } from '@lumenize/debug';
+import { ClientDisconnectedError } from './lumenize-client-gateway.js';
+
+// Register ClientDisconnectedError on globalThis for proper structured-clone serialization
+// This ensures LumenizeDO instances can deserialize this error type when received from Gateway
+(globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
 
 /**
  * Continuation type with $result marker for explicit result placement.
@@ -50,7 +55,7 @@ export type Continuation<T> = T & { $result: any };
  * ```
  */
 export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
-  #debug = debug(this as any);
+  #debug: (namespace: string) => DebugLogger = debug(this as unknown as { env: { DEBUG?: string } });
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
   #lmzApi: LmzApi | null = null;
@@ -375,7 +380,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * times out), only the first result is processed. Subsequent duplicates are logged
    * as errors and ignored.
    * 
-   * **OCAN Integration**: Uses @lumenize/core's operation chain machinery to:
+   * **OCAN Integration**: Uses @lumenize/mesh's operation chain machinery to:
    * - Deserialize the stored continuation and result (via postprocess)
    * - Inject the result into the continuation (via replaceNestedOperationMarkers)
    * - Execute the continuation (via executeOperationChain)

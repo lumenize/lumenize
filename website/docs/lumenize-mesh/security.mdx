@@ -68,17 +68,17 @@ The Gateway never sees or verifies the token — it trusts the identity headers 
 
 See [LumenizeClient: Authentication](./lumenize-client#authentication) for configuration options including `accessToken` and `refresh`.
 
-### Handling Authentication Errors
+### Handling Login Required
 
-Access token expiration (4401) is handled automatically — the client refreshes via HTTP and reconnects transparently. `onAuthenticationError` only fires when the refresh token itself has expired or been revoked (HTTP 401 from the refresh endpoint), meaning the user must re-login:
+Access token expiration (4401) is handled automatically — the client refreshes via HTTP and reconnects transparently. `onLoginRequired` only fires when the refresh token itself has expired or been revoked (HTTP 401 from the refresh endpoint), meaning the user must re-login:
 
 ```typescript @skip-check
 using client = new EditorClient({
   instanceName: `${userId}.${tabId}`,
   // baseUrl defaults to current origin, refresh defaults to /auth/refresh-token
-  onAuthenticationError: (error) => {
+  onLoginRequired: (error) => {
     // Only fires when refresh fails — user must re-login
-    console.log('Auth failed:', error.code, error.reason);
+    console.log('Login required:', error.code, error.reason);
     window.location.href = '/login';
   }
 });
@@ -86,12 +86,13 @@ using client = new EditorClient({
 
 ### Auth Close Codes
 
-The Gateway uses these WebSocket close codes for auth issues:
+The Gateway uses this WebSocket close code for auth issues:
 
 | Code | Meaning | Action |
 |------|---------|--------|
-| `4400` | No identity provided (middleware didn't set `X-Auth-User-Id`) | Redirect to login |
 | `4401` | Token expired | Refresh and reconnect (automatic) |
+
+Other auth failures (missing identity, invalid signature) are rejected by Worker middleware before the WebSocket is established, resulting in HTTP 401/403 errors rather than WebSocket close codes.
 
 ## Access Control
 
