@@ -1,3 +1,55 @@
+// ============================================
+// Continuation Types
+// ============================================
+
+/**
+ * Brand marker for continuation types. All continuations have this marker,
+ * enabling type-safe assignability checks.
+ *
+ * @internal - Use AnyContinuation or Continuation<T> instead
+ */
+declare const ContinuationBrand: unique symbol;
+
+/** @internal */
+export type ContinuationBrandType = typeof ContinuationBrand;
+
+/**
+ * Base type that any continuation can be assigned to.
+ * Use this in function signatures that accept any continuation.
+ */
+export type AnyContinuation = { readonly [ContinuationBrand]: unknown };
+
+/**
+ * Helper type that maps methods to return Continuation<ReturnType>.
+ * Only applied to object types (not primitives).
+ */
+type ContinuationMethods<T> = T extends object
+  ? {
+      [K in keyof T]: T[K] extends (...args: infer A) => infer R
+        ? (...args: A) => Continuation<R>
+        : never;
+    }
+  : unknown;
+
+/**
+ * Continuation type that wraps an object type so that all method calls
+ * return `Continuation<ReturnType>` for type-safe chaining.
+ *
+ * @example
+ * ```typescript
+ * // this.ctn<RemoteDO>().getData(id) returns Continuation<DataType>
+ * const remote = this.ctn<RemoteDO>().getData(id);
+ * this.lmz.call('REMOTE_DO', instanceId, remote);
+ * ```
+ */
+export type Continuation<T> = {
+  readonly [ContinuationBrand]: T;
+} & ContinuationMethods<T>;
+
+// ============================================
+// Operation Chain Types
+// ============================================
+
 /**
  * Operation types that align with JavaScript Proxy traps.
  * These form the building blocks of operation chains.

@@ -1,8 +1,7 @@
 import { isDurableObjectId, getDOStub } from '@lumenize/utils';
 import { preprocess } from '@lumenize/structured-clone';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
-import type { Continuation } from './lumenize-do.js';
+import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
 
 // Re-export types for convenience
@@ -299,7 +298,7 @@ export interface LmzApi {
   callRaw(
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
-    chainOrContinuation: OperationChain | Continuation<any>,
+    chainOrContinuation: OperationChain | AnyContinuation,
     options?: CallOptions
   ): Promise<any>;
   
@@ -339,7 +338,7 @@ export interface LmzApi {
     calleeBindingName: string,
     calleeInstanceNameOrId: string | undefined,
     remoteContinuation: Continuation<T>,
-    handlerContinuation?: Continuation<any>,
+    handlerContinuation?: AnyContinuation,
     options?: CallOptions
   ): void;
 }
@@ -504,7 +503,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
     async callRaw(
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
-      chainOrContinuation: OperationChain | Continuation<any>,
+      chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
       // 1. Extract chain from Continuation if needed
@@ -571,7 +570,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
       remoteContinuation: Continuation<T>,
-      handlerContinuation?: Continuation<any>,
+      handlerContinuation?: AnyContinuation,
       options?: CallOptions
     ): void {
       // 1. Extract operation chains from continuations
@@ -758,7 +757,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
     async callRaw(
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
-      chainOrContinuation: OperationChain | Continuation<any>,
+      chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
       // 1. Extract chain from Continuation if needed
@@ -825,7 +824,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
       remoteContinuation: Continuation<T>,
-      handlerContinuation: Continuation<any>,
+      handlerContinuation: AnyContinuation,
       options?: CallOptions
     ): Promise<void> {
       // Async version without blockConcurrencyWhile (Workers don't have it)

@@ -4,16 +4,14 @@
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { DurableObject } from 'cloudflare:workers';
 
 // Import packages - side-effect imports register services in NADIS
 import '@lumenize/alarms';
 import { LumenizeDO } from '@lumenize/mesh';
-import type { Schedule } from '@lumenize/alarms';
 
 // Example: Basic auto-injection
-class UsersDO extends LumenizeDO<any> {
-  constructor(ctx: DurableObjectState, env: any) {
+class UsersDO extends LumenizeDO<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Run migrations in constructor
     this.#initTable();
@@ -45,10 +43,10 @@ class UsersDO extends LumenizeDO<any> {
 }
 
 // Example: Using multiple services together
-class NotificationsDO extends LumenizeDO<any> {
+class NotificationsDO extends LumenizeDO<Env> {
   executedNotifications: Array<{ userId: string; message: string }> = [];
 
-  constructor(ctx: DurableObjectState, env: any) {
+  constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Run migrations in constructor
     this.svc.sql`
@@ -61,7 +59,7 @@ class NotificationsDO extends LumenizeDO<any> {
     `;
   }
 
-  async scheduleNotification(userId: string, message: string, delaySeconds: number) {
+  scheduleNotification(userId: string, message: string, delaySeconds: number) {
     // Store notification in SQL
     const id = `notif-${Date.now()}`;
     this.svc.sql`
@@ -69,20 +67,21 @@ class NotificationsDO extends LumenizeDO<any> {
       VALUES (${id}, ${userId}, ${message})
     `;
 
-    // Schedule alarm to send it
+    // Schedule alarm to send it - schedule() is synchronous
     const payload = { id, userId, message };
-    const schedule = await this.svc.alarms.schedule(
+    const schedule = this.svc.alarms.schedule(
       delaySeconds,
-      this.ctn().sendNotification(payload)
+      this.ctn().sendNotification(payload) as any // Continuation proxy - TS doesn't understand runtime behavior
     );
 
     return { scheduled: true, id, scheduleId: schedule.id };
   }
 
-  sendNotification(schedule: Schedule, payload: any) {
+  // Handler receives the payload passed to the continuation
+  sendNotification(payload: { id: string; userId: string; message: string }) {
     // Mark as sent in database
     this.svc.sql`
-      UPDATE notifications 
+      UPDATE notifications
       SET sent_at = ${Math.floor(Date.now() / 1000)}
       WHERE id = ${payload.id}
     `;
@@ -100,8 +99,8 @@ class NotificationsDO extends LumenizeDO<any> {
 
   getSentNotifications() {
     return this.svc.sql`
-      SELECT * FROM notifications 
-      WHERE sent_at IS NOT NULL 
+      SELECT * FROM notifications
+      WHERE sent_at IS NOT NULL
       ORDER BY sent_at DESC
     `;
   }
@@ -121,6 +120,7 @@ describe('LumenizeDO - Basic Usage', () => {
 
     expect(user.email).toBe('test@example.com');
 
+    // @ts-expect-error - Type instantiation is excessively deep (vitest-pool-workers stub typing)
     const retrieved = await stub.getUser('user1');
     expect(retrieved.email).toBe('test@example.com');
   });
@@ -148,4 +148,3 @@ describe('LumenizeDO - Basic Usage', () => {
     expect(users.length).toBeGreaterThanOrEqual(2);
   });
 });
-

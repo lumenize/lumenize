@@ -1,21 +1,24 @@
 import { DurableObject } from 'cloudflare:workers';
-import { newContinuation, executeOperationChain, replaceNestedOperationMarkers, type OperationChain } from './ocan/index.js';
+import {
+  newContinuation,
+  executeOperationChain,
+  replaceNestedOperationMarkers,
+  type OperationChain,
+  type Continuation,
+  type AnyContinuation,
+} from './ocan/index.js';
 import { postprocess, parse } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
 import { createLmzApiForDO, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { debug, type DebugLogger } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
+// Re-export continuation types from ocan for convenience
+export type { Continuation, AnyContinuation };
+
 // Register ClientDisconnectedError on globalThis for proper structured-clone serialization
 // This ensures LumenizeDO instances can deserialize this error type when received from Gateway
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
-
-/**
- * Continuation type with $result marker for explicit result placement.
- * $result is typed as `any` because it's a placeholder that gets replaced
- * at runtime with the actual result (which can be any type).
- */
-export type Continuation<T> = T & { $result: any };
 
 /**
  * LumenizeDO - Base class for stateful Durable Objects in the Lumenize Mesh
@@ -123,14 +126,14 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * This hook is called AFTER the DO is initialized and BEFORE the operation
    * chain is executed. The `callContext` is available via `this.lmz.callContext`.
    *
-   * **Important**: If you override this, remember to call `await super.onBeforeCall()`
+   * **Important**: If you override this, remember to call `super.onBeforeCall()`
    * to ensure any parent class logic is also executed.
    *
    * @example
    * ```typescript
    * class SecureDocumentDO extends LumenizeDO<Env> {
-   *   async onBeforeCall(): Promise<void> {
-   *     await super.onBeforeCall();
+   *   onBeforeCall(): void {
+   *     super.onBeforeCall();
    *
    *     const { origin, originAuth, state } = this.lmz.callContext;
    *
@@ -139,13 +142,13 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    *       throw new Error('Authentication required');
    *     }
    *
-   *     // Cache computed permissions in state for downstream nodes
-   *     state.canEdit = await this.checkEditPermission(originAuth?.userId);
+   *     // Cache computed permissions in state (synchronously)
+   *     state.canEdit = this.#permissions.get(originAuth?.userId);
    *   }
    * }
    * ```
    */
-  async onBeforeCall(): Promise<void> {
+  onBeforeCall(): void {
     // Default: no-op. Subclasses override this for authentication/authorization.
   }
 
@@ -362,7 +365,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
     // CallContext already includes callee (set by caller)
     return await runWithCallContext(envelope.callContext, async () => {
       // Call onBeforeCall hook for authentication/authorization
-      await this.onBeforeCall();
+      this.onBeforeCall();
 
       // Execute the operation chain
       return await this.__executeChain(operationChain);

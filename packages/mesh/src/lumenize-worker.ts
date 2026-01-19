@@ -1,20 +1,21 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { postprocess } from '@lumenize/structured-clone';
-import { newContinuation, executeOperationChain, type OperationChain } from './ocan/index.js';
+import {
+  newContinuation,
+  executeOperationChain,
+  type OperationChain,
+  type Continuation,
+  type AnyContinuation,
+} from './ocan/index.js';
 import { createLmzApiForWorker, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
+
+// Re-export continuation types from ocan for convenience
+export type { Continuation, AnyContinuation };
 
 // Register ClientDisconnectedError on globalThis for proper structured-clone serialization
 // This ensures LumenizeWorker instances can deserialize this error type when received from Gateway
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
-
-/**
- * Continuation type for method chaining across Workers/DOs
- * 
- * Created via `this.ctn()`, continuations allow building method chains
- * that can be serialized and executed remotely or passed as parameters.
- */
-export type Continuation<T> = T & { __ocan_metadata?: any };
 
 /**
  * Base class for Worker Entrypoints with RPC infrastructure
@@ -113,14 +114,14 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    * This hook is called BEFORE the operation chain is executed.
    * The `callContext` is available via `this.lmz.callContext`.
    *
-   * **Important**: If you override this, remember to call `await super.onBeforeCall()`
+   * **Important**: If you override this, remember to call `super.onBeforeCall()`
    * to ensure any parent class logic is also executed.
    *
    * @example
    * ```typescript
    * class AuthWorker extends LumenizeWorker<Env> {
-   *   async onBeforeCall(): Promise<void> {
-   *     await super.onBeforeCall();
+   *   onBeforeCall(): void {
+   *     super.onBeforeCall();
    *
    *     const { originAuth } = this.lmz.callContext;
    *
@@ -132,7 +133,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    * }
    * ```
    */
-  async onBeforeCall(): Promise<void> {
+  onBeforeCall(): void {
     // Default: no-op. Subclasses override this for authentication/authorization.
   }
 
@@ -212,7 +213,7 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
     // CallContext already includes callee (set by caller)
     return await runWithCallContext(envelope.callContext, async () => {
       // Call onBeforeCall hook for authentication/authorization
-      await this.onBeforeCall();
+      this.onBeforeCall();
 
       // Execute the operation chain
       return await this.__executeChain(operationChain);

@@ -5,6 +5,12 @@
  * Used by @lumenize/rpc, this.lmz.call(), @lumenize/alarms, and @lumenize/proxy-fetch.
  */
 
+// Continuation types (centralized here for consistent branding)
+export type {
+  Continuation,
+  AnyContinuation,
+} from './types.js';
+
 // Types
 export type {
   Operation,

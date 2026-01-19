@@ -4,8 +4,13 @@ import {
   executeOperationChain,
   replaceNestedOperationMarkers,
   getOperationChain,
-  type OperationChain
+  type OperationChain,
+  type Continuation,
+  type AnyContinuation,
 } from './ocan/index.js';
+
+// Re-export continuation types from ocan for convenience
+export type { Continuation, AnyContinuation };
 import {
   runWithCallContext,
   captureCallContext,
@@ -152,11 +157,6 @@ export interface LumenizeClientConfig {
    */
   WebSocket?: typeof WebSocket;
 }
-
-/**
- * Continuation type with $result marker for explicit result placement.
- */
-export type Continuation<T> = T & { $result: any };
 
 /**
  * LmzApi interface for LumenizeClient

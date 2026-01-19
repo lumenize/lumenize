@@ -422,10 +422,7 @@ describe('LumenizeClient', () => {
 
       const ctn = client.ctn<TestClient>();
 
-      // Should have $result property
-      expect(ctn.$result).toBeDefined();
-
-      // Should be able to chain methods
+      // Should be able to chain methods and get type-safe continuations
       const chain = ctn.handleMessage('test');
       expect(chain).toBeDefined();
 

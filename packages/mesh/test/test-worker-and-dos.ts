@@ -13,7 +13,7 @@ import { preprocess } from '@lumenize/structured-clone';
 export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
 
 // Export documentation example DOs
-export { UsersDO, NotificationsDO } from './for-docs/basic-usage.test';
+export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/basic-usage.test';
 
 // Export test DO for NadisPlugin tests
 export { NadisPluginTestDO } from './nadis-plugin-test-do';
