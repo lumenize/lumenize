@@ -1,6 +1,6 @@
 /**
  * Fetch - NADIS plugin for external API calls from Durable Objects
- * 
+ *
  * Provides two strategies:
  * - proxy(): DO-Worker architecture for cost-effective external API calls
  * - direct(): Direct fetch from DO (stub for future implementation)

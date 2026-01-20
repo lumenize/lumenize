@@ -482,10 +482,10 @@ export const WS_CLOSE_CODES = {
  * 
  * Useful for setting up alarms to close WebSocket connections before token expires.
  * 
- * @param payload - JWT payload with exp claim
+ * @param payload - JWT payload with exp claim (or partial payload for testing)
  * @returns Seconds until expiration, or 0 if already expired, or Infinity if no exp claim
  */
-export function getTokenTtl(payload: JwtPayload): number {
+export function getTokenTtl(payload: { exp?: number }): number {
   if (!payload.exp) {
     return Infinity;
   }

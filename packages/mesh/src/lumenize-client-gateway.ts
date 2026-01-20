@@ -3,7 +3,7 @@ import { stringify, parse } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/utils';
 import { debug, type DebugLogger } from '@lumenize/debug';
 import type { CallEnvelope } from './lmz-api.js';
-import type { NodeIdentity, CallContext, OriginAuth } from './types.js';
+import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js';
 
 // ============================================
 // Constants
@@ -70,9 +70,8 @@ export interface IncomingCallMessage {
   callId: string;
   chain: any; // Serialized operation chain
   callContext: {
-    origin: NodeIdentity;
-    originAuth?: OriginAuth;
     callChain: NodeIdentity[];
+    originAuth?: OriginAuth;
     state: Record<string, unknown>;
   };
 }
@@ -181,7 +180,7 @@ interface ReconnectWaiter {
  * - State derived from getWebSockets(), getAlarm(), and WebSocket attachments
  * - 1:1 relationship with clients (each client has its own Gateway instance)
  * - Transparent proxying (doesn't interpret calls, just forwards them)
- * - Trust DMZ (builds callContext.origin/originAuth from verified sources)
+ * - Trust DMZ (builds callContext.callChain[0] and originAuth from verified sources)
  *
  * **Connection States (derived, not stored):**
  * | getWebSockets() | getAlarm() | State | Behavior |
@@ -192,7 +191,7 @@ interface ReconnectWaiter {
  */
 export class LumenizeClientGateway extends DurableObject<any> {
   /** Debug logger factory - call with namespace to get logger */
-  #debugFactory: (namespace: string) => DebugLogger = debug(this as unknown as { env: { DEBUG?: string } });
+  #debugFactory: (namespace: string) => DebugLogger = debug(this);
 
   /** Pending calls waiting for client response */
   #pendingCalls = new Map<string, PendingCall>();
@@ -478,7 +477,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     try {
       // Build origin identity from VERIFIED sources (WebSocket attachment)
-      const origin: NodeIdentity = {
+      // This replaces whatever the client sent - Gateway is the trust boundary
+      const verifiedOrigin: NodeIdentity = {
         type: 'LumenizeClient',
         bindingName: 'LUMENIZE_CLIENT_GATEWAY', // Clients connect through Gateway binding
         instanceName: attachment?.instanceName,
@@ -492,21 +492,17 @@ export class LumenizeClientGateway extends DurableObject<any> {
           }
         : undefined;
 
-      // Build callee identity
-      const callee: NodeIdentity = {
-        type: instance ? 'LumenizeDO' : 'LumenizeWorker',
-        bindingName: binding,
-        instanceName: instance,
-      };
-
-      // Build callContext - origin/originAuth from verified sources, chain/state from client
+      // Build callContext - callChain[0] is verified origin, rest comes from client
+      // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
+      const clientCallChain = clientContext?.callChain ?? [];
       const callContext: CallContext = {
-        origin,
+        callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
         originAuth,
-        callChain: clientContext?.callChain ?? [],
-        callee,
         state: clientContext?.state ?? {},
       };
+
+      // Determine callee type for metadata
+      const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
 
       // Build envelope
       const envelope: CallEnvelope = {
@@ -520,7 +516,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
             instanceNameOrId: attachment?.instanceName,
           },
           callee: {
-            type: callee.type,
+            type: calleeType,
             bindingName: binding,
             instanceNameOrId: instance,
           },
@@ -597,9 +593,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
       callId,
       chain: envelope.chain,
       callContext: {
-        origin: envelope.callContext.origin,
-        originAuth: envelope.callContext.originAuth,
         callChain: envelope.callContext.callChain,
+        originAuth: envelope.callContext.originAuth,
         state: envelope.callContext.state,
       },
     };

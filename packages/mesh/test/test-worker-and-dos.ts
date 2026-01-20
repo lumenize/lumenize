@@ -396,10 +396,20 @@ export class TestDO extends LumenizeDO<Env> {
     return this.lmz.callContext;
   }
 
-  // Remote method that returns the caller convenience getter
+  // Remote method that returns the computed caller (callChain.at(-1))
   @mesh
   getCaller() {
-    return this.lmz.caller;
+    const { callChain } = this.lmz.callContext;
+    return callChain.at(-1);
+  }
+
+  // Remote method that returns callee identity from this.lmz
+  @mesh
+  getCalleeIdentity() {
+    return {
+      bindingName: this.lmz.bindingName,
+      instanceName: this.lmz.instanceName
+    };
   }
 
   // Remote method that modifies state and returns the context
@@ -538,7 +548,8 @@ export class TestDO extends LumenizeDO<Env> {
     instancePrefix: string
   ) {
     const results: { position: string; origin: string; expectedOrigin: string }[] = [];
-    const myOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    // Origin is now callChain[0]
+    const myOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
 
     // Record context at start
     results.push({
@@ -567,7 +578,7 @@ export class TestDO extends LumenizeDO<Env> {
     ];
 
     // Check context mid-execution (after promises started but before awaited)
-    const midOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    const midOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
     results.push({
       position: 'mid-execution',
       origin: midOrigin,
@@ -578,24 +589,24 @@ export class TestDO extends LumenizeDO<Env> {
     const remoteContexts = await Promise.all(promises);
 
     // Check context after await
-    const postAwaitOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    const postAwaitOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
     results.push({
       position: 'post-await',
       origin: postAwaitOrigin,
       expectedOrigin: myOrigin
     });
 
-    // All remote contexts should show us as their origin
+    // All remote contexts should show us as their origin (callChain[0])
     for (let i = 0; i < remoteContexts.length; i++) {
       results.push({
         position: `remote-${i + 1}-saw-origin`,
-        origin: remoteContexts[i]?.origin?.instanceName || 'unknown',
+        origin: remoteContexts[i]?.callChain[0]?.instanceName || 'unknown',
         expectedOrigin: myOrigin
       });
     }
 
     // Final context check
-    const finalOrigin = this.lmz.callContext?.origin?.instanceName || 'unknown';
+    const finalOrigin = this.lmz.callContext?.callChain[0]?.instanceName || 'unknown';
     results.push({
       position: 'final',
       origin: finalOrigin,
@@ -652,15 +663,15 @@ export class TestDO extends LumenizeDO<Env> {
     marker: string
   ): Promise<string> {
     // Store my callContext when I received this call
+    const { callChain } = this.lmz.callContext;
     const myIncomingContext = {
-      origin: this.lmz.callContext.origin,
-      caller: this.lmz.callContext.caller,
-      callChain: this.lmz.callContext.callChain,
+      callChain,
+      caller: callChain.at(-1),
     };
 
     // Now call back to the original caller
     // This is an INDEPENDENT call, not a return value
-    // The callback's callContext should show ME (Target) as origin
+    // The callback's callContext should preserve the original origin
     await this.lmz.callRaw(
       callerBindingName,
       callerInstanceName,
@@ -677,14 +688,14 @@ export class TestDO extends LumenizeDO<Env> {
   @mesh
   receiveCallback(marker: string, targetIncomingContext: any): void {
     // Store the callback's callContext for verification
-    // This callContext should show Target as origin (not the original Origin)
+    // callChain[0] is origin, callChain.at(-1) is caller
+    const { callChain } = this.lmz.callContext;
     this.#twoOneWayCallbackContext = {
       marker,
       targetIncomingContext,
       callbackContext: {
-        origin: this.lmz.callContext.origin,
-        caller: this.lmz.callContext.caller,
-        callChain: this.lmz.callContext.callChain,
+        callChain,
+        caller: callChain.at(-1),
       }
     };
     this.ctx.storage.kv.put('two_one_way_result', this.#twoOneWayCallbackContext);
@@ -942,7 +953,8 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   @mesh
   getCaller() {
-    return this.lmz.caller;
+    const { callChain } = this.lmz.callContext;
+    return callChain.at(-1);
   }
 
   // Worker that forwards call to a DO and returns both contexts
@@ -968,11 +980,12 @@ export class TestWorker extends LumenizeWorker<Env> {
 // Echoes back the input with context info
 export class EchoDO extends LumenizeDO<Env> {
   @mesh
-  echo(message: string): { message: string; origin?: any; caller?: any } {
+  echo(message: string): { message: string; callChain?: any; caller?: any } {
+    const { callChain } = this.lmz.callContext;
     return {
       message: `Echo: ${message}`,
-      origin: this.lmz.callContext?.origin,
-      caller: this.lmz.caller,
+      callChain,
+      caller: callChain.at(-1),
     };
   }
 

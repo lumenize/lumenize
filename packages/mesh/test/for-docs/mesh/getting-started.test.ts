@@ -76,7 +76,7 @@ class EditorClient extends LumenizeClient {
     this.lmz.call(
       'DOCUMENT_DO',
       this.#documentId,
-      remote as any // Continuation proxy - TS doesn't understand runtime behavior
+      remote
     );
   }
 
@@ -87,12 +87,12 @@ class EditorClient extends LumenizeClient {
 
   #subscribe() {
     const remote = this.ctn<DocumentDO>().subscribe();
-    const callback = (this.ctn() as any).handleSubscribeResult(remote);
+    const callback = this.ctn<EditorClient>().handleSubscribeResult(remote);
     this.lmz.call(
       'DOCUMENT_DO',
       this.#documentId,
-      remote as any, // Continuation proxy - TS doesn't understand runtime behavior
-      callback as any
+      remote,
+      callback
     );
   }
 

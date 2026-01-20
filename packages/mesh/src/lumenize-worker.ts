@@ -123,10 +123,10 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *   onBeforeCall(): void {
    *     super.onBeforeCall();
    *
-   *     const { originAuth } = this.lmz.callContext;
+   *     const { originAuth, callChain } = this.lmz.callContext;
    *
    *     // Only allow internal mesh calls (no client origin)
-   *     if (this.lmz.callContext.origin.type === 'LumenizeClient') {
+   *     if (callChain[0].type === 'LumenizeClient') {
    *       throw new Error('Direct client access not allowed');
    *     }
    *   }

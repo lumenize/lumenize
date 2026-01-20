@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 
 describe('@lumenize/mesh - CallContext Propagation', () => {
   describe('Basic callContext structure', () => {
-    it('callContext has correct origin when DO calls another DO', async () => {
+    it('callContext.callChain[0] has correct origin when DO calls another DO', async () => {
       const caller = env.TEST_DO.getByName('caller-do-1');
       const callee = env.TEST_DO.getByName('callee-do-1');
 
@@ -20,33 +20,34 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       // Now get the callee's last envelope to inspect callContext
       const envelope = await callee.getLastEnvelope();
       expect(envelope.callContext).toBeDefined();
-      expect(envelope.callContext.origin).toMatchObject({
+      // Origin is now callChain[0]
+      expect(envelope.callContext.callChain[0]).toMatchObject({
         type: 'LumenizeDO',
         bindingName: 'TEST_DO',
         instanceName: 'caller-do-1'
       });
     });
 
-    it('callContext.callee is correctly set for the receiving DO', async () => {
+    it('callee can get its own identity from this.lmz (no longer in callContext)', async () => {
       const caller = env.TEST_DO.getByName('caller-callee-test-1');
       const callee = env.TEST_DO.getByName('callee-callee-test-1');
 
       await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-callee-test-1' });
 
-      const calleeContext = await caller.testCallRawWithOperationChain(
+      // getCalleeIdentity returns { bindingName, instanceName } from this.lmz
+      const calleeIdentity = await caller.testCallRawWithOperationChain(
         'TEST_DO',
         'callee-callee-test-1',
-        [{ type: 'get', key: 'getCallContext' }, { type: 'apply', args: [] }]
+        [{ type: 'get', key: 'getCalleeIdentity' }, { type: 'apply', args: [] }]
       );
 
-      expect(calleeContext.callee).toMatchObject({
-        type: 'LumenizeDO',
+      expect(calleeIdentity).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'callee-callee-test-1'
       });
     });
 
-    it('callChain is empty when origin calls directly', async () => {
+    it('callChain has one element (origin) when origin calls directly', async () => {
       const caller = env.TEST_DO.getByName('chain-empty-1');
       const callee = env.TEST_DO.getByName('chain-empty-2');
 
@@ -58,8 +59,12 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         [{ type: 'get', key: 'getCallContext' }, { type: 'apply', args: [] }]
       );
 
-      // When origin calls directly, callChain should be empty
-      expect(calleeContext.callChain).toEqual([]);
+      // When origin calls directly, callChain has just the origin
+      expect(calleeContext.callChain).toHaveLength(1);
+      expect(calleeContext.callChain[0]).toMatchObject({
+        bindingName: 'TEST_DO',
+        instanceName: 'chain-empty-1'
+      });
     });
   });
 
@@ -82,21 +87,22 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       );
 
       // B's context when receiving from A (myContext)
-      expect(result.myContext.origin).toMatchObject({
+      // callChain[0] is origin (A)
+      expect(result.myContext.callChain[0]).toMatchObject({
         type: 'LumenizeDO',
         bindingName: 'TEST_DO',
         instanceName: 'chain-a'
       });
-      expect(result.myContext.callChain).toEqual([]); // A called B directly
+      expect(result.myContext.callChain).toHaveLength(1); // Just origin
 
-      // C's context shows the full chain
-      expect(result.remoteContext.origin).toMatchObject({
+      // C's context shows the full chain: [A, B]
+      expect(result.remoteContext.callChain[0]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'chain-a'
       });
-      // C should see B in the callChain (A → B → C, so B is in chain)
-      expect(result.remoteContext.callChain).toHaveLength(1);
-      expect(result.remoteContext.callChain[0]).toMatchObject({
+      // C should see: [A, B] - A is origin, B is caller
+      expect(result.remoteContext.callChain).toHaveLength(2);
+      expect(result.remoteContext.callChain[1]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'chain-b'
       });
@@ -118,21 +124,22 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         ]
       );
 
-      // B's myContext shows A as origin with empty callChain (direct call from origin)
-      expect(result.myContext.origin).toMatchObject({
+      // B's myContext: callChain = [A] (just origin)
+      expect(result.myContext.callChain[0]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'multi-hop-a'
       });
+      expect(result.myContext.callChain).toHaveLength(1);
 
-      // B called C (via getCallContext), so C should see:
-      // - origin: multi-hop-a (preserved from A)
-      // - callChain: [multi-hop-b] (B was added when B called C)
-      expect(result.remoteContext.origin).toMatchObject({
+      // B called C, so C should see:
+      // - callChain[0]: multi-hop-a (origin)
+      // - callChain[1]: multi-hop-b (caller)
+      expect(result.remoteContext.callChain[0]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'multi-hop-a'
       });
-      expect(result.remoteContext.callChain).toHaveLength(1);
-      expect(result.remoteContext.callChain[0]).toMatchObject({
+      expect(result.remoteContext.callChain).toHaveLength(2);
+      expect(result.remoteContext.callChain[1]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'multi-hop-b'
       });
@@ -157,26 +164,26 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         ]
       );
 
-      // Worker's context should show doA as origin
-      expect(result.workerContext.origin).toMatchObject({
+      // Worker's context should show doA as origin (callChain[0])
+      expect(result.workerContext.callChain[0]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'do-worker-do-1'
       });
 
       // The final DO should see:
-      // - origin: do-worker-do-1
-      // - callChain: [worker] (Worker was added when it called the DO)
-      expect(result.doContext.origin).toMatchObject({
+      // - callChain[0]: do-worker-do-1 (origin)
+      // - callChain[1]: worker (caller)
+      expect(result.doContext.callChain[0]).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'do-worker-do-1'
       });
-      expect(result.doContext.callChain).toHaveLength(1);
-      expect(result.doContext.callChain[0].type).toBe('LumenizeWorker');
+      expect(result.doContext.callChain).toHaveLength(2);
+      expect(result.doContext.callChain[1].type).toBe('LumenizeWorker');
     });
   });
 
-  describe('Caller convenience getter', () => {
-    it('lmz.caller returns origin when callChain is empty', async () => {
+  describe('Caller accessor pattern', () => {
+    it('callChain.at(-1) returns origin when origin calls directly', async () => {
       const doA = env.TEST_DO.getByName('caller-getter-1');
       const doB = env.TEST_DO.getByName('caller-getter-2');
 
@@ -188,14 +195,14 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         [{ type: 'get', key: 'getCaller' }, { type: 'apply', args: [] }]
       );
 
-      // When origin calls directly, caller should be origin
+      // When origin calls directly, caller = callChain.at(-1) = origin
       expect(caller).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'caller-getter-1'
       });
     });
 
-    it('lmz.caller returns last element of callChain when not empty', async () => {
+    it('callChain.at(-1) returns last hop in multi-hop chain', async () => {
       const doA = env.TEST_DO.getByName('caller-chain-1');
 
       await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-chain-1' });
@@ -212,9 +219,9 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       );
 
       // The remoteContext is from C (the DO that B called)
-      // C's caller should be B (last in callChain)
-      expect(result.remoteContext.callChain).toHaveLength(1);
-      expect(result.remoteContext.callChain[0]).toMatchObject({
+      // C's callChain = [A, B], so callChain.at(-1) = B
+      expect(result.remoteContext.callChain).toHaveLength(2);
+      expect(result.remoteContext.callChain.at(-1)).toMatchObject({
         bindingName: 'TEST_DO',
         instanceName: 'caller-chain-2'
       });
@@ -404,9 +411,9 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         )
       ]);
 
-      // Each should have its own origin
-      expect(contextA.origin.instanceName).toBe('als-isolation-caller-a');
-      expect(contextB.origin.instanceName).toBe('als-isolation-caller-b');
+      // Each should have its own origin (callChain[0])
+      expect(contextA.callChain[0].instanceName).toBe('als-isolation-caller-a');
+      expect(contextB.callChain[0].instanceName).toBe('als-isolation-caller-b');
     });
 
     it('callContext remains stable through concurrent callRaw() operations', async () => {
@@ -491,8 +498,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       // Verify the marker was passed through
       expect(result.marker).toBe('test-marker-123');
 
-      // Verify Target's incoming context shows Origin as origin
-      expect(result.targetIncomingContext.origin).toMatchObject({
+      // Verify Target's incoming context shows Origin as origin (callChain[0])
+      expect(result.targetIncomingContext.callChain[0]).toMatchObject({
         type: 'LumenizeDO',
         bindingName: 'TEST_DO',
         instanceName: 'two-one-way-origin'
@@ -500,24 +507,24 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
       // VERIFIED: The callback's callContext preserves the ORIGINAL origin
       // This allows tracing the full request chain back to who started it
-      expect(result.callbackContext.origin).toMatchObject({
+      // callChain[0] is origin, callChain[1] is target (who made callback)
+      expect(result.callbackContext.callChain[0]).toMatchObject({
         type: 'LumenizeDO',
         bindingName: 'TEST_DO',
         instanceName: 'two-one-way-origin'  // Original origin is preserved!
       });
 
       // The callback's callChain should include Target (who made the callback)
-      expect(result.callbackContext.callChain).toHaveLength(1);
-      expect(result.callbackContext.callChain[0]).toMatchObject({
+      expect(result.callbackContext.callChain).toHaveLength(2);
+      expect(result.callbackContext.callChain[1]).toMatchObject({
         type: 'LumenizeDO',
         bindingName: 'TEST_DO',
         instanceName: 'two-one-way-target'
       });
     });
 
-    it('callContext.caller (computed from callChain) is the immediate caller', async () => {
-      // While origin is preserved for tracing, the immediate caller is
-      // the last entry in callChain (or origin if callChain is empty)
+    it('callChain.at(-1) gives the immediate caller', async () => {
+      // The immediate caller is always the last entry in callChain
       const origin = env.TEST_DO.getByName('two-one-way-caller-origin');
       const target = env.TEST_DO.getByName('two-one-way-caller-target');
 
@@ -534,11 +541,9 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
 
       const result = await origin.getTwoOneWayResult();
 
-      // Compute caller the same way the getter does: last in callChain, or origin if empty
+      // callChain.at(-1) is always the immediate caller
       const callChain = result.callbackContext.callChain;
-      const computedCaller = callChain.length > 0
-        ? callChain[callChain.length - 1]
-        : result.callbackContext.origin;
+      const computedCaller = callChain.at(-1);
 
       // The immediate caller should be Target (who made the callback)
       expect(computedCaller).toMatchObject({
@@ -547,8 +552,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         instanceName: 'two-one-way-caller-target'
       });
 
-      // While origin remains the original requester
-      expect(result.callbackContext.origin.instanceName).toBe('two-one-way-caller-origin');
+      // While callChain[0] remains the original requester
+      expect(result.callbackContext.callChain[0].instanceName).toBe('two-one-way-caller-origin');
     });
   });
 

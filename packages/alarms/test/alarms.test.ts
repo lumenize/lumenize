@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import type { DelayedAlarm, CronAlarm } from '../src/index';
 
 describe('Alarms', () => {
   describe('One-time Scheduled Alarms', () => {
@@ -27,7 +28,7 @@ describe('Alarms', () => {
       expect(executedIds.length).toBe(1);
       expect(executedIds[0]).toBe(schedule.id);
       
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(1);
       expect(executed[0].payload).toEqual({ task: 'execute-me' });
     });
@@ -55,11 +56,11 @@ describe('Alarms', () => {
   describe('Delayed Alarms', () => {
     test('schedules alarm with delay in seconds', async () => {
       const stub = env.ALARM_DO.getByName('delayed-test');
-      
+
       const schedule = await stub.scheduleAlarm(5, { task: 'delayed-task' });
-      
+
       expect(schedule.type).toBe('delayed');
-      expect(schedule.delayInSeconds).toBe(5);
+      expect((schedule as DelayedAlarm).delayInSeconds).toBe(5);
       expect(schedule.operationChain).toBeDefined();
     });
 
@@ -72,7 +73,7 @@ describe('Alarms', () => {
       const executedIds = await stub.triggerAlarms(1);
       expect(executedIds.length).toBe(1);
       
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(1);
       expect(executed[0].payload).toEqual({ task: 'delayed-task' });
     });
@@ -81,12 +82,12 @@ describe('Alarms', () => {
   describe('Cron Alarms', () => {
     test('schedules recurring cron alarm', async () => {
       const stub = env.ALARM_DO.getByName('cron-test');
-      
+
       // Every minute
       const schedule = await stub.scheduleAlarm('* * * * *', { task: 'recurring' });
-      
+
       expect(schedule.type).toBe('cron');
-      expect(schedule.cron).toBe('* * * * *');
+      expect((schedule as CronAlarm).cron).toBe('* * * * *');
       expect(schedule.operationChain).toBeDefined();
     });
 
@@ -113,7 +114,7 @@ describe('Alarms', () => {
       await stub.triggerAlarms(1);
       
       // Verify alarm was executed
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(1);
       expect(executed[0].payload).toEqual({ task: 'reschedule' });
       
@@ -121,7 +122,7 @@ describe('Alarms', () => {
       const afterExecution = await stub.getSchedule(schedule.id);
       expect(afterExecution).toBeDefined();
       expect(afterExecution?.type).toBe('cron');
-      expect(afterExecution?.cron).toBe('* * * * *');
+      expect((afterExecution as CronAlarm | undefined)?.cron).toBe('* * * * *');
       
       // Verify alarm was rescheduled for next execution (>= because "every minute" might be same minute)
       expect(afterExecution?.time).toBeGreaterThanOrEqual(originalTime);
@@ -298,7 +299,7 @@ describe('Alarms', () => {
       const executedIds = await stub.triggerAlarms();
       expect(executedIds.length).toBe(3);
       
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(3);
       expect(executed[0].payload.order).toBe(1);
       expect(executed[1].payload.order).toBe(2);
@@ -316,7 +317,7 @@ describe('Alarms', () => {
       const executedIds = await stub.triggerAlarms();
       expect(executedIds.length).toBe(2);
       
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(2);
     });
 
@@ -358,7 +359,7 @@ describe('Alarms', () => {
       await stub.callAlarmMethod();
       
       // Both alarms should have been executed
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(2);
     });
 
@@ -372,7 +373,7 @@ describe('Alarms', () => {
       await stub.callAlarmMethod();
       
       // No alarms should have been executed
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.length).toBe(0);
       
       // Alarm should still be scheduled
@@ -450,7 +451,7 @@ describe('Alarms', () => {
       
       // First one throws (not in executed list), second succeeds
       // Note: triggerAlarms continues on error, so both are attempted but only second succeeds
-      const executed = await stub.getExecutedAlarms();
+      const executed = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executed.some(e => e.payload.task === 'succeeds')).toBe(true);
     });
 
@@ -478,7 +479,7 @@ describe('Alarms', () => {
       expect(executed.length).toBeGreaterThanOrEqual(1);
       
       // Verify it was executed
-      const executedAlarms = await stub.getExecutedAlarms();
+      const executedAlarms = await stub.getExecutedAlarms() as Array<{ payload: any }>;
       expect(executedAlarms.length).toBeGreaterThanOrEqual(1);
       expect(executedAlarms[0].payload.task).toBe('immediate');
     });
@@ -491,7 +492,7 @@ describe('Alarms', () => {
       
       expect(schedule.id).toBeDefined();
       expect(schedule.type).toBe('delayed');
-      expect(schedule.delayInSeconds).toBe(31536000);
+      expect((schedule as DelayedAlarm).delayInSeconds).toBe(31536000);
     });
 
     test('handles concurrent schedule operations', async () => {

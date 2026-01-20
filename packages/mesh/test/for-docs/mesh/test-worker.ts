@@ -55,7 +55,7 @@ export class SpellCheckWorker extends LumenizeWorker<Env> {
 // DocumentDO - collaborative document storage
 // ============================================
 
-// Forward declare EditorClient type for continuations
+// TODO: Remove this forward declare EditorClient once we have written it and can import it
 interface EditorClient {
   handleContentUpdate(content: string): void;
   handleSpellFindings(findings: SpellFinding[]): void;
@@ -63,7 +63,7 @@ interface EditorClient {
 
 export class DocumentDO extends LumenizeDO<Env> {
   // Require authentication for all mesh calls
-  override onBeforeCall(): void {
+  onBeforeCall(): void {
     super.onBeforeCall();
     if (!this.lmz.callContext.originAuth?.userId) {
       throw new Error('Authentication required');
@@ -89,8 +89,8 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   @mesh
   subscribe(): string {
-    // Use this.lmz.caller convenience getter (not callContext.caller)
-    const clientId = this.lmz.caller.instanceName;
+    const { callChain } = this.lmz.callContext;
+    const clientId = callChain.at(-1)?.instanceName;
     if (clientId) {
       const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
       subscribers.add(clientId);
@@ -101,7 +101,8 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   @mesh
   unsubscribe() {
-    const clientId = this.lmz.caller.instanceName;
+    const { callChain } = this.lmz.callContext;
+    const clientId = callChain.at(-1)?.instanceName;
     if (clientId) {
       const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
       subscribers.delete(clientId);

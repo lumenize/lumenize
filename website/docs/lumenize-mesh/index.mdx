@@ -54,8 +54,9 @@ Access context in any mesh node via `this.lmz.callContext`:
 ```typescript @skip-check
 @mesh
 updateDocument(changes: DocumentChange) {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  const caller = this.lmz.callContext.caller;
+  const { origin, callChain, originAuth } = this.lmz.callContext;
+  const userId = originAuth?.userId;
+  const caller = callChain.at(-1) ?? origin;  // Immediate caller
   // Make decisions based on who's calling
 }
 ```

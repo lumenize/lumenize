@@ -445,19 +445,6 @@ describe('LumenizeClient', () => {
       client.disconnect();
     });
 
-    it('throws when accessing caller outside of handler', () => {
-      const client = new TestClient({
-        instanceName: 'user.tab1',
-        baseUrl: 'wss://example.com',
-        accessToken: 'token',
-        WebSocket: createMockWebSocketClass(),
-      });
-
-      expect(() => client.lmz.caller).toThrow(
-        'Cannot access callContext outside of a mesh call'
-      );
-      client.disconnect();
-    });
   });
 
   describe('Symbol.dispose', () => {

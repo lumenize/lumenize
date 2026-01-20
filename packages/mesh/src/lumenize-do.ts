@@ -58,7 +58,7 @@ export type { Continuation, AnyContinuation };
  * ```
  */
 export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
-  #debug: (namespace: string) => DebugLogger = debug(this as unknown as { env: { DEBUG?: string } });
+  #debug: (namespace: string) => DebugLogger = debug(this);
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
   #lmzApi: LmzApi | null = null;
@@ -195,22 +195,6 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
     // Default: not implemented
     // Subclasses should override fetch() and call super.fetch() for auto-init
     return new Response('Not Implemented', { status: 501 });
-  }
-
-  /**
-   * Default alarm handler that delegates to @lumenize/alarms service
-   * 
-   * If @lumenize/alarms is installed, this delegates to its alarm() handler.
-   * Otherwise, this is a no-op.
-   * 
-   * Subclasses that need custom alarm handling should call `super.alarm()` first
-   * to ensure alarms service alarms are processed.
-   */
-  async alarm(): Promise<void> {
-    // Delegate to alarms service if installed
-    if (this.svc && typeof this.svc.alarms?.alarm === 'function') {
-      await this.svc.alarms.alarm();
-    }
   }
 
   /**

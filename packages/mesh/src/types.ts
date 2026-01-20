@@ -51,10 +51,10 @@ export interface OriginAuth {
  * ```typescript
  * onBeforeCall() {
  *   // Who initiated this call chain?
- *   const origin = this.lmz.callContext.origin;
+ *   const origin = this.lmz.callContext.callChain[0];
  *
- *   // Who am I in this call?
- *   const me = this.lmz.callContext.callee;
+ *   // Who called me directly?
+ *   const caller = this.lmz.callContext.callChain.at(-1);
  *
  *   // Full call path for tracing
  *   const path = this.lmz.callContext.callChain.map(n => n.bindingName).join(' → ');
@@ -63,28 +63,13 @@ export interface OriginAuth {
  */
 export interface CallContext {
   /**
-   * Original caller at the start of the call chain (immutable)
+   * Full call chain from origin to the immediate caller
    *
-   * For calls originating from a LumenizeClient, this is the client's identity.
-   * For calls originating from a LumenizeDO or LumenizeWorker, this is that node's identity.
-   */
-  origin: NodeIdentity;
-
-  /**
-   * Verified JWT claims from the origin (immutable)
+   * Array of all nodes the call has passed through: `[origin, hop1, hop2, ..., caller]`
+   * - `callChain[0]` — Origin (who started the chain)
+   * - `callChain.at(-1)` — Immediate caller (who called this node)
    *
-   * Only populated when the call chain originates from an authenticated LumenizeClient.
-   * Nodes within Cloudflare (LumenizeDO, LumenizeWorker) don't have originAuth when
-   * they initiate a new call chain.
-   */
-  originAuth?: OriginAuth;
-
-  /**
-   * Full call chain from origin to the node before this one
-   *
-   * Array of all nodes the call has passed through: [origin, hop1, hop2, ...]
-   * The last element is the immediate caller (same as `this.lmz.caller`).
-   * Empty array if origin is calling this node directly.
+   * Always has at least one element (the origin). Never empty.
    *
    * Note: LumenizeClientGateway is NOT included in the chain — it's an
    * implementation detail. Calls appear to come from LumenizeClient directly.
@@ -92,12 +77,14 @@ export interface CallContext {
   callChain: NodeIdentity[];
 
   /**
-   * This node's identity in the current call
+   * Verified JWT claims from the origin (immutable)
    *
-   * Tells the callee its own binding name and instance name, which it wouldn't
-   * otherwise know (DOs don't inherently know their binding names).
+   * Only populated when the call chain originates from an authenticated LumenizeClient.
+   * These are the claims from `callChain[0]` if it's a LumenizeClient with valid auth.
+   * Nodes within Cloudflare (LumenizeDO, LumenizeWorker) don't have originAuth when
+   * they initiate a new call chain.
    */
-  callee: NodeIdentity;
+  originAuth?: OriginAuth;
 
   /**
    * Mutable state that propagates through the call chain

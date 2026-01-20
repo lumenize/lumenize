@@ -174,8 +174,8 @@ describe('LumenizeClientGateway', () => {
         message: 'Echo: Hello from client!',
       });
 
-      // Verify origin was set correctly
-      expect(callResponse.result.origin).toMatchObject({
+      // Verify origin was set correctly (now callChain[0])
+      expect(callResponse.result.callChain[0]).toMatchObject({
         type: 'LumenizeClient',
         bindingName: 'LUMENIZE_CLIENT_GATEWAY',
         instanceName: 'caller.tab1',

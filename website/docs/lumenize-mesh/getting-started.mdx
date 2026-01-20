@@ -67,7 +67,8 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   @mesh
   subscribe(): string {
-    const clientId = this.lmz.callContext.caller.instanceName;
+    const { callChain, origin } = this.lmz.callContext;
+    const clientId = (callChain.at(-1) ?? origin).instanceName;
     if (clientId) {
       const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
       subscribers.add(clientId);
@@ -78,7 +79,8 @@ export class DocumentDO extends LumenizeDO<Env> {
 
   @mesh
   unsubscribe() {
-    const clientId = this.lmz.callContext.caller.instanceName;
+    const { callChain, origin } = this.lmz.callContext;
+    const clientId = (callChain.at(-1) ?? origin).instanceName;
     if (clientId) {
       const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
       subscribers.delete(clientId);

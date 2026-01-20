@@ -108,22 +108,29 @@ Parameters are automatically bound and SQL-injection safe. See **[SQL Template L
 ```typescript @skip-check
 import '@lumenize/alarms';
 
-// Schedule with continuations (type-safe!)
-const schedule = this.svc.alarms.schedule(
-  60,  // Seconds from now
-  this.ctn().handleTask({ userId: '123' })
-);
+class MyDO extends LumenizeDO<Env> {
+  // Delegate alarm() to the alarms service
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
 
-// Cancel if needed
-this.svc.alarms.cancelSchedule(schedule.id);
+  scheduleTask() {
+    // Schedule with continuations (type-safe!)
+    const schedule = this.svc.alarms.schedule(
+      60,  // Seconds from now
+      this.ctn().handleTask({ userId: '123' })
+    );
 
-// Handler method
-handleTask(payload: { userId: string }) {
-  console.log('Task for user:', payload.userId);
+    // Cancel if needed
+    this.svc.alarms.cancelSchedule(schedule.id);
+  }
+
+  // Handler method
+  handleTask(payload: { userId: string }) {
+    console.log('Task for user:', payload.userId);
+  }
 }
 ```
-
-No `alarm()` boilerplate required — LumenizeDO handles it automatically.
 
 See [Alarms](/docs/alarms) for cron scheduling, recurring tasks, and advanced patterns.
 

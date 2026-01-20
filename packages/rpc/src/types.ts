@@ -1,5 +1,6 @@
-// Re-export OCAN types from local copy (decoupled from @lumenize/mesh)
-export type { Operation, OperationChain } from './ocan.js';
+// Import and re-export OCAN types from local copy (decoupled from @lumenize/mesh)
+import type { Operation, OperationChain } from './ocan.js';
+export type { Operation, OperationChain };
 
 /**
  * Core batched RPC request format used by all transports.

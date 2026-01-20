@@ -74,14 +74,9 @@ interface NodeIdentity {
 **Property summary:**
 - `origin` — Original caller at chain start. **Immutable**.
 - `originAuth` — Verified JWT claims from original caller. **Immutable**. Only set for authenticated LumenizeClient origins.
-- `callChain` — Full call path from origin to immediate caller. **Immutable array** — grows at each hop.
+- `callChain` — Full call path from origin to immediate caller. **Immutable array** — grows at each hop. Use `callChain.at(-1) ?? origin` to get the immediate caller.
 - `callee` — This node's identity in the current call. **Per-hop** — populated by receiver from envelope metadata.
 - `state` — Middleware data. **Mutable** — starts as `{}`, typically populated in `onBeforeCall()`.
-
-**Convenience getter:**
-```typescript @skip-check
-this.lmz.caller  // Returns last element of callChain (immediate caller), or origin if chain is empty
-```
 
 For context propagation and persistence patterns, see [Managing Context](./managing-context).
 

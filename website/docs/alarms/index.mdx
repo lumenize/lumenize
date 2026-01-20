@@ -74,21 +74,23 @@ When using `@lumenize/mesh`, alarms are automatically available via `this.svc`:
 
 ```typescript @skip-check
 import { LumenizeDO } from '@lumenize/mesh';
-import '@lumenize/core';    // Registers sql in this.svc
-import '@lumenize/alarms';  // Registers alarms in this.svc (depends on sql)
+import '@lumenize/alarms';  // Registers alarms in this.svc
 
 class MyDO extends LumenizeDO<Env> {
-  // No boilerplate required - LumenizeDO handles alarm() delegation
-  
+  // Delegate alarm() to the alarms service
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
+
   async scheduleTask(userId: string, data: any) {
     const schedule = this.svc.alarms.schedule(
       60,  // 60 seconds
       this.ctn().processUserData(userId, data)
     );
-    
+
     console.log('Scheduled:', schedule.id);
   }
-  
+
   processUserData(userId: string, data: any) {
     // Synchronous handler - maintains DO consistency
     console.log('Processing data for user:', userId);
@@ -96,10 +98,6 @@ class MyDO extends LumenizeDO<Env> {
   }
 }
 ```
-
-:::tip No Alarm Boilerplate
-`LumenizeDO` automatically delegates the `alarm()` handler to `@lumenize/alarms` - no setup required!
-:::
 
 ## Scheduling Tasks
 

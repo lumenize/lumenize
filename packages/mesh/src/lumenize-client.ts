@@ -181,13 +181,6 @@ export interface LmzApiClient {
   readonly callContext: CallContext;
 
   /**
-   * Immediate caller of this request (convenience getter)
-   *
-   * @throws Error if accessed outside of a mesh call context
-   */
-  readonly caller: NodeIdentity;
-
-  /**
    * Raw async RPC call through the Gateway
    *
    * Returns a Promise that resolves with the result.
@@ -351,13 +344,6 @@ export abstract class LumenizeClient {
         return self.#currentCallContext;
       },
 
-      get caller(): NodeIdentity {
-        const context = api.callContext;
-        return context.callChain.length > 0
-          ? context.callChain[context.callChain.length - 1]
-          : context.origin;
-      },
-
       callRaw: self.#callRaw.bind(self),
       call: self.#call.bind(self),
     };
@@ -462,7 +448,7 @@ export abstract class LumenizeClient {
    */
   onBeforeCall(): void | Promise<void> {
     // Default: reject peer-to-peer client calls
-    const origin = this.#currentCallContext?.origin;
+    const origin = this.#currentCallContext?.callChain[0];
     if (origin?.type === 'LumenizeClient') {
       throw new Error(
         'Peer-to-peer client calls are disabled by default. ' +
@@ -760,24 +746,14 @@ export abstract class LumenizeClient {
   }
 
   async #handleIncomingCall(message: IncomingCallMessage): Promise<void> {
-    const { callId, chain, callContext: partialContext } = message;
-
-    // Build full CallContext by adding callee (this client's identity)
-    const fullCallContext: CallContext = {
-      ...partialContext,
-      callee: {
-        type: 'LumenizeClient',
-        bindingName: this.#config.gatewayBindingName,
-        instanceName: this.#config.instanceName,
-      },
-    };
+    const { callId, chain, callContext } = message;
 
     try {
       // Set up call context for this request
-      this.#currentCallContext = fullCallContext;
+      this.#currentCallContext = callContext;
 
       // Execute within call context (for nested calls)
-      const result = await runWithCallContext(fullCallContext, async () => {
+      const result = await runWithCallContext(callContext, async () => {
         // Run onBeforeCall hook
         await this.onBeforeCall();
 
@@ -884,14 +860,7 @@ export abstract class LumenizeClient {
       instanceName: this.#config.instanceName,
     };
 
-    const calleeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
-    const calleeIdentity: NodeIdentity = {
-      type: calleeType,
-      bindingName: calleeBindingName,
-      instanceName: calleeInstanceNameOrId,
-    };
-
-    const callContext = buildOutgoingCallContext(callerIdentity, calleeIdentity, options);
+    const callContext = buildOutgoingCallContext(callerIdentity, options);
 
     // Build message
     const message: CallMessage = {

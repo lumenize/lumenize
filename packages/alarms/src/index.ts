@@ -6,5 +6,5 @@
  */
 
 export { Alarms } from './alarms';
-export type { Schedule } from './types';
+export type { Schedule, ScheduledAlarm, DelayedAlarm, CronAlarm } from './types';
 

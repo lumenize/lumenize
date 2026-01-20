@@ -405,7 +405,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
       const counterResponse = await SELF.fetch(
         new Request(`https://fake-host.com/manual-routing-do/${instanceId}/counter`)
       );
-      const counterData = await counterResponse.json();
+      const counterData = await counterResponse.json() as { counter: number };
       expect(counterData.counter).toBe(count);
 
       // Test RPC again
@@ -418,7 +418,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
           method: 'POST',
         })
       );
-      const resetData = await resetResponse.json();
+      const resetData = await resetResponse.json() as { message: string };
       expect(resetData.message).toBe('Counter reset');
 
       // Verify reset worked

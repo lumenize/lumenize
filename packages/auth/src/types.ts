@@ -100,7 +100,7 @@ export interface AuthConfig {
  */
 export interface AuthEnv {
   /** Auth DO binding */
-  LUMENIZE_AUTH: DurableObjectNamespace;
+  LUMENIZE_AUTH: DurableObjectNamespace<any>;
   /** Private key for signing JWTs (BLUE key) */
   JWT_PRIVATE_KEY_BLUE?: string;
   /** Public key for verifying JWTs (BLUE key) */

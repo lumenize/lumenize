@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
 import { runInDurableObject, env, SELF } from 'cloudflare:test';
 import type { RpcBatchRequest, RpcBatchResponse } from '@lumenize/rpc';
 
@@ -25,6 +24,7 @@ describe('lumenizeRpcDO server-side functionality', () => {
     const id = env.EXAMPLE_DO.newUniqueId();
     const stub = env.EXAMPLE_DO.get(id);
 
+    // @ts-expect-error - Type instantiation too deep with complex DO generics
     await runInDurableObject(stub, async (instance: any) => {
       const rpcBatchRequest: RpcBatchRequest = {
         batch: [{

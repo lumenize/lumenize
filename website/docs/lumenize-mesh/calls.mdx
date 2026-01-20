@@ -99,7 +99,8 @@ When a DO calls an external API, Cloudflare bills for **wall-clock time** — ev
 @mesh
 generateSummary() {
   const content = this.ctx.storage.kv.get('content');
-  const clientId = this.lmz.callContext.caller.instanceName;  // Capture requesting client
+  const { callChain, origin } = this.lmz.callContext;
+  const clientId = (callChain.at(-1) ?? origin).instanceName;  // Capture requesting client
   this.lmz.call(
     'LLM_WORKER',
     undefined,
@@ -115,7 +116,8 @@ async summarize(content: string, clientId: string) {
   const summary = await this.callLlmApi(content);
 
   // Call back to the DO using callContext
-  const caller = this.lmz.callContext.caller;
+  const { callChain, origin } = this.lmz.callContext;
+  const caller = callChain.at(-1) ?? origin;
   this.lmz.call(
     caller.bindingName,
     caller.instanceName,
@@ -143,7 +145,8 @@ Skip the return hop through the DO — the Worker sends results directly to the 
 @mesh
 generateSummary() {
   const content = this.ctx.storage.kv.get('content');
-  const clientId = this.lmz.callContext.caller.instanceName;
+  const { callChain, origin } = this.lmz.callContext;
+  const clientId = (callChain.at(-1) ?? origin).instanceName;
   this.lmz.call(
     'LLM_WORKER',
     undefined,
@@ -186,7 +189,8 @@ requestSummary(content: string) {
 async summarize(content: string) {
   const summary = await this.callLlmApi(content);
 
-  const caller = this.lmz.callContext.caller;
+  const { callChain, origin } = this.lmz.callContext;
+  const caller = callChain.at(-1) ?? origin;
   this.lmz.call(
     caller.bindingName,   // 'LUMENIZE_CLIENT_GATEWAY'
     caller.instanceName,  // e.g., 'alice.tab1'

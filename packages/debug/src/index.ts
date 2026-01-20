@@ -116,10 +116,10 @@ function getMatcher(): (namespace: string, level: DebugLevel) => boolean {
 export function debug(namespace: string): DebugLogger;
 
 /**
- * Create a debug logger factory for Durable Objects
+ * Create a debug logger factory for Durable Objects and Workers
  *
  * @overload
- * @param doInstance - A Durable Object instance with an `env` property
+ * @param instance - A DO/Worker instance (env can be protected, uses runtime access)
  * @returns A factory function that creates loggers for the given namespace
  *
  * @example
@@ -127,21 +127,22 @@ export function debug(namespace: string): DebugLogger;
  * import { debug } from '@lumenize/debug';
  *
  * class MyDO extends DurableObject<Env> {
- *   #log = debug(this)('MyDO');
+ *   #debug = debug(this);
  *
  *   async fetch(request: Request) {
- *     this.#log.info('Processing request');
+ *     const log = this.#debug('MyDO.fetch');
+ *     log.info('Processing request');
  *     return new Response('OK');
  *   }
  * }
  * ```
  */
-export function debug(doInstance: { env: { DEBUG?: string } }): (namespace: string) => DebugLogger;
+export function debug(instance: object): (namespace: string) => DebugLogger;
 
 /**
  * Create a debug logger (implementation)
  */
-export function debug(namespaceOrInstance: string | { env: { DEBUG?: string } }): DebugLogger | ((namespace: string) => DebugLogger) {
+export function debug(namespaceOrInstance: string | object): DebugLogger | ((namespace: string) => DebugLogger) {
   // Overload 1: debug('namespace') - create logger directly
   if (typeof namespaceOrInstance === 'string') {
     return new DebugLoggerImpl({
@@ -150,9 +151,9 @@ export function debug(namespaceOrInstance: string | { env: { DEBUG?: string } })
     });
   }
 
-  // Overload 2: debug(doInstance) - return factory function
-  // Auto-configure from the instance's env
-  const env = namespaceOrInstance.env;
+  // Overload 2: debug(instance) - return factory function
+  // Auto-configure from the instance's env (accessed at runtime, may be protected in TS)
+  const env = (namespaceOrInstance as { env?: { DEBUG?: string } }).env;
   if (env) {
     debug.configure(env);
   }

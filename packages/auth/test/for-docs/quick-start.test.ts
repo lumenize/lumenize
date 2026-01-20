@@ -23,11 +23,12 @@ export default {
       publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
     });
     
-    return routeDORequest(request, env, {
+    const response = await routeDORequest(request, env, {
       onBeforeRequest: authMiddleware,
       onBeforeConnect: authMiddleware,
       cors: true
-    }) ?? new Response('Not Found', { status: 404 });
+    });
+    return response ?? new Response('Not Found', { status: 404 });
   }
 };
 

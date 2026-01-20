@@ -2,7 +2,7 @@
 import { Env } from 'cloudflare:test';
 import '@lumenize/alarms';  // Registers alarms in this.svc
 import { LumenizeDO } from '@lumenize/mesh';
-import type { Schedule } from '../src/alarms';
+import type { Schedule } from '../src/index';
 
 // Export DOs for documentation examples
 export { TaskSchedulerDO } from './for-docs/basic-usage.test';
@@ -58,6 +58,7 @@ export class AlarmDO extends LumenizeDO<Env> {
   // Test helper: Schedule alarm with invalid callback (not a function)
   scheduleAlarmWithBadCallback(when: Date | string | number, payload?: any) {
     // Force schedule with an invalid operation chain
+    // @ts-expect-error - intentionally calling non-existent method for error testing
     return this.svc.alarms.schedule(when, this.ctn().notAFunction(payload));
   }
 

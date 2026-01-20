@@ -70,25 +70,22 @@ export function captureCallContext(): CallContext | undefined {
  * Handles both `newChain: true` (fresh context) and default (inherit + extend).
  *
  * @param callerIdentity - This node's identity (to add to callChain)
- * @param calleeIdentity - The target node's identity
  * @param options - CallOptions with newChain and state
  * @returns CallContext to include in the envelope
  * @internal
  */
 export function buildOutgoingCallContext(
   callerIdentity: NodeIdentity,
-  calleeIdentity: NodeIdentity,
   options?: CallOptions
 ): CallContext {
   const currentContext = getCurrentCallContext();
 
   if (options?.newChain || !currentContext) {
     // Start a fresh chain - caller becomes the origin
+    // callChain = [caller] (caller is both origin and immediate caller)
     return {
-      origin: callerIdentity,
+      callChain: [callerIdentity],
       originAuth: undefined,
-      callChain: [],
-      callee: calleeIdentity,
       state: options?.state ?? {}
     };
   }
@@ -103,10 +100,8 @@ export function buildOutgoingCallContext(
     : currentContext.state;
 
   return {
-    origin: currentContext.origin,
-    originAuth: currentContext.originAuth,
     callChain: newCallChain,
-    callee: calleeIdentity,
+    originAuth: currentContext.originAuth,
     state: newState
   };
 }
@@ -243,25 +238,6 @@ export interface LmzApi {
   readonly callContext: CallContext;
 
   /**
-   * Immediate caller of this request (convenience getter)
-   *
-   * Returns the last node in `callChain`, or `origin` if the chain is empty
-   * (i.e., the origin is calling this node directly).
-   *
-   * @throws Error if accessed outside of a mesh call context
-   *
-   * @example
-   * ```typescript
-   * @mesh
-   * handleRequest() {
-   *   const caller = this.lmz.caller;
-   *   console.log(`Called by ${caller.bindingName}:${caller.instanceName}`);
-   * }
-   * ```
-   */
-  readonly caller: NodeIdentity;
-
-  /**
    * Convenience method to initialize multiple properties at once
    * 
    * Equivalent to setting properties individually, but more concise.
@@ -393,22 +369,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       return context;
     },
 
-    get caller(): NodeIdentity {
-      const context = getCurrentCallContext();
-      if (!context) {
-        throw new Error(
-          'Cannot access caller outside of a mesh call. ' +
-          'caller is only available during @mesh handler execution.'
-        );
-      }
-      // Return last node in callChain, or origin if chain is empty
-      return context.callChain.length > 0
-        ? context.callChain[context.callChain.length - 1]
-        : context.origin;
-    },
-
     // --- Setters ---
-    
+
     set bindingName(value: string | undefined) {
       if (value === undefined) {
         return; // Can't unset
@@ -516,16 +478,11 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         instanceName: this.instanceName
       };
 
-      // 3. Determine callee type and build callee identity
+      // 3. Determine callee type
       const calleeType: NodeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
-      const calleeIdentity: NodeIdentity = {
-        type: calleeType,
-        bindingName: calleeBindingName,
-        instanceName: calleeInstanceNameOrId
-      };
 
-      // 4. Build callContext for outgoing call (includes callee)
-      const callContext = buildOutgoingCallContext(callerIdentity, calleeIdentity, options);
+      // 4. Build callContext for outgoing call
+      const callContext = buildOutgoingCallContext(callerIdentity, options);
 
       // 5. Gather metadata (legacy, for auto-init of uninitialized nodes)
       const metadata = {
@@ -695,27 +652,13 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       return context;
     },
 
-    get caller(): NodeIdentity {
-      const context = getCurrentCallContext();
-      if (!context) {
-        throw new Error(
-          'Cannot access caller outside of a mesh call. ' +
-          'caller is only available during @mesh handler execution.'
-        );
-      }
-      // Return last node in callChain, or origin if chain is empty
-      return context.callChain.length > 0
-        ? context.callChain[context.callChain.length - 1]
-        : context.origin;
-    },
-
     // --- Setters ---
 
     set bindingName(value: string | undefined) {
       if (value === undefined) {
         return; // Can't unset
       }
-      
+
       if (bindingName !== undefined && bindingName !== value) {
         throw new Error(
           `Worker binding name mismatch: stored '${bindingName}' but received '${value}'. ` +
@@ -770,16 +713,11 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         instanceName: undefined // Workers don't have instance names
       };
 
-      // 3. Determine callee type and build callee identity
+      // 3. Determine callee type
       const calleeType: NodeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
-      const calleeIdentity: NodeIdentity = {
-        type: calleeType,
-        bindingName: calleeBindingName,
-        instanceName: calleeInstanceNameOrId
-      };
 
-      // 4. Build callContext for outgoing call (includes callee)
-      const callContext = buildOutgoingCallContext(callerIdentity, calleeIdentity, options);
+      // 4. Build callContext for outgoing call
+      const callContext = buildOutgoingCallContext(callerIdentity, options);
 
       // 5. Gather metadata (legacy, for auto-init of uninitialized nodes)
       const metadata = {
