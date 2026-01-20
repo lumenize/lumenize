@@ -15,11 +15,13 @@ export { LumenizeWorker } from './lumenize-worker';
 export { NadisPlugin } from './nadis-plugin';
 
 // sql is built-in and automatically available on this.svc.sql for LumenizeDO subclasses
-// Export only the type for use in other packages
+// Side-effect import ensures LumenizeServices declaration merging runs
+import './sql';
 export type { sql } from './sql';
 
 // alarms is built-in and automatically available on this.svc.alarms for LumenizeDO subclasses
-// Export only types for use in other packages
+// Side-effect import ensures LumenizeServices declaration merging runs
+import './alarms';
 export type { Schedule, ScheduledAlarm, DelayedAlarm, CronAlarm } from './alarms';
 
 // Re-export Lumenize infrastructure API

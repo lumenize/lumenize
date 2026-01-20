@@ -33,6 +33,10 @@ import { createMatcher } from './pattern-matcher';
 import { DebugLoggerImpl } from './logger';
 import type { DebugLogger, DebugLevel } from './types';
 
+// Minimal process type for Node.js/Bun environment detection
+// Avoids dependency on @types/node for packages using only workers-types
+declare const process: { env?: { DEBUG?: string } } | undefined;
+
 /**
  * Cached matcher - lazily initialized on first use
  * In Workers, this gets recreated per-isolate which is correct behavior
@@ -53,7 +57,7 @@ let explicitlyConfigured = false;
  */
 function getDebugFilter(): string | undefined {
   // Node.js / Bun
-  if (typeof process !== 'undefined' && process.env?.DEBUG !== undefined) {
+  if (typeof process !== 'undefined' && process?.env?.DEBUG !== undefined) {
     return process.env.DEBUG;
   }
 

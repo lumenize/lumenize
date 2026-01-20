@@ -1,4 +1,5 @@
 import type { sql } from './sql';
+import type { Alarms } from './alarms';
 
 // ============================================
 // Mesh Node Identity & Call Context
@@ -165,7 +166,8 @@ export interface CallOptions {
 export interface LumenizeServices {
   /** Built-in SQL template literal tag for DO storage */
   sql: ReturnType<typeof sql>;
-  // Note: alarms is declared in ./alarms.ts via declaration merging
+  /** Built-in alarm scheduling service for DO */
+  alarms: Alarms;
   // Additional services are added via declaration merging in their respective NADIS packages
 }
 
@@ -174,7 +176,8 @@ declare global {
   interface LumenizeServices {
     /** Built-in SQL template literal tag for DO storage */
     sql: ReturnType<typeof sql>;
-    // Note: alarms is declared in ./alarms.ts via declaration merging
+    /** Built-in alarm scheduling service for DO */
+    alarms: Alarms;
     // Additional services are added via declaration merging in their respective NADIS packages
   }
 }

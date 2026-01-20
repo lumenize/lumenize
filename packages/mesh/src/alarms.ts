@@ -298,12 +298,15 @@ export class Alarms {
     const executedIds: string[] = [];
 
     // If count not specified, execute all overdue alarms, or 1 if none overdue
+    let effectiveCount: number;
     if (count === undefined) {
       const overdueResult = this.#sql`SELECT COUNT(*) as count FROM __lmz_alarms WHERE time <= ${now}`;
-      count = overdueResult[0]?.count ?? 1;
+      effectiveCount = overdueResult[0]?.count ?? 1;
+    } else {
+      effectiveCount = count;
     }
 
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < effectiveCount; i++) {
       const result = this.#sql`SELECT * FROM __lmz_alarms ORDER BY time ASC, id ASC LIMIT 1`;
       if (result.length === 0) break;
 
@@ -354,10 +357,5 @@ export class Alarms {
   }
 }
 
-// TypeScript declaration merging - augments LumenizeServices interface
-// Provides type safety for this.svc.alarms
-declare global {
-  interface LumenizeServices {
-    alarms: Alarms;
-  }
-}
+// Note: LumenizeServices.alarms is declared in types.ts (not via declaration merging)
+// to ensure proper type resolution across package boundaries
