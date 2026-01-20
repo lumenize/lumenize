@@ -98,7 +98,11 @@ export async function executeOperationChain(
         entryPointChecked = true;
         const prevOp = i > 0 ? operations[i - 1] : null;
 
-        if (prevOp?.type === 'get') {
+        // Skip @mesh check for service methods (svc.*)
+        // Service methods are trusted internal framework methods
+        const isServiceCall = operations[0]?.type === 'get' && operations[0]?.key === 'svc';
+
+        if (prevOp?.type === 'get' && !isServiceCall) {
           const methodName = prevOp.key;
           // Find the parent object that contains this method
           const parent = findParentObject(operations.slice(0, i), target);

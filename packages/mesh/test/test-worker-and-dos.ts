@@ -1,11 +1,8 @@
-// Import NADIS packages to register services
-import '@lumenize/alarms';
-
 import { LumenizeDO } from '../src/lumenize-do';
 import { LumenizeWorker } from '../src/lumenize-worker';
 import { mesh } from '../src/mesh-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
-import type { Schedule } from '@lumenize/alarms';
+import type { Schedule } from '../src/alarms';
 import { getOperationChain } from '../src/ocan/index.js';
 import { preprocess } from '@lumenize/structured-clone';
 
@@ -15,21 +12,19 @@ export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
 // Export documentation example DOs
 export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/basic-usage.test';
 
+// Export alarms documentation example DOs
+export { TaskSchedulerDO } from './for-docs/alarms/basic-usage.test';
+
 // Export test DO for NadisPlugin tests
 export { NadisPluginTestDO } from './nadis-plugin-test-do';
 
 export class TestDO extends LumenizeDO<Env> {
-  executedAlarms: Array<{ payload: any; schedule: Schedule }> = [];
+  executedAlarms: Array<{ payload: any; schedule: Schedule | null }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Run migrations in constructor (recommended pattern)
     this.#initTable();
-  }
-
-  // Required: delegate to Alarms
-  async alarm() {
-    await this.svc.alarms.alarm();
   }
 
   // Migration: Create users table
@@ -58,8 +53,9 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Test helper: Schedule an alarm using alarms
-  async scheduleAlarm(when: Date | string | number, payload?: any) {
-    return await this.svc.alarms.schedule(when, this.ctn().handleAlarm(payload));
+  scheduleAlarm(when: Date | string | number, payload?: any) {
+    const schedule = this.svc.alarms.schedule(when, this.ctn().handleAlarm(payload));
+    return schedule;
   }
 
   // Test helper: Get a schedule by ID
@@ -68,13 +64,13 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Test helper: Cancel a schedule
-  async cancelSchedule(id: string) {
-    return await this.svc.alarms.cancelSchedule(id);
+  cancelSchedule(id: string) {
+    return this.svc.alarms.cancelSchedule(id);
   }
 
-  // Alarm callback - receives schedule as first parameter (injected by alarms)
-  async handleAlarm(schedule: Schedule, payload: any) {
-    this.executedAlarms.push({ payload, schedule });
+  // Alarm callback - receives payload passed to the continuation
+  handleAlarm(payload: any) {
+    this.executedAlarms.push({ payload, schedule: null });
   }
 
   // Test helper: Get executed alarms
@@ -973,6 +969,77 @@ export class TestWorker extends LumenizeWorker<Env> {
       workerContext: myContext,
       doContext
     };
+  }
+}
+
+// AlarmTestDO - comprehensive test DO for alarm functionality
+export class AlarmTestDO extends LumenizeDO<Env> {
+  executedAlarms: Array<{ payload: any }> = [];
+
+  // Test helper: Schedule an alarm
+  scheduleAlarm(when: Date | string | number, payload?: any) {
+    return this.svc.alarms.schedule(when, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Schedule a delayed alarm (by seconds)
+  scheduleDelayedAlarm(delayInSeconds: number, payload?: any) {
+    return this.svc.alarms.schedule(delayInSeconds, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Schedule a cron alarm
+  scheduleCronAlarm(cronExpression: string, payload?: any) {
+    return this.svc.alarms.schedule(cronExpression, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Get a schedule by ID
+  getSchedule(id: string) {
+    return this.svc.alarms.getSchedule(id);
+  }
+
+  // Test helper: Get all schedules
+  getSchedules(criteria?: Parameters<typeof this.svc.alarms.getSchedules>[0]) {
+    return this.svc.alarms.getSchedules(criteria);
+  }
+
+  // Test helper: Cancel a schedule
+  cancelSchedule(id: string) {
+    return this.svc.alarms.cancelSchedule(id);
+  }
+
+  // Alarm callback - gets called when an alarm fires
+  // No @mesh decorator needed since alarms are local
+  handleAlarm(payload: any) {
+    this.executedAlarms.push({ payload });
+  }
+
+  // Alarm callback that throws an error
+  handleThrowingAlarm(payload: any) {
+    throw new Error('Intentional error from alarm callback');
+  }
+
+  // Test helper: Schedule an alarm with a throwing callback
+  scheduleThrowingAlarm(when: Date | string | number, payload?: any) {
+    return this.svc.alarms.schedule(when, this.ctn().handleThrowingAlarm(payload));
+  }
+
+  // Test helper: Schedule alarm with invalid type
+  scheduleAlarmWithInvalidType(when: any, payload?: any) {
+    return this.svc.alarms.schedule(when, this.ctn().handleAlarm(payload));
+  }
+
+  // Test helper: Get executed alarms
+  async getExecutedAlarms() {
+    return this.executedAlarms;
+  }
+
+  // Test helper: Clear executed alarms
+  async clearExecutedAlarms() {
+    this.executedAlarms = [];
+  }
+
+  // Test helper: Manually trigger alarms for testing (uses 2ms wait)
+  async triggerAlarms(count?: number) {
+    return await this.svc.alarms.triggerAlarms(count);
   }
 }
 

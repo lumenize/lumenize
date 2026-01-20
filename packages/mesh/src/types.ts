@@ -141,25 +141,32 @@ export interface CallOptions {
 /**
  * Global LumenizeServices interface
  *
- * This interface is augmented via declaration merging by each NADIS package.
- * When you import a NADIS package (e.g., '@lumenize/alarms'), it adds its
- * service to this interface, enabling TypeScript autocomplete.
+ * Provides type-safe access to built-in and NADIS plugin services via `this.svc.*`.
  *
- * The `sql` service is built-in and always available on `this.svc.sql`.
+ * **Built-in services** (always available):
+ * - `sql` - SQL template literal tag for DO storage
+ * - `alarms` - Alarm scheduling with OCAN continuations
+ *
+ * **NADIS plugins** augment this interface via declaration merging.
  *
  * @example
  * ```typescript
- * import '@lumenize/alarms';  // Adds 'alarms' to LumenizeServices
+ * import { LumenizeDO } from '@lumenize/mesh';
  *
- * // this.svc.sql is always available (built-in)
- * // this.svc.alarms is available after importing @lumenize/alarms
+ * class MyDO extends LumenizeDO<Env> {
+ *   example() {
+ *     // Built-in - no import needed
+ *     this.svc.sql`SELECT * FROM users`;
+ *     this.svc.alarms.schedule(60, this.ctn().task());
+ *   }
+ * }
  * ```
  */
 export interface LumenizeServices {
   /** Built-in SQL template literal tag for DO storage */
   sql: ReturnType<typeof sql>;
-  // Additional services are added via declaration merging in their respective packages
-  // Example: alarms: Alarms<any>;  // Added by @lumenize/alarms
+  // Note: alarms is declared in ./alarms.ts via declaration merging
+  // Additional services are added via declaration merging in their respective NADIS packages
 }
 
 // Also export as a global declaration for convenience
@@ -167,7 +174,8 @@ declare global {
   interface LumenizeServices {
     /** Built-in SQL template literal tag for DO storage */
     sql: ReturnType<typeof sql>;
-    // Additional services are added via declaration merging
+    // Note: alarms is declared in ./alarms.ts via declaration merging
+    // Additional services are added via declaration merging in their respective NADIS packages
   }
 }
 

@@ -25,6 +25,18 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] Code review and simplification pass for all mesh code (following alarms.ts pattern)
+  - **Context**: Successfully simplified `alarms.ts` from ~570 to 363 lines (36% reduction)
+  - **Patterns to look for**:
+    1. Redundant fields (e.g., storing both `#ctx` and `#storage` when one suffices)
+    2. Dead code parameters (e.g., `extra.time` that was never used)
+    3. Defensive checks that can't trigger (e.g., `!result` when sql always returns array)
+    4. Methods that are pure indirection (e.g., `triggerAlarmsForTesting` → `triggerAlarms`)
+    5. Unnecessary async/await on synchronous operations
+    6. Redundant initialization flags/methods
+    7. Overly verbose JSDoc (shorten and link to docs)
+  - **Files to review**: `lumenize-do.ts`, `lumenize-worker.ts`, `lumenize-client.ts`, `lumenize-client-gateway.ts`, `lumenize-auth.ts`, `ocan/*.ts`
+
 - [ ] In lumenize-auth.ts, The #extractCookie method uses cookie.trim().split('=') and destructures only the first two elements. If a cookie value contains = characters (valid in cookies), only the portion before the first = is returned. For example, a cookie "name=abc=def" would return "abc" instead of "abc=def". While current tokens use base64UrlEncode which strips = padding, this implementation is fragile and could cause authentication failures if the token format changes or if this code is reused elsewhere.
 
 - [ ] Add rate limiting support in LumenizeClientGateway
@@ -67,7 +79,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **VERIFIED**: When Target calls back, callContext IS preserved. Origin remains the original requester, and Target is added to callChain. This is the intended behavior for tracing.
   - Tests added in `packages/mesh/test/call-context.test.ts` under "Two-one-way calls (callback pattern)"
 
-- [ ] Run experiment to confirm that 
+- [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
 - [ ] Add `{ twoOneWayCalls: true }` option to `this.lmz.call()` config parameter [LM: This may be outdated. You can just do a fire and forget on the caller side and then call back independently on the callee side.
   - Opt-in two one-way call mode for cost optimization on known slow operations

@@ -12,27 +12,29 @@ De✨light✨ful alarm scheduling for Cloudflare Durable Objects using [continua
 - **[Continuations](/docs/lumenize-mesh/continuations)** - Type-safe, serializable task handlers
 - **Multiple schedules** - Specific time, seconds from now, or cron expressions
 - **SQL persistence** - Survives DO eviction and restarts
-- **Auto-injection** - Automatically available via NADIS when using LumenizeDO
+- **Built-in to LumenizeDO** - Automatically available via `this.svc.alarms`
 - **Testing support** - Manual alarm triggering for tests
 
 ## Installation
 
+Alarms is built into `@lumenize/mesh` - no separate installation needed:
+
 ```bash @skip-check
-npm install @lumenize/alarms
+npm install @lumenize/mesh
 ```
 
 ## Why Alarms Matter
 
 Cloudflare provides only **one native alarm** per Durable Object. `@lumenize/alarms` multiplexes this single alarm to manage unlimited scheduled tasks with type-safe continuations.
 
-**Without @lumenize/alarms:**
+**Without Lumenize Alarms:**
 ```typescript @skip-check
 // ❌ Only one alarm at a time
 await ctx.storage.setAlarm(Date.now() + 60000); // task1
 await ctx.storage.setAlarm(Date.now() + 30000); // overwrites task1!
 ```
 
-**With @lumenize/alarms:**
+**With Lumenize Alarms:**
 ```typescript @skip-check
 // ✅ Unlimited tasks with automatic multiplexing and type safety
 this.svc.alarms.schedule(60, this.ctn().handleTask1({ id: 1 }));
@@ -45,7 +47,6 @@ this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
 
 ```typescript @skip-check
 import { LumenizeDO } from '@lumenize/mesh';
-import '@lumenize/alarms'; // Registers alarms service
 
 class MyDO extends LumenizeDO<Env> {
   async fetch(request: Request): Promise<Response> {
@@ -54,11 +55,12 @@ class MyDO extends LumenizeDO<Env> {
       60,  // seconds from now
       this.ctn().sendEmail('user@example.com', 'Welcome!')
     );
-    
+
     return new Response('Email scheduled!');
   }
-  
+
   // Handler executes when alarm fires
+  // No @mesh decorator needed - alarms are internal
   sendEmail(to: string, subject: string) {
     console.log(`Sending email to ${to}: ${subject}`);
     // Send email logic here
@@ -68,19 +70,13 @@ class MyDO extends LumenizeDO<Env> {
 
 ## Setup Your Durable Object
 
-### Usage with LumenizeDO (Recommended)
-
-When using `@lumenize/mesh`, alarms are automatically available via `this.svc`:
+Alarms are **built-in** to `LumenizeDO` - no import or configuration needed:
 
 ```typescript @skip-check
 import { LumenizeDO } from '@lumenize/mesh';
-import '@lumenize/alarms';  // Registers alarms in this.svc
 
 class MyDO extends LumenizeDO<Env> {
-  // Delegate alarm() to the alarms service
-  async alarm() {
-    await this.svc.alarms.alarm();
-  }
+  // No alarm() override needed - LumenizeDO handles it automatically!
 
   async scheduleTask(userId: string, data: any) {
     const schedule = this.svc.alarms.schedule(
@@ -91,6 +87,7 @@ class MyDO extends LumenizeDO<Env> {
     console.log('Scheduled:', schedule.id);
   }
 
+  // No @mesh decorator needed - alarms are internal to this DO
   processUserData(userId: string, data: any) {
     // Synchronous handler - maintains DO consistency
     console.log('Processing data for user:', userId);
@@ -98,6 +95,10 @@ class MyDO extends LumenizeDO<Env> {
   }
 }
 ```
+
+:::tip No alarm() override needed
+`LumenizeDO` automatically delegates to `this.svc.alarms.alarm()` - you don't need to override the `alarm()` method.
+:::
 
 ## Scheduling Tasks
 
@@ -561,7 +562,7 @@ The alarms table (`__lmz_alarms`) is automatically created with:
 
 ## Comparison to Native Alarms
 
-| Feature | Native Alarm | @lumenize/alarms |
+| Feature | Native Alarm | Lumenize Alarms |
 |---------|-------------|------------------|
 | **Max alarms** | 1 per DO | Unlimited |
 | **Cron support** | No | Yes |
@@ -569,6 +570,7 @@ The alarms table (`__lmz_alarms`) is automatically created with:
 | **Serialization** | Manual | Automatic |
 | **Testing** | Real time only | Manual triggers |
 | **Persistence** | Native | SQL table |
+| **Setup** | Manual | Built-in to LumenizeDO |
 
 ## API Reference
 
@@ -586,8 +588,8 @@ See the [TypeDoc API Reference](/docs/alarms/api) for complete type information.
 The core implementation is based on the Alarms functionality in [`@cloudflare/actors`](https://www.npmjs.com/package/@cloudflare/actors) with these enhancements:
 
 - **Continuations** - Type-safe handlers instead of string callbacks
-- **NADIS integration** - Auto-injection via dependency injection
-- **Lazy initialization** - Table created on first use (critical for NADIS)
+- **Built-in to LumenizeDO** - No separate import or setup needed
+- **Lazy initialization** - Table created on first use
 - **Synchronous API** - No unnecessary async operations
 - **Testing support** - `triggerAlarms()` for reliable alarm testing
 

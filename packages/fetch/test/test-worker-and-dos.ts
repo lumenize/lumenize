@@ -9,17 +9,12 @@ export { FetchExecutorEntrypoint };
 
 /**
  * Test DO for proxyFetch
- * Uses alarms for timeout handling
+ * Uses alarms for timeout handling (built-in to LumenizeDO)
  */
 export class _TestSimpleDO extends LumenizeDO {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
     this.lmz.init({ bindingName: 'TEST_SIMPLE_DO' });
-  }
-
-  // Required: Delegate to alarms
-  async alarm() {
-    await this.svc.alarms.alarm();
   }
 
   fetchDataSimple(url: string, reqId?: string): string {
@@ -93,7 +88,7 @@ export class _TestSimpleDO extends LumenizeDO {
    * Test helper: Trigger alarms manually
    */
   async triggerAlarmsHelper(count?: number): Promise<string[]> {
-    return await this.svc.alarms.triggerAlarmsForTesting(count);
+    return await this.svc.alarms.triggerAlarms(count);
   }
 
   /**
@@ -161,7 +156,8 @@ export class _TestSimpleDO extends LumenizeDO {
    */
   async handleEmbedWrapper(preprocessedContinuation: any): Promise<void> {
     const userContinuation = postprocess(preprocessedContinuation);
-    await this.__executeChain(userContinuation);
+    // Skip @mesh check - internal test helper executing framework continuation
+    await this.__executeChain(userContinuation, { requireMeshDecorator: false });
   }
 
   /**
@@ -186,15 +182,16 @@ export class _TestSimpleDO extends LumenizeDO {
   async testResultFilling(testValue: any): Promise<void> {
     // Create continuation with $result placeholder
     const continuation = this.ctn().handleResultTest(this.ctn().$result);
-    
+
     // Fill $result with actual value (simulates worker pattern)
     const filled = await replaceNestedOperationMarkers(
       getOperationChain(continuation)!,  // Non-null assertion - continuation is always valid
       testValue
     );
-    
+
     // Execute filled continuation
-    await this.__executeChain(filled);
+    // Skip @mesh check - internal test helper executing framework continuation
+    await this.__executeChain(filled, { requireMeshDecorator: false });
   }
 
   /**

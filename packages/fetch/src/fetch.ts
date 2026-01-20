@@ -6,7 +6,6 @@
  * - direct(): Direct fetch from DO (stub for future implementation)
  */
 
-import '@lumenize/alarms';  // Side-effect import for NADIS registration (alarms)
 import { debug, type DebugLogger } from '@lumenize/debug';
 import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
@@ -28,22 +27,18 @@ export interface FetchMessage {
 
 /**
  * Fetch - NADIS plugin providing fetch strategies for Durable Objects
- * 
+ *
  * @example
  * ```typescript
  * import '@lumenize/fetch';  // Registers fetch in this.svc
  * import { LumenizeDO } from '@lumenize/mesh';
- * 
+ *
  * class MyDO extends LumenizeDO<Env> {
  *   constructor(ctx: DurableObjectState, env: Env) {
  *     super(ctx, env);
  *     this.lmz.init({ bindingName: 'MY_DO' });
  *   }
- *   
- *   async alarm() {
- *     await this.svc.alarms.alarm();
- *   }
- *   
+ *
  *   fetchData(url: string) {
  *     // Proxied fetch (DO → Worker → External API)
  *     this.svc.fetch.proxy(
@@ -51,7 +46,7 @@ export interface FetchMessage {
  *       this.ctn().handleResponse(this.ctn().$result)
  *     );
  *   }
- *   
+ *
  *   handleResponse(result: ResponseSync | Error) {
  *     // Process result
  *   }
@@ -65,8 +60,9 @@ export class Fetch extends NadisPlugin {
     super(doInstance);
     
     // Eager dependency validation - fails immediately if alarms not available
+    // (alarms is built-in to @lumenize/mesh, so this should always pass)
     if (!this.svc.alarms) {
-      throw new Error('Fetch requires @lumenize/alarms to be imported for timeout handling');
+      throw new Error('Fetch requires alarms service for timeout handling (should be built-in to @lumenize/mesh)');
     }
     
     this.#log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.fetch.Fetch');
@@ -74,15 +70,14 @@ export class Fetch extends NadisPlugin {
 
   /**
    * Make an external fetch request using DO-Worker architecture.
-   * 
+   *
    * **Setup Required**:
    * 1. Your DO must extend `LumenizeDO`
    * 2. Call `this.lmz.init({ bindingName })` in constructor
    * 3. Import `@lumenize/fetch` (registers NADIS plugin)
    * 4. Export `FetchExecutorEntrypoint` from your worker
    * 5. Add service binding in wrangler.jsonc
-   * 6. Your DO must have `async alarm()` that calls `await this.svc.alarms.alarm()`
-   * 
+   *
    * @param request - URL string or RequestSync object
    * @param continuation - User continuation that receives ResponseSync | Error
    * @param options - Optional configuration (timeout, executorBinding, testMode)
@@ -260,9 +255,10 @@ export class Fetch extends NadisPlugin {
     }
     
     // We won the race - parse user's continuation, fill $result, and execute
+    // Skip @mesh decorator check since this is an internal framework continuation
     const userContinuation = parse(continuation);
     const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
-    await (this.doInstance as any).__executeChain(filledChain);
+    await (this.doInstance as any).__executeChain(filledChain, { requireMeshDecorator: false });
   }
 }
 

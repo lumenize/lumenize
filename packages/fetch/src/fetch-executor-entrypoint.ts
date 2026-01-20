@@ -22,7 +22,7 @@
  */
 
 import { debug } from '@lumenize/debug';
-import { LumenizeWorker } from '@lumenize/mesh';
+import { LumenizeWorker, mesh } from '@lumenize/mesh';
 import { ResponseSync } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
 import type { FetchMessage } from './fetch';
@@ -32,19 +32,20 @@ const DEFAULT_TIMEOUT = 30000;
 export class FetchExecutorEntrypoint extends LumenizeWorker {
   /**
    * Execute an external fetch request
-   * 
+   *
    * Called by origin DO directly via RPC. Returns immediately, then executes
    * fetch in background. Calls back to origin DO's `svc.fetch.__handleProxyFetchResult()` via OCAN.
-   * 
+   *
    * Flow:
    * 1. Quick RPC acknowledgment (microseconds)
    * 2. Origin DO continues (alarm is scheduled)
    * 3. Fetch executes in background (CPU billing)
    * 4. Result delivered to origin DO's internal handler method
    * 5. Origin DO cancels alarm atomically to get continuation
-   * 
+   *
    * @param message - Fetch message with preprocessed continuation
    */
+  @mesh
   async executeFetch(message: FetchMessage): Promise<void> {
     // Quick acknowledgment - return immediately
     this.ctx.waitUntil(

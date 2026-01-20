@@ -28,11 +28,13 @@
   "license": "MIT",
   "dependencies": {
     "@lumenize/debug": "*",
-    "@lumenize/utils": "*"
+    "@lumenize/structured-clone": "*",
+    "@lumenize/utils": "*",
+    "cron-schedule": "^5.0.1",
+    "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
-    "@lumenize/alarms": "*",
     "@lumenize/debug": "*",
     "@vitest/coverage-istanbul": "3.2.4",
     "vitest": "3.2.4",

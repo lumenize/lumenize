@@ -23,31 +23,30 @@ export type { Continuation, AnyContinuation };
 /**
  * LumenizeDO - Base class for stateful Durable Objects in the Lumenize Mesh
  *
- * Provides automatic dependency injection for NADIS services via `this.svc.*`
+ * Provides automatic dependency injection for built-in and NADIS services via `this.svc.*`
  *
- * Just import the NADIS packages you need and access them via `this.svc`:
- * - Stateless services (e.g., `sql`) are automatically called with `this`
- * - Stateful services (e.g., `Alarms`) are automatically instantiated with dependencies
+ * **Built-in services** (always available):
+ * - `this.svc.sql` - SQL template literal tag for DO storage
+ * - `this.svc.alarms` - Alarm scheduling with OCAN continuations
+ *
+ * **NADIS plugins** (import to enable):
+ * - Import NADIS packages and access them via `this.svc`
  * - Full TypeScript autocomplete via declaration merging
  * - Lazy loading - services only instantiated when accessed
  *
  * @example
  * Basic usage:
  * ```typescript
- * import '@lumenize/alarms';   // Registers alarms
  * import { LumenizeDO } from '@lumenize/mesh';
  *
  * class MyDO extends LumenizeDO<Env> {
- *   async alarm() {
- *     await this.svc.alarms.alarm();
- *   }
- *
  *   async getUser(id: string) {
  *     const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
  *     return rows[0];
  *   }
  *
  *   scheduleTask() {
+ *     // No import needed - alarms is built-in!
  *     this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
  *   }
  *
@@ -112,6 +111,36 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    */
   async onStart(): Promise<void> {
     // Default: no-op. Subclasses override this for initialization.
+  }
+
+  /**
+   * Alarm lifecycle handler - delegates to built-in alarms service
+   *
+   * This method is called by Cloudflare when a scheduled alarm fires.
+   * It automatically delegates to `this.svc.alarms.alarm()` to execute
+   * any pending scheduled tasks.
+   *
+   * **No override needed** - LumenizeDO handles alarm scheduling automatically.
+   * Just use `this.svc.alarms.schedule()` to schedule tasks.
+   *
+   * @param alarmInfo - Cloudflare alarm invocation info
+   *
+   * @example
+   * ```typescript
+   * class MyDO extends LumenizeDO<Env> {
+   *   scheduleTask() {
+   *     // Schedule a task - alarm() handles execution automatically
+   *     this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
+   *   }
+   *
+   *   handleTask(payload: { data: string }) {
+   *     console.log('Task executed:', payload);
+   *   }
+   * }
+   * ```
+   */
+  async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    await this.svc.alarms.alarm(alarmInfo);
   }
 
   /**
@@ -272,20 +301,22 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * 
    * @internal This is called by this.lmz.call(), not meant for direct use
    * @param chain - The operation chain to execute
+   * @param options - Optional configuration
+   * @param options.requireMeshDecorator - Whether to require @mesh decorator on entry method (default: true)
    * @returns The result of executing the operation chain
-   * 
+   *
    * @example
    * ```typescript
    * // Remote DO sends this chain:
    * const remote = this.ctn<MyDO>().getUserData(userId);
-   * 
+   *
    * // This DO receives and executes it:
    * const result = await this.__executeChain(remote);
    * // Equivalent to: this.getUserData(userId)
    * ```
    */
-  async __executeChain(chain: OperationChain): Promise<any> {
-    return await executeOperationChain(chain, this);
+  async __executeChain(chain: OperationChain, options?: { requireMeshDecorator?: boolean }): Promise<any> {
+    return await executeOperationChain(chain, this, options);
   }
 
   /**
@@ -564,4 +595,8 @@ export type { LumenizeServices } from './types';
 // Register built-in sql service (always available on this.svc.sql for LumenizeDO subclasses)
 import { sql } from './sql';
 (globalThis as any).__lumenizeServiceRegistry['sql'] = (doInstance: any) => sql(doInstance);
+
+// Register built-in alarms service (always available on this.svc.alarms for LumenizeDO subclasses)
+import { Alarms } from './alarms';
+(globalThis as any).__lumenizeServiceRegistry['alarms'] = (doInstance: any) => new Alarms(doInstance);
 

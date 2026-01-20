@@ -5,8 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 
-// Import packages - side-effect imports register services in NADIS
-import '@lumenize/alarms';
+// Import LumenizeDO - alarms is built-in, no separate import needed
 import { LumenizeDO } from '@lumenize/mesh';
 
 // Example: Basic auto-injection
@@ -91,10 +90,6 @@ class NotificationsDO extends LumenizeDO<Env> {
       userId: payload.userId,
       message: payload.message,
     });
-  }
-
-  async alarm() {
-    await this.svc.alarms.alarm();
   }
 
   getSentNotifications() {
