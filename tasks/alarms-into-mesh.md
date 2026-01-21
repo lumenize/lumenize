@@ -27,7 +27,13 @@ This task was created after recognizing that alarms doesn't fit well as a NADIS 
 ### Draft Prompt for E2E For-Docs Test (Resume Later)
 
 ```markdown
-I want to interactively write e2e tests for LumenizeClient that implement and validate the collaborative document editor from getting-started.mdx. The test infrastructure is set up and the connection test already passes.
+I want to work with you in a careful small-increment way (prompt-implement-review...repeat) to collaboratively implement and test the multi-node (DOs, Workers, Clients, Auth, etc) Lumenize Mesh based collaborative document editor from website/docs/mesh/getting-started.mdx.
+
+Or should I more precisely say, we'll be implementing the mermaid sequence diagram in website/docs/_partials/_mesh-architecture-diagram.mdx because we'll implement the Workspace as shown in the diagram but absent from the getting-started guide code.
+
+The style will be to have a single long-running test where we simulate two users/clients creating, finding, edting, and spell checking documents
+
+The test infrastructure is set up and the connection test already passes.
 
 ### Test Structure
 
@@ -42,19 +48,19 @@ Run tests with: `npm test -- --project mesh-e2e`
 ### What's Already Implemented
 
 **test-worker.ts** contains:
-- `DocumentDO` - stores content in KV, broadcasts to subscribers, calls SpellCheckWorker
+- `DocumentDO` - content in the DO's KV storage, broadcasts to subscribers, calls SpellCheckWorker, sends last-updated info back to Workspace DO
 - `SpellCheckWorker` - mock implementation that flags words containing "teh"
 - `LumenizeClientGateway` - re-exported from @lumenize/mesh
-- Worker entry with `routeDORequest` + auth middleware
+- Worker entry with `routeDORequest` + auth middleware, although we don't exercise the auth routes for login, logout, token refresh, etc. because it's difficult to simulate UI in this environment. Maybe we'll do the latter in an examples folder.
 
 **getting-started.test.ts** contains:
 - `EditorClient` - extends LumenizeClient with `@mesh` handlers for content updates and spell findings
-- `generateTestToken()` helper using `@lumenize/auth` JWT signing
+- `generateTestToken()` helper using `@lumenize/auth` JWT signing directly to avoid the need to exercise login, logout, token refresh, etc. endpoints
 - One passing test: "connects to Gateway using Browser.WebSocket"
 
 ### Documentation to Validate
 
-- `website/docs/lumenize-mesh/getting-started.mdx` - The tutorial code we're testing
+- `website/docs/lumenize-mesh/getting-started.mdx` - The tutorial code we're testing. In the coarse of this test writing, we will make changes to that document.
 
 ### Key Patterns to Test
 
@@ -64,7 +70,7 @@ Run tests with: `npm test -- --project mesh-e2e`
 4. DocumentDO calls SpellCheckWorker, spell findings flow back to client
 5. Multiple clients receiving broadcasts simultaneously
 6. `onSubscriptionsLost` callback after reconnection past grace period
-7. `onLoginRequired` callback when refresh fails (may need mocking)
+7. `onLoginRequired` callback when refresh fails (may require adding a method to LumenizeAuth to force token expiration)
 
 ### Technical Notes
 

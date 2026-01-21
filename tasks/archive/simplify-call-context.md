@@ -3,7 +3,7 @@
 ## Status: COMPLETE ✓
 
 ## Goal
-Simplify `CallContext` by making `callChain` the single source of truth for node identity chain.
+Simplify `CallContext` by making `callChain` the single source of truth for node identity in the multi-hop call chain.
 
 ## Previous Design (awkward)
 ```typescript

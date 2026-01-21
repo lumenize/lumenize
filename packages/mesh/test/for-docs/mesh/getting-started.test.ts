@@ -1,10 +1,9 @@
 /**
- * End-to-end tests for the collaborative document editor from getting-started.mdx
+ * Multi-node (DOs, Workers, Clients, Auth, etc.) Lumenize Mesh test implementing
+ * the collaborative document editor from website/docs/mesh/getting-started.mdx
  *
- * These tests use @lumenize/testing's Browser.WebSocket to connect
- * through vitest-pool-workers to actual DOs running in the test environment.
- *
- * This validates the code examples in website/docs/lumenize-mesh/getting-started.mdx
+ * These tests use @lumenize/testing's Browser.WebSocket to connect multiple Clients
+ * to DOs running in the vitest-workers-pool test environment.
  */
 
 import { describe, it, expect, vi } from 'vitest';
