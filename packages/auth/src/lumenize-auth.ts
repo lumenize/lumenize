@@ -2,7 +2,7 @@ import { debug } from '@lumenize/debug';
 import { LumenizeDO } from '@lumenize/mesh';
 import { routeDORequest, type CorsOptions } from '@lumenize/utils';
 import { ALL_SCHEMAS } from './schemas';
-import type { AuthEnv, User, MagicLink, RefreshToken, LoginResponse, AuthError, AuthConfig, EmailService } from './types';
+import type { User, MagicLink, RefreshToken, LoginResponse, AuthError, AuthConfig, EmailService } from './types';
 import {
   generateRandomString,
   generateUuid,
@@ -49,7 +49,7 @@ export const AUTH_NOT_CONFIGURED_ERROR = 'not_configured';
  * - POST /auth/refresh-token - Refresh access token
  * - POST /auth/logout - Revoke refresh token
  */
-export class LumenizeAuth extends LumenizeDO<AuthEnv> {
+export class LumenizeAuth extends LumenizeDO {
   #debug = debug(this);
   #schemaInitialized = false;
   #config: Required<AuthConfig> | null = null; // null until configure() called
@@ -468,7 +468,7 @@ export class LumenizeAuth extends LumenizeDO<AuthEnv> {
    * Generate a signed JWT access token
    */
   async #generateAccessToken(userId: string, config: Required<AuthConfig>): Promise<string> {
-    const activeKey = this.env.ACTIVE_JWT_KEY || 'BLUE';
+    const activeKey = this.env.PRIMARY_JWT_KEY || 'BLUE';
     const privateKeyPem = activeKey === 'GREEN'
       ? this.env.JWT_PRIVATE_KEY_GREEN
       : this.env.JWT_PRIVATE_KEY_BLUE;
@@ -610,7 +610,7 @@ export class LumenizeAuth extends LumenizeDO<AuthEnv> {
  * ```
  */
 export function createAuthRoutes(
-  env: AuthEnv,
+  env: Env,
   options: AuthConfig
 ): (request: Request) => Promise<Response | undefined> {
   const {
@@ -645,8 +645,13 @@ export function createAuthRoutes(
     const rewrittenUrl = new URL(request.url);
     rewrittenUrl.pathname = rewrittenPath;
 
+    // Clone the original request before consuming it, so we can retry if needed
+    // The body can only be read once, so we need two clones: one for initial attempt, one for retry
+    const [requestForFirstAttempt, requestForRetry] = [request.clone(), request.clone()];
+
     // Create new request with rewritten URL
-    const rewrittenRequest = new Request(rewrittenUrl.toString(), request);
+    // Note: Passing Request as init is valid per Fetch API spec, but workerd types don't reflect this
+    const rewrittenRequest = new Request(rewrittenUrl.toString(), requestForFirstAttempt as RequestInit);
 
     // Route to DO
     let response = await routeDORequest(rewrittenRequest, env, {
@@ -666,15 +671,14 @@ export function createAuthRoutes(
         const body = await clonedResponse.json() as { error?: string };
         if (body.error === AUTH_NOT_CONFIGURED_ERROR) {
           // Configure the DO with full options
-          const doNamespace = env[gatewayBindingName as keyof AuthEnv] as DurableObjectNamespace;
+          const doNamespace = env[gatewayBindingName as keyof Env] as DurableObjectNamespace<LumenizeAuth>;
           if (doNamespace) {
             const stub = doNamespace.get(doNamespace.idFromName(instanceName));
             await (stub as any).configure(options);
           }
 
-          // Retry the original request
-          // Need to create a fresh request since the original may have been consumed
-          const retryRequest = new Request(rewrittenUrl.toString(), request);
+          // Retry the original request using the preserved clone
+          const retryRequest = new Request(rewrittenUrl.toString(), requestForRetry as RequestInit);
           response = await routeDORequest(retryRequest, env, {
             prefix: cleanPrefix,
             cors: cors as CorsOptions,

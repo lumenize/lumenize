@@ -57,7 +57,6 @@ export type {
   JwtHeader,
   EmailService,
   AuthConfig,
-  AuthEnv,
   LoginResponse,
   AuthError,
   AuthCorsOptions
@@ -65,4 +64,7 @@ export type {
 
 // Schemas (for reference/customization)
 export { ALL_SCHEMAS } from './schemas';
+
+// Test helpers
+export { testLoginWithMagicLink } from './test-helpers';
 

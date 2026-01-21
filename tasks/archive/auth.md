@@ -138,7 +138,7 @@ sequenceDiagram
     AuthWorker->>AuthDO: Validate state parameter & magic link token<br/>(CSRF protection, single-use, expiration check)
 
     AuthWorker->>AuthDO: Store/update user data & refresh token
-    AuthWorker->>AuthWorker: Sign JWT access token<br/>(using env.JWT_PRIVATE_KEY_*<br/>based on env.ACTIVE_JWT_KEY)
+    AuthWorker->>AuthWorker: Sign JWT access token<br/>(using env.JWT_PRIVATE_KEY_*<br/>based on env.PRIMARY_JWT_KEY)
     AuthWorker-->>User: Response:<br/>Set-Cookie: refresh-token=...<br/>(HttpOnly, Secure, SameSite)<br/>Body: {"access_token": "..."}
 
     Note over User: Stores access_token from body
@@ -170,7 +170,7 @@ sequenceDiagram
         alt Refresh token valid
             AuthWorker->>AuthDO: Validate refresh token & revoke old token<br/>(refresh token rotation)
             AuthWorker->>AuthDO: Store new refresh token
-            AuthWorker->>AuthWorker: Sign new JWT access token<br/>(using env.JWT_PRIVATE_KEY_*<br/>based on env.ACTIVE_JWT_KEY)
+            AuthWorker->>AuthWorker: Sign new JWT access token<br/>(using env.JWT_PRIVATE_KEY_*<br/>based on env.PRIMARY_JWT_KEY)
             AuthWorker-->>User: Response:<br/>Set-Cookie: refresh-token={new_refresh_token}<br/>Body: {"access_token": "..."}
 
             Note over User: Normal HTTP REST resumes...
@@ -231,7 +231,7 @@ sequenceDiagram
     alt Refresh token valid
         AuthWorker->>AuthDO: Validate refresh token & revoke old token<br/>(refresh token rotation)
         AuthWorker->>AuthDO: Store new refresh token
-        AuthWorker->>AuthWorker: Sign new JWT access token<br/>(using env.JWT_PRIVATE_KEY_*<br/>based on env.ACTIVE_JWT_KEY)
+        AuthWorker->>AuthWorker: Sign new JWT access token<br/>(using env.JWT_PRIVATE_KEY_*<br/>based on env.PRIMARY_JWT_KEY)
         AuthWorker-->>User: Response:<br/>Set-Cookie: refresh-token={new_refresh_token}<br/>Body: {"access_token": "..."}
 
         Note over User: Normal WebSocket use resumes...
@@ -263,17 +263,17 @@ Since we're acting as our own OAuth provider, we use **static key pairs** with s
 
 - **Private keys**: Stored in `env.JWT_PRIVATE_KEY_BLUE` and `env.JWT_PRIVATE_KEY_GREEN`, used by Auth Worker to sign JWTs (never exposed)
 - **Public keys**: Stored in `env.JWT_PUBLIC_KEY_BLUE` and `env.JWT_PUBLIC_KEY_GREEN` (available to Worker and all Org DOs for verification)
-- **Active key indicator**: `env.ACTIVE_JWT_KEY` indicates which key pair to use for signing (`"BLUE"` or `"GREEN"`)
+- **Active key indicator**: `env.PRIMARY_JWT_KEY` indicates which key pair to use for signing (`"BLUE"` or `"GREEN"`)
 - **Verification**: Worker and Org DOs verify against **both** public keys during rotation grace period
 - **No JWKS endpoint needed**: Static key pairs eliminate the need for dynamic key discovery
 - **No storage lookups**: Public keys are immediately available from environment
 
 #### Key Rotation Process
 
-1. **Initial state**: `ACTIVE_JWT_KEY=BLUE`, both BLUE and GREEN keys exist
+1. **Initial state**: `PRIMARY_JWT_KEY=BLUE`, both BLUE and GREEN keys exist
 2. **Generate new key pair**: Create new GREEN key pair (or vice versa)
 3. **Update secrets**: Add `JWT_PRIVATE_KEY_GREEN` and `JWT_PUBLIC_KEY_GREEN` to Cloudflare secrets
-4. **Switch active key**: Update `ACTIVE_JWT_KEY=GREEN` (Auth Worker now signs with GREEN)
+4. **Switch active key**: Update `PRIMARY_JWT_KEY=GREEN` (Auth Worker now signs with GREEN)
 5. **Grace period**: Both keys remain valid for verification (allows existing tokens to continue working)
 6. **After grace period**: Remove old BLUE keys from secrets
 

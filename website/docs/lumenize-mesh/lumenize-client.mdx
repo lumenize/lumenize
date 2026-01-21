@@ -249,7 +249,9 @@ No manual handling needed. `LumenizeClient` automatically:
 
 ## Testing
 
-`LumenizeClient` accepts a `WebSocket` constructor option, enabling integration testing without running a separate server:
+`LumenizeClient` allows the injection of `WebSocket` and `fetch` via options.
+@lumenize/utils Browser implements simulated cookie, cors, etc. behavior to
+enable realistic testing.
 
 ```typescript @skip-check
 import { Browser } from '@lumenize/testing';
@@ -258,10 +260,10 @@ it('tests client-DO communication', async () => {
   const browser = new Browser();  // Cookie simulation, CORS support
 
   using client = new EditorClient({
-    baseUrl: 'wss://example.com',
+    baseUrl: 'https://example.com',
     instanceName: 'test-user.tab1',
-    accessToken: testJwt,
-    WebSocket: browser.WebSocket,  // Inject testing WebSocket
+    WebSocket: browser.WebSocket,  // Cookie-aware WebSocket
+    fetch: browser.fetch,  // Cookie-aware fetch for token refresh
   });
 
   // Test interactions...
@@ -318,6 +320,8 @@ interface LumenizeClientConfig {
   onConnectionError?: (error: Error) => void;  // Rarely actionable
   onLoginRequired?: (error: LoginRequiredError) => void;
   onSubscriptionsLost?: () => void;
+  WebSocket?: typeof WebSocket;  // default: globalThis.WebSocket
+  fetch?: typeof fetch;  // default: globalThis.fetch
 }
 ```
 

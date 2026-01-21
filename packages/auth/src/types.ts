@@ -96,26 +96,6 @@ export interface AuthConfig {
 }
 
 /**
- * Environment variables expected by Auth DO
- */
-export interface AuthEnv {
-  /** Auth DO binding */
-  LUMENIZE_AUTH: DurableObjectNamespace<any>;
-  /** Private key for signing JWTs (BLUE key) */
-  JWT_PRIVATE_KEY_BLUE?: string;
-  /** Public key for verifying JWTs (BLUE key) */
-  JWT_PUBLIC_KEY_BLUE?: string;
-  /** Private key for signing JWTs (GREEN key) */
-  JWT_PRIVATE_KEY_GREEN?: string;
-  /** Public key for verifying JWTs (GREEN key) */
-  JWT_PUBLIC_KEY_GREEN?: string;
-  /** Which key is active for signing: 'BLUE' or 'GREEN' */
-  ACTIVE_JWT_KEY?: 'BLUE' | 'GREEN';
-  /** Enable test mode (returns magic link in response) */
-  AUTH_TEST_MODE?: string;
-}
-
-/**
  * Login response returned after successful magic link validation
  */
 export interface LoginResponse {

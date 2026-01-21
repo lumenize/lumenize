@@ -272,6 +272,84 @@ describe('cookieMatches', () => {
     });
   });
 
+  describe('secure attribute', () => {
+    it('should send secure cookie over HTTPS (isSecure=true)', () => {
+      const cookie: Cookie = {
+        name: 'test',
+        value: 'value',
+        secure: true
+      };
+      expect(cookieMatches(cookie, 'example.com', '/', true)).toBe(true);
+    });
+
+    it('should not send secure cookie over HTTP (isSecure=false)', () => {
+      const cookie: Cookie = {
+        name: 'test',
+        value: 'value',
+        secure: true
+      };
+      expect(cookieMatches(cookie, 'example.com', '/', false)).toBe(false);
+    });
+
+    it('should send non-secure cookie over both HTTP and HTTPS', () => {
+      const cookie: Cookie = {
+        name: 'test',
+        value: 'value',
+        secure: false
+      };
+      expect(cookieMatches(cookie, 'example.com', '/', true)).toBe(true);
+      expect(cookieMatches(cookie, 'example.com', '/', false)).toBe(true);
+    });
+
+    it('should default isSecure to true when not provided', () => {
+      const cookie: Cookie = {
+        name: 'test',
+        value: 'value',
+        secure: true
+      };
+      // Default isSecure=true, so secure cookie should match
+      expect(cookieMatches(cookie, 'example.com', '/')).toBe(true);
+    });
+
+    describe('localhost exemption', () => {
+      it('should send secure cookie to localhost over HTTP', () => {
+        const cookie: Cookie = {
+          name: 'test',
+          value: 'value',
+          secure: true
+        };
+        expect(cookieMatches(cookie, 'localhost', '/', false)).toBe(true);
+      });
+
+      it('should send secure cookie to 127.0.0.1 over HTTP', () => {
+        const cookie: Cookie = {
+          name: 'test',
+          value: 'value',
+          secure: true
+        };
+        expect(cookieMatches(cookie, '127.0.0.1', '/', false)).toBe(true);
+      });
+
+      it('should send secure cookie to ::1 over HTTP', () => {
+        const cookie: Cookie = {
+          name: 'test',
+          value: 'value',
+          secure: true
+        };
+        expect(cookieMatches(cookie, '::1', '/', false)).toBe(true);
+      });
+
+      it('should still block secure cookies to non-localhost over HTTP', () => {
+        const cookie: Cookie = {
+          name: 'test',
+          value: 'value',
+          secure: true
+        };
+        expect(cookieMatches(cookie, 'localhost.example.com', '/', false)).toBe(false);
+      });
+    });
+  });
+
   describe('combined matching', () => {
     it('should match when all criteria match', () => {
       const cookie: Cookie = {

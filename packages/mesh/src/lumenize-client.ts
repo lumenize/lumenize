@@ -156,6 +156,15 @@ export interface LumenizeClientConfig {
    * Default: globalThis.WebSocket
    */
   WebSocket?: typeof WebSocket;
+
+  /**
+   * Custom fetch function for token refresh
+   *
+   * Use with Browser from @lumenize/testing for cookie-aware requests.
+   *
+   * Default: globalThis.fetch
+   */
+  fetch?: typeof fetch;
 }
 
 /**
@@ -658,8 +667,9 @@ export abstract class LumenizeClient {
       // Custom refresh function
       this.#accessToken = await refresh();
     } else if (typeof refresh === 'string') {
-      // Endpoint URL
-      const response = await fetch(refresh, {
+      // Endpoint URL - use custom fetch if provided (for cookie-aware requests)
+      const fetchFn = this.#config.fetch ?? fetch;
+      const response = await fetchFn(refresh, {
         method: 'POST',
         credentials: 'include', // Include cookies
       });

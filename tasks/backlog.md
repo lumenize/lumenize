@@ -235,7 +235,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Future bigger things
 
-- [ ] Consider switching MCP subscriptions to keying off of the original request id rather than rely upon session id 
+- [ ] Consider switching MCP subscriptions to keying off of the original request id rather than rely upon session id
+
+- [ ] Consider adding same-site origin and path checks to our cookie parameter handling in Browser.
 
 - [ ] Publish our test-endpoints as part of @lumenize/testing. It's particularly useful now that it can be run in-process. Does it still need a token when used that way? Should we rename it httpbin to match? What's different about it compared to httpbin?
 

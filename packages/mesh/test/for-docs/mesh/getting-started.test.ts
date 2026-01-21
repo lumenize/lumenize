@@ -2,131 +2,39 @@
  * Multi-node (DOs, Workers, Clients, Auth, etc.) Lumenize Mesh test implementing
  * the collaborative document editor from website/docs/mesh/getting-started.mdx
  *
- * These tests use @lumenize/testing's Browser.WebSocket to connect multiple Clients
- * to DOs running in the vitest-workers-pool test environment.
+ * These tests use the full auth flow with LumenizeAuth magic links and Browser
+ * cookie handling, demonstrating the realistic pattern users will follow.
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { env } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { signJwt, importPrivateKey, createJwtPayload } from '@lumenize/auth';
-import { LumenizeClient, mesh } from '../../../src/index.js';
-import type { DocumentDO, SpellFinding } from './test-worker';
-
-// ============================================
-// Test Helpers
-// ============================================
-
-/**
- * Generate a valid JWT access token for testing
- */
-async function generateTestToken(userId: string): Promise<string> {
-  const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-  const payload = createJwtPayload({
-    issuer: 'test',
-    audience: 'test',
-    subject: userId,
-    expiresInSeconds: 3600, // 1 hour
-  });
-  return signJwt(payload, privateKey, 'BLUE');
-}
-
-// ============================================
-// EditorClient - Browser client implementation
-// ============================================
-
-/**
- * Test implementation of the EditorClient from getting-started.mdx
- */
-class EditorClient extends LumenizeClient {
-  // Track incoming calls for testing
-  contentUpdates: string[] = [];
-  spellFindings: SpellFinding[][] = [];
-  #documentId: string;
-
-  constructor(
-    config: ConstructorParameters<typeof LumenizeClient>[0],
-    documentId: string
-  ) {
-    super(config);
-    this.#documentId = documentId;
-  }
-
-  // Called by DocumentDO when content changes
-  @mesh
-  handleContentUpdate(content: string) {
-    this.contentUpdates.push(content);
-  }
-
-  // Called by DocumentDO with spell check results
-  @mesh
-  handleSpellFindings(findings: SpellFinding[]) {
-    this.spellFindings.push(findings);
-  }
-
-  // Called when reconnecting after grace period expired
-  onSubscriptionsLost = () => {
-    this.#subscribe();
-  };
-
-  // Public method for tests to save content
-  saveContent(content: string) {
-    const remote = this.ctn<DocumentDO>().update(content);
-    this.lmz.call(
-      'DOCUMENT_DO',
-      this.#documentId,
-      remote
-    );
-  }
-
-  // Subscribe to document updates
-  subscribe() {
-    this.#subscribe();
-  }
-
-  #subscribe() {
-    const remote = this.ctn<DocumentDO>().subscribe();
-    const callback = this.ctn<EditorClient>().handleSubscribeResult(remote);
-    this.lmz.call(
-      'DOCUMENT_DO',
-      this.#documentId,
-      remote,
-      callback
-    );
-  }
-
-  // Response handler for subscribe - receives result or Error
-  @mesh
-  handleSubscribeResult(result: any) {
-    if (result instanceof Error) {
-      console.error('Failed to subscribe:', result);
-      return;
-    }
-    this.contentUpdates.push(result);
-  }
-}
+import { testLoginWithMagicLink } from '@lumenize/auth';
+import { EditorClient } from './editor-client.js';
 
 // ============================================
 // Tests
 // ============================================
 
 describe('Getting Started - Collaborative Document Editor', () => {
-  describe('Connection', () => {
-    it('connects to Gateway using Browser.WebSocket', async () => {
+  describe('Connection with full auth flow', () => {
+    it('connects via magic link login and Browser cookies', async () => {
       const browser = new Browser();
       const states: string[] = [];
-      const userId = 'testuser';
-      const accessToken = await generateTestToken(userId);
+
+      // Full auth flow: magic link -> cookie -> access token
+      const userId = await testLoginWithMagicLink(browser, 'alice@example.com');
 
       const client = new EditorClient(
         {
           instanceName: `${userId}.tab1`,
-          baseUrl: 'https://example.com',
+          baseUrl: 'https://localhost',
+          // Inject Browser's WebSocket which includes cookies
           WebSocket: browser.WebSocket as unknown as typeof WebSocket,
-          accessToken,
-          onConnectionStateChange: (state) => {
-            states.push(state);
-          },
+          // Refresh endpoint URL (must be absolute for fetch to work)
+          refresh: 'https://localhost/auth/refresh-token',
+          // Browser's fetch includes cookies
+          fetch: browser.fetch,
+          onConnectionStateChange: (state) => states.push(state),
         },
         'test-doc-1'
       );

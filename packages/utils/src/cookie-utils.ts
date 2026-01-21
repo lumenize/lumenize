@@ -107,15 +107,36 @@ export function serializeCookies(cookies: Cookie[]): string {
 }
 
 /**
- * Check if a cookie matches the given domain and path
- * 
+ * Check if a cookie matches the given request URL
+ *
+ * Validates:
+ * - **Domain**: Cookie domain must match or be a parent of the request domain
+ * - **Path**: Cookie path must be a prefix of the request path
+ * - **Expiration**: Cookie must not be expired
+ * - **Secure**: Secure cookies only sent over HTTPS (localhost exempt per spec)
+ *
+ * **SameSite limitation**: This implementation does not enforce SameSite restrictions.
+ * Real browsers block cross-site cookies based on SameSite=Strict/Lax/None, but this
+ * test utility sends all matching cookies regardless of SameSite. This is acceptable
+ * for most testing scenarios where you control both client and server.
+ *
  * @internal
  * @param cookie - The cookie to check
- * @param domain - The request domain
+ * @param domain - The request domain (hostname)
  * @param path - The request path
+ * @param isSecure - Whether the request uses HTTPS (default: true)
  * @returns True if the cookie should be included in the request
  */
-export function cookieMatches(cookie: Cookie, domain: string, path: string): boolean {
+export function cookieMatches(cookie: Cookie, domain: string, path: string, isSecure = true): boolean {
+  // Check Secure attribute - secure cookies only sent over HTTPS
+  // Exception: localhost is exempt per browser spec (allows testing without HTTPS)
+  if (cookie.secure) {
+    const isLocalhost = domain === 'localhost' || domain === '127.0.0.1' || domain === '::1';
+    if (!isSecure && !isLocalhost) {
+      return false;
+    }
+  }
+
   // Check domain
   if (cookie.domain) {
     const cookieDomain = cookie.domain.startsWith('.') ? cookie.domain.substring(1) : cookie.domain;

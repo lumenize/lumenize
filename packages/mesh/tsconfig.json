@@ -12,7 +12,8 @@
   ],
   "files": [
     "worker-configuration.d.ts",
-    "cloudflare-test-env.d.ts"
+    "cloudflare-test-env.d.ts",
+    "test/for-docs/mesh/worker-configuration.d.ts"
   ]
 }
 

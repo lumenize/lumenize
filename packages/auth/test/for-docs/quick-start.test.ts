@@ -32,12 +32,6 @@ export default {
   }
 };
 
-// Type for the env (comes from wrangler types in real apps)
-interface Env {
-  JWT_PUBLIC_KEY_BLUE: string;
-  LUMENIZE_AUTH: DurableObjectNamespace;
-}
-
 describe('Quick Start Example', () => {
   it('validates the documented pattern compiles correctly', () => {
     expect(typeof LumenizeAuth).toBe('function');

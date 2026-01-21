@@ -132,9 +132,10 @@ export class Browser {
         this.#metrics.httpRequests = (this.#metrics.httpRequests ?? 0) + 1;
         this.#metrics.roundTrips = (this.#metrics.roundTrips ?? 0) + 1; // One HTTP request/response = 1 round trip
       }
-      
+
       const request = new Request(input, init);
-      
+      const userRedirectMode = init?.redirect ?? 'follow';
+
       // Track request payload size
       if (this.#metrics && request.body) {
         try {
@@ -145,16 +146,82 @@ export class Browser {
           // If body can't be read, skip tracking
         }
       }
-      
+
       // Add cookies to request
       const cookieHeader = this.getCookiesForRequest(request.url);
       if (cookieHeader) {
         request.headers.set('Cookie', cookieHeader);
       }
-      
-      // Make request
-      const response = await this.#baseFetch(request);
-      
+
+      // Handle redirects manually to capture Set-Cookie headers from intermediate responses
+      // The native fetch with redirect:'follow' loses intermediate response headers
+      let currentUrl = request.url;
+      let currentMethod = request.method;
+      let currentHeaders = new Headers(request.headers);
+      let currentBody: BodyInit | null = request.body;
+      let response: Response;
+      let redirectCount = 0;
+      const maxRedirects = 20; // Same as browser default
+
+      while (true) {
+        // Build a Request object for the fetch (mock fetches may inspect headers on the Request)
+        const body = redirectCount === 0 ? currentBody : undefined;
+        const fetchRequest = new Request(currentUrl, {
+          method: currentMethod,
+          headers: currentHeaders,
+          body,
+          redirect: 'manual',
+          // duplex is required when sending a streaming body
+          ...(body ? { duplex: 'half' as const } : {}),
+        });
+
+        response = await this.#baseFetch(fetchRequest);
+
+        // Store cookies from this response (including intermediate redirects)
+        this.#storeCookiesFromResponse(response, currentUrl);
+
+        // Check if this is a redirect we should follow
+        const isRedirect = response.status >= 300 && response.status < 400;
+        const location = response.headers.get('Location');
+
+        if (!isRedirect || !location || userRedirectMode === 'manual') {
+          // Not a redirect, or user wants manual handling - return as-is
+          break;
+        }
+
+        if (userRedirectMode === 'error') {
+          throw new TypeError('Failed to fetch: redirect encountered with redirect mode "error"');
+        }
+
+        // Follow the redirect
+        redirectCount++;
+        if (redirectCount > maxRedirects) {
+          throw new TypeError('Failed to fetch: too many redirects');
+        }
+
+        // Resolve relative URLs
+        currentUrl = new URL(location, currentUrl).toString();
+
+        // For 303 or POST->GET redirects, switch to GET
+        const shouldSwitchToGet = response.status === 303 ||
+          (response.status !== 307 && response.status !== 308 && currentMethod === 'POST');
+
+        if (shouldSwitchToGet) {
+          currentMethod = 'GET';
+        }
+
+        // Add cookies for the new URL
+        const redirectCookies = this.getCookiesForRequest(currentUrl);
+        if (redirectCookies) {
+          currentHeaders.set('Cookie', redirectCookies);
+        }
+
+        // Track additional round trips for redirects
+        if (this.#metrics) {
+          this.#metrics.roundTrips = (this.#metrics.roundTrips ?? 0) + 1;
+        }
+      }
+
       // Track response payload size
       if (this.#metrics) {
         try {
@@ -165,10 +232,7 @@ export class Browser {
           // If body can't be read, skip tracking
         }
       }
-      
-      // Store cookies from response
-      this.#storeCookiesFromResponse(response, request.url);
-      
+
       return response;
     };
   }
@@ -350,7 +414,8 @@ export class Browser {
         continue;
       }
       
-      if (cookieMatches(cookie, url.hostname, url.pathname)) {
+      const isSecure = url.protocol === 'https:';
+      if (cookieMatches(cookie, url.hostname, url.pathname, isSecure)) {
         matchingCookies.push(cookie);
       }
     }

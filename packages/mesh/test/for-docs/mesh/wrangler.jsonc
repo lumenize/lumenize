@@ -11,6 +11,10 @@
       {
         "name": "DOCUMENT_DO",
         "class_name": "DocumentDO"
+      },
+      {
+        "name": "LUMENIZE_AUTH",
+        "class_name": "LumenizeAuth"
       }
     ]
   },
@@ -25,6 +29,14 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["LumenizeAuth"]
     }
-  ]
+  ],
+  "vars": {
+    "AUTH_TEST_MODE": "true",
+    "PRIMARY_JWT_KEY": "BLUE"
+  }
 }

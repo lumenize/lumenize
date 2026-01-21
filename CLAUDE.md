@@ -109,6 +109,27 @@ subscribe(id: string) {
 - `wrangler.jsonc` - DO bindings and migrations (compatibility_date: "2025-09-12" or later)
 - `worker-configuration.d.ts` - Auto-generated via `npm run types`
 
+### Using the Global `Env` Type
+The `wrangler types` command generates a global `Env` interface in `worker-configuration.d.ts`. Always use this global `Env` type—never manually define `interface Env` or create custom env types like `MyEnv` or `AuthEnv`.
+
+```typescript
+// Good: use the global Env directly
+export default {
+  async fetch(request: Request, env: Env) { ... }
+}
+
+// Good: library functions accept Env
+export function createRoutes(env: Env, options: Config) { ... }
+
+// Bad: manual Env definition (will get out of sync)
+interface Env { MY_DO: DurableObjectNamespace; }
+
+// Bad: custom env type (unnecessary indirection)
+type MyEnv = { MY_DO: DurableObjectNamespace; };
+```
+
+For library code that needs to work across packages (where each package has its own `Env`), use `object` as the parameter type and cast internally when accessing dynamic properties.
+
 ---
 
 ## Testing

@@ -20,7 +20,7 @@
   ],
   "vars": {
     "AUTH_TEST_MODE": "true",
-    "ACTIVE_JWT_KEY": "BLUE"
+    "PRIMARY_JWT_KEY": "BLUE"
   }
 }
 
