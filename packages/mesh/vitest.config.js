@@ -52,14 +52,14 @@ export default defineWorkersConfig({
         },
       },
       {
-        // Getting started / mesh e2e tests - use separate wrangler.jsonc
+        // Getting started / mesh e2e tests - use test harness for createTestingClient support
         extends: true,
         test: {
           name: 'mesh-e2e',
           include: ['test/for-docs/mesh/**/*.test.ts'],
           poolOptions: {
             workers: {
-              wrangler: { configPath: './test/for-docs/mesh/wrangler.jsonc' },
+              wrangler: { configPath: './test/for-docs/mesh/test/wrangler.jsonc' },
             },
           },
         },

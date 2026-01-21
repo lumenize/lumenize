@@ -6,7 +6,7 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import { encodeRequest, encodeResponse } from '@lumenize/structured-clone';
+import { RequestSync, ResponseSync, stringify } from '@lumenize/structured-clone';
 
 interface Env {
   TEST_TOKEN: string;
@@ -202,11 +202,25 @@ export class TestEndpointsDO extends DurableObject<Env> {
     }
     this.ctx.storage.kv.put('stats:lastTimestamp', startTime);
 
-    // Store last request/response (need to clone since Response body can only be read once)
+    // Store last request/response (need to clone since body can only be read once)
+    // Convert to RequestSync/ResponseSync for structured-clone storage
+    const requestClone = request.clone();
     const responseClone = response.clone();
-    
-    this.ctx.storage.kv.put('request:last', await encodeRequest(request));
-    this.ctx.storage.kv.put('response:last', await encodeResponse(responseClone));
+
+    const requestSync = new RequestSync(requestClone.url, {
+      method: requestClone.method,
+      headers: requestClone.headers,
+      body: await requestClone.text() || null,
+    });
+
+    const responseSync = new ResponseSync(await responseClone.text() || null, {
+      status: responseClone.status,
+      statusText: responseClone.statusText,
+      headers: responseClone.headers,
+    });
+
+    this.ctx.storage.kv.put('request:last', stringify(requestSync));
+    this.ctx.storage.kv.put('response:last', stringify(responseSync));
   }
 }
 

@@ -44,6 +44,19 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 
 ---
 
+## NPM Scripts
+
+Key scripts available from the monorepo root:
+
+- **`npm install`** - Installs dependencies and runs `postinstall` which symlinks `.dev.vars` and `cloudflare-test-env.d.ts` to all packages
+- **`npm run types`** - Generates `worker-configuration.d.ts` for all packages with wrangler.jsonc
+- **`npm run type-check`** - Runs TypeScript checking on all packages (respects each package's tsconfig)
+- **`npm test`** - Runs both code tests and doc example validation
+- **`npm run test:code`** - Runs vitest on all packages
+- **`npm run test:doc`** - Validates documentation code examples
+
+---
+
 ## Coding Style
 
 - **Type system**: TypeScript types for in-memory; TypeBox schemas for wire/persistence boundaries

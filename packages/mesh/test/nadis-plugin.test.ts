@@ -97,7 +97,7 @@ describe('NadisPlugin', () => {
 
       // Access service
       const response = await stub.fetch('http://test/check-access');
-      const data = await response.json();
+      const data = await response.json() as { hasCtx: boolean; hasSvc: boolean; hasDoInstance: boolean };
 
       expect(data.hasCtx).toBe(true);
       expect(data.hasSvc).toBe(true);
@@ -113,15 +113,15 @@ describe('NadisPlugin', () => {
 
       // Increment counter multiple times
       const response1 = await stub.fetch('http://test/increment');
-      const data1 = await response1.json();
+      const data1 = await response1.json() as { count: number };
       expect(data1.count).toBe(1);
 
       const response2 = await stub.fetch('http://test/increment');
-      const data2 = await response2.json();
+      const data2 = await response2.json() as { count: number };
       expect(data2.count).toBe(2);
 
       const response3 = await stub.fetch('http://test/increment');
-      const data3 = await response3.json();
+      const data3 = await response3.json() as { count: number };
       expect(data3.count).toBe(3);
     });
   });
@@ -136,7 +136,7 @@ describe('NadisPlugin', () => {
 
       // Use helper
       const response = await stub.fetch('http://test/use-helper');
-      const data = await response.json();
+      const data = await response.json() as { result: string };
 
       expect(data.result).toMatch(/^HELLO-[a-f0-9]{8}$/);
     });

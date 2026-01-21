@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { stringify, parse } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/utils';
 import { debug, type DebugLogger } from '@lumenize/debug';
 import type { CallEnvelope } from './lmz-api.js';
@@ -292,11 +292,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
     }
 
     // Send connection status immediately after accepting
+    // No complex types, use JSON.stringify directly
     const statusMessage: ConnectionStatusMessage = {
       type: GatewayMessageType.CONNECTION_STATUS,
       subscriptionsLost,
     };
-    server.send(stringify(statusMessage));
+    server.send(JSON.stringify(statusMessage));
 
     log.info('WebSocket connection accepted', {
       userId,
@@ -336,7 +337,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     let parsed: GatewayMessage;
     try {
-      parsed = parse(message) as GatewayMessage;
+      // Use JSON.parse - chain is already preprocessed by client, keep it that way
+      parsed = JSON.parse(message) as GatewayMessage;
     } catch (e) {
       log.error('Failed to parse message', { error: e });
       return;
@@ -505,6 +507,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
 
       // Build envelope
+      // Chain is already preprocessed by client - pass through as-is for Workers RPC
       const envelope: CallEnvelope = {
         version: 1,
         chain,
@@ -531,28 +534,33 @@ export class LumenizeClientGateway extends DurableObject<any> {
         stub = this.env[binding];
       }
 
+      // TODO: Workers RPC currently handles aliases/cycles natively, but Cloudflare has indicated
+      // they may remove this support. If so, we'd need to preprocess the envelope before sending
+      // and have DOs postprocess on receipt (preprocess/postprocess handle aliases/cycles).
       const result = await stub.__executeOperation(envelope);
 
       // Send success response
+      // Preprocess only the result (may contain Maps, Sets, etc.)
       const response: CallResponseMessage = {
         type: GatewayMessageType.CALL_RESPONSE,
         callId,
         success: true,
-        result: result, // Already serialized by structured-clone
+        result: preprocess(result),
       };
-      ws.send(stringify(response));
+      ws.send(JSON.stringify(response));
 
     } catch (error) {
       log.error('Call failed', { callId, binding, instance, error });
 
       // Send error response
+      // Preprocess only the error (may contain Error objects)
       const response: CallResponseMessage = {
         type: GatewayMessageType.CALL_RESPONSE,
         callId,
         success: false,
-        error: error, // Let structured-clone serialize the error
+        error: preprocess(error),
       };
-      ws.send(stringify(response));
+      ws.send(JSON.stringify(response));
     }
   }
 
@@ -574,10 +582,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
     this.#pendingCalls.delete(callId);
 
     // Resolve or reject
+    // Note: result/error are preprocessed by client, postprocess them here
     if (success) {
-      pending.resolve(result);
+      pending.resolve(postprocess(result));
     } else {
-      pending.reject(error instanceof Error ? error : new Error(String(error)));
+      const deserializedError = postprocess(error);
+      pending.reject(deserializedError instanceof Error ? deserializedError : new Error(String(deserializedError)));
     }
   }
 
@@ -613,7 +623,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
       this.#pendingCalls.set(callId, { resolve, reject, timeout });
 
       // Send to client
-      ws.send(stringify(message));
+      // Note: envelope.chain is already preprocessed (came from DO via Workers RPC),
+      // so use JSON.stringify instead of stringify to avoid double-preprocessing
+      ws.send(JSON.stringify(message));
     });
   }
 

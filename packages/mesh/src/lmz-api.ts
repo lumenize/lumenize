@@ -519,10 +519,13 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         stub = env[calleeBindingName];
       }
 
-      // 10. Send to remote and return result (already postprocessed by receiver)
+      // 10. Send to remote and return result
+      // TODO: Workers RPC currently handles aliases/cycles natively, but Cloudflare has indicated
+      // they may remove this support. If so, we'd need to preprocess the envelope before sending
+      // and have receivers postprocess on receipt (preprocess/postprocess handle aliases/cycles).
       return await stub.__executeOperation(envelope);
     },
-    
+
     call<T = any>(
       calleeBindingName: string,
       calleeInstanceNameOrId: string | undefined,
@@ -754,7 +757,10 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         stub = env[calleeBindingName];
       }
 
-      // 10. Send to remote and return result (already postprocessed by receiver)
+      // 10. Send to remote and return result
+      // TODO: Workers RPC currently handles aliases/cycles natively, but Cloudflare has indicated
+      // they may remove this support. If so, we'd need to preprocess the envelope before sending
+      // and have receivers postprocess on receipt (preprocess/postprocess handle aliases/cycles).
       return await stub.__executeOperation(envelope);
     },
 

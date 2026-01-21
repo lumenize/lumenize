@@ -35,15 +35,31 @@ type ContinuationMethods<T> = T extends object
  * Continuation type that wraps an object type so that all method calls
  * return `Continuation<ReturnType>` for type-safe chaining.
  *
+ * The `$result` property is a placeholder for nested operations - use it
+ * when you need to pass the result of an async operation as an argument
+ * to a continuation method.
+ *
  * @example
  * ```typescript
  * // this.ctn<RemoteDO>().getData(id) returns Continuation<DataType>
  * const remote = this.ctn<RemoteDO>().getData(id);
  * this.lmz.call('REMOTE_DO', instanceId, remote);
+ *
+ * // Using $result placeholder for async results:
+ * this.svc.fetch.proxy(url, this.ctn().handleResult(this.ctn().$result));
  * ```
  */
 export type Continuation<T> = {
   readonly [ContinuationBrand]: T;
+  /**
+   * Placeholder for the result of a nested async operation.
+   * Used when passing the result of an operation (like fetch) as an argument
+   * to a continuation method. The placeholder is replaced with the actual
+   * result at execution time via `replaceNestedOperationMarkers`.
+   *
+   * Typed as `any` because the actual type depends on what operation fills it.
+   */
+  readonly $result: any;
 } & ContinuationMethods<T>;
 
 // ============================================

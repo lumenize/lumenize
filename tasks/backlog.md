@@ -22,6 +22,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     3. `packages/lumenize-base/src/lmz-api.ts:375` and `:578` — Change to `using stub = getDOStub(...)`
 - [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 - [ ] Related to above, find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
+- [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
 
 ## Lumenize Mesh
 

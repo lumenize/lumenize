@@ -1,4 +1,4 @@
-import { stringify, parse } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   newContinuation,
   executeOperationChain,
@@ -696,7 +696,8 @@ export abstract class LumenizeClient {
   #handleMessage(data: string): void {
     let message: GatewayMessage;
     try {
-      message = parse(data) as GatewayMessage;
+      // Use JSON.parse - postprocessing is done per-field as needed
+      message = JSON.parse(data) as GatewayMessage;
     } catch (error) {
       console.error('Failed to parse Gateway message:', error);
       return;
@@ -745,22 +746,24 @@ export abstract class LumenizeClient {
     this.#pendingCalls.delete(message.callId);
 
     // Resolve or reject
+    // Note: result/error are preprocessed by Gateway, postprocess them here
     if (message.success) {
-      pending.resolve(message.result);
+      pending.resolve(postprocess(message.result));
     } else {
-      const error = message.error instanceof Error
-        ? message.error
-        : new Error(String(message.error));
-      pending.reject(error);
+      const error = postprocess(message.error);
+      pending.reject(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
   async #handleIncomingCall(message: IncomingCallMessage): Promise<void> {
-    const { callId, chain, callContext } = message;
+    const { callId, chain: preprocessedChain, callContext } = message;
 
     try {
       // Set up call context for this request
       this.#currentCallContext = callContext;
+
+      // Postprocess just the chain (it came preprocessed from Gateway)
+      const chain = postprocess(preprocessedChain);
 
       // Execute within call context (for nested calls)
       const result = await runWithCallContext(callContext, async () => {
@@ -771,24 +774,25 @@ export abstract class LumenizeClient {
         return await executeOperationChain(chain, this);
       });
 
-      // Send success response
+      // Send success response (result doesn't need preprocessing - simple types)
       const response: IncomingCallResponseMessage = {
         type: GatewayMessageType.INCOMING_CALL_RESPONSE,
         callId,
         success: true,
         result,
       };
-      this.#send(stringify(response));
+      this.#send(JSON.stringify(response));
 
     } catch (error) {
       // Send error response
+      // Preprocess error (Error objects need special handling for JSON)
       const response: IncomingCallResponseMessage = {
         type: GatewayMessageType.INCOMING_CALL_RESPONSE,
         callId,
         success: false,
-        error,
+        error: preprocess(error),
       };
-      this.#send(stringify(response));
+      this.#send(JSON.stringify(response));
 
     } finally {
       this.#currentCallContext = null;
@@ -872,20 +876,21 @@ export abstract class LumenizeClient {
 
     const callContext = buildOutgoingCallContext(callerIdentity, options);
 
-    // Build message
+    // Build message with preprocessed chain only
+    // (Other fields don't need preprocessing - they're simple types)
     const message: CallMessage = {
       type: GatewayMessageType.CALL,
       callId,
       binding: calleeBindingName,
       instance: calleeInstanceNameOrId,
-      chain,
+      chain: preprocess(chain),
       callContext: {
         callChain: callContext.callChain,
         state: callContext.state,
       },
     };
 
-    const messageStr = stringify(message);
+    const messageStr = JSON.stringify(message);
 
     // Create promise for response
     return new Promise<any>((resolve, reject) => {

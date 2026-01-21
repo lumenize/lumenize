@@ -671,7 +671,7 @@ export function createAuthRoutes(
         const body = await clonedResponse.json() as { error?: string };
         if (body.error === AUTH_NOT_CONFIGURED_ERROR) {
           // Configure the DO with full options
-          const doNamespace = env[gatewayBindingName as keyof Env] as DurableObjectNamespace<LumenizeAuth>;
+          const doNamespace = env[gatewayBindingName as keyof Env] as unknown as DurableObjectNamespace<LumenizeAuth>;
           if (doNamespace) {
             const stub = doNamespace.get(doNamespace.idFromName(instanceName));
             await (stub as any).configure(options);

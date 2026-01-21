@@ -130,7 +130,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       // Note: stringifiedUserContinuation is NOT passed - it's extracted from the alarm
       const handleResultContinuation = (this.ctn() as any).svc.fetch.__handleProxyFetchResult(
         message.reqId,
-        (this.ctn() as any).$result // Placeholder
+        this.ctn().$result // Placeholder
       );
 
       // Fill $result placeholder with actual result

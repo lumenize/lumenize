@@ -70,10 +70,13 @@ export class DocumentDO extends LumenizeDO<Env> {
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
     for (const clientId of subscribers) {
       const remote = this.ctn<EditorClient>().handleContentUpdate(content);
+      // Start new chain - this is a server-initiated push, not a response to client
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
-        remote
+        remote,
+        undefined,
+        { newChain: true }
       );
     }
   }
@@ -82,23 +85,14 @@ export class DocumentDO extends LumenizeDO<Env> {
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
     for (const clientId of subscribers) {
       const remote = this.ctn<EditorClient>().handleSpellFindings(findings);
+      // Start new chain - this is a server-initiated push, not a response to client
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
-        remote
+        remote,
+        undefined,
+        { newChain: true }
       );
     }
-  }
-
-  // Test helpers
-  @mesh
-  getSubscribers(): string[] {
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    return Array.from(subscribers);
-  }
-
-  @mesh
-  getContent(): string {
-    return this.ctx.storage.kv.get('content') ?? '';
   }
 }

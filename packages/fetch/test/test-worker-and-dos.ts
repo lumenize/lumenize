@@ -28,7 +28,7 @@ export class _TestSimpleDO extends LumenizeDO {
   }
 
   fetchDataSimpleWithOptions(
-    url: string, 
+    url: string,
     options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } },
     reqId?: string
   ): string {

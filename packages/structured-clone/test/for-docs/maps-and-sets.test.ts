@@ -9,7 +9,7 @@ import { stringify, parse } from '../../src/index.js';
 describe('Primitive Keys Work as Expected', () => {
   it('handles string, number, and boolean keys', async () => {
     // Sender side
-    const map = new Map([
+    const map = new Map<string | number | boolean, object>([
       ["user123", { name: "Alice" }],
       [42, { count: 100 }],
       [true, { active: true }]
@@ -38,9 +38,9 @@ describe('Object Keys - Reconstructed but Different Identity', () => {
     const restored = parse(serialized);
     
     // The key is fully reconstructed...
-    const keys = Array.from(restored.keys());
+    const keys = Array.from(restored.keys()) as Array<{ userId: number; role: string }>;
     expect(keys[0]).toEqual({ userId: 123, role: "admin" });
-    
+
     // All properties are preserved...
     expect(keys[0].userId).toBe(123);
     expect(keys[0].role).toBe("admin");
@@ -73,7 +73,7 @@ describe('Finding Object Keys After Deserialization', () => {
     const restored = parse(serialized);
     
     // Find the key for userId 456
-    const targetKey = Array.from(restored.keys()).find(
+    const targetKey = (Array.from(restored.keys()) as Array<{ userId: number; type: string }>).find(
       key => key.userId === 456
     );
     
