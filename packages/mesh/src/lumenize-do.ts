@@ -342,6 +342,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
     const log = this.#debug('lmz.mesh.LumenizeDO.__executeOperation');
 
     // 1. Validate envelope version
+    // Envelope is plain JSON - only chain field is preprocessed
     if (!envelope.version || envelope.version !== 1) {
       const error = new Error(
         `Unsupported RPC envelope version: ${envelope.version}. ` +
@@ -372,11 +373,10 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
       });
     }
 
-    // 4. Postprocess the chain
-    const preprocessedChain = envelope.chain;
-    const operationChain = postprocess(preprocessedChain);
+    // 4. Postprocess only the chain (handles aliases/cycles and restores custom Error types)
+    const operationChain = postprocess(envelope.chain);
 
-    // 5. Execute chain within callContext (makes this.lmz.callContext available)
+    // 6. Execute chain within callContext (makes this.lmz.callContext available)
     // CallContext already includes callee (set by caller)
     return await runWithCallContext(envelope.callContext, async () => {
       // Call onBeforeCall hook for authentication/authorization

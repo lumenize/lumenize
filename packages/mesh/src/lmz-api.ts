@@ -116,7 +116,11 @@ export interface CallEnvelope {
   /** Version number for envelope format (currently 1) */
   version: 1;
 
-  /** Preprocessed operation chain to execute on remote DO/Worker */
+  /**
+   * Preprocessed operation chain to execute on remote DO/Worker.
+   * This is the ONLY field that goes through preprocess/postprocess.
+   * The rest of the envelope is plain JSON.
+   */
   chain: any;
 
   /**
@@ -498,18 +502,16 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         }
       };
 
-      // 7. Preprocess operation chain
-      const preprocessedChain = preprocess(chain);
-
-      // 8. Create versioned envelope with callContext
+      // 7. Create versioned envelope with callContext
+      // Only chain is preprocessed - rest of envelope is plain JSON
       const envelope: CallEnvelope = {
         version: 1,
-        chain: preprocessedChain,
+        chain: preprocess(chain),
         callContext,
         metadata
       };
 
-      // 9. Get stub based on callee type
+      // 8. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
         // DO: Use getDOStub from @lumenize/utils
@@ -519,10 +521,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         stub = env[calleeBindingName];
       }
 
-      // 10. Send to remote and return result
-      // TODO: Workers RPC currently handles aliases/cycles natively, but Cloudflare has indicated
-      // they may remove this support. If so, we'd need to preprocess the envelope before sending
-      // and have receivers postprocess on receipt (preprocess/postprocess handle aliases/cycles).
+      // 9. Send envelope via Workers RPC
+      // Chain is already preprocessed, envelope wrapper is plain JSON
       return await stub.__executeOperation(envelope);
     },
 
@@ -736,18 +736,16 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         }
       };
 
-      // 7. Preprocess operation chain
-      const preprocessedChain = preprocess(chain);
-
-      // 8. Create versioned envelope with callContext
+      // 7. Create versioned envelope with callContext
+      // Only chain is preprocessed - rest of envelope is plain JSON
       const envelope: CallEnvelope = {
         version: 1,
-        chain: preprocessedChain,
+        chain: preprocess(chain),
         callContext,
         metadata
       };
 
-      // 9. Get stub based on callee type
+      // 8. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
         // DO: Use getDOStub from @lumenize/utils
@@ -757,10 +755,8 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         stub = env[calleeBindingName];
       }
 
-      // 10. Send to remote and return result
-      // TODO: Workers RPC currently handles aliases/cycles natively, but Cloudflare has indicated
-      // they may remove this support. If so, we'd need to preprocess the envelope before sending
-      // and have receivers postprocess on receipt (preprocess/postprocess handle aliases/cycles).
+      // 9. Send envelope via Workers RPC
+      // Chain is already preprocessed, envelope wrapper is plain JSON
       return await stub.__executeOperation(envelope);
     },
 

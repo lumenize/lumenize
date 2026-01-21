@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import { preprocess } from '@lumenize/structured-clone';
 import type { TestWorker } from './test-worker-and-dos';
 import { getOperationChain } from '../src/ocan/index.js';
 
@@ -63,23 +64,25 @@ describe('LumenizeWorker - Continuation Support (this.ctn())', () => {
 
 describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
   test('validates envelope version (rejects missing version)', async () => {
+    // __executeOperation expects envelope with only chain preprocessed
     const invalidEnvelope = {
-      chain: { operations: [] },
+      chain: preprocess({ operations: [] }),
       metadata: {}
     };
-    
+
     await expect(
       env.TEST_WORKER.__executeOperation(invalidEnvelope)
     ).rejects.toThrow(/Unsupported RPC envelope version.*only supports v1/);
   });
 
   test('validates envelope version (rejects unsupported version)', async () => {
+    // __executeOperation expects envelope with only chain preprocessed
     const invalidEnvelope = {
       version: 2,
-      chain: { operations: [] },
+      chain: preprocess({ operations: [] }),
       metadata: {}
     };
-    
+
     await expect(
       env.TEST_WORKER.__executeOperation(invalidEnvelope)
     ).rejects.toThrow(/Unsupported RPC envelope version: 2/);

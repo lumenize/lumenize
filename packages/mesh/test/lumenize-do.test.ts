@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import { preprocess } from '@lumenize/structured-clone';
 
 describe('@lumenize/mesh - onStart() Lifecycle Hook', () => {
   it('calls onStart() when DO is first instantiated', async () => {
@@ -615,12 +616,13 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
     describe('Envelope Validation', () => {
       it('rejects envelopes with no version', async () => {
         const callee = env.TEST_DO.getByName('validation-callee-1');
-        
+
+        // __executeOperation expects envelope with only chain preprocessed
         const invalidEnvelope = {
-          chain: {},
+          chain: preprocess({}),
           metadata: {}
         };
-        
+
         await expect(callee.__executeOperation(invalidEnvelope)).rejects.toThrow(
           /Unsupported RPC envelope version/
         );
@@ -628,13 +630,14 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
 
       it('rejects envelopes with unsupported version', async () => {
         const callee = env.TEST_DO.getByName('validation-callee-2');
-        
+
+        // __executeOperation expects envelope with only chain preprocessed
         const invalidEnvelope = {
           version: 2,
-          chain: {},
+          chain: preprocess({}),
           metadata: {}
         };
-        
+
         await expect(callee.__executeOperation(invalidEnvelope)).rejects.toThrow(
           /Unsupported RPC envelope version: 2/
         );
@@ -642,13 +645,14 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
 
       it('rejects envelopes with version 0', async () => {
         const callee = env.TEST_DO.getByName('validation-callee-3');
-        
+
+        // __executeOperation expects envelope with only chain preprocessed
         const invalidEnvelope = {
           version: 0,
-          chain: {},
+          chain: preprocess({}),
           metadata: {}
         };
-        
+
         await expect(callee.__executeOperation(invalidEnvelope)).rejects.toThrow(
           /Unsupported RPC envelope version: 0/
         );

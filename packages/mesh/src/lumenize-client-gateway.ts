@@ -414,6 +414,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
   async __executeOperation(envelope: CallEnvelope): Promise<any> {
     const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.__executeOperation');
 
+    // Envelope is plain JSON with only chain preprocessed
+    // No postprocessing needed - we pass the preprocessed chain directly to the client
+
     // Validate envelope version
     if (!envelope.version || envelope.version !== 1) {
       throw new Error(`Unsupported RPC envelope version: ${envelope.version}`);
@@ -506,11 +509,10 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Determine callee type for metadata
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
 
-      // Build envelope
-      // Chain is already preprocessed by client - pass through as-is for Workers RPC
+      // Build envelope - only chain needs preprocessing, rest is plain JSON
       const envelope: CallEnvelope = {
         version: 1,
-        chain,
+        chain: preprocess(chain), // Preprocess only the chain
         callContext,
         metadata: {
           caller: {
@@ -534,9 +536,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
         stub = this.env[binding];
       }
 
-      // TODO: Workers RPC currently handles aliases/cycles natively, but Cloudflare has indicated
-      // they may remove this support. If so, we'd need to preprocess the envelope before sending
-      // and have DOs postprocess on receipt (preprocess/postprocess handle aliases/cycles).
+      // Send envelope - chain is already preprocessed
       const result = await stub.__executeOperation(envelope);
 
       // Send success response
@@ -598,10 +598,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const callId = crypto.randomUUID();
 
     // Build incoming call message for client
+    // Chain is already preprocessed (came from caller via __executeOperation)
+    // Just pass it through - no additional preprocessing needed
     const message: IncomingCallMessage = {
       type: GatewayMessageType.INCOMING_CALL,
       callId,
-      chain: envelope.chain,
+      chain: envelope.chain, // Already preprocessed
       callContext: {
         callChain: envelope.callContext.callChain,
         originAuth: envelope.callContext.originAuth,
@@ -623,8 +625,6 @@ export class LumenizeClientGateway extends DurableObject<any> {
       this.#pendingCalls.set(callId, { resolve, reject, timeout });
 
       // Send to client
-      // Note: envelope.chain is already preprocessed (came from DO via Workers RPC),
-      // so use JSON.stringify instead of stringify to avoid double-preprocessing
       ws.send(JSON.stringify(message));
     });
   }

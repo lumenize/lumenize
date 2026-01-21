@@ -876,14 +876,13 @@ export abstract class LumenizeClient {
 
     const callContext = buildOutgoingCallContext(callerIdentity, options);
 
-    // Build message with preprocessed chain only
-    // (Other fields don't need preprocessing - they're simple types)
+    // Build message with raw chain - Gateway will preprocess the entire envelope
     const message: CallMessage = {
       type: GatewayMessageType.CALL,
       callId,
       binding: calleeBindingName,
       instance: calleeInstanceNameOrId,
-      chain: preprocess(chain),
+      chain,
       callContext: {
         callChain: callContext.callChain,
         state: callContext.state,

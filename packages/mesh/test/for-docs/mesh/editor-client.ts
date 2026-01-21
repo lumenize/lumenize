@@ -69,7 +69,7 @@ export class EditorClient extends LumenizeClient {
       'DOCUMENT_DO',
       this.#documentId,
       this.ctn<DocumentDO>().subscribe(),
-      this.ctn().handleSubscribeResult(this.ctn().$result)
+      this.ctn<EditorClient>().handleSubscribeResult(this.ctn().$result)
     );
   }
 

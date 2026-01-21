@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { env, runDurableObjectAlarm, runInDurableObject } from 'cloudflare:test';
-import { stringify, parse, preprocess } from '@lumenize/structured-clone';
+import { stringify, parse, preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   GatewayMessageType,
   ClientDisconnectedError,
@@ -86,9 +86,10 @@ describe('LumenizeClientGateway', () => {
       ws.accept();
 
       // Wait for connection_status message
+      // Note: Gateway sends CONNECTION_STATUS via JSON.stringify (no complex types)
       const messagePromise = new Promise<ConnectionStatusMessage>((resolve) => {
         ws.addEventListener('message', (event) => {
-          const msg = parse(event.data as string) as ConnectionStatusMessage;
+          const msg = JSON.parse(event.data as string) as ConnectionStatusMessage;
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             resolve(msg);
           }
@@ -125,7 +126,7 @@ describe('LumenizeClientGateway', () => {
       // Skip connection_status message
       const connectionStatusPromise = new Promise<void>((resolve) => {
         ws.addEventListener('message', function handler(event) {
-          const msg = parse(event.data as string);
+          const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
             resolve();
@@ -134,12 +135,12 @@ describe('LumenizeClientGateway', () => {
       });
       await connectionStatusPromise;
 
-      // Build and preprocess the operation chain (OCAN format)
+      // Build the operation chain (OCAN format) - sent raw, Gateway will preprocess
       // Chain format: [{ type: 'get', key: 'methodName' }, { type: 'apply', args: [...] }]
-      const chain = preprocess([
+      const chain = [
         { type: 'get', key: 'echo' },
         { type: 'apply', args: ['Hello from client!'] },
-      ]);
+      ];
 
       // Send a call to EchoDO
       const callMessage: CallMessage = {
@@ -151,18 +152,21 @@ describe('LumenizeClientGateway', () => {
       };
 
       // Set up response listener
+      // Gateway sends CALL_RESPONSE via JSON.stringify with result: preprocess(result)
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
         ws.addEventListener('message', function handler(event) {
-          const msg = parse(event.data as string);
+          const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
+            // Postprocess the result field (Gateway preprocesses it)
+            msg.result = postprocess(msg.result);
             resolve(msg);
           }
         });
       });
 
-      // Send the call
-      ws.send(stringify(callMessage));
+      // Send the call - use JSON.stringify since Gateway uses JSON.parse
+      ws.send(JSON.stringify(callMessage));
 
       // Wait for response
       const callResponse = await responsePromise;
@@ -206,7 +210,7 @@ describe('LumenizeClientGateway', () => {
       // Skip connection_status
       await new Promise<void>((resolve) => {
         ws.addEventListener('message', function handler(event) {
-          const msg = parse(event.data as string);
+          const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
             resolve();
@@ -214,11 +218,11 @@ describe('LumenizeClientGateway', () => {
         });
       });
 
-      // Build and preprocess the operation chain (OCAN format)
-      const chain = preprocess([
+      // Build the operation chain (OCAN format) - sent raw, Gateway will preprocess
+      const chain = [
         { type: 'get', key: 'getCallContext' },
         { type: 'apply', args: [] },
-      ]);
+      ];
 
       // Call EchoDO to inspect context
       const callMessage: CallMessage = {
@@ -231,15 +235,17 @@ describe('LumenizeClientGateway', () => {
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
         ws.addEventListener('message', function handler(event) {
-          const msg = parse(event.data as string);
+          const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
+            // Postprocess the result field (Gateway preprocesses it)
+            msg.result = postprocess(msg.result);
             resolve(msg);
           }
         });
       });
 
-      ws.send(stringify(callMessage));
+      ws.send(JSON.stringify(callMessage));
       const callResponse = await responsePromise;
 
       expect(callResponse.success).toBe(true);

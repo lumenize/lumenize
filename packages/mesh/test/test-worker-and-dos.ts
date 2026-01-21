@@ -4,7 +4,7 @@ import { mesh } from '../src/mesh-decorator';
 import type { CallEnvelope } from '../src/lmz-api';
 import type { Schedule } from '../src/alarms';
 import { getOperationChain } from '../src/ocan/index.js';
-import { preprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 
 // Export LumenizeClientGateway for testing
 export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
@@ -19,6 +19,7 @@ export { TaskSchedulerDO } from './for-docs/alarms/basic-usage.test';
 export { NadisPluginTestDO } from './nadis-plugin-test-do';
 
 export class TestDO extends LumenizeDO<Env> {
+  /** @internal - for tests only */
   executedAlarms: Array<{ payload: any; schedule: Schedule | null }> = [];
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -191,6 +192,7 @@ export class TestDO extends LumenizeDO<Env> {
   lastReceivedEnvelope: any = null;
 
   // Override __executeOperation to capture envelope
+  // Envelope is plain JSON with only chain preprocessed - store it directly
   async __executeOperation(envelope: any): Promise<any> {
     this.lastReceivedEnvelope = envelope;
     return await super.__executeOperation(envelope);
@@ -769,6 +771,7 @@ export class TestWorker extends LumenizeWorker<Env> {
   lastReceivedEnvelope: any = null;
 
   // Override __executeOperation to capture envelope
+  // Envelope is plain JSON with only chain preprocessed - store it directly
   async __executeOperation(envelope: any): Promise<any> {
     this.lastReceivedEnvelope = envelope;
     return await super.__executeOperation(envelope);

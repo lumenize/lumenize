@@ -8,7 +8,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { stringify } from '@lumenize/structured-clone';
+// Note: LumenizeClient uses JSON.parse for incoming messages
+// Tests use JSON.stringify to simulate gateway messages
 import {
   LumenizeClient,
   LoginRequiredError,
@@ -300,7 +301,7 @@ describe('LumenizeClient', () => {
       ws.simulateOpen();
 
       // Send connection_status message
-            ws.simulateMessage(stringify({
+      ws.simulateMessage(JSON.stringify({
         type: 'connection_status',
         subscriptionsLost: false,
       }));
@@ -323,7 +324,7 @@ describe('LumenizeClient', () => {
       const ws = createdWebSockets[0];
       ws.simulateOpen();
 
-            ws.simulateMessage(stringify({
+      ws.simulateMessage(JSON.stringify({
         type: 'connection_status',
         subscriptionsLost: true,
       }));
@@ -535,7 +536,7 @@ describe('Message Queue', () => {
     ws.simulateOpen();
 
     // Send connection_status
-        ws.simulateMessage(stringify({
+    ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
       subscriptionsLost: false,
     }));
