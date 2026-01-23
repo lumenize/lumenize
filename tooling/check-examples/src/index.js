@@ -60,12 +60,15 @@ function normalizeCode(code) {
 
 /**
  * Normalize JSON/JSONC for comparison:
- * Remove comments and collapse whitespace
+ * Remove comments, support ellipsis wildcards, and collapse whitespace
  * @param {string} code - JSON/JSONC to normalize
  * @returns {string} Normalized JSON
  */
 function normalizeJson(code) {
   return code
+    // Replace wildcard patterns with unique placeholder before removing other comments
+    .replace(/\/\/\s*\.\.\.\s*$/gm, '___ELLIPSIS___')
+    .replace(/\/\*\s*\.\.\.\s*\*\//g, '___ELLIPSIS___')
     // Remove single-line comments (JSONC)
     .replace(/\/\/.*$/gm, '')
     // Remove multi-line comments (JSONC)

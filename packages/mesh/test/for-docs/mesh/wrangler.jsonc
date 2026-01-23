@@ -36,7 +36,8 @@
     }
   ],
   "vars": {
-    "AUTH_TEST_MODE": "true",
-    "PRIMARY_JWT_KEY": "BLUE"
+    "PRIMARY_JWT_KEY": "BLUE",
+    // Test-specific: enables test login without real email
+    "AUTH_TEST_MODE": "true"
   }
 }

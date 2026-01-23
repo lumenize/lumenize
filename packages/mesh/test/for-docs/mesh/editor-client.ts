@@ -82,7 +82,6 @@ export class EditorClient extends LumenizeClient {
   };
 
   // Response handler for subscribe - receives initial content or Error
-  @mesh
   handleSubscribeResult(documentId: string, result: string | Error) {
     const callbacks = this.#documents.get(documentId);
     if (!callbacks) return; // Document was closed

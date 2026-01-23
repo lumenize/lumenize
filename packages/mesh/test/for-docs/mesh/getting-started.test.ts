@@ -37,9 +37,10 @@ it('collaborative document editing with multiple clients', async () => {
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    WebSocket: aliceBrowser.WebSocket,
     refresh: 'https://localhost/auth/refresh-token',
+    // Test-specific: inject browser's fetch/WebSocket
     fetch: aliceBrowser.fetch,
+    WebSocket: aliceBrowser.WebSocket,
   });
 
   await vi.waitFor(() => {
@@ -77,9 +78,10 @@ it('collaborative document editing with multiple clients', async () => {
   using bob = new EditorClient({
     instanceName: `${bobUserId}.tab1`,
     baseUrl: 'https://localhost',
-    WebSocket: bobBrowser.WebSocket,
     refresh: 'https://localhost/auth/refresh-token',
+    // Test-specific: inject browser's fetch/WebSocket
     fetch: bobBrowser.fetch,
+    WebSocket: bobBrowser.WebSocket,
   });
 
   await vi.waitFor(() => {
