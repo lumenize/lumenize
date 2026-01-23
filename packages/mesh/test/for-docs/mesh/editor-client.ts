@@ -7,27 +7,23 @@
  * in production (React state updates, DOM manipulation, etc.).
  */
 
-import { LumenizeClient, mesh, type LumenizeClientConfig } from '../../../src/index.js';
+import { LumenizeClient, mesh } from '../../../src/index.js';
 import type { DocumentDO } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
 
-/**
- * Callbacks for a single document
- */
+// Callbacks for a single document
 export interface DocumentCallbacks {
-  /** Called when document content is updated (initial load or broadcast) */
+  // Called when document content is updated (initial load or broadcast)
   onContentUpdate?: (content: string) => void;
-  /** Called when spell check findings are received */
+  // Called when spell check findings are received
   onSpellFindings?: (findings: SpellFinding[]) => void;
 }
 
-/**
- * Handle for an open document - allows saving content and closing
- */
+// Handle for an open document - allows saving content and closing
 export interface DocumentHandle {
-  /** Save new content to the document */
+  // Save new content to the document
   saveContent(content: string): void;
-  /** Close this document (unsubscribe and remove from registry) */
+  // Close this document (unsubscribe and remove from registry)
   close(): void;
 }
 
