@@ -48,6 +48,14 @@ export interface OriginAuth {
  *
  * Access via `this.lmz.callContext` inside mesh methods.
  *
+ * ## Serialization Analysis
+ *
+ * | Field | Extended Types? | Preprocessing |
+ * |-------|-----------------|---------------|
+ * | `callChain` | No (plain strings) | Never |
+ * | `originAuth` | No (from JWT) | Never |
+ * | `state` | Yes (user-defined) | Over WebSocket: Yes |
+ *
  * @example
  * ```typescript
  * onBeforeCall() {
@@ -98,6 +106,9 @@ export interface CallContext {
    * - Distributed tracing (trace IDs, spans)
    * - Caching computed permissions across hops
    * - Request-scoped metadata
+   *
+   * **Serialization**: May contain Maps, Sets, Dates, etc. Requires preprocessing
+   * over WebSocket; Workers RPC handles extended types natively.
    */
   state: Record<string, unknown>;
 }

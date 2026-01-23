@@ -1,5 +1,5 @@
 import { isDurableObjectId, getDOStub } from '@lumenize/utils';
-import { preprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
 import type { NodeType, NodeIdentity, CallContext, CallOptions, OriginAuth } from './types.js';
@@ -64,6 +64,137 @@ export function captureCallContext(): CallContext | undefined {
   };
 }
 
+// ============================================
+// Shared Call Helpers
+// ============================================
+
+/**
+ * Type for a local chain executor function
+ *
+ * Both LumenizeDO and LumenizeWorker expose this via `__localChainExecutor`.
+ * LumenizeClient uses `executeOperationChain` directly.
+ *
+ * @internal
+ */
+export type LocalChainExecutor = (
+  chain: OperationChain,
+  options?: { requireMeshDecorator?: boolean }
+) => Promise<any>;
+
+/**
+ * Extract and validate operation chains from continuations
+ *
+ * Shared logic for DO, Worker, and Client call() methods.
+ *
+ * @param remoteContinuation - The remote continuation to execute
+ * @param handlerContinuation - Optional handler continuation for callbacks
+ * @returns Object with remoteChain and handlerChain (if provided)
+ * @throws Error if continuations are invalid
+ * @internal
+ */
+export function extractCallChains(
+  remoteContinuation: AnyContinuation,
+  handlerContinuation?: AnyContinuation
+): { remoteChain: OperationChain; handlerChain?: OperationChain } {
+  const remoteChain = getOperationChain(remoteContinuation);
+  if (!remoteChain) {
+    throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
+  }
+
+  let handlerChain: OperationChain | undefined;
+  if (handlerContinuation) {
+    handlerChain = getOperationChain(handlerContinuation);
+    if (!handlerChain) {
+      throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
+    }
+  }
+
+  return { remoteChain, handlerChain };
+}
+
+/**
+ * Create a handler executor function with captured context
+ *
+ * Shared logic for executing handler callbacks with proper context restoration.
+ * Used by DO, Worker, and Client call() methods.
+ *
+ * @param localExecutor - Function to execute the chain locally
+ * @param capturedContext - The call context captured at call time (may be undefined)
+ * @returns A function that executes a chain with the captured context
+ * @internal
+ */
+export function createHandlerExecutor(
+  localExecutor: LocalChainExecutor,
+  capturedContext: CallContext | undefined
+): (chain: OperationChain) => Promise<any> {
+  return async (chain: OperationChain) => {
+    if (capturedContext) {
+      return runWithCallContext(capturedContext, async () => {
+        return await localExecutor(chain, { requireMeshDecorator: false });
+      });
+    } else {
+      return await localExecutor(chain, { requireMeshDecorator: false });
+    }
+  };
+}
+
+/**
+ * Execute handler continuation with result or error
+ *
+ * Shared logic for the then/catch handler execution pattern.
+ * Substitutes result/error into the handler chain and executes it.
+ *
+ * @param handlerChain - The handler continuation chain (may be undefined for fire-and-forget)
+ * @param resultOrError - The result or error to inject into the handler
+ * @param executeHandler - The executor function (from createHandlerExecutor)
+ * @internal
+ */
+export async function executeHandlerWithResult(
+  handlerChain: OperationChain | undefined,
+  resultOrError: any,
+  executeHandler: (chain: OperationChain) => Promise<any>
+): Promise<void> {
+  if (!handlerChain) return;
+
+  // Normalize errors
+  const value = resultOrError instanceof Error
+    ? resultOrError
+    : resultOrError;
+
+  const finalChain = replaceNestedOperationMarkers(handlerChain, value);
+  await executeHandler(finalChain);
+}
+
+/**
+ * Set up fire-and-forget call with handler callbacks
+ *
+ * Shared logic for DO and Client call() methods that return immediately.
+ * Worker uses a slightly different async pattern but shares the helpers.
+ *
+ * @param callPromise - Promise that resolves with the remote call result
+ * @param handlerChain - Optional handler continuation for callbacks
+ * @param executeHandler - The executor function (from createHandlerExecutor)
+ * @internal
+ */
+export function setupFireAndForgetHandler(
+  callPromise: Promise<any>,
+  handlerChain: OperationChain | undefined,
+  executeHandler: (chain: OperationChain) => Promise<any>
+): void {
+  callPromise
+    .then(async (result) => {
+      await executeHandlerWithResult(handlerChain, result, executeHandler);
+    })
+    .catch(async (error) => {
+      const errorObj = error instanceof Error ? error : new Error(String(error));
+      await executeHandlerWithResult(handlerChain, errorObj, executeHandler);
+    });
+}
+
+// ============================================
+// CallContext Building
+// ============================================
+
 /**
  * Build the CallContext for an outgoing call
  *
@@ -111,27 +242,57 @@ export function buildOutgoingCallContext(
  *
  * Enables auto-initialization of identity across distributed DO/Worker graphs.
  * Version field allows future evolution without breaking changes.
+ *
+ * ## Serialization Analysis
+ *
+ * Different fields have different serialization requirements based on what
+ * types they can contain and what transport they cross:
+ *
+ * | Field | Extended Types? | Preprocessing |
+ * |-------|-----------------|---------------|
+ * | `version` | No (literal `1`) | Never |
+ * | `metadata` | No (plain strings) | Never |
+ * | `callContext.callChain` | No (plain strings) | Never |
+ * | `callContext.originAuth` | No (from JWT) | Never |
+ * | `callContext.state` | Yes (user-defined) | Over WebSocket: Yes |
+ * | `chain` (contains args) | Yes (method arguments) | Over WebSocket: Yes |
+ *
+ * Workers RPC uses native structured clone which handles Maps, Sets, Dates, etc.
+ * WebSocket uses JSON which requires preprocess/postprocess from @lumenize/structured-clone.
+ *
+ * Note: Response `error` fields always use preprocess/postprocess (even over Workers RPC)
+ * to preserve custom Error subclass properties that native structured clone loses.
  */
 export interface CallEnvelope {
-  /** Version number for envelope format (currently 1) */
+  /**
+   * Version number for envelope format (currently 1)
+   *
+   * Plain number - never needs preprocessing.
+   */
   version: 1;
 
   /**
-   * Preprocessed operation chain to execute on remote DO/Worker.
-   * This is the ONLY field that goes through preprocess/postprocess.
-   * The rest of the envelope is plain JSON.
+   * Operation chain to execute on remote DO/Worker
+   *
+   * Contains method name and arguments (`args: any[]`) which may include
+   * Maps, Sets, Dates, or other extended types.
+   *
+   * **Preprocessing**: Required over WebSocket; not needed over Workers RPC.
    */
   chain: any;
 
   /**
    * Call context propagated through the mesh
    *
-   * Contains origin, originAuth, callChain, and state.
-   * Required for all mesh calls.
+   * See CallContext for field-level serialization requirements.
    */
   callContext: CallContext;
 
-  /** Metadata about caller and callee for auto-initialization */
+  /**
+   * Metadata about caller and callee for auto-initialization
+   *
+   * All fields are plain strings - never needs preprocessing.
+   */
   metadata?: {
     /** Information about the caller (who is making this call) */
     caller: {
@@ -523,7 +684,14 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
 
       // 9. Send envelope via Workers RPC
       // Chain is already preprocessed, envelope wrapper is plain JSON
-      return await stub.__executeOperation(envelope);
+      const response = await stub.__executeOperation(envelope);
+
+      // Unwrap result/error wrapper from executeEnvelope
+      // Errors are returned (not thrown) because Workers RPC loses error properties on throw
+      if (response && '$error' in response) {
+        throw postprocess(response.$error);
+      }
+      return response?.$result;
     },
 
     call<T = any>(
@@ -533,21 +701,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       handlerContinuation?: AnyContinuation,
       options?: CallOptions
     ): void {
-      // 1. Extract operation chains from continuations
-      const remoteChain = getOperationChain(remoteContinuation);
-
-      if (!remoteChain) {
-        throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
-      }
-
-      // Extract handler chain if provided
-      let handlerChain: OperationChain | undefined;
-      if (handlerContinuation) {
-        handlerChain = getOperationChain(handlerContinuation);
-        if (!handlerChain) {
-          throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
-        }
-      }
+      // 1. Extract and validate chains (shared helper)
+      const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
       // 2. Validate caller knows its own binding (fail fast!)
       if (!this.bindingName) {
@@ -557,50 +712,19 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         );
       }
 
-      // 3. Capture current callContext for handler execution (deep clone!)
+      // 3. Set up handler execution (shared helpers)
       const capturedContext = captureCallContext();
+      const localExecutor = doInstance.__localChainExecutor;
+      const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
 
-      // Helper to execute handler with captured context
-      const executeHandler = async (chain: OperationChain) => {
-        if (capturedContext) {
-          return runWithCallContext(capturedContext, async () => {
-            return await executeOperationChain(chain, doInstance);
-          });
-        } else {
-          return await executeOperationChain(chain, doInstance);
-        }
-      };
-
-      // 4. Fire-and-forget: use Promise.then/catch instead of blockConcurrencyWhile
-      // This returns immediately while the async work executes in the background
+      // 4. Make remote call with context
       const callPromise = capturedContext
         ? runWithCallContext(capturedContext, () =>
             this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
         : this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
 
-      callPromise
-        .then(async (result) => {
-          // Execute handler if provided
-          if (handlerChain) {
-            // Substitute result into handler continuation
-            const finalChain = replaceNestedOperationMarkers(handlerChain, result);
-            // Execute handler locally on the DO instance with captured context
-            await executeHandler(finalChain);
-          }
-        })
-        .catch(async (error) => {
-          // Execute error handler if provided
-          if (handlerChain) {
-            // Inject Error into handler continuation
-            const errorObj = error instanceof Error ? error : new Error(String(error));
-            const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
-            // Execute handler with error on the DO instance with captured context
-            await executeHandler(finalChain);
-          }
-          // If no handler, silently swallow error (fire-and-forget)
-        });
-
-      // Returns immediately! Handler executes when result arrives (or fire-and-forget)
+      // 5. Fire-and-forget with handler callbacks (shared helper)
+      setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
     },
   };
 }
@@ -757,7 +881,14 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 
       // 9. Send envelope via Workers RPC
       // Chain is already preprocessed, envelope wrapper is plain JSON
-      return await stub.__executeOperation(envelope);
+      const response = await stub.__executeOperation(envelope);
+
+      // Unwrap result/error wrapper from executeEnvelope
+      // Errors are returned (not thrown) because Workers RPC loses error properties on throw
+      if (response && '$error' in response) {
+        throw postprocess(response.$error);
+      }
+      return response?.$result;
     },
 
     async call<T = any>(
@@ -767,58 +898,140 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       handlerContinuation: AnyContinuation,
       options?: CallOptions
     ): Promise<void> {
-      // Async version without blockConcurrencyWhile (Workers don't have it)
-      // 1. Extract operation chains from continuations
-      const remoteChain = getOperationChain(remoteContinuation);
-      const handlerChain = getOperationChain(handlerContinuation);
-
-      if (!remoteChain) {
-        throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
-      }
+      // Async version - Workers don't have blockConcurrencyWhile, so we await
+      // 1. Extract and validate chains (shared helper)
+      // Note: Worker requires handlerContinuation, so we validate it here
+      const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
       if (!handlerChain) {
         throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
       }
 
-      // 2. No binding validation for Workers (optional for them)
-
-      // 3. Capture current callContext for handler execution (deep clone!)
+      // 2. Set up handler execution (shared helpers)
       const capturedContext = captureCallContext();
+      const localExecutor = workerInstance.__localChainExecutor;
+      const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
 
-      // Helper to execute handler with captured context
-      const executeHandler = async (chain: OperationChain) => {
-        if (capturedContext) {
-          return runWithCallContext(capturedContext, async () => {
-            return await executeOperationChain(chain, workerInstance);
-          });
-        } else {
-          return await executeOperationChain(chain, workerInstance);
-        }
-      };
-
+      // 3. Make remote call with context and await result
       try {
-        // Call infrastructure layer with captured context
         const result = await (capturedContext
           ? runWithCallContext(capturedContext, () =>
               this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
           : this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options));
 
-        // Substitute result into handler continuation
-        const finalChain = replaceNestedOperationMarkers(handlerChain, result);
-
-        // Execute handler locally on the Worker instance with captured context
-        await executeHandler(finalChain);
-
+        await executeHandlerWithResult(handlerChain, result, executeHandler);
       } catch (error) {
-        // Inject Error into handler continuation
         const errorObj = error instanceof Error ? error : new Error(String(error));
-        const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
-
-        // Execute handler with error on the Worker instance with captured context
-        await executeHandler(finalChain);
+        await executeHandlerWithResult(handlerChain, errorObj, executeHandler);
       }
-
-      // Awaits completion before returning (async signature)
     },
   };
+}
+
+// ============================================
+// Envelope Execution Helper
+// ============================================
+
+/**
+ * Node interface for executeEnvelope helper
+ *
+ * Represents the minimal interface needed to execute an incoming call envelope.
+ * Both LumenizeDO and LumenizeWorker implement this interface.
+ *
+ * @internal
+ */
+export interface EnvelopeExecutorNode {
+  /** Initialize node identity from envelope metadata */
+  lmz: {
+    init(opts: { bindingName?: string; instanceNameOrId?: string }): void;
+  };
+  /** Authorization hook called before chain execution */
+  onBeforeCall(): void;
+  /** Execute the operation chain on this node */
+  __executeChain(chain: any): Promise<any>;
+}
+
+/**
+ * Execute an incoming call envelope on a mesh node
+ *
+ * Shared logic for processing incoming RPC calls on LumenizeDO and LumenizeWorker.
+ * Handles envelope validation, auto-initialization, and chain execution within
+ * the proper call context.
+ *
+ * @param envelope - The incoming call envelope
+ * @param node - The node (DO or Worker) to execute on
+ * @param options - Optional configuration
+ * @param options.nodeTypeName - Name for error messages (e.g., 'LumenizeDO')
+ * @param options.includeInstanceName - Whether to pass instanceNameOrId to init (false for Workers)
+ * @param options.onValidationError - Optional callback for validation errors (e.g., logging)
+ * @returns The result of executing the operation chain
+ * @throws Error if envelope version is not 1 or callContext is missing
+ *
+ * @internal
+ */
+export async function executeEnvelope(
+  envelope: CallEnvelope,
+  node: EnvelopeExecutorNode,
+  options?: {
+    nodeTypeName?: string;
+    includeInstanceName?: boolean;
+    onValidationError?: (error: Error, details: Record<string, any>) => void;
+  }
+): Promise<any> {
+  const nodeTypeName = options?.nodeTypeName ?? 'MeshNode';
+  const includeInstanceName = options?.includeInstanceName ?? true;
+
+  // 1. Validate envelope version
+  if (!envelope.version || envelope.version !== 1) {
+    const error = new Error(
+      `Unsupported RPC envelope version: ${envelope.version}. ` +
+      `This version of ${nodeTypeName} only supports v1 envelopes. ` +
+      `Old-style calls without envelopes are no longer supported.`
+    );
+    options?.onValidationError?.(error, {
+      receivedVersion: envelope.version,
+      supportedVersion: 1,
+    });
+    throw error;
+  }
+
+  // 2. Validate callContext is present
+  if (!envelope.callContext) {
+    const error = new Error(
+      'Missing callContext in envelope. All mesh calls must include callContext.'
+    );
+    options?.onValidationError?.(error, { envelope });
+    throw error;
+  }
+
+  // 3. Auto-initialize from callee metadata if present
+  if (envelope.metadata?.callee) {
+    node.lmz.init({
+      bindingName: envelope.metadata.callee.bindingName,
+      instanceNameOrId: includeInstanceName
+        ? envelope.metadata.callee.instanceNameOrId
+        : undefined,
+    });
+  }
+
+  // 4. Postprocess the chain (handles aliases/cycles and restores custom Error types)
+  const operationChain = postprocess(envelope.chain);
+
+  // 5. Execute chain within callContext (makes this.lmz.callContext available)
+  // Return wrapped result/error - Workers RPC loses error properties when thrown,
+  // so we return errors as { $error: preprocessedError } and unwrap in callRaw.
+  try {
+    const result = await runWithCallContext(envelope.callContext, async () => {
+      // Call onBeforeCall hook for authentication/authorization
+      node.onBeforeCall();
+
+      // Execute the operation chain
+      return await node.__executeChain(operationChain);
+    });
+    return { $result: result };
+  } catch (error) {
+    // Return error wrapped for structured clone transport
+    // Preprocessing preserves custom Error properties that Workers RPC would lose
+    return { $error: preprocess(error) };
+  }
 }
 

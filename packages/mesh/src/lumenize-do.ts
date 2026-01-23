@@ -7,9 +7,9 @@ import {
   type Continuation,
   type AnyContinuation,
 } from './ocan/index.js';
-import { postprocess, parse } from '@lumenize/structured-clone';
+import { parse, postprocess } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
-import { createLmzApiForDO, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { debug, type DebugLogger } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
@@ -267,42 +267,49 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
   /**
    * Create an OCAN (Operation Chaining And Nesting) continuation proxy
-   * 
+   *
    * Returns a proxy that records method calls into an operation chain.
    * Used with async strategies (alarms, call, proxyFetch) to define
    * what to execute when the operation completes.
-   * 
-   * @template T - Type to proxy (defaults to this DO's type for chaining local methods)
-   * 
+   *
+   * When called without a type parameter, returns a continuation typed to the
+   * concrete subclass. When called with a type parameter (e.g., `ctn<RemoteDO>()`),
+   * returns a continuation for that remote type.
+   *
    * @example
    * ```typescript
    * // Local method chaining
    * this.svc.alarms.schedule(60, this.ctn().handleTask({ data: 'example' }));
-   * 
+   *
    * // Remote DO calls
    * const remote = this.ctn<RemoteDO>().getUserData(userId);
    * this.lmz.call(REMOTE_DO, 'instance-id', remote, this.ctn().handleResult(remote));
-   * 
+   *
    * // Nesting
    * const data1 = this.ctn().getData(1);
    * const data2 = this.ctn().getData(2);
    * this.svc.alarms.schedule(60, this.ctn().combineData(data1, data2));
    * ```
    */
-  ctn<T = this>(): Continuation<T> {
-    return newContinuation<T>() as Continuation<T>;
+  ctn(): Continuation<this>;
+  ctn<T>(): Continuation<T>;
+  ctn(): Continuation<unknown> {
+    return newContinuation() as Continuation<unknown>;
   }
 
   /**
    * Execute an OCAN (Operation Chaining And Nesting) operation chain on this DO.
-   * 
+   *
    * This method enables remote DOs to call methods on this DO via this.lmz.call().
    * Any DO extending LumenizeDO can receive remote calls without additional setup.
-   * 
+   *
+   * **Security**: This method always enforces @mesh decorator requirement for
+   * incoming calls. The options parameter is intentionally not exposed - use the
+   * private `#executeChainLocal()` method for internal calls that need to bypass
+   * the @mesh check.
+   *
    * @internal This is called by this.lmz.call(), not meant for direct use
    * @param chain - The operation chain to execute
-   * @param options - Optional configuration
-   * @param options.requireMeshDecorator - Whether to require @mesh decorator on entry method (default: true)
    * @returns The result of executing the operation chain
    *
    * @example
@@ -315,8 +322,44 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * // Equivalent to: this.getUserData(userId)
    * ```
    */
-  async __executeChain(chain: OperationChain, options?: { requireMeshDecorator?: boolean }): Promise<any> {
-    return await executeOperationChain(chain, this, options);
+  async __executeChain(chain: OperationChain): Promise<any> {
+    // Always require @mesh decorator for RPC-exposed method (secure by default)
+    return await executeOperationChain(chain, this);
+  }
+
+  /**
+   * Execute an operation chain locally with configurable options
+   *
+   * This is a TRUE PRIVATE method (using #) so it cannot be called via RPC.
+   * Used by internal services that need to execute continuations without
+   * requiring @mesh decorator:
+   * - Alarms service (local timer callbacks)
+   * - lmz.call() handler callbacks
+   *
+   * @param chain - The operation chain to execute
+   * @param options - Configuration options
+   * @returns The result of executing the operation chain
+   */
+  #executeChainLocal(chain: OperationChain, options?: { requireMeshDecorator?: boolean }): Promise<any> {
+    return executeOperationChain(chain, this, options);
+  }
+
+  /**
+   * Get the local chain executor for internal use
+   *
+   * This method provides access to the private #executeChainLocal method
+   * for trusted internal code (like lmz.call() handlers and alarms).
+   *
+   * **Security**: This returns a function bound to this instance. The returned
+   * function can bypass @mesh checks, but the method itself just returns a
+   * function reference - it doesn't execute anything. Attackers calling this
+   * via RPC would get a function they can't actually use (it won't serialize
+   * over RPC boundaries).
+   *
+   * @internal
+   */
+  get __localChainExecutor(): (chain: OperationChain, options?: { requireMeshDecorator?: boolean }) => Promise<any> {
+    return this.#executeChainLocal.bind(this);
   }
 
   /**
@@ -341,49 +384,12 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   async __executeOperation(envelope: CallEnvelope): Promise<any> {
     const log = this.#debug('lmz.mesh.LumenizeDO.__executeOperation');
 
-    // 1. Validate envelope version
-    // Envelope is plain JSON - only chain field is preprocessed
-    if (!envelope.version || envelope.version !== 1) {
-      const error = new Error(
-        `Unsupported RPC envelope version: ${envelope.version}. ` +
-        `This version of LumenizeDO only supports v1 envelopes. ` +
-        `Old-style calls without envelopes are no longer supported.`
-      );
-      log.error('Unsupported envelope version', {
-        receivedVersion: envelope.version,
-        supportedVersion: 1,
-      });
-      throw error;
-    }
-
-    // 2. Validate callContext is present
-    if (!envelope.callContext) {
-      const error = new Error(
-        'Missing callContext in envelope. All mesh calls must include callContext.'
-      );
-      log.error('Missing callContext', { envelope });
-      throw error;
-    }
-
-    // 3. Auto-initialize from callee metadata if present
-    if (envelope.metadata?.callee) {
-      this.lmz.init({
-        bindingName: envelope.metadata.callee.bindingName,
-        instanceNameOrId: envelope.metadata.callee.instanceNameOrId
-      });
-    }
-
-    // 4. Postprocess only the chain (handles aliases/cycles and restores custom Error types)
-    const operationChain = postprocess(envelope.chain);
-
-    // 6. Execute chain within callContext (makes this.lmz.callContext available)
-    // CallContext already includes callee (set by caller)
-    return await runWithCallContext(envelope.callContext, async () => {
-      // Call onBeforeCall hook for authentication/authorization
-      this.onBeforeCall();
-
-      // Execute the operation chain
-      return await this.__executeChain(operationChain);
+    return await executeEnvelope(envelope, this, {
+      nodeTypeName: 'LumenizeDO',
+      includeInstanceName: true,
+      onValidationError: (error, details) => {
+        log.error(error.message.split('.')[0], details);
+      },
     });
   }
 

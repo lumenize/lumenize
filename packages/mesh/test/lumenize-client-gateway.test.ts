@@ -135,12 +135,13 @@ describe('LumenizeClientGateway', () => {
       });
       await connectionStatusPromise;
 
-      // Build the operation chain (OCAN format) - sent raw, Gateway will preprocess
+      // Build the operation chain (OCAN format)
       // Chain format: [{ type: 'get', key: 'methodName' }, { type: 'apply', args: [...] }]
-      const chain = [
+      // Client preprocesses the chain before sending over WebSocket (like LumenizeClient does)
+      const chain = preprocess([
         { type: 'get', key: 'echo' },
         { type: 'apply', args: ['Hello from client!'] },
-      ];
+      ]);
 
       // Send a call to EchoDO
       const callMessage: CallMessage = {
@@ -218,11 +219,12 @@ describe('LumenizeClientGateway', () => {
         });
       });
 
-      // Build the operation chain (OCAN format) - sent raw, Gateway will preprocess
-      const chain = [
+      // Build the operation chain (OCAN format)
+      // Client preprocesses the chain before sending over WebSocket (like LumenizeClient does)
+      const chain = preprocess([
         { type: 'get', key: 'getCallContext' },
         { type: 'apply', args: [] },
-      ];
+      ]);
 
       // Call EchoDO to inspect context
       const callMessage: CallMessage = {

@@ -1,0 +1,425 @@
+---
+title: Protocol Specification (Draft)
+description: Wire protocol and serialization format for Lumenize Mesh communication
+draft: true
+---
+
+# Protocol Specification
+
+:::caution Draft
+This document is a work in progress. It captures current implementation decisions and will evolve into a complete protocol specification.
+:::
+
+## Overview
+
+Lumenize Mesh is a **peer mesh network** where Durable Objects, Workers, and browser clients communicate as equals. Unlike traditional client-server architectures, any node can call any other node (subject to access control).
+
+### Design Principles
+
+1. **Symmetric Communication** — No inherent client/server distinction. All nodes use the same call envelope format.
+2. **Transport Agnostic** — Same serialization works over Workers RPC and WebSocket.
+3. **Rich Types** — Full JavaScript type support (Maps, Sets, Dates, Errors with causes, cycles, aliases) extends to all nodes including browsers.
+4. **Security by Default** — Origin authentication propagates through call chains; every node enforces its own access control.
+
+### Comparison with Cap'n Web
+
+[Cap'n Web](https://github.com/cloudflare/capnweb) uses a similar tuple-based encoding but has a traditional client/server model. Lumenize Mesh differs in:
+
+| Aspect | Cap'n Web | Lumenize Mesh |
+|--------|-----------|---------------|
+| Topology | Client-Server | Peer Mesh |
+| Call Pattern | Push-Pull-Resolve-Release | Single envelope with handler continuation |
+| Browser Support | No | Yes (via LumenizeClient) |
+| Capability Model | Import/Export tables | Inline capability objects |
+
+---
+
+## Transport Layers
+
+### Workers RPC (Cloudflare Internal)
+
+Communication between `LumenizeDO` ↔ `LumenizeDO`, `LumenizeDO` ↔ `LumenizeWorker`, and `LumenizeWorker` ↔ `LumenizeWorker` uses [Workers RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/).
+
+**Characteristics:**
+- Native structured clone (handles Maps, Sets, Dates, etc.)
+- **Exception**: Thrown errors lose custom properties (only `name`, `message`, `stack` preserved)
+- No JSON serialization needed for most types
+
+### WebSocket (Client ↔ Gateway)
+
+Communication between `LumenizeClient` ↔ `LumenizeClientGateway` uses WebSocket with JSON.
+
+**Characteristics:**
+- All data must be JSON-serializable
+- Extended types require `preprocess`/`postprocess` from `@lumenize/structured-clone`
+
+---
+
+## Serialization Format
+
+### The `$lmz` Intermediate Format
+
+Lumenize uses a tuple-based format inspired by Cap'n Web, combined with cycle/alias support.
+
+```typescript
+interface LmzIntermediate {
+  root: any;      // Entry point (primitive tuple or ["$lmz", index])
+  objects: any[]; // Array of complex objects
+}
+```
+
+### Encoding Rules
+
+#### Primitives (Inline Tuples)
+
+Primitives encode inline without going into the `objects` array:
+
+| Type | Encoding | Example |
+|------|----------|---------|
+| `null` | `["null"]` | `["null"]` |
+| `undefined` | `["undefined"]` | `["undefined"]` |
+| `string` | `["string", value]` | `["string", "hello"]` |
+| `number` | `["number", value]` | `["number", 42]` |
+| `boolean` | `["boolean", value]` | `["boolean", true]` |
+| `bigint` | `["bigint", string]` | `["bigint", "9007199254740993"]` |
+| `NaN` | `["number", "NaN"]` | `["number", "NaN"]` |
+| `Infinity` | `["number", "Infinity"]` | `["number", "Infinity"]` |
+| `-Infinity` | `["number", "-Infinity"]` | `["number", "-Infinity"]` |
+| `Date` | `["date", isoString]` | `["date", "2024-01-15T10:30:00.000Z"]` |
+| `RegExp` | `["regexp", {source, flags}]` | `["regexp", {"source": "\\d+", "flags": "g"}]` |
+
+#### Complex Objects (Referenced)
+
+Complex objects go into the `objects` array and are referenced by index:
+
+```json
+{
+  "root": ["$lmz", 0],
+  "objects": [
+    ["array", [["string", "a"], ["string", "b"]]]
+  ]
+}
+```
+
+| Type | Tuple Format |
+|------|--------------|
+| `Array` | `["array", [...items]]` |
+| `Object` | `["object", {...properties}]` |
+| `Map` | `["map", [[key, value], ...]]` |
+| `Set` | `["set", [...values]]` |
+| `Error` | `["error", {name, message, stack?, cause?, ...custom}]` |
+| `Headers` | `["headers", [[key, value], ...]]` |
+| `URL` | `["url", {href}]` |
+| `ArrayBuffer` | `["arraybuffer", {type, data}]` |
+| `TypedArray` | `["arraybuffer", {type: "Uint8Array", data}]` |
+
+#### Cycles and Aliases
+
+When the same object appears multiple times, subsequent references use `["$lmz", index]`:
+
+```javascript
+const obj = { name: "shared" };
+const data = { a: obj, b: obj };  // obj appears twice
+
+// Encodes as:
+{
+  "root": ["$lmz", 0],
+  "objects": [
+    ["object", {
+      "a": ["$lmz", 1],
+      "b": ["$lmz", 1]  // Same reference
+    }],
+    ["object", { "name": ["string", "shared"] }]
+  ]
+}
+```
+
+Cycles work the same way — the postprocessor builds objects in two passes to resolve forward references.
+
+---
+
+## Call Envelope
+
+All mesh communication uses a versioned envelope:
+
+```typescript
+interface CallEnvelope {
+  /** Protocol version (currently 1) */
+  version: 1;
+
+  /** Operation chain to execute */
+  chain: any;  // Preprocessed over WebSocket, native over Workers RPC
+
+  /** Propagated context */
+  callContext: CallContext;
+
+  /** Auto-initialization metadata */
+  metadata?: {
+    caller: { type, bindingName?, instanceNameOrId? };
+    callee: { type, bindingName, instanceNameOrId? };
+  };
+}
+
+interface CallContext {
+  /** Full call path: [origin, hop1, hop2, ..., caller] */
+  callChain: NodeIdentity[];
+
+  /** Verified JWT claims from origin (immutable) */
+  originAuth?: { userId: string; claims?: Record<string, unknown> };
+
+  /** Mutable state propagated through chain */
+  state: Record<string, unknown>;
+}
+```
+
+### Serialization by Transport
+
+| Field | Workers RPC | WebSocket |
+|-------|-------------|-----------|
+| `version` | Native | JSON |
+| `metadata` | Native | JSON |
+| `callContext.callChain` | Native | JSON (plain strings) |
+| `callContext.originAuth` | Native | JSON (plain strings) |
+| `callContext.state` | Native | Preprocessed (may contain Maps, Sets, etc.) |
+| `chain` | Preprocessed | Preprocessed |
+
+**Note:** `chain` is always preprocessed for consistency, even over Workers RPC.
+
+---
+
+## Response Handling
+
+### The `$result` / `$error` Pattern
+
+:::info Design Decision (2024-01)
+Workers RPC loses custom Error properties when errors are thrown. To preserve full error fidelity, `__executeOperation` returns wrapped results instead of throwing.
+:::
+
+All `__executeOperation` methods return:
+
+```typescript
+// Success
+{ $result: any }
+
+// Error (preserves custom Error properties)
+{ $error: LmzIntermediate }  // preprocess(error)
+```
+
+The caller unwraps in `callRaw`:
+
+```typescript
+const response = await stub.__executeOperation(envelope);
+if (response && '$error' in response) {
+  throw postprocess(response.$error);  // Reconstruct full error
+}
+return response?.$result;
+```
+
+### Why Not Throw?
+
+When you `throw` over Workers RPC:
+- Only `name`, `message`, `stack` survive
+- Custom properties (e.g., `error.code`, `error.statusCode`) are lost
+- Error subclasses become plain `Error`
+
+By returning `{ $error: preprocess(error) }`:
+- All custom properties preserved
+- Error class identity preserved (if registered on `globalThis`)
+- Cause chains fully reconstructed
+
+---
+
+## WebSocket Wire Protocol
+
+### Message Types
+
+```typescript
+const GatewayMessageType = {
+  CALL: 'call',                          // Client → Gateway → Mesh
+  CALL_RESPONSE: 'call_response',        // Gateway → Client (response)
+  INCOMING_CALL: 'incoming_call',        // Mesh → Gateway → Client
+  INCOMING_CALL_RESPONSE: 'incoming_call_response',  // Client → Gateway → Mesh
+  CONNECTION_STATUS: 'connection_status', // Gateway → Client (post-handshake)
+};
+```
+
+### Message Formats
+
+#### `call` (Client initiates)
+
+```typescript
+{
+  type: 'call',
+  callId: string,
+  binding: string,           // Target binding name
+  instance?: string,         // Target instance (DO only)
+  chain: LmzIntermediate,    // Preprocessed operation chain
+  callContext?: {
+    callChain: NodeIdentity[],
+    state: LmzIntermediate   // Preprocessed state
+  }
+}
+```
+
+#### `call_response` (Gateway responds)
+
+```typescript
+{
+  type: 'call_response',
+  callId: string,
+  success: boolean,
+  result?: LmzIntermediate,  // Preprocessed (on success)
+  error?: LmzIntermediate    // Preprocessed (on failure)
+}
+```
+
+#### `incoming_call` (Mesh calls client)
+
+```typescript
+{
+  type: 'incoming_call',
+  callId: string,
+  chain: LmzIntermediate,    // Preprocessed
+  callContext: {
+    callChain: NodeIdentity[],
+    originAuth?: OriginAuth,
+    state: LmzIntermediate   // Preprocessed
+  }
+}
+```
+
+#### `incoming_call_response` (Client responds)
+
+```typescript
+{
+  type: 'incoming_call_response',
+  callId: string,
+  success: boolean,
+  result?: LmzIntermediate,  // Preprocessed
+  error?: LmzIntermediate    // Preprocessed
+}
+```
+
+---
+
+## Operation Chain Format (OCAN)
+
+Operation chains describe remote method calls in a serializable format.
+
+### Structure
+
+```typescript
+type OperationChain = Operation[];
+
+interface Operation {
+  type: 'get' | 'apply';
+  key?: string;    // Property name (for 'get')
+  args?: any[];    // Arguments (for 'apply')
+}
+```
+
+### Examples
+
+```typescript
+// this.ctn<DocumentDO>().getContent()
+[
+  { type: 'get', key: 'getContent' },
+  { type: 'apply', args: [] }
+]
+
+// this.ctn<SpellCheck>().check("hello", { lang: "en" })
+[
+  { type: 'get', key: 'check' },
+  { type: 'apply', args: ['hello', { lang: 'en' }] }
+]
+
+// this.ctn().document.metadata.title (property chain)
+[
+  { type: 'get', key: 'document' },
+  { type: 'get', key: 'metadata' },
+  { type: 'get', key: 'title' }
+]
+```
+
+### Nesting and Markers
+
+Continuations can be nested. The special markers `$result` and `$error` are substituted during execution:
+
+```typescript
+// Handler: this.ctn().handleResult(this.ctn().$result)
+[
+  { type: 'get', key: 'handleResult' },
+  { type: 'apply', args: [{ $marker: 'result' }] }
+]
+```
+
+---
+
+## Authentication Flow
+
+### JWT Token Attachment
+
+1. Client connects with `Sec-WebSocket-Protocol: lmz, access_token_<jwt>`
+2. Router validates JWT and extracts claims
+3. Claims attached to WebSocket via `serializeAttachment()`
+4. Gateway reads attachment and injects into `originAuth`
+
+### Trust Boundary
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    CLOUDFLARE (TRUSTED)                     │
+│                                                             │
+│  Router (validates JWT)                                     │
+│      │                                                      │
+│      ▼                                                      │
+│  Gateway (injects originAuth from verified attachment)      │
+│      │                                                      │
+│      ├───────► LumenizeDO (trusts callContext)             │
+│      │                                                      │
+│      └───────► LumenizeWorker (trusts callContext)         │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+         ▲
+         │ WebSocket
+         │
+┌────────┴────────┐
+│ LumenizeClient  │  (untrusted - claims can be forged)
+│                 │
+│ Sends callChain │  ◄── Gateway REPLACES callChain[0] with
+│ with self       │      verified identity from JWT
+└─────────────────┘
+```
+
+**Key Guarantee:** The Gateway always replaces `callChain[0]` with the verified identity from the WebSocket attachment. Client-provided identity is never trusted.
+
+---
+
+## Future Work
+
+### TODO: Consistency Audit
+
+The current format is clean tuple-based, but a consistency audit should verify:
+- [ ] All type names follow same convention
+- [ ] No legacy marker-based encoding remains
+- [ ] Wrapper types (`Boolean`, `Number`, `String` objects) are handled consistently
+
+### TODO: Capability Tables
+
+Consider adding Cap'n Web style import/export tables for advanced capability patterns.
+
+### TODO: Streaming
+
+Currently no streaming support. Consider adding chunked transfer for large payloads.
+
+### TODO: Compression
+
+WebSocket messages could benefit from optional compression for large operation chains or results.
+
+---
+
+## References
+
+- [Cap'n Web Protocol](https://github.com/cloudflare/capnweb/blob/main/protocol.md) — Inspiration for tuple format
+- [@ungap/structured-clone](https://github.com/ungap/structured-clone) — Inspiration for cycle/alias handling
+- [Workers RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/) — Cloudflare's native RPC

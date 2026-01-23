@@ -1,4 +1,4 @@
-import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { stringify, preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   newContinuation,
   executeOperationChain,
@@ -15,7 +15,11 @@ import {
   runWithCallContext,
   captureCallContext,
   buildOutgoingCallContext,
-  type CallEnvelope
+  extractCallChains,
+  createHandlerExecutor,
+  setupFireAndForgetHandler,
+  type CallEnvelope,
+  type LocalChainExecutor,
 } from './lmz-api.js';
 import {
   GatewayMessageType,
@@ -366,9 +370,15 @@ export abstract class LumenizeClient {
 
   /**
    * Create a continuation proxy for operation chaining
+   *
+   * When called without a type parameter, returns a continuation typed to the
+   * concrete subclass. When called with a type parameter (e.g., `ctn<RemoteDO>()`),
+   * returns a continuation for that remote type.
    */
-  ctn<T = this>(): Continuation<T> {
-    return newContinuation<T>() as Continuation<T>;
+  ctn(): Continuation<this>;
+  ctn<T>(): Continuation<T>;
+  ctn(): Continuation<unknown> {
+    return newContinuation() as Continuation<unknown>;
   }
 
   /**
@@ -451,14 +461,19 @@ export abstract class LumenizeClient {
    * Called before each incoming mesh call is executed
    *
    * Override to add authentication/authorization.
-   * Default: reject calls from other LumenizeClients.
+   * Default: reject calls from other LumenizeClients (peer-to-peer),
+   * but allow calls that originated from this same client instance.
    *
    * Access context via `this.lmz.callContext`.
    */
   onBeforeCall(): void | Promise<void> {
-    // Default: reject peer-to-peer client calls
+    // Default: reject peer-to-peer client calls, but allow self-originated calls
     const origin = this.#currentCallContext?.callChain[0];
     if (origin?.type === 'LumenizeClient') {
+      // Allow if origin is this same client instance (response to our own request)
+      if (origin.instanceName === this.#config.instanceName) {
+        return;
+      }
       throw new Error(
         'Peer-to-peer client calls are disabled by default. ' +
         'Override onBeforeCall() to allow them.'
@@ -756,14 +771,19 @@ export abstract class LumenizeClient {
   }
 
   async #handleIncomingCall(message: IncomingCallMessage): Promise<void> {
-    const { callId, chain: preprocessedChain, callContext } = message;
+    const { callId, chain: preprocessedChain, callContext: preprocessedCallContext } = message;
 
     try {
+      // Postprocess fields that were preprocessed for WebSocket transport
+      const chain = postprocess(preprocessedChain);
+      const callContext: CallContext = {
+        callChain: preprocessedCallContext.callChain,  // Plain strings - no postprocessing
+        originAuth: preprocessedCallContext.originAuth,  // From JWT - no postprocessing
+        state: postprocess(preprocessedCallContext.state),  // Preprocessed → native
+      };
+
       // Set up call context for this request
       this.#currentCallContext = callContext;
-
-      // Postprocess just the chain (it came preprocessed from Gateway)
-      const chain = postprocess(preprocessedChain);
 
       // Execute within call context (for nested calls)
       const result = await runWithCallContext(callContext, async () => {
@@ -774,12 +794,12 @@ export abstract class LumenizeClient {
         return await executeOperationChain(chain, this);
       });
 
-      // Send success response (result doesn't need preprocessing - simple types)
+      // Send success response (preprocess for structured clone handling)
       const response: IncomingCallResponseMessage = {
         type: GatewayMessageType.INCOMING_CALL_RESPONSE,
         callId,
         success: true,
-        result,
+        result: preprocess(result),
       };
       this.#send(JSON.stringify(response));
 
@@ -876,16 +896,17 @@ export abstract class LumenizeClient {
 
     const callContext = buildOutgoingCallContext(callerIdentity, options);
 
-    // Build message with raw chain - Gateway will preprocess the entire envelope
+    // Preprocess fields that may contain extended types (Maps, Sets, etc.)
+    // See CallMessage interface for serialization rules
     const message: CallMessage = {
       type: GatewayMessageType.CALL,
       callId,
       binding: calleeBindingName,
       instance: calleeInstanceNameOrId,
-      chain,
+      chain: preprocess(chain),
       callContext: {
-        callChain: callContext.callChain,
-        state: callContext.state,
+        callChain: callContext.callChain,  // Plain strings - no preprocessing
+        state: preprocess(callContext.state),  // User-defined - may contain extended types
       },
     };
 
@@ -908,55 +929,23 @@ export abstract class LumenizeClient {
     handlerContinuation?: Continuation<any>,
     options?: CallOptions
   ): void {
-    // Extract chains
-    const remoteChain = getOperationChain(remoteContinuation);
-    if (!remoteChain) {
-      throw new Error('Invalid remoteContinuation: must be created with this.ctn()');
-    }
+    // 1. Extract and validate chains (shared helper)
+    const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
-    let handlerChain: OperationChain | undefined;
-    if (handlerContinuation) {
-      handlerChain = getOperationChain(handlerContinuation);
-      if (!handlerChain) {
-        throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
-      }
-    }
-
-    // Capture current context for handler execution
+    // 2. Set up handler execution (shared helpers)
+    // Client uses executeOperationChain directly (no RPC exposure concern)
     const capturedContext = captureCallContext();
+    const localExecutor: LocalChainExecutor = (chain, opts) =>
+      executeOperationChain(chain, this, opts);
+    const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
 
-    // Fire-and-forget: use Promise.then/catch
+    // 3. Make remote call with context
     const callPromise = capturedContext
       ? runWithCallContext(capturedContext, () =>
           this.#callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
       : this.#callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
 
-    callPromise
-      .then(async (result) => {
-        if (handlerChain) {
-          const finalChain = replaceNestedOperationMarkers(handlerChain, result);
-          if (capturedContext) {
-            await runWithCallContext(capturedContext, async () => {
-              await executeOperationChain(finalChain, this);
-            });
-          } else {
-            await executeOperationChain(finalChain, this);
-          }
-        }
-      })
-      .catch(async (error) => {
-        if (handlerChain) {
-          const errorObj = error instanceof Error ? error : new Error(String(error));
-          const finalChain = replaceNestedOperationMarkers(handlerChain, errorObj);
-          if (capturedContext) {
-            await runWithCallContext(capturedContext, async () => {
-              await executeOperationChain(finalChain, this);
-            });
-          } else {
-            await executeOperationChain(finalChain, this);
-          }
-        }
-        // If no handler, silently swallow error (fire-and-forget)
-      });
+    // 4. Fire-and-forget with handler callbacks (shared helper)
+    setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
   }
 }

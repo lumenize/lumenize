@@ -42,16 +42,37 @@ export type GatewayMessageType = typeof GatewayMessageType[keyof typeof GatewayM
 // Wire Protocol Message Interfaces
 // ============================================
 
+/**
+ * WebSocket Wire Protocol Serialization
+ *
+ * All messages use JSON over WebSocket. Fields that may contain extended types
+ * (Maps, Sets, Dates, custom Errors) use @lumenize/structured-clone:
+ *
+ * | Field | Preprocessing | Notes |
+ * |-------|---------------|-------|
+ * | `chain` | Always | May contain any type in method args |
+ * | `callContext.state` | Always | User-defined, may contain extended types |
+ * | `result` | Always | Method return value, any type |
+ * | `error` | Always | Custom Error subclasses with properties |
+ * | Other fields | Never | Plain strings/booleans |
+ *
+ * Note: `error` uses preprocessing to preserve custom Error properties
+ * that native structured clone would lose.
+ */
+
 /** Message from client initiating a mesh call */
 export interface CallMessage {
   type: typeof GatewayMessageType.CALL;
   callId: string;
   binding: string;
   instance?: string;
-  chain: any; // Serialized operation chain
+  /** Preprocessed operation chain (contains method args which may be any type) */
+  chain: any;
   callContext?: {
+    /** Plain strings - no preprocessing needed */
     callChain: NodeIdentity[];
-    state: Record<string, unknown>;
+    /** User-defined, preprocessed for WebSocket (may contain Maps, Sets, etc.) */
+    state: any;
   };
 }
 
@@ -60,19 +81,24 @@ export interface CallResponseMessage {
   type: typeof GatewayMessageType.CALL_RESPONSE;
   callId: string;
   success: boolean;
-  result?: any; // Serialized result
-  error?: any;  // Serialized error
+  /** Preprocessed result (may be any type) */
+  result?: any;
+  /** Preprocessed error (preserves custom Error properties) */
+  error?: any;
 }
 
 /** Mesh node calling the client (forwarded by Gateway) */
 export interface IncomingCallMessage {
   type: typeof GatewayMessageType.INCOMING_CALL;
   callId: string;
-  chain: any; // Serialized operation chain
+  /** Preprocessed operation chain */
+  chain: any;
   callContext: {
+    /** Plain strings - no preprocessing needed */
     callChain: NodeIdentity[];
     originAuth?: OriginAuth;
-    state: Record<string, unknown>;
+    /** User-defined, preprocessed for WebSocket */
+    state: any;
   };
 }
 
@@ -81,8 +107,10 @@ export interface IncomingCallResponseMessage {
   type: typeof GatewayMessageType.INCOMING_CALL_RESPONSE;
   callId: string;
   success: boolean;
-  result?: any; // Serialized result
-  error?: any;  // Serialized error
+  /** Preprocessed result */
+  result?: any;
+  /** Preprocessed error (preserves custom Error properties) */
+  error?: any;
 }
 
 /** Post-handshake status message */
@@ -419,7 +447,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     // Validate envelope version
     if (!envelope.version || envelope.version !== 1) {
-      throw new Error(`Unsupported RPC envelope version: ${envelope.version}`);
+      return { $error: preprocess(new Error(`Unsupported RPC envelope version: ${envelope.version}`)) };
     }
 
     // Get active WebSocket connection
@@ -436,17 +464,17 @@ export class LumenizeClientGateway extends DurableObject<any> {
         ws = this.#getActiveWebSocket();
 
         if (!ws) {
-          throw new ClientDisconnectedError(
+          return { $error: preprocess(new ClientDisconnectedError(
             'Client did not reconnect in time',
             this.#getInstanceName()
-          );
+          )) };
         }
       } else {
         // Not in grace period - client is disconnected
-        throw new ClientDisconnectedError(
+        return { $error: preprocess(new ClientDisconnectedError(
           'Client is not connected',
           this.#getInstanceName()
-        );
+        )) };
       }
     }
 
@@ -455,14 +483,20 @@ export class LumenizeClientGateway extends DurableObject<any> {
     if (attachment?.tokenExp && attachment.tokenExp < Date.now() / 1000) {
       log.warn('Token expired, closing connection');
       ws.close(4401, 'Token expired');
-      throw new ClientDisconnectedError(
+      return { $error: preprocess(new ClientDisconnectedError(
         'Client token expired',
         this.#getInstanceName()
-      );
+      )) };
     }
 
     // Forward call to client and wait for response
-    return await this.#forwardToClient(ws, envelope);
+    // Return wrapped result/error for Workers RPC compatibility
+    try {
+      const result = await this.#forwardToClient(ws, envelope);
+      return { $result: result };
+    } catch (error) {
+      return { $error: preprocess(error) };
+    }
   }
 
   // ============================================
@@ -499,20 +533,21 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
       // Build callContext - callChain[0] is verified origin, rest comes from client
       // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
+      // State is preprocessed by client for WebSocket - postprocess for Workers RPC
       const clientCallChain = clientContext?.callChain ?? [];
       const callContext: CallContext = {
         callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
         originAuth,
-        state: clientContext?.state ?? {},
+        state: clientContext?.state ? postprocess(clientContext.state) : {},
       };
 
       // Determine callee type for metadata
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
 
-      // Build envelope - only chain needs preprocessing, rest is plain JSON
+      // Build envelope - chain is already preprocessed by client
       const envelope: CallEnvelope = {
         version: 1,
-        chain: preprocess(chain), // Preprocess only the chain
+        chain, // Already preprocessed by client - pass through
         callContext,
         metadata: {
           caller: {
@@ -537,22 +572,37 @@ export class LumenizeClientGateway extends DurableObject<any> {
       }
 
       // Send envelope - chain is already preprocessed
-      const result = await stub.__executeOperation(envelope);
+      // executeEnvelope returns { $result: ... } or { $error: ... } wrapper
+      const wrapped = await stub.__executeOperation(envelope);
 
-      // Send success response
+      // Unwrap result/error wrapper from executeEnvelope
+      if (wrapped && '$error' in wrapped) {
+        // Error case - send error response
+        // The error is already preprocessed by executeEnvelope
+        const response: CallResponseMessage = {
+          type: GatewayMessageType.CALL_RESPONSE,
+          callId,
+          success: false,
+          error: wrapped.$error, // Already preprocessed
+        };
+        ws.send(JSON.stringify(response));
+        return;
+      }
+
+      // Success case - send success response
       // Preprocess only the result (may contain Maps, Sets, etc.)
       const response: CallResponseMessage = {
         type: GatewayMessageType.CALL_RESPONSE,
         callId,
         success: true,
-        result: preprocess(result),
+        result: preprocess(wrapped?.$result),
       };
       ws.send(JSON.stringify(response));
 
     } catch (error) {
       log.error('Call failed', { callId, binding, instance, error });
 
-      // Send error response
+      // Send error response (transport-level error, not business logic error)
       // Preprocess only the error (may contain Error objects)
       const response: CallResponseMessage = {
         type: GatewayMessageType.CALL_RESPONSE,
@@ -598,16 +648,16 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const callId = crypto.randomUUID();
 
     // Build incoming call message for client
-    // Chain is already preprocessed (came from caller via __executeOperation)
-    // Just pass it through - no additional preprocessing needed
+    // Chain is already preprocessed (caller's callRaw preprocesses for consistency)
+    // State is native from Workers RPC - preprocess for WebSocket
     const message: IncomingCallMessage = {
       type: GatewayMessageType.INCOMING_CALL,
       callId,
-      chain: envelope.chain, // Already preprocessed
+      chain: envelope.chain, // Already preprocessed by caller
       callContext: {
-        callChain: envelope.callContext.callChain,
-        originAuth: envelope.callContext.originAuth,
-        state: envelope.callContext.state,
+        callChain: envelope.callContext.callChain,  // Plain strings - no preprocessing
+        originAuth: envelope.callContext.originAuth,  // From JWT - no preprocessing
+        state: preprocess(envelope.callContext.state),  // Native → preprocessed for WebSocket
       },
     };
 

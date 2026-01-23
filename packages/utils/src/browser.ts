@@ -250,7 +250,7 @@ export class Browser {
    * ws.onopen = () => console.log('Connected!');
    * ```
    */
-  get WebSocket(): new (url: string | URL, protocols?: string | string[]) => WebSocket {
+  get WebSocket(): typeof WebSocket {
     return getWebSocketShim(this.fetch);
   }
 
@@ -298,7 +298,7 @@ export class Browser {
    */
   context(origin: string, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): {
     fetch: typeof fetch;
-    WebSocket: new (url: string | URL, protocols?: string | string[]) => WebSocket;
+    WebSocket: typeof WebSocket;
     lastPreflight: PreflightInfo | null;
   } {
     // Track the last preflight request (non-standard extension for testing/debugging)

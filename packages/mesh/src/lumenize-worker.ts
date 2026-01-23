@@ -1,5 +1,5 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { postprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   newContinuation,
   executeOperationChain,
@@ -209,15 +209,23 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
     // 4. Postprocess only the chain (handles aliases/cycles and restores custom Error types)
     const operationChain = postprocess(envelope.chain);
 
-    // 6. Execute chain within callContext (makes this.lmz.callContext available)
-    // CallContext already includes callee (set by caller)
-    return await runWithCallContext(envelope.callContext, async () => {
-      // Call onBeforeCall hook for authentication/authorization
-      this.onBeforeCall();
+    // 5. Execute chain within callContext (makes this.lmz.callContext available)
+    // Return wrapped result/error - Workers RPC loses error properties when thrown,
+    // so we return errors as { $error: preprocessedError } and unwrap in callRaw.
+    try {
+      const result = await runWithCallContext(envelope.callContext, async () => {
+        // Call onBeforeCall hook for authentication/authorization
+        this.onBeforeCall();
 
-      // Execute the operation chain
-      return await this.__executeChain(operationChain);
-    });
+        // Execute the operation chain
+        return await this.__executeChain(operationChain);
+      });
+      return { $result: result };
+    } catch (error) {
+      // Return error wrapped for structured clone transport
+      // Preprocessing preserves custom Error properties that Workers RPC would lose
+      return { $error: preprocess(error) };
+    }
   }
 }
 

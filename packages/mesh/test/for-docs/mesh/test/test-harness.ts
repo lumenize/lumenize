@@ -5,7 +5,7 @@
  * storage and other internals for test assertions.
  */
 
-import * as sourceModule from '../test-worker.js';
+import * as sourceModule from '../index.js';
 import { instrumentDOProject } from '@lumenize/testing';
 
 // Instrument the DOs - explicitly list the DO class names since

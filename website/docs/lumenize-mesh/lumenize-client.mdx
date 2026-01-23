@@ -151,11 +151,12 @@ if (client.connectionState === 'connected') {
 
 ## Access Control
 
-LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The exception is that calls from other clients are rejected by default:
+LumenizeClient has almost the exact same **secure-by-default** model as LumenizeDO and LumenizeWorker. The exception is that calls originating from other clients are rejected by default:
 
 With this default:
 - ✅ Calls from LumenizeDOs and LumenizeWorkers are allowed
-- ❌ Calls from other clients are rejected
+- ✅ Calls that originated from this same client instance (responses to your own requests that flow back through the mesh)
+- ❌ Calls originating from other clients are rejected
 
 ### Opting In to Client-to-Client Communication
 

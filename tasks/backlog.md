@@ -40,16 +40,17 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] In lumenize-auth.ts, The #extractCookie method uses cookie.trim().split('=') and destructures only the first two elements. If a cookie value contains = characters (valid in cookies), only the portion before the first = is returned. For example, a cookie "name=abc=def" would return "abc" instead of "abc=def". While current tokens use base64UrlEncode which strips = padding, this implementation is fragile and could cause authentication failures if the token format changes or if this code is reused elsewhere.
 
-- [ ] Add rate limiting support in LumenizeClientGateway
-  - Use instance variables for counters (not storage — too expensive)
-  - If traffic is high enough to need rate limiting, Gateway won't hibernate anyway, so in-memory counters work
-  - Consider: requests per second, requests per minute, configurable thresholds
-  - On limit exceeded: close connection with appropriate code or reject calls
-
-- [x] Enforce instanceName format for reconnection hijacking prevention
-  - **IMPLEMENTED**: Gateway now requires instanceName format `{userId}.{tabId}` and validates userId prefix matches authenticated user
-  - Rejects with 403 if missing, malformed, or mismatched
-  - See `packages/mesh/src/lumenize-client-gateway.ts` lines 243-265
+- [ ] Replace LumenizeAuth's in-memory rate limiter with Cloudflare's native rate limiter binding
+  - Docs: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+  - **Why**: Current implementation uses instance variables (violates CLAUDE.md guidance), resets on DO eviction, doesn't coordinate across instances
+  - **Where to add rate limiting**:
+    1. Auth HTTP routes (magic link, refresh) — key by email pre-auth, userId post-auth
+    2. WebSocket upgrade in auth middleware — key by userId from JWT
+    3. WebSocket messages in LumenizeClientGateway — key by userId (from attachment, no JWT re-verify needed)
+    4. `onBeforeConnect`/`onBeforeRequest` middleware hooks — key by userId from callContext
+  - **DDoS surface**: Bad actors can create unlimited Gateway instances (`{userId}.anything`) with one valid token, then spam messages across all of them. Rate limiting must be per-userId, not per-connection.
+  - **Key selection tradeoff**: JWT verification before rate limiting exposes crypto ops to DDoS; consider two-tier approach (coarse IP-based limit first, then userId-based after JWT verify). Revisit when implementing.
+  - **Limitation**: Cloudflare rate limiter only supports 10s or 60s periods (no hourly like current impl)
 
 - [ ] Add admin token revocation endpoint to LumenizeAuth
   - Endpoint like `DELETE /auth/users/:userId/sessions` to revoke all refresh tokens for a user
@@ -74,11 +75,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
 - [ ] Document our identity propogation as better than init(). init() breaks the mold of just access don't create DOs.
 
-- [ ] Implment generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
+- [ ] Implement generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
 
-- [x] Verify that two-one-way calls already preserve callContext automatically
-  - **VERIFIED**: When Target calls back, callContext IS preserved. Origin remains the original requester, and Target is added to callChain. This is the intended behavior for tracing.
-  - Tests added in `packages/mesh/test/call-context.test.ts` under "Two-one-way calls (callback pattern)"
+- [ ] Refactor getting-started guide to use native pub/sub once implemented
+  - Current implementation manually manages subscribers Set in storage
+  - Replace with built-in subscription primitives
+  - Will simplify DocumentDO significantly (no more #broadcastContent, subscriber management)
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
@@ -121,6 +123,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     3. Custom lint rules for compile-time checks (maybe?)
 
 - [ ] Consider expanding NADIS to LumenizeClient and/or LumenizeWorker. Right now, I can't think of a compelling reason for it. Alarms, sql, and fetch.proxy are all DO specific. However, debug is not.
+
+- [ ] Consider LumenizeSubClient pattern for multiplexing multiple "resources" over a single LumenizeClient connection
+  - **Problem**: Each LumenizeClient has its own WebSocket, Gateway, token refresh — inefficient when editing multiple documents
+  - **Current approach**: User code maintains a registry and routes incoming calls by id (see getting-started guide)
+  - **Future consideration**: If pattern proves common, consider building routing/registry into LumenizeClient base class
 
 ## LumenizeBase NADIS modules
 
@@ -194,24 +201,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Ensure docs consistently use "callContext" when describing what users access
   - Check `lmz-api.ts`, `CallEnvelope` interface, and any JSDoc comments
 
-- [ ] Review/edit the new docs for through Phase 4:
-  - [x] structured-clone
-  - [x] maps and sets
-  - [ ] lumenize-base
-    - [ ] Closer to true Actor model with outgoing and incomming queues
-    - [ ] How the graph of DO instances is self-organizing. Each instance called gets it's binding and instance name from the caller. Mention the headers here and document them in routeDORequest
-    - [ ] this.svc and NADIS (split from lumenize-base)
-    - [ ] this.ctn()
-  - [WiP: Phase 1] core
-    - [ ] Introduction
-    - [x] debug
-    - [ ] sql
-  - [ ] testing alarms (simulation and triggering)
-  - [ ] alarms
-  - [ ] call
-    - [ ] What it does not do that Workers RPC does. No passing functions or stubs because they hold the DO in wall clock billing time as long as they are held by the other end, can break without a clear way to recover from, and leave resources dangling. No awaiting-that also incurs wall clock billing and can't be used from non-async methods. Rather, it's done with two one-way Workers RPC calls. This is how we can efficiently use it for proxy-fetch where the fetch could be seconds of continuous billing.
-    - [ ] What it does that Workers RPC does not. Operation chaining and nesting (OCAN). Abitrarily complex operations where the result of one in the input of another... all in a single round trip. Continue to always support cycles and aliases.
-  
 - [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
 
 - [ ] Add this to the docs: https://discord.com/channels/595317990191398933/773219443911819284/1439941400778117292
@@ -285,6 +274,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## MCP
 
+- [ ] Consider switching to A2A or ACP
 - [ ] Consider using JS Proxy to for JSON RPC/MCP where JSON Schema is involved. This will allow us to have a simple method call that will still check the input schema. Look at what tRPC does with them.
 - [ ] Add TypeBox Value support for RPC runtime checking (both TypeBox and JSON Schema)
   - Don't make TypeBox a dependency
@@ -299,3 +289,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Deploy to Cloudflare button
 - [ ] Move SonarQube Cloud account over to lumenize repo
 - [ ] See `tasks/github-actions-publishing.md` for automation plans
+
+## Website, Blog, etc.
+
+- [ ] Cross post on Medium like this
+        > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.

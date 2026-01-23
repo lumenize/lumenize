@@ -313,8 +313,10 @@ export class Alarms {
       const row = result[0];
 
       try {
-        // Skip @mesh decorator check since alarms are always local
-        await (this.#doInstance as any).__executeChain(parse(row.operationChain), { requireMeshDecorator: false });
+        // Use local chain executor that allows skipping @mesh decorator check
+        // Alarms are always local (within the same DO) so @mesh is not required
+        const executor = (this.#doInstance as any).__localChainExecutor;
+        await executor(parse(row.operationChain), { requireMeshDecorator: false });
         executedIds.push(row.id);
       } catch (e) {
         this.#log.error('Error executing alarm', {

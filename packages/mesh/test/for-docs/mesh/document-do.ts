@@ -5,7 +5,7 @@
  */
 
 import { LumenizeDO, mesh } from '../../../src/index.js';
-import type { SpellCheckWorker, SpellFinding } from './spell-check-worker.js';
+import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
 
 export class DocumentDO extends LumenizeDO<Env> {
@@ -24,14 +24,18 @@ export class DocumentDO extends LumenizeDO<Env> {
     // Notify all subscribers with new content
     this.#broadcastContent(content);
 
-    // Trigger spell check (fire-and-forget with callback)
-    const remote = this.ctn<SpellCheckWorker>().check(content);
-    this.lmz.call(
-      'SPELLCHECK_WORKER',
-      undefined,
-      remote,
-      this.ctn().handleSpellCheckResult(remote)
-    );
+    // Trigger spell check - worker sends results directly to originator
+    const { callChain } = this.lmz.callContext;
+    const clientId = callChain.at(-1)?.instanceName;
+    const documentId = this.lmz.instanceNameOrId!;
+
+    if (clientId) {
+      this.lmz.call(
+        'SPELLCHECK_WORKER',
+        undefined,
+        this.ctn<SpellCheckWorker>().check(content, clientId, documentId)
+      );
+    }
   }
 
   @mesh
@@ -46,45 +50,14 @@ export class DocumentDO extends LumenizeDO<Env> {
     return this.ctx.storage.kv.get('content') ?? '';
   }
 
-  @mesh
-  unsubscribe() {
-    const { callChain } = this.lmz.callContext;
-    const clientId = callChain.at(-1)?.instanceName;
-    if (clientId) {
-      const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-      subscribers.delete(clientId);
-      this.ctx.storage.kv.put('subscribers', subscribers);
-    }
-  }
-
-  // Response handler - no @mesh needed (framework trusts own continuations)
-  handleSpellCheckResult(findings: SpellFinding[] | Error) {
-    if (findings instanceof Error) {
-      console.error('Spell check failed:', findings);
-      return;
-    }
-    this.#broadcastSpellFindings(findings);
-  }
+  // unsubscribe() left as exercise for reader
 
   #broadcastContent(content: string) {
+    const documentId = this.lmz.instanceNameOrId!;
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    // Note: In production, you'd skip the originator to avoid redundant updates
     for (const clientId of subscribers) {
-      const remote = this.ctn<EditorClient>().handleContentUpdate(content);
-      // Start new chain - this is a server-initiated push, not a response to client
-      this.lmz.call(
-        'LUMENIZE_CLIENT_GATEWAY',
-        clientId,
-        remote,
-        undefined,
-        { newChain: true }
-      );
-    }
-  }
-
-  #broadcastSpellFindings(findings: SpellFinding[]) {
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    for (const clientId of subscribers) {
-      const remote = this.ctn<EditorClient>().handleSpellFindings(findings);
+      const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
       // Start new chain - this is a server-initiated push, not a response to client
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',

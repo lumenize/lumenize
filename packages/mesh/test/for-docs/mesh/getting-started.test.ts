@@ -6,134 +6,127 @@
  * website/docs/lumenize-mesh/getting-started.mdx
  *
  * Scenarios covered:
- * 1. Alice connects and subscribes to a new document (receives empty content)
+ * 1. Alice connects and opens a document (receives empty content)
  * 2. Alice updates the document
- * 3. Bob connects, subscribes, and receives the current content
+ * 3. Bob connects, opens the same document, and receives the current content
  * 4. Bob updates the document, both clients receive the broadcast
- * 5. Spell check findings flow back to both clients
- * 6. Client disconnection and cleanup
+ * 5. Spell check findings go only to the originator (Bob, not Alice)
  */
 
 import { it, expect, vi } from 'vitest';
-import { Browser, createTestingClient } from '@lumenize/testing';
+import { Browser } from '@lumenize/testing';
 import { testLoginWithMagicLink } from '@lumenize/auth';
 import { EditorClient } from './editor-client.js';
-import type { DocumentDO } from './document-do.js';
+import type { SpellFinding } from './spell-check-worker.js';
 
 it('collaborative document editing with multiple clients', async () => {
   const documentId = 'collab-doc-1';
 
   // Track events for each client
-  const aliceEvents = { content: [] as string[], states: [] as string[] };
-  const bobEvents = { content: [] as string[], states: [] as string[] };
+  const aliceEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
+  const bobEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
 
   // ============================================
-  // Phase 1: Alice connects and subscribes
+  // Phase 1: Alice connects and opens a document
   // ============================================
 
   const aliceBrowser = new Browser();
   const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
 
-  const alice = new EditorClient(
-    {
-      instanceName: `${aliceUserId}.tab1`,
-      baseUrl: 'https://localhost',
-      WebSocket: aliceBrowser.WebSocket as unknown as typeof WebSocket,
-      refresh: 'https://localhost/auth/refresh-token',
-      fetch: aliceBrowser.fetch,
-      onConnectionStateChange: (state) => aliceEvents.states.push(state),
-      onContentUpdate: (content) => aliceEvents.content.push(content),
-    },
-    documentId
-  );
+  // Use `using` for automatic cleanup via Symbol.dispose
+  using alice = new EditorClient({
+    instanceName: `${aliceUserId}.tab1`,
+    baseUrl: 'https://localhost',
+    WebSocket: aliceBrowser.WebSocket,
+    refresh: 'https://localhost/auth/refresh-token',
+    fetch: aliceBrowser.fetch,
+  });
 
   await vi.waitFor(() => {
     expect(alice.connectionState).toBe('connected');
   });
 
-  // Alice subscribes - should receive empty content for new document
-  alice.subscribe();
-
-  await vi.waitFor(() => {
-    expect(aliceEvents.content).toHaveLength(1);
+  // Alice opens the document - should receive empty content for new document
+  const aliceDoc = alice.openDocument(documentId, {
+    onContentUpdate: (content) => aliceEvents.content.push(content),
+    onSpellFindings: (findings) => aliceEvents.spellFindings.push(findings),
   });
 
-  expect(aliceEvents.content[0]).toBe('');
-
-  // Verify Alice is registered as subscriber
-  {
-    using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
-    const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
-    expect(subscribers).toBeDefined();
-    expect(subscribers!.has(`${aliceUserId}.tab1`)).toBe(true);
-  }
+  await vi.waitFor(() => {
+    expect(aliceEvents.content[0]).toBe('');
+  });
 
   // ============================================
-  // Phase 2: Alice updates the document
+  // Phase 2: Alice starts writing the document
   // ============================================
 
-  alice.saveContent('Hello from Alice!');
+  aliceDoc.saveContent('The quick brown fox');
 
   // Alice should receive the broadcast of her own update
   await vi.waitFor(() => {
-    expect(aliceEvents.content).toHaveLength(2);
+    expect(aliceEvents.content[1]).toBe('The quick brown fox');
   });
 
-  expect(aliceEvents.content[1]).toBe('Hello from Alice!');
-
-  // Verify content is stored
-  {
-    using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
-    const storedContent = await docClient.ctx.storage.kv.get<string>('content');
-    expect(storedContent).toBe('Hello from Alice!');
-  }
-
   // ============================================
-  // Phase 3: Bob connects and subscribes
+  // Phase 3: Bob connects and opens the same document
   // ============================================
 
   const bobBrowser = new Browser();
   const bobUserId = await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
 
-  const bob = new EditorClient(
-    {
-      instanceName: `${bobUserId}.tab1`,
-      baseUrl: 'https://localhost',
-      WebSocket: bobBrowser.WebSocket as unknown as typeof WebSocket,
-      refresh: 'https://localhost/auth/refresh-token',
-      fetch: bobBrowser.fetch,
-      onConnectionStateChange: (state) => bobEvents.states.push(state),
-      onContentUpdate: (content) => bobEvents.content.push(content),
-    },
-    documentId
-  );
+  using bob = new EditorClient({
+    instanceName: `${bobUserId}.tab1`,
+    baseUrl: 'https://localhost',
+    WebSocket: bobBrowser.WebSocket,
+    refresh: 'https://localhost/auth/refresh-token',
+    fetch: bobBrowser.fetch,
+  });
 
   await vi.waitFor(() => {
     expect(bob.connectionState).toBe('connected');
   });
 
-  // Bob subscribes - should receive current content
-  bob.subscribe();
-
-  await vi.waitFor(() => {
-    expect(bobEvents.content).toHaveLength(1);
+  // Bob opens the same document - should receive current content
+  const bobDoc = bob.openDocument(documentId, {
+    onContentUpdate: (content) => bobEvents.content.push(content),
+    onSpellFindings: (findings) => bobEvents.spellFindings.push(findings),
   });
 
-  expect(bobEvents.content[0]).toBe('Hello from Alice!');
-
-  // Verify both are now subscribers
-  {
-    using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
-    const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
-    expect(subscribers!.size).toBe(2);
-    expect(subscribers!.has(`${aliceUserId}.tab1`)).toBe(true);
-    expect(subscribers!.has(`${bobUserId}.tab1`)).toBe(true);
-  }
+  await vi.waitFor(() => {
+    expect(bobEvents.content[0]).toBe('The quick brown fox');
+  });
 
   // ============================================
-  // Cleanup
+  // Phase 4: Bob continues the document, both receive the broadcast
   // ============================================
 
-  alice.disconnect();
-  bob.disconnect();
+  bobDoc.saveContent('The quick brown fox jumps over teh lazy dog.');
+
+  // Both Alice and Bob should receive the broadcast
+  await vi.waitFor(() => {
+    expect(aliceEvents.content[2]).toBe('The quick brown fox jumps over teh lazy dog.');
+    expect(bobEvents.content[1]).toBe('The quick brown fox jumps over teh lazy dog.');
+  });
+
+  // ============================================
+  // Phase 5: Spell check findings go only to the originator
+  // ============================================
+
+  // The spell checker sends results directly to the client who made the update.
+  // Only Bob should receive findings (he made the update with "teh").
+  await vi.waitFor(() => {
+    expect(bobEvents.spellFindings.length).toBeGreaterThan(0);
+  });
+
+  // Alice should NOT receive spell findings (she didn't make this update)
+  expect(aliceEvents.spellFindings.length).toBe(0);
+
+  // Verify Bob's findings
+  const bobFindings = bobEvents.spellFindings.at(-1)!;
+  expect(bobFindings[0].word).toBe('teh');
+  expect(bobFindings[0].suggestions).toContain('the');
+
+  // Cleanup: close document handles (clients auto-disconnect via `using`)
+  aliceDoc.close();
+  bobDoc.close();
 });

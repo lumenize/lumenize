@@ -157,7 +157,7 @@ export class _TestSimpleDO extends LumenizeDO {
   async handleEmbedWrapper(preprocessedContinuation: any): Promise<void> {
     const userContinuation = postprocess(preprocessedContinuation);
     // Skip @mesh check - internal test helper executing framework continuation
-    await this.__executeChain(userContinuation, { requireMeshDecorator: false });
+    await this.__localChainExecutor(userContinuation, { requireMeshDecorator: false });
   }
 
   /**
@@ -191,7 +191,7 @@ export class _TestSimpleDO extends LumenizeDO {
 
     // Execute filled continuation
     // Skip @mesh check - internal test helper executing framework continuation
-    await this.__executeChain(filled, { requireMeshDecorator: false });
+    await this.__localChainExecutor(filled, { requireMeshDecorator: false });
   }
 
   /**
