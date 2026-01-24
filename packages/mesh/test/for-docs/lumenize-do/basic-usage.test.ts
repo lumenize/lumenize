@@ -1,6 +1,6 @@
 /**
  * Pedagogical tests for @lumenize/mesh documentation examples
- * These tests are referenced in website/docs/lumenize-mesh/*.mdx files
+ * These tests are referenced in website/docs/mesh/*.mdx files
  */
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

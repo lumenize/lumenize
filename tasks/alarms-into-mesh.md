@@ -60,7 +60,7 @@ Run tests with: `npm test -- --project mesh-e2e`
 
 ### Documentation to Validate
 
-- `website/docs/lumenize-mesh/getting-started.mdx` - The tutorial code we're testing. In the coarse of this test writing, we will make changes to that document.
+- `website/docs/mesh/getting-started.mdx` - The tutorial code we're testing. In the coarse of this test writing, we will make changes to that document.
 
 ### Key Patterns to Test
 
@@ -159,12 +159,12 @@ Move alarms from a separate NADIS plugin package into LumenizeDO as a built-in s
 
 ## Phase 6: Update Documentation
 
-- [ ] Move `website/docs/alarms/index.mdx` to `website/docs/lumenize-mesh/alarms.mdx` (keep as separate doc) and delete website/docs folder
+- [ ] Move `website/docs/alarms/index.mdx` to `website/docs/mesh/alarms.mdx` (keep as separate doc) and delete website/docs folder
 - [ ] Update moved alarms doc - remove "import @lumenize/alarms" instructions, explain it's built-in
-- [ ] Update `website/docs/lumenize-mesh/lumenize-do.mdx`:
+- [ ] Update `website/docs/mesh/lumenize-do.mdx`:
   - [ ] Add/update "Built-in Services" section listing sql and alarms
   - [ ] Link to the alarms doc for details
-- [ ] Update `website/docs/lumenize-mesh/creating-plugins.mdx` - remove alarms as NADIS plugin example
+- [ ] Update `website/docs/mesh/creating-plugins.mdx` - remove alarms as NADIS plugin example
 - [ ] Update sidebar config if needed for moved alarms doc
 - [ ] Update any other docs referencing `@lumenize/alarms` import
 

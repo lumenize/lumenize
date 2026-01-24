@@ -2,7 +2,7 @@
 
 Lumenize Mesh - communication framework for Cloudflare Durable Objects.
 
-For complete documentation, visit **[https://lumenize.com/docs/lumenize-mesh](https://lumenize.com/docs/lumenize-mesh)**
+For complete documentation, visit **[https://lumenize.com/docs/mesh](https://lumenize.com/docs/mesh)**
 
 ## Features
 

@@ -2,7 +2,7 @@
 
 **Status**: Phase 4 - LumenizeClient Core (IN PROGRESS)
 **Created**: 2025-12-08
-**Design Document**: `/website/docs/lumenize-mesh/`
+**Design Document**: `/website/docs/mesh/`
 
 ## Goal
 
@@ -19,14 +19,14 @@ Add browser/Node.js clients as first-class participants in the Lumenize Mesh, en
 ## Key Decisions
 
 See docs for full API details:
-- **Mesh Overview**: `/website/docs/lumenize-mesh/index.mdx`
-- **Getting Started**: `/website/docs/lumenize-mesh/getting-started.mdx`
-- **LumenizeDO Reference**: `/website/docs/lumenize-mesh/lumenize-do.mdx`
-- **LumenizeWorker Reference**: `/website/docs/lumenize-mesh/lumenize-worker.mdx`
-- **LumenizeClient Reference**: `/website/docs/lumenize-mesh/lumenize-client.mdx`
-- **Gateway Details**: `/website/docs/lumenize-mesh/gateway.mdx`
-- **Authentication Propogation and Access Control**: `/website/docs/lumenize-mesh/security.mdx`
-- **Creating Plugins**: `/website/docs/lumenize-mesh/creating-plugins.mdx`
+- **Mesh Overview**: `/website/docs/mesh/index.mdx`
+- **Getting Started**: `/website/docs/mesh/getting-started.mdx`
+- **LumenizeDO Reference**: `/website/docs/mesh/lumenize-do.mdx`
+- **LumenizeWorker Reference**: `/website/docs/mesh/lumenize-worker.mdx`
+- **LumenizeClient Reference**: `/website/docs/mesh/lumenize-client.mdx`
+- **Gateway Details**: `/website/docs/mesh/gateway.mdx`
+- **Authentication Propogation and Access Control**: `/website/docs/mesh/security.mdx`
+- **Creating Plugins**: `/website/docs/mesh/creating-plugins.mdx`
 
 **Note**: Documentation was restructured on 2025-12-28. Old `lumenize-base/` docs are archived in `/website/docs/_archived/`.
 
@@ -155,7 +155,7 @@ log.info('Something happened', { data });
 **Goal**: Consolidate all mesh documentation and rename `@lumenize/lumenize-base` to `@lumenize/mesh`
 
 **Documentation Tasks** (DONE):
-- [x] Restructure `website/docs/lumenize-mesh/` with Option D structure (Concepts → Tutorial → References)
+- [x] Restructure `website/docs/mesh/` with Option D structure (Concepts → Tutorial → References)
 - [x] Create `index.mdx` (concepts only)
 - [x] Create `getting-started.mdx` (progressive tutorial)
 - [x] Create `lumenize-do.mdx` (full reference with NADIS from old lumenize-base)
@@ -192,7 +192,7 @@ log.info('Something happened', { data });
   - Redirects to configured `redirect`
   - Access token obtained via refresh-on-load pattern (SPA calls `/auth/refresh-token`)
 - [x] Update `/website/docs/auth/index.mdx` — new flow, API reference shows all config options
-- [x] Update `/website/docs/lumenize-mesh/getting-started.mdx` — already uses `createAuthRoutes` correctly
+- [x] Update `/website/docs/mesh/getting-started.mdx` — already uses `createAuthRoutes` correctly
 
 **0.3 @lumenize/auth Rate Limiting Fix** (DONE):
 - [x] Refactor rate limiting in `LumenizeAuth` to use instance variables instead of DO storage
@@ -210,13 +210,13 @@ log.info('Something happened', { data });
   - The coupling is minimal: just two headers (`X-Auth-User-Id`, `X-Auth-Claims`)
   - Users with existing auth (Auth0, Clerk, custom) only need the header contract
   - Separation of concerns — auth is a distinct domain from mesh communication
-  - See `/website/docs/lumenize-mesh/security.mdx` for integration details and Auth0 example
+  - See `/website/docs/mesh/security.mdx` for integration details and Auth0 example
 - [ ] Publish `@lumenize/debug` as a standalone cross-platform package (deferred to mesh publish)
 
 ### Phase 1: Design Documentation (Docs-First)
 **Goal**: Define user-facing APIs in MDX before implementation
 
-**Deliverables**: See `/website/docs/lumenize-mesh/`
+**Deliverables**: See `/website/docs/mesh/`
 
 **Success Criteria**:
 - API design approved by maintainer
@@ -819,6 +819,6 @@ class LumenizeClient {
 
 ## References
 
-- Design docs: `/website/docs/lumenize-mesh/`
+- Design docs: `/website/docs/mesh/`
 - `packages/rpc/src/websocket-rpc-transport.ts` - Transport patterns
 - `packages/mesh/src/auth/` - Auth middleware (after merge from packages/auth)

@@ -3,7 +3,7 @@
  *
  * This single long-running test simulates realistic multi-client collaboration
  * on a shared document, exercising the full mesh architecture from
- * website/docs/lumenize-mesh/getting-started.mdx
+ * website/docs/mesh/getting-started.mdx
  *
  * Scenarios covered:
  * 1. Alice connects and opens a document (receives empty content)

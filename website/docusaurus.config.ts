@@ -166,7 +166,7 @@ const config: Config = {
           hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
       ],
-      // Note: @lumenize/mesh docs are now hand-written in website/docs/lumenize-mesh/
+      // Note: @lumenize/mesh docs are now hand-written in website/docs/mesh/
       // TypeDoc auto-generation disabled in favor of curated documentation
       // [
       //   'docusaurus-plugin-typedoc',
@@ -174,7 +174,7 @@ const config: Config = {
       //     id: 'mesh',
       //     entryPoints: ['../packages/mesh/src/index.ts'],
       //     tsconfig: '../packages/mesh/tsconfig.build.json',
-      //     out: 'docs/lumenize-mesh/api',
+      //     out: 'docs/mesh/api',
       //     sidebar: { autoConfiguration: true },
       //     plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
       //     excludeInternal: true,

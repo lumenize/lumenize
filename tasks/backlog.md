@@ -45,13 +45,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Domain extraction for enterprise domain restrictions (e.g., `@acme.com` only)
   - Discovery flow: existing user adds new email, links to same account
 
-- [ ] Create `website/docs/lumenize-mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient
-  - We already do most of this in the test/for-docs/getting-started. The only additional thing we should show in this doc is direct setting and inspecting storage via the testing client
-  - Similar to `/docs/testing/agents.mdx` but for mesh clients
-  - Show multi-user scenarios with separate `Browser` instances
-  - Token refresh testing with cookie simulation
-  - RPC access to DO internals for verification
-  - Document `WebSocket` injection pattern (LumenizeClient must support this like AgentClient does)
+- [x] Create `website/docs/mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient (DONE 2025-01-23)
 
 - [ ] Implement generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and what's returned from the subscription `using sub = client.subscribe(...)` calls
 
