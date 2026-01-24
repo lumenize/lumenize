@@ -18,8 +18,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     7. Overly verbose JSDoc (shorten and link to docs)
   - **Files to review**: `lumenize-do.ts`, `lumenize-worker.ts`, `lumenize-client.ts`, `lumenize-client-gateway.ts`, `lumenize-auth.ts`, `ocan/*.ts`
 
-- [ ] In lumenize-auth.ts, The #extractCookie method uses cookie.trim().split('=') and destructures only the first two elements. If a cookie value contains = characters (valid in cookies), only the portion before the first = is returned. For example, a cookie "name=abc=def" would return "abc" instead of "abc=def". While current tokens use base64UrlEncode which strips = padding, this implementation is fragile and could cause authentication failures if the token format changes or if this code is reused elsewhere.
-
 - [ ] Replace LumenizeAuth's in-memory rate limiter with Cloudflare's native rate limiter binding
   - Docs: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
   - **Why**: Current implementation uses instance variables (violates CLAUDE.md guidance), resets on DO eviction, doesn't coordinate across instances
