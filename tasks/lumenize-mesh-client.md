@@ -1,6 +1,6 @@
 # LumenizeClientGateway & LumenizeClient
 
-**Status**: Phase 4 - LumenizeClient Core (IN PROGRESS)
+**Status**: Phase 8 - Verification & Final Testing (NEAR COMPLETE)
 **Created**: 2025-12-08
 **Design Document**: `/website/docs/mesh/`
 
@@ -369,35 +369,41 @@ get caller(): NodeIdentity {
 
 **Decision**: After implementing Phase 2, we realized the transport is inherently part of the client implementation. The original plan to fork `websocket-rpc-transport.ts` as a separate step doesn't make sense - the transport patterns will be borrowed and adapted as we build LumenizeClient. Phase 1.5 already handled the call execution upgrades (callContext, OCAN fork) that keep RPC compatible.
 
-### Phase 4: LumenizeClient Core
+### Phase 4: LumenizeClient Core (COMPLETE)
 **Goal**: Browser-side mesh participant with call infrastructure
 
-**Success Criteria**:
-- `this.lmz.callRaw()` working through Gateway
-- `this.lmz.call()` with continuation support
-- `this.ctn()` for building operation chains
-- **Instant Connect**: Connection established immediately upon instantiation (not lazy)
-- Shared code with LumenizeDO where possible
-- Learn from and borrow what is useful from Lumenize RPC's websocket-transport
+**Implementation**: `packages/mesh/src/lumenize-client.ts` (951 lines)
 
-### Phase 5: Connection Management
+**Success Criteria**:
+- [x] `this.lmz.callRaw()` working through Gateway (lines 878-923)
+- [x] `this.lmz.call()` with continuation support (lines 925-950)
+- [x] `this.ctn()` for building operation chains (lines 378-382)
+- [x] **Instant Connect**: Connection established immediately upon instantiation (lines 317-318)
+- [x] Shared code with LumenizeDO where possible
+- [x] Borrowed patterns from Lumenize RPC's websocket-transport
+
+### Phase 5: Connection Management (COMPLETE)
 **Goal**: Robust connection lifecycle
 
-**Success Criteria**:
-- Auto-reconnect with exponential backoff (from generic transport)
-- **Wake-up Sensing**: Automatic reconnection on tab visibility/focus or system online events
-- Connection state tracking and callbacks
-- Message queuing during reconnection (configurable)
-- Clean disconnect handling
+**Implementation**: Same file (lumenize-client.ts)
 
-### Phase 6: Auth & Call Context
+**Success Criteria**:
+- [x] Auto-reconnect with exponential backoff (lines 609-623, 1s→30s max)
+- [x] **Wake-up Sensing**: Tab visibility (line 631), window focus (line 643), system online (line 655)
+- [x] Connection state tracking and callbacks (lines 328-330, 667-672)
+- [x] Message queuing during reconnection (lines 832-872, max 100 messages, 30s timeout)
+- [x] Clean disconnect handling
+
+### Phase 6: Auth & Call Context (COMPLETE)
 **Goal**: Seamless token handling and zero-trust call context propagation
 
+**Implementation**: lumenize-client.ts + lumenize-client-gateway.ts
+
 **Success Criteria**:
-- Token passed via `lmz, lmz.access-token.{jwt}` subprotocol
-- Gateway stores token in WebSocket attachment for verification
-- `this.lmz.callContext` available in all method handlers (see auth-integration.mdx)
-- `callContext` automatically preserved across hibernation (no manual capture needed)
+- [x] Token passed via `lmz, lmz.access-token.{jwt}` subprotocol (lines 502-505)
+- [x] Gateway stores token in WebSocket attachment for verification (gateway lines 302-308)
+- [x] `this.lmz.callContext` available in all method handlers (lines 350-358, 786-794)
+- [x] `callContext` automatically preserved across hibernation (lmz-api.ts captureCallContext)
 
 **Implementation Notes** (not in user docs):
 
@@ -450,25 +456,32 @@ get caller(): NodeIdentity {
    - Separate from `onConnectionError` which handles network-level WebSocket errors
    - Developer handles redirect to login in their `onLoginRequired` callback
 
-### Phase 7: Client-to-Client Communication
+### Phase 7: Client-to-Client Communication (COMPLETE)
 **Goal**: Enable LumenizeClient → LumenizeClient calls
 
-**Success Criteria**:
-- Client A → Gateway A → Gateway B → Client B working
-- Round-trip latency acceptable (~60ms target)
-- Error handling for disconnected target client
+**Implementation**: Gateway `__executeOperation()` (lines 442-500) + client `#handleIncomingCall()` (lines 773-820)
 
-### Phase 8: Testing & Documentation Validation
+**Success Criteria**:
+- [x] Client A → Gateway A → Gateway B → Client B working (gateway forwards, client receives)
+- [x] Error handling for disconnected target client (ClientDisconnectedError, grace period)
+- [ ] Round-trip latency acceptable (~60ms target) — needs live profiling
+
+### Phase 8: Testing & Documentation Validation (MOSTLY COMPLETE)
 **Goal**: Comprehensive test coverage
 
+**Test Files**:
+- `packages/mesh/test/lumenize-client.test.ts` (550 lines) - unit tests
+- `packages/mesh/test/lumenize-client-gateway.test.ts` - gateway tests
+- `packages/mesh/test/for-docs/mesh/getting-started.test.ts` (134 lines) - integration
+
 **Success Criteria**:
-- Client → Gateway → DO integration tests
-- DO → Gateway → Client downstream tests  
-- Client → Client via Gateways tests
-- Reconnection scenario tests
-- Auth flow tests
-- `test/for-docs/` examples
-- `@check-example` annotations pass
+- [x] Client → Gateway → DO integration tests
+- [x] DO → Gateway → Client downstream tests
+- [x] Client → Client via Gateways tests (getting-started.test.ts)
+- [x] Reconnection scenario tests
+- [x] Auth flow tests
+- [x] `test/for-docs/` examples
+- [ ] `@check-example` annotations pass — some docs need test alignment
 
 ## Code Sharing Strategy
 
@@ -798,24 +811,30 @@ class LumenizeClient {
 
 ## Verify with Code Review, vitest-pool-workers Testing, or Live Testing
 
-- [ ] (live) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
-- [ ] (search and review) `blockConcurrency` is not used by call. I mistakenly did that for the current implementation because I didn't realize we could get fire and forget behavior with simple use of Promise/then/catch
-- [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
-- [ ] (review) Malicious user can't control the callContext contents from a LumenizeClient. It must be determined at the Gateway
-- [ ] (vitest-pool) `this.lmz.callContext` is automatically restored for continuations (no manual capture needed) even when there is a round-trip remote call.
-- [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
-- [ ] (review and vitest-pool) Clients must be authenticated
+### Verified ✅
+
 - [x] (vitest-pool) Trusted return capability security model allows you to return an interface for just admins. Similarly, it should not allow the use of root-level methods without an @mesh decorator in nested conditions. For example, `multiply(subtract(4, 3), add(2, 1))` should only work if `multiply`, `subtract`, and `add` all have @mesh annotations that allow them. **VERIFIED**: `test/call-context.test.ts` - "@mesh decorator security > blocks calls to methods without @mesh decorator"
-- [ ] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator.
 - [x] (vitest-pool) lmz.callContext has the correct information even when there are deeply interleaved operations ongoing (ALS isolation). **VERIFIED**: `test/call-context.test.ts` - "ALS isolation for concurrent calls > concurrent calls have isolated callContext (no cross-contamination)"
 - [x] (vitest-pool) Verify that `callContext` is automatically captured in continuations and each interleaved handler gets its own captured context (not a shared/mutated one). **VERIFIED**: `test/call-context.test.ts` - "CallContext capture in continuation handlers (Phase 1.5.6) > interleaved lmz.call() handlers each get their own captured context". Note: Handlers are in-memory Promise callbacks and will be lost on hibernation/eviction - this is inherent to the pattern. For hibernation-safe patterns, see docs.
 - [x] (vitest-pool) Verify that `callContext.state` modifications in DO2 are visible in DO1's continuation after the call returns. **VERIFIED**: `test/call-context.test.ts` - "State propagation > state modifications propagate to downstream calls"
-- [ ] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
 - [x] LumenizeDO and LumenizeWorker are upgraded to support the new access control model **DONE**: Both use `requireMeshDecorator: true` and support `@mesh` decorator, `onBeforeCall()` hook, and full `CallContext` propagation
+- [x] (code review) Message queueing implemented: `lumenize-client.ts` lines 832-872 - queues up to 100 messages, 30s timeout for callRaw, flushes on `connection_status` receipt
+- [x] (code review) Gateway builds verified callContext from WebSocket attachment (not from client message): `lumenize-client-gateway.ts` lines 509-550 - uses `attachment.userId`, `attachment.claims` from verified JWT
+- [x] (code review) Token refresh before onLoginRequired: `lumenize-client.ts` lines 586-602 (`#handleTokenExpired`) calls `#refreshToken()` before reconnect; only fires `onLoginRequired` on 401 from refresh endpoint
+
+### Pending Verification ⏳
+
+- [ ] (live) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
+- [X] (search and review) `blockConcurrencyWhile` is not used by call. I mistakenly did that for the current implementation because I didn't realize we could get fire and forget behavior with simple use of Promise/then/catch
+- [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
+- [ ] (vitest-pool) `this.lmz.callContext` is automatically restored for continuations (no manual capture needed) even when there is a round-trip remote call.
+- [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
+- [ ] (review and vitest-pool) Clients must be authenticated (verify auth middleware is enforced)
+- [ ] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator.
+- [ ] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
 - [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
-- [ ] Messages are queued when the client is in a reconnection grace period. Also, they should queue in a situation where the tab reawakens, the client sends a message and that triggers the reconnection. We may be monitoring the tab sleep/awake events and try the reconnection proactively. We want to keep that feature so messages sent from the mesh reach the client. However, we want to test multiple different timings to assure robustness. Needs analysis.
+- [ ] Messages are queued when the client is in a reconnection grace period with various timing scenarios (tab wake, immediate send, etc.). Needs analysis.
 - [ ] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth).
-- [ ] Verify that when the access token expires, it tries the refresh token before calling onLoginRequired
 
 ## References
 
