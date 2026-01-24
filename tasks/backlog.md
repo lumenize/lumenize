@@ -4,23 +4,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Refactor to use `using` keyword for Workers RPC stubs (Explicit Resource Management)
-  - Cloudflare added support in Feb 2025: https://developers.cloudflare.com/changelog/2025-02-28-wrangler-v4-rc/#the-using-keyword-from-explicit-resource-management
-  - **Why it matters**: Without `using`, stubs held in wall-clock billing mode
-  - **Pattern**: `using` is lexically scoped (NOT reference-counted like WeakMap). Disposal happens when the declaring scope exits, regardless of who holds references. Therefore, `using` must be at the **call site**, not inside helper functions that return stubs.
-  - **Changes needed**:
-    1. `packages/utils/src/get-do-stub.ts` — Add JSDoc explaining callers SHOULD use `using`:
-       ```typescript
-       /**
-        * Caller SHOULD use `using` for automatic disposal to enable DO hibernation:
-        * ```typescript
-        * using stub = getDOStub(namespace, id);
-        * ```
-        */
-       ```
-    2. `packages/utils/src/route-do-request.ts:320` — Change to `using stub = getDOStub(...)`
-    3. `packages/lumenize-base/src/lmz-api.ts:375` and `:578` — Change to `using stub = getDOStub(...)`
-- [ ] Related to above, find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
+- [ ] Find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
 
 - [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 - [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
@@ -295,3 +279,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Cross post on Medium like this
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
+
+## Blocked / Maybe later
+
+- [ ] Refactor to use `using` keyword for Workers RPC stubs (Explicit Resource Management)
+  - Cloudflare added support in Feb 2025: https://developers.cloudflare.com/changelog/2025-02-28-wrangler-v4-rc/#the-using-keyword-from-explicit-resource-management
+  - **Why it matters**: Without `using`, stubs held in wall-clock billing mode
+  - **Pattern**: `using` is lexically scoped (NOT reference-counted like WeakMap). Disposal happens when the declaring scope exits, regardless of who holds references. Therefore, `using` must be at the **call site**, not inside helper functions that return stubs.
+  - **Blocker**: As of Jan 2025, `vitest-pool-workers` (workerd 1.20251011.0) throws "Object not disposable" when using `using` with DO stubs. The runtime doesn't implement `Symbol.dispose` on stubs yet. Wait for vitest-pool-workers/workerd to add support, then:
+    1. Search codebase for `getDOStub(` calls and change to `using stub = getDOStub(...)`
+    2. Update `getDOStub` JSDoc to recommend callers use `using`
+    3. Update unit test mocks to include `[Symbol.dispose]: () => {}`
