@@ -216,7 +216,6 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
           }
         },
-        'testing/alarm-simulation',
         {
           type: 'doc',
           id: 'testing/agents',

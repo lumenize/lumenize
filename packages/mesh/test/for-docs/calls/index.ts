@@ -19,6 +19,7 @@ export { LumenizeClientGateway, LumenizeAuth };
 export { DocumentDO } from './document-do.js';
 export { CalculatorDO } from './calculator-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
+export { AnalyticsWorker, type AnalyticsResult } from './analytics-worker.js';
 
 // Create auth routes and middleware once at module level
 const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);

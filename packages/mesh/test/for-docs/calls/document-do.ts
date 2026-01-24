@@ -7,6 +7,26 @@
 import { LumenizeDO, mesh } from '../../../src/index.js';
 import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
+import type { AnalyticsWorker, AnalyticsResult } from './analytics-worker.js';
+
+/**
+ * Custom error for admin access failures
+ *
+ * Demonstrates custom Error class preservation across the mesh.
+ * The `name` property must match the class name for globalThis lookup.
+ */
+export class AdminAccessError extends Error {
+  name = 'AdminAccessError';
+  constructor(
+    message: string,
+    public userId: string | undefined
+  ) {
+    super(message);
+  }
+}
+
+// Register on globalThis so deserializer can reconstruct the type
+(globalThis as any).AdminAccessError = AdminAccessError;
 
 /**
  * AdminInterface - Capability-based admin access
@@ -91,6 +111,45 @@ export class DocumentDO extends LumenizeDO<Env> {
   // unsubscribe() left as exercise for reader
 
   /**
+   * Request analytics computation - two one-way calls pattern
+   *
+   * Demonstrates DO→Worker→DO to avoid wall-clock billing:
+   * 1. DO fires-and-forgets to Worker (returns immediately)
+   * 2. Worker computes analytics (CPU-only billing)
+   * 3. Worker fires-and-forgets back to handleAnalyticsResult
+   */
+  @mesh
+  requestAnalytics(): void {
+    const content = this.ctx.storage.kv.get('content') ?? '';
+    const documentId = this.lmz.instanceNameOrId!;
+
+    // Fire-and-forget to Worker - DO returns immediately, no wall-clock charges
+    this.lmz.call(
+      'ANALYTICS_WORKER',
+      undefined,
+      this.ctn<AnalyticsWorker>().computeAnalytics(content, documentId)
+    );
+    // DO returns immediately — no wall-clock charges while waiting
+  }
+
+  /**
+   * Handle analytics result from Worker
+   *
+   * Called by AnalyticsWorker after computation completes.
+   * This is the second leg of the two one-way calls pattern.
+   */
+  @mesh
+  handleAnalyticsResult(result: AnalyticsResult): void {
+    this.ctx.storage.kv.put('analytics', result);
+  }
+
+  // For testing - retrieve stored analytics
+  @mesh
+  getAnalytics(): AnalyticsResult | undefined {
+    return this.ctx.storage.kv.get('analytics');
+  }
+
+  /**
    * Get admin interface - capability-based access control
    *
    * Only admins can get the admin interface; once granted, its methods are trusted.
@@ -102,7 +161,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     const userId = this.lmz.callContext.originAuth?.userId;
     const isAdmin = this.ctx.storage.kv.get(`admin:${userId}`) === true;
     if (!isAdmin) {
-      throw new Error('Admin access required');
+      throw new AdminAccessError('Admin access required', userId);
     }
     return new AdminInterface(this);
   }

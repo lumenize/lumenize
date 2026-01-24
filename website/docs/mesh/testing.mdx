@@ -37,7 +37,7 @@ This example demonstrates testing a collaborative document editor where:
 
 ### The test
 
-```typescript
+```typescript @skip-check
 import { it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { testLoginWithMagicLink } from '@lumenize/auth';
@@ -164,7 +164,7 @@ it('collaborative document editing with multiple clients', async () => {
 
 Each user needs their own `Browser` instance for cookie isolation:
 
-```typescript
+```typescript @skip-check
 const aliceBrowser = new Browser();
 const bobBrowser = new Browser();
 
@@ -176,7 +176,7 @@ const bobBrowser = new Browser();
 
 `testLoginWithMagicLink` simulates the complete magic link flow:
 
-```typescript
+```typescript @skip-check
 import { testLoginWithMagicLink } from '@lumenize/auth';
 
 // Requires AUTH_TEST_MODE=true in your .dev.vars
@@ -196,7 +196,7 @@ This function:
 
 `LumenizeClient` accepts `fetch` and `WebSocket` in its constructor for testing:
 
-```typescript
+```typescript @skip-check
 const client = new EditorClient({
   instanceName: `${userId}.tab1`,
   baseUrl: 'https://localhost',
@@ -216,7 +216,7 @@ This enables:
 
 Use `createTestingClient` to directly inspect or modify DO storage:
 
-```typescript
+```typescript @skip-check
 import { createTestingClient } from '@lumenize/testing';
 import type { RpcAccessible } from '@lumenize/testing';
 import type { DocumentDO } from './document-do.js';
@@ -242,7 +242,7 @@ await client.ctx.storage.kv.put('content', 'Pre-populated content');
 
 Always use `vi.waitFor()` for WebSocket events and async state changes:
 
-```typescript
+```typescript @skip-check
 // Wait for connection
 await vi.waitFor(() => {
   expect(client.connectionState).toBe('connected');
@@ -256,7 +256,7 @@ await vi.waitFor(() => {
 
 ## Installation
 
-```bash npm2yarn
+```bash @skip-check
 npm install --save-dev vitest@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/testing
@@ -266,7 +266,7 @@ npm install --save-dev @lumenize/testing
 
 ### vitest.config.js
 
-```javascript
+```javascript @skip-check
 import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersProject({
@@ -295,7 +295,7 @@ AUTH_TEST_MODE=true
 
 Point to your test harness that instruments DO classes:
 
-```json
+```json @skip-check
 {
   "name": "my-app-test",
   "main": "./test-harness.ts",
@@ -306,7 +306,7 @@ Point to your test harness that instruments DO classes:
 
 ### test/test-harness.ts
 
-```typescript
+```typescript @skip-check
 import * as sourceModule from '../src';
 import { instrumentDOProject } from '@lumenize/testing';
 

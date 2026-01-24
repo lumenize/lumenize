@@ -835,6 +835,8 @@ class LumenizeClient {
 - [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
 - [ ] Messages are queued when the client is in a reconnection grace period with various timing scenarios (tab wake, immediate send, etc.). Needs analysis.
 - [X] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth). **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "newChain: true breaks call chain so recipients see DO as origin"
+- [X] (vitest-pool) Custom error classes registered on globalThis preserve their type across the mesh. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "operation chaining: non-admin gets AdminAccessError with preserved type"
+- [X] (vitest-pool) Two one-way calls pattern (DO→Worker→DO) works correctly for avoiding wall-clock billing. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "two one-way calls: DO→Worker→DO avoids wall-clock billing"
 
 ## References
 

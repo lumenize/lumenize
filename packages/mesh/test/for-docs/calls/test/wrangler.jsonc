@@ -27,6 +27,11 @@
       "binding": "SPELLCHECK_WORKER",
       "service": "mesh-calls-test",
       "entrypoint": "SpellCheckWorker"
+    },
+    {
+      "binding": "ANALYTICS_WORKER",
+      "service": "mesh-calls-test",
+      "entrypoint": "AnalyticsWorker"
     }
   ],
   "migrations": [

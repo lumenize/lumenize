@@ -8,8 +8,11 @@
  */
 
 import { LumenizeClient, mesh, type CallContext } from '../../../src/index.js';
-import type { DocumentDO, AdminInterface } from './document-do.js';
-import type { SpellFinding } from './spell-check-worker.js';
+import { AdminAccessError, type DocumentDO, type AdminInterface } from './document-do.js';
+import type { SpellCheckWorker, SpellFinding } from './spell-check-worker.js';
+
+// Register on globalThis so deserializer can reconstruct the type on client side
+(globalThis as any).AdminAccessError = AdminAccessError;
 
 // Callbacks for a single document
 export interface DocumentCallbacks {
@@ -67,7 +70,7 @@ export class EditorClient extends LumenizeClient {
       'DOCUMENT_DO',
       documentId,
       this.ctn<DocumentDO>().subscribe(),
-      this.ctn().handleSubscribeResult(documentId, this.ctn().$result)
+      this.ctn().handleSubscribeResult(documentId, this.ctn().$result, 'open-document')  // $result can go anywhere
     );
   }
 
@@ -80,7 +83,8 @@ export class EditorClient extends LumenizeClient {
   };
 
   // Response handler for subscribe - receives initial content or Error
-  handleSubscribeResult(documentId: string, result: string | Error) {
+  handleSubscribeResult(documentId: string, result: string | Error, source: string) {
+    console.log(`Subscribe from ${source}:`, result);
     const callbacks = this.#documents.get(documentId);
     if (!callbacks) return; // Document was closed
 
@@ -110,6 +114,21 @@ export class EditorClient extends LumenizeClient {
     this.#documents.get(documentId)?.onSpellFindings?.(findings);
   }
 
+  /**
+   * Request spell check directly from Worker (bypassing DO)
+   *
+   * Demonstrates client calling Worker directly. The Worker responds
+   * back to this client via handleSpellFindings.
+   */
+  requestSpellCheck(documentId: string, content: string) {
+    // Client passes its own instanceName so Worker knows where to respond
+    this.lmz.call(
+      'SPELLCHECK_WORKER',
+      undefined,
+      this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName, documentId)
+    );
+  }
+
   // Store results from admin operations
   readonly adminResults: Array<{ reset: true; previousContent: string } | Error> = [];
 
@@ -132,6 +151,13 @@ export class EditorClient extends LumenizeClient {
   }
 
   handleAdminResult(result: { reset: true; previousContent: string } | Error) {
+    if (result instanceof AdminAccessError) {
+      // Custom error type preserved! Can check specific error type
+      console.error(`Admin access denied for user: ${result.userId}`);
+    } else if (result instanceof Error) {
+      // Other errors - message, name, stack still preserved
+      console.error('Admin operation failed:', result.message);
+    }
     this.adminResults.push(result);
   }
 }

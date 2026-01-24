@@ -22,7 +22,9 @@ const context = {
 
 // Get specific file from command line args, if provided
 const targetFile = process.argv[2];
-const options = targetFile ? { include: [targetFile] } : {};
+const options = targetFile
+  ? { include: [targetFile] }
+  : { exclude: ['_archived'] };  // Match docusaurus.config.ts
 
 // Create plugin instance
 const plugin = checkExamplesPlugin(context, options);

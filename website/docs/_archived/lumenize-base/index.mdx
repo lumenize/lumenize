@@ -81,7 +81,7 @@ Only services you import are bundled. If you only use `@lumenize/core`, alarms c
 
 ### 2. Extend LumenizeBase
 
-```typescript @check-example('packages/lumenize-base/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
 class UsersDO extends LumenizeBase<any> {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
@@ -97,7 +97,7 @@ class UsersDO extends LumenizeBase<any> {
 
 Services are automatically available on `this.svc`:
 
-```typescript @check-example('packages/lumenize-base/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
   addUser(id: string, email: string) {
     this.svc.sql`INSERT INTO users (id, email) VALUES (${id}, ${email})`;
     return { id, email };
@@ -113,7 +113,7 @@ Services are automatically available on `this.svc`:
 
 Services work seamlessly together:
 
-```typescript @check-example('packages/lumenize-base/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
 class NotificationsDO extends LumenizeBase<any> {
   executedNotifications: Array<{ userId: string; message: string }> = [];
 
@@ -125,7 +125,7 @@ class NotificationsDO extends LumenizeBase<any> {
 
 Schedule tasks and store data:
 
-```typescript @check-example('packages/lumenize-base/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
   async scheduleNotification(userId: string, message: string, delaySeconds: number) {
     // Store notification in SQL
     const id = `notif-${Date.now()}`;
@@ -147,7 +147,7 @@ Schedule tasks and store data:
 
 Handle the scheduled task:
 
-```typescript @check-example('packages/lumenize-base/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
   sendNotification(payload: any, schedule: Schedule) {
     // Mark as sent in database
     this.svc.sql`
@@ -166,7 +166,7 @@ Handle the scheduled task:
 
 Don't forget to delegate the alarm handler:
 
-```typescript @check-example('packages/lumenize-base/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
   async alarm() {
     await this.svc.alarms.alarm();
   }

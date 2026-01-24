@@ -61,7 +61,7 @@ Communication between `LumenizeClient` ↔ `LumenizeClientGateway` uses WebSocke
 
 Lumenize uses a tuple-based format inspired by Cap'n Web, combined with cycle/alias support.
 
-```typescript
+```typescript @skip-check
 interface LmzIntermediate {
   root: any;      // Entry point (primitive tuple or ["$lmz", index])
   objects: any[]; // Array of complex objects
@@ -92,7 +92,7 @@ Primitives encode inline without going into the `objects` array:
 
 Complex objects go into the `objects` array and are referenced by index:
 
-```json
+```json @skip-check
 {
   "root": ["$lmz", 0],
   "objects": [
@@ -117,7 +117,7 @@ Complex objects go into the `objects` array and are referenced by index:
 
 When the same object appears multiple times, subsequent references use `["$lmz", index]`:
 
-```javascript
+```javascript @skip-check
 const obj = { name: "shared" };
 const data = { a: obj, b: obj };  // obj appears twice
 
@@ -142,7 +142,7 @@ Cycles work the same way — the postprocessor builds objects in two passes to r
 
 All mesh communication uses a versioned envelope:
 
-```typescript
+```typescript @skip-check
 interface CallEnvelope {
   /** Protocol version (currently 1) */
   version: 1;
@@ -197,7 +197,7 @@ Workers RPC loses custom Error properties when errors are thrown. To preserve fu
 
 All `__executeOperation` methods return:
 
-```typescript
+```typescript @skip-check
 // Success
 { $result: any }
 
@@ -207,7 +207,7 @@ All `__executeOperation` methods return:
 
 The caller unwraps in `callRaw`:
 
-```typescript
+```typescript @skip-check
 const response = await stub.__executeOperation(envelope);
 if (response && '$error' in response) {
   throw postprocess(response.$error);  // Reconstruct full error
@@ -233,7 +233,7 @@ By returning `{ $error: preprocess(error) }`:
 
 ### Message Types
 
-```typescript
+```typescript @skip-check
 const GatewayMessageType = {
   CALL: 'call',                          // Client → Gateway → Mesh
   CALL_RESPONSE: 'call_response',        // Gateway → Client (response)
@@ -247,7 +247,7 @@ const GatewayMessageType = {
 
 #### `call` (Client initiates)
 
-```typescript
+```typescript @skip-check
 {
   type: 'call',
   callId: string,
@@ -263,7 +263,7 @@ const GatewayMessageType = {
 
 #### `call_response` (Gateway responds)
 
-```typescript
+```typescript @skip-check
 {
   type: 'call_response',
   callId: string,
@@ -275,7 +275,7 @@ const GatewayMessageType = {
 
 #### `incoming_call` (Mesh calls client)
 
-```typescript
+```typescript @skip-check
 {
   type: 'incoming_call',
   callId: string,
@@ -290,7 +290,7 @@ const GatewayMessageType = {
 
 #### `incoming_call_response` (Client responds)
 
-```typescript
+```typescript @skip-check
 {
   type: 'incoming_call_response',
   callId: string,
@@ -308,7 +308,7 @@ Operation chains describe remote method calls in a serializable format.
 
 ### Structure
 
-```typescript
+```typescript @skip-check
 type OperationChain = Operation[];
 
 interface Operation {
@@ -320,7 +320,7 @@ interface Operation {
 
 ### Examples
 
-```typescript
+```typescript @skip-check
 // this.ctn<DocumentDO>().getContent()
 [
   { type: 'get', key: 'getContent' },
@@ -345,7 +345,7 @@ interface Operation {
 
 Continuations can be nested. The special markers `$result` and `$error` are substituted during execution:
 
-```typescript
+```typescript @skip-check
 // Handler: this.ctn().handleResult(this.ctn().$result)
 [
   { type: 'get', key: 'handleResult' },

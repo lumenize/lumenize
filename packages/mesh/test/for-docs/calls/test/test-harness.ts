@@ -18,8 +18,9 @@ const instrumented = instrumentDOProject({
 // Re-export instrumented DOs for wrangler bindings
 export const { LumenizeClientGateway, DocumentDO, CalculatorDO, LumenizeAuth } = instrumented.dos;
 
-// Re-export SpellCheckWorker directly (it's a WorkerEntrypoint, not a DO)
+// Re-export Workers directly (they're WorkerEntrypoints, not DOs)
 export { SpellCheckWorker } from '../spell-check-worker.js';
+export { AnalyticsWorker } from '../analytics-worker.js';
 
 // Re-export the instrumented default export (worker handler)
 export default instrumented;

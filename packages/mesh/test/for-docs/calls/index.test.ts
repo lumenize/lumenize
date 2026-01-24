@@ -23,9 +23,10 @@ import { Browser, createTestingClient, type RpcAccessible } from '@lumenize/test
 import { testLoginWithMagicLink } from '@lumenize/auth';
 import { EditorClient } from './editor-client.js';
 import { CalculatorClient } from './calculator-client.js';
-import { DocumentDO, AdminInterface } from './document-do.js';
+import { DocumentDO, AdminInterface, AdminAccessError } from './document-do.js';
 import { CalculatorDO } from './calculator-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
+import type { AnalyticsResult } from './analytics-worker.js';
 import type { CallContext } from '../../../src/index.js';
 
 // Type for RPC access to DocumentDO internals
@@ -359,8 +360,9 @@ it('operation chaining: admin().forceReset() executes in single round trip', asy
  * Operation Chaining Error Test
  *
  * Verifies that non-admin users get an error when trying to use admin().forceReset()
+ * Also verifies custom error type preservation across the mesh when registered on globalThis.
  */
-it('operation chaining: non-admin gets error from admin()', async () => {
+it('operation chaining: non-admin gets AdminAccessError with preserved type', async () => {
   const documentId = 'chaining-error-test-doc';
 
   // Setup: Regular user (not admin) connects
@@ -393,10 +395,12 @@ it('operation chaining: non-admin gets error from admin()', async () => {
     expect(user.adminResults.length).toBe(1);
   });
 
-  // Verify we got an error
+  // Verify we got the custom error type (not just base Error)
   const result = user.adminResults[0];
-  expect(result).toBeInstanceOf(Error);
-  expect((result as Error).message).toBe('Admin access required');
+  expect(result).toBeInstanceOf(AdminAccessError);
+  expect((result as AdminAccessError).message).toBe('Admin access required');
+  // Custom property preserved across the mesh
+  expect((result as AdminAccessError).userId).toBe(userId);
 });
 
 /**
@@ -495,4 +499,79 @@ it('handler without @mesh: local handlers work without @mesh decorator', async (
   // If handleResult required @mesh, this would fail with "method not found"
   // The fact it works proves local handlers don't need @mesh
   expect(client.results[0]).toBe(1111);
+});
+
+/**
+ * Two One-Way Calls Test (DO→Worker→DO)
+ *
+ * Demonstrates the two one-way calls pattern from calls.mdx:
+ * - DO fires-and-forgets to Worker (avoids wall-clock billing)
+ * - Worker does expensive computation (CPU-only billing)
+ * - Worker fires-and-forgets back to DO with results
+ *
+ * This pattern is used when:
+ * - You need to offload expensive work to avoid DO wall-clock billing
+ * - The result needs to be stored in the DO (not sent to a client)
+ *
+ * Note: The Worker callback to handleAnalyticsResult() requires @mesh and
+ * propagates the original client's auth context through the call chain.
+ */
+it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => {
+  const documentId = 'analytics-test-doc-2';
+  const testContent = 'Hello world. This is a test document with some words.';
+
+  // Setup: Alice authenticates and connects
+  const aliceBrowser = new Browser();
+  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice-analytics@example.com');
+
+  using alice = new EditorClient({
+    instanceName: `${aliceUserId}.tab1`,
+    baseUrl: 'https://localhost',
+    refresh: 'https://localhost/auth/refresh-token',
+    fetch: aliceBrowser.fetch,
+    WebSocket: aliceBrowser.WebSocket,
+  });
+
+  await vi.waitFor(() => {
+    expect(alice.connectionState).toBe('connected');
+  });
+
+  // Setup: Store content in the document (through the mesh so it has auth)
+  const contentEvents: string[] = [];
+  alice.openDocument(documentId, {
+    onContentUpdate: (content) => contentEvents.push(content),
+  }).saveContent(testContent);
+
+  // Wait for content to be stored
+  await vi.waitFor(() => {
+    expect(contentEvents.length).toBeGreaterThan(0);
+  });
+
+  // ============================================
+  // Test: Request analytics (DO→Worker→DO)
+  // ============================================
+  // This triggers:
+  // 1. DO.requestAnalytics() fires-and-forgets to AnalyticsWorker
+  // 2. Worker.computeAnalytics() does computation
+  // 3. Worker fires-and-forgets to DO.handleAnalyticsResult()
+  alice.lmz.call(
+    'DOCUMENT_DO',
+    documentId,
+    alice.ctn<DocumentDO>().requestAnalytics()
+  );
+
+  // Wait for analytics to be computed and stored
+  // Use createTestingClient to directly check storage (bypasses auth for testing)
+  using docClient = createTestingClient<DocumentDOType>('DOCUMENT_DO', documentId);
+
+  await vi.waitFor(async () => {
+    const analytics = await docClient.ctx.storage.kv.get('analytics') as AnalyticsResult | undefined;
+    expect(analytics).toBeDefined();
+  }, { timeout: 5000 });
+
+  // Verify the analytics were correctly computed
+  const analytics = await docClient.ctx.storage.kv.get('analytics') as AnalyticsResult;
+  expect(analytics.wordCount).toBe(10); // "Hello world. This is a test document with some words."
+  expect(analytics.characterCount).toBe(53);
+  expect(analytics.readingTimeMinutes).toBe(1); // ceil(10/200) = 1
 });

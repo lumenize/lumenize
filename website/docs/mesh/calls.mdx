@@ -5,10 +5,10 @@ description: Patterns for mesh communication with this.lmz.call()
 
 # Making Calls
 
-Every mesh node communicates via `this.lmz.call()`. Any node type can call any other — DOs, Workers, and clients are true peers in the mesh.
+Every mesh node communicates via `this.lmz.call()`. Any node type can call any other — LumenizeDOs, LumenizeWorkers, and LumenizeClients are true peers in the mesh.
 
 However, keep in mind these nuances:
-- **Calling a Worker**: Use `undefined` as the `instanceName` parameter (every call to a Worker creates a new instance)
+- **Calling a Worker**: Use `undefined` as the `instanceName` parameter since Workers don't have an instance name
 - **Calling a client**: The `bindingName` is always `'LUMENIZE_CLIENT_GATEWAY'` (unless you've customized it)
 - **Client-to-client calls**: Disabled by default. See [Opting In to Peer Communication](./lumenize-client#opting-in-to-peer-communication) to enable.
 
@@ -18,12 +18,12 @@ Cloudflare's native Workers RPC is the transport layer for Lumenize's in-Cloudfl
 
 | Capability | Workers RPC | Lumenize Mesh |
 |------------|-------------|---------------|
-| **Identity propogation** | None — must use an `init()` pattern | Automatic 
-| **Call context** | None — must pass manually | Automatic `callContext` with `origin`, `originAuth`, `caller`, `state` |
+| **Non-Cloudflare nodes** | Not supported | Full peer: coded the same way, has acces to the same core capabilities, etc. |
+| **Identity propogation** | Manual with an init pattern | Automatic 
+| **Call context** | None — must pass manually | Automatic `callContext` with `origin`, `originAuth`, `caller`, and mutable `state` |
 | **Consistent Robust Type Support** | Cap'n Web is subset | Date, Set, Map, cycles, aliases, etc. |
-| **Browser clients** | Not supported | Full peer with same type support |
-| **Access control** | Manual per-method | `@mesh` guards + `onBeforeCall` hooks |
-| **Uniform API** | Different patterns for DO vs Cap'n Web | Same `this.lmz.call()` everywhere |
+| **Access control** | Up to you | `@mesh` guards + `onBeforeCall` hooks |
+| **Uniform API** | Different patterns for DO, RpcTarget, Cap'n Web | Same `this.lmz.call()` everywhere |
 | **Sychronous** | Async - Higher risk of race conditions | Lower risk of race conditions |
 
 **We strongly recommend that you use Lumenize Mesh for all in-mesh calls**. Only when you are calling a non-mesh node (raw DO, Worker, or RpcTarget) should you drop down to Workers RPC.
@@ -34,172 +34,178 @@ Cloudflare's native Workers RPC is the transport layer for Lumenize's in-Cloudfl
 
 Send a message without waiting for a response:
 
-```typescript @skip-check
-this.lmz.call(
-  'DOCUMENT_DO',                          // Binding name
-  'draft-1',                              // Instance name (undefined for Workers)
-  this.ctn<DocumentDO>().notifyUpdate(change)
-);
-```
-
-**Use when:** You don't need the result, or the callee will call you back separately.
-
-### With Response Handler
-
-Execute a local handler when the remote call completes:
-
-```typescript @skip-check
-this.lmz.call(
-  'VALIDATION_WORKER',
-  undefined,                                        // Workers have no instance
-  this.ctn<ValidationWorker>().validate(data),      // Remote continuation
-  this.ctn().handleValidationResult(this.ctn().$result)  // Local handler
-);
-
-handleValidationResult(result: ValidationResult | Error) {
-  if (result instanceof Error) {
-    console.error('Validation failed:', result);
-    return;
-  }
-  this.applyValidation(result);
-}
-```
-
-**Use when:** You need the result
-
-**`await` under the covers:** Eventhough there is no await in the example, there is one under the covers. This will open input gates so another request can be initiated before the handler is called. It will also keep a DO in wall clock billing time. See the two one-way calls pattern below to avoid this. 
-
-### With Additional Context
-
-Pass extra data to your handler alongside the result:
-
-```typescript @skip-check
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
 this.lmz.call(
   'DOCUMENT_DO',
   documentId,
-  this.ctn<DocumentDO>().getContent(),
-  this.ctn().handleContent(documentId, this.ctn().$result, userId)
+  this.ctn<DocumentDO>().update(content)
 );
+```
 
-handleContent(documentId: string, content: string | Error, userId: string) {
-  if (content instanceof Error) return;
-  // documentId and userId are available alongside the result
-  this.cache.set(`${userId}:${documentId}`, content);
+**Use when:** You don't need the result, the callee will call you back separately, or deliver the result to someplace else.
+
+### With Response Handler
+
+Execute a local handler when the remote call completes. `$result` can appear anywhere in the argument list — here it's in the middle:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+this.lmz.call(
+  'DOCUMENT_DO',
+  documentId,
+  this.ctn<DocumentDO>().subscribe(),
+  this.ctn().handleSubscribeResult(documentId, this.ctn().$result, 'open-document')  // $result can go anywhere
+);
+// ...
+// Response handler for subscribe - receives initial content or Error
+handleSubscribeResult(documentId: string, result: string | Error, source: string) {
+  console.log(`Subscribe from ${source}:`, result);
+  // ...
+  if (result instanceof Error) {
+    console.error(`Failed to subscribe to ${documentId}:`, result);
+    return;
+  }
+  // ...
 }
 ```
 
-**Use when:** Your handler needs identifying context, for instance, when you make the same call multiple times and need the handler to know for which call it is processing
+**Use when:** The caller needs the result
 
-## Cost Optimization: Two One-Way Calls
+**`await` under the covers:** Even though there is no await in the example, there is one under the covers. This will open input gates so another request can be initiated before the handler is called. It will also keep a DO in wall-clock billing time. See the [two one-way calls pattern](#two-one-way-calls) below to avoid this.
 
-When a DO calls an external API, Cloudflare bills for **wall-clock time** — even while waiting for the response. For long-running calls, use the "two one-way call" pattern to shift the wait to a Worker (which only bills CPU time). This incurs additional request charges so the break even point is around 500ms. With the added latency and complexity, it's generally not worth it unless you have a lot of calls over 1 second in duration.
+## Multi-Hop Call Patterns
 
-```typescript @skip-check
-// In DocumentDO — initiates the call, returns immediately
+In traditional request/response coding, you call a service, wait for the result, then make the next call with that result. A mesh architecture like Lumenize enables a different approach: pass enough context in the initial call so the callee can forward results directly to the next hop — eventually delivering the final result to the original caller.
+
+This is useful when:
+- **Long-running work**: The callee needs time to process; you don't want the caller waiting
+- **Direct delivery**: Results should go somewhere other than the caller (e.g., a client)
+- **Cost optimization**: Avoiding DO wall-clock billing while waiting for slow operations
+
+### Two One-Way Calls
+
+When you need a round-trip call and response, the straightforward approach is using a response handler (the fourth parameter to `this.lmz.call()`). But if the callee's work takes significant time, consider the **two one-way calls** pattern: the caller fires-and-forgets, and the callee calls back with results.
+
+If the caller is a DO, this takes it out of wall-clock billing while waiting. Workers only bill for CPU time, so shifting the wait there can reduce costs for operations taking more than ~500ms.
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+// In DocumentDO — fires-and-forgets to Worker, returns immediately
 @mesh
-generateSummary() {
-  const content = this.ctx.storage.kv.get('content');
-  const { callChain, origin } = this.lmz.callContext;
-  const clientId = (callChain.at(-1) ?? origin).instanceName;  // Capture requesting client
+requestAnalytics(): void {
+  const content = this.ctx.storage.kv.get('content') ?? '';
+  const documentId = this.lmz.instanceNameOrId!;
+
+  // Fire-and-forget to Worker - DO returns immediately, no wall-clock charges
   this.lmz.call(
-    'LLM_WORKER',
+    'ANALYTICS_WORKER',
     undefined,
-    this.ctn<LlmWorker>().summarize(content, clientId)
+    this.ctn<AnalyticsWorker>().computeAnalytics(content, documentId)
   );
   // DO returns immediately — no wall-clock charges while waiting
 }
+```
 
-// In LlmWorker — makes the slow LLM call, sends result back
+```typescript @check-example('packages/mesh/test/for-docs/calls/analytics-worker.ts')
+// In AnalyticsWorker — does expensive work, sends result back to DO
 @mesh
-async summarize(content: string, clientId: string) {
+async computeAnalytics(
+  content: string,
+  documentId: string
+): Promise<void> {
+  // Simulate expensive computation (Worker only bills CPU time, not wall-clock)
+  const result: AnalyticsResult = {
+    wordCount: content.split(/\s+/).filter(Boolean).length,
+    characterCount: content.length,
+    readingTimeMinutes: Math.ceil(content.split(/\s+/).length / 200),
+  };
+
+  // Fire-and-forget back to the DO with results
+  await this.lmz.callRaw(
+    'DOCUMENT_DO',
+    documentId,
+    this.ctn<DocumentDO>().handleAnalyticsResult(result)
+  );
+}
+```
+
+### Direct Delivery (DO→Worker→Client)
+
+Results don't have to return to the caller. If results are destined for a client, the Worker can deliver them directly.
+
+Note how we extract the originating client's ID from `callChain` — an array that grows with each hop, tracking every node in the current call chain (`[origin, hop1, hop2, ...]`):
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+// In DocumentDO — initiates the call, returns immediately
+@mesh
+update(content: string) {
+  this.ctx.storage.kv.put('content', content);
+  // ...
+
+  // Trigger spell check - worker sends results directly to originator
+  const { callChain } = this.lmz.callContext;
+  const clientId = callChain.at(-1)?.instanceName;
+  const documentId = this.lmz.instanceNameOrId!;
+
+  if (clientId) {
+    this.lmz.call(
+      'SPELLCHECK_WORKER',
+      undefined,
+      this.ctn<SpellCheckWorker>().check(content, clientId, documentId)
+    );
+  }
+  // DO returns immediately — no wall-clock charges while waiting
+}
+```
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/spell-check-worker.ts')
+// In SpellCheckWorker — does async work, sends result directly to client
+@mesh
+async check(content: string, clientId: string, documentId: string): Promise<void> {
   // Worker waits here — CPU-only billing, not wall-clock
-  const summary = await this.callLlmApi(content);
-
-  // Call back to the DO using callContext
-  const { callChain, origin } = this.lmz.callContext;
-  const caller = callChain.at(-1) ?? origin;
-  this.lmz.call(
-    caller.bindingName,
-    caller.instanceName,
-    this.ctn<DocumentDO>().handleSummary(summary, clientId)  // Pass clientId through
-  );
-}
-
-// Back in DocumentDO — sends result to the requesting client
-@mesh
-handleSummary(summary: string, clientId: string) {
-  this.lmz.call(
-    'LUMENIZE_CLIENT_GATEWAY',
-    clientId,
-    this.ctn<EditorClient>().handleSummary(summary)
-  );
+  // ...
+  // Send results directly to the originating client (fire-and-forget)
+  if (findings.length > 0) {
+    await this.lmz.callRaw(
+      'LUMENIZE_CLIENT_GATEWAY',
+      clientId,
+      this.ctn<EditorClient>().handleSpellFindings(documentId, findings)
+    );
+  }
 }
 ```
 
-### Variation: Worker Responds Directly to Client
+## Clients and Workers Are Full Peers
 
-Skip the return hop through the DO — the Worker sends results directly to the client:
+While Lumenize Mesh systems are often DO-centric (DOs have storage, alarms, etc.), clients and Workers are full mesh nodes too. A client doesn't connect directly to one of your DOs — it connects thru a dedicated [LumenizeClientGateway](./gateway) DO via a hibernating WebSocket into the mesh as a full peer, able to call any other mesh node.
 
-```typescript @skip-check
-// In DocumentDO — passes clientId, won't see the response
-@mesh
-generateSummary() {
-  const content = this.ctx.storage.kv.get('content');
-  const { callChain, origin } = this.lmz.callContext;
-  const clientId = (callChain.at(-1) ?? origin).instanceName;
-  this.lmz.call(
-    'LLM_WORKER',
-    undefined,
-    this.ctn<LlmWorker>().summarize(content, clientId)
-  );
-}
+Here's our EditorClient calling our SpellCheckWorker directly, bypassing the DocumentDO entirely:
 
-// In LlmWorker — sends result directly to client, bypassing DO
-@mesh
-async summarize(content: string, clientId: string) {
-  const summary = await this.callLlmApi(content);
-
-  // Send directly to the client
-  this.lmz.call(
-    'LUMENIZE_CLIENT_GATEWAY',
-    clientId,
-    this.ctn<EditorClient>().handleSummary(summary)
-  );
-}
-```
-
-**Trade-off**: Saves one hop, but the DO loses visibility into the response.
-
-### Variation: Client Calls Worker Directly
-
-For operations that don't need DO state, the client can call the Worker directly:
-
-```typescript @skip-check
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
 // In EditorClient — calls Worker directly
-requestSummary(content: string) {
+requestSpellCheck(documentId: string, content: string) {
+  // Client passes its own instanceName so Worker knows where to respond
   this.lmz.call(
-    'LLM_WORKER',
+    'SPELLCHECK_WORKER',
     undefined,
-    this.ctn<LlmWorker>().summarize(content)
-  );
-}
-
-// In LlmWorker — caller is the client, respond directly
-@mesh
-async summarize(content: string) {
-  const summary = await this.callLlmApi(content);
-
-  const { callChain, origin } = this.lmz.callContext;
-  const caller = callChain.at(-1) ?? origin;
-  this.lmz.call(
-    caller.bindingName,   // 'LUMENIZE_CLIENT_GATEWAY'
-    caller.instanceName,  // e.g., 'alice.tab1'
-    this.ctn<EditorClient>().handleSummary(summary)
+    this.ctn<SpellCheckWorker>().check(content, this.lmz.instanceName, documentId)
   );
 }
 ```
 
-**Trade-off**: Fewest hops, but bypasses DO entirely — no DO-level state access, Worker must be able to accomplish required auth, logging, etc.
+```typescript @check-example('packages/mesh/test/for-docs/calls/spell-check-worker.ts')
+// In SpellCheckWorker — clientId tells it where to respond
+@mesh
+async check(content: string, clientId: string, documentId: string): Promise<void> {
+  // ...
+  // Send results directly to the client
+  if (findings.length > 0) {
+    await this.lmz.callRaw(
+      'LUMENIZE_CLIENT_GATEWAY',
+      clientId,
+      this.ctn<EditorClient>().handleSpellFindings(documentId, findings)
+    );
+  }
+}
+```
 
 ## Operation Chaining
 
@@ -246,75 +252,49 @@ All nested operations execute in a single round trip. The framework resolves dep
 
 Results can be `Error` — **always check before using**:
 
-```typescript @skip-check
-handleResult(result: SomeType | Error) {
-  if (result instanceof Error) {
-    // Handle failure
-    console.error('Call failed:', result.message);
-    return;
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+handleAdminResult(result: { reset: true; previousContent: string } | Error) {
+  if (result instanceof AdminAccessError) {
+    // Custom error type preserved! Can check specific error type
+    console.error(`Admin access denied for user: ${result.userId}`);
+  } else if (result instanceof Error) {
+    // Other errors - message, name, stack still preserved
+    console.error('Admin operation failed:', result.message);
   }
-  // Safe to use result
-  this.processResult(result);
+  // ...
 }
 ```
 
-### Error Types
+### Custom Error Classes
 
-| Error | Cause |
-|-------|-------|
-| Method not found | Method doesn't exist or lacks `@mesh` decorator |
-| Guard/`onBeforeCall` threw | Your access control code rejected the call |
-| Method threw | Remote method threw an exception |
-| Network/timeout | Connection issues, especially for clients |
-| `ClientDisconnectedError` | Target client is not connected |
+To preserve custom error types across the mesh, register them on `globalThis`:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+export class AdminAccessError extends Error {
+  name = 'AdminAccessError';
+  constructor(
+    message: string,
+    public userId: string | undefined
+  ) {
+    super(message);
+  }
+}
+
+// Register on globalThis so deserializer can reconstruct the type
+(globalThis as any).AdminAccessError = AdminAccessError;
+```
+
+The `name` property must match the class name. Register on both sides (sender and receiver) for full type preservation. See [Error Serialization](/docs/structured-clone#error-subclass-preservation) for details.
 
 :::note Guard Errors Pass Through
-Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `PermissionDeniedError`, `QuotaExceededError`) so you can handle them appropriately.
+Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `AdminAccessError`, `QuotaExceededError`) so you can handle them appropriately.
 :::
-
-:::info Error Serialization
-Errors are serialized/deserialized across the wire using `@lumenize/structured-clone`. The `message`, `name`, `stack`, and custom properties are preserved. Custom error subclasses can retain their type if [registered globally](/docs/structured-clone#errors-and-error-subclasses); otherwise they become plain `Error` objects (but still preserve `name` and custom properties).
-:::
-
-## Context Preservation
-
-Call context (`this.lmz.callContext`) is available in your handler when using `this.lmz.call()`:
-
-```typescript @skip-check
-@mesh
-triggerOperation() {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  console.log(`User ${userId} triggered operation`);
-
-  this.lmz.call(
-    'VALIDATION_WORKER',
-    undefined,
-    this.ctn<ValidationWorker>().validate(data),
-    this.ctn().handleResult(this.ctn().$result)
-  );
-}
-
-// callContext is available in the handler
-handleResult(result: ValidationResult | Error) {
-  const userId = this.lmz.callContext.originAuth?.userId;
-  console.log(`Validation completed for user ${userId}`);
-}
-```
-
-:::warning Hibernation
-If a DO hibernates while waiting for a response (possible during long-running calls), the in-flight call is lost — your handler never executes.
-
-For hibernation-safe patterns:
-- **[Manual persistence](./managing-context#manual-persistence-power-users)** — store/restore the continuation yourself using `getOperationChain()` and storage
-- **[Two One-Way Calls](#cost-optimization-two-one-way-calls)** — pass the handler context (or full continuation) along with the call and return it when called back
-- **[@lumenize/alarms](/docs/alarms)** — automatically persists continuations to storage with context capture and restoration
-:::
-
-See [Managing Context](./managing-context) for the full context strategy.
 
 ## Breaking Call Chains
 
-Sometimes, like in fan-out scenarios, you want to explicitly start a fresh call context rather than continue it across a multi-hop call chain. Use the `{ newChain: true }` option:
+For details on call context propagation and hibernation safety, see [Managing Context](./managing-context).
+
+As shown above, `callChain` grows with each hop. This is usually what you want — it lets any node trace back to the origin. But in fan-out scenarios (broadcasting to many clients), you may not want each recipient's chain to include the original caller. Use `{ newChain: true }` to start fresh:
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
 // Note: In production, you'd skip the originator to avoid redundant updates

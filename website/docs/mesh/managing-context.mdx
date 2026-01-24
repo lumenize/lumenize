@@ -19,7 +19,7 @@ Lumenize automatically propagates **Call Context** across any call chain (e.g., 
 - **Zero Boilerplate**: You don't have to manually pass identity, calling node type, etc. into every single function. They are "just there" when you need them.
 - **Race-Safe**: Even when multiple requests to the same mesh node interleave, each request sees its own unique context.
 
-```typescript
+```typescript @skip-check
 // Any method, anywhere in your call chain
 @mesh
 doSomething() {
@@ -85,7 +85,7 @@ Call chain extension may not be desirable in all cases, for instance in fan-out 
 
 While `this.lmz.callContext` is great for mesh-oriented context, you should use extra parameters in your [continuations](./continuations) for your own application context. Alternatively, for DOs and other nodes with storage capability, you could store such context locally and merely pass the key for such data into the continuation.
 
-```typescript
+```typescript @skip-check
 this.lmz.call(
   'VALIDATION_WORKER',
   undefined,
@@ -107,14 +107,14 @@ handleValidation(documentId: string, result: ValidationResult | Error) {
 Context is maintained in most cases, but if a node hibernates/evicts while `await`ing a response, the local handler might never execute.
 
 For restart-safe patterns:
-- Use **[Two One-Way Calls](./calls#cost-optimization-two-one-way-calls)** — both kinds of contexts are fully contained in the outgoing call. When the call back is made, it'll reawaken the instance. The `lmz.callContext` is automatically restored, and you can include whatever context you want in the callback.
+- Use **[Two One-Way Calls](./calls#two-one-way-calls)** — both kinds of contexts are fully contained in the outgoing call. When the call back is made, it'll reawaken the instance. The `lmz.callContext` is automatically restored, and you can include whatever context you want in the callback.
 - Use **[@lumenize/alarms](/docs/alarms)** — persists alarm handler continuation including `lmz.callContext` and your continuation parameters to storage so they are available when the alarm triggers.
 
 ## Manual Persistence (Power Users)
 
 If you're building your own restart-safe patterns outside the standard tools, you may want to explicitly serialize and store the continuation:
 
-```typescript
+```typescript @skip-check
 import { getOperationChain } from '@lumenize/mesh';
 
 // getOperationChain captures callContext automatically

@@ -34,7 +34,7 @@ npm install @lumenize/mesh @lumenize/utils
 
 `LumenizeDO` is for **stateful server-side logic**. It has persistent SQL/KV storage and can receive calls from any mesh node.
 
-```typescript @check-example('packages/mesh/test/for-docs/mesh/document-do.ts')
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/document-do.ts')
 import { LumenizeDO, mesh } from '@lumenize/mesh';
 import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
@@ -123,7 +123,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 
 `LumenizeWorker` is for **stateless server-side logic**. It's perfect for proxying external APIs, compute-intensive tasks, or offloading fanout.
 
-```typescript @check-example('packages/mesh/test/for-docs/mesh/spell-check-worker.ts')
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/spell-check-worker.ts')
 import { LumenizeWorker, mesh } from '@lumenize/mesh';
 import type { EditorClient } from './editor-client.js';
 
@@ -178,7 +178,7 @@ For long-running external calls, consider using `@lumenize/fetch` with the "two 
 
 `LumenizeClient` runs in the browser and is a **full mesh peer** — it can both make and receive calls.
 
-```typescript @check-example('packages/mesh/test/for-docs/mesh/editor-client.ts')
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/editor-client.ts')
 import { LumenizeClient, mesh, type LumenizeClientConfig } from '@lumenize/mesh';
 import type { DocumentDO } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
@@ -287,7 +287,7 @@ export class EditorClient extends LumenizeClient {
 
 ## Step 4: Connect from the Browser
 
-```typescript @check-example('packages/mesh/test/for-docs/mesh/getting-started.test.ts')
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/getting-started.test.ts')
 // ...
 import { EditorClient } from './editor-client.js';
 import type { SpellFinding } from './spell-check-worker.js';
@@ -377,7 +377,7 @@ npm install @lumenize/auth
 
 ## Step 6: Set Up the Worker Entry Point
 
-```typescript @check-example('packages/mesh/test/for-docs/mesh/index.ts')
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.ts')
 import { env } from 'cloudflare:workers';
 import { routeDORequest } from '@lumenize/utils';
 import {
@@ -425,7 +425,7 @@ export default {
 
 ## Step 7: Configure wrangler.jsonc
 
-```jsonc @check-example('packages/mesh/test/for-docs/mesh/wrangler.jsonc')
+```jsonc @check-example('packages/mesh/test/for-docs/getting-started/wrangler.jsonc')
 {
   "name": "mesh-getting-started",
   "main": "index.ts",
