@@ -42,7 +42,8 @@ export default defineWorkersConfig({
             'test/for-docs/lumenize-do/**/*.test.ts'
           ],
           exclude: [
-            'test/for-docs/mesh/**/*.test.ts'
+            'test/for-docs/getting-started/**/*.test.ts',
+            'test/for-docs/calls/**/*.test.ts'
           ],
           poolOptions: {
             workers: {
@@ -52,14 +53,27 @@ export default defineWorkersConfig({
         },
       },
       {
-        // Getting started / mesh e2e tests - use test harness for createTestingClient support
+        // Getting started e2e tests - uses its own test harness
         extends: true,
         test: {
-          name: 'mesh-e2e',
-          include: ['test/for-docs/mesh/**/*.test.ts'],
+          name: 'getting-started',
+          include: ['test/for-docs/getting-started/**/*.test.ts'],
           poolOptions: {
             workers: {
-              wrangler: { configPath: './test/for-docs/mesh/test/wrangler.jsonc' },
+              wrangler: { configPath: './test/for-docs/getting-started/test/wrangler.jsonc' },
+            },
+          },
+        },
+      },
+      {
+        // Calls pattern e2e tests - uses its own test harness
+        extends: true,
+        test: {
+          name: 'calls',
+          include: ['test/for-docs/calls/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
             },
           },
         },

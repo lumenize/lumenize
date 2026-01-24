@@ -1,0 +1,42 @@
+{
+  "name": "mesh-calls-test",
+  "main": "./test-harness.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LUMENIZE_CLIENT_GATEWAY",
+        "class_name": "LumenizeClientGateway"
+      },
+      {
+        "name": "DOCUMENT_DO",
+        "class_name": "DocumentDO"
+      },
+      {
+        "name": "LUMENIZE_AUTH",
+        "class_name": "LumenizeAuth"
+      }
+    ]
+  },
+  "services": [
+    {
+      "binding": "SPELLCHECK_WORKER",
+      "service": "mesh-calls-test",
+      "entrypoint": "SpellCheckWorker"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["LumenizeAuth"]
+    }
+  ],
+  "vars": {
+    "AUTH_TEST_MODE": "true",
+    "PRIMARY_JWT_KEY": "BLUE"
+  }
+}
