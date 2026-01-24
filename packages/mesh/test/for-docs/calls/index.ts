@@ -1,5 +1,5 @@
 /**
- * Worker entry point for getting-started.mdx examples
+ * Worker entry point for calls.mdx examples
  *
  * Re-exports DO classes for wrangler bindings and handles routing.
  */
@@ -17,6 +17,7 @@ import { LumenizeClientGateway } from '../../../src/index.js';
 // Re-export classes for wrangler bindings
 export { LumenizeClientGateway, LumenizeAuth };
 export { DocumentDO } from './document-do.js';
+export { CalculatorDO } from './calculator-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
 
 // Create auth routes and middleware once at module level

@@ -12,11 +12,11 @@ import { instrumentDOProject } from '@lumenize/testing';
 // the source module also exports non-DO classes (SpellCheckWorker is a WorkerEntrypoint)
 const instrumented = instrumentDOProject({
   sourceModule,
-  doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'LumenizeAuth'],
+  doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'CalculatorDO', 'LumenizeAuth'],
 });
 
 // Re-export instrumented DOs for wrangler bindings
-export const { LumenizeClientGateway, DocumentDO, LumenizeAuth } = instrumented.dos;
+export const { LumenizeClientGateway, DocumentDO, CalculatorDO, LumenizeAuth } = instrumented.dos;
 
 // Re-export SpellCheckWorker directly (it's a WorkerEntrypoint, not a DO)
 export { SpellCheckWorker } from '../spell-check-worker.js';

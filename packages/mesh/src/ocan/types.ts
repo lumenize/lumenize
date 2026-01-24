@@ -20,13 +20,39 @@ export type ContinuationBrandType = typeof ContinuationBrand;
 export type AnyContinuation = { readonly [ContinuationBrand]: unknown };
 
 /**
+ * Helper type that allows either a value or a continuation that resolves to that value.
+ * This enables nesting continuations as arguments to continuation methods.
+ *
+ * @example
+ * ```typescript
+ * // Both of these are valid:
+ * this.ctn<Calculator>().add(1, 2)              // literal numbers
+ * this.ctn<Calculator>().add(
+ *   this.ctn<Calculator>().getValue(),          // Continuation<number> also accepted
+ *   this.ctn<Calculator>().getValue()
+ * )
+ * ```
+ */
+type AllowContinuation<T> = T | Continuation<T>;
+
+/**
+ * Maps a tuple of argument types to allow continuations for each argument.
+ * Handles rest parameters by checking for array types at the end.
+ */
+type AllowContinuationArgs<Args extends any[]> = {
+  [K in keyof Args]: AllowContinuation<Args[K]>;
+};
+
+/**
  * Helper type that maps methods to return Continuation<ReturnType>.
+ * Method arguments accept either the original type or a Continuation<T> that
+ * resolves to that type, enabling nested continuation operations.
  * Only applied to object types (not primitives).
  */
 type ContinuationMethods<T> = T extends object
   ? {
       [K in keyof T]: T[K] extends (...args: infer A) => infer R
-        ? (...args: A) => Continuation<R>
+        ? (...args: AllowContinuationArgs<A>) => Continuation<R>
         : never;
     }
   : unknown;

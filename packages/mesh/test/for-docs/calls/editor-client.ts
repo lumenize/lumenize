@@ -7,8 +7,8 @@
  * in production (React state updates, DOM manipulation, etc.).
  */
 
-import { LumenizeClient, mesh } from '../../../src/index.js';
-import type { DocumentDO } from './document-do.js';
+import { LumenizeClient, mesh, type CallContext } from '../../../src/index.js';
+import type { DocumentDO, AdminInterface } from './document-do.js';
 import type { SpellFinding } from './spell-check-worker.js';
 
 // Callbacks for a single document
@@ -17,6 +17,8 @@ export interface DocumentCallbacks {
   onContentUpdate?: (content: string) => void;
   // Called when spell check findings are received
   onSpellFindings?: (findings: SpellFinding[]) => void;
+  // Called with callContext when content update is received (for testing { newChain: true })
+  onContentUpdateContext?: (context: CallContext) => void;
 }
 
 // Handle for an open document - allows saving content and closing
@@ -90,9 +92,14 @@ export class EditorClient extends LumenizeClient {
   }
 
   // Called by DocumentDO when content changes (broadcast)
+  // Note: DocumentDO broadcasts with { newChain: true }, so callContext.origin
+  // is DocumentDO (not the client who triggered the update)
   @mesh
   handleContentUpdate(documentId: string, content: string) {
-    this.#documents.get(documentId)?.onContentUpdate?.(content);
+    const callbacks = this.#documents.get(documentId);
+    callbacks?.onContentUpdate?.(content);
+    // Expose callContext for testing { newChain: true } behavior
+    callbacks?.onContentUpdateContext?.(this.lmz.callContext);
   }
 
   // Called directly by SpellCheckWorker — not routed back through DocumentDO.
@@ -101,5 +108,30 @@ export class EditorClient extends LumenizeClient {
   @mesh
   handleSpellFindings(documentId: string, findings: SpellFinding[]) {
     this.#documents.get(documentId)?.onSpellFindings?.(findings);
+  }
+
+  // Store results from admin operations
+  readonly adminResults: Array<{ reset: true; previousContent: string } | Error> = [];
+
+  /**
+   * Admin force reset - demonstrates operation chaining
+   *
+   * Uses the Capability Trust pattern: admin().forceReset()
+   * - admin() checks permissions and returns AdminInterface
+   * - forceReset() is called on the returned interface
+   * - All operations execute in a single round trip
+   */
+  adminForceReset(documentId: string) {
+    // Only admins can get the admin interface; once granted, its methods are trusted
+    this.lmz.call(
+      'DOCUMENT_DO',
+      documentId,
+      this.ctn<DocumentDO>().admin().forceReset(),
+      this.ctn().handleAdminResult(this.ctn().$result)
+    );
+  }
+
+  handleAdminResult(result: { reset: true; previousContent: string } | Error) {
+    this.adminResults.push(result);
   }
 }

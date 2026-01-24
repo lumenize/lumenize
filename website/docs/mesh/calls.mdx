@@ -207,12 +207,13 @@ Chain multiple operations in a single round trip.
 
 Chaining is particularly useful for the [Capability Trust](./security#capability-trust) pattern — get a restricted interface, then call methods on it:
 
-```typescript @skip-check
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
 // Only admins can get the admin interface; once granted, its methods are trusted
 this.lmz.call(
   'DOCUMENT_DO',
-  id,
-  this.ctn<DocumentDO>().admin().forceReset()
+  documentId,
+  this.ctn<DocumentDO>().admin().forceReset(),
+  // ...
 );
 ```
 
@@ -224,7 +225,7 @@ All chained operations execute in a single round trip.
 
 Nest operations so the result of one becomes the argument to another:
 
-```typescript @skip-check
+```typescript @check-example('packages/mesh/test/for-docs/calls/calculator-client.ts')
 // Inner operations execute first, results feed into outer operation
 this.lmz.call(
   'CALCULATOR_DO',
@@ -315,15 +316,17 @@ See [Managing Context](./managing-context) for the full context strategy.
 
 Sometimes, like in fan-out scenarios, you want to explicitly start a fresh call context rather than continue it across a multi-hop call chain. Use the `{ newChain: true }` option:
 
-```typescript @skip-check
-// Fan-out to subscribers — each gets a fresh context
-for (const subscriberId of subscribers) {
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+// Note: In production, you'd skip the originator to avoid redundant updates
+for (const clientId of subscribers) {
+  const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
+  // Start new chain - this is a server-initiated push, not a response to client
   this.lmz.call(
     'LUMENIZE_CLIENT_GATEWAY',
-    subscriberId,
-    this.ctn<EditorClient>().handleUpdate(change),
+    clientId,
+    remote,
     undefined,
-    { newChain: true }  // Subscribers don't receive caller's context
+    { newChain: true }
   );
 }
 ```

@@ -13,6 +13,10 @@
         "class_name": "DocumentDO"
       },
       {
+        "name": "CALCULATOR_DO",
+        "class_name": "CalculatorDO"
+      },
+      {
         "name": "LUMENIZE_AUTH",
         "class_name": "LumenizeAuth"
       }
@@ -33,6 +37,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["LumenizeAuth"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["CalculatorDO"]
     }
   ],
   "vars": {
