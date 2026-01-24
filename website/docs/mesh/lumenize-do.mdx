@@ -5,63 +5,11 @@ description: Stateful Durable Objects as mesh nodes
 
 # LumenizeDO
 
-`LumenizeDO` is the base class for **stateful mesh nodes** running as Cloudflare Durable Objects.
-
-## Installation
-
-```bash @skip-check
-npm install @lumenize/mesh
-```
-
-## Quick Start
-
-```typescript @skip-check
-import { LumenizeDO, mesh } from '@lumenize/mesh';
-
-class UsersDO extends LumenizeDO<Env> {
-  // Lifecycle hook for initialization (runs once, wrapped in blockConcurrencyWhile)
-  async onStart() {
-    this.svc.sql`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `;
-  }
-
-  @mesh
-  addUser(email: string): { id: string; email: string } {
-    const id = crypto.randomUUID();
-    this.svc.sql`
-      INSERT INTO users (id, email, created_at)
-      VALUES (${id}, ${email}, ${Date.now()})
-    `;
-    return { id, email };
-  }
-
-  @mesh
-  getUser(id: string) {
-    const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
-    return rows[0];
-  }
-}
-```
-
-:::warning Don't Write Custom Constructors
-Always use `async onStart()` for initialization — it's automatically wrapped in `blockConcurrencyWhile` so it's guaranteed to complete before the DO does anything else.
-:::
+`LumenizeDO` is the base class for **stateful mesh nodes** running as Cloudflare Durable Objects. For a hands-on introduction, see the [Getting Started Guide](./getting-started).
 
 ## Mesh API
 
-`LumenizeDO` shares the standard [Mesh API](./mesh-api) with all node types:
-
-- **`this.lmz`** — Identity properties and `call()` for mesh communication
-- **`@mesh` decorator** — Mark methods as mesh entry points
-- **`onBeforeCall()`** — Class-wide access control hook
-- **`this.ctn<T>()`** — Create type-safe continuations
-
-See [Mesh API](./mesh-api) for full documentation.
+`LumenizeDO` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh` decorator for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations.
 
 ## NADIS Auto-Injection
 
@@ -184,52 +132,12 @@ In the wrong example, the `await` opens the input gate, allowing another request
 
 ## Testing
 
-Test DOs using `@lumenize/testing`. The key feature is **tunneling** — direct access to DO internals from your test:
+Test DOs using `@lumenize/testing` with **tunneling** — direct access to DO internals from your test. See **[@lumenize/testing](/docs/testing/usage)** for complete patterns including browser simulation, WebSocket testing, and multi-instance scenarios.
 
-```typescript @skip-check
-import { it, expect } from 'vitest';
-import { createTestingClient } from '@lumenize/testing';
-import { UsersDO } from '../src/users-do';
+## `onStart` Lifecycle Hook
 
-it('adds and retrieves users', async () => {
-  using client = createTestingClient<typeof UsersDO>('USERS_DO', 'test-instance');
-
-  // Setup: pre-populate storage directly
-  await client.ctx.storage.put('initialized', true);
-
-  // Exercise: call methods via RPC
-  const user = await client.addUser('test@example.com');
-  expect(user.email).toBe('test@example.com');
-
-  // Verify: inspect storage directly
-  const rows = await client.ctx.storage.sql.exec('SELECT * FROM users').toArray();
-  expect(rows).toHaveLength(1);
-});
-```
-
-See **[@lumenize/testing](/docs/testing/usage)** for complete patterns including Browser simulation, WebSocket testing, and multi-instance scenarios.
+Override `async onStart()` for initialization instead of writing a custom constructor. It's automatically wrapped in `blockConcurrencyWhile`, guaranteeing it completes before the DO handles any requests — perfect for creating tables, loading config with a fetch, or other things you would normally do in a constructor.
 
 ## API Reference
 
-### Class: `LumenizeDO<EnvType>`
-
-**Constructor:**
-```typescript @skip-check
-constructor(ctx: DurableObjectState, env: EnvType)
-```
-*Do not override — use `onStart()` for initialization.*
-
-**Properties:**
-- `ctx: DurableObjectState` — Cloudflare DO state
-- `env: EnvType` — Worker environment bindings
-- `svc: LumenizeServices` — Auto-injected NADIS services
-- `lmz: LmzApi` — Mesh communication API
-
-**Overridable Methods:**
-- `onStart()` — Async initialization hook (runs once, wrapped in `blockConcurrencyWhile`)
-- `onBeforeCall()` — Hook for class-wide access control (access context via `this.lmz.callContext`)
-
-**Inherited Methods:**
-- `ctn<T>()` — Create typed continuation builder
-
-See [Mesh API](./mesh-api#api-reference) for shared types (`@mesh`, `CallContext`, `LmzApi`).
+See [Mesh API](./mesh-api#api-reference) for the full `LumenizeDO` class reference including `ctx`, `env`, `svc`, `lmz`, `onStart()`, `onBeforeCall()`, and `ctn<T>()`.
