@@ -9,7 +9,6 @@ let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
 let typedocFetchSidebar: any[] = [];
 let typedocStructuredCloneSidebar: any[] = [];
-let typedocAlarmsSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -46,12 +45,6 @@ try {
   console.warn('⚠️  TypeDoc structured-clone sidebar not yet generated, using empty sidebar');
 }
 
-try {
-  typedocAlarmsSidebar = require('./docs/alarms/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded alarms sidebar, items:', typedocAlarmsSidebar?.length);
-} catch (e) {
-  console.warn('⚠️  TypeDoc alarms sidebar not yet generated, using empty sidebar');
-}
 
 /**
  * Recursively transform TypeDoc sidebar items to customize labels.
@@ -332,18 +325,6 @@ const sidebars: SidebarsConfig = {
       label: 'Alarms',
       items: [
         'alarms/index',
-        ...(typedocAlarmsSidebar && typedocAlarmsSidebar.length > 0
-          ? [wrapInApiReference(typedocAlarmsSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-
-    // Lumenize (umbrella package)
-    {
-      type: 'category',
-      label: 'Lumenize',
-      items: [
-        'lumenize/introduction',
       ],
     },
 

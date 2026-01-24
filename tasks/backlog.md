@@ -6,6 +6,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] We have TypeDoc auto generation for the older packages but we decided not to use that and added API references into the docs for the newer packages. Confirm that alarms, fetch, and sql have what they need and confirm that the rest of mesh has what it needs in the hand written docs.
+
 - [ ] Code review and simplification pass for all mesh code (following alarms.ts pattern)
   - **Context**: Successfully simplified `alarms.ts` from ~570 to 363 lines (36% reduction)
   - **Patterns to look for**:

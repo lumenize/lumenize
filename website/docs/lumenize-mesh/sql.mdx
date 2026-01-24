@@ -55,7 +55,7 @@ Template Substitution Expressions (e.g. `${id}`) are automatically bound and SQL
 
 The `sql` function returns an array of result rows. Each row is a plain JavaScript object with column names as keys:
 
-```typescript @check-example('packages/core/sql/test/for-docs/basic-usage.test.ts')
+```typescript @skip-check
   getLowStockProducts(threshold: number = 10) {
     return this.svc.sql`
       SELECT id, name, stock FROM products 

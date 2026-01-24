@@ -459,9 +459,9 @@ stubs can't be serialized, they'd be lost when the DO hibernates anyway. Even
 with hibernating WebSockets, you'd still need to keep the DO instance alive and 
 the RPC connection open to use callbacks.
 
-`@lumenize/mesh` now solves all of this with `LumenizeClient` — supporting
-hibernating WebSockets, no dangling resources, and full bidirectional communication.
-See the [Lumenize Mesh documentation](/docs/lumenize-mesh) for details.
+To be fair, until we release LumenizeBase, which solves all of this (supports 
+hibernating WebSockets, no dangling resources, etc.) we aren't showing an 
+equivalent Lumenize way to support any server to client updates. Stay tuned.
 
 **Bottom line**: Function callbacks provide a syntactically elegant way for the 
 server to call the client, but require a `setTimeout()` to prevent losing the 
