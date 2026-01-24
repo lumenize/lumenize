@@ -4,11 +4,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Find and remove all blockConcurrencyWhile except the wrapper for the onStart lifecycle hook. If we want fire and forget, just use a promise with a .then and .catch.
-
-- [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
-- [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
-
 ## Lumenize Mesh
 
 - [ ] Code review and simplification pass for all mesh code (following alarms.ts pattern)
@@ -56,11 +51,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Token refresh testing with cookie simulation
   - RPC access to DO internals for verification
   - Document `WebSocket` injection pattern (LumenizeClient must support this like AgentClient does)
-- [ ] Implement onStart with auto blockConcurrencyWhile
-- [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
-- [ ] Document our identity propogation as better than init(). init() breaks the mold of just access don't create DOs.
 
-- [ ] Implement generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and `using sub = client.subscribe(...)` calls
+- [ ] Implement generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and what's returned from the subscription `using sub = client.subscribe(...)` calls
 
 - [ ] Refactor getting-started guide to use native pub/sub once implemented
   - Current implementation manually manages subscribers Set in storage
@@ -68,18 +60,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Will simplify DocumentDO significantly (no more #broadcastContent, subscriber management)
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
-
-- [ ] Add `{ twoOneWayCalls: true }` option to `this.lmz.call()` config parameter [LM: This may be outdated. You can just do a fire and forget on the caller side and then call back independently on the callee side.
-  - Opt-in two one-way call mode for cost optimization on known slow operations
-  - Caller gets immediate ACK, real response comes via callback
-  - Useful for external API calls where you don't want DO wall-clock billing while waiting
-
-- [ ] Consider auto-switch to two one-way mode
-  - The original use case for this is when a caller is waiting on a Gateway response but the client is in the 5 second grace period, but this could be useful in general. For the Gateway situation, the callee knows it's a long running operation and could immediately respond with "switching to two one-way calls".
-  - For other scenarios, the callee would have to notice that the handler was taking a long time to resolve and send the "switching to two one-way calls" message. How long?
-  - Caller infrastructure recognizes this and waits for callback instead of blocking
-  - Prevents cascading latency when multiple DOs call the same just-disconnected client
-  - More complex but elegant — only pays the cost when needed
 
 - [ ] Consider further decoupling LumenizeClient token refresh from `@lumenize/auth`
   - Current design: `refresh: string | () => Promise<string>` (docs updated 2025-01-14)
@@ -114,6 +94,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Current approach**: User code maintains a registry and routes incoming calls by id (see getting-started guide)
   - **Future consideration**: If pattern proves common, consider building routing/registry into LumenizeClient base class
 
+- [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
+
 ## LumenizeBase NADIS modules
 
 - [ ] mcp
@@ -125,12 +107,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 
 ## Testing & Quality
-
-- [ ] Show that private methods are not available over Lumenize RPC
-
-- [ ] Test websocket-shim throws when passed http[s] urls (requires changing matrix tests)
-
-- [ ] Test in production on Cloudflare (not just local with vitest)
 
 - [ ] Add consistent debug logging across all Lumenize packages
   - Currently only added debug logging where we actively debugged issues
@@ -281,6 +257,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
 ## Blocked / Maybe later
+
+- [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
+
+- [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 
 - [ ] Refactor to use `using` keyword for Workers RPC stubs (Explicit Resource Management)
   - Cloudflare added support in Feb 2025: https://developers.cloudflare.com/changelog/2025-02-28-wrangler-v4-rc/#the-using-keyword-from-explicit-resource-management
