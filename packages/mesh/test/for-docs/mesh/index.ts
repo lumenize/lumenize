@@ -4,6 +4,7 @@
  * Re-exports DO classes for wrangler bindings and handles routing.
  */
 
+import { env } from 'cloudflare:workers';
 import { routeDORequest } from '@lumenize/utils';
 import {
   LumenizeAuth,
@@ -18,22 +19,20 @@ export { LumenizeClientGateway, LumenizeAuth };
 export { DocumentDO } from './document-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
 
+// Create auth routes and middleware once at module level
+const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+const authRoutes = createAuthRoutes(env, { redirect: '/app' });
+const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
+const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
+
 // Worker entry point
 export default {
-  async fetch(request: Request, env: Env) {
-    // Get public keys from env
-    const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-
+  async fetch(request: Request) {
     // Handle auth routes (/auth/email-magic-link, /auth/magic-link, /auth/refresh-token, /auth/logout)
-    const authRoutes = createAuthRoutes(env, { redirect: '/app' });
     const authResponse = await authRoutes(request);
     if (authResponse) {
       return authResponse;
     }
-
-    // Create auth middleware for WebSocket and HTTP requests
-    const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
-    const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
 
     const response = await routeDORequest(request, env, {
       prefix: 'gateway',

@@ -67,14 +67,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Function form: Custom refresh logic returning token string directly
   - Consider: Should we support additional response shapes for string form (configurable field name)?
 
-- [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
-  - Wraps `routeDORequest` but requires instance **names** only (no ids)
-  - `routeDORequest` keeps `doInstanceNameOrId` for low-level flexibility
-  - Will likely become the **only** way people connect into the mesh
-  - Includes auth middleware + gateway routing
-  - Some LumenizeClient/Gateway testing may be deferred until this is working
-  - Update getting-started.mdx to use it
-
 - [ ] Add method annotations to distinguish three types of methods in classes extending LumenizeClient, LumenizeBase, or LumenizeWorker, where appropriate:
   - `@inbound`, `@downstream`, or `@callable` — Methods meant to be called by mesh nodes pushing to the client (server → client)
   - `@result` — Methods that handle responses from calls this client initiated
@@ -257,6 +249,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
 ## Blocked / Maybe later
+
+- [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
+  - Wraps `routeDORequest` but requires instance **names** only (no ids)
+  - `routeDORequest` keeps `doInstanceNameOrId` for low-level flexibility
+  - Will likely become the **only** way people connect into the mesh
+  - Includes auth middleware + gateway routing
+  - Some LumenizeClient/Gateway testing may be deferred until this is working
+  - Update getting-started.mdx to use it
 
 - [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
 

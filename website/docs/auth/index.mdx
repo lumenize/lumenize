@@ -116,14 +116,15 @@ await fetch('/auth/logout', {
 Use auth middleware to verify access tokens on protected routes. Both HTTP and WebSocket middleware accept an array of public keys for [zero-downtime key rotation](#key-rotation):
 
 ```typescript @skip-check
+import { env } from 'cloudflare:workers';
 import { createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
 
-// Both middlewares accept an array of public keys for zero-downtime rotation
+// Create once at module level - both accept arrays for zero-downtime key rotation
 const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-
 const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
 const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
 
+// In fetch handler:
 const response = await routeDORequest(request, env, {
   onBeforeRequest: httpAuth,
   onBeforeConnect: wsAuth
@@ -195,26 +196,26 @@ Requires `AUTH_TEST_MODE="true"` in environment.
 Use `createAuthRoutes` to expose auth endpoints with clean URLs:
 
 ```typescript @skip-check
+import { env } from 'cloudflare:workers';
 import { createAuthRoutes, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
 import { routeDORequest } from '@lumenize/utils';
 
+// Create routes and middleware once at module level (not per request)
+const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+const authRoutes = createAuthRoutes(env, {
+  redirect: '/app',  // Required: where to redirect after magic link
+  cors: { origin: ['https://app.example.com'] }
+});
+const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
+const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
+
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
     // Auth routes - public, clean URLs (/auth/magic-link, /auth/refresh-token, etc.)
-    const authRoutes = createAuthRoutes(env, {
-      redirect: '/app',  // Required: where to redirect after magic link
-      cors: { origin: ['https://app.example.com'] }
-      // All config options are passed to Auth DO:
-      // issuer, audience, accessTokenTtl, refreshTokenTtl, magicLinkTtl, rateLimitPerHour
-    });
     const authResponse = await authRoutes(request);
     if (authResponse) return authResponse;
 
     // Protected routes use middleware
-    const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-    const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
-    const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
-
     return routeDORequest(request, env, {
       onBeforeRequest: httpAuth,
       onBeforeConnect: wsAuth,
