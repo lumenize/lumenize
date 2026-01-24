@@ -4,7 +4,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] Find and remove all blockConcurrencyWhile. If we want fire and forget, just use a promise with a .then and .catch.
+- [ ] Find and remove all blockConcurrencyWhile except the wrapper for the onStart lifecycle hook. If we want fire and forget, just use a promise with a .then and .catch.
 
 - [ ] Do some analysis on this and our current code: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/#always-await-rpc-calls
 - [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
