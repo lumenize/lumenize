@@ -44,6 +44,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Discovery flow: existing user adds new email, links to same account
 
 - [ ] Create `website/docs/lumenize-mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient
+  - We already do most of this in the test/for-docs/getting-started. The only additional thing we should show in this doc is direct setting and inspecting storage via the testing client
   - Similar to `/docs/testing/agents.mdx` but for mesh clients
   - Show multi-user scenarios with separate `Browser` instances
   - Token refresh testing with cookie simulation
