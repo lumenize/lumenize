@@ -20,12 +20,10 @@ NADIS (Not A DI System) provides **zero-boilerplate dependency injection** via `
 Services are accessed via `this.svc`. Some are built-in, others require a side-effect import:
 
 ```typescript @skip-check
-import '@lumenize/alarms';  // Side-effect import registers alarms
-
 class MyDO extends LumenizeDO<Env> {
   doSomething() {
-    this.svc.sql`SELECT * FROM items`;  // ✅ Built-in (no import needed)
-    this.svc.alarms.schedule(60, this.ctn().handleTask({ id: 1 }));  // ✅ Requires import above
+    this.svc.sql`SELECT * FROM items`;  // ✅ Built-in
+    this.svc.alarms.schedule(60, this.ctn().handleTask({ id: 1 }));  // ✅ Built-in
   }
 }
 ```
@@ -35,7 +33,7 @@ class MyDO extends LumenizeDO<Env> {
 | Package | Service | Import Required | Purpose |
 |---------|---------|-----------------|---------|
 | `@lumenize/mesh` | `sql` | No (built-in) | SQL template literal tag |
-| `@lumenize/alarms` | `alarms` | Yes | Alarm scheduling |
+| `@lumenize/mesh` | `alarms` | No (built-in) | Alarm scheduling |
 | `@lumenize/fetch` | `fetch` | Yes | Proxy fetch (cost optimization) |
 
 :::note Logging
@@ -54,13 +52,8 @@ Parameters are automatically bound and SQL-injection safe. See **[SQL Template L
 ### Service: `alarms` Scheduling
 
 ```typescript @skip-check
-import '@lumenize/alarms';
-
 class MyDO extends LumenizeDO<Env> {
-  // Delegate alarm() to the alarms service
-  async alarm() {
-    await this.svc.alarms.alarm();
-  }
+  // No alarm() override needed - LumenizeDO handles it automatically!
 
   scheduleTask() {
     // Schedule with continuations (type-safe!)
@@ -80,7 +73,7 @@ class MyDO extends LumenizeDO<Env> {
 }
 ```
 
-See [Alarms](/docs/alarms) for cron scheduling, recurring tasks, and advanced patterns.
+See [Alarms](./alarms) for cron scheduling, recurring tasks, and advanced patterns.
 
 ## Storage Patterns
 
@@ -97,7 +90,7 @@ this.ctx.storage.kv.delete('key');
 // ✅ Correct - this.svc.sql uses synchronous ctx.storage.sql.exec under the covers
 const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
 
-// ❌ Wrong - legacy async (never use)
+// ❌ Wrong - legacy async (don't use)
 await this.ctx.storage.put('key', value);
 ```
 

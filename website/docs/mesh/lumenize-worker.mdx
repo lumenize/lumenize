@@ -12,51 +12,21 @@ description: Stateless Workers as mesh nodes for external API calls and compute 
 - **Fan-out/fan-in** — Distribute work across multiple Workers
 - **Validation/transformation** — Process data without persistence
 
-## Installation
+For a hands-on introduction, see the [Getting Started Guide](./getting-started).
 
-```bash @skip-check
-npm install @lumenize/mesh
-```
+## Mesh API
 
-## Quick Start
-
-```typescript @skip-check
-import { LumenizeWorker, mesh } from '@lumenize/mesh';
-
-export class SpellCheckWorker extends LumenizeWorker<Env> {
-  @mesh
-  async check(content: string): Promise<SpellError[]> {
-    const response = await fetch('https://api.spellcheck.example/check', {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.env.SPELLCHECK_API_KEY}`
-      },
-      body: JSON.stringify({ text: content }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Spell check failed: ${response.status}`);
-    }
-
-    return response.json();
-  }
-}
-```
-
-:::note No Initialization Needed
-Workers are stateless — no storage, no persistent state. Unlike `LumenizeDO`, there's no `onStart()` lifecycle hook or initialization needed. Just define your `@mesh` methods.
-:::
+`LumenizeWorker` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh` decorator for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations. Note that `this.lmz.instanceName` is always `undefined` since Workers have no instance name.
 
 ## Key Differences from LumenizeDO
 
 | Aspect | LumenizeDO | LumenizeWorker |
 |--------|------------|----------------|
 | **Storage** | SQL/KV via `ctx.storage` | None |
-| **Instance** | Named instances | Single global instance |
+| **Instance** | Named instances | Ephemeral |
 | **Consistency** | Strong | N/A (stateless) |
 | **Async** | Methods should be sync | Async allowed (no consistency concern) |
-| **NADIS** | Full (`this.svc`) | Partial (no storage-dependent services) |
+| **NADIS** | Full (`this.svc`) | None (no storage-dependent services) |
 | **Cost** | Wall-clock billing | CPU-only billing |
 
 ### No Instance Name
@@ -72,36 +42,21 @@ this.lmz.call(
 );
 ```
 
-### Async Methods Allowed
+### Async Methods Are Fine
 
-Unlike DOs, Workers don't have consistency constraints, so async methods are fine:
+Unlike DOs, Workers don't have consistency constraints from input gates, so async methods are safe:
 
 ```typescript @skip-check
 class MyWorker extends LumenizeWorker<Env> {
   @mesh
   async processData(data: InputData): Promise<OutputData> {
-    // Async operations are safe here
+    // Async operations are safe here — no race condition risk
     const external = await fetch('https://api.example.com/process');
     const transformed = await this.transformAsync(data, external);
     return transformed;
   }
 }
 ```
-
-## Mesh API
-
-`LumenizeWorker` shares the standard [Mesh API](./mesh-api) with all node types:
-
-- **`this.lmz`** — Identity properties and `call()` for mesh communication
-- **`@mesh` decorator** — Mark methods as mesh entry points
-- **`onBeforeCall()`** — Class-wide access control hook
-- **`this.ctn<T>()`** — Create type-safe continuations
-
-See [Mesh API](./mesh-api) for full documentation.
-
-:::note Worker Identity
-For Workers, `this.lmz.instanceName` is always `undefined` since Workers are stateless singletons.
-:::
 
 ## Common Patterns
 
@@ -155,119 +110,10 @@ class ImageProcessingWorker extends LumenizeWorker<Env> {
 }
 ```
 
-### Fan-Out/Fan-In
-
-Distribute work across multiple parallel calls:
-
-```typescript @skip-check
-class AggregatorWorker extends LumenizeWorker<Env> {
-  @mesh
-  async aggregate(sources: string[]): Promise<AggregatedData> {
-    // Fan-out: fetch from all sources in parallel
-    const promises = sources.map(source => 
-      fetch(source).then(r => r.json())
-    );
-
-    const results = await Promise.allSettled(promises);
-
-    // Fan-in: combine results
-    const successful = results
-      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
-      .map(r => r.value);
-
-    return { 
-      data: successful, 
-      failed: results.length - successful.length 
-    };
-  }
-}
-```
-
 ### Two One-Way Call Pattern
 
-For long-running external calls (>10s recommended, consider for >2s), use the "two one-way call" pattern: DO fires-and-forgets to Worker, Worker calls back with result. This shifts wall-clock billing from the DO to CPU-only billing on the Worker.
-
-See [Making Calls: Cost Optimization](./calls#cost-optimization-two-one-way-calls) for the full pattern and guidance.
-
-## Logging
-
-For debug logging in Workers, use the standalone `@lumenize/debug` package:
-
-```typescript @skip-check
-import { debug } from '@lumenize/debug';
-
-export class SpellCheckWorker extends LumenizeWorker<Env> {
-  @mesh
-  async check(content: string): Promise<SpellError[]> {
-    const log = debug('SpellCheckWorker.check');
-    log.info('Checking content', { length: content.length });
-
-    const response = await fetch('https://api.spellcheck.example/check', {
-      method: 'POST',
-      body: JSON.stringify({ text: content }),
-    });
-
-    const errors = await response.json();
-    log.info('Check complete', { errorCount: errors.length });
-    return errors;
-  }
-}
-```
-
-See [Debug](./debug) for configuration and filtering options.
-
-:::note No NADIS for Workers
-Workers don't have access to NADIS services (`this.svc`) since all current NADIS services (sql, alarms, fetch) require DO storage.
-:::
-
-## Worker Entry Point Setup
-
-Workers are exported from your main entry file and handle HTTP routing:
-
-```typescript @skip-check
-// src/index.ts
-import { LumenizeAuth } from '@lumenize/mesh';
-import { routeDORequest } from '@lumenize/utils';
-import { DocumentDO } from './document-do';
-import { SpellCheckWorker } from './spellcheck-worker';
-
-// Export all classes that need bindings (DOs and Workers)
-export { LumenizeAuth, DocumentDO, SpellCheckWorker };
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Route to DOs
-    const response = await routeDORequest(request, env, { cors: true });
-    if (response) return response;
-
-    // Direct Worker endpoint (if needed)
-    const url = new URL(request.url);
-    if (url.pathname.startsWith('/api/worker/')) {
-      // Handle Worker-specific HTTP endpoints
-    }
-
-    return new Response('Not Found', { status: 404 });
-  }
-};
-```
+For long-running external calls, use the "two one-way call" pattern: DO fires-and-forgets to Worker, Worker calls back with result. This shifts wall-clock billing from the DO to CPU-only billing on the Worker. See [Making Calls: Two One-Way Calls](./calls#two-one-way-calls) for the full pattern.
 
 ## API Reference
 
-### Class: `LumenizeWorker<EnvType>`
-
-**Constructor:**
-```typescript @skip-check
-constructor(env: EnvType)
-```
-
-**Properties:**
-- `env: EnvType` — Worker environment bindings
-- `lmz: LmzApi` — Mesh communication API
-
-**Overridable Methods:**
-- `onBeforeCall()` — Hook for class-wide access control (access context via `this.lmz.callContext`)
-
-**Inherited Methods:**
-- `ctn<T>()` — Create typed continuation builder
-
-See [Mesh API](./mesh-api#api-reference) for shared types (`@mesh`, `CallContext`, `LmzApi`).
+See [Mesh API](./mesh-api#api-reference) for the full `LumenizeWorker` class reference including `env`, `lmz`, `onBeforeCall()`, and `ctn<T>()`.

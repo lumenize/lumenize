@@ -821,22 +821,22 @@ class LumenizeClient {
 - [x] (code review) Message queueing implemented: `lumenize-client.ts` lines 832-872 - queues up to 100 messages, 30s timeout for callRaw, flushes on `connection_status` receipt
 - [x] (code review) Gateway builds verified callContext from WebSocket attachment (not from client message): `lumenize-client-gateway.ts` lines 509-550 - uses `attachment.userId`, `attachment.claims` from verified JWT
 - [x] (code review) Token refresh before onLoginRequired: `lumenize-client.ts` lines 586-602 (`#handleTokenExpired`) calls `#refreshToken()` before reconnect; only fires `onLoginRequired` on 401 from refresh endpoint
-
+- [x] (search and review) `blockConcurrencyWhile` is not used by call. I mistakenly did that for the current implementation because I didn't realize we could get fire and forget behavior with simple use of Promise/then/catch
+- [x] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` 
+- [x] "handler without @mesh: local handlers work without @mesh decorator"
+- [x] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
+- [x] (vitest-pool) `this.lmz.callContext` is automatically restored for continuations (no manual capture needed) even when there is a round-trip remote call. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "context preservation: callContext available in handlers after remote call"
+- [x] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth). **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "newChain: true breaks call chain so recipients see DO as origin"
+- [x] (vitest-pool) Custom error classes registered on globalThis preserve their type across the mesh. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "operation chaining: non-admin gets AdminAccessError with preserved type"
+- [x] (vitest-pool) Two one-way calls pattern (DO→Worker→DO) works correctly for avoiding wall-clock billing. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "two one-way calls: DO→Worker→DO avoids wall-clock billing"
 ### Pending Verification ⏳
 
-- [ ] (live) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
-- [X] (search and review) `blockConcurrencyWhile` is not used by call. I mistakenly did that for the current implementation because I didn't realize we could get fire and forget behavior with simple use of Promise/then/catch
+- [ ] (vitest-pool) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
 - [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
-- [X] (vitest-pool) `this.lmz.callContext` is automatically restored for continuations (no manual capture needed) even when there is a round-trip remote call. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "context preservation: callContext available in handlers after remote call"
 - [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
 - [ ] (review and vitest-pool) Clients must be authenticated (verify auth middleware is enforced)
-- [X] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "handler without @mesh: local handlers work without @mesh decorator"
-- [ ] calls to `client.myMethod` don't go through access control checks. We want to be able to call them from browser-based code.
 - [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
 - [ ] Messages are queued when the client is in a reconnection grace period with various timing scenarios (tab wake, immediate send, etc.). Needs analysis.
-- [X] (vitest-pool) Verify `{ newChain: true }` option in `lmz.call()` starts a fresh call chain with new `callContext` (origin becomes the calling node, state is empty, no inherited originAuth). **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "newChain: true breaks call chain so recipients see DO as origin"
-- [X] (vitest-pool) Custom error classes registered on globalThis preserve their type across the mesh. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "operation chaining: non-admin gets AdminAccessError with preserved type"
-- [X] (vitest-pool) Two one-way calls pattern (DO→Worker→DO) works correctly for avoiding wall-clock billing. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "two one-way calls: DO→Worker→DO avoids wall-clock billing"
 
 ## References
 

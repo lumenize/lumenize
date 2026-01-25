@@ -42,6 +42,8 @@ this.lmz.call(
 );
 ```
 
+The `this.ctn<T>()` method creates a **continuation** — a type-safe, serializable description of work to be done elsewhere. See [Continuations](./continuations) for the full guide.
+
 **Use when:** You don't need the result, the callee will call you back separately, or deliver the result to someplace else.
 
 ### With Response Handler
@@ -131,8 +133,6 @@ async computeAnalytics(
 
 Results don't have to return to the caller. If results are destined for a client, the Worker can deliver them directly.
 
-Note how we extract the originating client's ID from `callChain` — an array that grows with each hop, tracking every node in the current call chain (`[origin, hop1, hop2, ...]`):
-
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
 // In DocumentDO — initiates the call, returns immediately
 @mesh
@@ -155,6 +155,8 @@ update(content: string) {
   // DO returns immediately — no wall-clock charges while waiting
 }
 ```
+
+In the above example, notice how we extract the originating client's ID from `this.lmz.callContext.callChain` — an array that grows with each hop, tracking every node in the current call chain (`[origin, hop1, hop2, ...]`). See [Managing Context](./managing-context) for the full guide on `this.lmz.callContext`.
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/spell-check-worker.ts')
 // In SpellCheckWorker — does async work, sends result directly to client

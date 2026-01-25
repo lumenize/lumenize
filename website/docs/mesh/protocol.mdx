@@ -12,25 +12,18 @@ This document is a work in progress. It captures current implementation decision
 
 ## Overview
 
-Lumenize Mesh is a **peer mesh network** where Durable Objects, Workers, and browser clients communicate as equals. Unlike traditional client-server architectures, any node can call any other node (subject to access control).
+Lumenize Mesh is a **peer mesh network** where Durable Objects, Workers, and clients hosted outside of Cloudflare (browser, node.js, bun, etc.) participate as equals. Unlike traditional client-server architectures, any node can call any other node (subject to access control).
 
 ### Design Principles
 
 1. **Symmetric Communication** — No inherent client/server distinction. All nodes use the same call envelope format.
 2. **Transport Agnostic** — Same serialization works over Workers RPC and WebSocket.
 3. **Rich Types** — Full JavaScript type support (Maps, Sets, Dates, Errors with causes, cycles, aliases) extends to all nodes including browsers.
-4. **Security by Default** — Origin authentication propagates through call chains; every node enforces its own access control.
+4. **Security by Default** — Origin authentication propagates through call chains; every node enforces its own access control (think zero-trust).
 
 ### Comparison with Cap'n Web
 
-[Cap'n Web](https://github.com/cloudflare/capnweb) uses a similar tuple-based encoding but has a traditional client/server model. Lumenize Mesh differs in:
-
-| Aspect | Cap'n Web | Lumenize Mesh |
-|--------|-----------|---------------|
-| Topology | Client-Server | Peer Mesh |
-| Call Pattern | Push-Pull-Resolve-Release | Single envelope with handler continuation |
-| Browser Support | No | Yes (via LumenizeClient) |
-| Capability Model | Import/Export tables | Inline capability objects |
+[Cap'n Web](https://github.com/cloudflare/capnweb) uses a similar tuple-based encoding but has more traditional client/server tendencies. Workers, RpcTargets, Durable Objects, and especially Clients are all coded in different ways. The type support for calls from Clients is a subset of the types that Workers RPC supports. In Lumenize Mesh, Workers, DOs, and Clients are all coded the same way (extend the correct base class). All have access to the same `LmzApi`. Calls all support the same rich types.
 
 ---
 

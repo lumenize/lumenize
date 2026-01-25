@@ -177,6 +177,7 @@ const sidebars: SidebarsConfig = {
           label: 'Built-in Services',
           items: [
             'mesh/sql',
+            'mesh/alarms',
             'mesh/debug',
           ],
         },
@@ -315,15 +316,6 @@ const sidebars: SidebarsConfig = {
         ...(typedocFetchSidebar && typedocFetchSidebar.length > 0
           ? [wrapInApiReference(typedocFetchSidebar, 'API Reference')]
           : []),
-      ],
-    },
-
-    // Alarms
-    {
-      type: 'category',
-      label: 'Alarms',
-      items: [
-        'alarms/index',
       ],
     },
 

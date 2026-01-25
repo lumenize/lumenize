@@ -1,0 +1,418 @@
+---
+title: Alarms
+description: Powerful alarm scheduling for Cloudflare Durable Objects with continuations and cron support
+---
+
+# Alarms
+
+Alarm scheduling for Cloudflare Durable Objects using [continuations](./continuations). Multiplexes single native alarm to give you unlimited scheduled tasks.
+
+## Features
+
+- **[Continuations](./continuations)** - Type-safe, serializable task handlers
+- **Multiple schedules** - Specific time, seconds from now, or cron expressions
+- **SQL persistence** - Survives DO eviction and restarts
+- **Built-in to LumenizeDO** - Automatically available via `this.svc.alarms`
+- **Testing support** - Manual alarm triggering for tests
+
+## Why Alarms Matter
+
+Cloudflare provides only **one native alarm** per Durable Object. Lumenize Alarms multiplexes this single alarm to manage unlimited scheduled tasks with type-safe continuations.
+
+**Without Lumenize Alarms:**
+```typescript @skip-check
+// Only one alarm at a time
+await ctx.storage.setAlarm(Date.now() + 60000); // task1
+await ctx.storage.setAlarm(Date.now() + 30000); // overwrites task1!
+```
+
+**With Lumenize Alarms:**
+```typescript @skip-check
+// Unlimited tasks with automatic multiplexing and type safety
+this.svc.alarms.schedule(60, this.ctn().handleTask1({ id: 1 }));
+this.svc.alarms.schedule(new Date('2026-01-01'), this.ctn().handleTask2({ id: 2 }));
+this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
+// All three tasks execute at their scheduled times
+```
+
+## Quick Start
+
+```typescript @skip-check
+import { LumenizeDO, mesh } from '@lumenize/mesh';
+
+class UserDO extends LumenizeDO<Env> {
+  @mesh
+  completeSignup(email: string) {
+    // Schedule a check-in email for 3 days from now
+    this.svc.alarms.schedule(
+      3 * 24 * 60 * 60,  // 3 days in seconds
+      this.ctn().sendCheckInEmail(email)  // Context embedded in continuation
+    );
+  }
+
+  // Handler executes when alarm fires
+  // No @mesh decorator needed - alarms are internal
+  sendCheckInEmail(email: string) {
+    console.log(`Sending check-in email to ${email}`);
+    // "You've been using Acme AI for 3 days..."
+  }
+}
+```
+
+:::tip No alarm() override needed
+`LumenizeDO` automatically delegates to `this.svc.alarms.alarm()` - you don't need to override the `alarm()` method.
+:::
+
+## Scheduling Tasks
+
+### Seconds From Now
+
+Schedule a task to run after a delay:
+
+```typescript @skip-check
+// Schedule task for 60 seconds from now
+this.svc.alarms.schedule(
+  60,  // 60 seconds
+  this.ctn().handleTask({ name: 'send-email' })
+);
+```
+
+### At a Specific Date/Time
+
+Schedule a task at a specific moment:
+
+```typescript @skip-check
+// Schedule one-year anniversary message
+const oneYearAnniversary = new Date(signupDate);
+oneYearAnniversary.setFullYear(oneYearAnniversary.getFullYear() + 1);
+this.svc.alarms.schedule(
+  oneYearAnniversary,
+  this.ctn().sendAnniversaryEmail(email, signupDate.toISOString())
+);
+```
+
+### Recurring Tasks (Cron)
+
+Schedule recurring tasks with [cron expressions](https://en.wikipedia.org/wiki/Cron):
+
+```typescript @skip-check
+// Daily at midnight UTC
+this.svc.alarms.schedule(
+  '0 0 * * *',
+  this.ctn().dailyReport()
+);
+```
+
+## Rich Context in Handler Continuation
+
+Pass as many parameters as you want of any [structured-cloneable types](/docs/structured-clone#supported-types) (Date, Set, Map, cycles, aliases, etc.). All chaining and nesting capabilities of [continuations](./continuations) are also available to you, although they are less valuable in the alarm context, compared to when making a complex call over the wire in a single round trip.
+
+```typescript @skip-check
+class MyDO extends LumenizeDO<Env> {
+  scheduleTasks() {
+    this.svc.alarms.schedule(
+      60,
+      this.ctn().taskWithArgs('value1', new Date(), new Set([1, 2]))
+    );
+  }
+
+  taskWithArgs(str: string, date: Date, set: Set<number>) {
+    console.log('Task with args:', str, date, set);
+  }
+}
+```
+
+## Managing Schedules
+
+### Get Schedule Information
+
+```typescript @skip-check
+// Schedule returns schedule info
+const schedule = this.svc.alarms.schedule(
+  60,
+  this.ctn().handleTask()
+);
+
+console.log(schedule);
+// {
+//   id: 'abc123',
+//   operationChain: [...],
+//   time: 1699564860000,
+//   type: 'delayed',
+//   delayInSeconds: 60
+// }
+```
+
+### Cancel a Schedule
+
+```typescript @skip-check
+// Save the schedule ID
+const schedule = this.svc.alarms.schedule(/* ... */);
+
+// Later, cancel it
+this.svc.alarms.cancelSchedule(schedule.id);
+```
+
+### List All Schedules
+
+```typescript @skip-check
+const schedules = this.svc.alarms.getSchedules();
+console.log(schedules);
+// [
+//   {
+//     id: 'abc123',
+//     operationChain: [...],
+//     type: 'delayed',
+//     time: 1699564860000,
+//     delayInSeconds: 60
+//   },
+//   {
+//     id: 'def456',
+//     operationChain: [...],
+//     type: 'cron',
+//     time: 1699574400000,
+//     cron: '0 0 * * *'
+//   }
+// ]
+```
+
+### Get Specific Schedule
+
+```typescript @skip-check
+const schedule = this.svc.alarms.getSchedule('abc123');
+if (schedule) {
+  console.log('Found schedule:', schedule);
+} else {
+  console.log('Schedule not found or already executed');
+}
+```
+
+## Advanced: Retry with Backoff
+
+LumenizeDO's `alarm()` handler short circuits the native retry behavior by catching errors. We do this so you have more control. Below is the pattern we recommend if you want retry behavior.
+
+```typescript @skip-check
+class ResilientDO extends LumenizeDO<Env> {
+  startWithRetry(url: string, maxRetries = 3) {
+    this.svc.alarms.schedule(
+      5, // Initial delay
+      this.ctn().fetchWithRetry(url, 0, maxRetries)
+    );
+  }
+
+  async fetchWithRetry(url: string, attempt: number, maxRetries: number) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      // Success!
+      console.log('Fetch succeeded on attempt:', attempt + 1);
+      this.ctx.storage.kv.put('last-success', Date.now());
+    } catch (error) {
+      if (attempt >= maxRetries) {
+        console.error('Max retries reached:', error);
+        return;
+      }
+
+      // Exponential backoff: 10s, 20s, 40s
+      const backoffSeconds = 10 * Math.pow(2, attempt);
+      console.log(`Retry ${attempt + 1}/${maxRetries} in ${backoffSeconds}s`);
+
+      this.svc.alarms.schedule(
+        backoffSeconds,
+        this.ctn().fetchWithRetry(url, attempt + 1, maxRetries)
+      );
+    }
+  }
+}
+```
+
+## Testing Alarms
+
+The `triggerAlarms(count?)` method is the core execution logic used both by the production `alarm()` handler and exposed for testing. Without calling it, alarms remain queued waiting for Cloudflare to fire the native alarm - which can be unpredictable in test environments.
+
+With [@lumenize/testing](/docs/testing/usage), you get direct access to DO internals via tunneling:
+
+```typescript @skip-check
+test('alarm executes handler', async () => {
+  const { tunnel } = await createTestHarness(env.MY_DO, 'test-instance');
+
+  // Schedule via tunnel (direct access to this.svc.alarms)
+  // handleTask sets ctx.storage.kv.put('task-result', 'completed')
+  await tunnel.svc.alarms.schedule(60, tunnel.ctn().handleTask({ id: 1 }));
+
+  // Trigger immediately (bypasses native alarm timing)
+  await tunnel.svc.alarms.triggerAlarms();
+
+  // Verify via tunnel
+  expect(tunnel.ctx.storage.kv.get('task-result')).toBe('completed');
+});
+```
+
+If not using `@lumenize/testing`, expose `triggerAlarms()` via a `@mesh` method:
+
+```typescript @skip-check
+class MyDO extends LumenizeDO<Env> {
+  // Expose for testing only - consider guarding in production
+  @mesh
+  async testTriggerAlarms(count?: number) {
+    return this.svc.alarms.triggerAlarms(count);
+  }
+}
+```
+
+## How It Works
+
+1. **Persistence**: All schedules stored in SQL table `__lmz_alarms` with a `time` column for next execution
+2. **Unified scheduling**: Cron alarms store their next execution time alongside one-time alarms - no special handling needed
+3. **Multiplexing**: Cloudflare's single native alarm is set to the earliest `time` across all alarm types
+4. **Execution**: When native alarm fires, all overdue tasks execute via continuations
+5. **Cron renewal**: After a cron task executes, its `time` is updated to the next occurrence (one-time alarms are deleted)
+
+## Comparison to Native Alarm
+
+| Feature | Native Alarm | Lumenize Alarms |
+|---------|-------------|------------------|
+| **Max alarms** | 1 per DO | Unlimited |
+| **Cron support** | No | Yes |
+| **Type safety** | No | Yes (via continuations) |
+| **Testing** | Real time only | Manual triggers |
+
+## Acknowledgment to Actors Alarms
+
+The core implementation is based on the Alarms functionality in [`@cloudflare/actors`](https://www.npmjs.com/package/@cloudflare/actors) with these enhancements:
+
+- **Continuations** - Type-safe handlers instead of string handler method names
+- **Flexible Handler Signatures** - Instead of a single context object
+- **Rich Types** - Context parameters support full structured-clone
+- **Built-in to LumenizeDO** - No need to write an `alarm()` handler delegate
+- **Testing support** - `triggerAlarms()` for reliable alarm testing
+
+## API Reference
+
+### Class: `Alarms`
+
+Available via `this.svc.alarms` on any `LumenizeDO` subclass.
+
+#### `schedule(when, continuation, options?)`
+
+Schedule a task to execute in the future.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `when` | `Date \| number \| string` | When to execute: `Date` for specific time, `number` for seconds from now, `string` for cron expression |
+| `continuation` | `Continuation` | The operation chain to execute, created with `this.ctn()` |
+| `options.id` | `string?` | Optional custom ID (auto-generated if not provided) |
+
+**Returns:** `Schedule` - The created schedule object
+
+#### `getSchedule(id)`
+
+Get a scheduled task by ID.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | The schedule ID |
+
+**Returns:** `Schedule | undefined`
+
+#### `getSchedules(criteria?)`
+
+Get scheduled tasks matching the given criteria.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `criteria.id` | `string?` | Filter by ID |
+| `criteria.type` | `'scheduled' \| 'delayed' \| 'cron'?` | Filter by type |
+| `criteria.timeRange.start` | `Date?` | Filter by time range start |
+| `criteria.timeRange.end` | `Date?` | Filter by time range end |
+
+**Returns:** `Schedule[]`
+
+```typescript @skip-check
+// Get all schedules
+const all = this.svc.alarms.getSchedules();
+
+// Get only cron schedules
+const crons = this.svc.alarms.getSchedules({ type: 'cron' });
+
+// Get schedules in time range
+const upcoming = this.svc.alarms.getSchedules({
+  timeRange: { start: new Date(), end: new Date(Date.now() + 3600000) }
+});
+```
+
+#### `cancelSchedule(id)`
+
+Cancel a scheduled task.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | `string` | The schedule ID to cancel |
+
+**Returns:** `Schedule | undefined` - The cancelled schedule, or undefined if not found
+
+#### `triggerAlarms(count?)`
+
+Execute pending alarms. Used internally by `alarm()` and for testing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `count` | `number?` | Number of alarms to execute (default: all overdue) |
+
+**Returns:** `Promise<string[]>` - IDs of executed alarms
+
+### Type: `Schedule`
+
+Union type representing all schedule types. All three have a `time` field (Unix timestamp in seconds) representing when the alarm should fire next. This unified design enables simple sorting to find the next alarm regardless of type.
+
+When you pass a `Date` to `schedule()`, it's converted via `Math.floor(date.getTime() / 1000)`.
+
+:::note Why seconds, not milliseconds?
+Cloudflare's native `setAlarm(scheduledTimeMs)` uses milliseconds, but Lumenize uses seconds. Native alarms have no where near millisecond granularity, so milliseconds give a false sense of precision. For this reason, among others, for recurring cron alarms, we also recommend a max frequency of a few alarms per minute.
+:::
+
+```typescript @skip-check
+type Schedule = ScheduledAlarm | DelayedAlarm | CronAlarm;
+```
+
+### Type: `ScheduledAlarm`
+
+One-time alarm at a specific time. Created when you pass a `Date` to `schedule()`.
+
+```typescript @skip-check
+interface ScheduledAlarm {
+  id: string;
+  type: 'scheduled';
+  time: number;           // Unix timestamp (seconds)
+  operationChain: OperationChain;
+}
+```
+
+### Type: `DelayedAlarm`
+
+One-time alarm after a delay. Created when you pass a `number` (seconds) to `schedule()`. The `time` is computed as `Date.now() + delayInSeconds * 1000`.
+
+```typescript @skip-check
+interface DelayedAlarm {
+  id: string;
+  type: 'delayed';
+  time: number;           // Unix timestamp (seconds)
+  delayInSeconds: number; // Original delay (preserved for inspection)
+  operationChain: OperationChain;
+}
+```
+
+### Type: `CronAlarm`
+
+Recurring alarm. Created when you pass a cron string to `schedule()`. After each execution, `time` is updated to the next occurrence.
+
+```typescript @skip-check
+interface CronAlarm {
+  id: string;
+  type: 'cron';
+  time: number;           // Unix timestamp for next execution (seconds)
+  cron: string;           // Cron expression
+  operationChain: OperationChain;
+}
+```

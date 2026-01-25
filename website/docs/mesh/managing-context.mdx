@@ -108,7 +108,7 @@ Context is maintained in most cases, but if a node hibernates/evicts while `awai
 
 For restart-safe patterns:
 - Use **[Two One-Way Calls](./calls#two-one-way-calls)** — both kinds of contexts are fully contained in the outgoing call. When the call back is made, it'll reawaken the instance. The `lmz.callContext` is automatically restored, and you can include whatever context you want in the callback.
-- Use **[@lumenize/alarms](/docs/alarms)** — persists alarm handler continuation including `lmz.callContext` and your continuation parameters to storage so they are available when the alarm triggers.
+- Use **[Alarms](./alarms)** — persists alarm handler continuation including `lmz.callContext` and your continuation parameters to storage so they are available when the alarm triggers.
 
 ## Manual Persistence (Power Users)
 
