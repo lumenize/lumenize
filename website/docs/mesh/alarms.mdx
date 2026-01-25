@@ -37,26 +37,20 @@ this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
 
 ## Quick Start
 
-```typescript @skip-check
-import { LumenizeDO, mesh } from '@lumenize/mesh';
-
-class UserDO extends LumenizeDO<Env> {
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
   @mesh
-  completeSignup(email: string) {
-    // Schedule a check-in email for 3 days from now
+  scheduleFollowUp(email: string, delaySeconds: number) {
     this.svc.alarms.schedule(
-      3 * 24 * 60 * 60,  // 3 days in seconds
-      this.ctn().sendCheckInEmail(email)  // Context embedded in continuation
+      delaySeconds,
+      this.ctn().sendFollowUpEmail(email)
     );
   }
 
   // Handler executes when alarm fires
   // No @mesh decorator needed - alarms are internal
-  sendCheckInEmail(email: string) {
-    console.log(`Sending check-in email to ${email}`);
-    // "You've been using Acme AI for 3 days..."
+  sendFollowUpEmail(email: string) {
+    this.ctx.storage.kv.put('lastEmailSent', email);
   }
-}
 ```
 
 :::tip No alarm() override needed
@@ -69,196 +63,173 @@ class UserDO extends LumenizeDO<Env> {
 
 Schedule a task to run after a delay:
 
-```typescript @skip-check
-// Schedule task for 60 seconds from now
-this.svc.alarms.schedule(
-  60,  // 60 seconds
-  this.ctn().handleTask({ name: 'send-email' })
-);
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  scheduleDelayedReminder(message: string, delaySeconds: number) {
+    // Schedule task for N seconds from now
+    this.svc.alarms.schedule(
+      delaySeconds,
+      this.ctn().handleReminder(message)
+    );
+  }
 ```
 
 ### At a Specific Date/Time
 
 Schedule a task at a specific moment:
 
-```typescript @skip-check
-// Schedule one-year anniversary message
-const oneYearAnniversary = new Date(signupDate);
-oneYearAnniversary.setFullYear(oneYearAnniversary.getFullYear() + 1);
-this.svc.alarms.schedule(
-  oneYearAnniversary,
-  this.ctn().sendAnniversaryEmail(email, signupDate.toISOString())
-);
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  scheduleAtTime(message: string, when: Date) {
+    // Schedule at a specific date/time
+    this.svc.alarms.schedule(
+      when,
+      this.ctn().handleReminder(message)
+    );
+  }
 ```
 
 ### Recurring Tasks (Cron)
 
 Schedule recurring tasks with [cron expressions](https://en.wikipedia.org/wiki/Cron):
 
-```typescript @skip-check
-// Daily at midnight UTC
-this.svc.alarms.schedule(
-  '0 0 * * *',
-  this.ctn().dailyReport()
-);
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  scheduleDailyDigest() {
+    // Daily at midnight UTC
+    this.svc.alarms.schedule(
+      '0 0 * * *',
+      this.ctn().handleDailyDigest()
+    );
+  }
 ```
 
 ## Rich Context in Handler Continuation
 
 Pass as many parameters as you want of any [structured-cloneable types](/docs/structured-clone#supported-types) (Date, Set, Map, cycles, aliases, etc.). All chaining and nesting capabilities of [continuations](./continuations) are also available to you, although they are less valuable in the alarm context, compared to when making a complex call over the wire in a single round trip.
 
-```typescript @skip-check
-class MyDO extends LumenizeDO<Env> {
-  scheduleTasks() {
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  scheduleWithRichContext(str: string, date: Date, set: Set<number>) {
     this.svc.alarms.schedule(
       60,
-      this.ctn().taskWithArgs('value1', new Date(), new Set([1, 2]))
+      this.ctn().handleRichContext(str, date, set)
     );
   }
 
-  taskWithArgs(str: string, date: Date, set: Set<number>) {
-    console.log('Task with args:', str, date, set);
+  handleRichContext(str: string, date: Date, set: Set<number>) {
+    this.ctx.storage.kv.put('richContext', { str, date, setSize: set.size });
   }
-}
 ```
 
 ## Managing Schedules
 
 ### Get Schedule Information
 
-```typescript @skip-check
-// Schedule returns schedule info
-const schedule = this.svc.alarms.schedule(
-  60,
-  this.ctn().handleTask()
-);
-
-console.log(schedule);
-// {
-//   id: 'abc123',
-//   operationChain: [...],
-//   time: 1699564860000,
-//   type: 'delayed',
-//   delayInSeconds: 60
-// }
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  scheduleAndReturnInfo(message: string, delaySeconds: number) {
+    const schedule = this.svc.alarms.schedule(
+      delaySeconds,
+      this.ctn().handleReminder(message)
+    );
+    return schedule;
+  }
 ```
+
+The returned schedule object contains:
+- `id` - Unique identifier for the schedule
+- `type` - One of `'delayed'`, `'scheduled'`, or `'cron'`
+- `time` - Unix timestamp (seconds) when the alarm fires next
+- `operationChain` - The continuation to execute
 
 ### Cancel a Schedule
 
-```typescript @skip-check
-// Save the schedule ID
-const schedule = this.svc.alarms.schedule(/* ... */);
-
-// Later, cancel it
-this.svc.alarms.cancelSchedule(schedule.id);
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  cancelScheduleById(id: string) {
+    return this.svc.alarms.cancelSchedule(id);
+  }
 ```
 
 ### List All Schedules
 
-```typescript @skip-check
-const schedules = this.svc.alarms.getSchedules();
-console.log(schedules);
-// [
-//   {
-//     id: 'abc123',
-//     operationChain: [...],
-//     type: 'delayed',
-//     time: 1699564860000,
-//     delayInSeconds: 60
-//   },
-//   {
-//     id: 'def456',
-//     operationChain: [...],
-//     type: 'cron',
-//     time: 1699574400000,
-//     cron: '0 0 * * *'
-//   }
-// ]
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  getAllSchedules() {
+    return this.svc.alarms.getSchedules();
+  }
 ```
 
 ### Get Specific Schedule
 
-```typescript @skip-check
-const schedule = this.svc.alarms.getSchedule('abc123');
-if (schedule) {
-  console.log('Found schedule:', schedule);
-} else {
-  console.log('Schedule not found or already executed');
-}
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  getScheduleById(id: string) {
+    return this.svc.alarms.getSchedule(id);
+  }
 ```
 
 ## Advanced: Retry with Backoff
 
 LumenizeDO's `alarm()` handler short circuits the native retry behavior by catching errors. We do this so you have more control. Below is the pattern we recommend if you want retry behavior.
 
-```typescript @skip-check
-class ResilientDO extends LumenizeDO<Env> {
-  startWithRetry(url: string, maxRetries = 3) {
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+  @mesh
+  startTaskWithRetry(taskName: string, maxRetries = 3) {
     this.svc.alarms.schedule(
-      5, // Initial delay
-      this.ctn().fetchWithRetry(url, 0, maxRetries)
+      1, // Initial delay of 1 second
+      this.ctn().executeWithRetry(taskName, 0, maxRetries)
     );
   }
 
-  async fetchWithRetry(url: string, attempt: number, maxRetries: number) {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  executeWithRetry(taskName: string, attempt: number, maxRetries: number) {
+    // Simulate a task that might fail
+    const shouldFail = this.ctx.storage.kv.get<boolean>('simulateFailure') ?? false;
 
-      // Success!
-      console.log('Fetch succeeded on attempt:', attempt + 1);
-      this.ctx.storage.kv.put('last-success', Date.now());
-    } catch (error) {
-      if (attempt >= maxRetries) {
-        console.error('Max retries reached:', error);
-        return;
-      }
-
-      // Exponential backoff: 10s, 20s, 40s
-      const backoffSeconds = 10 * Math.pow(2, attempt);
-      console.log(`Retry ${attempt + 1}/${maxRetries} in ${backoffSeconds}s`);
+    if (shouldFail && attempt < maxRetries) {
+      // Task failed, schedule retry with exponential backoff
+      const backoffSeconds = 2 * Math.pow(2, attempt); // 2s, 4s, 8s
+      this.ctx.storage.kv.put('lastAttempt', { taskName, attempt, backoffSeconds });
 
       this.svc.alarms.schedule(
         backoffSeconds,
-        this.ctn().fetchWithRetry(url, attempt + 1, maxRetries)
+        this.ctn().executeWithRetry(taskName, attempt + 1, maxRetries)
       );
+    } else {
+      // Success or max retries reached
+      this.ctx.storage.kv.put('taskCompleted', { taskName, attempt, success: !shouldFail });
     }
   }
-}
 ```
 
 ## Testing Alarms
 
 The `triggerAlarms(count?)` method is the core execution logic used both by the production `alarm()` handler and exposed for testing. Without calling it, alarms remain queued waiting for Cloudflare to fire the native alarm - which can be unpredictable in test environments.
 
-With [@lumenize/testing](/docs/testing/usage), you get direct access to DO internals via tunneling:
+Expose `triggerAlarms()` via a `@mesh` method to enable testing:
 
-```typescript @skip-check
-test('alarm executes handler', async () => {
-  const { tunnel } = await createTestHarness(env.MY_DO, 'test-instance');
-
-  // Schedule via tunnel (direct access to this.svc.alarms)
-  // handleTask sets ctx.storage.kv.put('task-result', 'completed')
-  await tunnel.svc.alarms.schedule(60, tunnel.ctn().handleTask({ id: 1 }));
-
-  // Trigger immediately (bypasses native alarm timing)
-  await tunnel.svc.alarms.triggerAlarms();
-
-  // Verify via tunnel
-  expect(tunnel.ctx.storage.kv.get('task-result')).toBe('completed');
-});
-```
-
-If not using `@lumenize/testing`, expose `triggerAlarms()` via a `@mesh` method:
-
-```typescript @skip-check
-class MyDO extends LumenizeDO<Env> {
-  // Expose for testing only - consider guarding in production
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
   @mesh
-  async testTriggerAlarms(count?: number) {
+  triggerAlarmsForTest(count?: number) {
     return this.svc.alarms.triggerAlarms(count);
   }
-}
+```
+
+Then use [@lumenize/testing](/docs/testing/usage) to schedule alarms and verify they execute:
+
+```typescript @check-example('packages/mesh/test/for-docs/alarms/index.test.ts')
+    using client = createTestingClient<typeof ReminderDO>('REMINDER_DO', 'quick-start');
+
+    // Schedule a follow-up email for 60 seconds from now
+    await client.scheduleFollowUp('user@example.com', 60);
+
+    // Trigger the alarm immediately for testing
+    await client.triggerAlarmsForTest(1);
+
+    // Verify the handler executed
+    const lastEmail = await client.ctx.storage.kv.get('lastEmailSent');
+    expect(lastEmail).toBe('user@example.com');
 ```
 
 ## How It Works
@@ -329,17 +300,17 @@ Get scheduled tasks matching the given criteria.
 
 **Returns:** `Schedule[]`
 
-```typescript @skip-check
-// Get all schedules
-const all = this.svc.alarms.getSchedules();
+```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
+    // Get all schedules
+    const all = this.svc.alarms.getSchedules();
 
-// Get only cron schedules
-const crons = this.svc.alarms.getSchedules({ type: 'cron' });
+    // Get only cron schedules
+    const crons = this.svc.alarms.getSchedules({ type: 'cron' });
 
-// Get schedules in time range
-const upcoming = this.svc.alarms.getSchedules({
-  timeRange: { start: new Date(), end: new Date(Date.now() + 3600000) }
-});
+    // Get schedules in time range
+    const upcoming = this.svc.alarms.getSchedules({
+      timeRange: { start: new Date(), end: new Date(Date.now() + 3600000) }
+    });
 ```
 
 #### `cancelSchedule(id)`
@@ -372,7 +343,7 @@ When you pass a `Date` to `schedule()`, it's converted via `Math.floor(date.getT
 Cloudflare's native `setAlarm(scheduledTimeMs)` uses milliseconds, but Lumenize uses seconds. Native alarms have no where near millisecond granularity, so milliseconds give a false sense of precision. For this reason, among others, for recurring cron alarms, we also recommend a max frequency of a few alarms per minute.
 :::
 
-```typescript @skip-check
+```typescript @check-example('packages/mesh/src/alarms.ts')
 type Schedule = ScheduledAlarm | DelayedAlarm | CronAlarm;
 ```
 
@@ -380,11 +351,11 @@ type Schedule = ScheduledAlarm | DelayedAlarm | CronAlarm;
 
 One-time alarm at a specific time. Created when you pass a `Date` to `schedule()`.
 
-```typescript @skip-check
-interface ScheduledAlarm {
+```typescript @check-example('packages/mesh/src/alarms.ts')
+export interface ScheduledAlarm {
   id: string;
   type: 'scheduled';
-  time: number;           // Unix timestamp (seconds)
+  time: number;
   operationChain: OperationChain;
 }
 ```
@@ -393,12 +364,12 @@ interface ScheduledAlarm {
 
 One-time alarm after a delay. Created when you pass a `number` (seconds) to `schedule()`. The `time` is computed as `Date.now() + delayInSeconds * 1000`.
 
-```typescript @skip-check
-interface DelayedAlarm {
+```typescript @check-example('packages/mesh/src/alarms.ts')
+export interface DelayedAlarm {
   id: string;
   type: 'delayed';
-  time: number;           // Unix timestamp (seconds)
-  delayInSeconds: number; // Original delay (preserved for inspection)
+  time: number;
+  delayInSeconds: number;
   operationChain: OperationChain;
 }
 ```
@@ -407,12 +378,12 @@ interface DelayedAlarm {
 
 Recurring alarm. Created when you pass a cron string to `schedule()`. After each execution, `time` is updated to the next occurrence.
 
-```typescript @skip-check
-interface CronAlarm {
+```typescript @check-example('packages/mesh/src/alarms.ts')
+export interface CronAlarm {
   id: string;
   type: 'cron';
-  time: number;           // Unix timestamp for next execution (seconds)
-  cron: string;           // Cron expression
+  time: number;
+  cron: string;
   operationChain: OperationChain;
 }
 ```

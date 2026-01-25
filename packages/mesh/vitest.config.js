@@ -39,11 +39,13 @@ export default defineWorkersConfig({
           include: [
             'test/**/*.test.ts',
             'src/ocan/test/**/*.test.ts',
-            'test/for-docs/lumenize-do/**/*.test.ts'
+            'test/for-docs/lumenize-do/**/*.test.ts',
+            'test/for-docs/alarms/basic-usage.test.ts'
           ],
           exclude: [
             'test/for-docs/getting-started/**/*.test.ts',
-            'test/for-docs/calls/**/*.test.ts'
+            'test/for-docs/calls/**/*.test.ts',
+            'test/for-docs/alarms/index.test.ts'
           ],
           poolOptions: {
             workers: {
@@ -74,6 +76,19 @@ export default defineWorkersConfig({
           poolOptions: {
             workers: {
               wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
+            },
+          },
+        },
+      },
+      {
+        // Alarms e2e tests - uses its own test harness
+        extends: true,
+        test: {
+          name: 'alarms',
+          include: ['test/for-docs/alarms/index.test.ts'],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: './test/for-docs/alarms/test/wrangler.jsonc' },
             },
           },
         },
