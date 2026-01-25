@@ -14,10 +14,11 @@
  */
 
 import { it, expect, vi } from 'vitest';
-import { Browser } from '@lumenize/testing';
+import { createTestingClient, Browser } from '@lumenize/testing';
 import { testLoginWithMagicLink } from '@lumenize/auth';
 import { EditorClient } from './editor-client.js';
 import type { SpellFinding } from './spell-check-worker.js';
+import type { DocumentDO } from './document-do.js';
 
 it('collaborative document editing with multiple clients', async () => {
   const documentId = 'collab-doc-1';
@@ -97,6 +98,14 @@ it('collaborative document editing with multiple clients', async () => {
   await vi.waitFor(() => {
     expect(bobEvents.content[0]).toBe('The quick brown fox');
   });
+
+  // Verify Bob is subscribed via direct storage inspection
+  {
+    using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
+    const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
+    expect(subscribers).toBeInstanceOf(Set);
+    expect(subscribers!.has(`${bobUserId}.tab1`)).toBe(true);
+  }
 
   // ============================================
   // Phase 4: Bob continues the document, both receive the broadcast

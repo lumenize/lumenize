@@ -28,11 +28,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["LumenizeAuth"]
+      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO", "LumenizeAuth"]
     }
   ],
   "vars": {

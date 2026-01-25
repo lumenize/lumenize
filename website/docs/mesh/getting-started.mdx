@@ -287,7 +287,7 @@ export class EditorClient extends LumenizeClient {
 
 ## Step 4: Connect from the Browser
 
-```typescript @check-example('packages/mesh/test/for-docs/getting-started/getting-started.test.ts')
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.test.ts')
 // ...
 import { EditorClient } from './editor-client.js';
 import type { SpellFinding } from './spell-check-worker.js';
@@ -456,11 +456,7 @@ export default {
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO"]
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["LumenizeAuth"]
+      "new_sqlite_classes": ["LumenizeClientGateway", "DocumentDO", "LumenizeAuth"]
     }
   ],
   "vars": {
