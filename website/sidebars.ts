@@ -178,7 +178,6 @@ const sidebars: SidebarsConfig = {
           items: [
             'mesh/sql',
             'mesh/alarms',
-            'mesh/debug',
           ],
         },
         {
@@ -192,6 +191,7 @@ const sidebars: SidebarsConfig = {
         'mesh/creating-plugins',
         'mesh/security',
         'mesh/gateway',
+        'mesh/protocol',
         'mesh/testing',
       ],
     },
@@ -316,6 +316,15 @@ const sidebars: SidebarsConfig = {
         ...(typedocFetchSidebar && typedocFetchSidebar.length > 0
           ? [wrapInApiReference(typedocFetchSidebar, 'API Reference')]
           : []),
+      ],
+    },
+
+    // Debug
+    {
+      type: 'category',
+      label: 'Debug',
+      items: [
+        'debug/index',
       ],
     },
 

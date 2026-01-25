@@ -259,7 +259,7 @@ export class Fetch extends NadisPlugin {
     // Skip @mesh decorator check since this is an internal framework continuation
     const userContinuation = parse(continuation);
     const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
-    await (this.doInstance as any).__executeChain(filledChain, { requireMeshDecorator: false });
+    await (this.doInstance as any).__localChainExecutor(filledChain, { requireMeshDecorator: false });
   }
 }
 

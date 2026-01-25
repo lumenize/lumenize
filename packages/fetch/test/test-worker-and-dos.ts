@@ -1,5 +1,5 @@
 import '@lumenize/fetch';       // Registers fetch in this.svc
-import { LumenizeDO } from '@lumenize/mesh';
+import { LumenizeDO, mesh } from '@lumenize/mesh';
 import { FetchExecutorEntrypoint } from '@lumenize/fetch';
 import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
 import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
@@ -61,6 +61,7 @@ export class _TestSimpleDO extends LumenizeDO {
    * User's handler - receives the result directly (either from worker or timeout)
    * This is the only method the user needs to implement
    */
+  @mesh
   async handleFetchComplete(result: ResponseSync | Error, url: string): Promise<void> {
     const resultKey = `__test_result:${url}`;
     const serialized = await stringify(result);

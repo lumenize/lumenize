@@ -37,7 +37,7 @@ The Gateway instance name matches the client's `instanceName` configuration.
 
 ### Transparent Proxying
 
-Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSockets messages. This keeps Gateway simple and allows clients to act as true peers by defining any methods they want just like `LumenizeDO` and `LumenizeWorker` mesh nodes.
+Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSocket messages. This keeps Gateway simple and allows clients to act as true peers by defining any methods they want just like `LumenizeDO` and `LumenizeWorker` mesh nodes.
 
 ### Implications
 
@@ -50,8 +50,8 @@ Gateway doesn't interpret the calls passing through it — it simply forwards th
 - **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be several hundred milliseconds, but a hop in the same data center is typically less than ten milliseconds.
   
 - **Complexity**:
-  - **More complex**. A single client connecting to a single DO over a reconnecting WebSocket connection is simpler.
-  - **Simpler**. Having a client address look exactly like the address of other nodes in the mesh enables the simpler true-peer mental-model. Clients are not only coded like other mesh nodes, they are addressed in the same way. The upstream vs downstream distinction disappears. Moreover, once a client needs to communicate with two or more DOs, the need to maintain multiple connections erases the simplicity advantage of the single-DO use case.
+  - **More complex**. A single client connecting to a single DO over a reconnecting WebSocket connection is simpler. Once a client needs to communicate with two or more DOs, the need to maintain multiple connections erases the simplicity advantage of the single-DO use case.
+  - **Simpler**. Having a client address look exactly like the address of other nodes in the mesh enables the simpler true-peer mental-model. Clients are not only coded like other mesh nodes, they are addressed in the same way. The upstream vs downstream distinction disappears. 
 
 ## Derived Connection State
 
@@ -114,70 +114,4 @@ This ensures that `callContext.originAuth` always reflects the **actual authenti
 
 ## Wire Protocol
 
-The Gateway and Client communicate over WebSocket using JSON messages. Each message has a `type` field that determines how it's processed.
-
-:::note Serialization Format
-The `chain` and `result` fields use [@lumenize/structured-clone](/docs/structured-clone)'s `stringify()` format, which preprocesses values before JSON encoding. This preserves rich types (Dates, Maps, Sets, circular references, custom classes) but is not human-readable. See [Structured Clone: Serialization](/docs/structured-clone#serialization) for details.
-:::
-
-### Message Types
-
-| Type | Direction | Purpose |
-|------|-----------|---------|
-| `call` | Client→Gateway | Client initiating a mesh call |
-| `call_response` | Gateway→Client | Response to a client-initiated call |
-| `incoming_call` | Gateway→Client | Mesh node calling the client |
-| `incoming_call_response` | Client→Gateway | Client's response to an incoming call |
-| `connection_status` | Gateway→Client | Post-handshake status (sent immediately after connection) |
-
-### Message Formats
-
-**`call`** — Client initiating a call to a mesh node:
-```json @skip-check
-{
-  "type": "call",
-  "callId": "uuid",
-  "binding": "DOCUMENT_DO",
-  "instance": "doc-123",
-  "chain": { /* serialized operation chain */ }
-}
-```
-
-**`call_response`** — Gateway returning the result:
-```json @skip-check
-{
-  "type": "call_response",
-  "callId": "uuid",
-  "success": true,
-  "result": { /* or error if success: false */ }
-}
-```
-
-**`incoming_call`** — Mesh node calling the client:
-```json @skip-check
-{
-  "type": "incoming_call",
-  "callId": "uuid",
-  "chain": { /* serialized operation chain */ }
-}
-```
-
-**`incoming_call_response`** — Client responding to incoming call:
-```json @skip-check
-{
-  "type": "incoming_call_response",
-  "callId": "uuid",
-  "success": true,
-  "result": { /* or error if success: false */ }
-}
-```
-
-**`connection_status`** — Sent by Gateway immediately after WebSocket handshake:
-```json @skip-check
-{
-  "type": "connection_status",
-  "subscriptionsLost": false
-}
-```
-
-When `subscriptionsLost` is `true`, the client's `onSubscriptionsLost` callback fires after the connection is established, prompting resubscription to any active data streams.
+The Gateway and Client communicate over WebSocket using JSON messages. For complete message type definitions and serialization format details, see the [Protocol Specification](./protocol#websocket-wire-protocol).

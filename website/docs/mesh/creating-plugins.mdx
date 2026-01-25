@@ -350,28 +350,50 @@ describe('MyPlugin', () => {
 
 For integration testing with NADIS, extend `LumenizeDO` in your tests.
 
-## Real-World Examples
+## Real-World Example: @lumenize/fetch
 
-### Simple Function-Based
+The only true NADIS plugin currently provided by Lumenize is **[@lumenize/fetch](/docs/fetch)** — external API calls from Durable Objects.
 
-**`sql` and `debug`** (built into `@lumenize/mesh`)
+**Pattern**: Class extending `NadisPlugin` with multiple public methods (`proxy`, `direct`)
 
-- Pattern: Factory functions that return utilities
-- When to use: Simple helpers with no state
+**Key characteristics**:
+- Extends `NadisPlugin` for access to `this.ctx`, `this.svc`, and `this.doInstance`
+- Registers via `NadisPlugin.register('fetch', factory)`
+- Uses side-effect import: `import '@lumenize/fetch';`
+- Augments `LumenizeServices` via declaration merging for type safety
+- Depends on built-in `alarms` service for timeout handling
 
-### Class-Based with Dependencies
+```typescript @skip-check
+// From @lumenize/fetch/src/fetch.ts (simplified)
+import { NadisPlugin } from '@lumenize/mesh';
 
-**[Alarms](./alarms)** — Alarm scheduling
+export class Fetch extends NadisPlugin {
+  constructor(doInstance: any) {
+    super(doInstance);
 
-- Pattern: Class extending `NadisPlugin`, depends on `sql`
-- When to use: Stateful services with dependencies
+    // Eager dependency validation
+    if (!this.svc.alarms) {
+      throw new Error('Fetch requires alarms service');
+    }
+  }
 
-### Complex Multi-Method Plugin
+  proxy(request: string | RequestSync, continuation: any, options?: ProxyFetchWorkerOptions): string {
+    // DO-Worker architecture for cost-effective external API calls
+  }
+}
 
-**[@lumenize/fetch](/docs/fetch)** — External API calls
+declare global {
+  interface LumenizeServices {
+    fetch: Fetch;
+  }
+}
 
-- Pattern: Class with multiple public methods (`proxy`, `direct`)
-- When to use: Related functionality under one namespace
+NadisPlugin.register('fetch', (doInstance) => new Fetch(doInstance));
+```
+
+:::note Built-in Services
+While `sql` and `alarms` are available on `this.svc`, they are **not** NADIS plugins — they're built-in services registered directly in `LumenizeDO`. They're always available without any import. Use them as examples of the service pattern, but if you're creating a new plugin, follow the `@lumenize/fetch` pattern above.
+:::
 
 ## How NADIS Works
 

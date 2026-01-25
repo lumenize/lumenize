@@ -25,7 +25,7 @@ Continuations solve several problems in Durable Objects:
 
 ## The `this.ctn()` Factory
 
-Components extending `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`:
+You own classes that extend `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient`, have access to `this.ctn()`:
 
 ```typescript @skip-check
 // Typesafe: TypeScript knows RemoteDO's methods
@@ -83,7 +83,7 @@ This can be:
 On the receiving end, `executeOperationChain()` walks the chain:
 
 ```typescript @skip-check
-// Simplified execution logic
+// Conceptual execution logic
 let result = target;
 for (const op of chain.ops) {
   if (op.type === 'call') {
