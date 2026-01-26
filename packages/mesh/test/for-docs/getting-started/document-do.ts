@@ -27,7 +27,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     // Trigger spell check - worker sends results directly to originator
     const { callChain } = this.lmz.callContext;
     const clientId = callChain.at(-1)?.instanceName;
-    const documentId = this.lmz.instanceNameOrId!;
+    const documentId = this.lmz.instanceName!;
 
     if (clientId) {
       this.lmz.call(
@@ -53,7 +53,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   // unsubscribe() left as exercise for reader
 
   #broadcastContent(content: string) {
-    const documentId = this.lmz.instanceNameOrId!;
+    const documentId = this.lmz.instanceName!;
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
     // Note: In production, you'd skip the originator to avoid redundant updates
     for (const clientId of subscribers) {

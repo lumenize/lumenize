@@ -10,7 +10,7 @@ describe('routeDORequest integration tests', () => {
       
       const data = await response.json();
       expect(data.doType).toBe('MyDO');
-      expect(data.lumenizeHeaders.instanceNameOrId).toBe('test-instance');
+      expect(data.lumenizeHeaders.instanceName).toBe('test-instance');
       expect(data.lumenizeHeaders.bindingName).toBe('MY_DO');
     });
 
@@ -58,7 +58,7 @@ describe('routeDORequest integration tests', () => {
       
       const data = await response.json();
       expect(data.doType).toBe('MyDO');
-      expect(data.lumenizeHeaders.instanceNameOrId).toBe('prefixed-instance');
+      expect(data.lumenizeHeaders.instanceName).toBe('prefixed-instance');
     });
 
     it('should not route when prefix does not match', async () => {
@@ -80,7 +80,7 @@ describe('routeDORequest integration tests', () => {
       expect(data.agentHeaders.namespace).toBe('my-do'); // URL path segment
       
       // Should NOT have Lumenize headers
-      expect(data.lumenizeHeaders.instanceNameOrId).toBeNull();
+      expect(data.lumenizeHeaders.instanceName).toBeNull();
       expect(data.lumenizeHeaders.bindingName).toBeNull();
     });
   });

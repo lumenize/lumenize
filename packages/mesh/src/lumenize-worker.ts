@@ -37,13 +37,9 @@ export type { Continuation, AnyContinuation };
  * @example
  * ```typescript
  * export class MyWorker extends LumenizeWorker<Env> {
- *   constructor(ctx: ExecutionContext, env: Env) {
- *     super(ctx, env);
- *     this.lmz.init({ bindingName: 'MY_WORKER' });
- *   }
- *   
  *   async someMethod() {
  *     // Make RPC call to DO
+ *     // Identity is auto-initialized from envelope metadata
  *     await this.lmz.callRaw('USER_DO', 'user-123', this.ctn<UserDO>().getData());
  *   }
  * }
@@ -54,15 +50,15 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
 
   /**
    * Access Lumenize infrastructure: identity and RPC methods
-   * 
+   *
    * Provides clean abstraction over identity management and RPC infrastructure:
-   * - **Identity**: `bindingName`, `type` (instanceName/id/instanceNameOrId always undefined)
-   * - **RPC**: `callRaw()` (async), `call()` (async with continuations)
-   * - **Convenience**: `init()` to set bindingName
-   * 
+   * - **Identity**: `bindingName`, `type` (instanceName/id always undefined for Workers)
+   * - **RPC**: `callRaw()`, `call()`
+   *
    * Properties use closure storage (no persistence across requests).
-   * 
-   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
+   * Identity is set automatically from envelope metadata when receiving mesh calls.
+   *
+   * @see [Usage Examples](https://lumenize.com/docs/mesh/calls) - Complete tested examples
    */
   get lmz(): LmzApi {
     if (!this.#lmzApi) {
@@ -200,9 +196,9 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
 
     // 3. Auto-initialize from callee metadata if present
     if (envelope.metadata?.callee) {
-      this.lmz.init({
+      this.lmz.__init({
         bindingName: envelope.metadata.callee.bindingName,
-        // instanceNameOrId ignored for Workers (always undefined)
+        // instanceName ignored for Workers (always undefined)
       });
     }
 

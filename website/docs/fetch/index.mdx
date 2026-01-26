@@ -18,13 +18,11 @@ A de✨light✨ful way to make external API calls from Durable Objects without b
 
 ```typescript @skip-check
 import '@lumenize/fetch';  // Registers as NADIS service
-import '@lumenize/alarms';       // Required for timeout monitoring
+import '@lumenize/alarms'; // Required for timeout monitoring
 
-class MyDO extends LumenizeBase {
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    this.lmz.init({ bindingName: 'MY_DO' });
-  }
+class MyDO extends LumenizeDO {
+  // Identity is auto-initialized from headers (via routeDORequest)
+  // or from envelope metadata (via mesh calls)
 
   // Implement alarm handler (required for timeout monitoring)
   async alarm() {
@@ -33,15 +31,15 @@ class MyDO extends LumenizeBase {
 
   fetchUserData(userId: string) {
     // Fire and forget - result comes to handler later
-    const reqId = this.svc.proxyFetch(
+    const reqId = this.svc.fetch.proxy(
       `https://api.example.com/users/${userId}`,
       this.ctn().handleResult()  // Result implicitly passed as last parameter
     );
-    
+
     // Returns immediately with reqId (for logging/debugging)
     return reqId;
   }
-  
+
   handleResult(result: ResponseSync | Error) {
     if (result instanceof Error) {
       console.error('Fetch failed:', result);

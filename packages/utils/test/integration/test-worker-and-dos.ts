@@ -32,7 +32,8 @@ export class MyDO extends DurableObject<Env> {
       doType: 'MyDO',
       instanceId: this.ctx.id.toString(),
       lumenizeHeaders: {
-        instanceNameOrId: request.headers.get('x-lumenize-do-instance-name-or-id'),
+        // Header name stays x-lumenize-do-instance-name-or-id for backward compatibility
+        instanceName: request.headers.get('x-lumenize-do-instance-name-or-id'),
         bindingName: request.headers.get('x-lumenize-do-binding-name'),
       },
       agentHeaders: {

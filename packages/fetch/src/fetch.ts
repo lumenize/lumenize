@@ -34,10 +34,8 @@ export interface FetchMessage {
  * import { LumenizeDO } from '@lumenize/mesh';
  *
  * class MyDO extends LumenizeDO<Env> {
- *   constructor(ctx: DurableObjectState, env: Env) {
- *     super(ctx, env);
- *     this.lmz.init({ bindingName: 'MY_DO' });
- *   }
+ *   // Identity is auto-initialized from headers (via routeDORequest)
+ *   // or from envelope metadata (via mesh calls)
  *
  *   fetchData(url: string) {
  *     // Proxied fetch (DO → Worker → External API)
@@ -73,7 +71,7 @@ export class Fetch extends NadisPlugin {
    *
    * **Setup Required**:
    * 1. Your DO must extend `LumenizeDO`
-   * 2. Call `this.lmz.init({ bindingName })` in constructor
+   * 2. Identity must be initialized (via routeDORequest or mesh call)
    * 3. Import `@lumenize/fetch` (registers NADIS plugin)
    * 4. Export `FetchExecutorEntrypoint` from your worker
    * 5. Add service binding in wrangler.jsonc
@@ -105,9 +103,8 @@ export class Fetch extends NadisPlugin {
     if (!originBinding) {
       throw new Error(
         'Cannot use proxy() from DO without bindingName. ' +
-        "Assure DO's identity is initialized via automatic identity propogation by first being " +
-        "called via routeDORequest or this.lmz.call(). Failing that, directly initialize " +
-        "by calling this.lmz.init({ bindingName }) in constructor."
+        "Ensure DO's identity is initialized via automatic identity propagation by first being " +
+        "called via routeDORequest or this.lmz.call()."
       );
     }
 

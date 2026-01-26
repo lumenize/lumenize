@@ -8,7 +8,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const callee = env.TEST_DO.getByName('callee-do-1');
 
       // Initialize caller so it knows its identity
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-do-1' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-do-1' });
 
       // Make a call and get the callee's view of callContext
       const result = await caller.testCallRawWithContinuation(
@@ -32,7 +32,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('caller-callee-test-1');
       const callee = env.TEST_DO.getByName('callee-callee-test-1');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-callee-test-1' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-callee-test-1' });
 
       // getCalleeIdentity returns { bindingName, instanceName } from this.lmz
       const calleeIdentity = await caller.testCallRawWithOperationChain(
@@ -51,7 +51,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('chain-empty-1');
       const callee = env.TEST_DO.getByName('chain-empty-2');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'chain-empty-1' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'chain-empty-1' });
 
       const calleeContext = await caller.testCallRawWithOperationChain(
         'TEST_DO',
@@ -73,7 +73,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const doA = env.TEST_DO.getByName('chain-a');
 
       // Initialize A
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'chain-a' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'chain-a' });
 
       // A calls B via mesh, B then calls C and returns both contexts
       // We use testCallRawWithOperationChain to ensure we're going through mesh
@@ -112,7 +112,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const doA = env.TEST_DO.getByName('multi-hop-a');
 
       // Initialize A
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'multi-hop-a' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'multi-hop-a' });
 
       // A calls B's callAndReturnContext via mesh, which calls another DO
       const result = await doA.testCallRawWithOperationChain(
@@ -152,7 +152,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const worker = env.TEST_WORKER;
 
       // Initialize doA
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'do-worker-do-1' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'do-worker-do-1' });
 
       // doA calls Worker, Worker calls another DO
       const result = await doA.testCallRawWithOperationChain(
@@ -187,7 +187,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const doA = env.TEST_DO.getByName('caller-getter-1');
       const doB = env.TEST_DO.getByName('caller-getter-2');
 
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-getter-1' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-getter-1' });
 
       const caller = await doA.testCallRawWithOperationChain(
         'TEST_DO',
@@ -205,7 +205,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     it('callChain.at(-1) returns last hop in multi-hop chain', async () => {
       const doA = env.TEST_DO.getByName('caller-chain-1');
 
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-chain-1' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-chain-1' });
 
       // A → B → C: C's caller should be B
       // Call through mesh
@@ -232,7 +232,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     it('state modifications propagate to downstream calls', async () => {
       const doA = env.TEST_DO.getByName('state-prop-1');
 
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'state-prop-1' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'state-prop-1' });
 
       // Call through mesh
       const result = await doA.testCallRawWithOperationChain(
@@ -252,7 +252,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const doA = env.TEST_DO.getByName('state-empty-1');
       const doB = env.TEST_DO.getByName('state-empty-2');
 
-      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'state-empty-1' });
+      await doA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'state-empty-1' });
 
       const context = await doA.testCallRawWithOperationChain(
         'TEST_DO',
@@ -270,7 +270,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('mesh-security-1');
       const callee = env.TEST_DO.getByName('mesh-security-2');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'mesh-security-1' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'mesh-security-1' });
 
       // Try to call nonMeshMethod which lacks @mesh decorator
       await expect(
@@ -286,7 +286,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('mesh-allowed-1');
       const callee = env.TEST_DO.getByName('mesh-allowed-2');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'mesh-allowed-1' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'mesh-allowed-1' });
 
       // remoteEcho has @mesh decorator
       const result = await caller.testCallRawWithContinuation(
@@ -304,7 +304,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('guard-block-caller');
       const callee = env.TEST_DO.getByName('guard-block-callee');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'guard-block-caller' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-block-caller' });
 
       // Call guarded method without setting 'admin' role in state
       await expect(
@@ -320,7 +320,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('guard-allow-caller');
       const callee = env.TEST_DO.getByName('guard-allow-callee');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'guard-allow-caller' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-allow-caller' });
 
       // Call method that sets admin role in state before calling guarded method
       const result = await caller.testCallRawWithOperationChain(
@@ -339,7 +339,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('guard-auth-caller');
       const callee = env.TEST_DO.getByName('guard-auth-callee');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'guard-auth-caller' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-auth-caller' });
 
       // Without userId - should fail
       await expect(
@@ -355,7 +355,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('guard-async-caller');
       const callee = env.TEST_DO.getByName('guard-async-callee');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'guard-async-caller' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'guard-async-caller' });
 
       // Without valid token - should fail
       await expect(
@@ -375,7 +375,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('before-call-1');
       const callee = env.TEST_DO.getByName('before-call-2');
 
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'before-call-1' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'before-call-1' });
 
       // If onBeforeCall threw, this would fail
       const result = await caller.testCallRawWithContinuation(
@@ -394,8 +394,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const callerB = env.TEST_DO.getByName('als-isolation-caller-b');
       const callee = env.TEST_DO.getByName('als-isolation-callee');
 
-      await callerA.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'als-isolation-caller-a' });
-      await callerB.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'als-isolation-caller-b' });
+      await callerA.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als-isolation-caller-a' });
+      await callerB.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'als-isolation-caller-b' });
 
       // Make concurrent calls from different origins
       const [contextA, contextB] = await Promise.all([
@@ -428,8 +428,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const origin = env.TEST_DO.getByName('deep-interleave-origin');
       const intermediary = env.TEST_DO.getByName('deep-interleave-intermediary');
 
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'deep-interleave-origin' });
-      await intermediary.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'deep-interleave-intermediary' });
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'deep-interleave-origin' });
+      await intermediary.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'deep-interleave-intermediary' });
 
       // Origin calls intermediary, which then makes multiple concurrent calls
       // while checking its callContext at various points
@@ -478,8 +478,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const origin = env.TEST_DO.getByName('two-one-way-origin');
       const target = env.TEST_DO.getByName('two-one-way-target');
 
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-origin' });
-      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-target' });
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-origin' });
+      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-target' });
 
       // Clear any previous results
       await origin.clearTwoOneWayResult();
@@ -528,8 +528,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const origin = env.TEST_DO.getByName('two-one-way-caller-origin');
       const target = env.TEST_DO.getByName('two-one-way-caller-target');
 
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-caller-origin' });
-      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'two-one-way-caller-target' });
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-caller-origin' });
+      await target.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'two-one-way-caller-target' });
 
       await origin.clearTwoOneWayResult();
       await origin.initiateTwoOneWayCall('TEST_DO', 'two-one-way-caller-target', 'caller-test');
@@ -566,8 +566,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('context-capture-caller');
       const callee = env.TEST_DO.getByName('context-capture-callee');
 
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'context-capture-origin' });
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'context-capture-caller' });
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'context-capture-origin' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'context-capture-caller' });
 
       // Origin calls caller via mesh, caller then uses lmz.call() with a handler
       await origin.testCallRawWithOperationChain(
@@ -599,8 +599,8 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
       const caller = env.TEST_DO.getByName('interleave-capture-caller');
       const callee = env.TEST_DO.getByName('interleave-capture-callee');
 
-      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'interleave-capture-origin' });
-      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'interleave-capture-caller' });
+      await origin.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'interleave-capture-origin' });
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'interleave-capture-caller' });
 
       // Clear any previous results
       await caller.clearInterleavedResults();

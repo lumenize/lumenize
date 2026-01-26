@@ -14,7 +14,8 @@ export { FetchExecutorEntrypoint };
 export class _TestSimpleDO extends LumenizeDO {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    this.lmz.init({ bindingName: 'TEST_SIMPLE_DO' });
+    // For tests: manually init identity (normally set via routeDORequest)
+    this.lmz.__init({ bindingName: 'TEST_SIMPLE_DO' });
   }
 
   fetchDataSimple(url: string, reqId?: string): string {

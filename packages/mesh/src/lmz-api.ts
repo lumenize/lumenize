@@ -300,8 +300,8 @@ export interface CallEnvelope {
       type: NodeType;
       /** Binding name of caller (e.g., 'USER_DO') */
       bindingName?: string;
-      /** Instance name or ID of caller (DOs only, Workers are ephemeral) */
-      instanceNameOrId?: string;
+      /** Instance name of caller (DOs only, Workers are ephemeral) */
+      instanceName?: string;
     };
     /** Information about the callee (who should receive this call) */
     callee: {
@@ -309,70 +309,52 @@ export interface CallEnvelope {
       type: NodeType;
       /** Binding name of callee (e.g., 'REMOTE_DO') */
       bindingName: string;
-      /** Instance name or ID of callee (DOs only, undefined for Workers) */
-      instanceNameOrId?: string;
+      /** Instance name of callee (DOs only, undefined for Workers) */
+      instanceName?: string;
     };
   };
 }
 
 /**
  * Lumenize API - Identity and RPC infrastructure for LumenizeDO and LumenizeWorker
- * 
- * Provides clean abstraction over identity management (binding name, instance name/id)
+ *
+ * Provides clean abstraction over identity management (binding name, instance name)
  * and RPC infrastructure (callRaw, call) for both Durable Objects and Worker Entrypoints.
- * 
+ *
  * Properties are accessed via simple getters/setters (not a Proxy - properties are known and fixed).
  * Implementation details (storage vs private fields) are hidden from users.
- * 
+ *
  * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
  */
 export interface LmzApi {
   /**
    * Binding name for this DO or Worker (e.g., 'USER_DO')
-   * 
+   *
    * - **LumenizeDO**: Stored in `ctx.storage.kv.get('__lmz_do_binding_name')`
    * - **LumenizeWorker**: Stored in private field
-   * 
+   *
    * **Validation**: Cannot be changed once set to a different value
    */
-  bindingName?: string;
-  
+  readonly bindingName?: string;
+
   /**
    * Instance name for this DO (undefined for Workers)
-   * 
+   *
    * - **LumenizeDO**: Stored in `ctx.storage.kv.get('__lmz_do_instance_name')`
    * - **LumenizeWorker**: Always undefined (Workers are ephemeral)
-   * 
+   *
    * **Validation**: Cannot be changed once set to a different value
    */
-  instanceName?: string;
-  
+  readonly instanceName?: string;
+
   /**
    * Instance ID for this DO (undefined for Workers)
-   * 
+   *
    * - **LumenizeDO**: Read from `ctx.id.toString()` (read-only)
    * - **LumenizeWorker**: Always undefined (Workers are ephemeral)
-   * 
-   * **Validation**: Setter throws error (ID cannot be set, only read from ctx.id)
    */
-  id?: string;
-  
-  /**
-   * Smart getter/setter for instance name OR id
-   * 
-   * **Getter**:
-   * - Returns `instanceName` if set
-   * - Otherwise returns `id` if available
-   * - Otherwise returns undefined
-   * 
-   * **Setter**:
-   * - Uses `isDurableObjectId()` to determine if value is an ID or name
-   * - If ID: Validates against `ctx.id` but doesn't store (IDs always from ctx.id)
-   * - If name: Stores as `instanceName` with validation
-   * - If undefined: No-op (can't unset)
-   */
-  instanceNameOrId?: string;
-  
+  readonly id?: string;
+
   /**
    * Type of this DO or Worker
    *
@@ -403,46 +385,42 @@ export interface LmzApi {
   readonly callContext: CallContext;
 
   /**
-   * Convenience method to initialize multiple properties at once
-   * 
-   * Equivalent to setting properties individually, but more concise.
-   * 
-   * @param options - Properties to initialize
-   * @param options.bindingName - Binding name (e.g., 'USER_DO')
-   * @param options.instanceNameOrId - Instance name or ID (name or hex string)
-   * 
-   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
+   * Initialize identity - internal use only
+   *
+   * Called by `__initFromHeaders()` and envelope processing. Not for external use.
+   *
+   * @internal
    */
-  init(options?: { bindingName?: string; instanceNameOrId?: string }): void;
-  
+  __init(options: { bindingName?: string; instanceName?: string }): void;
+
   /**
    * Raw async RPC call with automatic metadata propagation
-   * 
+   *
    * Infrastructure-level method for DO-to-DO and DO-to-Worker RPC calls.
    * Automatically gathers caller/callee metadata and builds versioned envelope.
-   * 
+   *
    * **Use cases**:
    * - NADIS plugins (proxy-fetch, alarms) that need RPC infrastructure
    * - Tests that want simple async/await pattern
    * - User code that doesn't need continuation pattern
-   * 
+   *
    * **Parameters**:
    * - `calleeBindingName` - Binding name of target DO or Worker (e.g., 'REMOTE_DO')
-   * - `calleeInstanceNameOrId` - Instance name/ID for DOs, undefined for Workers
+   * - `calleeInstanceName` - Instance name for DOs, undefined for Workers
    * - `chainOrContinuation` - Operation chain or Continuation from `this.ctn()`
    * - `options` - Optional configuration
-   * 
+   *
    * **Returns**: Postprocessed result from remote DO/Worker
-   * 
+   *
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
   callRaw(
     calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined,
+    calleeInstanceName: string | undefined,
     chainOrContinuation: OperationChain | AnyContinuation,
     options?: CallOptions
   ): Promise<any>;
-  
+
   /**
    * Fire-and-forget RPC call with continuation pattern
    *
@@ -466,7 +444,7 @@ export interface LmzApi {
    *
    * **Parameters**:
    * - `calleeBindingName` - Binding name of target DO/Worker (e.g., 'REMOTE_DO')
-   * - `calleeInstanceNameOrId` - Instance name/ID of target DO (undefined for Workers)
+   * - `calleeInstanceName` - Instance name of target DO (undefined for Workers)
    * - `remoteContinuation` - What to execute remotely (from `this.ctn<RemoteDO>()`)
    * - `handlerContinuation` - Optional: What to execute locally when done (from `this.ctn()`)
    * - `options` - Optional configuration
@@ -477,7 +455,7 @@ export interface LmzApi {
    */
   call<T = any>(
     calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined,
+    calleeInstanceName: string | undefined,
     remoteContinuation: Continuation<T>,
     handlerContinuation?: AnyContinuation,
     options?: CallOptions
@@ -486,39 +464,58 @@ export interface LmzApi {
 
 /**
  * Create LmzApi implementation for LumenizeDO
- * 
+ *
  * Identity stored in Durable Object storage:
  * - `bindingName` → `ctx.storage.kv.get/put('__lmz_do_binding_name')`
  * - `instanceName` → `ctx.storage.kv.get/put('__lmz_do_instance_name')`
  * - `id` → `ctx.id.toString()` (read-only, not stored)
- * 
+ *
  * @internal Used by LumenizeDO.lmz getter
  */
 export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance: any): LmzApi {
+  // Private method to set bindingName (used internally by __init)
+  function setBindingName(value: string): void {
+    const stored = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
+
+    if (stored !== undefined && stored !== value) {
+      throw new Error(
+        `DO binding name mismatch: stored '${stored}' but received '${value}'. ` +
+        `A DO instance cannot change its binding name.`
+      );
+    }
+
+    ctx.storage.kv.put('__lmz_do_binding_name', value);
+  }
+
+  // Private method to set instanceName (used internally by __init)
+  function setInstanceName(value: string): void {
+    const stored = ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
+
+    if (stored !== undefined && stored !== value) {
+      throw new Error(
+        `DO instance name mismatch: stored '${stored}' but received '${value}'. ` +
+        `A DO instance cannot change its name.`
+      );
+    }
+
+    ctx.storage.kv.put('__lmz_do_instance_name', value);
+  }
+
   return {
-    // --- Getters ---
-    
+    // --- Getters (all readonly) ---
+
     get bindingName(): string | undefined {
       return ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
     },
-    
+
     get instanceName(): string | undefined {
       return ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
     },
-    
+
     get id(): string | undefined {
       return ctx.id?.toString();
     },
-    
-    get instanceNameOrId(): string | undefined {
-      // Return instanceName if set, otherwise id
-      const name = ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
-      if (name !== undefined) {
-        return name;
-      }
-      return ctx.id?.toString();
-    },
-    
+
     get type(): 'LumenizeDO' {
       return 'LumenizeDO';
     },
@@ -534,102 +531,24 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       return context;
     },
 
-    // --- Setters ---
+    // --- Internal init method (called by __initFromHeaders and envelope processing) ---
 
-    set bindingName(value: string | undefined) {
-      if (value === undefined) {
-        return; // Can't unset
+    /**
+     * @internal Initialize identity - not for external use
+     */
+    __init(options: { bindingName?: string; instanceName?: string }): void {
+      if (options.bindingName !== undefined) {
+        setBindingName(options.bindingName);
       }
-      
-      const stored = ctx.storage.kv.get('__lmz_do_binding_name') as string | undefined;
-      
-      if (stored !== undefined && stored !== value) {
-        throw new Error(
-          `DO binding name mismatch: stored '${stored}' but received '${value}'. ` +
-          `A DO instance cannot change its binding name.`
-        );
-      }
-      
-      ctx.storage.kv.put('__lmz_do_binding_name', value);
-    },
-    
-    set instanceName(value: string | undefined) {
-      if (value === undefined) {
-        return; // Can't unset
-      }
-      
-      const stored = ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
-      
-      if (stored !== undefined && stored !== value) {
-        throw new Error(
-          `DO instance name mismatch: stored '${stored}' but received '${value}'. ` +
-          `A DO instance cannot change its name.`
-        );
-      }
-      
-      ctx.storage.kv.put('__lmz_do_instance_name', value);
-    },
-    
-    set id(value: string | undefined) {
-      throw new Error(
-        `Cannot set DO id - it's read-only from ctx.id. ` +
-        `Current id: '${ctx.id}', attempted to set: '${value}'`
-      );
-    },
-    
-    set instanceNameOrId(value: string | undefined) {
-      if (value === undefined) {
-        return; // Can't unset
-      }
-      
-      // Determine if this is an ID or name
-      const isId = isDurableObjectId(value);
-      
-      if (isId) {
-        // Validate against ctx.id but don't store
-        if (ctx.id.toString() !== value) {
-          throw new Error(
-            `DO instance ID mismatch: ctx.id is '${ctx.id}' but received '${value}'. ` +
-            `A DO instance cannot change its ID.`
-          );
-        }
-        // Don't store IDs - they're always available via ctx.id
-      } else {
-        // It's a name - use instanceName setter
-        const stored = ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
-        
-        if (stored !== undefined && stored !== value) {
-          throw new Error(
-            `DO instance name mismatch: stored '${stored}' but received '${value}'. ` +
-            `A DO instance cannot change its name.`
-          );
-        }
-        
-        ctx.storage.kv.put('__lmz_do_instance_name', value);
-      }
-    },
-    
-    // --- Methods ---
-    
-    init(options?: { bindingName?: string; instanceNameOrId?: string }): void {
-      if (!options) {
-        return; // No-op if no options provided
-      }
-      
-      const { bindingName, instanceNameOrId } = options;
-      
-      if (bindingName !== undefined) {
-        this.bindingName = bindingName;
-      }
-      
-      if (instanceNameOrId !== undefined) {
-        this.instanceNameOrId = instanceNameOrId;
+
+      if (options.instanceName !== undefined) {
+        setInstanceName(options.instanceName);
       }
     },
     
     async callRaw(
       calleeBindingName: string,
-      calleeInstanceNameOrId: string | undefined,
+      calleeInstanceName: string | undefined,
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
@@ -644,26 +563,26 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       };
 
       // 3. Determine callee type
-      const calleeType: NodeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
+      const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
 
       // 4. Build callContext for outgoing call
       const callContext = buildOutgoingCallContext(callerIdentity, options);
 
-      // 5. Gather metadata (legacy, for auto-init of uninitialized nodes)
+      // 5. Gather metadata for auto-init of uninitialized nodes
       const metadata = {
         caller: {
           type: this.type,
           bindingName: this.bindingName,
-          instanceNameOrId: this.instanceNameOrId
+          instanceName: this.instanceName
         },
         callee: {
           type: calleeType,
           bindingName: calleeBindingName,
-          instanceNameOrId: calleeInstanceNameOrId
+          instanceName: calleeInstanceName
         }
       };
 
-      // 7. Create versioned envelope with callContext
+      // 6. Create versioned envelope with callContext
       // Only chain is preprocessed - rest of envelope is plain JSON
       const envelope: CallEnvelope = {
         version: 1,
@@ -672,17 +591,17 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
         metadata
       };
 
-      // 8. Get stub based on callee type
+      // 7. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
         // DO: Use getDOStub from @lumenize/utils
-        stub = getDOStub(env[calleeBindingName], calleeInstanceNameOrId!);
+        stub = getDOStub(env[calleeBindingName], calleeInstanceName!);
       } else {
         // Worker: Direct access to entrypoint
         stub = env[calleeBindingName];
       }
 
-      // 9. Send envelope via Workers RPC
+      // 8. Send envelope via Workers RPC
       // Chain is already preprocessed, envelope wrapper is plain JSON
       const response = await stub.__executeOperation(envelope);
 
@@ -696,7 +615,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
 
     call<T = any>(
       calleeBindingName: string,
-      calleeInstanceNameOrId: string | undefined,
+      calleeInstanceName: string | undefined,
       remoteContinuation: Continuation<T>,
       handlerContinuation?: AnyContinuation,
       options?: CallOptions
@@ -708,7 +627,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       if (!this.bindingName) {
         throw new Error(
           `Cannot use call() from a DO that doesn't know its own binding name. ` +
-          `Call this.lmz.init({ bindingName }) in your constructor.`
+          `Ensure routeDORequest routes to this DO or incoming calls include metadata.`
         );
       }
 
@@ -720,8 +639,8 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       // 4. Make remote call with context
       const callPromise = capturedContext
         ? runWithCallContext(capturedContext, () =>
-            this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
-        : this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options);
+            this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
+        : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
 
       // 5. Fire-and-forget with handler callbacks (shared helper)
       setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
@@ -731,39 +650,34 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
 
 /**
  * Create LmzApi implementation for LumenizeWorker
- * 
+ *
  * Identity stored in closure (private to this function):
  * - `bindingName` - stored in closure variable
- * - `instanceName`, `id`, `instanceNameOrId` - always undefined (Workers are ephemeral)
- * 
+ * - `instanceName`, `id` - always undefined (Workers are ephemeral)
+ *
  * @internal Used by LumenizeWorker.lmz getter
  */
 export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
   // Private storage for Worker identity (no persistence)
-  let bindingName: string | undefined = undefined;
-  
+  let storedBindingName: string | undefined = undefined;
+
   return {
-    // --- Getters ---
-    
+    // --- Getters (all readonly) ---
+
     get bindingName(): string | undefined {
-      return bindingName;
+      return storedBindingName;
     },
-    
+
     get instanceName(): string | undefined {
       // Workers don't have instance names
       return undefined;
     },
-    
+
     get id(): string | undefined {
       // Workers don't have IDs
       return undefined;
     },
-    
-    get instanceNameOrId(): string | undefined {
-      // Workers don't have instance identifiers
-      return undefined;
-    },
-    
+
     get type(): 'LumenizeWorker' {
       return 'LumenizeWorker';
     },
@@ -779,54 +693,27 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       return context;
     },
 
-    // --- Setters ---
+    // --- Internal init method (called by envelope processing) ---
 
-    set bindingName(value: string | undefined) {
-      if (value === undefined) {
-        return; // Can't unset
+    /**
+     * @internal Initialize identity - not for external use
+     */
+    __init(options: { bindingName?: string; instanceName?: string }): void {
+      if (options.bindingName !== undefined) {
+        if (storedBindingName !== undefined && storedBindingName !== options.bindingName) {
+          throw new Error(
+            `Worker binding name mismatch: stored '${storedBindingName}' but received '${options.bindingName}'. ` +
+            `A Worker instance cannot change its binding name.`
+          );
+        }
+        storedBindingName = options.bindingName;
       }
+      // Silently ignore instanceName for Workers (they don't have instance names)
+    },
 
-      if (bindingName !== undefined && bindingName !== value) {
-        throw new Error(
-          `Worker binding name mismatch: stored '${bindingName}' but received '${value}'. ` +
-          `A Worker instance cannot change its binding name.`
-        );
-      }
-      
-      bindingName = value;
-    },
-    
-    set instanceName(value: string | undefined) {
-      // Workers don't have instance names - silently ignore
-    },
-    
-    set id(value: string | undefined) {
-      // Workers don't have IDs - silently ignore
-    },
-    
-    set instanceNameOrId(value: string | undefined) {
-      // Workers don't have instance identifiers - silently ignore
-    },
-    
-    // --- Methods ---
-    
-    init(options?: { bindingName?: string; instanceNameOrId?: string }): void {
-      if (!options) {
-        return; // No-op if no options provided
-      }
-      
-      const { bindingName: bn } = options;
-      
-      if (bn !== undefined) {
-        this.bindingName = bn;
-      }
-      
-      // Silently ignore instanceNameOrId for Workers
-    },
-    
     async callRaw(
       calleeBindingName: string,
-      calleeInstanceNameOrId: string | undefined,
+      calleeInstanceName: string | undefined,
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
@@ -841,26 +728,26 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       };
 
       // 3. Determine callee type
-      const calleeType: NodeType = calleeInstanceNameOrId ? 'LumenizeDO' : 'LumenizeWorker';
+      const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
 
       // 4. Build callContext for outgoing call
       const callContext = buildOutgoingCallContext(callerIdentity, options);
 
-      // 5. Gather metadata (legacy, for auto-init of uninitialized nodes)
+      // 5. Gather metadata for auto-init of uninitialized nodes
       const metadata = {
         caller: {
           type: this.type,
           bindingName: this.bindingName,
-          instanceNameOrId: this.instanceNameOrId
+          instanceName: this.instanceName
         },
         callee: {
           type: calleeType,
           bindingName: calleeBindingName,
-          instanceNameOrId: calleeInstanceNameOrId
+          instanceName: calleeInstanceName
         }
       };
 
-      // 7. Create versioned envelope with callContext
+      // 6. Create versioned envelope with callContext
       // Only chain is preprocessed - rest of envelope is plain JSON
       const envelope: CallEnvelope = {
         version: 1,
@@ -869,17 +756,17 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
         metadata
       };
 
-      // 8. Get stub based on callee type
+      // 7. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
         // DO: Use getDOStub from @lumenize/utils
-        stub = getDOStub(env[calleeBindingName], calleeInstanceNameOrId!);
+        stub = getDOStub(env[calleeBindingName], calleeInstanceName!);
       } else {
         // Worker: Direct access to entrypoint
         stub = env[calleeBindingName];
       }
 
-      // 9. Send envelope via Workers RPC
+      // 8. Send envelope via Workers RPC
       // Chain is already preprocessed, envelope wrapper is plain JSON
       const response = await stub.__executeOperation(envelope);
 
@@ -893,7 +780,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 
     async call<T = any>(
       calleeBindingName: string,
-      calleeInstanceNameOrId: string | undefined,
+      calleeInstanceName: string | undefined,
       remoteContinuation: Continuation<T>,
       handlerContinuation: AnyContinuation,
       options?: CallOptions
@@ -915,8 +802,8 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       try {
         const result = await (capturedContext
           ? runWithCallContext(capturedContext, () =>
-              this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options))
-          : this.callRaw(calleeBindingName, calleeInstanceNameOrId, remoteChain, options));
+              this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
+          : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options));
 
         await executeHandlerWithResult(handlerChain, result, executeHandler);
       } catch (error) {
@@ -942,7 +829,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 export interface EnvelopeExecutorNode {
   /** Initialize node identity from envelope metadata */
   lmz: {
-    init(opts: { bindingName?: string; instanceNameOrId?: string }): void;
+    __init(opts: { bindingName?: string; instanceName?: string }): void;
   };
   /** Authorization hook called before chain execution */
   onBeforeCall(): void;
@@ -961,7 +848,7 @@ export interface EnvelopeExecutorNode {
  * @param node - The node (DO or Worker) to execute on
  * @param options - Optional configuration
  * @param options.nodeTypeName - Name for error messages (e.g., 'LumenizeDO')
- * @param options.includeInstanceName - Whether to pass instanceNameOrId to init (false for Workers)
+ * @param options.includeInstanceName - Whether to pass instanceName to __init (false for Workers)
  * @param options.onValidationError - Optional callback for validation errors (e.g., logging)
  * @returns The result of executing the operation chain
  * @throws Error if envelope version is not 1 or callContext is missing
@@ -1005,10 +892,10 @@ export async function executeEnvelope(
 
   // 3. Auto-initialize from callee metadata if present
   if (envelope.metadata?.callee) {
-    node.lmz.init({
+    node.lmz.__init({
       bindingName: envelope.metadata.callee.bindingName,
-      instanceNameOrId: includeInstanceName
-        ? envelope.metadata.callee.instanceNameOrId
+      instanceName: includeInstanceName
+        ? envelope.metadata.callee.instanceName
         : undefined,
     });
   }

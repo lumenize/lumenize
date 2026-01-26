@@ -147,8 +147,8 @@ interface CallEnvelope {
 
   /** Auto-initialization metadata */
   metadata?: {
-    caller: { type, bindingName?, instanceNameOrId? };
-    callee: { type, bindingName, instanceNameOrId? };
+    caller: { type, bindingName?, instanceName? };
+    callee: { type, bindingName, instanceName? };
   };
 }
 

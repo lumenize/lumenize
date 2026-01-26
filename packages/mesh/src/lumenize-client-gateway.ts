@@ -553,12 +553,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
           caller: {
             type: 'LumenizeClient',
             bindingName: 'LUMENIZE_CLIENT_GATEWAY',
-            instanceNameOrId: attachment?.instanceName,
+            instanceName: attachment?.instanceName,
           },
           callee: {
             type: calleeType,
             bindingName: binding,
-            instanceNameOrId: instance,
+            instanceName: instance,
           },
         },
       };

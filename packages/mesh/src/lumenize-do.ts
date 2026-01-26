@@ -208,17 +208,10 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * ```
    */
   async fetch(request: Request): Promise<Response> {
-    try {
-      this.__initFromHeaders(request.headers);
-    } catch (error) {
-      // Initialization errors indicate misconfiguration
-      const log = this.#debug('lmz.mesh.LumenizeDO.fetch');
-      const message = error instanceof Error ? error.message : String(error);
-      log.error('Initialization from headers failed', {
-        error: message,
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      return new Response(message, { status: 500 });
+    // Initialize from headers - returns Response on error, undefined on success
+    const initError = this.__initFromHeaders(request.headers);
+    if (initError) {
+      return initError;
     }
 
     // Default: not implemented
@@ -228,41 +221,68 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
   /**
    * Initialize DO metadata from request headers
-   * 
+   *
    * Reads `x-lumenize-do-binding-name` and `x-lumenize-do-instance-name-or-id`
-   * headers and calls `this.lmz.init()` if present. These headers are automatically
+   * headers and calls `this.lmz.__init()` if present. These headers are automatically
    * set by `routeDORequest` in @lumenize/utils.
-   * 
+   *
+   * **Validation**: If the instance header contains a Durable Object ID (64-char hex string)
+   * instead of a name, returns an HTTP 400 error. LumenizeDO requires instance names for
+   * proper mesh addressing.
+   *
    * This is called automatically by the default `fetch()` handler. If you
    * override `fetch()` and don't call `super.fetch()`, you can call this
    * method directly:
-   * 
+   *
    * @param headers - HTTP headers from the request
-   * 
+   * @returns Response with HTTP 400 error if validation fails, undefined on success
+   *
    * @example
    * ```typescript
    * class MyDO extends LumenizeDO<Env> {
    *   async fetch(request: Request) {
    *     // Manual initialization (alternative to super.fetch())
-   *     this.__initFromHeaders(request.headers);
-   *     
+   *     const error = this.__initFromHeaders(request.headers);
+   *     if (error) return error;
+   *
    *     // Handle request
    *     return new Response('Hello');
    *   }
    * }
    * ```
    */
-  __initFromHeaders(headers: Headers): void {
+  __initFromHeaders(headers: Headers): Response | undefined {
     const doBindingName = headers.get('x-lumenize-do-binding-name');
     const doInstanceNameOrId = headers.get('x-lumenize-do-instance-name-or-id');
 
-    // Only call init if at least one header is present
-    if (doBindingName || doInstanceNameOrId) {
-      this.lmz.init({
-        bindingName: doBindingName || undefined,
-        instanceNameOrId: doInstanceNameOrId || undefined
-      });
+    // Validate that instance is a name, not an ID
+    if (doInstanceNameOrId && isDurableObjectId(doInstanceNameOrId)) {
+      const log = this.#debug('lmz.mesh.LumenizeDO.__initFromHeaders');
+      const message = 'LumenizeDO requires instanceName, not a DO id string.';
+      log.error(message, { receivedValue: doInstanceNameOrId });
+      return new Response(message, { status: 400 });
     }
+
+    // Only call __init if at least one header is present
+    if (doBindingName || doInstanceNameOrId) {
+      try {
+        this.lmz.__init({
+          bindingName: doBindingName || undefined,
+          instanceName: doInstanceNameOrId || undefined
+        });
+      } catch (error) {
+        // __init throws on mismatch - convert to HTTP response
+        const log = this.#debug('lmz.mesh.LumenizeDO.__initFromHeaders');
+        const message = error instanceof Error ? error.message : String(error);
+        log.error('Initialization from headers failed', {
+          error: message,
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        return new Response(message, { status: 500 });
+      }
+    }
+
+    return undefined; // Success
   }
 
   /**
@@ -488,16 +508,16 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
   /**
    * Access Lumenize infrastructure: identity and RPC methods
-   * 
+   *
    * Provides clean abstraction over identity management and RPC infrastructure:
-   * - **Identity**: `bindingName`, `instanceName`, `id`, `instanceNameOrId`, `type`
-   * - **RPC**: `callRaw()`, `call()` (added in Phases 2 and 4)
-   * - **Convenience**: `init()` to set multiple properties at once
-   * 
-   * Properties use getters/setters to abstract storage details.
-   * Changes are validated to prevent accidental overwrites.
-   * 
-   * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
+   * - **Identity**: `bindingName`, `instanceName`, `id`, `type`
+   * - **RPC**: `callRaw()`, `call()`
+   *
+   * Properties are read-only getters that read from DO storage.
+   * Identity is set automatically via headers from `routeDORequest` or
+   * from the envelope metadata when receiving mesh calls.
+   *
+   * @see [Usage Examples](https://lumenize.com/docs/mesh/calls) - Complete tested examples
    */
   get lmz(): LmzApi {
     if (!this.#lmzApi) {

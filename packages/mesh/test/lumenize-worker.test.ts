@@ -22,7 +22,7 @@ describe('LumenizeWorker - Identity Management (this.lmz.*)', () => {
     expect(result).toBe('MY_WORKER');
   });
 
-  test('this.lmz.init() sets bindingName (within single call)', async () => {
+  test('this.lmz.__init() sets bindingName (within single call)', async () => {
     const result = await env.TEST_WORKER.testInitBindingName('INIT_WORKER');
     expect(result).toBe('INIT_WORKER');
   });
@@ -37,15 +37,7 @@ describe('LumenizeWorker - Identity Management (this.lmz.*)', () => {
     expect(result).toBeUndefined();
   });
 
-  test('this.lmz.instanceNameOrId always returns undefined', async () => {
-    const result = await env.TEST_WORKER.getInstanceNameOrId();
-    expect(result).toBeUndefined();
-  });
-
-  test('instance-related setters are silently ignored', async () => {
-    const result = await env.TEST_WORKER.testInstanceSetters();
-    expect(result).toBe(true);
-  });
+  // NOTE: instanceNameOrId property and setters removed - properties are now readonly
 });
 
 describe('LumenizeWorker - Continuation Support (this.ctn())', () => {

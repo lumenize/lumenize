@@ -115,59 +115,42 @@ export class TestDO extends LumenizeDO<Env> {
     return this.lmz.bindingName;
   }
 
-  async testLmzSetBindingName(value: string) {
-    this.lmz.bindingName = value;
-  }
+  // NOTE: setter tests removed - all properties are now readonly
+  // Use __init() to set identity
 
   async testLmzGetInstanceName() {
     return this.lmz.instanceName;
-  }
-
-  async testLmzSetInstanceName(value: string) {
-    this.lmz.instanceName = value;
   }
 
   async testLmzGetId() {
     return this.lmz.id;
   }
 
-  async testLmzSetId(value: string) {
-    this.lmz.id = value;
-  }
-
-  async testLmzGetInstanceNameOrId() {
-    return this.lmz.instanceNameOrId;
-  }
-
-  async testLmzSetInstanceNameOrId(value: string) {
-    this.lmz.instanceNameOrId = value;
-  }
-
-  async testLmzApiInit(options?: { bindingName?: string; instanceNameOrId?: string }) {
-    this.lmz.init(options);
+  async testLmzApiInit(options?: { bindingName?: string; instanceName?: string }) {
+    this.lmz.__init(options ?? {});
   }
 
   // Test helpers for this.lmz.callRaw()
   async testCallRawWithContinuation(
     calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined,
+    calleeInstanceName: string | undefined,
     value: string
   ) {
     return await this.lmz.callRaw(
       calleeBindingName,
-      calleeInstanceNameOrId,
+      calleeInstanceName,
       this.ctn<TestDO>().remoteEcho(value)
     );
   }
 
   async testCallRawWithOperationChain(
     calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined,
+    calleeInstanceName: string | undefined,
     chain: any
   ) {
     return await this.lmz.callRaw(
       calleeBindingName,
-      calleeInstanceNameOrId,
+      calleeInstanceName,
       chain
     );
   }
@@ -180,10 +163,10 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Remote method that returns caller identity
   @mesh
-  getCallerIdentity(): { bindingName?: string; instanceNameOrId?: string; type: string } {
+  getCallerIdentity(): { bindingName?: string; instanceName?: string; type: string } {
     return {
       bindingName: this.lmz.bindingName,
-      instanceNameOrId: this.lmz.instanceNameOrId,
+      instanceName: this.lmz.instanceName,
       type: this.lmz.type
     };
   }
@@ -206,13 +189,13 @@ export class TestDO extends LumenizeDO<Env> {
   // Test helpers for this.lmz.call()
   testCallWithContinuations(
     calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined,
+    calleeInstanceName: string | undefined,
     value: string
   ): void {
     const remote = this.ctn<TestDO>().remoteEcho(value);
     this.lmz.call(
       calleeBindingName,
-      calleeInstanceNameOrId,
+      calleeInstanceName,
       remote,
       this.ctn().handleCallResult(remote)
     );
@@ -220,12 +203,12 @@ export class TestDO extends LumenizeDO<Env> {
 
   testCallWithError(
     calleeBindingName: string,
-    calleeInstanceNameOrId: string | undefined
+    calleeInstanceName: string | undefined
   ): void {
     const remote = this.ctn<TestDO>().throwError();
     this.lmz.call(
       calleeBindingName,
-      calleeInstanceNameOrId,
+      calleeInstanceName,
       remote,
       this.ctn().handleCallError(remote)
     );
@@ -645,7 +628,7 @@ export class TestDO extends LumenizeDO<Env> {
       targetInstanceName,
       this.ctn<TestDO>().handleAndCallback(
         this.lmz.bindingName!,
-        this.lmz.instanceNameOrId!,
+        this.lmz.instanceName!,
         marker
       )
     );
@@ -796,12 +779,12 @@ export class TestWorker extends LumenizeWorker<Env> {
       // Reset by creating a new lmzApi (hack for tests)
       (this as any).lmzApi = null;
     } else {
-      this.lmz.bindingName = name;
+      this.lmz.__init({ bindingName: name });
     }
   }
 
   initWithBindingName(name: string): void {
-    this.lmz.init({ bindingName: name });
+    this.lmz.__init({ bindingName: name });
   }
 
   getInstanceName(): string | undefined {
@@ -812,18 +795,16 @@ export class TestWorker extends LumenizeWorker<Env> {
     return this.lmz.id;
   }
 
-  getInstanceNameOrId(): string | undefined {
-    return this.lmz.instanceNameOrId;
-  }
+  // NOTE: getInstanceNameOrId() removed - property no longer exists
 
-  // Test setter/getter in same call (Workers are stateless between calls)
+  // Test init/getter in same call (Workers are stateless between calls)
   testBindingNameSetterGetter(name: string): string {
-    this.lmz.bindingName = name;
+    this.lmz.__init({ bindingName: name });
     return this.lmz.bindingName!;
   }
 
   testInitBindingName(name: string): string {
-    this.lmz.init({ bindingName: name });
+    this.lmz.__init({ bindingName: name });
     return this.lmz.bindingName!;
   }
 
@@ -872,7 +853,7 @@ export class TestWorker extends LumenizeWorker<Env> {
         callee: {
           type: 'LumenizeWorker',
           bindingName: 'AUTO_INIT_WORKER',
-          instanceNameOrId: undefined
+          instanceName: undefined
         }
       }
     };
@@ -882,7 +863,7 @@ export class TestWorker extends LumenizeWorker<Env> {
 
   // Identity test (must be in single call)
   testGetIdentityAfterInit(name: string): { type: string; bindingName: string } {
-    this.lmz.init({ bindingName: name });
+    this.lmz.__init({ bindingName: name });
     return {
       type: this.lmz.type,
       bindingName: this.lmz.bindingName!
@@ -892,12 +873,12 @@ export class TestWorker extends LumenizeWorker<Env> {
   // Test helpers for Worker RPC calls
   async testCallRawToDO(
     doBindingName: string,
-    doInstanceNameOrId: string,
+    doInstanceName: string,
     value: string
   ): Promise<any> {
     return await this.lmz.callRaw(
       doBindingName,
-      doInstanceNameOrId,
+      doInstanceName,
       this.ctn<TestDO>().remoteEcho(value)
     );
   }
@@ -927,19 +908,7 @@ export class TestWorker extends LumenizeWorker<Env> {
     };
   }
 
-  // Test that Workers silently ignore instance-related setters
-  testInstanceSetters(): boolean {
-    this.lmz.instanceName = 'should-be-ignored';
-    this.lmz.id = 'should-be-ignored';
-    this.lmz.instanceNameOrId = 'should-be-ignored';
-
-    // All should remain undefined
-    return (
-      this.lmz.instanceName === undefined &&
-      this.lmz.id === undefined &&
-      this.lmz.instanceNameOrId === undefined
-    );
-  }
+  // NOTE: testInstanceSetters() removed - setters no longer exist (properties are readonly)
 
   // ============================================
   // CallContext test helpers for Worker

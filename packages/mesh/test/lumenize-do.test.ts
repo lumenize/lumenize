@@ -246,17 +246,17 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('returns undefined when not set', async () => {
         const stub = env.TEST_DO.getByName('lmz-binding-empty-1');
         await stub.clearStoredMetadata();
-        
+
         const bindingName = await stub.testLmzGetBindingName();
         expect(bindingName).toBeUndefined();
       });
 
-      it('sets and gets binding name', async () => {
+      it('sets and gets binding name via __init', async () => {
         const stub = env.TEST_DO.getByName('lmz-binding-set-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetBindingName('USER_DO');
-        
+
+        await stub.testLmzApiInit({ bindingName: 'USER_DO' });
+
         const bindingName = await stub.testLmzGetBindingName();
         expect(bindingName).toBe('USER_DO');
       });
@@ -264,10 +264,10 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('allows setting same binding name multiple times', async () => {
         const stub = env.TEST_DO.getByName('lmz-binding-same-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetBindingName('USER_DO');
-        await stub.testLmzSetBindingName('USER_DO');
-        
+
+        await stub.testLmzApiInit({ bindingName: 'USER_DO' });
+        await stub.testLmzApiInit({ bindingName: 'USER_DO' });
+
         const bindingName = await stub.testLmzGetBindingName();
         expect(bindingName).toBe('USER_DO');
       });
@@ -275,11 +275,11 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('throws on binding name mismatch', async () => {
         const stub = env.TEST_DO.getByName('lmz-binding-mismatch-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetBindingName('USER_DO');
-        
+
+        await stub.testLmzApiInit({ bindingName: 'USER_DO' });
+
         await expect(
-          stub.testLmzSetBindingName('OTHER_DO')
+          stub.testLmzApiInit({ bindingName: 'OTHER_DO' })
         ).rejects.toThrow(/DO binding name mismatch: stored 'USER_DO' but received 'OTHER_DO'/);
       });
     });
@@ -288,17 +288,17 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('returns undefined when not set', async () => {
         const stub = env.TEST_DO.getByName('lmz-instance-empty-1');
         await stub.clearStoredMetadata();
-        
+
         const instanceName = await stub.testLmzGetInstanceName();
         expect(instanceName).toBeUndefined();
       });
 
-      it('sets and gets instance name', async () => {
+      it('sets and gets instance name via __init', async () => {
         const stub = env.TEST_DO.getByName('lmz-instance-set-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetInstanceName('user-123');
-        
+
+        await stub.testLmzApiInit({ instanceName: 'user-123' });
+
         const instanceName = await stub.testLmzGetInstanceName();
         expect(instanceName).toBe('user-123');
       });
@@ -306,11 +306,11 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('throws on instance name mismatch', async () => {
         const stub = env.TEST_DO.getByName('lmz-instance-mismatch-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetInstanceName('user-123');
-        
+
+        await stub.testLmzApiInit({ instanceName: 'user-123' });
+
         await expect(
-          stub.testLmzSetInstanceName('user-456')
+          stub.testLmzApiInit({ instanceName: 'user-456' })
         ).rejects.toThrow(/DO instance name mismatch: stored 'user-123' but received 'user-456'/);
       });
     });
@@ -319,126 +319,58 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('returns ctx.id as string', async () => {
         const doId = env.TEST_DO.idFromName('lmz-id-get-1');
         const stub = env.TEST_DO.get(doId);
-        
+
         const id = await stub.testLmzGetId();
         expect(id).toBe(doId.toString());
       });
 
-      it('throws when attempting to set id', async () => {
-        const stub = env.TEST_DO.getByName('lmz-id-set-error-1');
-        
-        await expect(
-          stub.testLmzSetId('fake-id')
-        ).rejects.toThrow(/Cannot set DO id - it's read-only from ctx.id/);
-      });
+      // NOTE: ID is now read-only (no setter to test)
     });
 
-    describe('Instance Name Or ID Property', () => {
-      it('returns undefined when neither name nor id is set', async () => {
-        const stub = env.TEST_DO.getByName('lmz-name-or-id-empty-1');
-        await stub.clearStoredMetadata();
-        
-        const result = await stub.testLmzGetInstanceNameOrId();
-        // Will return ctx.id since id is always available
-        expect(result).toBeDefined();
-        expect(result).toMatch(/^[0-9a-f]{64}$/);
-      });
-
-      it('returns instance name when set (prefers name over id)', async () => {
-        const stub = env.TEST_DO.getByName('lmz-name-or-id-name-1');
-        await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetInstanceName('user-123');
-        
-        const result = await stub.testLmzGetInstanceNameOrId();
-        expect(result).toBe('user-123');
-      });
-
-      it('sets instance name when given a name (not hex ID)', async () => {
-        const stub = env.TEST_DO.getByName('lmz-name-or-id-set-name-1');
-        await stub.clearStoredMetadata();
-        
-        await stub.testLmzSetInstanceNameOrId('user-456');
-        
-        const instanceName = await stub.testLmzGetInstanceName();
-        expect(instanceName).toBe('user-456');
-      });
-
-      it('validates ID without storing when given hex ID', async () => {
-        const doId = env.TEST_DO.idFromName('lmz-name-or-id-set-id-1');
-        const stub = env.TEST_DO.get(doId);
-        await stub.clearStoredMetadata();
-        
-        // Set with actual DO ID - should validate but not store
-        await stub.testLmzSetInstanceNameOrId(doId.toString());
-        
-        // Instance name should still be undefined (IDs not stored)
-        const instanceName = await stub.testLmzGetInstanceName();
-        expect(instanceName).toBeUndefined();
-      });
-
-      it('throws when ID does not match ctx.id', async () => {
-        const stub = env.TEST_DO.getByName('lmz-name-or-id-id-mismatch-1');
-        
-        await expect(
-          stub.testLmzSetInstanceNameOrId('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
-        ).rejects.toThrow(/DO instance ID mismatch: ctx.id is/);
-      });
-    });
-
-    describe('init() Convenience Method', () => {
+    describe('__init() Internal Method', () => {
       it('initializes binding name', async () => {
         const stub = env.TEST_DO.getByName('lmz-init-binding-1');
         await stub.clearStoredMetadata();
-        
+
         await stub.testLmzApiInit({ bindingName: 'USER_DO' });
-        
+
         expect(await stub.testLmzGetBindingName()).toBe('USER_DO');
       });
 
       it('initializes instance name', async () => {
         const stub = env.TEST_DO.getByName('lmz-init-instance-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzApiInit({ instanceNameOrId: 'user-123' });
-        
+
+        await stub.testLmzApiInit({ instanceName: 'user-123' });
+
         expect(await stub.testLmzGetInstanceName()).toBe('user-123');
       });
 
       it('initializes both binding name and instance name', async () => {
         const stub = env.TEST_DO.getByName('lmz-init-both-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzApiInit({ 
+
+        await stub.testLmzApiInit({
           bindingName: 'USER_DO',
-          instanceNameOrId: 'user-456'
+          instanceName: 'user-456'
         });
-        
+
         expect(await stub.testLmzGetBindingName()).toBe('USER_DO');
         expect(await stub.testLmzGetInstanceName()).toBe('user-456');
       });
 
-      it('allows calling with no options (no-op)', async () => {
+      it('allows calling with empty options (no-op)', async () => {
         const stub = env.TEST_DO.getByName('lmz-init-empty-1');
         await stub.clearStoredMetadata();
-        
-        await stub.testLmzApiInit();
-        
+
+        await stub.testLmzApiInit({});
+
         expect(await stub.testLmzGetBindingName()).toBeUndefined();
         expect(await stub.testLmzGetInstanceName()).toBeUndefined();
       });
 
-      it('validates ID via instanceNameOrId', async () => {
-        const doId = env.TEST_DO.idFromName('lmz-init-id-1');
-        const stub = env.TEST_DO.get(doId);
-        await stub.clearStoredMetadata();
-        
-        // Should succeed - ID matches ctx.id
-        await stub.testLmzApiInit({ instanceNameOrId: doId.toString() });
-        
-        // IDs are not stored
-        expect(await stub.testLmzGetInstanceName()).toBeUndefined();
-      });
+      // NOTE: ID validation is now done at the routeDORequest header boundary
+      // LmzApi no longer handles DO IDs - only instance names are accepted
     });
   });
 
@@ -449,7 +381,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const callee = env.TEST_DO.getByName('callraw-callee-1');
         
         // Initialize caller identity
-        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceNameOrId: 'caller-1' });
+        await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'caller-1' });
         
         // Make RPC call
         const result = await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-1', 'hello');
@@ -462,7 +394,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const callee = env.TEST_DO.getByName('callraw-callee-2');
         
         // Initialize caller identity
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceNameOrId: 'caller-2' });
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-2' });
         
         // Make call and get envelope from callee
         await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-2', 'test');
@@ -471,7 +403,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         expect(envelope.version).toBe(1);
         expect(envelope.metadata.caller.type).toBe('LumenizeDO');
         expect(envelope.metadata.caller.bindingName).toBe('CALLER_DO');
-        expect(envelope.metadata.caller.instanceNameOrId).toBe('caller-2');
+        expect(envelope.metadata.caller.instanceName).toBe('caller-2');
       });
 
       it('propagates callee metadata for auto-initialization', async () => {
@@ -486,7 +418,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         
         expect(envelope.metadata.callee.type).toBe('LumenizeDO');
         expect(envelope.metadata.callee.bindingName).toBe('TEST_DO');
-        expect(envelope.metadata.callee.instanceNameOrId).toBe('callraw-callee-3');
+        expect(envelope.metadata.callee.instanceName).toBe('callraw-callee-3');
       });
 
       it('auto-initializes callee identity from envelope metadata', async () => {
@@ -498,7 +430,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         // Verify callee has no identity before the call
         const identityBefore = await callee.getCallerIdentity();
         expect(identityBefore.bindingName).toBeUndefined();
-        expect(identityBefore.instanceNameOrId).toMatch(/^[0-9a-f]{64}$/); // Just the ID
+        expect(identityBefore.instanceName).toBeUndefined(); // instanceName is undefined until set
         
         // Make call - should auto-initialize callee from envelope metadata
         await caller.testCallRawWithContinuation('TEST_DO', 'callraw-callee-4', 'test');
@@ -506,7 +438,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         // Verify callee now knows its full identity
         const identityAfter = await callee.getCallerIdentity();
         expect(identityAfter.bindingName).toBe('TEST_DO');
-        expect(identityAfter.instanceNameOrId).toBe('callraw-callee-4');
+        expect(identityAfter.instanceName).toBe('callraw-callee-4');
       });
     });
 
@@ -515,7 +447,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const caller = env.TEST_DO.getByName('envelope-caller-1');
         const callee = env.TEST_DO.getByName('envelope-callee-1');
         
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceNameOrId: 'caller-1' });
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-1' });
         await caller.testCallRawWithContinuation('TEST_DO', 'envelope-callee-1', 'test');
         
         const envelope = await callee.getLastEnvelope();
@@ -543,7 +475,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const caller = env.TEST_DO.getByName('envelope-caller-3');
         const callee = env.TEST_DO.getByName('envelope-callee-3');
         
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceNameOrId: 'caller-3' });
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-3' });
         await caller.testCallRawWithContinuation('TEST_DO', 'envelope-callee-3', 'test');
         
         const envelope = await callee.getLastEnvelope();
@@ -552,12 +484,12 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
           caller: {
             type: 'LumenizeDO',
             bindingName: 'CALLER_DO',
-            instanceNameOrId: 'caller-3'
+            instanceName: 'caller-3'
           },
           callee: {
             type: 'LumenizeDO',
             bindingName: 'TEST_DO',
-            instanceNameOrId: 'envelope-callee-3'
+            instanceName: 'envelope-callee-3'
           }
         });
       });
@@ -602,14 +534,14 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       it('handles caller with only bindingName (no instanceName)', async () => {
         const caller = env.TEST_DO.getByName('edge-caller-2');
         const callee = env.TEST_DO.getByName('edge-callee-2');
-        
+
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
         await caller.testCallRawWithContinuation('TEST_DO', 'edge-callee-2', 'test');
-        
+
         const envelope = await callee.getLastEnvelope();
         expect(envelope.metadata.caller.bindingName).toBe('CALLER_DO');
-        // instanceNameOrId will be the ctx.id
-        expect(envelope.metadata.caller.instanceNameOrId).toMatch(/^[0-9a-f]{64}$/);
+        // instanceName is undefined when only bindingName is set (no fallback to ctx.id)
+        expect(envelope.metadata.caller.instanceName).toBeUndefined();
       });
     });
 
@@ -678,7 +610,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const callee = env.TEST_DO.getByName('call-callee-1');
         
         // Initialize caller identity
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceNameOrId: 'caller-1' });
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-1' });
         
         // Make call - returns immediately
         caller.testCallWithContinuations('TEST_DO', 'call-callee-1', 'hello-call');
@@ -711,7 +643,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         const caller = env.TEST_DO.getByName('call-caller-3');
         const callee = env.TEST_DO.getByName('call-callee-3');
         
-        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceNameOrId: 'caller-3' });
+        await caller.testLmzApiInit({ bindingName: 'CALLER_DO', instanceName: 'caller-3' });
         
         caller.testCallWithContinuations('TEST_DO', 'call-callee-3', 'metadata-test');
         
@@ -720,7 +652,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
         // Verify callee received envelope with metadata
         const envelope = await callee.getLastEnvelope();
         expect(envelope.metadata.caller.bindingName).toBe('CALLER_DO');
-        expect(envelope.metadata.caller.instanceNameOrId).toBe('caller-3');
+        expect(envelope.metadata.caller.instanceName).toBe('caller-3');
       });
     });
 

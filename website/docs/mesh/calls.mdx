@@ -94,7 +94,7 @@ If the caller is a DO, this takes it out of wall-clock billing while waiting. Wo
 @mesh
 requestAnalytics(): void {
   const content = this.ctx.storage.kv.get('content') ?? '';
-  const documentId = this.lmz.instanceNameOrId!;
+  const documentId = this.lmz.instanceName!;
 
   // Fire-and-forget to Worker - DO returns immediately, no wall-clock charges
   this.lmz.call(
@@ -143,7 +143,7 @@ update(content: string) {
   // Trigger spell check - worker sends results directly to originator
   const { callChain } = this.lmz.callContext;
   const clientId = callChain.at(-1)?.instanceName;
-  const documentId = this.lmz.instanceNameOrId!;
+  const documentId = this.lmz.instanceName!;
 
   if (clientId) {
     this.lmz.call(
