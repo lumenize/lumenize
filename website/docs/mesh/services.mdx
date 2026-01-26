@@ -1,0 +1,29 @@
+---
+title: Services (this.svc)
+description: Built-in and plugin services for LumenizeDO
+---
+
+# Services (`this.svc`)
+
+LumenizeDO provides automatic dependency injection via `this.svc`. Services are type-safe, lazily initialized, and available throughout your DO methods.
+
+## Built-in Services
+
+These are always available on any LumenizeDO subclass:
+
+| Service | Description |
+|---------|-------------|
+| [`this.svc.sql`](./sql) | SQL template literal for DO storage |
+| [`this.svc.alarms`](./alarms) | Alarm scheduling with continuations |
+
+## Plugin Services
+
+Install optional packages to add more services:
+
+| Package | Service | Description |
+|---------|---------|-------------|
+| [`@lumenize/fetch`](/docs/fetch) | `this.svc.fetch` | Proxy fetch for external HTTP calls |
+
+## Creating Custom Services
+
+You can create your own services using the NADIS plugin system. See [Creating Plugins](./creating-plugins) for details.

@@ -174,10 +174,12 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
-          label: 'Built-in Services',
+          label: 'Services (this.svc)',
+          link: { type: 'doc', id: 'mesh/services' },
           items: [
             'mesh/sql',
             'mesh/alarms',
+            'mesh/creating-plugins',
           ],
         },
         {
@@ -188,7 +190,6 @@ const sidebars: SidebarsConfig = {
             'mesh/managing-context',
           ],
         },
-        'mesh/creating-plugins',
         'mesh/security',
         'mesh/gateway',
         'mesh/protocol',

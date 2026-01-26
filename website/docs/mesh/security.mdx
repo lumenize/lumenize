@@ -171,7 +171,7 @@ deleteDocument() { /* ... */ }
 
 ### State-Based Access
 
-The `callContext.state` object is a mutable `Record<string, any>` that:
+The `callContext.state` object is a mutable `Record<string, unknown>` that:
 - Starts **empty** (`{}`) for initial incoming mesh call
 - **Persists through the call chain** — method guards and handlers see the same state even when the call chain hops from mesh node to mesh node
 - **Propagates back on return** — if DO2 modifies state, DO1's result handler continuation sees those changes

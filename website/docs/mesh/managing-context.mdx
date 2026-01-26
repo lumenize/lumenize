@@ -34,7 +34,7 @@ Under the hood, `this.lmz.callContext` uses Node.js's confusingly named `AsyncLo
 
 ### Where Identity Enters the Mesh
 
-User identity (`callContext.originAuth`) enters the mesh **only** through [LumenizeClient](./lumenize-client) via [LumenizeClientGateway](./gateway). The Gateway verifies the JWT and populates `originAuth` with the verified claims — the actual token is never propagated. Both `origin` and `originAuth` are immutable throughout the chain; intermediate nodes cannot modify them.
+User identity (`callContext.originAuth`) enters the mesh **only** through [LumenizeClient](./lumenize-client) via [LumenizeClientGateway](./gateway). The Gateway verifies the JWT and populates `originAuth` with the verified claims — the actual token is never propagated. Both `callChain` and `originAuth` are immutable throughout the chain; intermediate nodes cannot modify them.
 
 ```
 Client (alice) → DocumentDO → ValidationWorker → NotificationDO
