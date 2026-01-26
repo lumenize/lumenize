@@ -132,6 +132,14 @@ export class EditorClient extends LumenizeClient {
   // Store results from admin operations
   readonly adminResults: Array<{ reset: true; previousContent: string } | Error> = [];
 
+  // Store generic results from operations that use handleResult
+  readonly results: any[] = [];
+
+  // Generic result handler for testing operations
+  handleResult(result: any) {
+    this.results.push(result);
+  }
+
   /**
    * Admin force reset - demonstrates operation chaining
    *

@@ -8,6 +8,21 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] We have TypeDoc auto generation for the older packages but we decided not to use that and added API references into the docs for the newer packages. Confirm that alarms, fetch, and sql have what they need and confirm that the rest of mesh has what it needs in the hand written docs.
 
+- [ ] Improve continuation ergonomics (discovered during manual persistence test implementation)
+  - **Reference**: `packages/mesh/test/for-docs/calls/document-do.ts` (`scheduleLocalTask`, `executePendingTask`) and `managing-context.mdx` Manual Persistence section
+  - **Issue 1: Nested continuations execute immediately instead of being stored**
+    - When passing a continuation as an argument (e.g., `persistTask(id, this.ctn().logMessage(msg))`), OCAN's `resolveNestedOperations` tries to execute it
+    - Workaround: Create continuation inside the receiving method, not as an argument
+    - Potential fix: Add `$defer` marker or make `getOperationChain()` work for remote types on client side
+  - **Issue 2: Handler syntax easy to get wrong silently**
+    - `this.ctn().handleResult` (no call) silently does nothing
+    - Correct: `this.ctn().handleResult(this.ctn().$result)`
+    - Potential fix: TypeScript lint for "continuation property accessed but never called", or proxy detection
+  - **Issue 3: Void methods don't trigger local handlers (expected for remote, unclear for local)**
+    - Remote: Expected (need response to confirm completion)
+    - Local: Might be surprising when handler is never invoked
+    - Consider: Document this clearly, or have void methods return `undefined` explicitly
+
 - [ ] Code review and simplification pass for all mesh code (following alarms.ts pattern)
   - **Context**: Successfully simplified `alarms.ts` from ~570 to 363 lines (36% reduction)
   - **Patterns to look for**:
@@ -47,6 +62,22 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [x] Create `website/docs/mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient (DONE 2025-01-23)
 
+- [ ] Investigate call chain depth and fanout limits
+  - **Call chain depth**: We track `maxDepth: 50` in OCAN, but Cloudflare may enforce its own limit on RPC call depth
+  - **Questions to answer**:
+    1. Which limit is hit first — ours or Cloudflare's?
+    2. Do sub-requests of sub-requests count toward Cloudflare's sub-request limit?
+    3. What are the actual fanout limits for parallel calls?
+  - **Potential workarounds for depth limits**:
+    - Pass through an alarm (breaks the RPC chain)
+    - Pass through LumenizeClient (WebSocket hop)
+    - Establish WebSocket connection instead of Workers RPC
+    - Cache/reuse RPC stubs (may only help with RpcTarget scenarios)
+    - Return stub over RPC call (unclear if this helps)
+  - **Experiment design**: Create test that chains N calls deep, measure where it fails
+  - **Fanout experiment**: Create test that fans out to N parallel calls, measure limits
+  - **Outcome**: Document findings, adjust `maxDepth` default if needed, document workarounds
+
 - [ ] Implement generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and what's returned from the subscription `using sub = client.subscribe(...)` calls
 
 - [ ] Refactor getting-started guide to use native pub/sub once implemented
@@ -83,14 +114,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
 
-## LumenizeBase NADIS modules
+## LumenizeDO NADIS modules
 
 - [ ] mcp
-- [ ] per-resource sync
-- [ ] Fanout broadcase service
+- [ ] per-resource pub/sub
+- [ ] Fanout broadcast service
       The first "tier" should actually be instantiating the class in the originator of the fan-out. The subsequent tiers would be armies of stand-alone LumenizeWorkers. You'd pass the list of receipients and the message into the local instance, and it would figure out how to tier it. We'd have to do experiments and update the learning periodically as Cloudflare evolved things to determine the optimal number of nodes to fan out to in each tier. 
 
-      Maybe an algorithm like this. If it were between 64 and 4,096 (64^2) nodes, then take the square root, so 8 to 64 fanout in each tier. Any list shorter than 64 gets done in one shot. Between 4,096 and 262,144 (64^3), it would be three tiers of 8 to 64 each taking the cube root of the count. I doubt we want to even allow up to 262,144 but maybe 10,000 is possible?
+      Maybe an algorithm like this. If it were between 64 and 4,096 (64^2) nodes, then take the square root, so 8 to 64 fanout in each tier. Any list shorter than 64 gets done in one shot. Between 4,096 and 262,144 (64^3), it would be three tiers of 8 to 64 each taking the cube root of the count. I doubt we want to even allow up to 262,144 so I don't think we'll ever need a fourth tier, but maybe 10,000 is possible?
 
 
 ## Testing & Quality

@@ -575,3 +575,97 @@ it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => 
   expect(analytics.characterCount).toBe(53);
   expect(analytics.readingTimeMinutes).toBe(1); // ceil(10/200) = 1
 });
+
+/**
+ * Manual Persistence Test
+ *
+ * Demonstrates the manual persistence pattern from managing-context.mdx:
+ * - Use getOperationChain() to extract the chain from a continuation
+ * - Save callContext separately (it's a plain object)
+ * - KV handles Maps, Sets, Dates, cycles natively
+ * - Later, restore and execute with executeOperationChain()
+ *
+ * This pattern is useful for building custom restart-safe workflows
+ * beyond what alarms and two-one-way calls provide.
+ *
+ * The continuation is created within the DO (using this.ctn()) and
+ * stored for later execution - not passed from the client.
+ */
+it('manual persistence: store and execute continuation with context', async () => {
+  const documentId = 'manual-persistence-doc';
+  const taskId = 'my-task-123';
+  const testMessage = 'Hello from persisted continuation';
+
+  // Setup: Alice authenticates and connects
+  const aliceBrowser = new Browser();
+  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice-persist@example.com');
+
+  using alice = new EditorClient({
+    instanceName: `${aliceUserId}.tab1`,
+    baseUrl: 'https://localhost',
+    refresh: 'https://localhost/auth/refresh-token',
+    fetch: aliceBrowser.fetch,
+    WebSocket: aliceBrowser.WebSocket,
+  });
+
+  await vi.waitFor(() => {
+    expect(alice.connectionState).toBe('connected');
+  });
+
+  // ============================================
+  // Test: Persist a continuation with its context
+  // ============================================
+  // scheduleLocalTask creates a continuation to logMessage() and stores it
+  // along with the current callContext for later execution
+  alice.lmz.call(
+    'DOCUMENT_DO',
+    documentId,
+    alice.ctn<DocumentDO>().scheduleLocalTask(taskId, testMessage),
+    alice.ctn().handleResult(alice.ctn().$result)
+  );
+
+  // Wait for persistence call to complete
+  await vi.waitFor(() => {
+    expect(alice.results.length).toBeGreaterThan(0);
+  });
+
+  // Check for errors
+  const persistResult = alice.results.shift();
+  if (persistResult instanceof Error) {
+    throw persistResult;
+  }
+
+  // Verify persistence worked
+  using docClient = createTestingClient<DocumentDOType>('DOCUMENT_DO', documentId);
+  const pending = await docClient.ctx.storage.kv.get(`task:${taskId}`);
+  expect(pending).toBeDefined();
+
+  // ============================================
+  // Test: Execute the persisted task
+  // ============================================
+  // This simulates what would happen after eviction/restart
+  alice.lmz.call(
+    'DOCUMENT_DO',
+    documentId,
+    alice.ctn<DocumentDO>().executePendingTask(taskId),
+    alice.ctn().handleResult(alice.ctn().$result)
+  );
+
+  // Wait for execution
+  await vi.waitFor(() => {
+    expect(alice.results.length).toBeGreaterThan(0);
+  });
+
+  // Verify the continuation was executed
+  const result = alice.results[0] as { executed: boolean; originalUserId?: string };
+  expect(result.executed).toBe(true);
+  expect(result.originalUserId).toBe(aliceUserId);
+
+  // Verify the message was logged
+  const messages = await docClient.ctx.storage.kv.get('messages') as string[];
+  expect(messages).toContain(testMessage);
+
+  // Verify task was cleaned up
+  const pendingAfter = await docClient.ctx.storage.kv.get(`task:${taskId}`);
+  expect(pendingAfter).toBeUndefined();
+});

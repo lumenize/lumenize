@@ -7,10 +7,6 @@ description: Type-safe SQL queries with automatic parameter binding
 
 The `sql` tagged template literal provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage. It gives you the readable `${value}` interpolation syntax of template literals, but with automatic parameter binding that prevents SQL injection.
 
-:::tip Built-in Service
-This small (~10 lines) utility is automatically available via `this.svc.sql` in any `LumenizeDO`. No additional imports needed.
-:::
-
 ## Basic Usage
 
 ```typescript @skip-check

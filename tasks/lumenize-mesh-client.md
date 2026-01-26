@@ -831,6 +831,7 @@ class LumenizeClient {
 - [x] (vitest-pool) Two one-way calls pattern (DO→Worker→DO) works correctly for avoiding wall-clock billing. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "two one-way calls: DO→Worker→DO avoids wall-clock billing"
 ### Pending Verification ⏳
 
+- [x] (vitest-pool) Verify manual persistence pattern from `managing-context.mdx` works: `getOperationChain()` + `this.lmz.callContext` can be stored to `ctx.storage.kv` and later restored/executed. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "manual persistence: store and execute continuation with context". Converted to `@check-example`. See `backlog.md` for ergonomic improvements discovered during implementation.
 - [ ] (vitest-pool) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
 - [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
 - [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.

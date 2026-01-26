@@ -13,19 +13,19 @@ const local = this.ctn().handleResult(this.ctn().$result);
 this.lmz.call('REMOTE_DO', 'instance-id', remote, local);
 ```
 
-**For practical patterns**, see **[Making Calls](./calls)** — this document focuses on how continuations work under the hood.
+**For practical patterns** — chaining, nesting, `$result` placeholders, error handling, and more — see **[Making Calls](./calls)**.
 
 ## Why Continuations?
 
 Continuations solve several problems in Durable Objects:
 
-1. **Serializable** — Can be sent over the wire or stored and then restored after  hibernation/eviction
+1. **Serializable** — Can be sent over the wire or stored and then restored after hibernation/eviction
 2. **Type-safe** — TypeScript checks method names and signatures at compile time
 3. **No `await` needed** — Avoid `async`/`await` which can break DO consistency guarantees. While race conditions are still possible, the explicitness and the fact that handlers need not be declared `async` reduces the likelihood you will do so accidentally.
 
 ## The `this.ctn()` Factory
 
-You own classes that extend `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient`, have access to `this.ctn()`:
+Your classes that extend `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`:
 
 ```typescript @skip-check
 // Typesafe: TypeScript knows RemoteDO's methods
@@ -37,30 +37,19 @@ this.ctn().myHandler(this.ctn().$result)
 // Chaining: multiple operations in sequence
 this.ctn<RemoteDO>().validate().save().getRevision()
 
-// Nesting: output of one operation feeds another in one round trip
+// Nesting: output of one operation feeds another
 this.ctn<RemoteDO>().multiply(this.ctn<RemoteDO>().add(1, 2), 10)
 ```
-
-### The `$result` Placeholder
-
-The special `$result` property marks where the async operation's result should be injected:
-
-```typescript @skip-check
-this.ctn().handleResult(context1, this.ctn().$result, context2)
-//                                ^^^^^^^^^^^^^^^^^^ replaced with result (or Error)
-```
-
-You can use `$result` anywhere in the arguments — it's just a marker that gets substituted at execution time. If the remote method throws, `$result` becomes that `Error` instance, so your handler should always check `if (result instanceof Error)` first.
 
 ## How It Works
 
 ### 1. Proxy-Based Chain Building
 
-`this.ctn()` returns a JavaScript `Proxy`. Each property access or method call adds an operation to the continuations operation chain.
+`this.ctn()` returns a JavaScript `Proxy`. Each property access or method call adds an operation to the continuation's operation chain.
 
 ### 2. Serialization
 
-When you pass a continuation to `this.lmz.call()`, it's serialized using `@lumenize/structured-clone`:
+When you pass a continuation to `this.lmz.call()`, it's serialized using `@lumenize/structured-clone` so rich types (Date, Set, Map, aliases, cycles, etc.) are supported for parameters and results :
 
 ```typescript @skip-check
 // The chain becomes a serializable object
@@ -75,8 +64,8 @@ When you pass a continuation to `this.lmz.call()`, it's serialized using `@lumen
 
 This can be:
 - Sent over the wire to another DO/Worker/Client
-- Stored in SQLite for later execution
-- Passed to an alarm handler
+- Stored for later execution
+- Passed to a `@lumenize/alarms` alarm handler, which will automatically store it
 
 ### 3. Execution
 
@@ -108,60 +97,8 @@ Continuations use **OCAN** (Operation Chaining And Nesting) — a serialization 
 | **Mixed** | `a(b().c()).d()` — arbitrary combinations |
 | **Placeholders** | `$result` — substitute async results |
 
-For the full specification, see [@lumenize/rpc: Operation Chaining and Nesting](/docs/rpc/operation-chaining-and-nesting). Note, however, that batching is not automatically supported for Lumenize Mesh. After using the old Lumenize RPC for a while, we found that defining methods on the callee to do batch operations was a better approach for production code. It remains in the old Lumenize RPC because it's useful for testing situations.
+For the full specification, see [@lumenize/rpc: Operation Chaining and Nesting](/docs/rpc/operation-chaining-and-nesting). Note, however, that batching is not automatically supported for Lumenize Mesh. After using the old Lumenize RPC for a while, we found that defining methods on the callee to do batch operations was a better approach for production code. It remains in the old Lumenize RPC for backward compatibility.
 
 ## Manual Serialization (Advanced)
 
-For power users who need direct access to the serialized form:
-
-```typescript @skip-check
-import { getOperationChain, executeOperationChain } from '@lumenize/mesh';
-
-// Extract the serializable operation chain (captures callContext automatically)
-const chain = getOperationChain(this.ctn<SomeDO>().method(arg));
-
-// Store it — KV handles Dates, Maps, Sets, cycles, etc. natively
-this.ctx.storage.kv.put('pendingWork', chain);
-
-// Later, retrieve and execute it
-const storedChain = this.ctx.storage.kv.get('pendingWork');
-const result = executeOperationChain(storedChain, targetObject);
-```
-
-Note: For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone`.
-
-For hibernation-safe persistence patterns, see [Manual Persistence](./managing-context#manual-persistence-power-users) in the context guide.
-
-## Continuations as First-Class Values
-
-Since continuations are serializable data, you can pass them to helper methods. This is useful for broadcast patterns:
-
-```typescript @skip-check
-class DocumentDO extends LumenizeDO<Env> {
-  // Reusable broadcast helper that accepts any continuation
-  #broadcast(continuation: OperationChain) {
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    for (const clientId of subscribers) {
-      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation);
-    }
-  }
-
-  // Usage with different message types
-  #notifyContentChange(content: string) {
-    this.#broadcast(this.ctn<EditorClient>().handleContentUpdate(content));
-  }
-
-  #notifySpellFindings(findings: SpellFinding[]) {
-    this.#broadcast(this.ctn<EditorClient>().handleSpellFindings(findings));
-  }
-}
-```
-
-This pattern works because `this.ctn<T>().method(args)` returns a Proxy object, which is just a plain data structure (an `OperationChain`) that can be passed around, stored, or sent over the wire.
-
-## Best Practices
-
-- ✅ Use `this.ctn<T>()` for type safety on remote calls
-- ✅ Check for `Error` first in every handler (see [Error Handling](./calls#error-handling))
-- ✅ Use chaining to reduce round trips
-- ❌ Don't use `async` handlers — breaks DO consistency model
+For power users who need direct access to the serialized form — extracting chains with `getOperationChain()` and executing them with `executeOperationChain()` — see [Manual Persistence](./managing-context#manual-persistence-power-users) for a complete example and [API Reference](./managing-context#api-reference) for function signatures.

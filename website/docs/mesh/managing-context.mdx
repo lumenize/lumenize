@@ -8,8 +8,8 @@ description: Understanding the Dual-Context Strategy in Lumenize - Call Context 
 When making calls in to another place or time, you often need to maintain **context**: information from the call site that must be available for the callee to accomplish its work.
 
 Lumenize uses a **Dual-Context Strategy** to handle this:
-1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations added by middleware, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh` handler.
-2. **Application Context (Continuations)**: For your specific business logic and data flow.
+1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations (`callContext.state`) added by middleware, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh` handler.
+2. **Application Context (Continuations)**: For your business logic and data flow that only the continuation needs.
 
 ## 1. Call Context (`this.lmz.callContext`)
 
@@ -17,7 +17,7 @@ Lumenize automatically propagates **Call Context** across any call chain (e.g., 
 
 ### Why We Do This
 - **Zero Boilerplate**: You don't have to manually pass identity, calling node type, etc. into every single function. They are "just there" when you need them.
-- **Race-Safe**: Even when multiple requests to the same mesh node interleave, each request sees its own unique context.
+- **Race-Safe**: Even when multiple requests to the same mesh node interleave, each request sees its own unique context. Note, storage is not similarly isolated so that race-condition risk must still be kept in mind.
 
 ```typescript @skip-check
 // Any method, anywhere in your call chain
@@ -45,32 +45,17 @@ Client (alice) → DocumentDO → ValidationWorker → NotificationDO
 
 For the complete `CallContext` interface — including which fields are immutable, per-hop, or mutable — see [Mesh API: CallContext](./mesh-api#interface-callcontext).
 
-### Using `state` for Tracing
+### Using `state`
 
-The mutable `callContext.state` property is ideal for distributed tracing. Populate it in `onBeforeCall` and accumulate data as calls flow through the mesh:
+The mutable `callContext.state` property can be thought of as a passive side-channel for communication sort like HTTP cookies — once data is added, it persists for the life of the call chain. Common uses:
 
-```typescript @skip-check
-// In your base class or each node's onBeforeCall
-onBeforeCall() {
-  super.onBeforeCall();
+- **Avoid redundant work**: Compute or fetch something (like loading a user record or permissions), then access it in method guards or @mesh methods without re-computing or re-fetching
+- **Cross-cutting concerns**: Add metadata that any downstream node in the chain might need for instance state that's available in the current node's storage but not the later node's
 
-  // Start a trace if this is a new chain
-  if (!this.lmz.callContext.state.traceId) {
-    this.lmz.callContext.state.traceId = crypto.randomUUID();
-  }
+For the canonical example of using `state` to cache session data for access control, see [Security: State-Based Access](./security#state-based-access).
 
-  // Add this node as a span — callChain already tracks the path!
-  this.lmz.callContext.state.spans ??= [];
-  this.lmz.callContext.state.spans.push({
-    node: `${this.lmz.bindingName}:${this.lmz.instanceName}`
-  });
-}
-```
-
-Since `state` propagates across the entire call chain, you get a complete trace without external infrastructure. At chain end, log or store the accumulated spans.
-
-:::tip
-The `callChain` array already captures the call path (`[origin, hop1, hop2, ...]`). For simple tracing, you might not even need custom spans — just use `callChain.map(n => n.bindingName).join(' → ')`.
+:::tip Tracing
+For simple call path tracing, you might not need `state` at all — `callChain` already captures the full path (`[origin, hop1, hop2, ...]`). Use `callChain.map(n => n.bindingName).join(' → ')` for a quick trace.
 :::
 
 ### When Call Chains Break
@@ -85,20 +70,23 @@ Call chain extension may not be desirable in all cases, for instance in fan-out 
 
 While `this.lmz.callContext` is great for mesh-oriented context, you should use extra parameters in your [continuations](./continuations) for your own application context. Alternatively, for DOs and other nodes with storage capability, you could store such context locally and merely pass the key for such data into the continuation.
 
-```typescript @skip-check
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
 this.lmz.call(
-  'VALIDATION_WORKER',
-  undefined,
-  this.ctn<ValidationWorker>().validate(data),
-  this.ctn().handleValidation(documentId, this.ctn().$result) // $result can go anywhere
+  'DOCUMENT_DO',
+  documentId,
+  this.ctn<DocumentDO>().subscribe(),
+  this.ctn().handleSubscribeResult(documentId, this.ctn().$result, 'open-document')  // $result can go anywhere
 );
+// ...
 
-handleValidation(documentId: string, result: ValidationResult | Error) {
+// Response handler for subscribe - receives initial content or Error
+handleSubscribeResult(documentId: string, result: string | Error, source: string) {
+  // ...
   if (result instanceof Error) {
-    console.log(`Validation failed for ${documentId}:`, result.message);
+    console.error(`Failed to subscribe to ${documentId}:`, result);
     return;
   }
-  console.log(`Document ${documentId} is valid`);
+  // ...
 }
 ```
 
@@ -107,25 +95,79 @@ handleValidation(documentId: string, result: ValidationResult | Error) {
 Context is maintained in most cases, but if a node hibernates/evicts while `await`ing a response, the local handler might never execute.
 
 For restart-safe patterns:
-- Use **[Two One-Way Calls](./calls#two-one-way-calls)** — both kinds of contexts are fully contained in the outgoing call. When the call back is made, it'll reawaken the instance. The `lmz.callContext` is automatically restored, and you can include whatever context you want in the callback.
-- Use **[Alarms](./alarms)** — persists alarm handler continuation including `lmz.callContext` and your continuation parameters to storage so they are available when the alarm triggers.
+- Use **[Two One-Way Calls](./calls#two-one-way-calls)** — the callback continuation is persisted by the recipient. When the callback is made, it reawakens your instance with a fresh call chain (the recipient is now the origin).
+- Use **[Alarms](./alarms)** — the continuation and its parameters are persisted. Note that alarms start fresh call chains — if you need the original `callContext`, pass it as a parameter.
+- Use **[Manual Persistence](#manual-persistence-power-users)** — explicitly store continuations and context for custom restart-safe patterns.
 
 ## Manual Persistence (Power Users)
 
-If you're building your own restart-safe patterns outside the standard tools, you may want to explicitly serialize and store the continuation:
+If you're building your own restart-safe patterns, you need to persist both the continuation and any context you want restored:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+// Create a continuation to our own logMessage method
+const continuation = this.ctn<DocumentDO>().logMessage(message);
+
+// Extract the operation chain from the continuation proxy
+const chain = getOperationChain(continuation);
+// ...
+
+// Capture the current call context
+const context = this.lmz.callContext;
+
+// Store both for later execution (KV handles complex types natively)
+this.ctx.storage.kv.put(`task:${taskId}`, { chain, context } as PendingTask);
+```
+
+When restoring:
+
+```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
+const pending = this.ctx.storage.kv.get(`task:${taskId}`) as PendingTask | undefined;
+// ...
+
+const { chain, context } = pending;
+
+// Execute the chain - context is available for manual use
+// requireMeshDecorator: false allows calling methods without @mesh decorator.
+// This is safe here because we're executing a chain we created and stored ourselves.
+await executeOperationChain(chain, this, { requireMeshDecorator: false });
+```
+
+## API Reference
+
+### `getOperationChain(continuation)`
+
+Extracts the serializable operation chain from a continuation proxy.
 
 ```typescript @skip-check
 import { getOperationChain } from '@lumenize/mesh';
 
-// getOperationChain captures callContext automatically
-const chain = getOperationChain(this.ctn().myHandler(data));
-
-// Save to storage — KV handles Dates, Maps, Sets, cycles, etc. natively
-this.ctx.storage.kv.put('my-key', chain);
+const continuation = this.ctn<MyDO>().someMethod(arg);
+const chain = getOperationChain(continuation);  // OperationChain | undefined
 ```
 
-For SQL TEXT columns, use `stringify()`/`parse()` from `@lumenize/structured-clone` on the operation chain before saving. All structured-cloneable types (Dates, Maps, cycles, etc.) are stringified.
+**Returns:** `OperationChain | undefined` — the operation chain, or `undefined` if the argument isn't a continuation proxy.
 
-## Conclusion
+**Note:** This does **not** capture `callContext` — you must store that separately if needed (see example above).
 
-> **"Let Lumenize handle call context via `this.lmz.callContext`; handle your own application context via `.ctn().handler(myData)`."**
+### `executeOperationChain(chain, target, options?)`
+
+Executes an operation chain on a target object.
+
+```typescript @skip-check
+import { executeOperationChain } from '@lumenize/mesh';
+
+await executeOperationChain(chain, this, { requireMeshDecorator: false });
+```
+
+**Parameters:**
+- `chain` — The operation chain to execute
+- `target` — The object to execute the chain on (usually `this`)
+- `options` — Optional configuration:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `requireMeshDecorator` | `true` | When `true`, the entry-point method must have `@mesh` decorator. Set to `false` only for trusted chains you created yourself. |
+| `maxDepth` | `50` | Maximum chain length (security limit) |
+| `maxArgs` | `100` | Maximum arguments per method call (security limit) |
+
+**Returns:** `Promise<any>` — the result of executing the chain.

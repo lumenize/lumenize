@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * Standalone script to run check-examples plugin
- * Usage: node scripts/check-examples.mjs [path-to-mdx-file]
+ * Usage:
+ *   node scripts/check-examples.mjs [path-to-mdx-file]  # Verify examples
+ *   node scripts/check-examples.mjs --report            # Report skip-check counts
  */
 
 import checkExamplesPlugin from '@lumenize/docusaurus-plugin-check-examples';
@@ -20,11 +22,20 @@ const context = {
   baseUrl: '/',
 };
 
-// Get specific file from command line args, if provided
-const targetFile = process.argv[2];
-const options = targetFile
-  ? { include: [targetFile] }
-  : { exclude: ['_archived'] };  // Match docusaurus.config.ts
+// Parse command line args
+const args = process.argv.slice(2);
+const reportMode = args.includes('--report');
+const targetFile = args.find((arg) => !arg.startsWith('--'));
+
+// Build options
+const options = {
+  exclude: ['_archived'], // Match docusaurus.config.ts
+  reportMode,
+};
+
+if (targetFile) {
+  options.include = [targetFile];
+}
 
 // Create plugin instance
 const plugin = checkExamplesPlugin(context, options);
@@ -32,7 +43,9 @@ const plugin = checkExamplesPlugin(context, options);
 // Run postBuild hook
 try {
   await plugin.postBuild({ outDir: context.outDir });
-  console.log('\n✅ Check complete!');
+  if (!reportMode) {
+    console.log('\n✅ Check complete!');
+  }
   process.exit(0);
 } catch (error) {
   console.error('\n❌ Check failed!');

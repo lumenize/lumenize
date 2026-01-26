@@ -299,16 +299,11 @@ For details on call context propagation and hibernation safety, see [Managing Co
 As shown above, `callChain` grows with each hop. This is usually what you want — it lets any node trace back to the origin. But in fan-out scenarios (broadcasting to many clients), you may not want each recipient's chain to include the original caller. Use `{ newChain: true }` to start fresh:
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
-// Note: In production, you'd skip the originator to avoid redundant updates
-for (const clientId of subscribers) {
-  const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
-  // Start new chain - this is a server-initiated push, not a response to client
-  this.lmz.call(
-    'LUMENIZE_CLIENT_GATEWAY',
-    clientId,
-    remote,
-    undefined,
-    { newChain: true }
-  );
+// Reusable broadcast helper that accepts any continuation
+#broadcast(continuation: OperationChain) {
+  const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+  for (const clientId of subscribers) {
+    this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation, undefined, { newChain: true });
+  }
 }
 ```

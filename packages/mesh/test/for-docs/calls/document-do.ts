@@ -4,10 +4,18 @@
  * Example of a LumenizeDO from getting-started.mdx and calls.mdx
  */
 
-import { LumenizeDO, mesh } from '../../../src/index.js';
+import { LumenizeDO, mesh, getOperationChain, executeOperationChain, type OperationChain, type CallContext } from '../../../src/index.js';
 import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
 import type { AnalyticsWorker, AnalyticsResult } from './analytics-worker.js';
+
+/**
+ * Stored task structure for manual persistence pattern
+ */
+export interface PendingTask {
+  chain: OperationChain;
+  context: CallContext;
+}
 
 /**
  * Custom error for admin access failures
@@ -189,20 +197,95 @@ export class DocumentDO extends LumenizeDO<Env> {
     this.ctx.storage.kv.put('subscribers', new Set());
   }
 
+  /**
+   * Schedule a local task for later execution.
+   *
+   * Demonstrates manual persistence pattern from managing-context.mdx:
+   * - Use getOperationChain() to extract the chain from a continuation
+   * - Save callContext separately (it's a plain object)
+   * - KV handles Maps, Sets, Dates, cycles natively
+   *
+   * The continuation is created within this method using this.ctn(),
+   * capturing the message to log. This is the pattern described in
+   * the "Manual Persistence" section of managing-context.mdx.
+   */
+  @mesh
+  scheduleLocalTask(taskId: string, message: string): { scheduled: true; taskId: string } {
+    // Create a continuation to our own logMessage method
+    const continuation = this.ctn<DocumentDO>().logMessage(message);
+
+    // Extract the operation chain from the continuation proxy
+    const chain = getOperationChain(continuation);
+    if (!chain) {
+      throw new Error('Failed to extract operation chain');
+    }
+
+    // Capture the current call context
+    const context = this.lmz.callContext;
+
+    // Store both for later execution (KV handles complex types natively)
+    this.ctx.storage.kv.put(`task:${taskId}`, { chain, context } as PendingTask);
+
+    return { scheduled: true, taskId };
+  }
+
+  /**
+   * Execute a previously stored task.
+   *
+   * Demonstrates restoration and execution of persisted continuations.
+   * The context is available but must be used manually (e.g., for logging or access control).
+   */
+  @mesh
+  async executePendingTask(taskId: string): Promise<{ executed: boolean; originalUserId?: string }> {
+    const pending = this.ctx.storage.kv.get(`task:${taskId}`) as PendingTask | undefined;
+    if (!pending) {
+      return { executed: false };
+    }
+
+    const { chain, context } = pending;
+
+    // Execute the chain - context is available for manual use
+    // requireMeshDecorator: false allows calling methods without @mesh decorator.
+    // This is safe here because we're executing a chain we created and stored ourselves.
+    await executeOperationChain(chain, this, { requireMeshDecorator: false });
+
+    // Clean up
+    this.ctx.storage.kv.delete(`task:${taskId}`);
+
+    return {
+      executed: true,
+      originalUserId: context.originAuth?.userId
+    };
+  }
+
+  /**
+   * Simple method that can be called via persisted continuation
+   */
+  logMessage(message: string): void {
+    const messages: string[] = this.ctx.storage.kv.get('messages') ?? [];
+    messages.push(message);
+    this.ctx.storage.kv.put('messages', messages);
+  }
+
+  /**
+   * Retrieve logged messages (for testing)
+   */
+  @mesh
+  getMessages(): string[] {
+    return this.ctx.storage.kv.get('messages') ?? [];
+  }
+
+  // Reusable broadcast helper that accepts any continuation
+  #broadcast(continuation: OperationChain) {
+    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    for (const clientId of subscribers) {
+      this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation, undefined, { newChain: true });
+    }
+  }
+
+  // Usage: pass different continuations to the same broadcast helper
   #broadcastContent(content: string) {
     const documentId = this.lmz.instanceName!;
-    const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
-    // Note: In production, you'd skip the originator to avoid redundant updates
-    for (const clientId of subscribers) {
-      const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
-      // Start new chain - this is a server-initiated push, not a response to client
-      this.lmz.call(
-        'LUMENIZE_CLIENT_GATEWAY',
-        clientId,
-        remote,
-        undefined,
-        { newChain: true }
-      );
-    }
+    this.#broadcast(this.ctn<EditorClient>().handleContentUpdate(documentId, content));
   }
 }
