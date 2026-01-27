@@ -449,14 +449,28 @@ export default function pluginCheckExamples(context, options = {}) {
           }
         }
 
-        // Sort by pending count (highest first)
-        const sorted = [...byFile.entries()].sort((a, b) => b[1].pending.length - a[1].pending.length);
+        // Separate files with pending vs approved-only, sort each by count
+        const withPending = [...byFile.entries()]
+          .filter(([, { pending }]) => pending.length > 0)
+          .sort((a, b) => b[1].pending.length - a[1].pending.length);
 
-        for (const [filePath, { pending, approved }] of sorted) {
-          const pendingStr = pending.length > 0 ? `${pending.length} pending` : '';
+        const approvedOnly = [...byFile.entries()]
+          .filter(([, { pending }]) => pending.length === 0)
+          .sort((a, b) => b[1].approved.length - a[1].approved.length);
+
+        for (const [filePath, { pending, approved }] of withPending) {
+          const pendingStr = `${pending.length} pending`;
           const approvedStr = approved.length > 0 ? `${approved.length} approved` : '';
           const parts = [pendingStr, approvedStr].filter(Boolean).join(', ');
           console.log(`  ${filePath}: ${parts}`);
+        }
+
+        if (withPending.length > 0 && approvedOnly.length > 0) {
+          console.log('');
+        }
+
+        for (const [filePath, { approved }] of approvedOnly) {
+          console.log(`  ${filePath}: ${approved.length} approved`);
         }
 
         console.log(`\n  Total: ${totalPending} @skip-check (pending), ${totalApproved} @skip-check-approved`);

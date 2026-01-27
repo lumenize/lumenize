@@ -22,38 +22,34 @@ export class _TestSimpleDO extends LumenizeDO {
     const finalReqId = this.svc.fetch.proxy(
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
-      {},
-      reqId
+      { reqId }
     );
     return finalReqId;
   }
 
   fetchDataSimpleWithOptions(
     url: string,
-    options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } },
-    reqId?: string
+    options: { timeout?: number; reqId?: string; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } }
   ): string {
     // User just passes their continuation directly - no handleFetchResult() needed!
     const finalReqId = this.svc.fetch.proxy(
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
-      options,
-      reqId
+      options
     );
     return finalReqId;
   }
 
   fetchDataSimpleWithRequestSync(
     url: string,
-    options: { method?: string; headers?: Record<string, string>; body?: any },
-    reqId?: string
+    requestOptions: { method?: string; headers?: Record<string, string>; body?: any },
+    proxyOptions?: { reqId?: string }
   ): string {
-    const request = new RequestSync(url, options);
+    const request = new RequestSync(url, requestOptions);
     const finalReqId = this.svc.fetch.proxy(
       request,
       this.ctn().handleFetchComplete(this.ctn().$result, request.url),
-      {},
-      reqId
+      proxyOptions
     );
     return finalReqId;
   }

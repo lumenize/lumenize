@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parse, RequestSync, ResponseSync } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
+import { FetchTimeoutError } from '@lumenize/fetch';
 
 describe('proxyFetch - Basic Flow', () => {
   test('makes successful fetch and delivers result via worker callback', async () => {
@@ -107,9 +108,10 @@ describe('proxyFetch - Basic Flow', () => {
     }, { timeout: 2000, interval: 10 });
     
     const result = parse(serialized!);
-    expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toContain('Fetch timeout');
-    
+    expect(result).toBeInstanceOf(FetchTimeoutError);
+    expect((result as FetchTimeoutError).url).toContain('/uuid');
+    expect((result as FetchTimeoutError).message).toContain('Fetch timeout');
+
     // Should be called exactly once via timeout
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);
@@ -172,12 +174,12 @@ describe('proxyFetch - Basic Flow', () => {
     }, { timeout: 1000, interval: 10 });
     
     const result = parse(serialized);
-    expect(result).toBeInstanceOf(Error);
-    
+    expect(result).toBeInstanceOf(FetchTimeoutError);
+
     // Worker callback would have been attempted (if not for simulateDeliveryFailure)
     // but alarm is already gone, so it would have been a noop
     // Since we simulated delivery failure, we can check the noop flag
-    
+
     // Should have only 1 call (timeout), not 2
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);
@@ -237,21 +239,26 @@ describe('proxyFetch - Error Handling', () => {
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'abort-test');
     const url = testEndpoints.buildUrl('/delay/10000');  // 10 second delay
-    
-    // 500ms timeout triggers AbortController (before alarm would fire)
-    const reqId = await stub.fetchDataSimpleWithOptions(url, { timeout: 500 });
-    
+
+    // 500ms fetch timeout triggers AbortController
+    // Alarm set much higher so AbortController definitely fires first
+    const reqId = await stub.fetchDataSimpleWithOptions(url, {
+      timeout: 500,
+      testMode: { alarmTimeoutOverride: 30000 }
+    });
+
     // Wait for abort error to be stored
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
     }, { timeout: 2000, interval: 10 });
-    
+
     const result = parse(serialized);
     expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toContain('abort');
-    
+    expect(result).not.toBeInstanceOf(FetchTimeoutError);  // AbortController error, not alarm timeout
+    expect((result as Error).message.toLowerCase()).toContain('abort');
+
     // Should be called exactly once
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);

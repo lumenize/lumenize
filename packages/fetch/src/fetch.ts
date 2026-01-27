@@ -9,6 +9,7 @@
 import { debug, type DebugLogger } from '@lumenize/debug';
 import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
+import { FetchTimeoutError } from './errors';
 import type { ProxyFetchWorkerOptions } from './types';
 import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
 
@@ -78,15 +79,13 @@ export class Fetch extends NadisPlugin {
    *
    * @param request - URL string or RequestSync object
    * @param continuation - User continuation that receives ResponseSync | Error
-   * @param options - Optional configuration (timeout, executorBinding, testMode)
-   * @param reqId - Optional request ID (generated if not provided)
+   * @param options - Optional configuration (timeout, executorBinding, reqId, testMode)
    * @returns Request ID (for correlation/testing)
    */
   proxy(
     request: string | RequestSync,
     continuation: any,
-    options?: ProxyFetchWorkerOptions,
-    reqId?: string
+    options?: ProxyFetchWorkerOptions
   ): string {
     // Validate continuation
     const continuationChain = getOperationChain(continuation);
@@ -117,8 +116,8 @@ export class Fetch extends NadisPlugin {
     const now = Date.now();
     const alarmFiresAt = new Date(now + alarmTimeout);
 
-    // Generate reqId (or use provided for testing)
-    const finalReqId = reqId ?? crypto.randomUUID();
+    // Generate reqId (or use provided)
+    const finalReqId = options?.reqId ?? crypto.randomUUID();
 
     this.#log.debug('Starting proxy fetch', {
       url,
@@ -136,8 +135,9 @@ export class Fetch extends NadisPlugin {
     });
 
     // Create timeout error for alarm path
-    const timeoutError = new Error(
-      `Fetch timeout - request exceeded timeout period. URL: ${url}`
+    const timeoutError = new FetchTimeoutError(
+      `Fetch timeout - request exceeded ${timeout}ms timeout period`,
+      url
     );
 
     // Create alarm handler: calls back to this DO's Fetch plugin
