@@ -13,11 +13,8 @@ Make external API calls from DOs that extend `LumenizeDO` without blocking or ac
 
 ## Quick Start
 
-```typescript @skip-check
-import '@lumenize/fetch';  // Side-effect registers this.svc.fetch
-import { FetchTimeoutError } from '@lumenize/fetch';
-
-class MyDO extends LumenizeDO {
+```typescript @check-example('packages/fetch/test/for-docs/fetch-example-do.ts')
+// ...
   fetchUserData(userId: string) {
     this.svc.fetch.proxy(
       `https://api.example.com/users/${userId}`,
@@ -42,7 +39,7 @@ class MyDO extends LumenizeDO {
     const data = result.json();
     console.log(`User ${userId}:`, data);
   }
-}
+// ...
 ```
 
 **Key points:**
@@ -95,37 +92,37 @@ import '@lumenize/fetch';
 
 ## Retry Pattern
 
-```typescript @skip-check
-import { FetchTimeoutError } from '@lumenize/fetch';
+```typescript @check-example('packages/fetch/test/for-docs/retry-example-do.ts')
+// ...
+  fetchWithRetry(url: string, attempt: number = 1) {
+    this.svc.fetch.proxy(url, this.ctn().handleRetryResult(url, attempt, this.ctn().$result));
+  }
 
-fetchWithRetry(url: string, attempt: number = 1) {
-  this.svc.fetch.proxy(url, this.ctn().handleResult(url, attempt, this.ctn().$result));
-}
-
-@mesh
-handleResult(url: string, attempt: number, result: ResponseSync | Error) {
-  if (result instanceof FetchTimeoutError) {
-    // Timeout is ambiguous - for idempotent GETs, retry is safe
-    if (attempt < 3) {
+  @mesh
+  handleRetryResult(url: string, attempt: number, result: ResponseSync | Error) {
+    if (result instanceof FetchTimeoutError) {
+      // Timeout is ambiguous - for idempotent GETs, retry is safe
+      if (attempt < 3) {
+        this.fetchWithRetry(url, attempt + 1);
+        return;
+      }
+    }
+    if (result instanceof Error && attempt < 3) {
+      // Definite failure - safe to retry
       this.fetchWithRetry(url, attempt + 1);
       return;
     }
-  }
-  if (result instanceof Error && attempt < 3) {
-    // Definite failure - safe to retry
-    this.fetchWithRetry(url, attempt + 1);
-    return;
-  }
-  if (result instanceof Error) {
-    console.error('All retries failed:', result);
-    return;
-  }
-  if (!result.ok && result.status >= 500 && attempt < 3) {
-    this.fetchWithRetry(url, attempt + 1);
-    return;
-  }
-  console.log('Success:', result.json());
-}
+    if (result instanceof Error) {
+      console.error('All retries failed:', result);
+      // ...
+    }
+    if (!result.ok && result.status >= 500 && attempt < 3) {
+      this.fetchWithRetry(url, attempt + 1);
+      return;
+    }
+    // ...
+      console.log('Success:', result.json());
+// ...
 ```
 
 ## Architecture

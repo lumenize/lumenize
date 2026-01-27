@@ -2,7 +2,7 @@
   "name": "proxy-fetch-live-integration-test",
   "main": "./test-harness.ts",
   "compatibility_date": "2025-09-12",
-  
+
   "services": [
     {
       "binding": "FETCH_EXECUTOR",
@@ -10,18 +10,24 @@
       "entrypoint": "FetchExecutorEntrypoint"
     }
   ],
-  
+
   "durable_objects": {
     "bindings": [
       { "name": "TEST_SIMPLE_DO", "class_name": "TestSimpleDO" },
-      { "name": "TEST_ENDPOINTS_DO", "class_name": "TestEndpointsDO" }
+      { "name": "TEST_ENDPOINTS_DO", "class_name": "TestEndpointsDO" },
+      { "name": "FETCH_EXAMPLE_DO", "class_name": "FetchExampleDO" },
+      { "name": "RETRY_EXAMPLE_DO", "class_name": "RetryExampleDO" }
     ]
   },
-  
+
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["TestSimpleDO", "TestEndpointsDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["FetchExampleDO", "RetryExampleDO"]
     }
   ]
 }

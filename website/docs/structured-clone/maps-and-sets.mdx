@@ -46,7 +46,7 @@ expect(restored.get(true)).toEqual({ active: true });
 
 When you use an object as a Map key or Set value, JavaScript uses **reference equality** (`===`), not structural equality:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Native JavaScript behavior
 const key1 = { userId: 123 };
 const key2 = { userId: 123 };
@@ -191,9 +191,9 @@ expect(key1 === key2 && key1 === restored.theKey).toBe(true);
 
 ## RPC and Serialization Boundaries
 
-The same identity preservation behavior applies when using **`@lumenize/rpc`**. Within a single RPC call, object identity is preserved:
+The same identity preservation behavior applies when using `@lumenize/rpc` or `@lumenize/mesh`. Within a single RPC call, object identity is preserved:
 
-```typescript @skip-check
+```typescript @skip-check-approved('hand reviewed and conceptual')
 // Server-side DO
 export class MyDO extends LumenizeDO {
   getData() {
@@ -229,7 +229,7 @@ console.log(data.key === Array.from(data.map.keys())[0]);  // ✅ true
 - ❌ DO Storage: `put(map)` then later `get()` and use original key
 - ❌ Separate `stringify()` calls: Serialize map and key independently
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // ❌ Won't work: Separate RPC calls
 const map = await stub.getMap();      // Call 1
 const key = await stub.getKey();      // Call 2
