@@ -1,0 +1,36 @@
+{
+  "name": "mesh-security",
+  "main": "index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LUMENIZE_CLIENT_GATEWAY",
+        "class_name": "LumenizeClientGateway"
+      },
+      {
+        "name": "PROTECTED_DO",
+        "class_name": "ProtectedDO"
+      },
+      {
+        "name": "GUARDED_DO",
+        "class_name": "GuardedDO"
+      },
+      {
+        "name": "LUMENIZE_AUTH",
+        "class_name": "LumenizeAuth"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LumenizeClientGateway", "ProtectedDO", "GuardedDO", "LumenizeAuth"]
+    }
+  ],
+  "vars": {
+    "PRIMARY_JWT_KEY": "BLUE",
+    // Test-specific: enables test login without real email
+    "AUTH_TEST_MODE": "true"
+  }
+}

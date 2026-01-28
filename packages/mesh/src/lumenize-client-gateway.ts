@@ -790,4 +790,31 @@ export class LumenizeClientGateway extends DurableObject<any> {
       waiter.reject(error);
     }
   }
+
+  // ============================================
+  // Test Helpers (only available in test mode)
+  // ============================================
+
+  /**
+   * Force close the active WebSocket connection with a specific code.
+   *
+   * **Test-only method**: Only available when `AUTH_TEST_MODE=true` in env.
+   * Used to test client-side handling of auth close codes (4401, 4400, 4403).
+   *
+   * @param code - WebSocket close code (e.g., 4401 for token expired)
+   * @param reason - Close reason message
+   * @throws Error if AUTH_TEST_MODE is not enabled or no active connection
+   */
+  __testForceClose(code: number, reason: string): void {
+    if (this.env.AUTH_TEST_MODE !== 'true') {
+      throw new Error('__testForceClose is only available when AUTH_TEST_MODE=true');
+    }
+
+    const ws = this.#getActiveWebSocket();
+    if (!ws) {
+      throw new Error('No active WebSocket connection to close');
+    }
+
+    ws.close(code, reason);
+  }
 }

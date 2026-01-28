@@ -30,35 +30,44 @@ export type CorsOptions =
   | { origin: (origin: string, request: Request) => boolean };  // Custom validation function
 
 /**
+ * Context passed to routing hooks (onBeforeConnect, onBeforeRequest).
+ *
+ * Provides information about the target Durable Object so hooks can make
+ * routing decisions or enhance requests with additional context.
+ */
+export interface RouteDORequestHooksContext {
+  /** The resolved DurableObjectNamespace for the binding */
+  doNamespace: any;
+  /** The instance name or unique ID from the URL path */
+  doInstanceNameOrId: string;
+}
+
+/**
  * Configuration options for DO request routing and authentication hooks.
  */
 export interface RouteOptions {
   /**
    * Hook called before WebSocket requests (Upgrade: websocket) reach the Durable Object.
-   * 
+   *
    * @param request - The incoming WebSocket upgrade request
    * @param context - Routing context with DO namespace and instance identifier
-   * @param context.doNamespace - The resolved DurableObjectNamespace for the binding
-   * @param context.doInstanceNameOrId - The instance name or unique ID from the URL path
    * @returns Response to block call to DO, Request to enhance request, undefined/void to continue
    */
   onBeforeConnect?: (
-    request: Request, 
-    context: { doNamespace: any; doInstanceNameOrId: string }
+    request: Request,
+    context: RouteDORequestHooksContext
   ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
 
   /**
    * Hook called before non-WebSocket HTTP requests reach the Durable Object.
-   * 
-   * @param request - The incoming HTTP request  
+   *
+   * @param request - The incoming HTTP request
    * @param context - Routing context with DO namespace and instance identifier
-   * @param context.doNamespace - The resolved DurableObjectNamespace for the binding
-   * @param context.doInstanceNameOrId - The instance name or unique ID from the URL path
    * @returns Response to block call to DO, Request to enhance request, undefined/void to continue
    */
   onBeforeRequest?: (
-    request: Request, 
-    context: { doNamespace: any; doInstanceNameOrId: string }
+    request: Request,
+    context: RouteDORequestHooksContext
   ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
 
   /**

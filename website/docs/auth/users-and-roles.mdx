@@ -1,0 +1,331 @@
+---
+title: Users and Roles
+description: Role hierarchy, user management APIs, and agent delegation in LumenizeAuth
+---
+
+# Users and Roles
+
+LumenizeAuth provides a built-in role system and user management APIs so you can start with working authorization out of the box.
+
+## Role Hierarchy
+
+Three flags are built in:
+
+| Flag | Purpose |
+|------|---------|
+| **`isSuperAdmin`** | Full access. Can delete users, promote/demote admins, grant mesh access, and access all admin features. |
+| **`isAdmin`** | Can list, view, and update users. Can promote users to admin (but not super-admin) and grant mesh access. Cannot delete users. |
+| **`hasMeshAccess`** | Required to connect to Lumenize Mesh. Without this, authenticated users are blocked at the Worker level before reaching any DOs. |
+
+Super-admins and admins implicitly have mesh access. Regular users must be explicitly granted `hasMeshAccess: true` to connect to the mesh.
+
+### Flag Precedence
+
+Flags are additive. A user with `isSuperAdmin: true` implicitly has all admin capabilities and mesh access. You don't need to set multiple flags:
+
+```typescript @skip-check
+// Super-admin (has all permissions, including mesh access)
+{ isSuperAdmin: true }
+
+// Admin (has admin permissions and mesh access)
+{ isAdmin: true }
+
+// Regular user with mesh access
+{ hasMeshAccess: true }
+
+// Authenticated but no mesh access (blocked at Worker level)
+{ }
+```
+
+### Checking Flags in Guards
+
+Note: You don't need to check `hasMeshAccess` in guards—users without mesh access are blocked at the Worker level before any DO code runs.
+
+```typescript @skip-check
+import { mesh } from '@lumenize/mesh';
+
+class AdminDO {
+  // Super-admin only
+  @mesh({ guard: (auth) => auth.isSuperAdmin })
+  dangerousOperation() { /* ... */ }
+
+  // Any admin (includes super-admins)
+  @mesh({ guard: (auth) => auth.isSuperAdmin || auth.isAdmin })
+  manageUsers() { /* ... */ }
+
+  // Owner or admin
+  @mesh({
+    guard: (auth, args, ctx) => {
+      const resource = ctx.storage.kv.get('resource');
+      return resource?.ownerId === auth.sub || auth.isAdmin || auth.isSuperAdmin;
+    }
+  })
+  updateResource(data: ResourceUpdate) { /* ... */ }
+}
+```
+
+### Custom Roles
+
+For application-specific roles beyond admin, extend LumenizeAuth. See [Extending Auth](/docs/auth/extending#custom-user-fields).
+
+## User Management APIs
+
+Admin users can manage other users via HTTP endpoints or RPC methods.
+
+### HTTP Endpoints
+
+| Endpoint | Method | Auth Required | Description |
+|----------|--------|---------------|-------------|
+| `/auth/users` | GET | Admin | List all users |
+| `/auth/user/:id` | GET | Admin | Get user by ID |
+| `/auth/user/:id` | PATCH | Admin | Update user |
+| `/auth/user/:id` | DELETE | SuperAdmin | Delete user |
+
+### List Users
+
+```typescript @skip-check
+const response = await fetch('/auth/users', {
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+const { users } = await response.json();
+// users: [{ id, email, isAdmin, isSuperAdmin, createdAt, lastLoginAt, metadata }, ...]
+```
+
+Query parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | number | Max users to return (default: 100, max: 1000) |
+| `offset` | number | Skip this many users (for pagination) |
+| `role` | string | Filter by role: `admin`, `superAdmin`, or `none` |
+
+```typescript @skip-check
+// Get first 50 admins
+const response = await fetch('/auth/users?role=admin&limit=50', {
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+```
+
+### Get User
+
+```typescript @skip-check
+const response = await fetch(`/auth/user/${userId}`, {
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+const { user } = await response.json();
+// user: { id, email, isAdmin, isSuperAdmin, createdAt, lastLoginAt, metadata }
+```
+
+### Update User
+
+```typescript @skip-check
+const response = await fetch(`/auth/user/${userId}`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    isAdmin: true,
+    metadata: { department: 'Engineering' }
+  })
+});
+const { user } = await response.json();
+```
+
+**Update rules:**
+- Admins can update `isAdmin` and `metadata`
+- Only super-admins can update `isSuperAdmin`
+- Cannot demote yourself (prevents lockout)
+- Cannot modify the bootstrap super-admin's `isSuperAdmin` flag
+
+### Delete User
+
+```typescript @skip-check
+const response = await fetch(`/auth/user/${userId}`, {
+  method: 'DELETE',
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+// Returns: { message: "User deleted" }
+```
+
+**Delete rules:**
+- Only super-admins can delete users
+- Cannot delete yourself
+- Cannot delete the bootstrap super-admin
+
+### RPC Methods
+
+If you prefer RPC over HTTP, the same operations are available as methods on the Auth DO:
+
+```typescript @skip-check
+const authStub = env.LUMENIZE_AUTH.getByName('default');
+
+// List users
+const users = await authStub.listUsers({ limit: 50, role: 'admin' });
+
+// Get user
+const user = await authStub.getUserById(userId);
+
+// Update user
+const updated = await authStub.updateUser(userId, { isAdmin: true });
+
+// Delete user
+await authStub.deleteUser(userId);
+```
+
+RPC methods require the caller to have appropriate permissions (passed via `originAuth` in the mesh context).
+
+## Delegation
+
+Delegation allows agents or automated systems to act on behalf of users. The user's permissions apply; the agent's identity is recorded for audit.
+
+### How It Works
+
+1. **User authorizes agent** - Add the agent to the user's `authorizedActors` list
+2. **Agent requests delegated token** - Provides its ID and the user's ID
+3. **Auth issues token** - Token has `sub` = user, `act.sub` = agent
+4. **Agent makes calls** - Guards check `sub` (user's permissions), logs show `act.sub`
+
+### Authorize an Agent
+
+Users can authorize agents to act on their behalf:
+
+```typescript @skip-check
+// User authorizes agent via PATCH
+const response = await fetch(`/auth/user/${userId}`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${userAccessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    authorizedActors: ['agent-123', 'agent-456']
+  })
+});
+```
+
+Or programmatically:
+
+```typescript @skip-check
+const authStub = env.LUMENIZE_AUTH.getByName('default');
+await authStub.authorizeActor(userId, 'agent-123');
+await authStub.revokeActor(userId, 'agent-123');
+```
+
+### Request a Delegated Token
+
+Agents request tokens specifying who they're acting for:
+
+```typescript @skip-check
+const response = await fetch('/auth/delegated-token', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${agentAccessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    actFor: 'user-456'  // User ID to act on behalf of
+  })
+});
+const { access_token } = await response.json();
+// Token claims: { sub: "user-456", act: { sub: "agent-123" }, ... }
+```
+
+**Authorization check:** The request fails if `agent-123` is not in `user-456`'s `authorizedActors` list.
+
+### Using Delegated Tokens
+
+Delegated tokens work like regular tokens. Guards check the `sub` claim:
+
+```typescript @skip-check
+@mesh({
+  guard: (auth) => auth.sub === ownerId  // Checks user, not agent
+})
+updateDocument(content: string) {
+  // Agent can update if user owns the document
+}
+```
+
+For audit logging, check for the `act` claim:
+
+```typescript @skip-check
+@mesh({
+  guard: (auth) => auth.sub === ownerId,
+  onSuccess: (auth, args, result) => {
+    const actor = auth.act ? `agent ${auth.act.sub} for` : '';
+    console.log(`Document updated by ${actor} user ${auth.sub}`);
+  }
+})
+updateDocument(content: string) { /* ... */ }
+```
+
+### Delegation in Tests
+
+Use `testLoginWithMagicLink` with the `actAs` parameter:
+
+```typescript @skip-check
+import { testLoginWithMagicLink } from '@lumenize/auth';
+
+// First, create and authorize the agent
+await authStub.authorizeActor('user-456', 'agent-123');
+
+// Get delegated token
+const { accessToken } = await testLoginWithMagicLink(env, {
+  email: 'user@test.com',
+  actAs: 'agent-123'
+});
+// Token has sub="user-456", act.sub="agent-123"
+```
+
+## User Record Structure
+
+The full user record stored in LumenizeAuth:
+
+```typescript @skip-check
+interface User {
+  id: string;                    // Unique user ID (UUID)
+  email: string;                 // Email address (unique)
+  createdAt: number;             // Unix timestamp
+  lastLoginAt: number | null;    // Unix timestamp of last login
+
+  // Access and role flags
+  hasMeshAccess?: boolean;       // Can connect to mesh (required for regular users)
+  isSuperAdmin?: boolean;        // Full admin access (implies hasMeshAccess)
+  isAdmin?: boolean;             // User management access (implies hasMeshAccess)
+
+  // Delegation
+  authorizedActors?: string[];   // Agent IDs authorized to act for this user
+
+  // Extensible metadata
+  metadata?: Record<string, unknown>;
+}
+```
+
+The `metadata` field is for application-specific data. For type-safe custom fields, see [Extending Auth](/docs/auth/extending).
+
+## Security Considerations
+
+### Bootstrap Protection
+
+The email in `AUTH_SUPER_ADMIN_EMAIL` receives special protection:
+- Automatically gets `isSuperAdmin: true` on first login
+- Cannot have `isSuperAdmin` revoked via API
+- Cannot be deleted via API
+
+To change the bootstrap super-admin, update the environment variable and deploy.
+
+### Self-Modification Prevention
+
+Users cannot:
+- Demote themselves (prevents accidental lockout)
+- Delete themselves
+
+### Audit Trail
+
+All user management operations are logged with:
+- Who made the change (`sub` and optionally `act.sub`)
+- What changed
+- Timestamp
+
+Access logs via the Auth DO's storage or your logging infrastructure.

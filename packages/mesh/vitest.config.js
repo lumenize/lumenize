@@ -45,7 +45,8 @@ export default defineWorkersConfig({
           exclude: [
             'test/for-docs/getting-started/**/*.test.ts',
             'test/for-docs/calls/**/*.test.ts',
-            'test/for-docs/alarms/index.test.ts'
+            'test/for-docs/alarms/index.test.ts',
+            'test/for-docs/security/**/*.test.ts'
           ],
           poolOptions: {
             workers: {
@@ -89,6 +90,19 @@ export default defineWorkersConfig({
           poolOptions: {
             workers: {
               wrangler: { configPath: './test/for-docs/alarms/test/wrangler.jsonc' },
+            },
+          },
+        },
+      },
+      {
+        // Security e2e tests - uses its own test harness
+        extends: true,
+        test: {
+          name: 'security',
+          include: ['test/for-docs/security/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: './test/for-docs/security/test/wrangler.jsonc' },
             },
           },
         },

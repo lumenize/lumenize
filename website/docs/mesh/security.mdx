@@ -72,21 +72,17 @@ See [LumenizeClient: Authentication](./lumenize-client#authentication) for confi
 
 Access token expiration (4401) is handled automatically — the client refreshes via HTTP and reconnects transparently. `onLoginRequired` only fires when the refresh token itself has expired or been revoked (HTTP 401 from the refresh endpoint), meaning the user must re-login:
 
-```typescript @skip-check
-using client = new EditorClient({
-  instanceName: `${userId}.${tabId}`,
-  // baseUrl defaults to current origin, refresh defaults to /auth/refresh-token
+```typescript @check-example('packages/mesh/test/for-docs/security/index.test.ts')
   onLoginRequired: (error) => {
     // Only fires when refresh fails — user must re-login
     console.log('Login required:', error.code, error.reason);
-    window.location.href = '/login';
-  }
-});
+    // ...
+  },
 ```
 
 ### Auth Close Codes
 
-The Gateway uses this WebSocket close code for auth issues:
+You should never have to deal with these unless you are writing your own custom auth, but the Gateway uses this WebSocket close code for auth issues:
 
 | Code | Meaning | Action |
 |------|---------|--------|
@@ -110,8 +106,8 @@ Methods without the `@mesh()` decorator behave as if they don't exist — caller
 
 Override to enforce class-wide policies:
 
-```typescript @skip-check
-class ProtectedDO extends LumenizeDO<Env> {
+```typescript @check-example('packages/mesh/test/for-docs/security/protected-do.ts')
+export class ProtectedDO extends LumenizeDO<Env> {
   onBeforeCall() {
     super.onBeforeCall();
 
@@ -120,6 +116,7 @@ class ProtectedDO extends LumenizeDO<Env> {
       throw new Error('Authentication required');
     }
   }
+  // ...
 }
 ```
 
@@ -137,17 +134,20 @@ Guards receive the instance, providing access to instance state. The correct `lm
 adminMethod() {
   // Only admins reach here
 }
+```
 
-// Check instance state to determine access
-@mesh((instance: DocumentDO) => {
-  const userId = instance.lmz.callContext.originAuth?.userId;
-  if (!instance.allowedEditors.has(userId)) {
-    throw new Error('Not an allowed editor');
+```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
+  // Check instance state to determine access
+  @mesh((instance: GuardedDO) => {
+    const userId = instance.lmz.callContext.originAuth?.userId;
+    if (!instance.allowedEditors.has(userId!)) {
+      throw new Error('Not an allowed editor');
+    }
+  })
+  updateDocument(changes: DocumentChange): { updated: true; content: string } {
+    // Only allowed editors reach here
+    // ...
   }
-})
-updateDocument(changes: DocumentChange) {
-  // Only allowed editors reach here
-}
 ```
 
 ### Reusable Guards
@@ -180,26 +180,29 @@ The `callContext.state` object is a mutable `Record<string, unknown>` that:
 
 Use it to attach computed data (like user records or permissions) so method guards don't need to re-load/re-compute:
 
-```typescript @skip-check
-// In onBeforeCall — runs once per incoming call
-onBeforeCall() {
-  super.onBeforeCall();
-  const callContext = this.lmz.callContext;
-  if (!callContext.originAuth?.userId) throw new Error('Auth required');
+```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
+  onBeforeCall() {
+    super.onBeforeCall();
+    const callContext = this.lmz.callContext;
+    if (!callContext.originAuth?.userId) throw new Error('Auth required');
 
-  // Populate state for use by method guards
-  const session = this.loadSession(callContext.originAuth.userId);
-  callContext.state.session = session;
-  callContext.state.permissions = this.computePermissions(session);
-}
-
-// In method guard
-@mesh((instance: MyDO) => {
-  if (!instance.lmz.callContext.state.permissions.canEdit) {
-    throw new Error('Edit permission required');
+    // Populate state for use by method guards
+    const session = this.loadSession(callContext.originAuth.userId);
+    callContext.state.session = session;
+    callContext.state.permissions = this.computePermissions(session);
   }
-})
-editDocument(changes: DocumentChange) { /* ... */ }
+```
+
+```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
+  @mesh((instance: GuardedDO) => {
+    // ...
+    if (!permissions?.canEdit) {
+      throw new Error('Edit permission required');
+    }
+  })
+  editWithStateCheck(changes: DocumentChange): { edited: true; byUser: string } {
+    // ...
+  }
 ```
 
 :::note Per-Request Isolation
@@ -243,7 +246,7 @@ The Gateway doesn't re-verify JWTs — it trusts that your middleware already di
 
 ### How Headers Map to callContext
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual - shows mapping between middleware headers and callContext')
 // Your middleware sets headers
 request.headers.set('X-Auth-User-Id', 'user-123');
 request.headers.set('X-Auth-Claims', JSON.stringify({
@@ -265,14 +268,14 @@ someMethod() {
 
 This example shows how to create WebSocket auth middleware for Auth0. It follows the same contract as `@lumenize/auth`, so it works as a drop-in replacement for `onBeforeConnect` in `routeDORequest`. Browsers can't set custom headers on WebSocket upgrades, so `LumenizeClient` smuggles the token in the subprotocol header.
 
-```typescript @skip-check
+```typescript @skip-check-approved('requires Auth0 account to test')
 import { jwtVerify, importSPKI } from 'jose';
-import type { HookContext } from '@lumenize/mesh';
+import type { RouteDORequestHooksContext } from '@lumenize/utils';
 
 async function createAuth0WebSocketMiddleware(env: Env) {
   const publicKey = await importSPKI(env.AUTH0_PUBLIC_KEY, 'RS256');
 
-  return async (request: Request, context: HookContext): Promise<Request | Response> => {
+  return async (request: Request, context: RouteDORequestHooksContext): Promise<Request | Response> => {
     // Extract token from subprotocol header (e.g., "lmz, lmz.access-token.eyJ...")
     const protocols = request.headers.get('Sec-WebSocket-Protocol')?.split(',').map(p => p.trim()) ?? [];
     const tokenProtocol = protocols.find(p => p.startsWith('lmz.access-token.'));
