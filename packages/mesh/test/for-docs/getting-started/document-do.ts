@@ -17,7 +17,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   update(content: string) {
     this.ctx.storage.kv.put('content', content);
 
@@ -38,7 +38,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   subscribe(): string {
     const { callChain } = this.lmz.callContext;
     const clientId = callChain.at(-1)?.instanceName;

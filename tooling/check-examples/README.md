@@ -69,22 +69,75 @@ const response = await routeDORequest(env.MY_DO, request);
 \```
 ```
 
-### 4. Skip verification when needed
+### 4. Auto-skipped languages
 
-For examples that shouldn't be verified (e.g., npm install commands), add `@skip-check` to the fence line:
+The following languages are automatically skipped without needing any annotation:
+
+- **Shell:** `bash`, `sh`, `shell`, `zsh`
+- **Diagrams:** `mermaid`
+- **Data formats:** `json`, `jsonc`, `yaml`, `yml`, `toml`, `ini`, `csv`
+- **Other:** `text`, `txt`, `plain`, `diff`, `markdown`, `md`, `sql`, `graphql`, `gql`
+
+These blocks are non-executable or configuration snippets that don't need verification.
+
+### 5. Ellipsis wildcards
+
+Use `// ...` or `/* ... */` in your doc examples to skip over intervening code. This allows you to show the important parts of a snippet while omitting boilerplate:
 
 ```mdx
-```bash npm2yarn @skip-check
-npm install @lumenize/rpc
+```typescript @check-example('packages/mesh/src/types.ts')
+interface CallContext {
+  callChain: NodeIdentity[];
+  // ...
+  state: Record<string, unknown>;
+}
 \```
 ```
+
+The plugin converts ellipsis markers to regex wildcards (`.*?`), so the above will match any `CallContext` interface that has `callChain` and `state` properties, even if there are other properties in between.
+
+This works in JSON/JSONC blocks too:
+
+```mdx
+```jsonc @check-example('wrangler.jsonc')
+{
+  "name": "my-worker",
+  // ...
+  "compatibility_date": "2025-09-12"
+}
+\```
+```
+
+### 6. Skip verification for specific blocks
+
+For TypeScript/JavaScript examples that shouldn't be verified (e.g., conceptual snippets), use `@skip-check-approved` with a reason:
+
+```mdx
+```typescript @skip-check-approved('conceptual')
+@mesh()                       // Basic entry point
+@mesh(guardFunction)          // With access control guard
+\```
+```
+
+The `@skip-check` annotation (without `-approved`) is available for work-in-progress, but should be converted to either `@check-example` or `@skip-check-approved('reason')` before publishing.
+
+### 7. Report mode
+
+To audit skip annotations across all docs:
+
+```bash
+node tooling/check-examples/src/index.js --report
+```
+
+This shows a summary of all `@skip-check` (pending) and `@skip-check-approved` (approved) annotations, sorted by count. Use this to track progress converting examples to verified ones.
 
 ## Design Decisions
 
 ### Normalized Matching (Default)
-- TypeScript/JavaScript: Strips comments and normalizes whitespace
+- TypeScript/JavaScript: Strips imports, comments, type parameters, and normalizes whitespace
+- JSON/JSONC: Strips comments and normalizes whitespace
 - Allows minor formatting differences between docs and tests
-- Doc code must exist as substring in test file
+- Doc code must exist as substring in test file (after normalization)
 
 ### Strict Matching (Opt-in)
 ```mdx
@@ -100,18 +153,21 @@ def hello():
 - Doc examples are extracted from larger test contexts
 - More resilient than line-number-based matching (tests change frequently)
 
-### Phase 1 Scope
-- **Supported:** TypeScript, JavaScript (with normalization)
+### Supported Languages
+- **TypeScript/JavaScript:** Normalization with ellipsis wildcards
+- **JSON/JSONC:** Normalization with ellipsis wildcards
+- **Auto-skipped:** bash, mermaid, yaml, etc. (see list above)
 - **Other languages:** Require `strict: true` for exact matching
-- **Future:** Smart matching (const/let/var equivalence, etc.)
 
 ## How It Works
 
 1. **Build-time scanning:** Plugin runs during Docusaurus build
 2. **Parse .mdx files:** Extract annotated code blocks
-3. **Normalize code:** Strip comments, collapse whitespace (TypeScript/JS only)
-4. **Substring search:** Check if doc code exists in test file
-5. **Clear errors:** Show file, line, expected code, helpful suggestions
+3. **Skip auto-skip languages:** bash, mermaid, json, etc. need no annotation
+4. **Normalize code:** Strip comments, collapse whitespace (TypeScript/JS/JSON only)
+5. **Handle ellipsis:** Convert `// ...` to regex wildcards
+6. **Substring search:** Check if doc code exists in test file
+7. **Clear errors:** Show file, line, expected code, helpful suggestions
 
 ## Integration with doc-testing
 
@@ -140,9 +196,10 @@ Possible issues:
 
 ## Performance
 
-- Caches test file contents during build (only if easy to implement)
+- Caches test file contents during build
 - Target: <5 seconds for all website docs
-- Runs only on .mdx files with annotations (minimal overhead)
+- Auto-skipped languages have zero overhead
+- Runs only on .mdx files with annotations
 
 ## License
 

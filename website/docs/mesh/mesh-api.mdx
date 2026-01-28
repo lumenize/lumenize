@@ -11,54 +11,75 @@ All mesh node types — [LumenizeDO](./lumenize-do), [LumenizeWorker](./lumenize
 
 Every mesh node has access to `this.lmz`:
 
-```typescript @skip-check
-interface LmzApi {
-  // Node identity
-  type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
-  bindingName: string;           // e.g., 'DOCUMENT_DO', 'LUMENIZE_CLIENT_GATEWAY'
-  instanceName?: string;         // e.g., 'doc-123' (undefined for Workers)
+### Identity & Context
 
-  // Current request context (only valid during handler execution)
-  callContext: CallContext;
-
-  // Make a mesh call
-  call(
-    binding: string,
-    instanceName: string | undefined,
-    continuation: Continuation,
-    responseHandler?: Continuation,
-    options?: CallOptions
-  ): void;
-}
-
-interface CallOptions {
-  newChain?: boolean;  // Start fresh call chain (this node becomes origin)
-  state?: Record<string, unknown>;  // Initial state for new chain
-}
+```typescript @check-example('packages/mesh/src/lmz-api.ts')
+// this.lmz
+readonly bindingName?: string;
+readonly instanceName?: string;
+readonly type: NodeType;
+readonly callContext: CallContext;
 ```
 
 | `type` | `instanceName` |
 |--------|----------------|
-| `'LumenizeDO'` | Named instance (e.g., `'user-123'`) |
+| `'LumenizeDO'` | Named instance (e.g., `'document-123'`) |
 | `'LumenizeWorker'` | Always `undefined` |
 | `'LumenizeClient'` | Client identifier (e.g., `'alice.tab1'`) |
 
+### `call()` — Fire-and-Forget RPC
+
+The primary method for mesh communication. Returns immediately while work executes asynchronously.
+
+```typescript @check-example('packages/mesh/src/lmz-api.ts')
+// this.lmz.call()
+call<T = any>(
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined,
+  remoteContinuation: Continuation<T>,
+  handlerContinuation?: AnyContinuation,
+  options?: CallOptions
+): void;
+```
+
 For `call()` patterns including fire-and-forget, response handlers, chaining, and error handling, see [Making Calls](./calls).
+
+### `callRaw()` — Async RPC
+
+Lower-level method that returns a Promise and can accept an already extracted OperationChain. This is useful when you have already extracted the operation chain from a continuation using `getOperationChain(continuation)`, stored or sent it over the wire, and restored it. You might use this if you were building your own [NADIS plugin](./creating-plugins.mdx) and/or building your own transport to extend Lumenize Mesh. Prefer `call()` with continuations for most use cases.
+
+```typescript @check-example('packages/mesh/src/lmz-api.ts')
+// this.lmz.callRaw()
+callRaw(
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined,
+  chainOrContinuation: OperationChain | AnyContinuation,
+  options?: CallOptions
+): Promise<any>;
+```
+
+### `CallOptions`
+
+```typescript @check-example('packages/mesh/src/types.ts')
+interface CallOptions {
+  newChain?: boolean; // Start fresh call chain (this node becomes origin)
+  state?: Record<string, unknown>; // Initial or merged state for the call
+}
+```
+
+When `newChain` is false (the default) and the `state` option is provided, it is merged with any inherited state from the current [call context](#interface-callcontext) (overlapping properties are overwritten). When `newChain` is true, the `state` option becomes the initial state for the new chain.
 
 ## Interface: `CallContext`
 
-Available via `this.lmz.callContext` during any `@mesh` handler execution:
+Available via `this.lmz.callContext` during any incoming mesh call — including `onBeforeCall()`, `@mesh()` guard functions, the handler method itself, and any code any of those call:
 
-```typescript @skip-check
+```typescript @check-example('packages/mesh/src/types.ts')
 interface CallContext {
   // Immutable — full call path: [origin, hop1, hop2, ..., caller]
-  callChain: readonly NodeIdentity[];
+  callChain: NodeIdentity[];
 
   // Immutable — verified claims from origin's JWT (if authenticated)
-  originAuth?: {
-    userId: string;
-    claims?: Record<string, unknown>;  // Additional JWT claims (roles, permissions, etc.)
-  };
+  originAuth?: OriginAuth;
 
   // Mutable — can be modified by onBeforeCall or any handler along the way
   state: Record<string, unknown>;
@@ -67,14 +88,14 @@ interface CallContext {
 interface NodeIdentity {
   type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
   bindingName: string;
-  instanceName?: string;  // undefined for Workers
+  instanceName?: string; // undefined for Workers
 }
 ```
 
 **Property summary:**
-- `callChain` — Full call path from origin to immediate caller. **Immutable** — grows at each hop (managed by framework). `callChain[0]` is origin, `callChain.at(-1)` is immediate caller.
+- `callChain` — Full call path from origin to immediate caller. **Immutable** — grows at each hop (managed by framework).
 - `originAuth` — Verified JWT claims from original caller. **Immutable**. Only set for authenticated LumenizeClient origins.
-- `state` — Middleware data. **Mutable** — starts as `{}`, typically populated in `onBeforeCall()`.
+- `state` — Middleware data. **Mutable** — starts as `{}`, often populated in `onBeforeCall()` but can be set or modified anywhere in this call context.
 
 **Accessing identity:**
 - Origin (who started the chain): `callChain[0]`
@@ -83,17 +104,17 @@ interface NodeIdentity {
 
 For context propagation and persistence patterns, see [Managing Context](./managing-context).
 
-## Decorator: `@mesh`
+## Decorator: `@mesh()`
 
-Marks methods as mesh entry points. Methods without `@mesh` cannot be called from outside the node. This is the security boundary — only methods you explicitly mark can be invoked remotely.
+Marks methods as mesh entry points. Methods without `@mesh()` cannot be called from outside the node. This is the security boundary — only methods you explicitly mark can be invoked remotely.
 
-```typescript @skip-check
-@mesh                         // Basic entry point
-@mesh.guard(guardFunction)    // With access control guard
+```typescript @skip-check-approved('conceptual')
+@mesh()                       // Basic entry point
+@mesh(guardFunction)          // With access control guard
 ```
 
 **Guard signature:**
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 (instance: T) => void | Promise<void>
 // Throw to deny access. Access context via instance.lmz.callContext.
 ```
@@ -104,7 +125,7 @@ For guard patterns and access control, see [Security](./security#access-control)
 
 Override for class-wide access control that runs before every mesh call:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 onBeforeCall(): void
 // Call super.onBeforeCall() for default behavior
 // Access context via this.lmz.callContext
@@ -114,7 +135,7 @@ onBeforeCall(): void
 | Level | Mechanism | Purpose |
 |-------|-----------|---------|
 | Class-wide | `onBeforeCall()` | WHO can call (authentication) |
-| Method-level | `@mesh.guard()` | Fine-grained permissions |
+| Method-level | `@mesh(guard)` | Fine-grained permissions |
 
 For the complete security model, see [Security](./security#access-control).
 
@@ -122,7 +143,7 @@ For the complete security model, see [Security](./security#access-control).
 
 Creates type-safe continuations for mesh calls:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Remote continuation — what to call on another node
 this.ctn<OtherDO>().someMethod(arg1, arg2)
 

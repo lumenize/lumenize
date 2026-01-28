@@ -27,7 +27,7 @@ export class FetchExampleDO extends LumenizeDO<Env> {
     );
   }
 
-  @mesh  // Required decorator for continuation handlers
+  @mesh()  // Required decorator for continuation handlers
   handleResult(userId: string, result: ResponseSync | Error) {
     if (result instanceof FetchTimeoutError) {
       // Timeout is ambiguous - external API may have processed request
@@ -69,7 +69,7 @@ export class FetchExampleDO extends LumenizeDO<Env> {
     );
   }
 
-  @mesh
+  @mesh()
   handleUrlResult(url: string, result: ResponseSync | Error) {
     if (result instanceof FetchTimeoutError) {
       this.ctx.storage.kv.put('lastResult', { url, type: 'timeout', message: result.message });

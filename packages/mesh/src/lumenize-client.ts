@@ -248,12 +248,12 @@ interface QueuedMessage {
  * LumenizeClient - Browser/Node.js client for Lumenize Mesh
  *
  * Clients are full mesh peers — they can both make and receive calls.
- * Extend this class and define `@mesh` methods for incoming calls.
+ * Extend this class and define `@mesh()` methods for incoming calls.
  *
  * @example
  * ```typescript
  * class EditorClient extends LumenizeClient {
- *   @mesh
+ *   @mesh()
  *   handleDocumentChange(change: DocumentChange) {
  *     this.editor.applyChange(change);
  *   }

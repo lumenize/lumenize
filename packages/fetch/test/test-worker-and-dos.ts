@@ -58,7 +58,7 @@ export class _TestSimpleDO extends LumenizeDO {
    * User's handler - receives the result directly (either from worker or timeout)
    * This is the only method the user needs to implement
    */
-  @mesh
+  @mesh()
   async handleFetchComplete(result: ResponseSync | Error, url: string): Promise<void> {
     const resultKey = `__test_result:${url}`;
     const serialized = await stringify(result);

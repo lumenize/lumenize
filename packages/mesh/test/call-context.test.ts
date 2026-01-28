@@ -299,7 +299,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
     });
   });
 
-  describe('@mesh.guard() security', () => {
+  describe('@mesh(guard) security', () => {
     it('guard blocks call when condition not met', async () => {
       const caller = env.TEST_DO.getByName('guard-block-caller');
       const callee = env.TEST_DO.getByName('guard-block-callee');
@@ -365,6 +365,52 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
           [{ type: 'get', key: 'guardedAsyncMethod' }, { type: 'apply', args: [] }]
         )
       ).rejects.toThrow('Guard: valid token required');
+    });
+
+    // Worker guard tests
+    it('Worker: guard blocks call when condition not met', async () => {
+      const caller = env.TEST_DO.getByName('worker-guard-block-caller');
+
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-block-caller' });
+
+      // Call guarded Worker method without setting 'admin' role in state
+      await expect(
+        caller.testCallRawWithOperationChain(
+          'TEST_WORKER',
+          undefined,
+          [{ type: 'get', key: 'guardedWorkerAdminMethod' }, { type: 'apply', args: [] }]
+        )
+      ).rejects.toThrow('Worker Guard: admin role required');
+    });
+
+    it('Worker: guard checks authentication (userId in state)', async () => {
+      const caller = env.TEST_DO.getByName('worker-guard-auth-caller');
+
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-auth-caller' });
+
+      // Without userId - should fail
+      await expect(
+        caller.testCallRawWithOperationChain(
+          'TEST_WORKER',
+          undefined,
+          [{ type: 'get', key: 'guardedWorkerAuthMethod' }, { type: 'apply', args: [] }]
+        )
+      ).rejects.toThrow('Worker Guard: authentication required');
+    });
+
+    it('Worker: async guard works correctly', async () => {
+      const caller = env.TEST_DO.getByName('worker-guard-async-caller');
+
+      await caller.testLmzApiInit({ bindingName: 'TEST_DO', instanceName: 'worker-guard-async-caller' });
+
+      // Without valid token - should fail
+      await expect(
+        caller.testCallRawWithOperationChain(
+          'TEST_WORKER',
+          undefined,
+          [{ type: 'get', key: 'guardedWorkerAsyncMethod' }, { type: 'apply', args: [] }]
+        )
+      ).rejects.toThrow('Worker Guard: valid token required');
     });
   });
 

@@ -15,7 +15,7 @@ export interface SpellFinding {
 }
 
 export class SpellCheckWorker extends LumenizeWorker<Env> {
-  @mesh
+  @mesh()
   async check(content: string, clientId: string, documentId: string): Promise<void> {
     // Mock implementation - in real app this would call external API
     // For testing, we'll flag any word containing "teh" as a typo

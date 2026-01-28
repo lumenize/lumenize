@@ -1,7 +1,7 @@
 /**
  * @mesh decorator for marking methods as mesh-callable
  *
- * Methods decorated with `@mesh` can be called from remote mesh nodes.
+ * Methods decorated with `@mesh()` can be called from remote mesh nodes.
  * Without this decorator, methods cannot be invoked via `this.lmz.call()` or `callRaw()`.
  *
  * This provides an explicit security boundary - only methods you explicitly
@@ -23,7 +23,7 @@ export const MESH_CALLABLE = Symbol.for('lumenize.mesh.callable');
 export const MESH_GUARD = Symbol.for('lumenize.mesh.guard');
 
 /**
- * Guard function type for `@mesh` decorator
+ * Guard function type for `@mesh()` decorator
  *
  * The guard is called with the instance before the method executes.
  * Throw an error to reject the call, or return void to allow it.
@@ -81,7 +81,7 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
 }
 
 /**
- * `@mesh` decorator for marking methods as mesh-callable
+ * `@mesh()` decorator for marking methods as mesh-callable
  *
  * Use this decorator on methods that should be callable from remote mesh nodes.
  * Methods without this decorator cannot be invoked via `this.lmz.call()` or `callRaw()`.
@@ -92,7 +92,7 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  * Basic usage - mark a method as mesh-callable:
  * ```typescript
  * class DocumentDO extends LumenizeDO<Env> {
- *   @mesh
+ *   @mesh()
  *   getContent(): string {
  *     return this.svc.sql`SELECT content FROM documents LIMIT 1`[0]?.content ?? '';
  *   }
@@ -108,7 +108,7 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  * With guard function - add per-method authorization:
  * ```typescript
  * class SecureDocumentDO extends LumenizeDO<Env> {
- *   @mesh.guard((instance: SecureDocumentDO) => {
+ *   @mesh((instance: SecureDocumentDO) => {
  *     // Guard runs before the method executes
  *     const { originAuth } = instance.lmz.callContext;
  *     if (!originAuth?.userId) {
@@ -119,57 +119,33 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  *     this.svc.sql`UPDATE documents SET content = ${content}`;
  *   }
  *
- *   @mesh // No guard - anyone can read
+ *   @mesh() // No guard - anyone can read
  *   getContent(): string {
  *     return this.svc.sql`SELECT content FROM documents LIMIT 1`[0]?.content ?? '';
  *   }
  * }
  * ```
- */
-export function mesh<This, Args extends any[], Return>(
-  target: (this: This, ...args: Args) => Return,
-  context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
-): (this: This, ...args: Args) => Return {
-  // Mark the method as mesh-callable
-  (target as any)[MESH_CALLABLE] = true;
-  return target;
-}
-
-/**
- * Create a @mesh decorator with a guard function.
  *
- * The guard is called with the instance before the method executes.
- * Throw an error to reject the call, or return void to allow it.
- *
- * @example
- * ```typescript
- * class SecureDO extends LumenizeDO<Env> {
- *   @mesh.guard((instance: SecureDO) => {
- *     const { originAuth } = instance.lmz.callContext;
- *     if (!originAuth?.userId) {
- *       throw new Error('Authentication required');
- *     }
- *   })
- *   sensitiveMethod(): void {
- *     // ...
- *   }
- * }
- * ```
+ * @param guard - Optional guard function called before method execution.
+ *                Throw an error to reject the call, or return void to allow it.
+ * @returns A decorator that marks the method as mesh-callable
  */
-mesh.guard = function <T, This, Args extends any[], Return>(
-  guardFn: MeshGuard<T>
-): (
+export function mesh<T = any>(
+  guard?: MeshGuard<T>
+): <This, Args extends any[], Return>(
   target: (this: This, ...args: Args) => Return,
   context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
 ) => (this: This, ...args: Args) => Return {
-  return function (
+  return function <This, Args extends any[], Return>(
     target: (this: This, ...args: Args) => Return,
     _context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Return>
   ): (this: This, ...args: Args) => Return {
     // Mark the method as mesh-callable
     (target as any)[MESH_CALLABLE] = true;
-    // Store the guard
-    (target as any)[MESH_GUARD] = guardFn;
+    // Store the guard if provided
+    if (guard) {
+      (target as any)[MESH_GUARD] = guard;
+    }
     return target;
   };
-};
+}

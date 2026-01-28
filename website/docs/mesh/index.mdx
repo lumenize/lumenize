@@ -7,7 +7,7 @@ import MeshArchitectureDiagram from '../_partials/_mesh-architecture-diagram.mdx
 
 # Lumenize Mesh
 
-While Cloudflare's Workers and Durable Objects with Workers RPC is actor-like, **Lumenize Mesh** extends the model all the way to the browser and other clients running outside Cloudflare while adding critical security, race-condition safety, and de✨light✨fulness.
+While Cloudflare's Workers and Durable Objects with Workers RPC is actor-like, **Lumenize Mesh** extends the model all the way to clients running outside Cloudflare (browsers, node.js, bun, etc.) while adding critical security, functionality, and de✨light✨fulness.
 
 ## Node Types
 
@@ -17,14 +17,15 @@ Every participant in the mesh extends one of these base classes:
 |-----------|---------|---------|----------|
 | **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side logic |
 | **LumenizeWorker** | Cloudflare Worker | None | Stateless server-side logic |
-| **LumenizeClient** | Browser/Node.js/Bun | Local | Client applications |
+| **LumenizeClient** | Browser/Node.js/Bun | Local | Client access to mesh |
+
+All three mesh node types, have access to the same APIs/utilities, are coded in the same way, and act as full peers, able to both make and receive calls. Yes, even LumenizeClients can receive calls from any other mesh node.
 
 Supporting infrastructure:
 
-| Element | Type | Purpose |
-|---------|------|---------|
-| **[LumenizeClientGateway](./gateway)** | Cloudflare DO | Bridges WebSocket clients ↔ mesh (zero storage) |
-| **createLumenizeRouter** (coming soon)| Factory function | Creates Worker fetch handler with auth + gateway routing |
+**[LumenizeClientGateway](./gateway)** is a zero-storage Cloudflare DO that bridges LumenizeClients into the mesh.
+
+Additionally, it's common to use `@lumenize/auth`, `@lumenize/utils` (particularly routeDORequest), `@lumenize/testing`, and `@lumenize/debug` with Lumenize Mesh.
 
 ## Illustration
 
@@ -36,7 +37,7 @@ All mesh nodes have access to `this.lmz` — the unified API for identity and co
 
 ### Automatic Identity Propagation
 
-Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Callees store this information on first contact, enabling them to provide return addresses for callbacks, logging, etc.
+Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Callees store this information on first contact, enabling them to provide return addresses for callbacks, tracing, etc.
 
 ### Call Context
 
@@ -51,8 +52,8 @@ Client (alice) → DocumentDO → SpellCheckWorker
 
 Access context in any mesh node via `this.lmz.callContext`:
 
-```typescript @skip-check
-@mesh
+```typescript @skip-check-approved('conceptual')
+@mesh()
 updateDocument(changes: DocumentChange) {
   const { origin, callChain, originAuth } = this.lmz.callContext;
   const userId = originAuth?.userId;
@@ -65,9 +66,9 @@ updateDocument(changes: DocumentChange) {
 
 ### Continuations
 
-Continuations describe work to be done elsewhere or later. They enable type-safe, serializable method chains:
+Continuations describe work to be done in another place or time. They enable type-safe, serializable method chains:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Describe what to call on a remote DO
 const remote = this.ctn<DocumentDO>().getContent();
 
@@ -79,67 +80,24 @@ this.lmz.call('DOCUMENT_DO', 'draft-1', remote, handler);
 ```
 
 Continuations:
-- Are **serializable** — can be stored, sent over the wire, persist to storage
+- Are **serializable** — can be stored, sent over the wire, stored/restored
 - Are **type-safe** — TypeScript checks method names and signatures
-- **Carry context** — pass what you need as parameters for hibernation safety
-- **Avoid race conditions** — designed to work with Durable Objects concurrency model
+- **Carry context** — pass what you need as parameters
+- **Reduce race condition risk** — designed to work with Durable Objects concurrency model
 
 See [Continuations](./continuations) for the full guide.
 
 ### Zero Trust Security
 
-Every node is responsible for its own access control. Lumenize provides **secure-by-default** defense-in-depth:
+Every node is responsible for its own fine-grained access control. Lumenize provides **secure-by-default** defense-in-depth:
 
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
-| **Class-wide** | `onBeforeCall()` hook | WHO can call (authentication) |
-| **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
-| **Capability Trust** | Automatic | Returned objects are trusted for that chain |
+| **[Class-wide](./security#class-level-onbeforecall)** | `onBeforeCall()` hook | WHO can call (authentication) |
+| **[Entry Point](./security#access-control)** | `@mesh()` decorator | WHAT is exposed (method allowlist) |
+| **[Method-level](./security#method-level-meshguard)** | `@mesh(guard)` | Fine-grained per-method permissions |
 
-```typescript @skip-check
-class AdminCapabilities {
-  #instance: DocumentDO;
-
-  constructor(instance: DocumentDO) {
-    this.#instance = instance;
-  }
-
-  forceReset() {
-    this.#instance.ctx.storage.deleteAll();
-  }
-}
-
-class DocumentDO extends LumenizeDO {
-  // Class-wide: require authentication for all calls
-  onBeforeCall() {
-    super.onBeforeCall();
-    if (!this.lmz.callContext.originAuth?.userId) {
-      throw new Error('Authentication required');
-    }
-  }
-
-  // Entry Point: exposed to mesh
-  @mesh
-  getContent() { /* ... */ }
-
-  // Capability Trust: returned object's public interface is trusted for that call chain
-  // Example: `this.ctn().admin().forceReset()`
-  @mesh((instance: DocumentDO) => {
-    if (!instance.lmz.callContext.state.user.isAdmin) {
-      throw new Error('Admin permission required');
-    }
-  })
-  admin() {
-    return new AdminCapabilities(this);
-  }
-
-  // NOT exposed - missing @mesh decorator
-  #internalHelper() { /* ... */ }
-  anotherHelper() { /* ... */ }
-}
-```
-
-See [Security](./security) for complete security documentation.
+See [Security](./security) for complete documentation with examples.
 
 ### Rich Type Support All the Way to the Browser
 
@@ -155,7 +113,7 @@ Every mesh node has access to `this.lmz` — the unified API for identity and co
 
 ### Identity
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
 this.lmz.bindingName    // e.g., 'DOCUMENT_DO' (auto-propagated)
 this.lmz.instanceName   // e.g., 'draft-1' (auto-propagated, undefined for LumenizeWorker)
@@ -164,7 +122,7 @@ this.lmz.callContext    // Current request's context (during handler execution)
 
 ### Making Calls
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Fire-and-forget
 this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes));
 
@@ -179,7 +137,7 @@ this.lmz.call(
 
 See **[Making Calls](./calls)** for all patterns including cost optimization and error handling.
 
-See **[Mesh API](./mesh-api)** for the complete API reference including `CallContext`, `@mesh` decorator, and continuations.
+See **[Mesh API](./mesh-api)** for the complete API reference including `CallContext`, `@mesh()` decorator, and continuations.
 
 ## Getting Started
 
@@ -187,7 +145,7 @@ Ready to build? See the **[Getting Started Guide](./getting-started)** for a han
 
 ## Reference Documentation
 
-- **[Mesh API](./mesh-api)** — Core APIs shared by all node types (`this.lmz`, `@mesh`, `CallContext`)
+- **[Mesh API](./mesh-api)** — Core APIs shared by all node types (`this.lmz`, `@mesh()`, `CallContext`)
 - **[Making Calls](./calls)** — All call patterns, cost optimization, error handling
 - **[LumenizeDO](./lumenize-do)** — Stateful server-side nodes with SQL/KV storage
 - **[LumenizeWorker](./lumenize-worker)** — Stateless server-side nodes

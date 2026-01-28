@@ -3,37 +3,37 @@ import { newContinuation, executeOperationChain, getOperationChain, validateOper
 import { mesh, meshFn } from '../../mesh-decorator.js';
 import type { OperationChain } from '../index.js';
 
-// Test target object with various methods - all methods decorated with @mesh
+// Test target object with various methods - all methods decorated with @mesh()
 class TestObject {
   value = 42;
 
-  @mesh
+  @mesh()
   getValue() {
     return this.value;
   }
 
-  @mesh
+  @mesh()
   setValue(newValue: number) {
     this.value = newValue;
     return this;
   }
 
-  @mesh
+  @mesh()
   add(a: number, b: number) {
     return a + b;
   }
 
-  @mesh
+  @mesh()
   multiply(a: number, b: number) {
     return a * b;
   }
 
-  @mesh
+  @mesh()
   combine(x: number, y: number) {
     return x + y;
   }
 
-  @mesh
+  @mesh()
   async asyncMethod(value: number) {
     return value * 2;
   }

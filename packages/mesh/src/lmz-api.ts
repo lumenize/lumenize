@@ -348,14 +348,6 @@ export interface LmzApi {
   readonly instanceName?: string;
 
   /**
-   * Instance ID for this DO (undefined for Workers)
-   *
-   * - **LumenizeDO**: Read from `ctx.id.toString()` (read-only)
-   * - **LumenizeWorker**: Always undefined (Workers are ephemeral)
-   */
-  readonly id?: string;
-
-  /**
    * Type of this DO or Worker
    *
    * - **LumenizeDO**: Returns `'LumenizeDO'`
@@ -375,7 +367,7 @@ export interface LmzApi {
    *
    * @example
    * ```typescript
-   * @mesh
+   * @mesh()
    * updateDocument(changes: DocumentChange) {
    *   const userId = this.lmz.callContext.originAuth?.userId;
    *   const fullPath = this.lmz.callContext.callChain.map(n => n.bindingName).join(' → ');
@@ -468,7 +460,6 @@ export interface LmzApi {
  * Identity stored in Durable Object storage:
  * - `bindingName` → `ctx.storage.kv.get/put('__lmz_do_binding_name')`
  * - `instanceName` → `ctx.storage.kv.get/put('__lmz_do_instance_name')`
- * - `id` → `ctx.id.toString()` (read-only, not stored)
  *
  * @internal Used by LumenizeDO.lmz getter
  */
@@ -510,10 +501,6 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
 
     get instanceName(): string | undefined {
       return ctx.storage.kv.get('__lmz_do_instance_name') as string | undefined;
-    },
-
-    get id(): string | undefined {
-      return ctx.id?.toString();
     },
 
     get type(): 'LumenizeDO' {
@@ -670,11 +657,6 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
 
     get instanceName(): string | undefined {
       // Workers don't have instance names
-      return undefined;
-    },
-
-    get id(): string | undefined {
-      // Workers don't have IDs
       return undefined;
     },
 

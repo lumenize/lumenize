@@ -17,7 +17,7 @@ export interface AnalyticsResult {
 }
 
 export class AnalyticsWorker extends LumenizeWorker<Env> {
-  @mesh
+  @mesh()
   async computeAnalytics(
     content: string,
     documentId: string

@@ -122,10 +122,6 @@ export class TestDO extends LumenizeDO<Env> {
     return this.lmz.instanceName;
   }
 
-  async testLmzGetId() {
-    return this.lmz.id;
-  }
-
   async testLmzApiInit(options?: { bindingName?: string; instanceName?: string }) {
     this.lmz.__init(options ?? {});
   }
@@ -156,13 +152,13 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Remote method that can be called via RPC
-  @mesh
+  @mesh()
   remoteEcho(value: string): string {
     return `echo: ${value}`;
   }
 
   // Remote method that returns caller identity
-  @mesh
+  @mesh()
   getCallerIdentity(): { bindingName?: string; instanceName?: string; type: string } {
     return {
       bindingName: this.lmz.bindingName,
@@ -215,13 +211,13 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Handler for successful call results
-  @mesh
+  @mesh()
   handleCallResult(result: any): void {
     this.ctx.storage.kv.put('last_call_result', result);
   }
 
   // Handler for call errors
-  @mesh
+  @mesh()
   handleCallError(error: any): void {
     this.ctx.storage.kv.put('last_call_error', error instanceof Error ? error.message : String(error));
   }
@@ -242,7 +238,7 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Test that callContext.state is captured and restored in handlers
   // Sets a unique marker in state before calling, then verifies handler sees it
-  @mesh
+  @mesh()
   testContextCaptureInHandler(
     calleeBindingName: string,
     calleeInstanceName: string,
@@ -265,7 +261,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Handler that verifies capturedContext.state matches expected marker
-  @mesh
+  @mesh()
   verifyCapturedContext(expectedMarker: string, _remoteResult: any): void {
     const actualMarker = this.lmz.callContext?.state?.['captureTest'];
     const matches = actualMarker === expectedMarker;
@@ -285,7 +281,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Test interleaved calls with different markers
-  @mesh
+  @mesh()
   testInterleavedContextCapture(
     calleeBindingName: string,
     calleeInstanceName: string,
@@ -309,7 +305,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Handler that records both expected marker and actual context marker
-  @mesh
+  @mesh()
   recordInterleavedResult(expectedMarker: string, _remoteResult: any): void {
     const actualMarker = this.lmz.callContext?.state?.['captureTest'];
 
@@ -334,7 +330,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Remote method that throws an error
-  @mesh
+  @mesh()
   throwError(): never {
     throw new Error('Remote error for testing');
   }
@@ -372,20 +368,20 @@ export class TestDO extends LumenizeDO<Env> {
   // ============================================
 
   // Remote method that returns the current callContext
-  @mesh
+  @mesh()
   getCallContext() {
     return this.lmz.callContext;
   }
 
   // Remote method that returns the computed caller (callChain.at(-1))
-  @mesh
+  @mesh()
   getCaller() {
     const { callChain } = this.lmz.callContext;
     return callChain.at(-1);
   }
 
   // Remote method that returns callee identity from this.lmz
-  @mesh
+  @mesh()
   getCalleeIdentity() {
     return {
       bindingName: this.lmz.bindingName,
@@ -394,7 +390,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Remote method that modifies state and returns the context
-  @mesh
+  @mesh()
   modifyStateAndGetContext(key: string, value: unknown) {
     if (this.lmz.callContext) {
       this.lmz.callContext.state[key] = value;
@@ -403,7 +399,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Remote method that calls another DO and returns combined info
-  @mesh
+  @mesh()
   async callAndReturnContext(
     calleeBindingName: string,
     calleeInstanceName: string
@@ -421,7 +417,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Test state propagation through call chain
-  @mesh
+  @mesh()
   async testStatePropagation(
     calleeBindingName: string,
     calleeInstanceName: string,
@@ -447,7 +443,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Handler that stores received callContext for inspection
-  @mesh
+  @mesh()
   storeCallContext(): void {
     this.ctx.storage.kv.put('last_call_context', this.lmz.callContext);
   }
@@ -463,11 +459,11 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // ============================================
-  // @mesh.guard() test helpers
+  // @mesh(guard) test helpers
   // ============================================
 
   // Method with guard that checks for 'admin' role in callContext.state
-  @mesh.guard((instance: TestDO) => {
+  @mesh((instance: TestDO) => {
     const role = instance.lmz.callContext?.state?.['role'];
     if (role !== 'admin') {
       throw new Error('Guard: admin role required');
@@ -478,7 +474,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Method with guard that checks for any authenticated user
-  @mesh.guard((instance: TestDO) => {
+  @mesh((instance: TestDO) => {
     const userId = instance.lmz.callContext?.state?.['userId'];
     if (!userId) {
       throw new Error('Guard: authentication required');
@@ -489,7 +485,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Method with async guard (to test Promise support)
-  @mesh.guard(async (instance: TestDO) => {
+  @mesh(async (instance: TestDO) => {
     // Simulate async check
     await Promise.resolve();
     const token = instance.lmz.callContext?.state?.['token'];
@@ -502,7 +498,7 @@ export class TestDO extends LumenizeDO<Env> {
   }
 
   // Method that sets state before calling a guarded method
-  @mesh
+  @mesh()
   async callGuardedWithState(
     calleeBindingName: string,
     calleeInstanceName: string,
@@ -523,7 +519,7 @@ export class TestDO extends LumenizeDO<Env> {
 
   // Test deep interleaving of async operations within a single call
   // This verifies ALS isolation when a single request makes multiple nested async calls
-  @mesh
+  @mesh()
   async testDeepInterleavingContext(
     targetBindingName: string,
     instancePrefix: string
@@ -615,7 +611,7 @@ export class TestDO extends LumenizeDO<Env> {
    * 2. Target receives, then calls back to Origin's receiveCallback method
    * 3. Origin stores the callback's callContext for verification
    */
-  @mesh
+  @mesh()
   async initiateTwoOneWayCall(
     targetBindingName: string,
     targetInstanceName: string,
@@ -637,7 +633,7 @@ export class TestDO extends LumenizeDO<Env> {
   /**
    * Target receives this call, then independently calls back to Origin
    */
-  @mesh
+  @mesh()
   async handleAndCallback(
     callerBindingName: string,
     callerInstanceName: string,
@@ -666,7 +662,7 @@ export class TestDO extends LumenizeDO<Env> {
    * Origin receives the callback from Target
    * Stores the callContext for later verification
    */
-  @mesh
+  @mesh()
   receiveCallback(marker: string, targetIncomingContext: any): void {
     // Store the callback's callContext for verification
     // callChain[0] is origin, callChain.at(-1) is caller
@@ -791,10 +787,7 @@ export class TestWorker extends LumenizeWorker<Env> {
     return this.lmz.instanceName;
   }
 
-  getId(): string | undefined {
-    return this.lmz.id;
-  }
-
+  // NOTE: getId() removed - id property no longer exists
   // NOTE: getInstanceNameOrId() removed - property no longer exists
 
   // Test init/getter in same call (Workers are stateless between calls)
@@ -895,12 +888,12 @@ export class TestWorker extends LumenizeWorker<Env> {
   }
 
   // Remote methods that can be called via RPC
-  @mesh
+  @mesh()
   workerEcho(value: string): string {
     return `worker-echo: ${value}`;
   }
 
-  @mesh
+  @mesh()
   getWorkerIdentity(): { bindingName?: string; type: string } {
     return {
       bindingName: this.lmz.bindingName,
@@ -914,19 +907,19 @@ export class TestWorker extends LumenizeWorker<Env> {
   // CallContext test helpers for Worker
   // ============================================
 
-  @mesh
+  @mesh()
   getCallContext() {
     return this.lmz.callContext;
   }
 
-  @mesh
+  @mesh()
   getCaller() {
     const { callChain } = this.lmz.callContext;
     return callChain.at(-1);
   }
 
   // Worker that forwards call to a DO and returns both contexts
-  @mesh
+  @mesh()
   async forwardToDO(
     doBindingName: string,
     doInstanceName: string
@@ -941,6 +934,45 @@ export class TestWorker extends LumenizeWorker<Env> {
       workerContext: myContext,
       doContext
     };
+  }
+
+  // ============================================
+  // @mesh(guard) test helpers for Worker
+  // ============================================
+
+  // Method with guard that checks for 'admin' role in callContext.state
+  @mesh((instance: TestWorker) => {
+    const role = instance.lmz.callContext?.state?.['role'];
+    if (role !== 'admin') {
+      throw new Error('Worker Guard: admin role required');
+    }
+  })
+  guardedWorkerAdminMethod(): string {
+    return 'worker-admin-only-result';
+  }
+
+  // Method with guard that checks for any authenticated user
+  @mesh((instance: TestWorker) => {
+    const userId = instance.lmz.callContext?.state?.['userId'];
+    if (!userId) {
+      throw new Error('Worker Guard: authentication required');
+    }
+  })
+  guardedWorkerAuthMethod(): string {
+    return 'worker-authenticated-result';
+  }
+
+  // Method with async guard (to test Promise support)
+  @mesh(async (instance: TestWorker) => {
+    // Simulate async check
+    await Promise.resolve();
+    const token = instance.lmz.callContext?.state?.['token'];
+    if (token !== 'valid-token') {
+      throw new Error('Worker Guard: valid token required');
+    }
+  })
+  guardedWorkerAsyncMethod(): string {
+    return 'worker-async-guard-passed';
   }
 }
 
@@ -1018,7 +1050,7 @@ export class AlarmTestDO extends LumenizeDO<Env> {
 // Simple EchoDO for testing LumenizeClientGateway
 // Echoes back the input with context info
 export class EchoDO extends LumenizeDO<Env> {
-  @mesh
+  @mesh()
   echo(message: string): { message: string; callChain?: any; caller?: any } {
     const { callChain } = this.lmz.callContext;
     return {
@@ -1028,7 +1060,7 @@ export class EchoDO extends LumenizeDO<Env> {
     };
   }
 
-  @mesh
+  @mesh()
   getCallContext() {
     return this.lmz.callContext;
   }

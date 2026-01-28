@@ -9,7 +9,7 @@ The `sql` tagged template literal provides a clean, safe way to execute SQL quer
 
 ## Basic Usage
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 import { LumenizeDO } from '@lumenize/mesh';
 
 class ProductDO extends LumenizeDO<Env> {
@@ -51,7 +51,7 @@ Template Substitution Expressions (e.g. `${id}`) are automatically bound and SQL
 
 The `sql` function returns an array of result rows. Each row is a plain JavaScript object with column names as keys:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
   getLowStockProducts(threshold: number = 10) {
     return this.svc.sql`
       SELECT id, name, stock FROM products 
@@ -62,7 +62,7 @@ The `sql` function returns an array of result rows. Each row is a plain JavaScri
 ```
 
 Example return value:
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual json')
 [
   { id: 'prod-1', name: 'Widget', stock: 5 },
   { id: 'prod-2', name: 'Gadget', stock: 8 }
@@ -84,7 +84,7 @@ Any SQL query you can run with `this.ctx.storage.sql.exec()`, you can run with `
 - **Metadata** - access to `rowsRead`, `rowsWritten`, etc.
 - **Raw mode** - returns arrays instead of objects (no repeated column names)
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 const cursor = this.ctx.storage.sql.exec(
   'SELECT * FROM logs WHERE timestamp > ? LIMIT ? OFFSET ?',
   cutoffDate, pageSize, offset
@@ -99,7 +99,7 @@ console.log(`Rows read: ${cursor.rowsRead}`);
 
 This utility uses a [tagged template literal](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#tagged_templates)—a function that receives the template's string parts and interpolated values separately and can return whatever it wants:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // this.svc.sql`SELECT * FROM users WHERE id = ${id}`
 // The tag function receives:
 //   strings: ['SELECT * FROM users WHERE id = ', '']

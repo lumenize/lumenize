@@ -14,7 +14,7 @@ This page covers the second of those, **identity propagation**, as well as **acc
 
 ## Architecture Overview
 
-```mermaid @skip-check
+```mermaid
 sequenceDiagram
     participant Client
     participant Worker
@@ -101,10 +101,10 @@ Other auth failures (missing identity, invalid signature) are rejected by Worker
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **Class-wide** | `onBeforeCall()` hook | WHO can call (authentication) |
-| **Entry Point** | `@mesh` decorator | WHAT is exposed (method allowlist) |
+| **Entry Point** | `@mesh()` decorator | WHAT is exposed (method allowlist) |
 | **Capability Trust** | Automatic | Returned objects trusted for that chain |
 
-Methods without the `@mesh` decorator behave as if they don't exist — callers receive a generic error. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Handling](./calls#error-handling) for details.
+Methods without the `@mesh()` decorator behave as if they don't exist — callers receive a generic error. Errors thrown by guards or `onBeforeCall` pass through unchanged, preserving your domain-specific error types. See [Making Calls: Error Handling](./calls#error-handling) for details.
 
 ### Class-Level: `onBeforeCall()`
 
@@ -123,13 +123,13 @@ class ProtectedDO extends LumenizeDO<Env> {
 }
 ```
 
-### Method-Level: `@mesh.guard()`
+### Method-Level: `@mesh(guard)`
 
 Guards receive the instance, providing access to instance state. The correct `lmz.callContext` is also available in the guard. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
 
 ```typescript @skip-check
 // Check `callContext.originAuth.claims` to determine access
-@mesh.guard((instance: MyDO) => {
+@mesh((instance: MyDO) => {
   if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
     throw new Error('Admin only');
   }
@@ -139,7 +139,7 @@ adminMethod() {
 }
 
 // Check instance state to determine access
-@mesh.guard((instance: DocumentDO) => {
+@mesh((instance: DocumentDO) => {
   const userId = instance.lmz.callContext.originAuth?.userId;
   if (!instance.allowedEditors.has(userId)) {
     throw new Error('Not an allowed editor');
@@ -162,10 +162,10 @@ function requireRole(role: string) {
   };
 }
 
-@mesh.guard(requireRole('editor'))
+@mesh(requireRole('editor'))
 editDocument(changes: DocumentChange) { /* ... */ }
 
-@mesh.guard(requireRole('admin'))
+@mesh(requireRole('admin'))
 deleteDocument() { /* ... */ }
 ```
 
@@ -194,7 +194,7 @@ onBeforeCall() {
 }
 
 // In method guard
-@mesh.guard((instance: MyDO) => {
+@mesh((instance: MyDO) => {
   if (!instance.lmz.callContext.state.permissions.canEdit) {
     throw new Error('Edit permission required');
   }
@@ -252,7 +252,7 @@ request.headers.set('X-Auth-Claims', JSON.stringify({
 }));
 
 // In your mesh handlers, access via callContext
-@mesh
+@mesh()
 someMethod() {
   const { originAuth } = this.lmz.callContext;
   console.log(originAuth.userId);        // 'user-123'

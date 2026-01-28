@@ -100,6 +100,34 @@ function shouldNormalize(lang, strict) {
 }
 
 /**
+ * Languages that are automatically skipped (no verification needed)
+ * These are non-code blocks like diagrams, shell commands, etc.
+ */
+const AUTO_SKIP_LANGUAGES = new Set([
+  'bash',
+  'sh',
+  'shell',
+  'zsh',
+  'mermaid',
+  'text',
+  'txt',
+  'plain',
+  'diff',
+  'markdown',
+  'md',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'csv',
+  'sql',
+  'graphql',
+  'gql',
+  'json',
+  'jsonc',
+]);
+
+/**
  * Parse annotation to extract test path and options
  * Examples:
  *   @check-example('path/to/test.ts')
@@ -187,9 +215,23 @@ function extractCodeBlocks(content, filePath, collectSkips = false) {
     // Start of code block
     const codeBlockStart = line.match(/^```(\w+)/);
     if (codeBlockStart && !inCodeBlock) {
+      const lang = codeBlockStart[1];
+
+      // Auto-skip non-verifiable languages (bash, mermaid, etc.)
+      if (AUTO_SKIP_LANGUAGES.has(lang.toLowerCase())) {
+        // Skip this block entirely - scan ahead to find the closing fence
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].startsWith('```')) {
+            i = j; // Move index to closing fence
+            break;
+          }
+        }
+        continue;
+      }
+
       inCodeBlock = true;
       currentBlock = {
-        lang: codeBlockStart[1],
+        lang,
         code: [],
         startLine: i + 1,
         fenceLine: line,
@@ -325,9 +367,11 @@ function verifyCodeBlock(block, testFileCache, repoRoot) {
   // Check if doc code contains ellipsis wildcards
   if (docCode.includes('___ELLIPSIS___')) {
     // Convert to regex pattern, escaping special chars except our placeholder
+    // Trim each part to avoid double-space issues (e.g., "; ___ELLIPSIS___ readonly"
+    // would otherwise require two spaces where source has one)
     const pattern = docCode
       .split('___ELLIPSIS___')
-      .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .map(part => part.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       .join('.*?'); // Non-greedy wildcard
     
     const regex = new RegExp(pattern, 's'); // s flag for dotAll (. matches newlines)

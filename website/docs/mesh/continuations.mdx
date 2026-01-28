@@ -7,7 +7,7 @@ description: How Lumenize's type-safe, serializable operation chains work under 
 
 A **Continuation** is a **description of work** that gets executed in some other place or time — usually during or after some native async operation like a call or alarm.
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 const remote = this.ctn<RemoteDO>().getUserData(userId);
 const local = this.ctn().handleResult(this.ctn().$result);
 this.lmz.call('REMOTE_DO', 'instance-id', remote, local);
@@ -27,7 +27,7 @@ Continuations solve several problems in Durable Objects:
 
 Your classes that extend `LumenizeDO`, `LumenizeWorker`, or `LumenizeClient` have access to `this.ctn()`:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Typesafe: TypeScript knows RemoteDO's methods
 this.ctn<RemoteDO>().someMethod(arg)
 
@@ -51,7 +51,7 @@ this.ctn<RemoteDO>().multiply(this.ctn<RemoteDO>().add(1, 2), 10)
 
 When you pass a continuation to `this.lmz.call()`, it's serialized using `@lumenize/structured-clone` so rich types (Date, Set, Map, aliases, cycles, etc.) are supported for parameters and results :
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual json')
 // The chain becomes a serializable object
 {
   ops: [
@@ -71,7 +71,7 @@ This can be:
 
 On the receiving end, `executeOperationChain()` walks the chain:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Conceptual execution logic
 let result = target;
 for (const op of chain.ops) {

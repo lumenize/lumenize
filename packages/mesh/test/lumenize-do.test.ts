@@ -315,17 +315,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       });
     });
 
-    describe('ID Property', () => {
-      it('returns ctx.id as string', async () => {
-        const doId = env.TEST_DO.idFromName('lmz-id-get-1');
-        const stub = env.TEST_DO.get(doId);
-
-        const id = await stub.testLmzGetId();
-        expect(id).toBe(doId.toString());
-      });
-
-      // NOTE: ID is now read-only (no setter to test)
-    });
+    // NOTE: id property removed - use instanceName instead
 
     describe('__init() Internal Method', () => {
       it('initializes binding name', async () => {

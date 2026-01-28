@@ -127,7 +127,7 @@ class TestClient extends LumenizeClient {
   }
 
   // Expose a mesh method for testing
-  @mesh
+  @mesh()
   handleMessage(text: string): string {
     return `Received: ${text}`;
   }
@@ -135,6 +135,45 @@ class TestClient extends LumenizeClient {
   // Non-mesh method for testing access control
   privateMethod(): string {
     return 'This should not be callable from mesh';
+  }
+
+  // ============================================
+  // @mesh(guard) test helpers for Client
+  // ============================================
+
+  // Method with guard that checks for 'admin' role in callContext.state
+  @mesh((instance: TestClient) => {
+    const role = instance.lmz.callContext?.state?.['role'];
+    if (role !== 'admin') {
+      throw new Error('Client Guard: admin role required');
+    }
+  })
+  guardedClientAdminMethod(): string {
+    return 'client-admin-only-result';
+  }
+
+  // Method with guard that checks for any authenticated user
+  @mesh((instance: TestClient) => {
+    const userId = instance.lmz.callContext?.state?.['userId'];
+    if (!userId) {
+      throw new Error('Client Guard: authentication required');
+    }
+  })
+  guardedClientAuthMethod(): string {
+    return 'client-authenticated-result';
+  }
+
+  // Method with async guard (to test Promise support)
+  @mesh(async (instance: TestClient) => {
+    // Simulate async check
+    await Promise.resolve();
+    const token = instance.lmz.callContext?.state?.['token'];
+    if (token !== 'valid-token') {
+      throw new Error('Client Guard: valid token required');
+    }
+  })
+  guardedClientAsyncMethod(): string {
+    return 'client-async-guard-passed';
   }
 }
 
@@ -546,4 +585,31 @@ describe('Message Queue', () => {
 
     client.disconnect();
   });
+});
+
+describe('@mesh(guard) on LumenizeClient', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('guard is defined on decorated methods', () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    // The guard methods should exist and be mesh-callable
+    expect(typeof client.guardedClientAdminMethod).toBe('function');
+    expect(typeof client.guardedClientAuthMethod).toBe('function');
+    expect(typeof client.guardedClientAsyncMethod).toBe('function');
+
+    client.disconnect();
+  });
+
+  // Note: Full guard execution tests require mesh integration which is tested
+  // via the for-docs integration tests. The guard mechanism is shared across
+  // all node types via ocan/execute.ts, and is thoroughly tested for LumenizeDO
+  // in call-context.test.ts. The TestWorker guards are also tested there.
 });

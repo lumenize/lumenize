@@ -20,14 +20,14 @@ Alarm scheduling for Cloudflare Durable Objects using [continuations](./continua
 Cloudflare provides only **one native alarm** per Durable Object. Lumenize Alarms multiplexes this single alarm to manage unlimited scheduled tasks with type-safe continuations.
 
 **Without Lumenize Alarms:**
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Only one alarm at a time
 await ctx.storage.setAlarm(Date.now() + 60000); // task1
 await ctx.storage.setAlarm(Date.now() + 30000); // overwrites task1!
 ```
 
 **With Lumenize Alarms:**
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Unlimited tasks with automatic multiplexing and type safety
 this.svc.alarms.schedule(60, this.ctn().handleTask1({ id: 1 }));
 this.svc.alarms.schedule(new Date('2026-01-01'), this.ctn().handleTask2({ id: 2 }));
@@ -38,7 +38,7 @@ this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
 ## Quick Start
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   scheduleFollowUp(email: string, delaySeconds: number) {
     this.svc.alarms.schedule(
       delaySeconds,
@@ -64,7 +64,7 @@ this.svc.alarms.schedule('0 0 * * *', this.ctn().dailyReport()); // cron!
 Schedule a task to run after a delay:
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   scheduleDelayedReminder(message: string, delaySeconds: number) {
     // Schedule task for N seconds from now
     this.svc.alarms.schedule(
@@ -79,7 +79,7 @@ Schedule a task to run after a delay:
 Schedule a task at a specific moment:
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   scheduleAtTime(message: string, when: Date) {
     // Schedule at a specific date/time
     this.svc.alarms.schedule(
@@ -94,7 +94,7 @@ Schedule a task at a specific moment:
 Schedule recurring tasks with [cron expressions](https://en.wikipedia.org/wiki/Cron):
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   scheduleDailyDigest() {
     // Daily at midnight UTC
     this.svc.alarms.schedule(
@@ -109,7 +109,7 @@ Schedule recurring tasks with [cron expressions](https://en.wikipedia.org/wiki/C
 Pass as many parameters as you want of any [structured-cloneable types](/docs/structured-clone#supported-types) (Date, Set, Map, cycles, aliases, etc.). All chaining and nesting capabilities of [continuations](./continuations) are also available to you, although they are less valuable in the alarm context, compared to when making a complex call over the wire in a single round trip.
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   scheduleWithRichContext(str: string, date: Date, set: Set<number>) {
     this.svc.alarms.schedule(
       60,
@@ -127,7 +127,7 @@ Pass as many parameters as you want of any [structured-cloneable types](/docs/st
 ### Get Schedule Information
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   scheduleAndReturnInfo(message: string, delaySeconds: number) {
     const schedule = this.svc.alarms.schedule(
       delaySeconds,
@@ -146,7 +146,7 @@ The returned schedule object contains:
 ### Cancel a Schedule
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   cancelScheduleById(id: string) {
     return this.svc.alarms.cancelSchedule(id);
   }
@@ -155,7 +155,7 @@ The returned schedule object contains:
 ### List All Schedules
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   getAllSchedules() {
     return this.svc.alarms.getSchedules();
   }
@@ -164,7 +164,7 @@ The returned schedule object contains:
 ### Get Specific Schedule
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   getScheduleById(id: string) {
     return this.svc.alarms.getSchedule(id);
   }
@@ -175,7 +175,7 @@ The returned schedule object contains:
 LumenizeDO's `alarm()` handler short circuits the native retry behavior by catching errors. We do this so you have more control. Below is the pattern we recommend if you want retry behavior.
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   startTaskWithRetry(taskName: string, maxRetries = 3) {
     this.svc.alarms.schedule(
       1, // Initial delay of 1 second
@@ -207,10 +207,10 @@ LumenizeDO's `alarm()` handler short circuits the native retry behavior by catch
 
 The `triggerAlarms(count?)` method is the core execution logic used both by the production `alarm()` handler and exposed for testing. Without calling it, alarms remain queued waiting for Cloudflare to fire the native alarm - which can be unpredictable in test environments.
 
-Expose `triggerAlarms()` via a `@mesh` method to enable testing:
+Expose `triggerAlarms()` via a `@mesh()` method to enable testing:
 
 ```typescript @check-example('packages/mesh/test/for-docs/alarms/reminder-do.ts')
-  @mesh
+  @mesh()
   triggerAlarmsForTest(count?: number) {
     return this.svc.alarms.triggerAlarms(count);
   }

@@ -24,7 +24,7 @@ export class RetryExampleDO extends LumenizeDO<Env> {
     this.svc.fetch.proxy(url, this.ctn().handleRetryResult(url, attempt, this.ctn().$result));
   }
 
-  @mesh
+  @mesh()
   handleRetryResult(url: string, attempt: number, result: ResponseSync | Error) {
     if (result instanceof FetchTimeoutError) {
       // Timeout is ambiguous - for idempotent GETs, retry is safe

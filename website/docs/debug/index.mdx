@@ -18,7 +18,7 @@ A de✨light✨ful scoped debug logging system inspired by npm's `debug` package
 
 ## Installation
 
-```bash @skip-check
+```bash
 npm install @lumenize/debug
 ```
 
@@ -86,13 +86,13 @@ Control logging via the `DEBUG` configuration. The debug module auto-detects the
 ### Setting DEBUG
 
 **Cloudflare Workers**: Set via dashboard, wrangler.jsonc, or .dev.vars:
-```bash @skip-check
+```bash
 # .dev.vars
 DEBUG=*
 ```
 
 **Node.js/Bun**: Set via environment variable:
-```bash @skip-check
+```bash
 DEBUG=* node server.js
 ```
 
@@ -106,7 +106,7 @@ localStorage.setItem('DEBUG', '*');
 
 ### Pattern Examples
 
-```bash @skip-check
+```bash
 # Development - see everything
 DEBUG=*
 
@@ -127,7 +127,7 @@ DEBUG=ChatRoom.*,-ChatRoom.verboseDebug
 
 All logs output as pretty-printed JSON objects to `console.debug`:
 
-```json @skip-check
+```json
 {
   "type": "debug",  // Says "this is from Lumenize debug"
   "level": "info",

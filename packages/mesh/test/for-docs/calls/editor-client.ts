@@ -98,7 +98,7 @@ export class EditorClient extends LumenizeClient {
   // Called by DocumentDO when content changes (broadcast)
   // Note: DocumentDO broadcasts with { newChain: true }, so callContext.origin
   // is DocumentDO (not the client who triggered the update)
-  @mesh
+  @mesh()
   handleContentUpdate(documentId: string, content: string) {
     const callbacks = this.#documents.get(documentId);
     callbacks?.onContentUpdate?.(content);
@@ -109,7 +109,7 @@ export class EditorClient extends LumenizeClient {
   // Called directly by SpellCheckWorker — not routed back through DocumentDO.
   // This "direct delivery" pattern is a key benefit of the mesh architecture:
   // any node can send results to any other node without intermediate hops.
-  @mesh
+  @mesh()
   handleSpellFindings(documentId: string, findings: SpellFinding[]) {
     this.#documents.get(documentId)?.onSpellFindings?.(findings);
   }

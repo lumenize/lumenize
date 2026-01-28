@@ -22,7 +22,7 @@ Cloudflare's native Workers RPC is the transport layer for Lumenize's in-Cloudfl
 | **Identity propogation** | Manual with an init pattern | Automatic 
 | **Call context** | None — must pass manually | Automatic `callContext` with `origin`, `originAuth`, `caller`, and mutable `state` |
 | **Consistent Robust Type Support** | Cap'n Web is subset | Date, Set, Map, cycles, aliases, etc. |
-| **Access control** | Up to you | `@mesh` guards + `onBeforeCall` hooks |
+| **Access control** | Up to you | `@mesh()` guards + `onBeforeCall` hooks |
 | **Uniform API** | Different patterns for DO, RpcTarget, Cap'n Web | Same `this.lmz.call()` everywhere |
 | **Sychronous** | Async - Higher risk of race conditions | Lower risk of race conditions |
 
@@ -91,7 +91,7 @@ If the caller is a DO, this takes it out of wall-clock billing while waiting. Wo
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
 // In DocumentDO — fires-and-forgets to Worker, returns immediately
-@mesh
+@mesh()
 requestAnalytics(): void {
   const content = this.ctx.storage.kv.get('content') ?? '';
   const documentId = this.lmz.instanceName!;
@@ -108,7 +108,7 @@ requestAnalytics(): void {
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/analytics-worker.ts')
 // In AnalyticsWorker — does expensive work, sends result back to DO
-@mesh
+@mesh()
 async computeAnalytics(
   content: string,
   documentId: string
@@ -135,7 +135,7 @@ Results don't have to return to the caller. If results are destined for a client
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
 // In DocumentDO — initiates the call, returns immediately
-@mesh
+@mesh()
 update(content: string) {
   this.ctx.storage.kv.put('content', content);
   // ...
@@ -160,7 +160,7 @@ In the above example, notice how we extract the originating client's ID from `th
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/spell-check-worker.ts')
 // In SpellCheckWorker — does async work, sends result directly to client
-@mesh
+@mesh()
 async check(content: string, clientId: string, documentId: string): Promise<void> {
   // Worker waits here — CPU-only billing, not wall-clock
   // ...
@@ -195,7 +195,7 @@ requestSpellCheck(documentId: string, content: string) {
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/spell-check-worker.ts')
 // In SpellCheckWorker — clientId tells it where to respond
-@mesh
+@mesh()
 async check(content: string, clientId: string, documentId: string): Promise<void> {
   // ...
   // Send results directly to the client
@@ -289,7 +289,7 @@ export class AdminAccessError extends Error {
 The `name` property must match the class name. Register on both sides (sender and receiver) for full type preservation. See [Error Serialization](/docs/structured-clone#error-subclass-preservation) for details.
 
 :::note Guard Errors Pass Through
-Errors thrown by `@mesh` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `AdminAccessError`, `QuotaExceededError`) so you can handle them appropriately.
+Errors thrown by `@mesh()` guards or `onBeforeCall` are **not wrapped** — they pass through unchanged. This preserves your domain-specific error types (e.g., `AdminAccessError`, `QuotaExceededError`) so you can handle them appropriately.
 :::
 
 ## Breaking Call Chains

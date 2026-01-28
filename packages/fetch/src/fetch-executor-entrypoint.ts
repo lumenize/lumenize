@@ -45,7 +45,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
    *
    * @param message - Fetch message with preprocessed continuation
    */
-  @mesh
+  @mesh()
   async executeFetch(message: FetchMessage): Promise<void> {
     // Quick acknowledgment - return immediately
     this.ctx.waitUntil(

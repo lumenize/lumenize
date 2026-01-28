@@ -11,7 +11,7 @@ export class ReminderDO extends LumenizeDO<Env> {
   // Quick Start pattern: Schedule a follow-up reminder
   // ============================================
 
-  @mesh
+  @mesh()
   scheduleFollowUp(email: string, delaySeconds: number) {
     this.svc.alarms.schedule(
       delaySeconds,
@@ -29,7 +29,7 @@ export class ReminderDO extends LumenizeDO<Env> {
   // Scheduling patterns: delayed, scheduled, cron
   // ============================================
 
-  @mesh
+  @mesh()
   scheduleDelayedReminder(message: string, delaySeconds: number) {
     // Schedule task for N seconds from now
     this.svc.alarms.schedule(
@@ -38,7 +38,7 @@ export class ReminderDO extends LumenizeDO<Env> {
     );
   }
 
-  @mesh
+  @mesh()
   scheduleAtTime(message: string, when: Date) {
     // Schedule at a specific date/time
     this.svc.alarms.schedule(
@@ -47,7 +47,7 @@ export class ReminderDO extends LumenizeDO<Env> {
     );
   }
 
-  @mesh
+  @mesh()
   scheduleDailyDigest() {
     // Daily at midnight UTC
     this.svc.alarms.schedule(
@@ -70,7 +70,7 @@ export class ReminderDO extends LumenizeDO<Env> {
   // Rich context: structured-cloneable types
   // ============================================
 
-  @mesh
+  @mesh()
   scheduleWithRichContext(str: string, date: Date, set: Set<number>) {
     this.svc.alarms.schedule(
       60,
@@ -86,7 +86,7 @@ export class ReminderDO extends LumenizeDO<Env> {
   // Managing schedules: get, list, cancel
   // ============================================
 
-  @mesh
+  @mesh()
   scheduleAndReturnInfo(message: string, delaySeconds: number) {
     const schedule = this.svc.alarms.schedule(
       delaySeconds,
@@ -95,17 +95,17 @@ export class ReminderDO extends LumenizeDO<Env> {
     return schedule;
   }
 
-  @mesh
+  @mesh()
   getScheduleById(id: string) {
     return this.svc.alarms.getSchedule(id);
   }
 
-  @mesh
+  @mesh()
   getAllSchedules() {
     return this.svc.alarms.getSchedules();
   }
 
-  @mesh
+  @mesh()
   getSchedulesPatterns() {
     // Get all schedules
     const all = this.svc.alarms.getSchedules();
@@ -121,7 +121,7 @@ export class ReminderDO extends LumenizeDO<Env> {
     return { all, crons, upcoming };
   }
 
-  @mesh
+  @mesh()
   cancelScheduleById(id: string) {
     return this.svc.alarms.cancelSchedule(id);
   }
@@ -130,7 +130,7 @@ export class ReminderDO extends LumenizeDO<Env> {
   // Retry with backoff pattern
   // ============================================
 
-  @mesh
+  @mesh()
   startTaskWithRetry(taskName: string, maxRetries = 3) {
     this.svc.alarms.schedule(
       1, // Initial delay of 1 second
@@ -161,7 +161,7 @@ export class ReminderDO extends LumenizeDO<Env> {
   // Testing support: trigger alarms manually
   // ============================================
 
-  @mesh
+  @mesh()
   triggerAlarmsForTest(count?: number) {
     return this.svc.alarms.triggerAlarms(count);
   }

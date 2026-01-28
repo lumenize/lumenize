@@ -5,7 +5,11 @@ description: Cost-effective external API calls from Lumenize Mesh DOs
 
 # Fetch Service
 
-Make external API calls from DOs that extend `LumenizeDO` without blocking or accumulating wall-clock billing.
+Make external API calls from DOs that extend `LumenizeDO` with reduced wall-clock billing.
+
+:::warning Not worth it below 5s average fetch time
+There are storage and additional request costs, so there is a break even point below which using this service costs _more_. In our analysis, that breakeven point is when the average fetch time is approximately 1.6 seconds. To be worth the added complexity and latency, we recommend you only consider using this if the average fetch takes longer than 5 seconds.
+:::
 
 - **Fire-and-forget** — Returns immediately, result arrives via continuation
 - **Cost-effective** — CPU billing for fetches, minimal DO billing
@@ -22,7 +26,7 @@ Make external API calls from DOs that extend `LumenizeDO` without blocking or ac
     );
   }
 
-  @mesh  // Required decorator for continuation handlers
+  @mesh()  // Required decorator for continuation handlers
   handleResult(userId: string, result: ResponseSync | Error) {
     if (result instanceof FetchTimeoutError) {
       // Timeout is ambiguous - external API may have processed request
@@ -50,7 +54,7 @@ Make external API calls from DOs that extend `LumenizeDO` without blocking or ac
 ## Setup
 
 **1. Install:**
-```bash @skip-check-approved('bash')
+```bash
 npm install @lumenize/fetch
 ```
 
@@ -61,7 +65,7 @@ export { FetchExecutorEntrypoint } from '@lumenize/fetch';
 ```
 
 **3. Add binding in `wrangler.jsonc`:**
-```jsonc @skip-check-approved('wrangler.jsonc')
+```jsonc
 {
   "services": [{
     "binding": "FETCH_EXECUTOR",
@@ -98,7 +102,7 @@ import '@lumenize/fetch';
     this.svc.fetch.proxy(url, this.ctn().handleRetryResult(url, attempt, this.ctn().$result));
   }
 
-  @mesh
+  @mesh()
   handleRetryResult(url: string, attempt: number, result: ResponseSync | Error) {
     if (result instanceof FetchTimeoutError) {
       // Timeout is ambiguous - for idempotent GETs, retry is safe

@@ -16,17 +16,17 @@ export class CalculatorDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   add(a: number, b: number): number {
     return a + b;
   }
 
-  @mesh
+  @mesh()
   multiply(a: number, b: number): number {
     return a * b;
   }
 
-  @mesh
+  @mesh()
   subtract(a: number, b: number): number {
     return a - b;
   }

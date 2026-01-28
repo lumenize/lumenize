@@ -32,11 +32,7 @@ describe('LumenizeWorker - Identity Management (this.lmz.*)', () => {
     expect(result).toBeUndefined();
   });
 
-  test('this.lmz.id always returns undefined', async () => {
-    const result = await env.TEST_WORKER.getId();
-    expect(result).toBeUndefined();
-  });
-
+  // NOTE: id property removed - use instanceName instead
   // NOTE: instanceNameOrId property and setters removed - properties are now readonly
 });
 

@@ -22,13 +22,13 @@ For a complete setup walkthrough including key generation, environment configura
 
 ## Installation
 
-```bash @skip-check
+```bash
 npm install @lumenize/auth
 ```
 
 ## Login Flow (LumenizeClient)
 
-```mermaid @skip-check
+```mermaid
 sequenceDiagram
     box Browser
         participant App
@@ -147,14 +147,14 @@ The BLUE/GREEN pattern shown above enables zero-downtime key rotation. Tokens ar
 **Secrets**
 
 To generate use:
-```bash @skip-check
+```bash
 # Generate and display private key (copy for next step)
 openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
 ```
 
 Set in the dashboard or via command line with:
 
-```bash @skip-check
+```bash
 # Primary key pair (signs new tokens)
 wrangler secret put JWT_PRIVATE_KEY_BLUE
 wrangler secret put JWT_PUBLIC_KEY_BLUE

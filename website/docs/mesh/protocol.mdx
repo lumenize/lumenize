@@ -84,7 +84,7 @@ Primitives encode inline without going into the `objects` array:
 
 Complex objects go into the `objects` array and are referenced by index:
 
-```json @skip-check
+```json
 {
   "root": ["$lmz", 0],
   "objects": [
@@ -367,9 +367,9 @@ Continuations can be nested. The special markers `$result` and `$error` are subs
 │      ▼                                                      │
 │  Gateway (injects originAuth from verified attachment)      │
 │      │                                                      │
-│      ├───────► LumenizeDO (trusts callContext)             │
+│      ├───────► LumenizeDO (trusts callContext)              │
 │      │                                                      │
-│      └───────► LumenizeWorker (trusts callContext)         │
+│      └───────► LumenizeWorker (trusts callContext)          │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
          ▲

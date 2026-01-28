@@ -14,7 +14,7 @@ description: Flow diagrams for happy paths, failure scenarios, and durability gu
 
 ## Happy Path
 
-```mermaid @skip-check-approved('mermaid')
+```mermaid
 sequenceDiagram
     participant Origin as Origin DO
     participant Exec as FetchExecutor
@@ -39,7 +39,7 @@ Same flow as happy path, but handler receives `ResponseSync` with `!result.ok`. 
 
 ### Network Error
 
-```mermaid @skip-check-approved('mermaid')
+```mermaid
 sequenceDiagram
     participant Origin as Origin DO
     participant Exec as FetchExecutor
@@ -58,7 +58,7 @@ Handler receives `Error` — fetch definitely failed, safe to retry.
 
 ### Fetch AbortController Timeout
 
-```mermaid @skip-check-approved('mermaid')
+```mermaid
 sequenceDiagram
     participant Origin as Origin DO
     participant Exec as FetchExecutor
@@ -79,7 +79,7 @@ Handler receives `Error` — fetch was aborted, safe to retry.
 
 ### Delivery Timeout (Alarm Fires)
 
-```mermaid @skip-check-approved('mermaid')
+```mermaid
 sequenceDiagram
     participant Origin as Origin DO
     participant Exec as FetchExecutor

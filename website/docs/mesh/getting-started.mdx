@@ -26,7 +26,7 @@ With the exception of the Workspace LumenizeDO, which we leave as a potential ex
 
 ## Prerequisites
 
-```bash @skip-check
+```bash
 npm install @lumenize/mesh @lumenize/utils
 ```
 
@@ -48,7 +48,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   update(content: string) {
     this.ctx.storage.kv.put('content', content);
 
@@ -69,7 +69,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   subscribe(): string {
     const { callChain } = this.lmz.callContext;
     const clientId = callChain.at(-1)?.instanceName;
@@ -104,7 +104,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 
 **Key patterns:**
 - `onBeforeCall()` enforces authentication at the class level
-- `@mesh` decorator exposes methods as entry points
+- `@mesh()` decorator exposes methods as entry points
 - `this.lmz.call()` makes fire-and-forget or request/response calls
 - `this.ctn<T>()` builds type-safe continuations for remote methods
 - `{ newChain: true }` starts a fresh call chain for server-initiated pushes
@@ -117,7 +117,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 | No instance variables | State in storage survives hibernation/eviction. Reads are cached and cheap (writes cost 10,000x more). |
 | Direct delivery | SpellCheckWorker sends findings straight to the originating client, not back through DocumentDO. |
 | `{ newChain: true }` | Server-initiated broadcasts start fresh call chains, not continuations of client requests. |
-| `@mesh(guard)` not shown | Fine-grained permissions per method. See [Security](./security#method-level-guards). |
+| `@mesh(guard)` not shown | Fine-grained permissions per method. See [Security](./security#method-level-meshguard). |
 
 ## Step 2: Define the Spell Check Worker
 
@@ -134,7 +134,7 @@ export interface SpellFinding {
 }
 
 export class SpellCheckWorker extends LumenizeWorker<Env> {
-  @mesh
+  @mesh()
   async check(content: string, clientId: string, documentId: string): Promise<void> {
     // Mock implementation - in real app this would call external API
     // For testing, we'll flag any word containing "teh" as a typo
@@ -263,7 +263,7 @@ export class EditorClient extends LumenizeClient {
   }
 
   // Called by DocumentDO when content changes (broadcast)
-  @mesh
+  @mesh()
   handleContentUpdate(documentId: string, content: string) {
     this.#documents.get(documentId)?.onContentUpdate?.(content);
   }
@@ -271,7 +271,7 @@ export class EditorClient extends LumenizeClient {
   // Called directly by SpellCheckWorker — not routed back through DocumentDO.
   // This "direct delivery" pattern is a key benefit of the mesh architecture:
   // any node can send results to any other node without intermediate hops.
-  @mesh
+  @mesh()
   handleSpellFindings(documentId: string, findings: SpellFinding[]) {
     this.#documents.get(documentId)?.onSpellFindings?.(findings);
   }
@@ -279,7 +279,7 @@ export class EditorClient extends LumenizeClient {
 ```
 
 **Key patterns:**
-- Extend `LumenizeClient` and define `@mesh` methods for incoming calls
+- Extend `LumenizeClient` and define `@mesh()` methods for incoming calls
 - Use an `openDocument()` pattern that returns a `DocumentHandle` for multi-document support
 - `onSubscriptionsLost` handles resubscription. This is only called if auto-reconnect is unsuccessful within the 5-second grace period
 - The client can call any mesh node using the same `this.lmz.call()` API
@@ -342,7 +342,7 @@ The mesh uses `@lumenize/auth` for passwordless authentication with magic link l
 
 Run twice. Once for each pair (BLUE and GREEN):
 
-```bash @skip-check
+```bash
 # Generate and display private key (copy for next step)
 openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
 ```
@@ -351,7 +351,7 @@ openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
 
 **Secrets** (set via `wrangler secret put`, each prompts interactively):
 
-```bash @skip-check
+```bash
 # Primary key pair (signs new tokens)
 wrangler secret put JWT_PRIVATE_KEY_BLUE
 wrangler secret put JWT_PUBLIC_KEY_BLUE
@@ -371,7 +371,7 @@ The BLUE/GREEN pattern allows zero-downtime key rotation. See [@lumenize/auth: K
 
 ### Install Auth Package
 
-```bash @skip-check
+```bash
 npm install @lumenize/auth
 ```
 

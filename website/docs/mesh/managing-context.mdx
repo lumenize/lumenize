@@ -8,7 +8,7 @@ description: Understanding the Dual-Context Strategy in Lumenize - Call Context 
 When making calls in to another place or time, you often need to maintain **context**: information from the call site that must be available for the callee to accomplish its work.
 
 Lumenize uses a **Dual-Context Strategy** to handle this:
-1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations (`callContext.state`) added by middleware, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh` handler.
+1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations (`callContext.state`) added by middleware, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh()` handler.
 2. **Application Context (Continuations)**: For your business logic and data flow that only the continuation needs.
 
 ## 1. Call Context (`this.lmz.callContext`)
@@ -19,9 +19,9 @@ Lumenize automatically propagates **Call Context** across any call chain (e.g., 
 - **Zero Boilerplate**: You don't have to manually pass identity, calling node type, etc. into every single function. They are "just there" when you need them.
 - **Race-Safe**: Even when multiple requests to the same mesh node interleave, each request sees its own unique context. Note, storage is not similarly isolated so that race-condition risk must still be kept in mind.
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Any method, anywhere in your call chain
-@mesh
+@mesh()
 doSomething() {
   // Always correct for the current request
   const user = this.lmz.callContext.originAuth?.userId;
@@ -138,7 +138,7 @@ await executeOperationChain(chain, this, { requireMeshDecorator: false });
 
 Extracts the serializable operation chain from a continuation proxy.
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 import { getOperationChain } from '@lumenize/mesh';
 
 const continuation = this.ctn<MyDO>().someMethod(arg);
@@ -153,7 +153,7 @@ const chain = getOperationChain(continuation);  // OperationChain | undefined
 
 Executes an operation chain on a target object.
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 import { executeOperationChain } from '@lumenize/mesh';
 
 await executeOperationChain(chain, this, { requireMeshDecorator: false });
@@ -166,7 +166,7 @@ await executeOperationChain(chain, this, { requireMeshDecorator: false });
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `requireMeshDecorator` | `true` | When `true`, the entry-point method must have `@mesh` decorator. Set to `false` only for trusted chains you created yourself. |
+| `requireMeshDecorator` | `true` | When `true`, the entry-point method must have `@mesh()` decorator. Set to `false` only for trusted chains you created yourself. |
 | `maxDepth` | `50` | Maximum chain length (security limit) |
 | `maxArgs` | `100` | Maximum arguments per method call (security limit) |
 

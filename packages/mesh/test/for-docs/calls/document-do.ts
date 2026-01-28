@@ -55,7 +55,7 @@ export class AdminInterface {
    * Force reset the document - clears content and subscribers
    * Only accessible via admin().forceReset() chain
    */
-  @mesh
+  @mesh()
   forceReset(): { reset: true; previousContent: string } {
     const previousContent = this.#do.getContent();
     this.#do.clearAll();
@@ -65,7 +65,7 @@ export class AdminInterface {
   /**
    * Get document stats - admin-only view
    */
-  @mesh
+  @mesh()
   getStats(): { subscriberCount: number; contentLength: number } {
     return {
       subscriberCount: this.#do.getSubscriberCount(),
@@ -83,7 +83,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   update(content: string) {
     this.ctx.storage.kv.put('content', content);
 
@@ -104,7 +104,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     }
   }
 
-  @mesh
+  @mesh()
   subscribe(): string {
     const { callChain } = this.lmz.callContext;
     const clientId = callChain.at(-1)?.instanceName;
@@ -126,7 +126,7 @@ export class DocumentDO extends LumenizeDO<Env> {
    * 2. Worker computes analytics (CPU-only billing)
    * 3. Worker fires-and-forgets back to handleAnalyticsResult
    */
-  @mesh
+  @mesh()
   requestAnalytics(): void {
     const content = this.ctx.storage.kv.get('content') ?? '';
     const documentId = this.lmz.instanceName!;
@@ -146,13 +146,13 @@ export class DocumentDO extends LumenizeDO<Env> {
    * Called by AnalyticsWorker after computation completes.
    * This is the second leg of the two one-way calls pattern.
    */
-  @mesh
+  @mesh()
   handleAnalyticsResult(result: AnalyticsResult): void {
     this.ctx.storage.kv.put('analytics', result);
   }
 
   // For testing - retrieve stored analytics
-  @mesh
+  @mesh()
   getAnalytics(): AnalyticsResult | undefined {
     return this.ctx.storage.kv.get('analytics');
   }
@@ -163,7 +163,7 @@ export class DocumentDO extends LumenizeDO<Env> {
    * Only admins can get the admin interface; once granted, its methods are trusted.
    * Demonstrates operation chaining: admin().forceReset() executes in a single round trip.
    */
-  @mesh
+  @mesh()
   admin(): AdminInterface {
     // Check if caller has admin role (simplified - in production, check JWT claims or database)
     const userId = this.lmz.callContext.originAuth?.userId;
@@ -177,7 +177,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   /**
    * Grant admin access to a user (for testing)
    */
-  @mesh
+  @mesh()
   grantAdmin(userId: string): void {
     this.ctx.storage.kv.put(`admin:${userId}`, true);
   }
@@ -209,7 +209,7 @@ export class DocumentDO extends LumenizeDO<Env> {
    * capturing the message to log. This is the pattern described in
    * the "Manual Persistence" section of managing-context.mdx.
    */
-  @mesh
+  @mesh()
   scheduleLocalTask(taskId: string, message: string): { scheduled: true; taskId: string } {
     // Create a continuation to our own logMessage method
     const continuation = this.ctn<DocumentDO>().logMessage(message);
@@ -235,7 +235,7 @@ export class DocumentDO extends LumenizeDO<Env> {
    * Demonstrates restoration and execution of persisted continuations.
    * The context is available but must be used manually (e.g., for logging or access control).
    */
-  @mesh
+  @mesh()
   async executePendingTask(taskId: string): Promise<{ executed: boolean; originalUserId?: string }> {
     const pending = this.ctx.storage.kv.get(`task:${taskId}`) as PendingTask | undefined;
     if (!pending) {
@@ -270,7 +270,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   /**
    * Retrieve logged messages (for testing)
    */
-  @mesh
+  @mesh()
   getMessages(): string[] {
     return this.ctx.storage.kv.get('messages') ?? [];
   }
