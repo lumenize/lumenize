@@ -32,6 +32,10 @@ The `starId` will be in the instanceName property of callContext.callChain[0] if
 
 My first thought on how to accomplish this is with NebulaDO, NebulaWorker, NebulaClient, and NebulaClientGateway classes that extend the Lumenize* equivalents and override the default onBeforeCall, callContext, and maybe even call itself so only calls within the same `starId` will be allowed. Remember, users won't be extending these and deploying them.
 
+## Scratchpad
+
+- Lumenize Auth has isSuperAdmin and isAdmin hard coded. This should change to isUniverseAdmin, isGalaxyAdmin, and isStarAdmin
+
 ## Security Questions
 
 - How do we prevent someone from forging a callContext `starId` in a direct Workers RPC call? Actually, I don't think this is a big problem because Nebula is a not a developer paltform like Lumenize Mesh. It's only used through APIs, which may include sandboxed user-provided functions using Cloudflare's new Dynamic Worker Loader (DWL) feature, but won't include other user-provided code. We'll just have to make sure the user-provided code is constrained to a paricular starId. We may just need to give the code in the sandbox a wrapped version of call.

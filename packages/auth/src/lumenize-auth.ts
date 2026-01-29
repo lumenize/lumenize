@@ -39,15 +39,15 @@ export const AUTH_NOT_CONFIGURED_ERROR = 'not_configured';
 
 /**
  * LumenizeAuth - Durable Object for authentication
- * 
+ *
  * Provides magic link login, JWT access tokens, and refresh token rotation.
- * 
- * Endpoints:
- * - GET /auth/enter - Returns login form (or redirect to form)
- * - POST /auth/email-magic-link - Request magic link
- * - GET /auth/magic-link - Validate magic link and login
- * - POST /auth/refresh-token - Refresh access token
- * - POST /auth/logout - Revoke refresh token
+ *
+ * Endpoints (using configurable prefix, default `/auth`):
+ * - GET {prefix}/enter - Returns login form (or redirect to form)
+ * - POST {prefix}/email-magic-link - Request magic link
+ * - GET {prefix}/magic-link - Validate magic link and login
+ * - POST {prefix}/refresh-token - Refresh access token
+ * - POST {prefix}/logout - Revoke refresh token
  */
 export class LumenizeAuth extends LumenizeDO {
   #debug = debug(this);
@@ -148,25 +148,26 @@ export class LumenizeAuth extends LumenizeDO {
   // ============================================
 
   /**
-   * GET /auth/enter - Entry point for login flow
+   * GET {prefix}/enter - Entry point for login flow
    * Returns a simple HTML form or instructions
    */
   #handleEnter(_request: Request): Response {
+    const prefix = this.#config!.prefix;
     // For now, return a simple JSON response indicating the endpoint exists
     // In a real app, this would return an HTML form or redirect
     return Response.json({
-      message: 'Login endpoint. POST email to /auth/email-magic-link',
+      message: `Login endpoint. POST email to ${prefix}/email-magic-link`,
       endpoints: {
-        request_magic_link: 'POST /auth/email-magic-link',
-        validate_magic_link: 'GET /auth/magic-link?magic-link-token=...&state=...',
-        refresh_token: 'POST /auth/refresh-token',
-        logout: 'POST /auth/logout'
+        request_magic_link: `POST ${prefix}/email-magic-link`,
+        validate_magic_link: `GET ${prefix}/magic-link?magic-link-token=...&state=...`,
+        refresh_token: `POST ${prefix}/refresh-token`,
+        logout: `POST ${prefix}/logout`
       }
     });
   }
 
   /**
-   * POST /auth/email-magic-link - Request a magic link
+   * POST {prefix}/email-magic-link - Request a magic link
    * Body: { email: string }
    */
   async #handleEmailMagicLink(request: Request, url: URL): Promise<Response> {
@@ -203,7 +204,8 @@ export class LumenizeAuth extends LumenizeDO {
 
     // Build magic link URL
     const baseUrl = url.origin;
-    const magicLinkUrl = `${baseUrl}/auth/magic-link?magic-link-token=${token}&state=${state}`;
+    const prefix = config.prefix;
+    const magicLinkUrl = `${baseUrl}${prefix}/magic-link?magic-link-token=${token}&state=${state}`;
 
     // Check for test mode - return magic link in response instead of sending email
     const isTestMode = this.env.AUTH_TEST_MODE === 'true' && url.searchParams.get('_test') === 'true';
@@ -235,7 +237,7 @@ export class LumenizeAuth extends LumenizeDO {
   }
 
   /**
-   * GET /auth/magic-link - Validate magic link and complete login
+   * GET {prefix}/magic-link - Validate magic link and complete login
    * Query params: magic-link-token, state
    */
   async #handleMagicLink(_request: Request, url: URL): Promise<Response> {
@@ -304,7 +306,7 @@ export class LumenizeAuth extends LumenizeDO {
   }
 
   /**
-   * POST /auth/refresh-token - Refresh access token using refresh token from cookie
+   * POST {prefix}/refresh-token - Refresh access token using refresh token from cookie
    */
   async #handleRefreshToken(request: Request): Promise<Response> {
     const config = this.#config!;
@@ -367,7 +369,7 @@ export class LumenizeAuth extends LumenizeDO {
   }
 
   /**
-   * POST /auth/logout - Revoke refresh token
+   * POST {prefix}/logout - Revoke refresh token
    */
   async #handleLogout(request: Request): Promise<Response> {
     const cookieHeader = request.headers.get('Cookie') || '';

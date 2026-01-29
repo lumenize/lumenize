@@ -1,6 +1,6 @@
 ---
 title: Auth
-description: Passwordless authentication with magic links, JWT tokens, and built-in role management for Cloudflare Durable Objects
+description: Passwordless authentication with magic links, invites, and JWT tokens, for Cloudflare Durable Objects
 ---
 
 # Auth
@@ -12,13 +12,13 @@ Passwordless authentication for Cloudflare Durable Objects with magic link login
 | **Passwordless** | Magic link email login (no passwords to manage) |
 | **Secure JWTs** | Ed25519 signed tokens with key rotation support |
 | **Refresh rotation** | Automatic token refresh with revocation |
-| **Built-in roles** | `isSuperAdmin`, `isAdmin`, and `hasMeshAccess` out of the box |
+| **Two-phase access** | Requires both subject confirmation (`emailVerified`) and admin approval (`adminApproved`) |
+| **Built-in roles** | `isAdmin` out of the box, bootstrap admin via env var |
 | **Zero-config bootstrap** | First admin via environment variable |
-| **Agent delegation** | RFC 8693 `act` claim for agents acting on behalf of users |
-| **Rate limiting** | Built-in protection against abuse |
+| **Delegation** | RFC 8693 `act` claim for delegated access (agents, services, impersonation) |
+| **Rate limiting** | Layered: Cloudflare DDoS, optional Turnstile, Worker-level rate limiting binding |
 | **WebSocket auth** | Token passing via subprotocol headers |
-| **Middleware** | Drop-in `routeDORequest` hooks for protected routes |
-| **Extensible** | Subclass to add custom fields, routes, and behavior |
+| **Hooks** | Drop-in `routeDORequest` hooks for protected routes |
 
 ## Getting Started
 
@@ -32,19 +32,27 @@ npm install @lumenize/auth
 
 ## Bootstrap: Your First Admin
 
-Before anyone can log in with admin privileges, you need to designate a super-admin. Set the `AUTH_SUPER_ADMIN_EMAIL` environment variable:
+Before anyone can log in with admin privileges, you need to designate a bootstrap admin. Set the `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` environment variable:
 
 ```bash @skip-check
 # In .dev.vars (local development)
-AUTH_SUPER_ADMIN_EMAIL=you@example.com
+LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 
 # In production (via wrangler or dashboard)
-wrangler secret put AUTH_SUPER_ADMIN_EMAIL
+wrangler secret put LUMENIZE_AUTH_BOOTSTRAP_EMAIL
 ```
 
-When this email address logs in for the first time, LumenizeAuth automatically grants `isSuperAdmin: true`. No database seeding required. The super-admin can then promote other users to admin via the [user management APIs](/docs/auth/users-and-roles#user-management-apis).
+When this email address logs in for the first time, LumenizeAuth automatically grants `isAdmin: true` and `adminApproved: true`. No database seeding required. The bootstrap admin can then approve other subjects and promote them to admin via the [subject management APIs](/docs/auth/subjects-and-roles#subject-management-apis).
 
-## Login Flow
+The bootstrap subject has special protection: it cannot be demoted or deleted via API. To change the bootstrap admin, update the environment variable and deploy.
+
+## Access Flows
+
+Two-phase access requires both `emailVerified` (subject clicked link) and `adminApproved` (admin granted access). These can happen in either order via two flows:
+
+### Self-Signup Flow
+
+Subject initiates signup, then waits for admin approval:
 
 ```mermaid
 sequenceDiagram
@@ -56,29 +64,80 @@ sequenceDiagram
     participant AuthDO
 
     rect rgba(200, 220, 240, 0.3)
-        Note over App,AuthDO: 1. Request magic link
+        Note over App,AuthDO: 1. Subject requests magic link
         App->>Worker: POST /auth/email-magic-link {email}
         Worker->>AuthDO: Forward request
-        Note over AuthDO: Send email
+        Note over AuthDO: Send magic link email
         AuthDO->>Worker: { message: "Check email" }
         Worker->>App: Response
     end
 
     rect rgba(240, 220, 200, 0.3)
-        Note over App,AuthDO: 2. User clicks link, exchanges one-time token for refresh token
+        Note over App,AuthDO: 2. Subject clicks link → emailVerified
         App->>Worker: GET /auth/magic-link?token=...
-        Worker->>AuthDO: Validate one-time token
+        Worker->>AuthDO: Validate token, set emailVerified: true
+        Note over AuthDO: Send approval request to admins
         AuthDO->>Worker: Set-Cookie + 302 redirect
-        Worker->>App: Redirect to redirect (set refresh_token cookie)
-        App->>Client: Create client
+        Worker->>App: Redirect (refresh_token cookie set)
+    end
+
+    rect rgba(255, 220, 220, 0.3)
+        Note over Client,AuthDO: 3. Access blocked until approved
+        Client->>Worker: POST /auth/refresh-token (cookie)
+        Worker->>AuthDO: Get access token
+        AuthDO->>Worker: { access_token } (emailVerified: true, adminApproved: false)
+        Note over Client: Token valid but hooks return 403
+    end
+
+    rect rgba(220, 255, 220, 0.3)
+        Note over App,AuthDO: 4. Admin approves → adminApproved
+        Note over AuthDO: Admin clicks approval link
+        AuthDO->>AuthDO: Set adminApproved: true
+        Note over AuthDO: Send "You're approved" email to subject
     end
 
     rect rgba(200, 240, 200, 0.3)
-        Note over Client,AuthDO: 3. Automatic access token fetch
+        Note over Client,AuthDO: 5. Subject now has access
         Client->>Worker: POST /auth/refresh-token (cookie)
-        Worker->>AuthDO: Validate refresh token
-        AuthDO->>Worker: { access_token, expires_in }
-        Worker->>Client: Access token (includes roles in claims)
+        Worker->>AuthDO: Get access token
+        AuthDO->>Worker: { access_token } (emailVerified: true, adminApproved: true)
+        Worker->>Client: Full access granted
+    end
+```
+
+### Admin Invite Flow
+
+Admin pre-approves subjects, then subjects confirm via email:
+
+```mermaid
+sequenceDiagram
+    box Browser
+        participant AdminApp as Admin App
+        participant SubjectApp as Subject App
+    end
+    participant Worker
+    participant AuthDO
+
+    rect rgba(220, 220, 255, 0.3)
+        Note over AdminApp,AuthDO: 1. Admin invites subjects → adminApproved
+        AdminApp->>Worker: POST /auth/invite {emails: [...]}
+        Worker->>AuthDO: Create subjects with adminApproved: true
+        Note over AuthDO: Send invite emails to each subject
+        AuthDO->>Worker: { invited: [...] }
+        Worker->>AdminApp: Response
+    end
+
+    rect rgba(240, 220, 200, 0.3)
+        Note over SubjectApp,AuthDO: 2. Subject clicks invite link → emailVerified
+        SubjectApp->>Worker: GET /auth/accept-invite?token=...
+        Worker->>AuthDO: Validate token, set emailVerified: true
+        AuthDO->>Worker: Set-Cookie + 302 redirect
+        Worker->>SubjectApp: Redirect (refresh_token cookie set)
+    end
+
+    rect rgba(200, 240, 200, 0.3)
+        Note over SubjectApp,AuthDO: 3. Subject has immediate access
+        Note over SubjectApp: Both flags true from the start
     end
 ```
 
@@ -101,7 +160,7 @@ const response = await fetch('/auth/email-magic-link', {
 
 ### Exchange One-time Token for Refresh Token Cookie
 
-When the user clicks the magic link, the server validates the token, sets the refresh token cookie, and redirects to your app.
+When the subject clicks the magic link, the server validates the token, sets the refresh token cookie, and redirects to your app.
 
 ### Get Access Token with Role Claims
 
@@ -116,7 +175,7 @@ if (!response.ok) {  // 401 if refresh token has expired
   window.location.href = '/login';
 } else {
   const { access_token } = await response.json();
-  // access_token contains claims: { sub, isSuperAdmin, isAdmin, ... }
+  // access_token contains claims: { sub, isAdmin, ... }
 }
 ```
 
@@ -129,49 +188,74 @@ await fetch('/auth/logout', { method: 'POST' });
 
 ## JWT Claims
 
-Access tokens contain standard JWT claims plus role information:
+Access tokens contain standard JWT claims plus status and role information:
 
 ```typescript @skip-check
 interface JwtClaims {
-  // Standard claims
+  // Standard claims (RFC 7519)
   iss: string;          // Issuer
   aud: string;          // Audience
-  sub: string;          // Subject (user ID)
+  sub: string;          // Subject (UUID of the principal)
   exp: number;          // Expiration time
   iat: number;          // Issued at
   jti: string;          // JWT ID
 
-  // Role claims
-  isSuperAdmin?: boolean;
-  isAdmin?: boolean;
-  hasMeshAccess?: boolean;  // Required for mesh access (see below)
+  // Status flags (both required for access)
+  emailVerified: boolean;   // Subject clicked magic link
+  adminApproved: boolean;   // Admin granted access
 
-  // Delegation (RFC 8693)
-  act?: { sub: string };  // Actor: agent/system making the call
+  // Role flag
+  isAdmin?: boolean;
+
+  // Delegation (RFC 8693) - recursive for delegation chains
+  act?: { sub: string; act?: ActClaim };
 }
 ```
 
-The `hasMeshAccess` claim gates access to Lumenize Mesh. Without it, authenticated users cannot connect to the mesh—authentication alone is not sufficient. Super-admins and admins implicitly have mesh access. Regular users must be explicitly granted access via the [user management APIs](/docs/auth/users-and-roles#user-management-apis).
+The `act` claim is recursive per RFC 8693. Each layer records who delegated to whom — pure provenance for audit trails. Guards only check `sub`; the `act` chain is for transparency.
 
-The `sub` claim identifies whose permissions apply. When an agent acts on behalf of a user, `sub` is the user's ID and `act.sub` is the agent's ID. Guards check `sub` for authorization; `act` is for audit logging. See [Agent Delegation](#agent-delegation) for details.
+## Two-Phase Access Control
+
+Access to protected resources requires two independent approvals:
+
+1. **Subject confirmation** (`emailVerified`) - Subject clicked the magic link
+2. **Admin approval** (`adminApproved`) - Admin granted access
+
+These can happen in either order:
+
+| Scenario | emailVerified | adminApproved | Can Access? |
+|----------|---------------|---------------|-------------|
+| Admin invites subject, subject hasn't clicked | No | Yes | No |
+| Subject self-signs-up, admin hasn't approved | Yes | No | No |
+| Admin invited, subject clicked | Yes | Yes | **Yes** |
+| Subject self-signed-up, admin approved | Yes | Yes | **Yes** |
+
+Admins implicitly satisfy `adminApproved`. Regular subjects must be explicitly approved via the [subject management APIs](/docs/auth/subjects-and-roles#subject-management-apis).
+
+The `sub` claim (the subject's UUID) identifies the principal whose permissions apply. For direct access, only `sub` is present. For delegated access, `act.sub` identifies who is actually making the call. Guards check `sub` for authorization; `act` is recorded for audit trails. See [Delegation](#delegation) for details.
 
 ## Server-Side Token Verification
 
-Use auth middleware to verify access tokens on protected routes. Both HTTP and WebSocket middleware accept an array of public keys for [zero-downtime key rotation](#key-rotation):
+Use `createRouteDORequestAuthHooks` to create hooks that verify access tokens and enforce two-phase access control. The hooks:
+
+1. Validate the JWT signature against your public keys
+2. Verify `emailVerified && adminApproved` (admins pass implicitly)
+3. Return 401 for invalid/missing tokens, 403 for valid tokens without access
 
 ```typescript @skip-check
 import { env } from 'cloudflare:workers';
-import { createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
+import { createRouteDORequestAuthHooks } from '@lumenize/auth';
 
-// Create once at module level - both accept arrays for zero-downtime key rotation
+// Create once at module level - accepts arrays for zero-downtime key rotation
 const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
-const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
+const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks({
+  publicKeysPem: publicKeys,
+});
 
 // In fetch handler:
 const response = await routeDORequest(request, env, {
-  onBeforeRequest: httpAuth,
-  onBeforeConnect: wsAuth
+  onBeforeRequest,
+  onBeforeConnect,
 });
 ```
 
@@ -184,14 +268,14 @@ const ws = new WebSocket(url, ['lmz', `lmz.access-token.${accessToken}`]);
 
 ## Using Claims in Guards
 
-The parsed JWT claims are available in `@mesh` guards and `onBeforeCall` hooks:
+The parsed JWT claims are available in `@mesh` guards and `onBeforeCall` hooks. Note that subjects without `emailVerified && adminApproved` are blocked at the Worker level before any DO code runs, so you don't need to check those in guards.
 
 ```typescript @skip-check
 import { mesh } from '@lumenize/mesh';
 
 class ProjectDO {
   @mesh({
-    guard: (auth) => auth.isSuperAdmin || auth.isAdmin
+    guard: (auth) => auth.isAdmin
   })
   deleteProject() {
     // Only admins can delete
@@ -199,7 +283,7 @@ class ProjectDO {
 
   @mesh({
     guard: (auth, args, ctx) => {
-      // Check if user owns this project
+      // Check if subject owns this project
       const project = ctx.storage.kv.get('project');
       return project?.ownerId === auth.sub;
     }
@@ -212,26 +296,26 @@ class ProjectDO {
 
 See [Security: Guards](/docs/mesh/security#guards) for more patterns.
 
-## Agent Delegation
+## Delegation
 
-When AI agents or automated systems act on behalf of users, the JWT includes an `act` (actor) claim following [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693):
+Delegation allows something to act on behalf of a subject. The actor could be an AI agent, a service account, a scheduled job, or even another human (e.g., admin impersonation for support). The JWT includes an `act` (actor) claim following [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693):
 
 ```typescript @skip-check
-// Token for agent "agent-123" acting on behalf of user "user-456"
+// Delegated token: "agent-123" acting on behalf of subject "abc-456"
 {
-  sub: "user-456",        // User's permissions apply
-  act: { sub: "agent-123" }, // Agent is making the call
-  isAdmin: true           // User's roles
+  sub: "abc-456",            // Principal: whose permissions apply
+  act: { sub: "agent-123" }, // Actor: who is making the call
+  isAdmin: true              // Principal's role
 }
 ```
 
-Guards automatically check `sub` for permissions. The `act` claim provides transparency for logging and audit:
+Guards check `sub` for authorization. The `act` claim records delegation for audit trails:
 
 ```typescript @skip-check
-// In onBeforeCall hook
+// Audit logging in onBeforeCall hook
 onBeforeCall: (auth, methodName) => {
   if (auth.act) {
-    console.log(`Agent ${auth.act.sub} calling ${methodName} for user ${auth.sub}`);
+    console.log(`${auth.act.sub} calling ${methodName} for ${auth.sub}`);
   }
 }
 ```
@@ -239,14 +323,14 @@ onBeforeCall: (auth, methodName) => {
 To issue tokens with delegation, use the `actAs` parameter when creating tokens:
 
 ```typescript @skip-check
-// Agent requests token to act on behalf of user
+// Agent requests token to act on behalf of subject
 const token = await authDO.createDelegatedToken({
-  userId: 'user-456',
-  actorId: 'agent-123'
+  sub: 'abc-456',       // Subject (principal)
+  actorId: 'agent-123'  // Actor
 });
 ```
 
-The agent must be authorized to act for this user. See [Users and Roles: Delegation](/docs/auth/users-and-roles#delegation) for authorization setup.
+The actor must be authorized to act for this subject. See [Subjects and Roles: Delegation](/docs/auth/subjects-and-roles#delegation) for authorization setup.
 
 ## Key Rotation
 
@@ -283,6 +367,47 @@ Every 3 months for 6 month lifetime:
 2. **Switch primary** - change `PRIMARY_JWT_KEY` (to GREEN if BLUE is primary)
 3. **Deploy** - environment variables/secrets only become active on deploy
 
+## Rate Limiting
+
+Rate limiting runs at the Worker level, not in the LumenizeAuth DO. This keeps the singleton DO focused on business logic and leverages Worker horizontal scaling.
+
+### Three Layers
+
+1. **Cloudflare DDoS/bot protection** (automatic) — Fingerprint-reputation filtering handles volumetric attacks. No configuration needed.
+
+2. **Turnstile** (optional, recommended) — [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) proves the requester is human before the magic-link request reaches your Worker. If `TURNSTILE_SECRET_KEY` is set in your environment, `createAuthRoutes` validates the `cf-turnstile-response` token from the request body via Cloudflare's siteverify API. Your frontend is responsible for embedding the Turnstile widget and including the token in the request.
+
+3. **Worker-level rate limiting** — Uses Cloudflare's [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/). Two independent bindings:
+   - `AUTH_RATE_LIMITER` — Keyed on email (parsed from request body). Protects `POST {prefix}/email-magic-link` from email flooding.
+   - `HOOKS_RATE_LIMITER` — Keyed on `sub` from decoded JWT. Protects authenticated routes handled by `createRouteDORequestAuthHooks`.
+
+### Setup
+
+Add rate limiting bindings to your `wrangler.jsonc`:
+
+```jsonc @skip-check
+{
+  "rate_limits": [
+    { "binding": "AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
+    { "binding": "HOOKS_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 100, "period": 60 } }
+  ]
+}
+```
+
+For Turnstile, add the secret key to `.dev.vars`:
+
+```bash @skip-check
+TURNSTILE_SECRET_KEY=0x4AAAAAAA...
+```
+
+Pass the bindings when creating routes and hooks (see [Worker Setup](#worker-setup)).
+
+`createRouteDORequestAuthHooks` **requires** its rate limiting binding — it throws at creation time if missing. `createAuthRoutes` requires at least one of `TURNSTILE_SECRET_KEY` (env) or `rateLimiterBinding` — it throws at creation time if neither is provided. This ensures the unauthenticated magic-link endpoint always has at least one layer of abuse protection.
+
+### Rate Limiting Caveats
+
+The rate limiting binding is **per Cloudflare location** (not globally consistent) and **eventually consistent**. It is designed for abuse prevention, not precise accounting. This is fine for auth rate limiting — the goal is to stop floods, not enforce exact quotas.
+
 ## Test Mode
 
 For development, add `?_test=true` to get the magic link directly:
@@ -302,36 +427,46 @@ For testing with specific roles, use `testLoginWithMagicLink`:
 ```typescript @skip-check
 import { testLoginWithMagicLink } from '@lumenize/auth';
 
-// Login as admin
+// Login as approved regular subject
 const { accessToken, claims } = await testLoginWithMagicLink(env, {
-  email: 'admin@test.com',
-  userData: { isAdmin: true }
+  email: 'alice@test.com',
+  subjectData: { adminApproved: true }  // emailVerified is set automatically
 });
 
-// Login as agent acting for user
+// Login as admin
+const { accessToken: adminToken } = await testLoginWithMagicLink(env, {
+  email: 'admin@test.com',
+  subjectData: { isAdmin: true }  // Admins implicitly have adminApproved
+});
+
+// Login as agent acting for subject
 const { accessToken: agentToken } = await testLoginWithMagicLink(env, {
-  email: 'user@test.com',
+  email: 'alice@test.com',
+  subjectData: { adminApproved: true },
   actAs: 'agent-123'
 });
 ```
 
 ## Worker Setup
 
-Use `createAuthRoutes` to expose auth endpoints with clean URLs:
+Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to protect your DOs:
 
 ```typescript @skip-check
 import { env } from 'cloudflare:workers';
-import { createAuthRoutes, createAuthMiddleware, createWebSocketAuthMiddleware } from '@lumenize/auth';
+import { createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
 import { routeDORequest } from '@lumenize/utils';
 
-// Create routes and middleware once at module level (not per request)
+// Create routes and hooks once at module level (not per request)
 const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
 const authRoutes = createAuthRoutes(env, {
-  redirect: '/app',  // Required: where to redirect after magic link
-  cors: { origin: ['https://app.example.com'] }
+  redirect: '/app',
+  cors: { origin: ['https://app.example.com'] },
+  rateLimiterBinding: env.AUTH_RATE_LIMITER,   // Optional: rate limit magic-link requests by email
 });
-const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
-const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
+const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks({
+  publicKeysPem: publicKeys,
+  rateLimiterBinding: env.HOOKS_RATE_LIMITER,  // Required: rate limit authenticated requests by sub
+});
 
 export default {
   async fetch(request: Request): Promise<Response> {
@@ -339,10 +474,10 @@ export default {
     const authResponse = await authRoutes(request);
     if (authResponse) return authResponse;
 
-    // Protected routes use middleware
+    // Protected routes use auth hooks
     return routeDORequest(request, env, {
-      onBeforeRequest: httpAuth,
-      onBeforeConnect: wsAuth,
+      onBeforeRequest,
+      onBeforeConnect,
       cors: { origin: ['https://app.example.com'] }
     }) ?? new Response('Not Found', { status: 404 });
   }
@@ -353,18 +488,23 @@ export default {
 
 ### Auth Endpoints
 
-| Endpoint | Method | Auth | Response |
-|----------|--------|------|----------|
-| `/auth/email-magic-link` | POST | None | `{ message, expires_in }` |
-| `/auth/magic-link` | GET | None | 302 redirect (sets `refresh_token` cookie) |
-| `/auth/refresh-token` | POST | Cookie | `{ access_token, expires_in }` |
-| `/auth/logout` | POST | Cookie | `{ message }` (clears cookie) |
-| `/auth/users` | GET | Admin | `{ users: User[] }` |
-| `/auth/user/:id` | GET | Admin | `{ user: User }` |
-| `/auth/user/:id` | PATCH | Admin | `{ user: User }` |
-| `/auth/user/:id` | DELETE | SuperAdmin | `{ message }` |
+All endpoints use the configured `prefix` (default: `/auth`).
 
-See [Users and Roles](/docs/auth/users-and-roles) for user management details.
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `{prefix}/email-magic-link` | POST | None | Request magic link (self-signup) |
+| `{prefix}/magic-link` | GET | None | Validate magic link → `emailVerified`, notify admins |
+| `{prefix}/invite` | POST | Admin | Invite subjects (bulk) → `adminApproved`, send invite emails |
+| `{prefix}/accept-invite` | GET | None | Accept invite → `emailVerified` |
+| `{prefix}/approve/:id` | GET | Admin | Approve subject → `adminApproved` (from admin notification email) |
+| `{prefix}/refresh-token` | POST | Cookie | Exchange refresh token for access token |
+| `{prefix}/logout` | POST | Cookie | Clear refresh token cookie |
+| `{prefix}/subjects` | GET | Admin | List subjects |
+| `{prefix}/subject/:id` | GET | Admin | Get subject |
+| `{prefix}/subject/:id` | PATCH | Admin | Update subject |
+| `{prefix}/subject/:id` | DELETE | Admin | Delete subject |
+
+See [Subjects and Roles](/docs/auth/subjects-and-roles) for subject management details.
 
 ### createAuthRoutes
 
@@ -381,30 +521,33 @@ const authRoutes = createAuthRoutes(env, {
   accessTokenTtl?: number,       // Default: 900 (15 minutes)
   refreshTokenTtl?: number,      // Default: 2592000 (30 days)
   magicLinkTtl?: number,         // Default: 1800 (30 minutes)
-  rateLimitPerHour?: number      // Default: 5 requests per email
+  // Rate limiting (Worker-level, see Rate Limiting section)
+  rateLimiterBinding?: RateLimit, // Optional: rate limiting binding from wrangler.jsonc
 });
+// Throws if neither env.TURNSTILE_SECRET_KEY nor rateLimiterBinding is provided
 ```
 
-### Middleware Functions
+### createRouteDORequestAuthHooks
+
+Creates hooks for `routeDORequest` that verify JWTs and enforce two-phase access control:
 
 ```typescript @skip-check
-// HTTP auth (for protected routes)
-const httpAuth = await createAuthMiddleware({
-  publicKeysPem: string[],
-  audience?: string,
-  issuer?: string
-});
-
-// WebSocket auth (for protected routes)
-const wsAuth = await createWebSocketAuthMiddleware({
-  publicKeysPem: string[],
-  audience?: string,
-  issuer?: string
+const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks({
+  publicKeysPem: string[],        // Required: public keys for JWT verification
+  audience?: string,              // Default: 'https://lumenize.local'
+  issuer?: string,                // Default: 'https://lumenize.local'
+  rateLimiterBinding: RateLimit,  // Required: rate limiting binding from wrangler.jsonc
 });
 ```
+
+Both hooks:
+- Validate JWT signature against provided public keys (tries each until one succeeds)
+- Verify `emailVerified && adminApproved` (admins pass implicitly)
+- Return 401 for invalid/missing tokens
+- Return 403 for valid tokens that fail the access check
+- Attach parsed claims to the request for use in guards
 
 ## Next Steps
 
-- [Users and Roles](/docs/auth/users-and-roles) - Role hierarchy, user management APIs, delegation setup
-- [Extending Auth](/docs/auth/extending) - Custom fields, routes, and behavior via subclassing
+- [Subjects and Roles](/docs/auth/subjects-and-roles) - Role hierarchy, subject management APIs, delegation setup
 - [Security](/docs/mesh/security) - Guard patterns and authorization strategies
