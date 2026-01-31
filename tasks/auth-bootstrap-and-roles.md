@@ -1,16 +1,25 @@
-# Auth Bootstrap and Roles
+# Lumenize Auth Upgrade (Bootstrap, Admin, Flow)
 
 **Status**: Design Drafted - Awaiting Review
 **Design Documents**:
 - `/website/docs/auth/index.mdx` - Overview, access flows, bootstrap
-- `/website/docs/auth/subjects-and-roles.mdx` - Role system, subject management APIs
+- `/website/docs/auth/api-reference.mdx` - Endpoints, environment variables, subject management, delegation
 
 ## Goal
-Make `@lumenize/auth` a complete, bootstrappable auth system with built-in admin roles so developers can start with a working permission model out of the box.
+
+Upgrade `@lumenize/auth` as follows:
+- Add an admin role
+- Upgrade the self-signup flow so admin approval is required before entry
+- Add a new flow for admin invite
+- Make the system bootstrappable so developers can start with a working permission model out of the box
+- Move rate limiting design to Worker and use Cloudflare's rate limiting system
+- Support Turnstile integration to assure self-signups can only be done by humans
 
 ## Context: Mesh Access Control
 
-This task focuses on `@lumenize/auth` in isolation. However, the design decisions here anticipate follow-on work to integrate mesh-level access control into `@lumenize/mesh`. Currently, anyone with a valid email can authenticate and gain access to the Cloudflare-hosted mesh. Authentication dangerously grants access. The follow-on task will have `createRouteDORequestAuthHooks` check `emailVerified && adminApproved` before routing to `LumenizeClientGateway`. See [Follow-on: Mesh Access Control](#follow-on-mesh-access-control) at the end of this document.
+This task upgrades `@lumenize/auth` including `createRouteDORequestAuthHooks`, which checks `emailVerified && adminApproved` at the Worker level before any request reaches a DO. This is the first layer of defense-in-depth.
+
+A separate [follow-on task](#follow-on-mesh-access-control-integration) will upgrade `@lumenize/mesh` to work with these changes: `LumenizeClientGateway` will re-verify the JWT (second layer of defense-in-depth), translate claims into `CallContext.originAuth`, and downstream mesh nodes will trust `callContext` without touching the JWT.
 
 ## Problem Statement
 
@@ -45,7 +54,6 @@ Summary of the new model. See [Design Decisions](#design-decisions) for rational
     - `isAdmin`:
       - First admin bootstrapped via `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` environment variable
       - Permissions: Create subjects, assign `adminApproved`, assign `isAdmin`, delete subjects
-      - Can promote other subjects to admin
 - Lumenize Auth onBeforeConnect/onBeforeRequest hook functions
   - Grants access only to subjects with `emailVerified && adminApproved` (or `isAdmin`)
 - Underlying System (Lumenize Mesh for example):
@@ -53,11 +61,9 @@ Summary of the new model. See [Design Decisions](#design-decisions) for rational
 
 ### Proposed New/Changed Flows
 
-See [Design Decision #2](#2-two-phase-access-subject-confirmation--admin-approval) for the access control model and truth table.
+**Self-signup (changed)**: Magic-link self-signup now only grants `emailVerified`. This kicks off admin notification — admins click a link to grant `adminApproved`.
 
-**Self-signup (changed)**: Lumenize Auth currently provides routes for the magic-link self-signup flow. That will now change to only granting `emailVerified`. That should kick off a new email flow to admins that asks them to approve the subject's access by clicking on a link that's carefully worded to warn them to only approve if they know the owner of the email address should have access. Clicking on that grants the subject `adminApproved`.
-
-**Admin-invite (new)**: We will also need additional route(s) for the two flags being set in the reverse order. Admins add a list of email addresses (not just one) and that sets `adminApproved`. The system sends those emails and when the subject clicks the link in that email, it sets `emailVerified`.
+**Admin-invite (new)**: Admins invite a list of emails (sets `adminApproved`). Subjects click the invite link (sets `emailVerified`). Same two flags, reverse order.
 
 ## Design Decisions
 
@@ -65,32 +71,17 @@ See [Design Decision #2](#2-two-phase-access-subject-confirmation--admin-approva
 `LUMENIZE_AUTH_BOOTSTRAP_EMAIL=larry@example.com`
 - First login with this email automatically gets `{ isAdmin: true }`
 - No database seeding required
-- Bootstrap admin can promote others
+- Bootstrap admin can invite new subjects, approve/promote existing ones
 
 ### 2. Two-Phase Access: Subject Confirmation + Admin Approval
 
-Access requires two independent approvals that can happen in either order:
+Two independent boolean flags (see [Proposed Model](#proposed-model)) rather than a status enum or single boolean. Rationale:
 
-- `emailVerified` - Subject has clicked an email link (subject confirmation)
-- `adminApproved` - Admin has granted access (admin approval)
-
-**Access check:** `emailVerified && adminApproved`
-
-| Scenario | emailVerified | adminApproved | Can Access? |
-|----------|---------------|---------------|-------------|
-| Admin invites subject, subject hasn't clicked | No | Yes | No |
-| Subject self-signs-up, admin hasn't approved | Yes | No | No |
-| Admin invited, subject clicked | Yes | Yes | **Yes** |
-| Subject self-signed-up, admin approved | Yes | Yes | **Yes** |
-
-**Naming rationale:**
-- `emailVerified` / `adminApproved` = past-tense events (things that happened)
-- `isAdmin` = identity statement (what the subject *is*)
-- Matches industry norms (Firebase, Auth0 use `emailVerified`)
+**Naming:** `emailVerified` / `adminApproved` are past-tense events (things that happened); `isAdmin` is an identity statement (what the subject *is*). Matches industry norms (Firebase, Auth0 use `emailVerified`).
 
 **Rejected alternatives:**
-- Status enum (`invited`, `active`, `disabled`) - harder to represent "approved but not verified" vs "verified but not approved"
-- Single `isActive` boolean - conflates user action with admin action
+- Status enum (`invited`, `active`, `disabled`) — harder to represent "approved but not verified" vs "verified but not approved"
+- Single `isActive` boolean — conflates user action with admin action
 
 ### 3. Single Built-in Role Flag
 Hardcode into LumenizeAuth:
@@ -101,20 +92,10 @@ Admins implicitly satisfy `adminApproved`. This is a universal pattern. For appl
 **Bootstrap protection** is orthogonal to the role — the subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` cannot be demoted or deleted via API, regardless of who tries. This is identity-based, not role-based.
 
 ### 4. Subject Data in Auth DO
-LumenizeAuth already stores subjects. Extend to store:
-- `emailVerified`, `adminApproved` status flags
-- `isAdmin` role flag
-- `metadata` field for application-specific data (custom roles, preferences, etc.)
-- All flows through to JWT claims automatically
+LumenizeAuth already stores subjects. Extend with the flags from the [Proposed Model](#proposed-model), plus a `metadata` field for application-specific data (custom roles, preferences, etc.). All fields flow through to JWT claims automatically.
 
 ### 5. Subject Management APIs
-New routes (admin-only), using configurable `prefix` (default: `/auth`):
-- `GET {prefix}/subjects` - list subjects
-- `GET {prefix}/subject/:id` - get subject
-- `PATCH {prefix}/subject/:id` - update subject (roles, metadata)
-- `DELETE {prefix}/subject/:id` - delete subject
-
-Also available as RPC methods on the Auth DO (`listSubjects`, `getSubjectById`, `updateSubject`, `deleteSubject`).
+New admin-only routes for CRUD on subjects, plus invite and approval flows. Also available as RPC methods on the Auth DO. See the [API Reference](/website/docs/auth/api-reference.mdx) for the complete endpoint list.
 
 ### 6. JWT Claims Follow RFC 7519 and RFC 8693
 
@@ -138,66 +119,67 @@ interface JwtClaims {
 
 **Direct vs delegated access:**
 - **Direct**: Subject calls directly → `sub` only, no `act` claim
-- **Delegated**: Something acts on subject's behalf → `sub` (principal) + `act.sub` (actor)
+- **Delegated**: Another authenticated subject acts on subject's behalf → `sub` (principal) + `act.sub` (actor)
 
-The `act` claim records delegation for audit purposes. The system doesn't need to know *what* the actor is (AI agent, service account, another human) - just that delegation occurred and who the actor was.
+The `act` claim records delegation for audit purposes. Currently, delegation is between authenticated subjects only (e.g., admin impersonation): the actor logs in via magic link, then requests a delegated token for the target subject. The `authorizedActors` list contains subject IDs (not opaque strings), and the system verifies that `act.sub` corresponds to a valid subject. Non-human actor authentication (API keys, service tokens for AI agents, service accounts) is planned for a future release.
 
-In Lumenize Mesh, guards and `onBeforeCall` hooks use these claims directly:
+In Lumenize Mesh, `@mesh` guards and `onBeforeCall` hooks access these claims via `callContext.originAuth`:
 
 ```typescript
-// In @mesh guard - checks principal's permissions
-@mesh({ guard: (auth) => auth.sub === ownerId })
+// @mesh guard — receives instance, accesses originAuth for authorization
+@mesh((instance: MyDO) => {
+  const { originAuth } = instance.lmz.callContext;
+  if (originAuth?.sub !== ownerId) throw new Error('Forbidden');
+})
+updateContent(content: string) { /* ... */ }
 
-// In onBeforeCall - audit logging
-onBeforeCall: (auth) => {
-  if (auth.act) {
-    console.log(`${auth.act.sub} acting for ${auth.sub}`);
+// onBeforeCall — lifecycle hook for audit logging
+onBeforeCall() {
+  const { originAuth } = this.lmz.callContext;
+  if (originAuth?.act) {
+    console.log(`${originAuth.act.sub} acting for ${originAuth.sub}`);
   }
 }
 ```
 
-**Rejected alternatives:**
-- Custom naming (`userId`, `subjectId`) - requires translation layer between JWT and app code; anyone familiar with RFCs has to re-learn
+### 7. Rate Limiting
 
-### 7. Layered Rate Limiting
+Rate limiting is handled at the Worker level, not in the singleton LumenizeAuth DO. This keeps the DO focused on business logic and leverages Worker horizontal scaling.
 
-Rate limiting is handled at the Worker level using Cloudflare's [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/), not in the singleton LumenizeAuth DO. This keeps the DO focused on business logic and leverages Worker horizontal scaling.
-
-**Three layers** (outer to inner):
+**Three layers:**
 
 1. **Cloudflare DDoS/bot protection** (automatic, free) — fingerprint-reputation filtering handles volumetric attacks. No configuration needed.
 
-2. **Turnstile** (optional, recommended) — bot protection on the magic-link endpoint. If `TURNSTILE_SECRET_KEY` is set in environment, `createAuthRoutes` validates the `cf-turnstile-response` token from the request body before forwarding to the DO. No key needed — Turnstile proves the requester is human.
+2. **Turnstile** (required for magic-link endpoint) — [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) proves the requester is human before the request reaches your Worker. Free, GDPR-compliant, no CAPTCHA interaction. `createAuthRoutes` requires `TURNSTILE_SECRET_KEY` in environment and throws at creation time if missing. The frontend includes the Turnstile token as `cf-turnstile-response` in the JSON body alongside `email`.
 
-3. **Worker-level rate limiting binding** — two uses:
-   - **Unauthenticated** (magic-link requests): `createAuthRoutes` parses the email from the request body and uses it as the rate limit key before forwarding to the DO
-   - **Authenticated** (protected routes): `createRouteDORequestAuthHooks` uses `sub` from the decoded JWT as the rate limit key
+3. **`LUMENIZE_AUTH_RATE_LIMITER`** (required for authenticated routes) — a [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) keyed on `sub` from the decoded JWT. `createRouteDORequestAuthHooks` requires this binding and throws at creation time if missing.
 
 The rate limiting binding is configured in `wrangler.jsonc`:
 
 ```jsonc
 {
   "rate_limits": [
-    { "binding": "AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
-    { "binding": "HOOKS_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 100, "period": 60 } }
+    { "binding": "LUMENIZE_AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 100, "period": 60 } }
   ]
 }
 ```
 
-**Fail-fast requirements:**
-- `createAuthRoutes` throws at creation time if *neither* `TURNSTILE_SECRET_KEY` (env) nor `rateLimiterBinding` is provided — the unauthenticated magic-link endpoint must have at least one layer of protection against email flooding
-- `createRouteDORequestAuthHooks` requires `rateLimiterBinding` — throws at creation time if missing
-
-**Why not in the DO?** The previous implementation used an instance variable (`Map`) in LumenizeAuth. This was acceptable (DOs stay warm under load, so the rate limit wouldn't reset during active attacks), but Worker-level rate limiting is strictly better: it scales horizontally, stops abuse before it reaches the singleton DO, and uses Cloudflare's distributed rate limiting infrastructure.
-
 **Rejected alternatives:**
+- Additional rate limiting for magic-link endpoint — Turnstile is free, strictly stronger (proves humanity vs counting requests). Another layer would also have additional configuration.
 - IP-based rate limiting — Cloudflare's own docs warn against it (shared IPs on mobile/proxy networks). DDoS protection already handles IP-level abuse.
 - DO-level rate limiting — unnecessarily burdens the singleton with work the Worker layer handles better
 - `rateLimitPerHour` config on AuthConfig — replaced by the rate limiting binding's `limit`/`period` configuration
 
-### 8. Single Auth Header with Decoded JWT Payload
+### 8. Environment Variable Naming Convention
 
-Currently the middleware passes identity via multiple headers:
+Three tiers:
+- **`LUMENIZE_AUTH_*`** for Lumenize-specific config: `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, `LUMENIZE_AUTH_RATE_LIMITER`, `LUMENIZE_AUTH_TEST_MODE`
+- **`JWT_*`** for industry-standard key material (shared across packages): `JWT_PRIVATE_KEY_BLUE`, `JWT_PUBLIC_KEY_BLUE`, etc., `PRIMARY_JWT_KEY`
+- **Vendor prefix** for third-party services: `TURNSTILE_SECRET_KEY` (matches Cloudflare's official demos)
+
+### 9. Forward Verified JWT in Standard Authorization Header
+
+Currently the middleware passes identity via multiple custom headers:
 - `X-Auth-User-Id` — JWT `sub` (redundant, already in JWT payload)
 - `X-Auth-Verified` — literal `'true'` (redundant, header presence implies verification)
 - `X-Auth-Token-Exp` — JWT `exp` (redundant, already in JWT payload)
@@ -205,27 +187,16 @@ Currently the middleware passes identity via multiple headers:
 
 The gateway then reconstructs `OriginAuth` from these separate pieces.
 
-**New approach**: Replace all four headers with a single `X-Auth` header containing the JSON-encoded decoded JWT payload. If the header is present, the middleware verified it — no separate verification flag needed. `sub`, `exp`, `isAdmin`, `act`, etc. all come along for free.
+**New approach**: The hooks verify the JWT at the Worker level, then forward the original encoded JWT to the DO in the standard `Authorization: Bearer <jwt>` header. No custom headers, no pre-decoding. The DO receives the same header format every developer already knows.
 
-```
-X-Auth: {"sub":"abc-456","isAdmin":true,"emailVerified":true,"adminApproved":true,"exp":1234567890}
-```
+Ed25519 verification is a local `crypto.subtle.verify()` call — no network round trip, sub-millisecond. So there's no meaningful savings in pre-decoding for the DO. DOs that want defense-in-depth can cheaply re-verify; DOs that trust the Worker hooks can simply base64url-decode the payload section.
 
-`OriginAuth` becomes a direct projection of the JWT claims:
-
-```typescript
-interface OriginAuth {
-  sub: string;
-  isAdmin?: boolean;
-  emailVerified: boolean;
-  adminApproved: boolean;
-  act?: ActClaim;
-  exp?: number;
-}
-```
+For Lumenize Mesh, `LumenizeClientGateway` is the trust boundary: it verifies/decodes the JWT and translates claims into `CallContext.originAuth`. Downstream mesh nodes trust `callContext` — they don't need to touch the JWT. See [Follow-on: Mesh Access Control](#follow-on-mesh-access-control).
 
 **Rejected alternatives:**
-- Keep separate headers — redundant data split across multiple headers that must be recombined; `userId` was a custom name for what the JWT already calls `sub`
+- Keep separate custom headers — redundant data split across multiple headers that must be recombined; `userId` was a custom name for what the JWT already calls `sub`
+- Single `X-Auth` header with decoded JSON payload — custom header that no one knows; forces users to learn a Lumenize convention when `Authorization: Bearer` is universal
+- Pre-decoded claims header (like Envoy `claim_to_headers`) — same custom-header problem; also eliminates the DO's ability to re-verify
 
 ## Implementation Deltas
 
@@ -241,14 +212,17 @@ Changes needed from current state:
 ### LumenizeAuth DO
 - [ ] Add `emailVerified`, `adminApproved` status flags to subject record
 - [ ] Add `isAdmin` role flag to subject record
-- [ ] Add `authorizedActors` to subject record (list of actor IDs pre-authorized to request delegated tokens for this subject)
+- [ ] Add `authorizedActors` to subject record (list of subject IDs — must correspond to existing subjects — pre-authorized to request delegated tokens for this subject)
 - [ ] Bootstrap check: if email matches `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, set `isAdmin: true` and `adminApproved: true` on first login
 - [ ] Set `emailVerified: true` when subject clicks magic link
 - [ ] Embed subject flags in JWT claims at token creation
-- [ ] Support `act` claim for delegation (actor acting for principal)
+- [ ] Support `act` claim for delegation (authenticated subject acting for principal)
+- [ ] Verify `act.sub` corresponds to an existing subject when issuing delegated tokens
+- [ ] Verify actor's `sub` is in target subject's `authorizedActors` list when issuing delegated tokens
+- [ ] Add `POST {prefix}/delegated-token` route: actor provides own access token + `actFor` (target subject ID), returns delegated token with `sub` = target, `act.sub` = actor
 - [ ] Add subject management methods (list, get, update, delete)
 - [ ] Add flag management (approve subject, promote to admin, demote)
-- [ ] Add actor authorization methods (authorizeActor, revokeActor)
+- [ ] Add actor authorization methods (authorizeActor, revokeActor) — validates that actor IDs are existing subject IDs
 - [x] **Bug fix**: Use `config.prefix` when generating URLs (was hardcoded as `/auth`)
 - [ ] Remove `#rateLimits` instance variable and `#checkRateLimit()` method (rate limiting moves to Worker level)
 - [ ] Remove `rateLimitPerHour` from `AuthConfig` (replaced by Worker-level rate limiting binding)
@@ -256,20 +230,21 @@ Changes needed from current state:
 ### createAuthRoutes
 - [ ] Add subject management routes
 - [ ] Add admin-only guards to new routes
-- [ ] Add admin notification as side effect of `{prefix}/magic-link`: when a subject self-signs-up and has `emailVerified: true` but `adminApproved: false`, email admins with a link to `{prefix}/approve/:id`
+- [ ] Add admin notification as side effect of `{prefix}/magic-link`: when a subject self-signs-up and has `emailVerified: true` but `adminApproved: false`, email all admins with a link to `{prefix}/approve/:id`
 - [ ] Add bulk invite route: `POST {prefix}/invite` accepts array of emails, sets `adminApproved`, sends invite emails. With `?_test=true`, returns invite links in response instead of sending emails (same pattern as magic link test mode)
 - [ ] Add invite acceptance route: clicking invite link sets `emailVerified`
-- [ ] Accept optional `rateLimiterBinding` — if provided, parse email from request body and call `binding.limit({ key: email })` before forwarding magic-link requests to DO. Return 429 on failure.
-- [ ] If `env.TURNSTILE_SECRET_KEY` is present, validate `cf-turnstile-response` token from request body via Cloudflare siteverify API before forwarding magic-link requests to DO. Return 403 on failure.
-- [ ] Fail fast: throw at creation time if neither `env.TURNSTILE_SECRET_KEY` nor `rateLimiterBinding` is provided
+- [ ] Validate `cf-turnstile-response` token from request body via Cloudflare siteverify API before forwarding magic-link requests to DO. Return 403 on failure.
+- [ ] Fail fast: throw at creation time if `env.TURNSTILE_SECRET_KEY` is not set
 
 ### createRouteDORequestAuthHooks
 - [ ] Rename from `createAuthMiddleware`/`createWebSocketAuthMiddleware` to single `createRouteDORequestAuthHooks`
+- [ ] Change signature to `createRouteDORequestAuthHooks(env, options?)` — matches `createAuthRoutes(env, options)` pattern. Options object is entirely optional; all settings default from env.
 - [ ] Return `{ onBeforeRequest, onBeforeConnect }` for destructuring
 - [ ] Check `emailVerified && adminApproved` (admins pass implicitly)
-- [ ] Replace `X-Auth-User-Id`, `X-Auth-Verified`, `X-Auth-Token-Exp`, `X-Auth-Claims` with single `X-Auth` header (JSON-encoded decoded JWT payload)
-- [ ] Update `OriginAuth` type: replace `{ userId, claims? }` with JWT claims shape (`{ sub, isAdmin?, act?, ... }`)
-- [ ] Require `rateLimiterBinding` — use `sub` from decoded JWT as key and call `binding.limit({ key: sub })`. Return 429 on failure. Throw at creation time if missing.
+- [ ] Public keys: read from `[env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean)` — same convention the DO uses for signing. No override option (the names are a shared convention). Throw at creation time if no keys available.
+- [ ] Replace `X-Auth-User-Id`, `X-Auth-Verified`, `X-Auth-Token-Exp`, `X-Auth-Claims` headers — forward the original verified JWT in the standard `Authorization: Bearer <jwt>` header instead
+- [ ] For WebSocket upgrades: extract token from subprotocol list, verify, set `Authorization: Bearer <jwt>` on the upgrade request before forwarding to DO
+- [ ] Rate limiting: default to `env.LUMENIZE_AUTH_RATE_LIMITER`, allow override via `rateLimiterBinding` option. Use `sub` from decoded JWT as key and call `binding.limit({ key: sub })`. Return 429 on failure. Throw at creation time if no binding available.
 
 ### testLoginWithMagicLink
 - [x] Accept optional `prefix` to match configured auth prefix
@@ -277,11 +252,16 @@ Changes needed from current state:
 - [ ] Accept optional `actAs` to simulate delegated access
 - [ ] Works with real auth flow (data goes in storage, flows to JWT)
 
+### LUMENIZE_AUTH_TEST_MODE safety
+- [x] Move `LUMENIZE_AUTH_TEST_MODE` from `packages/auth/wrangler.jsonc` vars to `vitest.config.js` `miniflare.bindings` (never accidentally deployable)
+- [ ] Remove `LUMENIZE_AUTH_TEST_MODE` from all `wrangler.jsonc` files under `packages/mesh/test/` — move to each test's `vitest.config.js` `miniflare.bindings`
+- [ ] Remove `LUMENIZE_AUTH_TEST_MODE` from `website/docs/mesh/testing.mdx` `.dev.vars` example — update to show `vitest.config.js` pattern
+
 ### Documentation
 - [x] Draft `website/docs/auth/index.mdx` (overview, access flows, bootstrap)
 - [ ] Reviewed and approved by maintainer `website/docs/auth/index.mdx` 
-- [x] Draft `website/docs/auth/subjects-and-roles.mdx` (roles, subject management)
-- [ ] Reviewed and approved by maintainer `website/docs/auth/subjects-and-roles.mdx` 
+- [x] Draft `website/docs/auth/api-reference.mdx` (roles, subject management)
+- [ ] Reviewed and approved by maintainer `website/docs/auth/api-reference.mdx` 
 - [x] Update `website/sidebars.ts` to include new pages
 - [ ] Update `security.mdx` examples once claims work
 
@@ -316,23 +296,23 @@ We avoid "user" except as an example alongside "agent", "system", etc. The abstr
 
 ### Problem
 
-Currently, Lumenize Mesh has a security gap: anyone who can authenticate (has a valid email) automatically gains access to the mesh. Authentication ≠ authorization. The Worker routes all authenticated requests to `LumenizeClientGateway` without checking if the subject is actually allowed to use the mesh.
+Once this task ships, `createRouteDORequestAuthHooks` will verify JWTs and enforce `emailVerified && adminApproved` at the Worker level, forwarding the verified JWT in the standard `Authorization: Bearer <jwt>` header. Lumenize Mesh currently reads identity from the old `X-Auth-*` headers and constructs `OriginAuth` with `userId` instead of `sub`. The mesh needs to be updated to consume the new JWT-based identity.
 
-### Solution
+### Architecture: LumenizeClientGateway as Trust Boundary
 
-With the new `emailVerified` + `adminApproved` model in `@lumenize/auth`, the middleware (to be renamed hooks) can now gate access properly:
+All Lumenize Mesh client access goes through `LumenizeClientGateway` via WebSocket. The gateway is the **second layer of defense-in-depth** (after the Worker hooks) and the **DMZ boundary** for the mesh:
 
-1. **Access check**: `emailVerified && adminApproved` (or `isAdmin`)
-   - Both subject confirmation AND admin approval required
-   - Admins implicitly pass the check
+1. **Worker hooks** verify the JWT and forward it in `Authorization: Bearer <jwt>` to the gateway
+2. **LumenizeClientGateway** re-verifies/decodes the JWT (cheap — sub-millisecond Ed25519 via `crypto.subtle`) and translates claims into `CallContext.originAuth`
+3. **Downstream mesh nodes** trust `callContext` — they do NOT need to decode the JWT themselves
 
-2. **Default hook behavior**: `createRouteDORequestAuthHooks` checks both flags before allowing WebSocket upgrade or HTTP routing to mesh DOs
+This means `originAuth` is the internal identity format within the mesh. The JWT is the external format at the Worker→DO boundary.
 
 ### Implementation Scope
 
 #### @lumenize/mesh changes
-- [ ] `LumenizeClientGateway`: read single `X-Auth` header instead of `X-Auth-User-Id` + `X-Auth-Claims` + `X-Auth-Token-Exp`
-- [ ] `LumenizeClientGateway`: update `OriginAuth` construction — replace `{ userId, claims }` with decoded JWT shape (`{ sub, isAdmin, act, ... }`)
+- [ ] `LumenizeClientGateway`: read JWT from `Authorization: Bearer <jwt>` header instead of `X-Auth-User-Id` + `X-Auth-Claims` + `X-Auth-Token-Exp`
+- [ ] `LumenizeClientGateway`: verify/decode JWT and construct `OriginAuth` from claims — replace `{ userId, claims }` with `{ sub, isAdmin, act, ... }`
 - [ ] `LumenizeClientGateway`: update WebSocket attachment to use new `OriginAuth` shape
 - [ ] `LumenizeClient`: update any client-side references from `userId` to `sub` in `OriginAuth`
 - [ ] Update `CallContext.originAuth` type across the mesh

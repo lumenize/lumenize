@@ -203,7 +203,7 @@ const sidebars: SidebarsConfig = {
       label: 'Auth',
       items: [
         'auth/index',
-        'auth/subjects-and-roles',
+        'auth/api-reference',
       ],
     },
 

@@ -204,6 +204,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Future bigger things
 
+- [ ] Lumenize Auth now supports delegation from one human subject to another human subject. Upgrade to support non-human subjects (agents in particular)
+- [ ] Consider adding an additional flag to Lumenize Auth for admins to opt out of getting an email when a self-signup occurs. Maybe even have a flag that supresses all admin emails. Assumes the system implements a dashboard or some other mechanism for approving.
+
 - [ ] Consider switching MCP subscriptions to keying off of the original request id rather than rely upon session id
 
 - [ ] Consider adding same-site origin and path checks to our cookie parameter handling in Browser.

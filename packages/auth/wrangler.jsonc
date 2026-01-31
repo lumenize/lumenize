@@ -19,7 +19,6 @@
     }
   ],
   "vars": {
-    "AUTH_TEST_MODE": "true",
     "PRIMARY_JWT_KEY": "BLUE"
   }
 }

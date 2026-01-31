@@ -25,7 +25,7 @@ export interface TestLoginOptions {
  * 3. Exchange refresh token cookie for access token
  *
  * Requires:
- * - LumenizeAuth DO configured with `AUTH_TEST_MODE=true`
+ * - LumenizeAuth DO configured with `LUMENIZE_AUTH_TEST_MODE=true`
  * - Worker with `createAuthRoutes()` handling `{prefix}/*` routes
  *
  * @param browser - Browser instance from @lumenize/utils or @lumenize/testing

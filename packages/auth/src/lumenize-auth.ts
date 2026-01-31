@@ -208,7 +208,7 @@ export class LumenizeAuth extends LumenizeDO {
     const magicLinkUrl = `${baseUrl}${prefix}/magic-link?magic-link-token=${token}&state=${state}`;
 
     // Check for test mode - return magic link in response instead of sending email
-    const isTestMode = this.env.AUTH_TEST_MODE === 'true' && url.searchParams.get('_test') === 'true';
+    const isTestMode = this.env.LUMENIZE_AUTH_TEST_MODE === 'true' && url.searchParams.get('_test') === 'true';
 
     if (isTestMode) {
       return Response.json({
