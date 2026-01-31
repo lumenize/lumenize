@@ -56,6 +56,4 @@ This structure replaces the legacy `.cursorrules` file (which still exists at re
 For comprehensive project context and background, see:
 - `AGENTS.md` - High-level project overview
 - `CLOUDFLARE_DO_GUIDE.md` - Durable Objects concepts
-- `DOCUMENTATION-WORKFLOW.md` - Detailed doc process
-- Root `.cursorrules` - Legacy rules file (can be deprecated)
 

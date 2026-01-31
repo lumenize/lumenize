@@ -6,7 +6,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
-- [ ] We have TypeDoc auto generation for the older packages but we decided not to use that and added API references into the docs for the newer packages. Confirm that alarms, fetch, and sql have what they need and confirm that the rest of mesh has what it needs in the hand written docs.
+- [ ] Confirm that alarms, fetch, and sql NADIS modules have what they need in the hand-written docs and confirm the rest of mesh has what it needs. (Related: [migrate older packages from doc-testing/TypeDoc](#documentation) backlog item covers the broader migration.)
 
 - [ ] Improve continuation ergonomics (discovered during manual persistence test implementation)
   - **Reference**: `packages/mesh/test/for-docs/calls/document-do.ts` (`scheduleLocalTask`, `executePendingTask`) and `managing-context.mdx` Manual Persistence section
@@ -184,13 +184,19 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Add this to the docs: https://discord.com/channels/595317990191398933/773219443911819284/1439941400778117292
 
-- [ ] Update the vs Cap'n Web docs to talk about RpcTarget with a new doc-test
+- [ ] Update the vs Cap'n Web docs to talk about RpcTarget
 
 - [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
 
 - [ ] Move promise pipelining from quirks to its own doc section and use our new name for it Operation Chaining and Nesting (OCAN)
 
 - [ ] Add comprehensive security documentation (currently just a warning)
+
+- [ ] Migrate older packages from doc-testing/TypeDoc to hand-written docs with check-examples
+  - Packages still using doc-testing generated files: rpc (quick-start, capn-web comparisons, operation-chaining), testing (agents, usage), mesh (services)
+  - Packages still using TypeDoc: rpc, utils, testing, fetch, structured-clone (configured in `docusaurus.config.ts`)
+  - For each: write hand-written `.mdx` with `@check-example` annotations, add API reference page (see `auth/api-reference.mdx` for the pattern), remove TypeDoc config and doc-testing sidebar entries
+  - Can be done incrementally, one package at a time
 
 - [ ] Add llms.txt support https://github.com/din0s/docusaurus-plugin-llms-txt
 

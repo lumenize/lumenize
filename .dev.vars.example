@@ -39,6 +39,23 @@ CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
 # Leave empty to disable
 DEBUG=
 
+# @lumenize/auth configuration
+# See https://lumenize.com/docs/auth/api-reference#auth-config for all options
+LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
+# Relative (/app) or absolute (https://example.com/app)
+LUMENIZE_AUTH_REDIRECT=/app
+# LUMENIZE_AUTH_ISSUER=https://lumenize.local
+# LUMENIZE_AUTH_AUDIENCE=https://lumenize.local
+# LUMENIZE_AUTH_ACCESS_TOKEN_TTL=900
+# LUMENIZE_AUTH_REFRESH_TOKEN_TTL=2592000
+# LUMENIZE_AUTH_MAGIC_LINK_TTL=1800
+# LUMENIZE_AUTH_INVITE_TTL=604800
+# LUMENIZE_AUTH_PREFIX=/auth
+
+# Cloudflare Turnstile (required for magic link endpoint)
+# Get your secret key at: https://dash.cloudflare.com/turnstile
+TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
+
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
 

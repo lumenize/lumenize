@@ -28,7 +28,7 @@ When starting new work, choose the appropriate workflow based on what's being ch
 3. Iterate on docs until API is perfect (maintainer reviews/approves)
 4. Update task file with implementation phases
 5. Implement following the finalized API spec
-6. Use `/documentation-workflow` for validation (Phases 2-5)
+6. Use `/documentation-workflow` for validation (Phases 2-4)
 
 **Key:** The MDX documentation dominates. Get the API right from the user's perspective before writing any code.
 
@@ -51,4 +51,3 @@ When starting new work, choose the appropriate workflow based on what's being ch
 
 - **Task management**: `/task-management` command
 - **Documentation workflow**: `/documentation-workflow` command
-- **Full workflow doc**: `/DOCUMENTATION-WORKFLOW.md`

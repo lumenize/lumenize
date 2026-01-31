@@ -87,12 +87,12 @@ Two independent boolean flags (see [Proposed Model](#proposed-model)) rather tha
 Hardcode into LumenizeAuth:
 - `isAdmin` - can manage subjects, promote to admin, delete subjects
 
-Admins implicitly satisfy `adminApproved`. This is a universal pattern. For application-specific roles, use the `metadata` field.
+Admins implicitly satisfy `adminApproved`. This is a universal pattern.
 
 **Bootstrap protection** is orthogonal to the role — the subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` cannot be demoted or deleted via API, regardless of who tries. This is identity-based, not role-based.
 
 ### 4. Subject Data in Auth DO
-LumenizeAuth already stores subjects. Extend with the flags from the [Proposed Model](#proposed-model), plus a `metadata` field for application-specific data (custom roles, preferences, etc.). All fields flow through to JWT claims automatically.
+LumenizeAuth already stores subjects. Extend with the flags from the [Proposed Model](#proposed-model). All fields flow through to JWT claims automatically.
 
 ### 5. Subject Management APIs
 New admin-only routes for CRUD on subjects, plus invite and approval flows. Also available as RPC methods on the Auth DO. See the [API Reference](/website/docs/auth/api-reference.mdx) for the complete endpoint list.
@@ -121,7 +121,7 @@ interface JwtClaims {
 - **Direct**: Subject calls directly → `sub` only, no `act` claim
 - **Delegated**: Another authenticated subject acts on subject's behalf → `sub` (principal) + `act.sub` (actor)
 
-The `act` claim records delegation for audit purposes. Currently, delegation is between authenticated subjects only (e.g., admin impersonation): the actor logs in via magic link, then requests a delegated token for the target subject. The `authorizedActors` list contains subject IDs (not opaque strings), and the system verifies that `act.sub` corresponds to a valid subject. Non-human actor authentication (API keys, service tokens for AI agents, service accounts) is planned for a future release.
+The `act` claim records delegation for audit purposes. The actor must be an authenticated subject; the principal must be a valid subject (exists in the database). The `authorizedActors` list contains subject IDs (not opaque strings). Admins bypass the `authorizedActors` check — they can delegate as any subject. Non-admin actors must be explicitly listed in the principal's `authorizedActors`. Non-human actor authentication (API keys, service tokens for AI agents, service accounts) is planned for a future release.
 
 In Lumenize Mesh, `@mesh` guards and `onBeforeCall` hooks access these claims via `callContext.originAuth`:
 
@@ -142,7 +142,22 @@ onBeforeCall() {
 }
 ```
 
-### 7. Rate Limiting
+### 7. Token Types
+
+Four distinct tokens, each with different lifetimes and semantics:
+
+| Token | Query param / storage | Lifetime | Reusable? | Purpose |
+|-------|----------------------|----------|-----------|---------|
+| **One-time login token** | `?one_time_token=...` | 30 min (`LUMENIZE_AUTH_MAGIC_LINK_TTL`) | No (deleted on use) | Magic link self-signup |
+| **Invite token** | `?invite_token=...` | 7 days (`LUMENIZE_AUTH_INVITE_TTL`) | Yes (valid until expiry) | Admin invite acceptance |
+| **Refresh token** | HttpOnly cookie | 30 days (`LUMENIZE_AUTH_REFRESH_TOKEN_TTL`) | No (rotated on use) | Obtain new access tokens |
+| **Access token** | Memory (JS) | 15 min (`LUMENIZE_AUTH_ACCESS_TOKEN_TTL`) | N/A (stateless JWT) | Authenticate requests, carries claims |
+
+**Why invite tokens are reusable:** Admins invite a batch of emails. If an invite token were single-use or short-lived, subjects who were busy when the invite arrived would need re-inviting — annoying for both admin and subject. A 7-day reusable token lets subjects click the link at their convenience. The admin has already approved them (the invite sets `adminApproved: true`), so reuse doesn't weaken the security model.
+
+**Distinct query param names** (`one_time_token` vs `invite_token`) prevent confusion between the two URL-based tokens and make endpoint handlers self-documenting.
+
+### 8. Rate Limiting
 
 Rate limiting is handled at the Worker level, not in the singleton LumenizeAuth DO. This keeps the DO focused on business logic and leverages Worker horizontal scaling.
 
@@ -170,14 +185,55 @@ The rate limiting binding is configured in `wrangler.jsonc`:
 - DO-level rate limiting — unnecessarily burdens the singleton with work the Worker layer handles better
 - `rateLimitPerHour` config on AuthConfig — replaced by the rate limiting binding's `limit`/`period` configuration
 
-### 8. Environment Variable Naming Convention
+### 9. Environment Variable Naming Convention
 
 Three tiers:
-- **`LUMENIZE_AUTH_*`** for Lumenize-specific config: `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, `LUMENIZE_AUTH_RATE_LIMITER`, `LUMENIZE_AUTH_TEST_MODE`
+- **`LUMENIZE_AUTH_*`** for Lumenize-specific config: `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, `LUMENIZE_AUTH_REDIRECT`, `LUMENIZE_AUTH_ISSUER`, `LUMENIZE_AUTH_AUDIENCE`, `LUMENIZE_AUTH_ACCESS_TOKEN_TTL`, `LUMENIZE_AUTH_REFRESH_TOKEN_TTL`, `LUMENIZE_AUTH_MAGIC_LINK_TTL`, `LUMENIZE_AUTH_INVITE_TTL`, `LUMENIZE_AUTH_PREFIX`, `LUMENIZE_AUTH_RATE_LIMITER`, `LUMENIZE_AUTH_TEST_MODE`
 - **`JWT_*`** for industry-standard key material (shared across packages): `JWT_PRIVATE_KEY_BLUE`, `JWT_PUBLIC_KEY_BLUE`, etc., `PRIMARY_JWT_KEY`
 - **Vendor prefix** for third-party services: `TURNSTILE_SECRET_KEY` (matches Cloudflare's official demos)
 
-### 9. Forward Verified JWT in Standard Authorization Header
+### 10. Config Delivery: Environment Variables, Not RPC
+
+The current implementation passes config from `createAuthRoutes` to `LumenizeAuth` via an RPC `configure()` call, stored in a `#config` instance variable. This has multiple problems: config is lost on DO eviction (triggering a 503-retry dance on cold start), defaults are split between `createAuthRoutes` and the DO, and `issuer`/`audience` are specified independently in both `createAuthRoutes` and `createRouteDORequestAuthHooks`.
+
+**New approach**: All scalar config the DO needs moves to environment variables. The DO reads from `this.env` directly — no `configure()` RPC, no `#config` instance variable, no lazy-init 503 dance. `createRouteDORequestAuthHooks` reads `issuer`/`audience` from the same env vars — one source of truth.
+
+**Env vars (DO reads from `this.env`):**
+
+| Env var | Default | Replaces |
+|---------|---------|----------|
+| `LUMENIZE_AUTH_REDIRECT` | *(required)* | `options.redirect` |
+| `LUMENIZE_AUTH_ISSUER` | `'https://lumenize.local'` | `options.issuer` |
+| `LUMENIZE_AUTH_AUDIENCE` | `'https://lumenize.local'` | `options.audience` |
+| `LUMENIZE_AUTH_ACCESS_TOKEN_TTL` | `900` | `options.accessTokenTtl` |
+| `LUMENIZE_AUTH_REFRESH_TOKEN_TTL` | `2592000` | `options.refreshTokenTtl` |
+| `LUMENIZE_AUTH_MAGIC_LINK_TTL` | `1800` | `options.magicLinkTtl` |
+| `LUMENIZE_AUTH_INVITE_TTL` | `604800` (7 days) | `options.inviteTtl` |
+| `LUMENIZE_AUTH_PREFIX` | `'/auth'` | `options.prefix` |
+
+**Code-level config (Worker routing only):**
+
+```typescript
+createAuthRoutes(env, {
+  cors?: CorsConfig,             // Structured object — can't be an env var
+  authBindingName?: string,   // Which DO namespace (default: 'LUMENIZE_AUTH')
+  authInstanceName?: string,     // Which DO instance (default: 'default')
+});
+```
+
+**What this eliminates:**
+- `configure()` RPC method and `#config` instance variable
+- The 503 lazy-init retry pattern
+- Defaults split across `createAuthRoutes` and `LumenizeAuth`
+- `issuer`/`audience` duplication between `createAuthRoutes` and `createRouteDORequestAuthHooks`
+- `rateLimitPerHour` option (already replaced by `LUMENIZE_AUTH_RATE_LIMITER` binding in Design Decision #8)
+
+**Rejected alternatives:**
+- JSON config string in env var — fragile (no IDE autocomplete, no type checking, easy to malform, hard to read in dashboard)
+- RPC `configure()` with storage persistence — solves eviction but introduces stale-config invalidation problem (how does the DO know config changed?)
+- Keep `#config` instance variable — violates "never use instance variables for mutable state" rule; adds latency on cold start via 503-retry
+
+### 11. Forward Verified JWT in Standard Authorization Header
 
 Currently the middleware passes identity via multiple custom headers:
 - `X-Auth-User-Id` — JWT `sub` (redundant, already in JWT payload)
@@ -198,6 +254,18 @@ For Lumenize Mesh, `LumenizeClientGateway` is the trust boundary: it verifies/de
 - Single `X-Auth` header with decoded JSON payload — custom header that no one knows; forces users to learn a Lumenize convention when `Authorization: Bearer` is universal
 - Pre-decoded claims header (like Envoy `claim_to_headers`) — same custom-header problem; also eliminates the DO's ability to re-verify
 
+### 12. Dual Auth on LumenizeAuth DO
+
+All authenticated LumenizeAuth endpoints accept either an `Authorization: Bearer <access_token>` header or a `refresh_token` cookie — whichever is present. The DO checks both and uses the first valid credential it finds.
+
+**Why:** The approve endpoint is linked from admin notification emails. Browsers send cookies automatically but cannot add Bearer headers from a link click. Rather than special-casing one endpoint, all LumenizeAuth endpoints accept both auth methods uniformly.
+
+- **None** — `email-magic-link`, `magic-link`, `accept-invite` (public, unauthenticated)
+- **Auth** — `refresh-token`, `logout`, `delegated-token` (any authenticated subject)
+- **Admin** — `approve/:id`, `invite`, `subjects`, `subject/:id` CRUD (Auth + `isAdmin` check)
+
+This is specific to the LumenizeAuth DO. User DOs behind `createRouteDORequestAuthHooks` still use Bearer-only auth — the hooks verify the JWT and forward it in the `Authorization` header.
+
 ## Implementation Deltas
 
 Changes needed from current state:
@@ -207,9 +275,12 @@ Changes needed from current state:
 - [ ] Update `JwtPayload` to include `act?: ActClaim` per RFC 8693
 - [ ] Add `emailVerified`, `adminApproved` status flags to claims
 - [ ] Add `isAdmin` role flag to claims
-- [ ] Update `Subject` interface with flags, authorizedActors, and metadata
+- [ ] Update `Subject` interface with flags and authorizedActors
 
 ### LumenizeAuth DO
+- [ ] Remove `configure()` RPC method, `#config` instance variable, and `DEFAULT_CONFIG` constant
+- [ ] Read all config from `this.env` with inline defaults: `this.env.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local'`, etc.
+- [ ] Throw on first request if `this.env.LUMENIZE_AUTH_REDIRECT` is not set (required, no default)
 - [ ] Add `emailVerified`, `adminApproved` status flags to subject record
 - [ ] Add `isAdmin` role flag to subject record
 - [ ] Add `authorizedActors` to subject record (list of subject IDs — must correspond to existing subjects — pre-authorized to request delegated tokens for this subject)
@@ -218,16 +289,26 @@ Changes needed from current state:
 - [ ] Embed subject flags in JWT claims at token creation
 - [ ] Support `act` claim for delegation (authenticated subject acting for principal)
 - [ ] Verify `act.sub` corresponds to an existing subject when issuing delegated tokens
-- [ ] Verify actor's `sub` is in target subject's `authorizedActors` list when issuing delegated tokens
+- [ ] Admins bypass `authorizedActors` check — can delegate as any subject
+- [ ] Non-admin actors must be in principal's `authorizedActors` list
 - [ ] Add `POST {prefix}/delegated-token` route: actor provides own access token + `actFor` (target subject ID), returns delegated token with `sub` = target, `act.sub` = actor
 - [ ] Add subject management methods (list, get, update, delete)
 - [ ] Add flag management (approve subject, promote to admin, demote)
 - [ ] Add actor authorization methods (authorizeActor, revokeActor) — validates that actor IDs are existing subject IDs
 - [x] **Bug fix**: Use `config.prefix` when generating URLs (was hardcoded as `/auth`)
+- [ ] **Dual auth**: all authenticated LumenizeAuth endpoints accept Bearer token or refresh token cookie (Design Decision #12)
+- [ ] **Lazy token cleanup**: on any rejected token (expired or revoked), delete it and sweep all expired tokens: `DELETE FROM refresh_tokens WHERE expires_at < ?`
+- [ ] **Revoke-all on status change**: when `adminApproved` is set to `false` or a subject is deleted, revoke all their refresh tokens: `UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?`
+- [ ] **Logging**: Use `@lumenize/debug` for all logging (audit trail, errors, diagnostics). Namespace: `auth.*` (e.g., `auth.subject-management`, `auth.delegation`, `auth.token`)
 - [ ] Remove `#rateLimits` instance variable and `#checkRateLimit()` method (rate limiting moves to Worker level)
 - [ ] Remove `rateLimitPerHour` from `AuthConfig` (replaced by Worker-level rate limiting binding)
 
 ### createAuthRoutes
+- [ ] Remove `redirect`, `issuer`, `audience`, `accessTokenTtl`, `refreshTokenTtl`, `magicLinkTtl`, `prefix` from options — these are now env vars
+- [ ] Remove the 503 lazy-init retry and `configure()` RPC call
+- [ ] Read `prefix` from `env.LUMENIZE_AUTH_PREFIX || '/auth'` for route matching
+- [ ] Rename `instanceName` to `authInstanceName` for clarity
+- [ ] New signature: `createAuthRoutes(env, options?)` where options is `{ cors?, authBindingName?, authInstanceName? }`
 - [ ] Add subject management routes
 - [ ] Add admin-only guards to new routes
 - [ ] Add admin notification as side effect of `{prefix}/magic-link`: when a subject self-signs-up and has `emailVerified: true` but `adminApproved: false`, email all admins with a link to `{prefix}/approve/:id`
@@ -238,7 +319,8 @@ Changes needed from current state:
 
 ### createRouteDORequestAuthHooks
 - [ ] Rename from `createAuthMiddleware`/`createWebSocketAuthMiddleware` to single `createRouteDORequestAuthHooks`
-- [ ] Change signature to `createRouteDORequestAuthHooks(env, options?)` — matches `createAuthRoutes(env, options)` pattern. Options object is entirely optional; all settings default from env.
+- [ ] Change signature to `createRouteDORequestAuthHooks(env, options?)` — options object is entirely optional
+- [ ] Remove `issuer`/`audience` options — read from `env.LUMENIZE_AUTH_ISSUER` / `env.LUMENIZE_AUTH_AUDIENCE` (same source of truth as the DO)
 - [ ] Return `{ onBeforeRequest, onBeforeConnect }` for destructuring
 - [ ] Check `emailVerified && adminApproved` (admins pass implicitly)
 - [ ] Public keys: read from `[env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean)` — same convention the DO uses for signing. No override option (the names are a shared convention). Throw at creation time if no keys available.
@@ -248,7 +330,7 @@ Changes needed from current state:
 
 ### testLoginWithMagicLink
 - [x] Accept optional `prefix` to match configured auth prefix
-- [ ] Accept optional `subjectData` for setting roles/metadata during test
+- [ ] Accept optional `subjectData` for setting roles during test
 - [ ] Accept optional `actAs` to simulate delegated access
 - [ ] Works with real auth flow (data goes in storage, flows to JWT)
 

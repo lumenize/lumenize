@@ -5,7 +5,7 @@ description: Auth endpoints, environment variables, functions, subject managemen
 
 # API Reference
 
-All endpoints use the configured `prefix` (default: `/auth`).
+All endpoints use the configured `prefix` (default: `/auth`). Authenticated endpoints accept either an `Authorization: Bearer <access_token>` header or a `refresh_token` cookie — whichever is present. This means email links (which can only carry cookies) and JS-initiated requests (which use Bearer) both work without special cases.
 
 ## Endpoints
 
@@ -13,23 +13,41 @@ All endpoints use the configured `prefix` (default: `/auth`).
 |----------|--------|------|-------------|
 | [`{prefix}/email-magic-link`](#request-magic-link) | POST | None | Request magic link (self-signup) |
 | [`{prefix}/magic-link`](#validate-magic-link) | GET | None | Validate magic link → `emailVerified`, notify admins |
-| [`{prefix}/invite`](#invite-subjects) | POST | Admin | Invite subjects (bulk) → `adminApproved`, send invite emails |
 | [`{prefix}/accept-invite`](#accept-invite) | GET | None | Accept invite → `emailVerified` |
+| [`{prefix}/refresh-token`](#refresh-token) | POST | Auth | Exchange refresh token for access token |
+| [`{prefix}/logout`](#logout) | POST | Auth | Clear refresh token cookie |
 | [`{prefix}/approve/:id`](#approve-subject) | GET | Admin | Approve subject → `adminApproved` (from admin notification email) |
-| [`{prefix}/delegated-token`](#request-delegated-token) | POST | Bearer | Request token to act on behalf of another subject |
-| [`{prefix}/refresh-token`](#refresh-token) | POST | Cookie | Exchange refresh token for access token |
-| [`{prefix}/logout`](#logout) | POST | Cookie | Clear refresh token cookie |
+| [`{prefix}/invite`](#invite-subjects) | POST | Admin | Invite subjects (bulk) → `adminApproved`, send invite emails |
+| [`{prefix}/delegated-token`](#request-delegated-token) | POST | Auth | Request token to act on behalf of another subject |
 | [`{prefix}/subjects`](#list-subjects) | GET | Admin | List subjects |
 | [`{prefix}/subject/:id`](#get-subject) | GET | Admin | Get subject |
 | [`{prefix}/subject/:id`](#update-subject) | PATCH | Admin | Update subject |
 | [`{prefix}/subject/:id`](#delete-subject) | DELETE | Admin | Delete subject |
 
+**Auth** = Bearer token or refresh token cookie. **Admin** = Auth + `isAdmin` required.
+
 ## Environment Variables
+
+### Auth Config
+
+The Auth DO and Worker hooks read configuration from environment variables. This eliminates the need for RPC config delivery and ensures config survives DO eviction.
+
+| Variable | Type | Required | Default | Read By | Description |
+|----------|------|----------|---------|---------|-------------|
+| `LUMENIZE_AUTH_REDIRECT` | Variable | Yes | — | Auth DO | [302 `Location`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Location) after magic link / invite — relative (`/app`) or absolute (`https://example.com/app`) |
+| `LUMENIZE_AUTH_ISSUER` | Variable | No | `'https://lumenize.local'` | Auth DO, hooks | JWT `iss` claim |
+| `LUMENIZE_AUTH_AUDIENCE` | Variable | No | `'https://lumenize.local'` | Auth DO, hooks | JWT `aud` claim |
+| `LUMENIZE_AUTH_ACCESS_TOKEN_TTL` | Variable | No | `900` (15 min) | Auth DO | Access token expiration in seconds |
+| `LUMENIZE_AUTH_REFRESH_TOKEN_TTL` | Variable | No | `2592000` (30 days) | Auth DO | Refresh token expiration in seconds |
+| `LUMENIZE_AUTH_MAGIC_LINK_TTL` | Variable | No | `1800` (30 min) | Auth DO | One-time login token expiration in seconds |
+| `LUMENIZE_AUTH_INVITE_TTL` | Variable | No | `604800` (7 days) | Auth DO | Invite token expiration in seconds (reusable until expiry) |
+| `LUMENIZE_AUTH_PREFIX` | Variable | No | `'/auth'` | Auth DO, Worker | URL prefix for all auth endpoints. Used to compose links in emails |
+| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | Secret | Yes | — | Auth DO | Email auto-promoted to admin on first login |
+
+### Bindings and Keys
 
 | Variable | Type | Required | Read By | Description |
 |----------|------|----------|---------|-------------|
-| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | Secret | Yes | Auth DO | Email auto-promoted to admin on first login |
-| `LUMENIZE_AUTH` | DO binding | Yes | `createAuthRoutes` | Durable Object namespace for `LumenizeAuth` |
 | `JWT_PRIVATE_KEY_BLUE` | Secret | Yes¹ | Auth DO | Ed25519 private key (BLUE slot) |
 | `JWT_PUBLIC_KEY_BLUE` | Secret | Yes¹ | Auth DO, hooks | Ed25519 public key (BLUE slot) |
 | `JWT_PRIVATE_KEY_GREEN` | Secret | No² | Auth DO | Ed25519 private key (GREEN slot) |
@@ -47,38 +65,32 @@ All endpoints use the configured `prefix` (default: `/auth`).
 
 ### createAuthRoutes
 
-Creates a request handler for all auth endpoints. Call once at module level.
+Creates a request handler for all auth endpoints. Call once at module level. All auth configuration (redirect, TTLs, issuer, audience, prefix) is read from [environment variables](#auth-config) — only Worker-level routing options are passed here.
 
 ```typescript @skip-check
 const authRoutes = createAuthRoutes(env, {
-  redirect: string,              // Required: redirect destination after magic link
-  prefix?: string,               // Default: '/auth'
-  gatewayBindingName?: string,   // Default: 'LUMENIZE_AUTH'
-  instanceName?: string,         // Default: 'default'
-  cors?: CorsConfig,             // Optional: CORS configuration
-  // JWT and token options (passed to Auth DO)
-  issuer?: string,               // Default: 'https://lumenize.local'
-  audience?: string,             // Default: 'https://lumenize.local'
-  accessTokenTtl?: number,       // Default: 900 (15 minutes)
-  refreshTokenTtl?: number,      // Default: 2592000 (30 days)
-  magicLinkTtl?: number,         // Default: 1800 (30 minutes)
+  cors?: CorsConfig,             // Optional: see CORS Support docs
+  authBindingName?: string,      // Default: 'LUMENIZE_AUTH'
+  authInstanceName?: string,     // Default: 'default'
 });
+// Options object is optional — createAuthRoutes(env) uses all defaults
 // Throws if env.TURNSTILE_SECRET_KEY is not set
+// Throws if env.LUMENIZE_AUTH_REDIRECT is not set
 ```
+
+For `CorsConfig` options, see [CORS Support](/docs/utils/cors-support).
 
 ### createRouteDORequestAuthHooks
 
-Creates hooks for [`routeDORequest`](/docs/utils/route-do-request) that verify JWTs and enforce [two-phase access control](/docs/auth/#access-flows):
+Creates hooks for [`routeDORequest`](/docs/utils/route-do-request) that verify JWTs and enforce [two-phase access control](/docs/auth/#access-flows). Reads `issuer`, `audience`, public keys, and rate limiter binding from [environment variables](#auth-config).
 
 ```typescript @skip-check
 const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env, {
-  // All optional — defaults read from env
-  audience?: string,                 // Default: 'https://lumenize.local'
-  issuer?: string,                   // Default: 'https://lumenize.local'
   rateLimiterBinding?: RateLimit,    // Default: env.LUMENIZE_AUTH_RATE_LIMITER
 });
 // Options object is optional — createRouteDORequestAuthHooks(env) uses all defaults
-// Public keys always read from env.JWT_PUBLIC_KEY_BLUE / env.JWT_PUBLIC_KEY_GREEN
+// issuer/audience read from env.LUMENIZE_AUTH_ISSUER / env.LUMENIZE_AUTH_AUDIENCE
+// Public keys read from env.JWT_PUBLIC_KEY_BLUE / env.JWT_PUBLIC_KEY_GREEN
 ```
 
 Both hooks:
@@ -108,7 +120,6 @@ const response = await fetch('/auth/email-magic-link', {
 });
 // 200: { message: "Check your email for the magic link", expires_in: 1800 }
 // 403: Turnstile verification failed
-// 429: Rate limited
 ```
 
 In [test mode](/docs/auth/#test-mode), append `?_test=true` to get the magic link directly without email delivery:
@@ -119,31 +130,25 @@ In [test mode](/docs/auth/#test-mode), append `?_test=true` to get the magic lin
 
 ### Validate Magic Link
 
-`GET {prefix}/magic-link?token=...` — No auth required
+`GET {prefix}/magic-link?one_time_token=...` — No auth required
 
-Called when the subject clicks the magic link. Validates the one-time token, sets `emailVerified: true`, creates a refresh token, and redirects. If the subject is not yet admin-approved, sends a notification email to all admins.
+Called when the subject clicks the magic link. Validates the one-time login token (single use — deleted after validation), sets `emailVerified: true`, creates a refresh token, and redirects. If the subject is not yet admin-approved, sends a notification email to all admins.
 
-```
-302 → redirect destination (configured in createAuthRoutes)
-Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict
-```
+- **Valid token**: `302 → LUMENIZE_AUTH_REDIRECT` with `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict`
+- **Invalid/expired token**: `302 → LUMENIZE_AUTH_REDIRECT?error=invalid_token`
 
 ### Accept Invite
 
-`GET {prefix}/accept-invite?token=...` — No auth required
+`GET {prefix}/accept-invite?invite_token=...` — No auth required
 
-Called when an invited subject clicks the invite link. Validates the token, sets `emailVerified: true` (subject already has `adminApproved: true` from the invite), creates a refresh token, and redirects. The subject has immediate access since both flags are now true.
+Called when an invited subject clicks the invite link. Validates the invite token (reusable until expiry), sets `emailVerified: true` (subject already has `adminApproved: true` from the invite), creates a refresh token, and redirects. The subject has immediate access since both flags are now true.
 
-```
-302 → redirect destination (configured in createAuthRoutes)
-Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict
-```
-
-Invite tokens expire after 7 days (configurable via `inviteTtl` on `createAuthRoutes`).
+- **Valid token**: `302 → LUMENIZE_AUTH_REDIRECT` with `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict`
+- **Invalid/expired token**: `302 → LUMENIZE_AUTH_REDIRECT?error=invalid_token`
 
 ### Refresh Token
 
-`POST {prefix}/refresh-token` — Cookie auth (refresh token)
+`POST {prefix}/refresh-token` — Auth required
 
 Exchanges the refresh token cookie for a new access token. The access token JWT contains all [claims](/docs/auth/#jwt-claims) including status flags and role.
 
@@ -156,7 +161,7 @@ const response = await fetch('/auth/refresh-token', { method: 'POST' });
 
 ### Logout
 
-`POST {prefix}/logout` — Cookie auth (refresh token)
+`POST {prefix}/logout` — Auth required
 
 Revokes the refresh token and clears the cookie.
 
@@ -171,14 +176,14 @@ Admin-only. You don't need to check `emailVerified` or `adminApproved` in your D
 
 ### List Subjects
 
-`GET {prefix}/subjects` — Admin auth required
+`GET {prefix}/subjects` — Admin required
 
 ```typescript @skip-check
 const response = await fetch('/auth/subjects', {
   headers: { 'Authorization': `Bearer ${accessToken}` }
 });
 const { subjects } = await response.json();
-// subjects: [{ sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt, metadata }, ...]
+// subjects: Subject[] (see Subject Record below)
 ```
 
 Query parameters:
@@ -198,19 +203,19 @@ const response = await fetch('/auth/subjects?role=admin&limit=50', {
 
 ### Get Subject
 
-`GET {prefix}/subject/:id` — Admin auth required
+`GET {prefix}/subject/:id` — Admin required
 
 ```typescript @skip-check
 const response = await fetch(`/auth/subject/${sub}`, {
   headers: { 'Authorization': `Bearer ${accessToken}` }
 });
 const { subject } = await response.json();
-// subject: { sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt, metadata }
+// subject: Subject (see Subject Record below)
 ```
 
 ### Update Subject
 
-`PATCH {prefix}/subject/:id` — Admin auth required
+`PATCH {prefix}/subject/:id` — Admin required
 
 ```typescript @skip-check
 const response = await fetch(`/auth/subject/${sub}`, {
@@ -220,14 +225,11 @@ const response = await fetch(`/auth/subject/${sub}`, {
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
-    isAdmin: true,
-    metadata: { department: 'Engineering' }
+    isAdmin: true
   })
 });
 const { subject } = await response.json();
 ```
-
-Updatable fields: `isAdmin`, `adminApproved`, `metadata`, `authorizedActors`.
 
 **Rules:**
 - Cannot demote yourself (prevents lockout)
@@ -235,7 +237,7 @@ Updatable fields: `isAdmin`, `adminApproved`, `metadata`, `authorizedActors`.
 
 ### Delete Subject
 
-`DELETE {prefix}/subject/:id` — Admin auth required
+`DELETE {prefix}/subject/:id` — Admin required
 
 ```typescript @skip-check
 const response = await fetch(`/auth/subject/${sub}`, {
@@ -251,7 +253,7 @@ const response = await fetch(`/auth/subject/${sub}`, {
 
 ### Invite Subjects
 
-`POST {prefix}/invite` — Admin auth required
+`POST {prefix}/invite` — Admin required
 
 Pre-approves subjects by sending invite emails:
 
@@ -276,43 +278,36 @@ Creates subject records with `adminApproved: true`, `emailVerified: false` and s
 **Behavior:**
 - If email already exists and subject has `emailVerified: true` — skips (already active)
 - If email already exists and subject has `emailVerified: false` — re-sends invite
-- Invite links expire after 7 days (configurable via `inviteTtl`)
 
 In [test mode](/docs/auth/#test-mode), append `?_test=true` to get invite links in the response instead of sending emails.
 
 ### Approve Subject
 
-`GET {prefix}/approve/:id?token=...` — Admin auth (via token in URL)
+`GET {prefix}/approve/:id` — Admin required
 
-Called from the admin notification email sent during [self-signup](/docs/auth/#self-signup-flow). Sets `adminApproved: true` and sends a "You've been approved" email to the subject.
+Linked from the admin notification email sent during [self-signup](/docs/auth/#self-signup-flow). Works from email links because the DO accepts the refresh token cookie (no Bearer header needed).
 
-Approval can also be done programmatically via [Update Subject](#update-subject):
+- **Authenticated admin**: Sets `adminApproved: true`, sends a "You've been approved" email to the subject, redirects to `LUMENIZE_AUTH_REDIRECT`.
+- **Not authenticated**: Redirects to `LUMENIZE_AUTH_REDIRECT?error=401&return_to={original_url}` so the app can prompt login and redirect back.
 
-```typescript @skip-check
-const response = await fetch(`/auth/subject/${sub}`, {
-  method: 'PATCH',
-  headers: {
-    'Authorization': `Bearer ${accessToken}`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({ adminApproved: true })
-});
-```
+Equivalent to `PATCH /subject/:id` with `{ adminApproved: true }` — this endpoint exists as a GET so it works as an email link.
 
 ## Delegation
 
 Delegation allows one authenticated subject to act on behalf of another (e.g., admin impersonation for support). The principal's permissions apply; the actor's identity is recorded for audit. See [JWT Claims: Delegation](/docs/auth/#jwt-claims) for the `act` claim format.
 
 :::note Non-human actors (coming soon)
-Currently, delegation requires both the actor and principal to be authenticated subjects who logged in via magic link. Service account and AI agent authentication (API keys, service tokens) is planned for a future release.
+Currently, the actor must be an authenticated subject and the principal must be a valid subject (exists in the database). Service account and AI agent authentication (API keys, service tokens) is planned for a future release.
 :::
 
-**Flow:**
+**Admin delegation:** Admins can delegate as any subject — no setup needed. Authenticate, request a delegated token, done.
 
-1. **Admin authorizes actor** — adds the actor's `sub` to the target subject's `authorizedActors` list via [Update Subject](#update-subject)
-2. **Actor authenticates normally** — logs in via magic link, gets their own access token
-3. **Actor requests delegated token** — calls [Request Delegated Token](#request-delegated-token) with their access token and the target subject's `sub`
-4. **Auth verifies and issues token** — checks that the actor is in the target's `authorizedActors` list and is a valid subject. Token has `sub` = principal, `act.sub` = actor
+**Non-admin delegation flow:**
+
+1. **Authorize actor** — an admin adds the actor's `sub` to the principal's `authorizedActors` list via [Update Subject](#update-subject)
+2. **Actor authenticates normally** — logs in via magic link or invite, gets their own access token
+3. **Actor requests delegated token** — calls [Request Delegated Token](#request-delegated-token) with their access token and the principal's `sub`
+4. **Auth verifies and issues token** — checks that the actor is in the principal's `authorizedActors` list. Token has `sub` = principal, `act.sub` = actor
 5. **Actor makes calls** — guards check `sub` (principal's permissions), logs show `act.sub`
 
 ### Authorize an Actor
@@ -334,7 +329,7 @@ const response = await fetch(`/auth/subject/${targetSub}`, {
 
 ### Request Delegated Token
 
-`POST {prefix}/delegated-token` — Bearer auth required
+`POST {prefix}/delegated-token` — Auth required
 
 The actor uses their own access token and specifies who to act for:
 
@@ -353,11 +348,15 @@ const { access_token } = await response.json();
 // Token claims: { sub: targetSub, act: { sub: actorSub }, ... }
 ```
 
-**Fails if:** (1) the actor's `sub` is not in the target's `authorizedActors` list, or (2) the actor's `sub` doesn't correspond to a valid subject.
+**Fails if:** the actor is not an admin and their `sub` is not in the principal's `authorizedActors` list.
 
 ### Using Delegated Tokens
 
-Delegated tokens work like regular tokens. Your DO reads the JWT from the `Authorization: Bearer` header (see [How the JWT Reaches Your DO](/docs/auth/#how-the-jwt-reaches-your-do)) and checks `sub` for authorization. The `act` chain is available for audit logging:
+Delegated tokens work like regular tokens. Your DO reads the JWT from the `Authorization: Bearer` header (see [How the JWT Reaches Your DO](/docs/auth/#how-the-jwt-reaches-your-do)) and checks `sub` for authorization. The `act` chain is available for audit logging.
+
+:::note Delegated token refresh
+LumenizeClient auto-refreshes regular access tokens using the refresh token cookie. Delegated tokens require a separate refresh flow: the actor must first refresh their own access token, then call `/auth/delegated-token` again. LumenizeClient does not currently auto-refresh delegated tokens — your application is responsible for re-requesting them when they expire.
+:::
 
 ```typescript @skip-check
 // Guard checks sub (principal's permissions)
@@ -388,7 +387,7 @@ const { accessToken } = await testLoginWithMagicLink(env, {
 
 ## RPC Methods
 
-The same operations are available as methods on the Auth DO, for server-to-server calls or mesh-internal use:
+The same operations are available as methods on the Auth DO, for server-to-server calls or mesh-internal use. Note the naming convention: HTTP endpoints use kebab-case (`/delegated-token`) while RPC methods use camelCase (`delegatedToken`).
 
 ```typescript @skip-check
 const authStub = env.LUMENIZE_AUTH.getByName('default');
@@ -414,29 +413,16 @@ RPC methods require the caller to have appropriate permissions (passed via `orig
 
 ## Subject Record
 
-```typescript @skip-check
-interface Subject {
-  sub: string;                   // Subject ID (UUID, per RFC 7519)
-  email: string;                 // Email address (unique)
-  createdAt: number;             // Unix timestamp
-  lastLoginAt: number | null;    // Unix timestamp of last login
-
-  // Status flags (both required for access)
-  emailVerified: boolean;        // Subject clicked magic link or invite link
-  adminApproved: boolean;        // Admin granted access (or subject is admin)
-
-  // Role flag (implicitly satisfies adminApproved)
-  isAdmin?: boolean;             // Full admin access
-
-  // Delegation
-  authorizedActors?: string[];   // Actor IDs authorized to act for this subject
-
-  // Extensible metadata
-  metadata?: Record<string, unknown>;
-}
-```
-
-The `metadata` field is for application-specific data. For roles beyond the built-in `isAdmin`, store custom role data in `metadata` and check it in your guards.
+| Field | Type | Updatable | Description |
+|-------|------|-----------|-------------|
+| `sub` | `string` | No | Subject ID (UUID, per RFC 7519) |
+| `email` | `string` | No | Email address (unique) |
+| `emailVerified` | `boolean` | No | Subject clicked magic link or invite link |
+| `adminApproved` | `boolean` | Yes | Admin granted access (or subject is admin) |
+| `isAdmin` | `boolean` | Yes | Full admin access (implicitly satisfies `adminApproved`) |
+| `authorizedActors` | `string[]` | Yes | Actor IDs authorized to act for this subject ([Delegation](#delegation)) |
+| `createdAt` | `number` | No | Unix timestamp |
+| `lastLoginAt` | `number \| null` | No | Unix timestamp of last login |
 
 ## Security Rules
 

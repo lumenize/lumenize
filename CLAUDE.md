@@ -192,7 +192,7 @@ expect(result).toBe('DO echoed: Hello');
 ````
 
 - Use `// ...` or `/* ... */` to skip boilerplate
-- **Never use `@skip-check`** for executable code examples (only for bash commands, etc.)
+- `@skip-check` is work-in-progress only (Phase 1 drafting) — convert to `@check-example` before publishing
 - **Never use `@skip-check-approved`** — this annotation indicates human review and approval; only humans may add it
 
 ### Documentation Workflow

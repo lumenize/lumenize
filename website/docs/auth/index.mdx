@@ -81,7 +81,7 @@ sequenceDiagram
 
     rect rgba(240, 220, 200, 0.3)
         Note over Subject,AuthDO: 2. Subject clicks link → { emailVerified: true }
-        Subject->>Worker: GET /auth/magic-link?token=...
+        Subject->>Worker: GET /auth/magic-link?one_time_token=...
         Worker->>AuthDO: Validate token, set emailVerified: true
         Note over AuthDO: Send approval request to admins
         AuthDO->>Worker: Set-Cookie + 302 redirect
@@ -138,7 +138,7 @@ sequenceDiagram
 
     rect rgba(240, 220, 200, 0.3)
         Note over Subject,AuthDO: 2. Subject clicks invite link → { emailVerified: true }
-        Subject->>Worker: GET /auth/accept-invite?token=...
+        Subject->>Worker: GET /auth/accept-invite?invite_token=...
         Worker->>AuthDO: Validate token, set emailVerified: true
         AuthDO->>Worker: Set-Cookie + 302 redirect
         Worker->>Subject: Redirect (refresh_token cookie set)
@@ -150,13 +150,14 @@ sequenceDiagram
     end
 ```
 
-### Three Different Tokens
+### Tokens
 
-| Token | Lifetime | Storage | Purpose |
-|-------|----------|---------|---------|
-| **One-time token** | 30 min | URL query param | Magic link validation (single use) |
-| **Refresh token** | 30 days | HttpOnly cookie | Obtain new access tokens |
-| **Access token** | 15 min | Memory (JS) | Authenticate mesh calls, carries claims |
+| Token | Query param / storage | Lifetime | Reusable? | Purpose |
+|-------|----------------------|----------|-----------|---------|
+| **One-time login token** | `?one_time_token=...` | 30 min | No (deleted on use) | Magic link self-signup |
+| **Invite token** | `?invite_token=...` | 7 days | Yes (valid until expiry) | Admin invite acceptance |
+| **Refresh token** | HttpOnly cookie | 30 days | No (rotated on use) | Obtain new access tokens |
+| **Access token** | Memory (JS) | 15 min | N/A (stateless JWT) | Authenticate requests, carries claims |
 
 ### Request Magic Link
 
@@ -169,9 +170,9 @@ const response = await fetch('/auth/email-magic-link', {
 // Returns: { message: "Check your email for the magic link", expires_in: 1800 }
 ```
 
-### Exchange One-time Token for Refresh Token Cookie
+### Exchange One-time Login Token for Refresh Token Cookie
 
-When the subject clicks the magic link, the server validates the token, sets the refresh token cookie, and returns a 302 redirect to the `redirect` option you passed to [`createAuthRoutes`](/docs/auth/api-reference#createauthroutes).
+When the subject clicks the magic link, the server validates the one-time login token, sets the refresh token cookie, and returns a 302 redirect to the [`LUMENIZE_AUTH_REDIRECT`](/docs/auth/api-reference#auth-config) URL.
 
 ### Get Access Token with Role Claims
 
@@ -227,7 +228,7 @@ interface JwtClaims {
 
 The `act` claim enables delegation — one authenticated subject acting on behalf of another. It's recursive per [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693): each layer records who delegated to whom. Guards check `sub` for authorization; the `act` chain is recorded for audit trails.
 
-Currently, delegation is between authenticated subjects (e.g., admin impersonation): the actor logs in via magic link, then requests a delegated token for the target subject. If `act.sub` matches an existing subject, the system verifies it. Service account and AI agent authentication (API keys, service tokens) is planned for a future release. See [API Reference: Delegation](/docs/auth/api-reference#delegation) for the API.
+Admins can delegate as any subject. Non-admin actors must be explicitly listed in the principal's `authorizedActors`. The actor must be an authenticated subject; the principal must be a valid subject (exists in the database). Service account and AI agent authentication (API keys, service tokens) is planned for a future release. See [API Reference: Delegation](/docs/auth/api-reference#delegation) for the API.
 
 ## Server-Side Token Verification
 
@@ -356,7 +357,7 @@ TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 wrangler secret put TURNSTILE_SECRET_KEY
 ```
 
-`createAuthRoutes` reads `TURNSTILE_SECRET_KEY` from `env` automatically. Similarly, `createRouteDORequestAuthHooks` reads `LUMENIZE_AUTH_RATE_LIMITER` from `env` automatically (see [Worker Setup](#worker-setup)).
+Both functions read all configuration from `env` automatically — `TURNSTILE_SECRET_KEY`, `LUMENIZE_AUTH_RATE_LIMITER`, and all [auth config](/docs/auth/api-reference#auth-config) variables (see [Worker Setup](#worker-setup)).
 
 ### Rate Limiting Caveats
 
@@ -429,8 +430,8 @@ import { createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth'
 import { routeDORequest } from '@lumenize/utils';
 
 // Create routes and hooks once at module level (not per request)
+// Auth config (redirect, issuer, audience, TTLs) comes from environment variables
 const authRoutes = createAuthRoutes(env, {
-  redirect: '/app',
   cors: { origin: ['https://app.example.com'] },
 });
 const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env);

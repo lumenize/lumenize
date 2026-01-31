@@ -142,7 +142,6 @@ Manage project tasks using two complementary workflows: docs-first for user-faci
 ## Reference
 
 - **Documentation workflow**: `/documentation-workflow` command
-- **Full workflow doc**: `/DOCUMENTATION-WORKFLOW.md`
 - **Task directory**: `/tasks/`
 - **Backlog**: `/tasks/backlog.md`
 - **Example docs-first**: `tasks/proxy-fetch-timeout-and-idempotency.md`
