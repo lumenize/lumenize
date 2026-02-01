@@ -13,7 +13,7 @@ Passwordless authentication for Cloudflare Durable Objects with magic link login
 | **Secure JWTs** | Ed25519 signed tokens with key rotation support |
 | **Refresh rotation** | Automatic token refresh with revocation |
 | **Two-phase access** | Requires both subject confirmation (`emailVerified`) and admin approval (`adminApproved`) |
-| **Admin role bootstraped** | First `isAdmin` bootstrapped via environment variable |
+| **Admin role bootstrapped** | First `isAdmin` bootstrapped via environment variable |
 | **Delegation** | RFC 8693 `act` claim for delegated access (agents, services, impersonation) |
 | **Rate limiting** | Cloudflare DDoS + Turnstile (magic link) + Worker-level rate limiting binding (authenticated routes) |
 | **WebSocket auth** | Token passing via subprotocol headers |
@@ -45,7 +45,7 @@ Before anyone can log in with admin privileges, you need to designate a bootstra
 # In .dev.vars or wrangler.jsonc (local development)
 LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 
-# In production (via wrangler or dashboard)
+# In production (no `wrangler variable` command exists, so use `wrangler secret` or the dashboard)
 wrangler secret put LUMENIZE_AUTH_BOOTSTRAP_EMAIL
 ```
 
@@ -228,7 +228,7 @@ interface JwtClaims {
 
 The `act` claim enables delegation — one authenticated subject acting on behalf of another. It's recursive per [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693): each layer records who delegated to whom. Guards check `sub` for authorization; the `act` chain is recorded for audit trails.
 
-Admins can delegate as any subject. Non-admin actors must be explicitly listed in the principal's `authorizedActors`. The actor must be an authenticated subject; the principal must be a valid subject (exists in the database). Service account and AI agent authentication (API keys, service tokens) is planned for a future release. See [API Reference: Delegation](/docs/auth/api-reference#delegation) for the API.
+Admins can delegate as any subject. Non-admin actors must be explicitly listed in the principal's `authorizedActors`. The actor must be an authenticated subject; the principal must be a valid subject (exists in the database). Service account and AI agent authentication (API keys, service tokens) is planned for a future release. See [API Reference: Delegation](/docs/auth/api-reference#delegation) for the full delegation API, including how to authorize actors and request delegated tokens.
 
 ## Server-Side Token Verification
 
@@ -267,7 +267,7 @@ After `createRouteDORequestAuthHooks` verifies the JWT, it forwards the original
 
 The WebSocket case is worth noting: browsers don't allow custom headers on WebSocket connections, so the token arrives via the subprotocol list (see [above](#server-side-token-verification)). The hooks extract and verify it at the Worker level, then set the `Authorization: Bearer <jwt>` header on the upgrade request before forwarding to the DO. Your DO code sees a consistent header regardless of transport.
 
-Your DO can then decode the JWT payload and authorize however you like — role checks, ownership guards, audit logging, etc. Ed25519 verification is a local `crypto.subtle.verify()` call (no network round trip, sub-millisecond), so DOs that want defense-in-depth can cheaply re-verify. DOs that trust the Worker hooks can simply base64url-decode the payload section. For a concrete example using `@lumenize/mesh` guards, see [Security: Guards](/docs/mesh/security#guards).
+Your DO can then decode the JWT payload and authorize however you like — role checks, ownership guards, audit logging, etc. Ed25519 verification is a local `crypto.subtle.verify()` call (no network round trip, sub-millisecond), so DOs that want defense-in-depth can cheaply re-verify. DOs that trust the Worker hooks can simply base64url-decode the payload section. For a concrete example using `@lumenize/mesh` guards, see [Security: Reusable Guards](/docs/mesh/security#reusable-guards).
 
 ## Key Rotation
 
@@ -365,7 +365,7 @@ The rate limiting binding is **per Cloudflare location** (not globally consisten
 
 ## Test Mode
 
-For development, add `?_test=true` to get the magic link directly:
+For development, add `?_test=true` to get links directly instead of sending emails. This works for both magic link and invite endpoints:
 
 ```typescript @skip-check
 const response = await fetch('/auth/email-magic-link?_test=true', {
@@ -374,6 +374,8 @@ const response = await fetch('/auth/email-magic-link?_test=true', {
 });
 // Returns: { message: "Magic link generated (test mode)", magic_link: "..." }
 ```
+
+The [invite endpoint](/docs/auth/api-reference#invite-subjects) supports the same pattern — `POST {prefix}/invite?_test=true` returns invite links in the response instead of sending emails. A dedicated test helper for invite flows may be added in a future release.
 
 :::info Recommendation: Put LUMENIZE_AUTH_TEST_MODE in vitest config
 `LUMENIZE_AUTH_TEST_MODE="true"` must be set as an environment variable for test mode to work, but putting it in `wrangler.jsonc` risks accidentally deploying it — which would let anyone obtain magic links without email delivery. Instead, inject it via `miniflare.bindings` in your `vitest.config.js`, which only exists during test runs and is never deployed:
@@ -395,34 +397,35 @@ export default defineWorkersProject({
 ```
 :::
 
-For testing with specific roles, use `testLoginWithMagicLink`:
+For testing with specific roles, use `testLoginWithMagicLink`. The `browser` parameter is required — it provides a cookie jar that preserves the refresh token across the multi-step login flow:
 
 ```typescript @skip-check
 import { testLoginWithMagicLink } from '@lumenize/auth';
+import { Browser } from '@lumenize/testing';
+
+const browser = new Browser();
 
 // Login as approved regular subject
-const { accessToken, claims } = await testLoginWithMagicLink(env, {
-  email: 'alice@test.com',
+const { accessToken, claims, sub } = await testLoginWithMagicLink(browser, 'alice@test.com', {
   subjectData: { adminApproved: true }  // emailVerified is set automatically
 });
 
 // Login as admin
-const { accessToken: adminToken } = await testLoginWithMagicLink(env, {
-  email: 'admin@test.com',
+const adminBrowser = new Browser();
+const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, 'admin@test.com', {
   subjectData: { isAdmin: true }  // Admins implicitly have adminApproved
 });
 
-// Login as actor acting for subject
-const { accessToken: delegatedToken } = await testLoginWithMagicLink(env, {
-  email: 'alice@test.com',
+// Login with delegation — alice is the principal, actorSubId acts on her behalf
+const { accessToken: delegatedToken } = await testLoginWithMagicLink(browser, 'alice@test.com', {
   subjectData: { adminApproved: true },
-  actAs: actorSub  // subject ID of the actor
+  actorSub: actorSubId  // this subject is acting on behalf of alice
 });
 ```
 
 ## Worker Setup
 
-Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to control access your DOs over HTTP (`onBeforeRequest`) or WebSockets (`onBeforeConnect`):
+Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to protect your DOs over HTTP (`onBeforeRequest`) or WebSockets (`onBeforeConnect`). Both integrate with [`routeDORequest`](/docs/utils/route-do-request). All auth configuration — including the URL prefix (default `/auth`), redirect URL, token TTLs, and issuer/audience — is read from [environment variables](/docs/auth/api-reference#auth-config):
 
 ```typescript @skip-check
 import { env } from 'cloudflare:workers';
@@ -454,4 +457,4 @@ export default {
 
 ## API Reference
 
-See the [API Reference](/docs/auth/api-reference) for endpoints, environment variables, function signatures, subject management, and delegation.
+See the [API Reference](/docs/auth/api-reference) for endpoints, environment variables, function signatures, the [subject record](/docs/auth/api-reference#subject-record) schema, subject management, and delegation.

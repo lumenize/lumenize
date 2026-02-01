@@ -95,7 +95,7 @@ Admins implicitly satisfy `adminApproved`. This is a universal pattern.
 LumenizeAuth already stores subjects. Extend with the flags from the [Proposed Model](#proposed-model). All fields flow through to JWT claims automatically.
 
 ### 5. Subject Management APIs
-New admin-only routes for CRUD on subjects, plus invite and approval flows. Also available as RPC methods on the Auth DO. See the [API Reference](/website/docs/auth/api-reference.mdx) for the complete endpoint list.
+New admin-only HTTP routes for CRUD on subjects, plus invite and approval flows. All access goes through the DO's `fetch` handler — no public RPC methods (YAGNI; avoids exposing an unguarded internal API surface). See the [API Reference](/docs/auth/api-reference) for the complete endpoint list.
 
 ### 6. JWT Claims Follow RFC 7519 and RFC 8693
 
@@ -194,7 +194,7 @@ Three tiers:
 
 ### 10. Config Delivery: Environment Variables, Not RPC
 
-The current implementation passes config from `createAuthRoutes` to `LumenizeAuth` via an RPC `configure()` call, stored in a `#config` instance variable. This has multiple problems: config is lost on DO eviction (triggering a 503-retry dance on cold start), defaults are split between `createAuthRoutes` and the DO, and `issuer`/`audience` are specified independently in both `createAuthRoutes` and `createRouteDORequestAuthHooks`.
+The current implementation (to be removed) passes config from `createAuthRoutes` to `LumenizeAuth` via an RPC `configure()` call, stored in a `#config` instance variable. This has multiple problems: config is lost on DO eviction (triggering a 503-retry dance on cold start), defaults are split between `createAuthRoutes` and the DO, and `issuer`/`audience` are specified independently in both `createAuthRoutes` and `createRouteDORequestAuthHooks`.
 
 **New approach**: All scalar config the DO needs moves to environment variables. The DO reads from `this.env` directly — no `configure()` RPC, no `#config` instance variable, no lazy-init 503 dance. `createRouteDORequestAuthHooks` reads `issuer`/`audience` from the same env vars — one source of truth.
 
@@ -280,22 +280,22 @@ Changes needed from current state:
 ### LumenizeAuth DO
 - [ ] Remove `configure()` RPC method, `#config` instance variable, and `DEFAULT_CONFIG` constant
 - [ ] Read all config from `this.env` with inline defaults: `this.env.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local'`, etc.
-- [ ] Throw on first request if `this.env.LUMENIZE_AUTH_REDIRECT` is not set (required, no default)
+- [ ] Validate `this.env.LUMENIZE_AUTH_REDIRECT` at top of `fetch` handler — return `500 { error: 'server_error', error_description: 'LUMENIZE_AUTH_REDIRECT not set' }` if missing (required, no default)
 - [ ] Add `emailVerified`, `adminApproved` status flags to subject record
 - [ ] Add `isAdmin` role flag to subject record
 - [ ] Add `authorizedActors` to subject record (list of subject IDs — must correspond to existing subjects — pre-authorized to request delegated tokens for this subject)
-- [ ] Bootstrap check: if email matches `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, set `isAdmin: true` and `adminApproved: true` on first login
+- [ ] Bootstrap check: if email matches `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, set `isAdmin: true`, `adminApproved: true`, and `emailVerified: true` on first login (all three flags in one step — the bootstrap admin gets immediate access without waiting for the magic link handler to set `emailVerified` separately)
 - [ ] Set `emailVerified: true` when subject clicks magic link
+- [ ] **Admin notification**: after magic link validation, if subject has `emailVerified: true` but `adminApproved: false`, email all admins with a link to `{prefix}/approve/:id` (the DO sends the email — it has the email service and the subject list)
 - [ ] Embed subject flags in JWT claims at token creation
 - [ ] Support `act` claim for delegation (authenticated subject acting for principal)
 - [ ] Verify `act.sub` corresponds to an existing subject when issuing delegated tokens
 - [ ] Admins bypass `authorizedActors` check — can delegate as any subject
 - [ ] Non-admin actors must be in principal's `authorizedActors` list
 - [ ] Add `POST {prefix}/delegated-token` route: actor provides own access token + `actFor` (target subject ID), returns delegated token with `sub` = target, `act.sub` = actor
-- [ ] Add subject management methods (list, get, update, delete)
-- [ ] Add flag management (approve subject, promote to admin, demote)
-- [ ] Add actor authorization methods (authorizeActor, revokeActor) — validates that actor IDs are existing subject IDs
-- [x] **Bug fix**: Use `config.prefix` when generating URLs (was hardcoded as `/auth`)
+- [ ] Add `#private` subject management handlers (list, get, update, delete) — called by the `fetch` handler, not exposed as public RPC
+- [ ] Add `#private` flag management handlers (approve subject, promote to admin, demote)
+- [ ] Add `#private` actor authorization handlers (authorizeActor, revokeActor) — validates that actor IDs are existing subject IDs
 - [ ] **Dual auth**: all authenticated LumenizeAuth endpoints accept Bearer token or refresh token cookie (Design Decision #12)
 - [ ] **Lazy token cleanup**: on any rejected token (expired or revoked), delete it and sweep all expired tokens: `DELETE FROM refresh_tokens WHERE expires_at < ?`
 - [ ] **Revoke-all on status change**: when `adminApproved` is set to `false` or a subject is deleted, revoke all their refresh tokens: `UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?`
@@ -311,7 +311,7 @@ Changes needed from current state:
 - [ ] New signature: `createAuthRoutes(env, options?)` where options is `{ cors?, authBindingName?, authInstanceName? }`
 - [ ] Add subject management routes
 - [ ] Add admin-only guards to new routes
-- [ ] Add admin notification as side effect of `{prefix}/magic-link`: when a subject self-signs-up and has `emailVerified: true` but `adminApproved: false`, email all admins with a link to `{prefix}/approve/:id`
+- [ ] Route `{prefix}/magic-link` to DO — admin notification is handled by the DO (see LumenizeAuth DO section)
 - [ ] Add bulk invite route: `POST {prefix}/invite` accepts array of emails, sets `adminApproved`, sends invite emails. With `?_test=true`, returns invite links in response instead of sending emails (same pattern as magic link test mode)
 - [ ] Add invite acceptance route: clicking invite link sets `emailVerified`
 - [ ] Validate `cf-turnstile-response` token from request body via Cloudflare siteverify API before forwarding magic-link requests to DO. Return 403 on failure.
@@ -329,9 +329,11 @@ Changes needed from current state:
 - [ ] Rate limiting: default to `env.LUMENIZE_AUTH_RATE_LIMITER`, allow override via `rateLimiterBinding` option. Use `sub` from decoded JWT as key and call `binding.limit({ key: sub })`. Return 429 on failure. Throw at creation time if no binding available.
 
 ### testLoginWithMagicLink
+Signature: `testLoginWithMagicLink(browser: Browser, email: string, options?): Promise<{ accessToken: string, claims: JwtClaims, sub: string }>`. The `browser` parameter (cookie jar) is required — the login flow spans 3 HTTP calls that share cookies. Return type expands from bare `string` (userId) to `{ accessToken, claims, sub }`.
 - [x] Accept optional `prefix` to match configured auth prefix
+- [ ] Expand return type from `string` to `{ accessToken, claims, sub }`
 - [ ] Accept optional `subjectData` for setting roles during test
-- [ ] Accept optional `actAs` to simulate delegated access
+- [ ] Accept optional `actorSub` to simulate delegated access
 - [ ] Works with real auth flow (data goes in storage, flows to JWT)
 
 ### LUMENIZE_AUTH_TEST_MODE safety

@@ -14,8 +14,8 @@ All endpoints use the configured `prefix` (default: `/auth`). Authenticated endp
 | [`{prefix}/email-magic-link`](#request-magic-link) | POST | None | Request magic link (self-signup) |
 | [`{prefix}/magic-link`](#validate-magic-link) | GET | None | Validate magic link → `emailVerified`, notify admins |
 | [`{prefix}/accept-invite`](#accept-invite) | GET | None | Accept invite → `emailVerified` |
-| [`{prefix}/refresh-token`](#refresh-token) | POST | Auth | Exchange refresh token for access token |
-| [`{prefix}/logout`](#logout) | POST | Auth | Clear refresh token cookie |
+| [`{prefix}/refresh-token`](#refresh-token) | POST | Cookie | Exchange refresh token for access token |
+| [`{prefix}/logout`](#logout) | POST | Cookie | Clear refresh token cookie |
 | [`{prefix}/approve/:id`](#approve-subject) | GET | Admin | Approve subject → `adminApproved` (from admin notification email) |
 | [`{prefix}/invite`](#invite-subjects) | POST | Admin | Invite subjects (bulk) → `adminApproved`, send invite emails |
 | [`{prefix}/delegated-token`](#request-delegated-token) | POST | Auth | Request token to act on behalf of another subject |
@@ -24,7 +24,7 @@ All endpoints use the configured `prefix` (default: `/auth`). Authenticated endp
 | [`{prefix}/subject/:id`](#update-subject) | PATCH | Admin | Update subject |
 | [`{prefix}/subject/:id`](#delete-subject) | DELETE | Admin | Delete subject |
 
-**Auth** = Bearer token or refresh token cookie. **Admin** = Auth + `isAdmin` required.
+**Cookie** = refresh token cookie. **Auth** = Bearer token or refresh token cookie. **Admin** = Auth + `isAdmin` required.
 
 ## Environment Variables
 
@@ -41,8 +41,8 @@ The Auth DO and Worker hooks read configuration from environment variables. This
 | `LUMENIZE_AUTH_REFRESH_TOKEN_TTL` | Variable | No | `2592000` (30 days) | Auth DO | Refresh token expiration in seconds |
 | `LUMENIZE_AUTH_MAGIC_LINK_TTL` | Variable | No | `1800` (30 min) | Auth DO | One-time login token expiration in seconds |
 | `LUMENIZE_AUTH_INVITE_TTL` | Variable | No | `604800` (7 days) | Auth DO | Invite token expiration in seconds (reusable until expiry) |
-| `LUMENIZE_AUTH_PREFIX` | Variable | No | `'/auth'` | Auth DO, Worker | URL prefix for all auth endpoints. Used to compose links in emails |
-| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | Secret | Yes | — | Auth DO | Email auto-promoted to admin on first login |
+| `LUMENIZE_AUTH_PREFIX` | Variable | No | `'/auth'` | Auth DO, `createAuthRoutes` | URL prefix for all auth endpoints. `createAuthRoutes` uses it for route matching; the Auth DO uses it to compose links in emails |
+| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | Variable | No | — | Auth DO | Email auto-promoted to admin on first login. Without this, no bootstrap admin is created — you'll need another mechanism to create the first admin |
 
 ### Bindings and Keys
 
@@ -75,7 +75,6 @@ const authRoutes = createAuthRoutes(env, {
 });
 // Options object is optional — createAuthRoutes(env) uses all defaults
 // Throws if env.TURNSTILE_SECRET_KEY is not set
-// Throws if env.LUMENIZE_AUTH_REDIRECT is not set
 ```
 
 For `CorsConfig` options, see [CORS Support](/docs/utils/cors-support).
@@ -89,8 +88,9 @@ const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env, 
   rateLimiterBinding?: RateLimit,    // Default: env.LUMENIZE_AUTH_RATE_LIMITER
 });
 // Options object is optional — createRouteDORequestAuthHooks(env) uses all defaults
+// Throws if no public keys available (env.JWT_PUBLIC_KEY_BLUE or env.JWT_PUBLIC_KEY_GREEN)
+// Throws if rate limiter binding not available (env.LUMENIZE_AUTH_RATE_LIMITER or rateLimiterBinding option)
 // issuer/audience read from env.LUMENIZE_AUTH_ISSUER / env.LUMENIZE_AUTH_AUDIENCE
-// Public keys read from env.JWT_PUBLIC_KEY_BLUE / env.JWT_PUBLIC_KEY_GREEN
 ```
 
 Both hooks:
@@ -369,47 +369,34 @@ console.log(`Document updated by ${actor}${claims.sub}`);
 
 ### Delegation in Tests
 
-Use `testLoginWithMagicLink` with the `actAs` parameter:
+Use `testLoginWithMagicLink` with the `actorSub` parameter. The `browser` parameter provides a cookie jar for the multi-step login flow. First authorize the actor via the [Update Subject](#update-subject) HTTP endpoint, then login with delegation:
 
 ```typescript @skip-check
 import { testLoginWithMagicLink } from '@lumenize/auth';
+import { Browser } from '@lumenize/testing';
 
-// Authorize actorSub to act on behalf of targetSub
-await authStub.authorizeActor(targetSub, actorSub);
-
-// Get delegated token — actAs takes the actor's subject ID
-const { accessToken } = await testLoginWithMagicLink(env, {
-  email: 'alice@test.com',
-  actAs: actorSub
+const adminBrowser = new Browser();
+const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, 'admin@test.com', {
+  subjectData: { isAdmin: true }
 });
-// Token has sub = alice's sub, act.sub = actorSub
+
+// Authorize actorSub to act on behalf of targetSub (admin endpoint)
+await fetch('/auth/subject/' + targetSub, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${adminToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ authorizedActors: [actorSub] })
+});
+
+// Login alice with delegation — actorSub acts on her behalf
+const actorBrowser = new Browser();
+const { accessToken, claims, sub } = await testLoginWithMagicLink(actorBrowser, 'alice@test.com', {
+  actorSub  // this subject is acting on behalf of alice
+});
+// sub = alice's sub, claims.act.sub = actorSub
 ```
-
-## RPC Methods
-
-The same operations are available as methods on the Auth DO, for server-to-server calls or mesh-internal use. Note the naming convention: HTTP endpoints use kebab-case (`/delegated-token`) while RPC methods use camelCase (`delegatedToken`).
-
-```typescript @skip-check
-const authStub = env.LUMENIZE_AUTH.getByName('default');
-
-// List subjects
-const subjects = await authStub.listSubjects({ limit: 50, role: 'admin' });
-
-// Get subject
-const subject = await authStub.getSubjectById(sub);
-
-// Update subject
-const updated = await authStub.updateSubject(sub, { isAdmin: true });
-
-// Delete subject
-await authStub.deleteSubject(sub);
-
-// Delegation
-await authStub.authorizeActor(targetSub, actorSub);
-await authStub.revokeActor(targetSub, actorSub);
-```
-
-RPC methods require the caller to have appropriate permissions (passed via `originAuth` in the mesh context).
 
 ## Subject Record
 
@@ -426,6 +413,6 @@ RPC methods require the caller to have appropriate permissions (passed via `orig
 
 ## Security Rules
 
-- **Self-modification prevention**: Subjects cannot demote or delete themselves (prevents lockout)
-- **Bootstrap protection**: The subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` cannot be demoted or deleted via API
+- **Self-modification prevention**: Subjects cannot demote or delete themselves (prevents lockout). Returns `403 { error: "forbidden", error_description: "Cannot modify own admin status" }` or `"Cannot delete yourself"`.
+- **Bootstrap protection**: The subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` cannot be demoted or deleted via API. Returns `403 { error: "forbidden", error_description: "Cannot modify bootstrap admin" }`.
 - **Audit trail**: All subject management operations log who (`sub`, optionally `act.sub`), what changed, and when
