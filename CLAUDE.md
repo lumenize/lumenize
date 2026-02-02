@@ -69,7 +69,7 @@ Key scripts available from the monorepo root:
 ## Cloudflare Durable Objects
 
 ### Wall-Clock Billing
-DO is billed for elapsed time when: `await`ing I/O, using `setTimeout`/`setInterval`, or holding RPC stubs (use `using` keyword). Avoid these to minimize costs.
+DO is billed for elapsed time when: `await`ing I/O, using `setTimeout`/`setInterval`, or holding Workers RPC stubs (use `using` keyword). Avoid these to minimize costs.
 
 ### Storage
 Always use synchronous storage (`ctx.storage.kv.*` or `ctx.storage.sql.*`), never legacy async API.
