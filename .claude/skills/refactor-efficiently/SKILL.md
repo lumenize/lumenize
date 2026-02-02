@@ -5,14 +5,14 @@ description: Efficient refactoring using the .only validation pattern — get on
 
 # Refactor Efficiently
 
-Safely refactor APIs by validating one test before updating all.
+Safely refactor APIs, call signatures, and cross-cutting behavior by validating one test before updating all.
 
 ## Usage
 `/refactor-efficiently <package-name>`
 
 ## Process
 1. Mark one representative test as `.only`
-2. Implement the new API pattern in that test
+2. Implement the new pattern in that test
 3. Run `npm test` until it passes
 4. Update remaining tests to match
 5. Remove `.only` and run full suite
