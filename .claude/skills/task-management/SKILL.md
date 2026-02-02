@@ -1,3 +1,8 @@
+---
+name: task-management
+description: Workflow selection for new tasks — docs-first vs implementation-first. Use when starting a new task or creating a task file.
+---
+
 # Task Management
 
 ## Usage

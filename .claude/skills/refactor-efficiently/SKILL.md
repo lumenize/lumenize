@@ -1,9 +1,14 @@
-# API Refactor
+---
+name: refactor-efficiently
+description: Efficient refactoring using the .only validation pattern — get one representative test passing before updating all tests. Use when a change will break multiple tests.
+---
+
+# Refactor Efficiently
 
 Safely refactor APIs by validating one test before updating all.
 
 ## Usage
-`/api-refactor <package-name>`
+`/refactor-efficiently <package-name>`
 
 ## Process
 1. Mark one representative test as `.only`

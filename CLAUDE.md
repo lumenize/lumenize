@@ -29,7 +29,7 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 
 ### Related Commands
 - `/task-management` - Docs-first vs implementation-first workflows
-- `/api-refactor` - Incremental API changes with `.only` pattern
+- `/refactor-efficiently` - Incremental API changes with `.only` pattern
 - `/release-workflow` - Publish packages to npm
 
 ---
@@ -153,7 +153,7 @@ For library code that needs to work across packages (where each package has its 
 - **Coverage target**: Close to 100% branch coverage, minimum 80%
 
 ### Test Organization
-- `test/for-docs/` - Pedagogical tests for documentation validation
+- `test/for-docs/` - Mini-app integration tests that both find bugs and validate documentation examples
 - Pattern A (simple): `wrangler.jsonc` in package root, single vitest project
 - Pattern B (multi-environment): `test/{environment}/wrangler.jsonc` for separate Node.js/Workers environments
 
