@@ -1,5 +1,5 @@
 import { LumenizeAuth } from '../src/lumenize-auth.js';
-import { createAuthRoutes } from '../src/lumenize-auth.js';
+import { createAuthRoutes } from '../src/create-auth-routes.js';
 import { routeDORequest } from '@lumenize/utils';
 
 // Re-export the Auth DO for wrangler

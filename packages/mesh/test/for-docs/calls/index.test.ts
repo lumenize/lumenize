@@ -44,7 +44,7 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com', { subjectData: { adminApproved: true } });
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using alice = new EditorClient({
@@ -94,7 +94,7 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const bobBrowser = new Browser();
-  const bobUserId = await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
+  const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
 
   using bob = new EditorClient({
     instanceName: `${bobUserId}.tab1`,
@@ -165,7 +165,7 @@ it('collaborative document editing with multiple clients', async () => {
 it('operation nesting: nested method calls execute in single round trip', async () => {
   // Setup: authenticate and connect
   const browser = new Browser();
-  const userId = await testLoginWithMagicLink(browser, 'calc-user@example.com');
+  const { sub: userId } = await testLoginWithMagicLink(browser, 'calc-user@example.com', { subjectData: { adminApproved: true } });
 
   using client = new CalculatorClient({
     instanceName: `${userId}.tab1`,
@@ -238,7 +238,7 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
 
   // Setup: Alice connects and subscribes
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice-newchain@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-newchain@example.com', { subjectData: { adminApproved: true } });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
@@ -307,7 +307,7 @@ it('operation chaining: admin().forceReset() executes in single round trip', asy
 
   // Setup: Admin user connects
   const adminBrowser = new Browser();
-  const adminUserId = await testLoginWithMagicLink(adminBrowser, 'admin@example.com');
+  const { sub: adminUserId } = await testLoginWithMagicLink(adminBrowser, 'admin@example.com', { subjectData: { adminApproved: true } });
 
   using admin = new EditorClient({
     instanceName: `${adminUserId}.tab1`,
@@ -367,7 +367,7 @@ it('operation chaining: non-admin gets AdminAccessError with preserved type', as
 
   // Setup: Regular user (not admin) connects
   const userBrowser = new Browser();
-  const userId = await testLoginWithMagicLink(userBrowser, 'regular-user@example.com');
+  const { sub: userId } = await testLoginWithMagicLink(userBrowser, 'regular-user@example.com', { subjectData: { adminApproved: true } });
 
   using user = new EditorClient({
     instanceName: `${userId}.tab1`,
@@ -417,7 +417,7 @@ it('context preservation: callContext available in handlers after remote call', 
 
   // Setup: Alice connects
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice-context@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-context@example.com', { subjectData: { adminApproved: true } });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
@@ -475,7 +475,7 @@ it('handler without @mesh: local handlers work without @mesh decorator', async (
   // All these handlers work because they're local continuations, not remote entry points
 
   const browser = new Browser();
-  const userId = await testLoginWithMagicLink(browser, 'handler-test@example.com');
+  const { sub: userId } = await testLoginWithMagicLink(browser, 'handler-test@example.com', { subjectData: { adminApproved: true } });
 
   using client = new CalculatorClient({
     instanceName: `${userId}.tab1`,
@@ -522,7 +522,7 @@ it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => 
 
   // Setup: Alice authenticates and connects
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice-analytics@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-analytics@example.com', { subjectData: { adminApproved: true } });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
@@ -598,7 +598,7 @@ it('manual persistence: store and execute continuation with context', async () =
 
   // Setup: Alice authenticates and connects
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice-persist@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-persist@example.com', { subjectData: { adminApproved: true } });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,

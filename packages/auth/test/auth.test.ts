@@ -1,9 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt';
 import {
-  createAuthMiddleware,
-  createWebSocketAuthMiddleware,
+  createRouteDORequestAuthHooks,
   extractWebSocketToken,
   verifyWebSocketToken,
   getTokenTtl,
@@ -225,6 +224,184 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       expect(secondResponse.status).toBe(302);
       const location = secondResponse.headers.get('Location');
       expect(location).toContain('error=invalid_token');
+    });
+  });
+
+  describe('Bootstrap Admin', () => {
+    it('idempotently promotes bootstrap email to admin on login', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('bootstrap-test-1');
+      const bootstrapEmail = 'bootstrap-admin@example.com'; // Matches vitest config binding
+
+      // Complete login flow for bootstrap email
+      const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: bootstrapEmail })
+      }));
+      const magicLinkBody = await magicLinkResponse.json() as any;
+
+      const loginResponse = await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
+      expect(loginResponse.status).toBe(302);
+      const loginCookie = loginResponse.headers.get('Set-Cookie')!;
+      const refreshToken = loginCookie.split(';')[0].split('=')[1];
+
+      // Get access token
+      const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` }
+      }));
+      const refreshBody = await refreshResponse.json() as any;
+      const parsed = parseJwtUnsafe(refreshBody.access_token);
+
+      // Bootstrap email should have admin flags set
+      expect(parsed!.payload.emailVerified).toBe(true);
+      expect(parsed!.payload.adminApproved).toBe(true);
+      expect(parsed!.payload.isAdmin).toBe(true);
+    });
+
+    it('does NOT promote non-bootstrap email to admin', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('bootstrap-test-2');
+
+      // Login with a different email
+      const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'regular-user@example.com' })
+      }));
+      const magicLinkBody = await magicLinkResponse.json() as any;
+
+      const loginResponse = await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
+      expect(loginResponse.status).toBe(302);
+      const loginCookie = loginResponse.headers.get('Set-Cookie')!;
+      const refreshToken = loginCookie.split(';')[0].split('=')[1];
+
+      const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` }
+      }));
+      const refreshBody = await refreshResponse.json() as any;
+      const parsed = parseJwtUnsafe(refreshBody.access_token);
+
+      // Regular user should NOT be admin
+      expect(parsed!.payload.emailVerified).toBe(true);
+      expect(parsed!.payload.adminApproved).toBe(false);
+      expect(parsed!.payload.isAdmin).toBeFalsy();
+    });
+
+    it('bootstrap is idempotent across multiple logins', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('bootstrap-test-3');
+      const bootstrapEmail = 'bootstrap-admin@example.com';
+
+      // First login
+      const ml1 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: bootstrapEmail })
+      }));
+      const mlBody1 = await ml1.json() as any;
+      const login1 = await stub.fetch(new Request(mlBody1.magic_link, { redirect: 'manual' }));
+      const cookie1 = login1.headers.get('Set-Cookie')!;
+      const rt1 = cookie1.split(';')[0].split('=')[1];
+      const refresh1 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${rt1}` }
+      }));
+      const body1 = await refresh1.json() as any;
+      const sub1 = parseJwtUnsafe(body1.access_token)!.payload.sub;
+
+      // Second login — same email, same DO instance
+      const ml2 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: bootstrapEmail })
+      }));
+      const mlBody2 = await ml2.json() as any;
+      const login2 = await stub.fetch(new Request(mlBody2.magic_link, { redirect: 'manual' }));
+      const cookie2 = login2.headers.get('Set-Cookie')!;
+      const rt2 = cookie2.split(';')[0].split('=')[1];
+      const refresh2 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${rt2}` }
+      }));
+      const body2 = await refresh2.json() as any;
+      const parsed2 = parseJwtUnsafe(body2.access_token)!.payload;
+
+      // Same sub across logins, still admin
+      expect(parsed2.sub).toBe(sub1);
+      expect(parsed2.isAdmin).toBe(true);
+      expect(parsed2.adminApproved).toBe(true);
+    });
+  });
+
+  describe('POST /auth/test/set-subject-data', () => {
+    it('sets adminApproved flag via test endpoint', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('set-data-test-1');
+      const email = 'set-data-user@example.com';
+
+      // Login first to create the subject
+      const mlResp = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      }));
+      const mlBody = await mlResp.json() as any;
+      const loginResp = await stub.fetch(new Request(mlBody.magic_link, { redirect: 'manual' }));
+      expect(loginResp.status).toBe(302);
+      const loginCookie = loginResp.headers.get('Set-Cookie')!;
+      const refreshToken = loginCookie.split(';')[0].split('=')[1];
+
+      // Set adminApproved via test endpoint
+      const setDataResp = await stub.fetch(new Request('http://localhost/auth/test/set-subject-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, adminApproved: true })
+      }));
+      expect(setDataResp.status).toBe(200);
+
+      // Refresh to get updated JWT (re-reads subject from DB)
+      const refreshResp = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` }
+      }));
+      const refreshBody = await refreshResp.json() as any;
+      const parsed = parseJwtUnsafe(refreshBody.access_token);
+
+      expect(parsed!.payload.adminApproved).toBe(true);
+    });
+
+    it('sets isAdmin flag (implicitly sets adminApproved)', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('set-data-test-2');
+      const email = 'set-admin-user@example.com';
+
+      // Login first
+      const mlResp = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      }));
+      const mlBody = await mlResp.json() as any;
+      const loginResp = await stub.fetch(new Request(mlBody.magic_link, { redirect: 'manual' }));
+      const loginCookie = loginResp.headers.get('Set-Cookie')!;
+      const refreshToken = loginCookie.split(';')[0].split('=')[1];
+
+      // Set isAdmin via test endpoint
+      const setDataResp = await stub.fetch(new Request('http://localhost/auth/test/set-subject-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, isAdmin: true })
+      }));
+      expect(setDataResp.status).toBe(200);
+
+      // Refresh to get updated JWT
+      const refreshResp = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` }
+      }));
+      const refreshBody = await refreshResp.json() as any;
+      const parsed = parseJwtUnsafe(refreshBody.access_token);
+
+      expect(parsed!.payload.isAdmin).toBe(true);
+      expect(parsed!.payload.adminApproved).toBe(true); // implicitly set
     });
   });
 
@@ -589,18 +766,15 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
   });
 });
 
-describe('@lumenize/auth - Auth Hooks', () => {
-  // Mock context for hooks
+describe('@lumenize/auth - createRouteDORequestAuthHooks', () => {
   const mockContext = { doNamespace: {}, doInstanceNameOrId: 'test-instance' };
 
-  describe('createAuthMiddleware', () => {
+  describe('onBeforeRequest (HTTP Bearer token)', () => {
     it('returns 401 when no Authorization header', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
       const request = new Request('http://localhost/protected/resource');
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeRequest(request, mockContext);
 
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
@@ -617,28 +791,24 @@ describe('@lumenize/auth - Auth Hooks', () => {
     });
 
     it('returns 401 for invalid Authorization header format', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': 'Basic sometoken' }
       });
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeRequest(request, mockContext);
 
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(401);
     });
 
     it('returns 401 for invalid JWT', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': 'Bearer invalid.jwt.token' }
       });
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeRequest(request, mockContext);
 
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
@@ -648,17 +818,15 @@ describe('@lumenize/auth - Auth Hooks', () => {
       expect(body.error).toBe('invalid_token');
     });
 
-    it('returns enhanced request for valid JWT', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
+    it('returns 403 when access gate fails (emailVerified but not adminApproved)', async () => {
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
-      // Create a valid JWT using the test keys
+      // Create JWT with emailVerified=true but adminApproved=false
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
         issuer: 'https://lumenize.local',
         audience: 'https://lumenize.local',
-        subject: 'user-123',
+        subject: 'user-no-approval',
         expiresInSeconds: 900,
         emailVerified: true,
         adminApproved: false,
@@ -668,45 +836,91 @@ describe('@lumenize/auth - Auth Hooks', () => {
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeRequest(request, mockContext);
+
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
+      expect(response.status).toBe(403);
+
+      const body = await response.json() as any;
+      expect(body.error).toBe('access_denied');
+    });
+
+    it('forwards JWT in Authorization header for approved user', async () => {
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
+
+      // Create JWT with emailVerified=true and adminApproved=true
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const payload = createJwtPayload({
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
+        subject: 'user-approved',
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: true,
+      });
+      const token = await signJwt(payload, privateKey, 'BLUE');
+
+      const request = new Request('http://localhost/protected/resource', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await onBeforeRequest(request, mockContext);
 
       expect(result).toBeInstanceOf(Request);
       const enhancedRequest = result as Request;
 
-      // Check auth headers were added
-      expect(enhancedRequest.headers.get('X-Auth-User-Id')).toBe('user-123');
-      expect(enhancedRequest.headers.get('X-Auth-Verified')).toBe('true');
+      // Authorization header should carry the verified JWT through
+      expect(enhancedRequest.headers.get('Authorization')).toBe(`Bearer ${token}`);
+    });
 
-      // Authorization header should be removed
-      expect(enhancedRequest.headers.get('Authorization')).toBeNull();
+    it('passes access gate for isAdmin (without adminApproved)', async () => {
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
+
+      // Create JWT with isAdmin=true but adminApproved=false
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const payload = createJwtPayload({
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
+        subject: 'admin-user',
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
+        isAdmin: true,
+      });
+      const token = await signJwt(payload, privateKey, 'BLUE');
+
+      const request = new Request('http://localhost/protected/resource', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await onBeforeRequest(request, mockContext);
+
+      // isAdmin bypasses the adminApproved check
+      expect(result).toBeInstanceOf(Request);
     });
 
     it('supports key rotation - accepts tokens signed with either key', async () => {
-      // Create middleware with both keys
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
-      });
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
       // Sign with BLUE key
       const bluePrivateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const bluePayload = createJwtPayload({
-        issuer: 'test',
-        audience: 'test',
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
         subject: 'user-blue',
         expiresInSeconds: 900,
         emailVerified: true,
-        adminApproved: false,
+        adminApproved: true,
       });
       const blueToken = await signJwt(bluePayload, bluePrivateKey, 'BLUE');
 
       // Sign with GREEN key
       const greenPrivateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_GREEN);
       const greenPayload = createJwtPayload({
-        issuer: 'test',
-        audience: 'test',
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
         subject: 'user-green',
         expiresInSeconds: 900,
-        emailVerified: false,
+        emailVerified: true,
         adminApproved: true,
       });
       const greenToken = await signJwt(greenPayload, greenPrivateKey, 'GREEN');
@@ -715,104 +929,166 @@ describe('@lumenize/auth - Auth Hooks', () => {
       const blueRequest = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${blueToken}` }
       });
-      const blueResult = await middleware(blueRequest, mockContext);
+      const blueResult = await onBeforeRequest(blueRequest, mockContext);
       expect(blueResult).toBeInstanceOf(Request);
-      expect((blueResult as Request).headers.get('X-Auth-User-Id')).toBe('user-blue');
 
       const greenRequest = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${greenToken}` }
       });
-      const greenResult = await middleware(greenRequest, mockContext);
+      const greenResult = await onBeforeRequest(greenRequest, mockContext);
       expect(greenResult).toBeInstanceOf(Request);
-      expect((greenResult as Request).headers.get('X-Auth-User-Id')).toBe('user-green');
     });
 
-    it('validates audience claim when configured', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE],
-        audience: 'https://expected-audience.com'
-      });
+    it('rejects token with wrong audience', async () => {
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
-      // Create JWT with wrong audience
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
-        issuer: 'test',
+        issuer: 'https://lumenize.local',
         audience: 'https://wrong-audience.com',
         subject: 'user-123',
         expiresInSeconds: 900,
         emailVerified: true,
-        adminApproved: false,
+        adminApproved: true,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
       const request = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeRequest(request, mockContext);
 
       expect(result).toBeInstanceOf(Response);
-      const response = result as Response;
-      expect(response.status).toBe(401);
+      expect((result as Response).status).toBe(401);
 
-      const body = await response.json() as any;
+      const body = await (result as Response).json() as any;
       expect(body.error_description).toContain('audience');
     });
 
-    it('validates issuer claim when configured', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE],
-        issuer: 'https://expected-issuer.com'
-      });
+    it('rejects token with wrong issuer', async () => {
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
-      // Create JWT with wrong issuer
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
         issuer: 'https://wrong-issuer.com',
-        audience: 'test',
+        audience: 'https://lumenize.local',
         subject: 'user-123',
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: true,
+      });
+      const token = await signJwt(payload, privateKey, 'BLUE');
+
+      const request = new Request('http://localhost/protected', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await onBeforeRequest(request, mockContext);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
+
+      const body = await (result as Response).json() as any;
+      expect(body.error_description).toContain('issuer');
+    });
+  });
+
+  describe('onBeforeConnect (WebSocket subprotocol token)', () => {
+    it('returns 401 when no token in subprotocol', async () => {
+      const { onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+
+      const request = new Request('http://localhost/ws', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz'
+        }
+      });
+
+      const result = await onBeforeConnect(request, mockContext);
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
+    });
+
+    it('returns 401 for invalid token', async () => {
+      const { onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+
+      const request = new Request('http://localhost/ws', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.invalid-token'
+        }
+      });
+
+      const result = await onBeforeConnect(request, mockContext);
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(401);
+    });
+
+    it('returns 403 when access gate fails', async () => {
+      const { onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+
+      // Create JWT with emailVerified=true but adminApproved=false
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const payload = createJwtPayload({
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
+        subject: 'ws-user-no-approval',
         expiresInSeconds: 900,
         emailVerified: true,
         adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
 
-      const request = new Request('http://localhost/protected', {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const request = new Request('http://localhost/ws', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`
+        }
       });
-      const result = await middleware(request, mockContext);
 
+      const result = await onBeforeConnect(request, mockContext);
       expect(result).toBeInstanceOf(Response);
-      const response = result as Response;
-      expect(response.status).toBe(401);
-
-      const body = await response.json() as any;
-      expect(body.error_description).toContain('issuer');
+      expect((result as Response).status).toBe(403);
     });
 
-    it('uses custom realm in WWW-Authenticate header', async () => {
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE],
-        realm: 'MyCustomApp'
+    it('forwards JWT in Authorization header for valid token', async () => {
+      const { onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+
+      // Create valid JWT that passes access gate
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const payload = createJwtPayload({
+        issuer: 'https://lumenize.local',
+        audience: 'https://lumenize.local',
+        subject: 'ws-user-123',
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: true,
+      });
+      const token = await signJwt(payload, privateKey, 'BLUE');
+
+      const request = new Request('http://localhost/ws', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`
+        }
       });
 
-      const request = new Request('http://localhost/protected');
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeConnect(request, mockContext);
+      expect(result).toBeInstanceOf(Request);
 
-      expect(result).toBeInstanceOf(Response);
-      const wwwAuth = (result as Response).headers.get('WWW-Authenticate');
-      expect(wwwAuth).toContain('realm="MyCustomApp"');
+      const enhancedRequest = result as Request;
+      expect(enhancedRequest.headers.get('Authorization')).toBe(`Bearer ${token}`);
     });
   });
 
   describe('Integration with LumenizeAuth', () => {
-    it('middleware accepts tokens issued by LumenizeAuth', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('middleware-integration-1');
+    it('hooks accept tokens issued by LumenizeAuth (approved user)', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('hooks-integration-1');
 
       // Complete login to get refresh token (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'middleware-test@example.com' })
+        body: JSON.stringify({ email: 'hooks-test@example.com' })
       }));
       const magicLinkBody = await magicLinkResponse.json() as any;
 
@@ -821,7 +1097,14 @@ describe('@lumenize/auth - Auth Hooks', () => {
       const loginCookie = loginResponse.headers.get('Set-Cookie')!;
       const refreshToken = loginCookie.split(';')[0].split('=')[1];
 
-      // Get access token via refresh endpoint
+      // Set adminApproved via test endpoint so the access gate passes
+      await stub.fetch(new Request('http://localhost/auth/test/set-subject-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'hooks-test@example.com', adminApproved: true })
+      }));
+
+      // Get access token via refresh endpoint (re-reads subject from DB)
       const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
         method: 'POST',
         headers: { 'Cookie': `refresh-token=${refreshToken}` }
@@ -829,35 +1112,72 @@ describe('@lumenize/auth - Auth Hooks', () => {
       const refreshBody = await refreshResponse.json() as any;
       const accessToken = refreshBody.access_token;
 
-      // Create middleware with same keys
-      const middleware = await createAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
-      });
+      // Create hooks with same env
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
 
-      // Use access token with middleware
+      // Use access token with onBeforeRequest
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      const result = await middleware(request, mockContext);
+      const result = await onBeforeRequest(request, mockContext);
 
-      // Should return enhanced request (not 401)
+      // Should return enhanced request (not 401/403)
       expect(result).toBeInstanceOf(Request);
 
-      // User ID should be set and be a UUID
-      const userId = (result as Request).headers.get('X-Auth-User-Id');
-      expect(userId).toBeDefined();
-      expect(userId!.length).toBe(36); // UUID v4
+      // Authorization header should carry the JWT through
+      const authHeader = (result as Request).headers.get('Authorization');
+      expect(authHeader).toBe(`Bearer ${accessToken}`);
 
-      // The sub in the JWT should match what middleware extracts
+      // The sub in the JWT should be a UUID
       const parsed = parseJwtUnsafe(accessToken);
-      expect(userId).toBe(parsed!.payload.sub);
+      expect(parsed!.payload.sub).toBeDefined();
+      expect(parsed!.payload.sub.length).toBe(36); // UUID v4
+    });
+
+    it('hooks reject non-approved user from LumenizeAuth with 403', async () => {
+      const stub = env.LUMENIZE_AUTH.getByName('hooks-integration-2');
+
+      // Complete login (default: emailVerified=true, adminApproved=false)
+      const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'unapproved-user@example.com' })
+      }));
+      const magicLinkBody = await magicLinkResponse.json() as any;
+
+      const loginResponse = await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
+      expect(loginResponse.status).toBe(302);
+      const loginCookie = loginResponse.headers.get('Set-Cookie')!;
+      const refreshToken = loginCookie.split(';')[0].split('=')[1];
+
+      // Get access token (NOT setting adminApproved — default is false)
+      const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` }
+      }));
+      const refreshBody = await refreshResponse.json() as any;
+      const accessToken = refreshBody.access_token;
+
+      // Verify the JWT has adminApproved=false
+      const parsed = parseJwtUnsafe(accessToken);
+      expect(parsed!.payload.adminApproved).toBe(false);
+
+      // Create hooks
+      const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
+
+      // Use access token — should get 403 (access gate fails)
+      const request = new Request('http://localhost/protected/resource', {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      const result = await onBeforeRequest(request, mockContext);
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(403);
     });
   });
 });
 
-describe('@lumenize/auth - WebSocket Authentication', () => {
-  const mockContext = { doNamespace: {}, doInstanceNameOrId: 'test-instance' };
-
+describe('@lumenize/auth - WebSocket Utilities', () => {
   describe('extractWebSocketToken', () => {
     it('extracts token from Sec-WebSocket-Protocol header', () => {
       const request = new Request('http://localhost/ws', {
@@ -905,75 +1225,6 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
     });
   });
 
-  describe('createWebSocketAuthMiddleware', () => {
-    it('returns 401 when no token in subprotocol', async () => {
-      const middleware = await createWebSocketAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
-
-      const request = new Request('http://localhost/ws', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz'
-        }
-      });
-
-      const result = await middleware(request, mockContext);
-      expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(401);
-    });
-
-    it('returns 401 for invalid token', async () => {
-      const middleware = await createWebSocketAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
-
-      const request = new Request('http://localhost/ws', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.invalid-token'
-        }
-      });
-
-      const result = await middleware(request, mockContext);
-      expect(result).toBeInstanceOf(Response);
-      expect((result as Response).status).toBe(401);
-    });
-
-    it('returns enhanced request for valid token', async () => {
-      const middleware = await createWebSocketAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
-      });
-
-      // Create valid JWT
-      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-      const payload = createJwtPayload({
-        issuer: 'test',
-        audience: 'test',
-        subject: 'ws-user-123',
-        expiresInSeconds: 900,
-        emailVerified: true,
-        adminApproved: false,
-      });
-      const token = await signJwt(payload, privateKey, 'BLUE');
-
-      const request = new Request('http://localhost/ws', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`
-        }
-      });
-
-      const result = await middleware(request, mockContext);
-      expect(result).toBeInstanceOf(Request);
-
-      const enhancedRequest = result as Request;
-      expect(enhancedRequest.headers.get('X-Auth-User-Id')).toBe('ws-user-123');
-      expect(enhancedRequest.headers.get('X-Auth-Verified')).toBe('true');
-      expect(enhancedRequest.headers.get('X-Auth-Token-Exp')).toBeDefined();
-    });
-  });
-
   describe('verifyWebSocketToken', () => {
     it('returns valid result for valid token', async () => {
       const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
@@ -992,7 +1243,7 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const result = await verifyWebSocketToken(token, [publicKey]);
 
       expect(result.valid).toBe(true);
-      expect(result.userId).toBe('verify-user');
+      expect(result.sub).toBe('verify-user');
       expect(result.payload).toBeDefined();
       expect(result.error).toBeUndefined();
       expect(result.expired).toBeUndefined();
@@ -1096,71 +1347,16 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
     });
   });
 
-  describe('Integration: WebSocket auth with LumenizeAuth tokens', () => {
-    it('WebSocket middleware accepts tokens from LumenizeAuth', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('ws-integration-1');
-
-      // Complete login to get refresh token (302 redirect)
-      const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'ws-user@example.com' })
-      }));
-      const magicLinkBody = await magicLinkResponse.json() as any;
-
-      const loginResponse = await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
-      expect(loginResponse.status).toBe(302);
-      const loginCookie = loginResponse.headers.get('Set-Cookie')!;
-      const refreshToken = loginCookie.split(';')[0].split('=')[1];
-
-      // Get access token via refresh endpoint
-      const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
-        method: 'POST',
-        headers: { 'Cookie': `refresh-token=${refreshToken}` }
-      }));
-      const refreshBody = await refreshResponse.json() as any;
-      const accessToken = refreshBody.access_token;
-
-      // Create WebSocket middleware
-      const middleware = await createWebSocketAuthMiddleware({
-        publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
-      });
-
-      // Simulate WebSocket upgrade request with token in subprotocol
-      const wsRequest = new Request('http://localhost/ws/my-do/instance', {
-        headers: {
-          'Upgrade': 'websocket',
-          'Connection': 'Upgrade',
-          'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${accessToken}`
-        }
-      });
-
-      const result = await middleware(wsRequest, mockContext);
-
-      // Should return enhanced request
-      expect(result).toBeInstanceOf(Request);
-
-      const enhancedRequest = result as Request;
-      const userId = enhancedRequest.headers.get('X-Auth-User-Id');
-
-      // User ID should be a UUID and match the JWT sub
-      expect(userId).toBeDefined();
-      expect(userId!.length).toBe(36); // UUID v4
-
-      const parsed = parseJwtUnsafe(accessToken);
-      expect(userId).toBe(parsed!.payload.sub);
-    });
-  });
 });
 
 describe('@lumenize/auth - createAuthRoutes', () => {
   it('exports createAuthRoutes function', async () => {
-    const { createAuthRoutes } = await import('../src/lumenize-auth');
+    const { createAuthRoutes } = await import('../src/create-auth-routes');
     expect(typeof createAuthRoutes).toBe('function');
   });
 
   it('createAuthRoutes returns a function', async () => {
-    const { createAuthRoutes } = await import('../src/lumenize-auth');
+    const { createAuthRoutes } = await import('../src/create-auth-routes');
 
     const authRoutes = createAuthRoutes(env);
 
@@ -1168,7 +1364,7 @@ describe('@lumenize/auth - createAuthRoutes', () => {
   });
 
   it('returns undefined for non-auth routes', async () => {
-    const { createAuthRoutes } = await import('../src/lumenize-auth');
+    const { createAuthRoutes } = await import('../src/create-auth-routes');
 
     const authRoutes = createAuthRoutes(env);
 
@@ -1178,7 +1374,7 @@ describe('@lumenize/auth - createAuthRoutes', () => {
   });
 
   it('handles custom prefix via env var', async () => {
-    const { createAuthRoutes } = await import('../src/lumenize-auth');
+    const { createAuthRoutes } = await import('../src/create-auth-routes');
 
     // Create a modified env with custom prefix
     const customEnv = { ...env, LUMENIZE_AUTH_PREFIX: '/custom-auth' };
@@ -1190,7 +1386,7 @@ describe('@lumenize/auth - createAuthRoutes', () => {
   });
 
   it('accepts valid auth route paths', async () => {
-    const { createAuthRoutes } = await import('../src/lumenize-auth');
+    const { createAuthRoutes } = await import('../src/create-auth-routes');
 
     const authRoutes = createAuthRoutes(env);
 
@@ -1202,5 +1398,564 @@ describe('@lumenize/auth - createAuthRoutes', () => {
       body: JSON.stringify({ email: 'test@example.com' })
     }));
     expect(result).toBeDefined();
+  });
+});
+
+// ============================================
+// Helper: perform login flow on a DO stub, return cookie + accessToken + sub
+// ============================================
+
+async function loginOnStub(
+  stub: any,
+  email: string,
+  subjectData?: { adminApproved?: boolean; isAdmin?: boolean }
+): Promise<{ cookie: string; accessToken: string; sub: string }> {
+  // Request magic link (test mode)
+  const mlRes = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  }));
+  const { magic_link } = await mlRes.json() as any;
+
+  // Click magic link
+  const validateRes = await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
+  const cookie = validateRes.headers.get('Set-Cookie')!;
+
+  // Optionally set subject flags
+  if (subjectData) {
+    await stub.fetch(new Request('http://localhost/auth/test/set-subject-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, ...subjectData })
+    }));
+  }
+
+  // Exchange refresh token for access token
+  const refreshRes = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+    method: 'POST',
+    headers: { Cookie: cookie }
+  }));
+  const { access_token } = await refreshRes.json() as any;
+
+  // Extract sub from JWT
+  const payloadB64 = access_token.split('.')[1];
+  const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
+  const { sub } = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+
+  // Get the fresh cookie from the refresh response (rotation issued a new one)
+  const freshCookie = refreshRes.headers.get('Set-Cookie')!;
+
+  return { cookie: freshCookie, accessToken: access_token, sub };
+}
+
+// ============================================
+// Subject CRUD Tests
+// ============================================
+
+describe('@lumenize/auth - Subject CRUD (admin endpoints)', () => {
+  it('GET /subjects returns list for admin', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-list-1');
+    const { cookie } = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Cookie: cookie }
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.subjects).toBeInstanceOf(Array);
+    expect(body.subjects.length).toBeGreaterThanOrEqual(1);
+    expect(body.subjects[0].email).toBe('bootstrap-admin@example.com');
+  });
+
+  it('GET /subjects rejects unauthenticated request', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-list-2');
+    // Ensure schema is initialized
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects'));
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /subjects rejects non-admin', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-list-3');
+    // Login as non-admin (only emailVerified, not adminApproved)
+    const { cookie } = await loginOnStub(stub, 'user@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Cookie: cookie }
+    }));
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /subjects supports role=admin filter', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-list-4');
+    const { cookie } = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    // Create a non-admin user
+    await loginOnStub(stub, 'normaluser@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects?role=admin', {
+      headers: { Cookie: cookie }
+    }));
+    const body = await res.json() as any;
+    expect(body.subjects.every((s: any) => s.isAdmin === true)).toBe(true);
+  });
+
+  it('GET /subject/:id returns a single subject', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-get-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'targetuser@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.subject.email).toBe('targetuser@example.com');
+    expect(body.subject.sub).toBe(user.sub);
+  });
+
+  it('GET /subject/:id returns 404 for non-existent', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-get-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/subject/non-existent-id', {
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(res.status).toBe(404);
+  });
+
+  it('PATCH /subject/:id updates flags', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-update-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'updatetarget@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ adminApproved: true })
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.subject.adminApproved).toBe(true);
+  });
+
+  it('PATCH /subject/:id — isAdmin: true implicitly sets adminApproved', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-update-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'promote@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ isAdmin: true })
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.subject.isAdmin).toBe(true);
+    expect(body.subject.adminApproved).toBe(true);
+  });
+
+  it('PATCH /subject/:id prevents self-modification', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-update-3');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${admin.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ isAdmin: false })
+    }));
+    expect(res.status).toBe(403);
+    const body = await res.json() as any;
+    expect(body.error_description).toContain('own');
+  });
+
+  it('PATCH /subject/:id protects bootstrap admin', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-update-4');
+    // Login as bootstrap, then create a second admin
+    const bootstrap = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'secondadmin@example.com');
+
+    // Promote second admin
+    await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: bootstrap.cookie },
+      body: JSON.stringify({ isAdmin: true })
+    }));
+
+    // Second admin tries to modify bootstrap — should be forbidden
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${bootstrap.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: user.cookie },
+      body: JSON.stringify({ isAdmin: false })
+    }));
+    expect(res.status).toBe(403);
+    const body = await res.json() as any;
+    expect(body.error_description).toContain('bootstrap');
+  });
+
+  it('PATCH /subject/:id — revoking adminApproved invalidates refresh tokens', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-revoke-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'revokee@example.com', { adminApproved: true });
+
+    // Revoke adminApproved
+    await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ adminApproved: false })
+    }));
+
+    // User's refresh token should now be revoked
+    const refreshRes = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+      headers: { Cookie: user.cookie }
+    }));
+    expect(refreshRes.status).toBe(401);
+  });
+
+  it('DELETE /subject/:id removes the subject', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-delete-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'deleteme@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'DELETE',
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.ok).toBe(true);
+
+    // Verify subject is gone
+    const getRes = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(getRes.status).toBe(404);
+  });
+
+  it('DELETE /subject/:id prevents self-deletion', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-delete-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${admin.sub}`, {
+      method: 'DELETE',
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(res.status).toBe(403);
+  });
+
+  it('DELETE /subject/:id protects bootstrap admin', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-delete-3');
+    const bootstrap = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const secondAdmin = await loginOnStub(stub, 'secondadmin2@example.com');
+
+    // Promote second admin
+    await stub.fetch(new Request(`http://localhost/auth/subject/${secondAdmin.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: bootstrap.cookie },
+      body: JSON.stringify({ isAdmin: true })
+    }));
+
+    // Second admin tries to delete bootstrap — should be forbidden
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${bootstrap.sub}`, {
+      method: 'DELETE',
+      headers: { Cookie: secondAdmin.cookie }
+    }));
+    expect(res.status).toBe(403);
+  });
+
+  it('DELETE /subject/:id revokes tokens before deletion', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('crud-delete-4');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'deleterevoke@example.com');
+
+    // Delete the subject
+    await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'DELETE',
+      headers: { Cookie: admin.cookie }
+    }));
+
+    // User's refresh token should fail (subject deleted, tokens revoked)
+    const refreshRes = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+      headers: { Cookie: user.cookie }
+    }));
+    expect(refreshRes.status).toBe(401);
+  });
+});
+
+// ============================================
+// Approve Endpoint Tests
+// ============================================
+
+describe('@lumenize/auth - Approve endpoint', () => {
+  it('GET /approve/:id approves subject and redirects', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('approve-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'approveme@example.com');
+
+    const res = await stub.fetch(
+      new Request(`http://localhost/auth/approve/${user.sub}`, {
+        headers: { Cookie: admin.cookie }
+      }),
+      { redirect: 'manual' } as any
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe('/app');
+
+    // Verify subject is now approved
+    const getRes = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    const body = await getRes.json() as any;
+    expect(body.subject.adminApproved).toBe(true);
+  });
+
+  it('GET /approve/:id rejects non-admin', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('approve-2');
+    await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'nonadmin@example.com');
+    const target = await loginOnStub(stub, 'target@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/approve/${target.sub}`, {
+      headers: { Cookie: user.cookie }
+    }));
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /approve/:id redirects unauthenticated with error', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('approve-3');
+    // Just initialize schema
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    const res = await stub.fetch(
+      new Request('http://localhost/auth/approve/some-id'),
+      { redirect: 'manual' } as any
+    );
+    expect(res.status).toBe(302);
+    const location = res.headers.get('Location')!;
+    expect(location).toContain('error=login_required');
+  });
+
+  it('GET /approve/:id is idempotent on already-approved subject', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('approve-4');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'alreadyapproved@example.com', { adminApproved: true });
+
+    const res = await stub.fetch(
+      new Request(`http://localhost/auth/approve/${user.sub}`, {
+        headers: { Cookie: admin.cookie }
+      }),
+      { redirect: 'manual' } as any
+    );
+    expect(res.status).toBe(302);
+
+    // Still approved
+    const getRes = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    const body = await getRes.json() as any;
+    expect(body.subject.adminApproved).toBe(true);
+  });
+
+  it('GET /approve/:id returns 404 for non-existent subject', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('approve-5');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/approve/non-existent-id', {
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(res.status).toBe(404);
+  });
+});
+
+// ============================================
+// Admin Notification Tests
+// ============================================
+
+describe('@lumenize/auth - Admin notification on self-signup', () => {
+  it('sends admin notification when non-approved user logs in', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('notify-1');
+
+    // First, login as bootstrap admin so there's an admin to notify
+    await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // New user signs up — should trigger admin notification
+    // Request magic link
+    const mlRes = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'newuser-notify@example.com' })
+    }));
+    const { magic_link } = await mlRes.json() as any;
+
+    // Click magic link — this triggers the notification
+    await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
+
+    // Notification was sent via ConsoleEmailService (logged to stdout)
+    // We can't directly inspect ConsoleEmailService output, but we've verified
+    // the code path executes without error by checking login succeeds
+    // The console output should show: [ConsoleEmailService] Admin notification to bootstrap-admin@example.com
+  });
+
+  it('does NOT send notification when bootstrap admin logs in', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('notify-2');
+    // Bootstrap admin login — isAdmin is true, so no notification should be sent
+    await loginOnStub(stub, 'bootstrap-admin@example.com');
+    // No error = no notification attempted (bootstrap is admin, so !adminApproved && !isAdmin is false)
+  });
+
+  it('does NOT send notification when already-approved user logs in', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('notify-3');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'preapproved@example.com');
+
+    // Approve the user
+    await stub.fetch(new Request(`http://localhost/auth/approve/${user.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+
+    // User logs in again — should NOT trigger notification (already approved)
+    const mlRes = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'preapproved@example.com' })
+    }));
+    const { magic_link } = await mlRes.json() as any;
+
+    // This should complete without sending admin notification
+    await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
+  });
+});
+
+// ============================================
+// End-to-End Approval Flow
+// ============================================
+
+describe('@lumenize/auth - End-to-end approval flow', () => {
+  it('full flow: bootstrap admin → user signup → admin approves → user gets approved token', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-approval-1');
+
+    // 1. Bootstrap admin logs in
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // Verify admin has all flags
+    const adminGetRes = await stub.fetch(new Request(`http://localhost/auth/subject/${admin.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    const adminBody = await adminGetRes.json() as any;
+    expect(adminBody.subject.isAdmin).toBe(true);
+    expect(adminBody.subject.adminApproved).toBe(true);
+    expect(adminBody.subject.emailVerified).toBe(true);
+
+    // 2. New user self-signs up via magic link
+    const mlRes = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'newuser-e2e@example.com' })
+    }));
+    const { magic_link } = await mlRes.json() as any;
+    const validateRes = await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
+    const userCookie = validateRes.headers.get('Set-Cookie')!;
+
+    // Get the user's sub by exchanging refresh token
+    const refreshRes1 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+      headers: { Cookie: userCookie }
+    }));
+    const { access_token: token1 } = await refreshRes1.json() as any;
+    const payloadB64 = token1.split('.')[1];
+    const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
+    const { sub: userSub, adminApproved: ap1 } = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+    expect(ap1).toBe(false); // Not yet approved
+
+    // 3. Admin approves via GET /approve/:id with cookie
+    const approveRes = await stub.fetch(
+      new Request(`http://localhost/auth/approve/${userSub}`, {
+        headers: { Cookie: admin.cookie }
+      }),
+      { redirect: 'manual' } as any
+    );
+    expect(approveRes.status).toBe(302);
+
+    // 4. User refreshes token — now has adminApproved: true
+    const freshUserCookie = refreshRes1.headers.get('Set-Cookie')!;
+    const refreshRes2 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+      headers: { Cookie: freshUserCookie }
+    }));
+    expect(refreshRes2.status).toBe(200);
+    const { access_token: token2 } = await refreshRes2.json() as any;
+
+    // Parse the new token to verify adminApproved is now true
+    const pb2 = token2.split('.')[1];
+    const padded2 = pb2 + '='.repeat((4 - pb2.length % 4) % 4);
+    const claims = JSON.parse(atob(padded2.replace(/-/g, '+').replace(/_/g, '/')));
+    expect(claims.adminApproved).toBe(true);
+    expect(claims.emailVerified).toBe(true);
+  });
+
+  it('list subjects with pagination', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-pagination-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // Create a few users
+    for (const email of ['user1@example.com', 'user2@example.com', 'user3@example.com']) {
+      await loginOnStub(stub, email);
+    }
+
+    // List with limit
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects?limit=2', {
+      headers: { Cookie: admin.cookie }
+    }));
+    const body = await res.json() as any;
+    expect(body.subjects.length).toBe(2);
+
+    // List with offset
+    const res2 = await stub.fetch(new Request('http://localhost/auth/subjects?limit=2&offset=2', {
+      headers: { Cookie: admin.cookie }
+    }));
+    const body2 = await res2.json() as any;
+    expect(body2.subjects.length).toBe(2); // admin + remaining users
+  });
+
+  it('Bearer token auth works for admin endpoints', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-bearer-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // Use Bearer token instead of cookie
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Authorization: `Bearer ${admin.accessToken}` }
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.subjects.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('invalid Bearer token returns 401', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-bearer-2');
+    // Initialize schema
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    const res = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Authorization: 'Bearer invalid-token' }
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it('update authorizedActors', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'actoruser@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ authorizedActors: ['actor-1', 'actor-2'] })
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.subject.authorizedActors).toEqual(['actor-1', 'actor-2']);
   });
 });

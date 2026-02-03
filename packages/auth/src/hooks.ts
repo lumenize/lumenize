@@ -5,30 +5,15 @@ import type { JwtPayload } from './types';
 const WS_TOKEN_PREFIX = 'lmz.access-token.';
 
 /**
- * Configuration for the auth middleware
+ * Options for createRouteDORequestAuthHooks
  */
-export interface AuthMiddlewareConfig {
+export interface RouteDORequestAuthHooksOptions {
   /**
-   * PEM-encoded Ed25519 public keys for JWT verification.
-   * Multiple keys support rotation - verification tries each until one succeeds.
-   * Order: active key first, then fallback keys.
+   * Rate limiter binding name override.
+   * Default: reads from env.LUMENIZE_AUTH_RATE_LIMITER.
+   * Not enforced until Phase 5 — accepted but ignored for now.
    */
-  publicKeysPem: string[];
-  
-  /**
-   * Optional: Custom realm for WWW-Authenticate header (default: 'Lumenize')
-   */
-  realm?: string;
-  
-  /**
-   * Optional: Expected audience claim in JWT (skips validation if not set)
-   */
-  audience?: string;
-  
-  /**
-   * Optional: Expected issuer claim in JWT (skips validation if not set)
-   */
-  issuer?: string;
+  rateLimiterBinding?: string;
 }
 
 /**
@@ -39,31 +24,44 @@ interface HookContext {
   doInstanceNameOrId: string;
 }
 
-/**
- * Result of JWT verification with user context
- */
-export interface AuthContext {
-  /** User ID from JWT subject claim */
-  userId: string;
-  /** Full JWT payload */
-  payload: JwtPayload;
-}
+/** Hook function signature for routeDORequest */
+type RouteDORequestHook = (request: Request, context: HookContext) => Promise<Response | Request | undefined>;
+
+// ============================================
+// Internal Helpers
+// ============================================
 
 /**
  * Create a 401 Unauthorized response with proper WWW-Authenticate header
  */
-function createUnauthorizedResponse(realm: string, error: string, description: string): Response {
+function createUnauthorizedResponse(error: string, description: string): Response {
   return new Response(
-    JSON.stringify({ 
-      error, 
-      error_description: description 
+    JSON.stringify({
+      error,
+      error_description: description
     }),
     {
       status: 401,
       headers: {
         'Content-Type': 'application/json',
-        'WWW-Authenticate': `Bearer realm="${realm}", error="${error}", error_description="${description}"`
+        'WWW-Authenticate': `Bearer realm="Lumenize", error="${error}", error_description="${description}"`
       }
+    }
+  );
+}
+
+/**
+ * Create a 403 Forbidden response for access gate failures
+ */
+function createForbiddenResponse(error: string, description: string): Response {
+  return new Response(
+    JSON.stringify({
+      error,
+      error_description: description
+    }),
+    {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
     }
   );
 }
@@ -76,31 +74,68 @@ function extractBearerToken(request: Request): string | null {
   if (!authHeader) {
     return null;
   }
-  
+
   const parts = authHeader.split(' ');
   if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
     return null;
   }
-  
+
   return parts[1];
 }
 
 /**
- * Enhance request with auth context headers
- * 
- * Headers added:
- * - X-Auth-User-Id: User ID from JWT subject claim
- * - X-Auth-Verified: 'true' to indicate middleware verified the token
+ * Verify JWT and check access gate (emailVerified && adminApproved, or isAdmin)
  */
-function enhanceRequest(request: Request, context: AuthContext): Request {
+async function verifyAndGate(
+  token: string,
+  publicKeys: CryptoKey[],
+  issuer: string,
+  audience: string,
+): Promise<{ payload: JwtPayload } | { error: Response }> {
+  // Verify JWT with rotation support
+  let payload: JwtPayload | null;
+
+  if (publicKeys.length === 1) {
+    payload = await verifyJwt(token, publicKeys[0]);
+  } else {
+    payload = await verifyJwtWithRotation(token, publicKeys);
+  }
+
+  if (!payload) {
+    return { error: createUnauthorizedResponse('invalid_token', 'Token is invalid or expired') };
+  }
+
+  // Validate audience
+  if (payload.aud !== audience) {
+    return { error: createUnauthorizedResponse('invalid_token', 'Token audience mismatch') };
+  }
+
+  // Validate issuer
+  if (payload.iss !== issuer) {
+    return { error: createUnauthorizedResponse('invalid_token', 'Token issuer mismatch') };
+  }
+
+  // Validate subject claim exists
+  if (!payload.sub) {
+    return { error: createUnauthorizedResponse('invalid_token', 'Token missing subject claim') };
+  }
+
+  // Access gate: isAdmin passes implicitly, otherwise need both flags
+  if (!payload.isAdmin && !(payload.emailVerified && payload.adminApproved)) {
+    return { error: createForbiddenResponse('access_denied', 'Account not yet approved') };
+  }
+
+  return { payload };
+}
+
+/**
+ * Build an enhanced request that forwards the verified JWT
+ * in the standard Authorization: Bearer header
+ */
+function forwardJwtRequest(request: Request, token: string): Request {
   const headers = new Headers(request.headers);
-  headers.set('X-Auth-User-Id', context.userId);
-  headers.set('X-Auth-Verified', 'true');
-  
-  // Remove Authorization header from forwarded request
-  // (DO doesn't need it, verification already done)
-  headers.delete('Authorization');
-  
+  headers.set('Authorization', `Bearer ${token}`);
+
   return new Request(request.url, {
     method: request.method,
     headers,
@@ -110,124 +145,102 @@ function enhanceRequest(request: Request, context: AuthContext): Request {
   });
 }
 
+// ============================================
+// createRouteDORequestAuthHooks
+// ============================================
+
 /**
- * Create auth middleware for use with routeDORequest hooks.
- * 
- * This middleware:
- * - Extracts Bearer token from Authorization header
- * - Verifies JWT signature and expiration
- * - Validates audience and issuer claims (if configured)
- * - Enhances request with auth context headers on success
- * - Returns 401 response with WWW-Authenticate header on failure
- * 
+ * Create auth hooks for use with routeDORequest.
+ *
+ * Reads all configuration from environment variables:
+ * - Public keys: `JWT_PUBLIC_KEY_BLUE`, `JWT_PUBLIC_KEY_GREEN`
+ * - Issuer: `LUMENIZE_AUTH_ISSUER` (default: 'https://lumenize.local')
+ * - Audience: `LUMENIZE_AUTH_AUDIENCE` (default: 'https://lumenize.local')
+ *
+ * The hooks:
+ * 1. Verify JWT signature and expiration
+ * 2. Validate issuer and audience claims
+ * 3. Check access gate: `isAdmin || (emailVerified && adminApproved)`
+ * 4. Forward the verified JWT to the DO in `Authorization: Bearer <jwt>`
+ *
+ * Returns `{ onBeforeRequest, onBeforeConnect }` for destructuring into routeDORequest options.
+ *
  * @example
  * ```typescript
- * const authMiddleware = await createAuthMiddleware({
- *   publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN],
- *   audience: 'https://myapp.com',
- *   issuer: 'https://myapp.com'
- * });
- * 
+ * const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+ *
  * routeDORequest(request, env, {
- *   onBeforeRequest: authMiddleware,
- *   onBeforeConnect: authMiddleware
+ *   onBeforeRequest,
+ *   onBeforeConnect,
  * });
  * ```
+ *
+ * @see https://lumenize.com/docs/auth/#server-side-token-verification
  */
-export async function createAuthMiddleware(config: AuthMiddlewareConfig): Promise<
-  (request: Request, context: HookContext) => Promise<Response | Request | undefined>
-> {
-  const realm = config.realm || 'Lumenize';
-  
-  // Import all public keys upfront
-  const publicKeys = await Promise.all(
-    config.publicKeysPem.filter(Boolean).map(pem => importPublicKey(pem))
-  );
-  
+export async function createRouteDORequestAuthHooks(
+  env: Env,
+  _options?: RouteDORequestAuthHooksOptions,
+): Promise<{ onBeforeRequest: RouteDORequestHook; onBeforeConnect: RouteDORequestHook }> {
+  const envAny = env as any;
+
+  // Import public keys from env
+  const publicKeysPem = [envAny.JWT_PUBLIC_KEY_BLUE, envAny.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+  const publicKeys = await Promise.all(publicKeysPem.map((pem: string) => importPublicKey(pem)));
+
   if (publicKeys.length === 0) {
-    throw new Error('At least one public key must be provided for auth middleware');
+    throw new Error('No JWT public keys found in env (JWT_PUBLIC_KEY_BLUE / JWT_PUBLIC_KEY_GREEN)');
   }
-  
-  return async (request: Request, _context: HookContext): Promise<Response | Request | undefined> => {
-    // Extract Bearer token
+
+  const issuer = envAny.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local';
+  const audience = envAny.LUMENIZE_AUTH_AUDIENCE || 'https://lumenize.local';
+
+  // HTTP request hook: Bearer token from Authorization header
+  const onBeforeRequest: RouteDORequestHook = async (request, _context) => {
     const token = extractBearerToken(request);
-    
+
     if (!token) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_request',
-        'Missing Authorization header with Bearer token'
-      );
+      return createUnauthorizedResponse('invalid_request', 'Missing Authorization header with Bearer token');
     }
-    
-    // Verify JWT with rotation support
-    let payload: JwtPayload | null;
-    
-    if (publicKeys.length === 1) {
-      payload = await verifyJwt(token, publicKeys[0]);
-    } else {
-      payload = await verifyJwtWithRotation(token, publicKeys);
-    }
-    
-    if (!payload) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token is invalid or expired'
-      );
-    }
-    
-    // Validate audience (if configured)
-    if (config.audience && payload.aud !== config.audience) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token audience mismatch'
-      );
-    }
-    
-    // Validate issuer (if configured)
-    if (config.issuer && payload.iss !== config.issuer) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token issuer mismatch'
-      );
-    }
-    
-    // Validate subject claim exists
-    if (!payload.sub) {
-      return createUnauthorizedResponse(
-        realm,
-        'invalid_token',
-        'Token missing subject claim'
-      );
-    }
-    
-    // Create auth context
-    const authContext: AuthContext = {
-      userId: payload.sub,
-      payload
-    };
-    
-    // Return enhanced request
-    return enhanceRequest(request, authContext);
+
+    const result = await verifyAndGate(token, publicKeys, issuer, audience);
+    if ('error' in result) return result.error;
+
+    return forwardJwtRequest(request, token);
   };
+
+  // WebSocket upgrade hook: token from subprotocol
+  const onBeforeConnect: RouteDORequestHook = async (request, _context) => {
+    const token = extractWebSocketToken(request);
+
+    if (!token) {
+      return new Response('Unauthorized: Missing access token in WebSocket subprotocol', {
+        status: 401,
+        headers: { 'Content-Type': 'text/plain' }
+      });
+    }
+
+    const result = await verifyAndGate(token, publicKeys, issuer, audience);
+    if ('error' in result) return result.error;
+
+    return forwardJwtRequest(request, token);
+  };
+
+  return { onBeforeRequest, onBeforeConnect };
 }
 
 // ============================================
-// WebSocket Authentication
+// WebSocket Utilities (used by DOs for message-level auth)
 // ============================================
 
 /**
  * Extract access token from WebSocket subprotocol header.
- * 
+ *
  * Expected format in Sec-WebSocket-Protocol:
  * `lmz, lmz.access-token.{base64url-encoded-jwt}`
- * 
+ *
  * The client should request both 'lmz' and 'lmz.access-token.{token}' as subprotocols.
  * We extract the token from the access-token protocol and accept 'lmz' as the actual protocol.
- * 
+ *
  * @param request - WebSocket upgrade request
  * @returns Token string if found, null otherwise
  */
@@ -236,140 +249,18 @@ export function extractWebSocketToken(request: Request): string | null {
   if (!protocolHeader) {
     return null;
   }
-  
+
   // Split by comma and trim whitespace
   const protocols = protocolHeader.split(',').map(p => p.trim());
-  
+
   // Find the token protocol
   for (const protocol of protocols) {
     if (protocol.startsWith(WS_TOKEN_PREFIX)) {
       return protocol.slice(WS_TOKEN_PREFIX.length);
     }
   }
-  
+
   return null;
-}
-
-/**
- * Configuration for WebSocket auth middleware
- */
-export interface WebSocketAuthMiddlewareConfig {
-  /**
-   * PEM-encoded Ed25519 public keys for JWT verification.
-   */
-  publicKeysPem: string[];
-  
-  /**
-   * Optional: Expected audience claim in JWT
-   */
-  audience?: string;
-  
-  /**
-   * Optional: Expected issuer claim in JWT
-   */
-  issuer?: string;
-}
-
-/**
- * Create WebSocket auth middleware for use with routeDORequest's onBeforeConnect hook.
- * 
- * This middleware:
- * - Extracts JWT from WebSocket subprotocol (`lmz.access-token.{token}`)
- * - Verifies JWT signature and expiration
- * - Enhances request with auth context headers on success
- * - Returns 401 response on failure (connection rejected)
- * 
- * @example
- * ```typescript
- * const wsAuthMiddleware = await createWebSocketAuthMiddleware({
- *   publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
- * });
- * 
- * routeDORequest(request, env, {
- *   onBeforeConnect: wsAuthMiddleware
- * });
- * ```
- * 
- * Client-side usage:
- * ```javascript
- * const ws = new WebSocket(url, ['lmz', `lmz.access-token.${accessToken}`]);
- * ```
- */
-export async function createWebSocketAuthMiddleware(config: WebSocketAuthMiddlewareConfig): Promise<
-  (request: Request, context: HookContext) => Promise<Response | Request | undefined>
-> {
-  // Import all public keys upfront
-  const publicKeys = await Promise.all(
-    config.publicKeysPem.filter(Boolean).map(pem => importPublicKey(pem))
-  );
-  
-  if (publicKeys.length === 0) {
-    throw new Error('At least one public key must be provided for WebSocket auth middleware');
-  }
-  
-  return async (request: Request, _context: HookContext): Promise<Response | Request | undefined> => {
-    // Extract token from subprotocol
-    const token = extractWebSocketToken(request);
-    
-    if (!token) {
-      // No token - return 401 (WebSocket connection will be rejected)
-      return new Response('Unauthorized: Missing access token in WebSocket subprotocol', { 
-        status: 401,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      });
-    }
-    
-    // Verify JWT
-    let payload: JwtPayload | null;
-    
-    if (publicKeys.length === 1) {
-      payload = await verifyJwt(token, publicKeys[0]);
-    } else {
-      payload = await verifyJwtWithRotation(token, publicKeys);
-    }
-    
-    if (!payload) {
-      return new Response('Unauthorized: Invalid or expired access token', { 
-        status: 401,
-        headers: {
-          'Content-Type': 'text/plain'
-        }
-      });
-    }
-    
-    // Validate claims
-    if (config.audience && payload.aud !== config.audience) {
-      return new Response('Unauthorized: Token audience mismatch', { status: 401 });
-    }
-    
-    if (config.issuer && payload.iss !== config.issuer) {
-      return new Response('Unauthorized: Token issuer mismatch', { status: 401 });
-    }
-    
-    if (!payload.sub) {
-      return new Response('Unauthorized: Token missing subject claim', { status: 401 });
-    }
-    
-    // Enhance request with auth context headers
-    const headers = new Headers(request.headers);
-    headers.set('X-Auth-User-Id', payload.sub);
-    headers.set('X-Auth-Verified', 'true');
-    
-    // Store token expiration for DO to check on messages
-    if (payload.exp) {
-      headers.set('X-Auth-Token-Exp', String(payload.exp));
-    }
-    
-    return new Request(request.url, {
-      method: request.method,
-      headers,
-      body: request.body,
-      // @ts-expect-error - duplex needed for streaming bodies
-      duplex: request.body ? 'half' : undefined
-    });
-  };
 }
 
 /**
@@ -378,8 +269,8 @@ export async function createWebSocketAuthMiddleware(config: WebSocketAuthMiddlew
 export interface WebSocketTokenVerifyResult {
   /** Whether the token is valid */
   valid: boolean;
-  /** User ID from token (if valid) */
-  userId?: string;
+  /** Subject ID from token (if valid) */
+  sub?: string;
   /** Full JWT payload (if valid) */
   payload?: JwtPayload;
   /** Error message (if invalid) */
@@ -390,20 +281,20 @@ export interface WebSocketTokenVerifyResult {
 
 /**
  * Verify a JWT token for WebSocket message authentication.
- * 
+ *
  * Use this in your DO's webSocketMessage handler to verify the token
  * on each message, since WebSocket messages bypass the Worker after
  * the initial connection.
- * 
+ *
  * @example
  * ```typescript
  * class MyDO extends LumenizeDO {
  *   #publicKeys: CryptoKey[] = [];
- *   
+ *
  *   async webSocketMessage(ws: WebSocket, message: string) {
- *     const token = this.#getStoredToken(ws); // Store token from initial connection
+ *     const token = this.#getStoredToken(ws);
  *     const result = await verifyWebSocketToken(token, this.#publicKeys);
- *     
+ *
  *     if (!result.valid) {
  *       if (result.expired) {
  *         ws.close(4401, 'Token expired');
@@ -412,8 +303,8 @@ export interface WebSocketTokenVerifyResult {
  *       }
  *       return;
  *     }
- *     
- *     // Process message with result.userId
+ *
+ *     // Process message with result.sub
  *   }
  * }
  * ```
@@ -425,42 +316,42 @@ export async function verifyWebSocketToken(
   if (!token) {
     return { valid: false, error: 'No token provided' };
   }
-  
+
   if (publicKeys.length === 0) {
     return { valid: false, error: 'No public keys configured' };
   }
-  
+
   // First, parse the token to check expiration separately from signature
   const parsed = parseJwtUnsafe(token);
   if (!parsed) {
     return { valid: false, error: 'Malformed token' };
   }
-  
+
   // Check expiration before signature verification (fast fail)
   if (parsed.payload.exp && parsed.payload.exp < Math.floor(Date.now() / 1000)) {
     return { valid: false, error: 'Token expired', expired: true };
   }
-  
+
   // Verify signature
   let payload: JwtPayload | null;
-  
+
   if (publicKeys.length === 1) {
     payload = await verifyJwt(token, publicKeys[0]);
   } else {
     payload = await verifyJwtWithRotation(token, publicKeys);
   }
-  
+
   if (!payload) {
     return { valid: false, error: 'Invalid signature' };
   }
-  
+
   if (!payload.sub) {
     return { valid: false, error: 'Token missing subject claim' };
   }
-  
+
   return {
     valid: true,
-    userId: payload.sub,
+    sub: payload.sub,
     payload
   };
 }
@@ -479,9 +370,9 @@ export const WS_CLOSE_CODES = {
 
 /**
  * Get seconds until token expiration.
- * 
+ *
  * Useful for setting up alarms to close WebSocket connections before token expires.
- * 
+ *
  * @param payload - JWT payload with exp claim (or partial payload for testing)
  * @returns Seconds until expiration, or 0 if already expired, or Infinity if no exp claim
  */
@@ -489,9 +380,8 @@ export function getTokenTtl(payload: { exp?: number }): number {
   if (!payload.exp) {
     return Infinity;
   }
-  
+
   const now = Math.floor(Date.now() / 1000);
   const ttl = payload.exp - now;
   return ttl > 0 ? ttl : 0;
 }
-

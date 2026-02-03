@@ -406,7 +406,7 @@ import { Browser } from '@lumenize/testing';
 const browser = new Browser();
 
 // Login as approved regular subject
-const { accessToken, claims, sub } = await testLoginWithMagicLink(browser, 'alice@test.com', {
+const { accessToken, sub } = await testLoginWithMagicLink(browser, 'alice@test.com', {
   subjectData: { adminApproved: true }  // emailVerified is set automatically
 });
 

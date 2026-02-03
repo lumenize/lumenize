@@ -1,15 +1,18 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
-import { routeDORequest, type CorsOptions } from '@lumenize/utils';
 import { ALL_SCHEMAS } from './schemas';
-import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, AuthRoutesOptions, EmailService } from './types';
+import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailService } from './types';
 import {
   generateRandomString,
   generateUuid,
   hashString,
   signJwt,
+  verifyJwt,
+  verifyJwtWithRotation,
   importPrivateKey,
-  createJwtPayload
+  importPublicKey,
+  createJwtPayload,
+  parseJwtUnsafe
 } from './jwt';
 import { ConsoleEmailService } from './email-service';
 
@@ -48,6 +51,8 @@ export class LumenizeAuth extends DurableObject {
     for (const schema of ALL_SCHEMAS) {
       this.ctx.storage.sql.exec(schema);
     }
+    // Sweep expired tokens on every DO wake-up (indexed on expiresAt, fast even with zero matches)
+    this.ctx.storage.sql.exec('DELETE FROM RefreshTokens WHERE expiresAt < ?', Date.now());
     this.#schemaInitialized = true;
   }
 
@@ -69,6 +74,8 @@ export class LumenizeAuth extends DurableObject {
   get #refreshTokenTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_REFRESH_TOKEN_TTL) || 2592000; }
   get #magicLinkTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_MAGIC_LINK_TTL) || 1800; }
   get #prefix(): string { return (this.env as any).LUMENIZE_AUTH_PREFIX || '/auth'; }
+  get #bootstrapEmail(): string | undefined { return (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL?.toLowerCase(); }
+  get #isTestMode(): boolean { return (this.env as any).LUMENIZE_AUTH_TEST_MODE === 'true'; }
 
   /**
    * HTTP request handler — routes to appropriate endpoint
@@ -101,6 +108,28 @@ export class LumenizeAuth extends DurableObject {
 
       if (path.endsWith('/logout') && request.method === 'POST') {
         return await this.#handleLogout(request);
+      }
+
+      // Admin CRUD routes — parameterized paths matched via regex
+      // Approve must come before subject to avoid /approve/:id matching /subject/:id
+      const approveMatch = path.match(/\/approve\/([^/]+)$/);
+      if (approveMatch && request.method === 'GET') {
+        return await this.#handleApprove(request, approveMatch[1]);
+      }
+
+      const subjectMatch = path.match(/\/subject\/([^/]+)$/);
+      if (subjectMatch) {
+        if (request.method === 'GET') return await this.#handleGetSubject(request, subjectMatch[1]);
+        if (request.method === 'PATCH') return await this.#handleUpdateSubject(request, subjectMatch[1]);
+        if (request.method === 'DELETE') return await this.#handleDeleteSubject(request, subjectMatch[1]);
+      }
+
+      if (path.endsWith('/subjects') && request.method === 'GET') {
+        return await this.#handleListSubjects(request, url);
+      }
+
+      if (path.endsWith('/test/set-subject-data') && request.method === 'POST') {
+        return await this.#handleTestSetSubjectData(request);
       }
 
       return new Response('Not Found', { status: 404 });
@@ -139,7 +168,7 @@ export class LumenizeAuth extends DurableObject {
     const expiresAt = Date.now() + (this.#magicLinkTtl * 1000);
 
     this.#sql`
-      INSERT INTO magic_links (token, email, expires_at, used)
+      INSERT INTO MagicLinks (token, email, expiresAt, used)
       VALUES (${token}, ${email}, ${expiresAt}, 0)
     `;
 
@@ -160,7 +189,12 @@ export class LumenizeAuth extends DurableObject {
 
     // Send email
     try {
-      await this.#emailService.send(email, magicLinkUrl);
+      await this.#emailService.send({
+        type: 'magic-link',
+        to: email,
+        subject: 'Your login link',
+        magicLinkUrl,
+      });
     } catch (error) {
       const log = this.#debug('auth.LumenizeAuth');
       log.error('Failed to send magic link email', {
@@ -188,8 +222,8 @@ export class LumenizeAuth extends DurableObject {
 
     // Look up magic link
     const rows = this.#sql`
-      SELECT token, email, expires_at, used
-      FROM magic_links
+      SELECT token, email, expiresAt, used
+      FROM MagicLinks
       WHERE token = ${token}
     ` as MagicLink[];
 
@@ -205,22 +239,20 @@ export class LumenizeAuth extends DurableObject {
     }
 
     // Check expiration
-    if (Date.now() > magicLink.expires_at) {
+    if (Date.now() > magicLink.expiresAt) {
       return this.#redirectWithError('token_expired');
     }
 
     // Delete the token (single-use)
-    this.#sql`DELETE FROM magic_links WHERE token = ${token}`;
+    this.#sql`DELETE FROM MagicLinks WHERE token = ${token}`;
 
-    // Get or create subject
-    const subject = this.#getOrCreateSubject(magicLink.email);
+    // Get or create subject, set emailVerified, apply bootstrap promotion
+    const subject = this.#loginSubject(magicLink.email);
 
-    // Update last login and set emailVerified
-    this.#sql`
-      UPDATE subjects
-      SET last_login_at = ${Date.now()}, email_verified = 1
-      WHERE sub = ${subject.sub}
-    `;
+    // Notify admins about non-approved signups (fire-and-forget, errors don't block login)
+    if (!subject.adminApproved && !subject.isAdmin) {
+      await this.#notifyAdminsOfSignup(subject, url);
+    }
 
     // Generate refresh token
     const refreshToken = await this.#generateRefreshToken(subject.sub);
@@ -248,9 +280,9 @@ export class LumenizeAuth extends DurableObject {
     const tokenHash = await hashString(refreshToken);
 
     const rows = this.#sql`
-      SELECT token_hash, subject_id, expires_at, revoked
-      FROM refresh_tokens
-      WHERE token_hash = ${tokenHash}
+      SELECT tokenHash, subjectId, expiresAt, revoked
+      FROM RefreshTokens
+      WHERE tokenHash = ${tokenHash}
     ` as RefreshToken[];
 
     if (rows.length === 0) {
@@ -263,17 +295,17 @@ export class LumenizeAuth extends DurableObject {
       return this.#errorResponse(401, 'token_revoked', 'Refresh token has been revoked');
     }
 
-    if (Date.now() > storedToken.expires_at) {
+    if (Date.now() > storedToken.expiresAt) {
       return this.#errorResponse(401, 'token_expired', 'Refresh token expired');
     }
 
     // Revoke old refresh token (rotation)
-    this.#sql`UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}`;
+    this.#sql`UPDATE RefreshTokens SET revoked = 1 WHERE tokenHash = ${tokenHash}`;
 
     // Look up the subject to get current flags for JWT claims
     const subjectRows = this.#sql`
-      SELECT sub, email, email_verified, admin_approved, is_admin, authorized_actors, created_at, last_login_at
-      FROM subjects WHERE sub = ${storedToken.subject_id}
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${storedToken.subjectId}
     ` as any[];
 
     if (subjectRows.length === 0) {
@@ -284,7 +316,7 @@ export class LumenizeAuth extends DurableObject {
 
     // Generate new tokens
     const newAccessToken = await this.#generateAccessToken(subject);
-    const newRefreshToken = await this.#generateRefreshToken(storedToken.subject_id);
+    const newRefreshToken = await this.#generateRefreshToken(storedToken.subjectId);
 
     const response: LoginResponse = {
       access_token: newAccessToken,
@@ -310,7 +342,7 @@ export class LumenizeAuth extends DurableObject {
 
     if (refreshToken) {
       const tokenHash = await hashString(refreshToken);
-      this.#sql`UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}`;
+      this.#sql`UPDATE RefreshTokens SET revoked = 1 WHERE tokenHash = ${tokenHash}`;
     }
 
     return new Response(JSON.stringify({ message: 'Logged out' }), {
@@ -323,44 +355,476 @@ export class LumenizeAuth extends DurableObject {
   }
 
   // ============================================
+  // Admin Subject Management
+  // ============================================
+
+  /**
+   * GET {prefix}/subjects — List all subjects (admin only)
+   * Query params: limit (default 50), offset (default 0), role (admin|none)
+   */
+  async #handleListSubjects(request: Request, url: URL): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (auth instanceof Response) return auth;
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 200);
+    const offset = Math.max(Number(url.searchParams.get('offset')) || 0, 0);
+    const role = url.searchParams.get('role');
+
+    let rows: any[];
+    if (role === 'admin') {
+      rows = this.#sql`
+        SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+        FROM Subjects WHERE isAdmin = 1
+        ORDER BY createdAt DESC LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else if (role === 'none') {
+      rows = this.#sql`
+        SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+        FROM Subjects WHERE isAdmin = 0
+        ORDER BY createdAt DESC LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else {
+      rows = this.#sql`
+        SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+        FROM Subjects
+        ORDER BY createdAt DESC LIMIT ${limit} OFFSET ${offset}
+      `;
+    }
+
+    return Response.json({ subjects: rows.map(r => this.#rowToSubject(r)) });
+  }
+
+  /**
+   * GET {prefix}/subject/:id — Get a single subject (admin only)
+   */
+  async #handleGetSubject(request: Request, subjectId: string): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (auth instanceof Response) return auth;
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    const rows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${subjectId}
+    ` as any[];
+
+    if (rows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    return Response.json({ subject: this.#rowToSubject(rows[0]) });
+  }
+
+  /**
+   * PATCH {prefix}/subject/:id — Update a subject (admin only)
+   * Updatable fields: isAdmin, adminApproved, authorizedActors
+   */
+  async #handleUpdateSubject(request: Request, subjectId: string): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (auth instanceof Response) return auth;
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    // Self-modification prevention
+    if (auth.sub === subjectId) {
+      return this.#errorResponse(403, 'forbidden', 'Cannot modify own admin status');
+    }
+
+    // Bootstrap protection
+    const targetRows = this.#sql`
+      SELECT sub, email, isAdmin FROM Subjects WHERE sub = ${subjectId}
+    ` as any[];
+
+    if (targetRows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    if (targetRows[0].email === this.#bootstrapEmail) {
+      return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
+    }
+
+    let body: { isAdmin?: boolean; adminApproved?: boolean; authorizedActors?: string[] };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+    }
+
+    // Apply updates
+    if (body.isAdmin !== undefined) {
+      // isAdmin: true implicitly sets adminApproved: true
+      if (body.isAdmin) {
+        this.#sql`UPDATE Subjects SET isAdmin = 1, adminApproved = 1 WHERE sub = ${subjectId}`;
+      } else {
+        this.#sql`UPDATE Subjects SET isAdmin = 0 WHERE sub = ${subjectId}`;
+      }
+    }
+
+    if (body.adminApproved !== undefined) {
+      this.#sql`UPDATE Subjects SET adminApproved = ${body.adminApproved ? 1 : 0} WHERE sub = ${subjectId}`;
+      // Revoking approval invalidates existing sessions
+      if (!body.adminApproved) {
+        this.#revokeAllTokensForSubject(subjectId);
+      }
+    }
+
+    if (body.authorizedActors !== undefined) {
+      this.#sql`UPDATE Subjects SET authorizedActors = ${JSON.stringify(body.authorizedActors)} WHERE sub = ${subjectId}`;
+    }
+
+    // Re-read and return the updated subject
+    const freshRows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${subjectId}
+    ` as any[];
+
+    return Response.json({ subject: this.#rowToSubject(freshRows[0]) });
+  }
+
+  /**
+   * DELETE {prefix}/subject/:id — Delete a subject (admin only)
+   */
+  async #handleDeleteSubject(request: Request, subjectId: string): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (auth instanceof Response) return auth;
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    // Self-deletion prevention
+    if (auth.sub === subjectId) {
+      return this.#errorResponse(403, 'forbidden', 'Cannot modify own admin status');
+    }
+
+    // Bootstrap protection
+    const targetRows = this.#sql`
+      SELECT sub, email FROM Subjects WHERE sub = ${subjectId}
+    ` as any[];
+
+    if (targetRows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    if (targetRows[0].email === this.#bootstrapEmail) {
+      return this.#errorResponse(403, 'forbidden', 'Cannot modify bootstrap admin');
+    }
+
+    const targetEmail = targetRows[0].email;
+
+    // Revoke all tokens before deletion
+    this.#revokeAllTokensForSubject(subjectId);
+
+    // Delete subject — RefreshTokens cleaned up via ON DELETE CASCADE
+    this.#sql`DELETE FROM Subjects WHERE sub = ${subjectId}`;
+
+    // Clean up MagicLinks and InviteTokens by email (no FK, manual cleanup)
+    this.#sql`DELETE FROM MagicLinks WHERE email = ${targetEmail}`;
+    this.#sql`DELETE FROM InviteTokens WHERE email = ${targetEmail}`;
+
+    return Response.json({ ok: true });
+  }
+
+  /**
+   * GET {prefix}/approve/:id — Approve a subject (admin only, browser-friendly)
+   * Redirects to LUMENIZE_AUTH_REDIRECT on success.
+   */
+  async #handleApprove(request: Request, subjectId: string): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (auth instanceof Response) {
+      // Not authenticated — redirect with error so browser doesn't show raw JSON
+      const separator = this.#redirect.includes('?') ? '&' : '?';
+      return new Response(null, {
+        status: 302,
+        headers: { 'Location': `${this.#redirect}${separator}error=login_required` }
+      });
+    }
+
+    if (!auth.isAdmin) {
+      return this.#errorResponse(403, 'forbidden', 'Admin access required');
+    }
+
+    // Look up subject
+    const rows = this.#sql`
+      SELECT sub, email, adminApproved FROM Subjects WHERE sub = ${subjectId}
+    ` as any[];
+
+    if (rows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    // Set adminApproved (idempotent)
+    this.#sql`UPDATE Subjects SET adminApproved = 1 WHERE sub = ${subjectId}`;
+
+    // Send approval confirmation email to the subject
+    try {
+      await this.#emailService.send({
+        type: 'approval-confirmation',
+        to: rows[0].email,
+        subject: 'Your account has been approved',
+        redirectUrl: this.#redirect,
+      });
+    } catch (error) {
+      const log = this.#debug('auth.LumenizeAuth');
+      log.error('Failed to send approval confirmation email', {
+        error: error instanceof Error ? error.message : String(error),
+        email: rows[0].email
+      });
+    }
+
+    // Redirect admin back to app
+    return new Response(null, {
+      status: 302,
+      headers: { 'Location': this.#redirect }
+    });
+  }
+
+  // ============================================
+  // Test-Only Endpoints
+  // ============================================
+
+  /**
+   * POST {prefix}/test/set-subject-data — Set subject flags (test mode only)
+   *
+   * Used by testLoginWithMagicLink to set adminApproved/isAdmin flags
+   * after login, before the refresh-token exchange mints the JWT.
+   * Guarded by LUMENIZE_AUTH_TEST_MODE.
+   */
+  async #handleTestSetSubjectData(request: Request): Promise<Response> {
+    if (!this.#isTestMode) {
+      return this.#errorResponse(403, 'forbidden', 'Test mode not enabled');
+    }
+
+    let body: { email?: string; adminApproved?: boolean; isAdmin?: boolean };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+    }
+
+    const email = body.email?.toLowerCase().trim();
+    if (!email) {
+      return this.#errorResponse(400, 'invalid_request', 'Email required');
+    }
+
+    // Look up subject by email
+    const rows = this.#sql`
+      SELECT sub FROM Subjects WHERE email = ${email}
+    ` as any[];
+
+    if (rows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    const sub = rows[0].sub;
+
+    // Build SET clause for provided fields
+    if (body.adminApproved !== undefined) {
+      this.#sql`UPDATE Subjects SET adminApproved = ${body.adminApproved ? 1 : 0} WHERE sub = ${sub}`;
+    }
+    if (body.isAdmin !== undefined) {
+      // isAdmin implicitly satisfies adminApproved
+      this.#sql`UPDATE Subjects SET isAdmin = ${body.isAdmin ? 1 : 0}, adminApproved = 1 WHERE sub = ${sub}`;
+    }
+
+    return Response.json({ ok: true, sub });
+  }
+
+  // ============================================
+  // Authentication
+  // ============================================
+
+  /**
+   * Authenticate an incoming request via Bearer JWT or refresh-token cookie.
+   * Returns the authenticated identity or a 401 Response.
+   *
+   * 1. Authorization: Bearer <jwt> — verify signature + expiration with public keys
+   * 2. Fallback: refresh-token cookie — hash, look up in RefreshTokens, load subject
+   *
+   * Does NOT perform access-gate checks (emailVerified/adminApproved) — callers
+   * decide what level of authorization they need.
+   */
+  async #authenticateRequest(request: Request): Promise<
+    { sub: string; isAdmin: boolean; email: string } | Response
+  > {
+    // Strategy 1: Bearer JWT
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader) {
+      const parts = authHeader.split(' ');
+      if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+        const token = parts[1];
+        const identity = await this.#verifyBearerToken(token);
+        if (identity) return identity;
+        return this.#errorResponse(401, 'invalid_token', 'Invalid or expired access token');
+      }
+    }
+
+    // Strategy 2: refresh-token cookie
+    const cookieHeader = request.headers.get('Cookie') || '';
+    const refreshToken = this.#extractCookie(cookieHeader, 'refresh-token');
+    if (refreshToken) {
+      const identity = await this.#verifyRefreshTokenIdentity(refreshToken);
+      if (identity) return identity;
+    }
+
+    return this.#errorResponse(401, 'invalid_token', 'Authentication required');
+  }
+
+  /**
+   * Verify a Bearer JWT and return identity if valid.
+   * Uses BLUE/GREEN key rotation.
+   */
+  async #verifyBearerToken(token: string): Promise<
+    { sub: string; isAdmin: boolean; email: string } | null
+  > {
+    const envAny = this.env as any;
+    const publicKeysPem = [envAny.JWT_PUBLIC_KEY_BLUE, envAny.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+    if (publicKeysPem.length === 0) return null;
+
+    const publicKeys = await Promise.all(publicKeysPem.map((pem: string) => importPublicKey(pem)));
+
+    const payload = publicKeys.length === 1
+      ? await verifyJwt(token, publicKeys[0])
+      : await verifyJwtWithRotation(token, publicKeys);
+
+    if (!payload || !payload.sub) return null;
+
+    // Look up the subject to get current email (JWT doesn't carry email)
+    const rows = this.#sql`
+      SELECT email, isAdmin FROM Subjects WHERE sub = ${payload.sub}
+    ` as any[];
+
+    if (rows.length === 0) return null;
+
+    return {
+      sub: payload.sub,
+      isAdmin: Boolean(rows[0].isAdmin),
+      email: rows[0].email,
+    };
+  }
+
+  /**
+   * Verify a refresh token cookie and return identity if valid.
+   * Does NOT rotate the token — that's only done in #handleRefreshToken.
+   */
+  async #verifyRefreshTokenIdentity(refreshToken: string): Promise<
+    { sub: string; isAdmin: boolean; email: string } | null
+  > {
+    const tokenHash = await hashString(refreshToken);
+
+    const rows = this.#sql`
+      SELECT subjectId, expiresAt, revoked
+      FROM RefreshTokens
+      WHERE tokenHash = ${tokenHash}
+    ` as any[];
+
+    if (rows.length === 0) return null;
+    if (rows[0].revoked) return null;
+    if (Date.now() > rows[0].expiresAt) return null;
+
+    // Look up the subject
+    const subjectRows = this.#sql`
+      SELECT sub, email, isAdmin FROM Subjects WHERE sub = ${rows[0].subjectId}
+    ` as any[];
+
+    if (subjectRows.length === 0) return null;
+
+    return {
+      sub: subjectRows[0].sub,
+      isAdmin: Boolean(subjectRows[0].isAdmin),
+      email: subjectRows[0].email,
+    };
+  }
+
+  // ============================================
   // Helper Methods
   // ============================================
 
   /**
-   * Get or create a subject by email
+   * Revoke all refresh tokens for a subject.
+   * Called when adminApproved is revoked or subject is deleted.
    */
-  #getOrCreateSubject(email: string): Subject {
+  #revokeAllTokensForSubject(subjectId: string): void {
+    this.#sql`UPDATE RefreshTokens SET revoked = 1 WHERE subjectId = ${subjectId}`;
+  }
+
+  /**
+   * Notify all admins that a new user has signed up and needs approval.
+   * Each email send is individually try/caught — failure for one admin doesn't block others.
+   */
+  async #notifyAdminsOfSignup(subject: Subject, url: URL): Promise<void> {
+    const adminRows = this.#sql`SELECT email FROM Subjects WHERE isAdmin = 1` as any[];
+    if (adminRows.length === 0) return;
+
+    const approveUrl = `${url.origin}${this.#prefix}/approve/${subject.sub}`;
+
+    for (const admin of adminRows) {
+      try {
+        await this.#emailService.send({
+          type: 'admin-notification',
+          to: admin.email,
+          subject: `New signup: ${subject.email}`,
+          subjectEmail: subject.email,
+          approveUrl,
+        });
+      } catch (error) {
+        const log = this.#debug('auth.LumenizeAuth');
+        log.error('Failed to send admin notification', {
+          error: error instanceof Error ? error.message : String(error),
+          adminEmail: admin.email,
+          subjectEmail: subject.email
+        });
+      }
+    }
+  }
+
+  /**
+   * Get or create a subject by email, set emailVerified, and apply bootstrap promotion.
+   * Called during magic link validation — returns the subject with current DB state.
+   */
+  #loginSubject(email: string): Subject {
     const normalizedEmail = email.toLowerCase();
+    const now = Date.now();
+    const isBootstrap = this.#bootstrapEmail === normalizedEmail;
 
     const existingRows = this.#sql`
-      SELECT sub, email, email_verified, admin_approved, is_admin, authorized_actors, created_at, last_login_at
-      FROM subjects
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      FROM Subjects
       WHERE email = ${normalizedEmail}
     ` as any[];
 
+    let sub: string;
+
     if (existingRows.length > 0) {
-      return this.#rowToSubject(existingRows[0]);
+      sub = existingRows[0].sub;
+    } else {
+      // Create new subject
+      sub = generateUuid();
+      this.#sql`
+        INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt)
+        VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, '[]', ${now}, ${now})
+      `;
     }
 
-    // Create new subject
-    const sub = generateUuid();
-    const now = Date.now();
+    // Set emailVerified + lastLoginAt (always on magic link login)
+    // Bootstrap: idempotently promote to admin with all three flags
+    if (isBootstrap) {
+      this.#sql`
+        UPDATE Subjects
+        SET emailVerified = 1, adminApproved = 1, isAdmin = 1, lastLoginAt = ${now}
+        WHERE sub = ${sub}
+      `;
+    } else {
+      this.#sql`
+        UPDATE Subjects
+        SET emailVerified = 1, lastLoginAt = ${now}
+        WHERE sub = ${sub}
+      `;
+    }
 
-    this.#sql`
-      INSERT INTO subjects (sub, email, email_verified, admin_approved, is_admin, authorized_actors, created_at, last_login_at)
-      VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, '[]', ${now}, ${now})
-    `;
+    // Re-read to return fresh state
+    const freshRows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${sub}
+    ` as any[];
 
-    return {
-      sub,
-      email: normalizedEmail,
-      emailVerified: false,
-      adminApproved: false,
-      isAdmin: false,
-      authorizedActors: [],
-      createdAt: now,
-      lastLoginAt: now
-    };
+    return this.#rowToSubject(freshRows[0]);
   }
 
   /**
@@ -368,14 +832,11 @@ export class LumenizeAuth extends DurableObject {
    */
   #rowToSubject(row: any): Subject {
     return {
-      sub: row.sub,
-      email: row.email,
-      emailVerified: Boolean(row.email_verified),
-      adminApproved: Boolean(row.admin_approved),
-      isAdmin: Boolean(row.is_admin),
-      authorizedActors: JSON.parse(row.authorized_actors || '[]'),
-      createdAt: row.created_at,
-      lastLoginAt: row.last_login_at
+      ...row,
+      emailVerified: Boolean(row.emailVerified),
+      adminApproved: Boolean(row.adminApproved),
+      isAdmin: Boolean(row.isAdmin),
+      authorizedActors: JSON.parse(row.authorizedActors || '[]'),
     };
   }
 
@@ -417,7 +878,7 @@ export class LumenizeAuth extends DurableObject {
     const expiresAt = now + (this.#refreshTokenTtl * 1000);
 
     this.#sql`
-      INSERT INTO refresh_tokens (token_hash, subject_id, expires_at, created_at, revoked)
+      INSERT INTO RefreshTokens (tokenHash, subjectId, expiresAt, createdAt, revoked)
       VALUES (${tokenHash}, ${subjectId}, ${expiresAt}, ${now}, 0)
     `;
 
@@ -473,59 +934,4 @@ export class LumenizeAuth extends DurableObject {
       headers: { 'Content-Type': 'application/json' }
     });
   }
-}
-
-/**
- * Creates an auth routes handler that wraps routeDORequest with URL rewriting.
- *
- * All auth configuration (redirect, issuer, audience, TTLs, prefix)
- * is read from environment variables — only Worker-level routing options
- * are passed here.
- *
- * @see https://lumenize.com/docs/auth/api-reference#createauthroutes
- */
-export function createAuthRoutes(
-  env: Env,
-  options: AuthRoutesOptions = {}
-): (request: Request) => Promise<Response | undefined> {
-  const {
-    authBindingName = 'LUMENIZE_AUTH',
-    authInstanceName = 'default',
-    cors,
-  } = options;
-
-  const prefix = (env as any).LUMENIZE_AUTH_PREFIX || '/auth';
-
-  // Normalize prefix (ensure starts with /, no trailing /)
-  const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
-  const cleanPrefix = normalizedPrefix.endsWith('/')
-    ? normalizedPrefix.slice(0, -1)
-    : normalizedPrefix;
-
-  return async (request: Request): Promise<Response | undefined> => {
-    const url = new URL(request.url);
-    const path = url.pathname;
-
-    // Check if this is an auth route
-    if (!path.startsWith(cleanPrefix + '/') && path !== cleanPrefix) {
-      return undefined;
-    }
-
-    // Extract the endpoint path after the prefix
-    const endpointPath = path.slice(cleanPrefix.length + 1) || '';
-
-    // Rewrite URL to include binding and instance name
-    const rewrittenPath = `${cleanPrefix}/${authBindingName}/${authInstanceName}/${endpointPath}`;
-    const rewrittenUrl = new URL(request.url);
-    rewrittenUrl.pathname = rewrittenPath;
-
-    const rewrittenRequest = new Request(rewrittenUrl.toString(), request.clone() as RequestInit);
-
-    const response = await routeDORequest(rewrittenRequest, env, {
-      prefix: cleanPrefix,
-      cors: cors as CorsOptions,
-    });
-
-    return response ?? undefined;
-  };
 }

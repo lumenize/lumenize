@@ -63,6 +63,7 @@ Key scripts available from the monorepo root:
 - **Imports**: Use `'@lumenize/some-package'` for exported items; relative imports only for non-exported items within same package
 - **IDs**: Use `crypto.randomUUID()` for unique IDs, `ulid-workers` for ordered IDs. Never use `Date.now()` in Cloudflare (clock doesn't advance during execution)
 - **JSDoc examples**: 1-2 lines max; for longer examples, link to `/website/docs/...`
+- **SQL naming**: PascalCase table names (`Subjects`, `RefreshTokens`), camelCase column names (`emailVerified`, `tokenHash`), index names as `idx_TableName_columnName`
 
 ---
 
@@ -76,6 +77,8 @@ Always use synchronous storage (`ctx.storage.kv.*` or `ctx.storage.sql.*`), neve
 
 ### Keep Methods Synchronous
 Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async`. Never use `setTimeout`, `setInterval`, `waitUntil`, or `await` in business logic—breaks input/output gates and triggers wall-clock billing.
+
+**Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
 
 ### Instance Variables
 **Never use instance variables for mutable state**—DOs can be evicted anytime. Always use `ctx.storage.kv` or `ctx.storage.sql`.

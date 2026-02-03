@@ -7,8 +7,11 @@
  * @see https://lumenize.com/docs/auth/
  */
 
-// Main Auth DO class and routing
-export { LumenizeAuth, createAuthRoutes } from './lumenize-auth';
+// Main Auth DO class
+export { LumenizeAuth } from './lumenize-auth';
+
+// Worker-level routing wrapper
+export { createAuthRoutes } from './create-auth-routes';
 
 // JWT utilities
 export {
@@ -33,21 +36,18 @@ export {
   type HttpEmailServiceOptions
 } from './email-service';
 
-// Auth hooks for routeDORequest (renamed from middleware.ts)
+// Auth hooks for routeDORequest
 export {
-  createAuthMiddleware,
-  type AuthMiddlewareConfig,
-  type AuthContext
+  createRouteDORequestAuthHooks,
+  type RouteDORequestAuthHooksOptions
 } from './hooks';
 
-// WebSocket authentication
+// WebSocket authentication utilities (used by DOs for message-level auth)
 export {
-  createWebSocketAuthMiddleware,
   extractWebSocketToken,
   verifyWebSocketToken,
   getTokenTtl,
   WS_CLOSE_CODES,
-  type WebSocketAuthMiddlewareConfig,
   type WebSocketTokenVerifyResult
 } from './hooks';
 
@@ -59,6 +59,7 @@ export type {
   RefreshToken,
   JwtPayload,
   JwtHeader,
+  EmailMessage,
   EmailService,
   AuthRoutesOptions,
   ActClaim,

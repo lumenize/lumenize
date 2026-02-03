@@ -164,9 +164,9 @@ export class ClientDisconnectedError extends Error {
 
 /** Data stored in WebSocket attachment (survives hibernation) */
 interface WebSocketAttachment {
-  /** Verified user ID from JWT */
-  userId: string;
-  /** Additional JWT claims */
+  /** Subject ID from verified JWT (RFC 7519 `sub` claim) */
+  sub: string;
+  /** JWT claims relevant to authorization */
   claims?: Record<string, unknown>;
   /** Token expiration timestamp (seconds since epoch) */
   tokenExp?: number;
@@ -239,36 +239,46 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return new Response('Expected WebSocket upgrade', { status: 426 });
     }
 
-    // Extract verified identity from headers (set by auth middleware)
-    const userId = request.headers.get('X-Auth-User-Id');
-    if (!userId) {
-      log.warn('WebSocket upgrade rejected: missing X-Auth-User-Id header');
+    // Extract verified JWT from Authorization header (set by auth hooks)
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      log.warn('WebSocket upgrade rejected: missing Authorization Bearer header');
+      return new Response('Unauthorized: missing identity', { status: 401 });
+    }
+
+    // Decode JWT payload (no verification needed — Worker hooks already verified)
+    const jwtToken = authHeader.slice(7); // Strip 'Bearer '
+    let sub: string;
+    let claims: Record<string, unknown> | undefined;
+    let tokenExp: number | undefined;
+    try {
+      const payloadB64 = jwtToken.split('.')[1];
+      const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
+      const payload = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+      sub = payload.sub;
+      tokenExp = payload.exp;
+      // Carry relevant claims for originAuth
+      claims = {
+        emailVerified: payload.emailVerified,
+        adminApproved: payload.adminApproved,
+        ...(payload.isAdmin ? { isAdmin: payload.isAdmin } : {}),
+        ...(payload.act ? { act: payload.act } : {}),
+      };
+    } catch (e) {
+      log.warn('Failed to decode JWT from Authorization header');
+      return new Response('Unauthorized: invalid token', { status: 401 });
+    }
+
+    if (!sub) {
+      log.warn('WebSocket upgrade rejected: JWT missing sub claim');
       return new Response('Unauthorized: missing identity', { status: 401 });
     }
 
     // Extract instance name from routing headers (set by routeDORequest)
     const instanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
 
-    // Parse claims if present
-    let claims: Record<string, unknown> | undefined;
-    const claimsHeader = request.headers.get('X-Auth-Claims');
-    if (claimsHeader) {
-      try {
-        claims = JSON.parse(claimsHeader);
-      } catch (e) {
-        log.warn('Failed to parse X-Auth-Claims header', { claimsHeader });
-      }
-    }
-
-    // Extract token expiration if present (for expiration checks)
-    let tokenExp: number | undefined;
-    const tokenExpHeader = request.headers.get('X-Auth-Token-Exp');
-    if (tokenExpHeader) {
-      tokenExp = parseInt(tokenExpHeader, 10);
-    }
-
     // Validate identity matches Gateway instance name (security check)
-    // Gateway instance name MUST follow format: {userId}.{tabId}
+    // Gateway instance name MUST follow format: {sub}.{tabId}
     // This prevents reconnection hijacking during the 5-second grace period
     if (!instanceName) {
       log.warn('WebSocket upgrade rejected: missing instance name header');
@@ -277,15 +287,15 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     const dotIndex = instanceName.indexOf('.');
     if (dotIndex === -1) {
-      log.warn('Invalid instance name format', { instanceName, expected: '{userId}.{tabId}' });
-      return new Response('Forbidden: invalid instance name format (expected userId.tabId)', { status: 403 });
+      log.warn('Invalid instance name format', { instanceName, expected: '{sub}.{tabId}' });
+      return new Response('Forbidden: invalid instance name format (expected sub.tabId)', { status: 403 });
     }
 
-    const instanceUserId = instanceName.substring(0, dotIndex);
-    if (instanceUserId !== userId) {
-      log.warn('Identity mismatch: userId does not match instance name prefix', {
-        userId,
-        instanceUserId,
+    const instanceSub = instanceName.substring(0, dotIndex);
+    if (instanceSub !== sub) {
+      log.warn('Identity mismatch: sub does not match instance name prefix', {
+        sub,
+        instanceSub,
         instanceName
       });
       return new Response('Forbidden: identity mismatch', { status: 403 });
@@ -300,7 +310,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     // Store verified identity in WebSocket attachment
     const attachment: WebSocketAttachment = {
-      userId,
+      sub,
       claims,
       tokenExp,
       connectedAt: Date.now(),
@@ -328,7 +338,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
     server.send(JSON.stringify(statusMessage));
 
     log.info('WebSocket connection accepted', {
-      userId,
+      sub,
       instanceName,
       subscriptionsLost,
     });
@@ -524,9 +534,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
       };
 
       // Build originAuth from VERIFIED sources (WebSocket attachment)
-      const originAuth: OriginAuth | undefined = attachment?.userId
+      // Bridge: attachment uses `sub` (JWT RFC 7519), OriginAuth uses `userId` (mesh API)
+      // Mesh follow-on task will rename OriginAuth.userId → sub
+      const originAuth: OriginAuth | undefined = attachment?.sub
         ? {
-            userId: attachment.userId,
+            userId: attachment.sub,
             claims: attachment.claims,
           }
         : undefined;

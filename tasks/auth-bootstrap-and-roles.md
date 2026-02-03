@@ -1,6 +1,6 @@
 # Lumenize Auth Upgrade (Bootstrap, Admin, Flow)
 
-**Status**: Phase 1 Complete, Phase 6 Complete (done early) — Ready for Phase 2
+**Status**: Phases 1, 2, 3, 6 Complete — Ready for Phase 4
 **Design Documents**:
 - `/website/docs/auth/index.mdx` - Overview, access flows, bootstrap
 - `/website/docs/auth/api-reference.mdx` - Endpoints, environment variables, subject management, delegation
@@ -268,92 +268,7 @@ This is specific to the LumenizeAuth DO. User DOs behind `createRouteDORequestAu
 
 ## Implementation Deltas
 
-Changes needed from current state:
-
-### Types (`types.ts`)
-- [ ] Add `ActClaim` interface (recursive: `{ sub: string; act?: ActClaim }`)
-- [ ] Update `JwtPayload` to include `act?: ActClaim` per RFC 8693
-- [ ] Add `emailVerified`, `adminApproved` status flags to claims
-- [ ] Add `isAdmin` role flag to claims
-- [ ] Update `Subject` interface with flags and authorizedActors
-
-### LumenizeAuth DO
-- [ ] Extend `DurableObject` directly instead of `LumenizeDO` — removes `@lumenize/mesh` dependency. Copy `sql()` template literal tag (~15 lines) into auth as private `#sql` field. Remove `super.fetch()` call. Remove `@lumenize/mesh` from `package.json` dependencies.
-- [ ] Remove `configure()` RPC method, `#config` instance variable, and `DEFAULT_CONFIG` constant
-- [ ] Read all config from `this.env` with inline defaults: `this.env.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local'`, etc.
-- [ ] Validate `this.env.LUMENIZE_AUTH_REDIRECT` at top of `fetch` handler — return `500 { error: 'server_error', error_description: 'LUMENIZE_AUTH_REDIRECT not set' }` if missing (required, no default)
-- [ ] Add `emailVerified`, `adminApproved` status flags to subject record
-- [ ] Add `isAdmin` role flag to subject record
-- [ ] Add `authorizedActors` to subject record (list of subject IDs — must correspond to existing subjects — pre-authorized to request delegated tokens for this subject)
-- [ ] Bootstrap check: if email matches `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, idempotently set `isAdmin: true`, `adminApproved: true`, and `emailVerified: true` (all three flags in one step). Check on every login (not just first) to handle DO reset, env var added after initial subject creation, or any other state where the subject exists but lacks admin. The bootstrap admin cannot be demoted via API (Phase 3), so there's no conflict with idempotent promotion.
-- [ ] Set `emailVerified: true` when subject clicks magic link
-- [ ] **Admin notification**: after magic link validation, if subject has `emailVerified: true` but `adminApproved: false`, email all admins with a link to `{prefix}/approve/:id` (the DO sends the email — it has the email service and the subject list)
-- [ ] Embed subject flags in JWT claims at token creation
-- [ ] Support `act` claim for delegation (authenticated subject acting for principal)
-- [ ] Verify `act.sub` corresponds to an existing subject when issuing delegated tokens
-- [ ] Admins bypass `authorizedActors` check — can delegate as any subject
-- [ ] Non-admin actors must be in principal's `authorizedActors` list
-- [ ] Add `POST {prefix}/delegated-token` route: actor provides own access token + `actFor` (target subject ID), returns delegated token with `sub` = target, `act.sub` = actor
-- [ ] Add `#private` subject management handlers (list, get, update, delete) — called by the `fetch` handler, not exposed as public RPC
-- [ ] Add `#private` flag management handlers (approve subject, promote to admin, demote)
-- [ ] Add `#private` actor authorization handlers (authorizeActor, revokeActor) — validates that actor IDs are existing subject IDs
-- [ ] **Dual auth**: all authenticated LumenizeAuth endpoints accept Bearer token or refresh token cookie (Design Decision #12)
-- [ ] **Lazy token cleanup**: on any rejected token (expired or revoked), delete it and sweep all expired tokens: `DELETE FROM refresh_tokens WHERE expires_at < ?`
-- [ ] **Revoke-all on status change**: when `adminApproved` is set to `false` or a subject is deleted, revoke all their refresh tokens: `UPDATE refresh_tokens SET revoked = 1 WHERE user_id = ?`
-- [ ] **Logging**: Use `@lumenize/debug` for all logging (audit trail, errors, diagnostics). Namespace: `auth.*` (e.g., `auth.subject-management`, `auth.delegation`, `auth.token`)
-- [ ] Remove `#rateLimits` instance variable and `#checkRateLimit()` method (rate limiting moves to Worker level)
-- [ ] Remove `rateLimitPerHour` from `AuthConfig` (replaced by Worker-level rate limiting binding)
-- [ ] Drop `state` column from `magic_links` table; rename `magic-link-token` query param to `one_time_token`; remove CSRF state generation and validation (state adds no security — the one-time token is already high-entropy and single-use; dropping it keeps magic link and invite flows consistent)
-- [ ] Rename `users` table to `subjects` (and `user_id` → `subject_id` in `refresh_tokens`)
-- [ ] Add `invite_tokens` table (token, email, expires_at — reusable until expiry)
-
-### createAuthRoutes
-- [ ] Remove `redirect`, `issuer`, `audience`, `accessTokenTtl`, `refreshTokenTtl`, `magicLinkTtl`, `prefix` from options — these are now env vars
-- [ ] Remove the 503 lazy-init retry and `configure()` RPC call
-- [ ] Read `prefix` from `env.LUMENIZE_AUTH_PREFIX || '/auth'` for route matching
-- [ ] Rename `instanceName` to `authInstanceName` for clarity
-- [ ] New signature: `createAuthRoutes(env, options?)` where options is `{ cors?, authBindingName?, authInstanceName? }`
-- [ ] Add subject management routes
-- [ ] Add admin-only guards to new routes
-- [ ] Route `{prefix}/magic-link` to DO — admin notification is handled by the DO (see LumenizeAuth DO section)
-- [ ] Add bulk invite route: `POST {prefix}/invite` accepts array of emails, sets `adminApproved`, sends invite emails. With `?_test=true`, returns invite links in response instead of sending emails (same pattern as magic link test mode)
-- [ ] Add invite acceptance route: clicking invite link sets `emailVerified`
-- [ ] Validate `cf-turnstile-response` token from request body via Cloudflare siteverify API before forwarding magic-link requests to DO. Return 403 on failure.
-- [ ] Fail fast: throw at creation time if `env.TURNSTILE_SECRET_KEY` is not set
-
-### createRouteDORequestAuthHooks (file: `hooks.ts`, renamed from `middleware.ts`)
-- [ ] Rename `middleware.ts` → `hooks.ts` (avoids ambiguity — "middleware" could mean either `createAuthRoutes` or the hook functions)
-- [ ] Rename from `createAuthMiddleware`/`createWebSocketAuthMiddleware` to single `createRouteDORequestAuthHooks`
-- [ ] Change signature to `createRouteDORequestAuthHooks(env, options?)` — options object is entirely optional
-- [ ] Remove `issuer`/`audience` options — read from `env.LUMENIZE_AUTH_ISSUER` / `env.LUMENIZE_AUTH_AUDIENCE` (same source of truth as the DO)
-- [ ] Return `{ onBeforeRequest, onBeforeConnect }` for destructuring
-- [ ] Check `emailVerified && adminApproved` (admins pass implicitly)
-- [ ] Public keys: read from `[env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean)` — same convention the DO uses for signing. No override option (the names are a shared convention). Throw at creation time if no keys available.
-- [ ] Replace `X-Auth-User-Id`, `X-Auth-Verified`, `X-Auth-Token-Exp`, `X-Auth-Claims` headers — forward the original verified JWT in the standard `Authorization: Bearer <jwt>` header instead
-- [ ] For WebSocket upgrades: extract token from subprotocol list, verify, set `Authorization: Bearer <jwt>` on the upgrade request before forwarding to DO
-- [ ] Rate limiting: default to `env.LUMENIZE_AUTH_RATE_LIMITER`, allow override via `rateLimiterBinding` option. Use `sub` from decoded JWT as key and call `binding.limit({ key: sub })`. Return 429 on failure. Throw at creation time if no binding available.
-
-### testLoginWithMagicLink
-Signature: `testLoginWithMagicLink(browser: Browser, email: string, options?): Promise<{ accessToken: string, claims: JwtClaims, sub: string }>`. The `browser` parameter (cookie jar) is required — the login flow spans 3 HTTP calls that share cookies. Return type expands from bare `string` (userId) to `{ accessToken, claims, sub }`.
-- [x] Accept optional `prefix` to match configured auth prefix
-- [ ] Expand return type from `string` to `{ accessToken, claims, sub }`
-- [ ] Accept optional `subjectData` for setting roles during test
-- [ ] Accept optional `actorSub` to simulate delegated access
-- [ ] Works with real auth flow (data goes in storage, flows to JWT)
-
-### LUMENIZE_AUTH_TEST_MODE safety
-- [x] Move `LUMENIZE_AUTH_TEST_MODE` from `packages/auth/wrangler.jsonc` vars to `vitest.config.js` `miniflare.bindings` (never accidentally deployable)
-- [x] Remove `LUMENIZE_AUTH_TEST_MODE` from all `wrangler.jsonc` files under `packages/mesh/test/` — move to each test's `vitest.config.js` `miniflare.bindings`
-- [x] Remove `LUMENIZE_AUTH_TEST_MODE` from `website/docs/mesh/testing.mdx` `.dev.vars` example — update to show `vitest.config.js` pattern
-- [x] Consolidate `AUTH_TEST_MODE` → `LUMENIZE_AUTH_TEST_MODE` (gateway's `__testForceClose` now uses the same env var)
-
-### Documentation
-- [x] Draft `website/docs/auth/index.mdx` (overview, access flows, bootstrap)
-- [x] Reviewed and approved by maintainer `website/docs/auth/index.mdx`
-- [x] Draft `website/docs/auth/api-reference.mdx` (roles, subject management)
-- [x] Reviewed and approved by maintainer `website/docs/auth/api-reference.mdx` 
-- [x] Update `website/sidebars.ts` to include new pages
-- [ ] Update `security.mdx` examples once claims work
+All items from the original flat checklist have been completed (Phases 1, 2, 6) or distributed into their respective phase sections below. The phase deltas are the authoritative source for remaining work.
 
 ## Prerequisites
 - [x] Design/APIs drafted in MDX (reads as final docs)
@@ -361,7 +276,7 @@ Signature: `testLoginWithMagicLink(browser: Browser, email: string, options?): P
 
 ## Implementation Phases
 
-Each phase produces a testable increment. Phases build on each other — earlier phases must pass before starting the next. **Phases 2–6 are provisional** — revisit after Phase 1 completes, since implementation often reveals things that change the plan.
+Each phase produces a testable increment. Phases build on each other — earlier phases must pass before starting the next. **Phases 3–5 are provisional** — revisit at the start of each phase, since implementation often reveals things that change the plan.
 
 **No migration gymnastics needed.** This package has never been deployed to production. Tests start with a clean slate every run. So schemas and `wrangler.jsonc` migrations can be written as if from scratch — no `ALTER TABLE`, no multi-tag migration chains, no backwards compatibility with existing data.
 
@@ -403,125 +318,36 @@ Implement the bootstrap admin flow and the `emailVerified`/`adminApproved` gate.
 
 **Goal**: The bootstrap email gets automatic admin on first login. Non-bootstrap subjects get `emailVerified` on magic link click but must be admin-approved before the auth hooks grant access. Header contract changes from `X-Auth-*` to `Authorization: Bearer <jwt>`. All auth and mesh tests pass.
 
-**Deltas (concrete, code-aware — written after Phase 1 implementation)**:
+**Deltas** (completed — detailed implementation notes preserved in git history at commit completing Phase 2):
+- `lumenize-auth.ts`: idempotent bootstrap check in `#getOrCreateSubject`, `emailVerified` set during magic link flow, `POST /auth/test/set-subject-data` test-only endpoint
+- `hooks.ts`: replaced `createAuthMiddleware`/`createWebSocketAuthMiddleware` with single `createRouteDORequestAuthHooks(env)` returning `{ onBeforeRequest, onBeforeConnect }`; access gate checks `isAdmin || (emailVerified && adminApproved)`; forwards JWT via `Authorization: Bearer` header
+- `index.ts`: updated exports (removed old middleware, added `createRouteDORequestAuthHooks`)
+- `test-helpers.ts`: `testLoginWithMagicLink` returns `{ accessToken, sub }` with optional `subjectData`; full 4-step flow exercises real token-minting path
+- `lumenize-client-gateway.ts`: reads JWT from `Authorization: Bearer` header, decodes payload, bridges `attachment.sub` → `originAuth.userId`
+- Mesh test workers + test files: updated to `createRouteDORequestAuthHooks(env)` imports, destructured `{ sub: aliceUserId }`, added `{ subjectData: { adminApproved: true } }`
+- `auth.test.ts`: all tests updated for new API, added bootstrap/access-gate/negative tests
 
-#### `lumenize-auth.ts` — Bootstrap Admin
+**Success criteria** ✅ (all met):
+- Bootstrap email logs in and gets `isAdmin: true`, `adminApproved: true`, `emailVerified: true` in JWT claims ✅
+- Bootstrap check is idempotent — same result on subsequent logins and after DO reset ✅
+- Non-bootstrap subject logs in, gets `emailVerified: true`, `adminApproved: false` in claims ✅
+- Auth hooks return 403 for subjects with `emailVerified && !adminApproved` ✅
+- Auth hooks return 200 and forward `Authorization: Bearer <jwt>` for approved subjects ✅
+- Auth hooks return 200 for admin subjects (even without explicit `adminApproved`) ✅
+- Old `createAuthMiddleware`/`createWebSocketAuthMiddleware` removed; `X-Auth-*` headers removed ✅
+- `testLoginWithMagicLink` returns `{ accessToken, sub }` (removed `claims` — redundant with `parseJwtUnsafe(accessToken)`) ✅
+- Gateway reads `sub` from `Authorization: Bearer <jwt>` header (not `X-Auth-User-Id`) ✅
+- Negative security test: Worker rejects forged JWT before it reaches gateway DO (e2e test in security for-docs) ✅
+- All 63 auth tests pass (updated for new API) ✅
+- All 264 mesh tests pass (updated imports + `testLoginWithMagicLink` return type + `subjectData` + negative security test) ✅
 
-- **`#getOrCreateSubject(email)`**: Make bootstrap check idempotent. After the existing-subject lookup OR after creating a new subject, check if `email === (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL?.toLowerCase()`. If match and subject is NOT already admin: `UPDATE subjects SET email_verified=1, admin_approved=1, is_admin=1 WHERE sub=?`. Return fresh subject with all three flags true. This handles first login, DO reset, and env var added after initial creation.
-- **`#handleMagicLink`**: Currently does `#getOrCreateSubject(email)` then a separate `UPDATE ... SET email_verified=1`. Refactor: move the `emailVerified` flag-setting into `#getOrCreateSubject` (or a new `#loginSubject(email)` method) so the returned subject always reflects the current DB state. Eliminates the stale-object inefficiency where a new subject is created with `email_verified=0` then immediately updated to `1`.
-- **`#generateAccessToken`**: Already passes subject flags into `createJwtPayload` — no change needed since the subject object will now be fresh after the refactor above.
+### Phase 2 → Phase 3 Transition Notes
 
-#### `hooks.ts` — New `createRouteDORequestAuthHooks`
-
-- **Remove**: `createAuthMiddleware`, `createWebSocketAuthMiddleware`, `AuthMiddlewareConfig`, `WebSocketAuthMiddlewareConfig`, `AuthContext`, `enhanceRequest` helper, `extractBearerToken` helper (kept internally, not exported)
-- **Add**: `createRouteDORequestAuthHooks(env: Env, options?): Promise<{ onBeforeRequest, onBeforeConnect }>`
-  - `options` shape: `{ rateLimiterBinding?: string }` — optional, not enforced until Phase 5
-  - Keys: `[env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean)` — throw if empty
-  - Issuer/audience: `env.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local'` / `env.LUMENIZE_AUTH_AUDIENCE || 'https://lumenize.local'`
-  - Access gate: after JWT verification, check `payload.isAdmin || (payload.emailVerified && payload.adminApproved)`. Return 403 `{ error: 'access_denied', error_description: 'Account not yet approved' }` if fails.
-  - Forward JWT: set `Authorization: Bearer <original-jwt>` on enhanced request. No `X-Auth-*` headers.
-  - The function is `async` because `crypto.subtle.importKey` returns a Promise (Web Crypto API — no sync alternative). Called once at Worker module level, not per-request.
-- **`onBeforeRequest`**: Extracts Bearer token from `Authorization` header, verifies JWT, checks access gate, forwards JWT
-- **`onBeforeConnect`**: Extracts token from WebSocket subprotocol (`lmz.access-token.*`), verifies, checks access gate, sets `Authorization: Bearer <jwt>` on upgrade request
-- **Keep**: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES` — these are used by DOs for message-level auth (not replaced by hooks)
-- **Rename in `WebSocketTokenVerifyResult`**: `userId` → `sub` (aligns with RFC 7519 terminology; the mesh follow-on task will change `OriginAuth.userId` → `sub` as well)
-
-#### `index.ts` — Export Changes
-
-- **Remove exports**: `createAuthMiddleware`, `AuthMiddlewareConfig`, `AuthContext`, `createWebSocketAuthMiddleware`, `WebSocketAuthMiddlewareConfig`
-- **Add exports**: `createRouteDORequestAuthHooks`
-- **Keep exports**: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES`, `WebSocketTokenVerifyResult` (with `sub` field replacing `userId`)
-
-#### `test-helpers.ts` — Expand Return Type
-
-- Change return type from `string` to `{ accessToken: string, claims: JwtPayload, sub: string }`
-- Add optional `subjectData?: { adminApproved?: boolean, isAdmin?: boolean }` to `TestLoginOptions`
-- Full-flow approach (tests the real token-minting path):
-  1. `POST {prefix}/email-magic-link?_test=true` → get magic link URL
-  2. `GET {prefix}/magic-link?one_time_token=...` → subject created, `emailVerified=true`, refresh token cookie set
-  3. If `subjectData` provided: `POST {prefix}/test/set-subject-data` → sets flags in DB (test-only endpoint)
-  4. `POST {prefix}/refresh-token` → mints JWT from **fresh subject data** (`#handleRefreshToken` re-queries subject)
-  5. Parse JWT, return `{ accessToken, claims, sub }`
-
-#### `lumenize-auth.ts` — Test-Only Endpoint
-
-- Add `POST {prefix}/test/set-subject-data` endpoint, guarded by `LUMENIZE_AUTH_TEST_MODE=true`
-- Body: `{ email: string, adminApproved?: boolean, isAdmin?: boolean }`
-- Looks up subject by email, updates the specified flags
-- Returns 404 if subject not found, 403 if test mode not enabled
-- This is the minimal test-only mutation — the rest of the flow (token minting, claims embedding) is exercised through the real refresh-token path. This catches bugs at the seams that wouldn't show up testing steps in isolation.
-
-#### `lumenize-client-gateway.ts` — Update Header Contract (included in Phase 2)
-
-**Decision**: Include the gateway header change in Phase 2 rather than deferring to the follow-on task. Reason: the change is mechanical (read JWT from `Authorization` header instead of `X-Auth-*` headers), and deferring creates a period where `@lumenize/auth` and `@lumenize/mesh` are incompatible — mesh tests would be broken until the follow-on task. Including it keeps all tests passing at the end of Phase 2.
-
-- **`fetch()` handler**: Replace `request.headers.get('X-Auth-User-Id')` with `request.headers.get('Authorization')`, extract Bearer token, decode JWT payload (base64url-decode middle section — no cryptographic verification needed, Worker hooks already verified). Extract `sub` from payload.
-- **`WebSocketAttachment`**: Change `userId: string` → `sub: string`. Update `claims` to carry the full JWT payload (or relevant subset: `emailVerified`, `adminApproved`, `isAdmin`).
-- **`#handleClientCall`**: Update `originAuth` construction: `{ userId: attachment.userId, claims: attachment.claims }` → `{ userId: attachment.sub, claims: attachment.claims }`. Note: `OriginAuth.userId` stays as `userId` for now — the mesh follow-on task renames it to `sub` across the mesh codebase. Using `attachment.sub` but mapping to `originAuth.userId` is the bridge.
-- **Identity validation**: The `instanceName` prefix check changes from comparing against `userId` to comparing against `sub`. Same logic, different field name.
-
-#### Mesh Test Workers — Update Imports
-
-Four files use the old `createAuthMiddleware`/`createWebSocketAuthMiddleware`:
-1. `packages/mesh/test/test-worker-and-dos.ts` (line 1071)
-2. `packages/mesh/test/for-docs/getting-started/index.ts`
-3. `packages/mesh/test/for-docs/security/index.ts`
-4. `packages/mesh/test/for-docs/calls/index.ts`
-
-All follow the same pattern — replace with `createRouteDORequestAuthHooks(env)`:
-```typescript
-// Before:
-const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
-const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
-routeDORequest(request, env, { onBeforeConnect: wsAuth, onBeforeRequest: httpAuth, ... });
-
-// After:
-const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);
-routeDORequest(request, env, { onBeforeConnect, onBeforeRequest, ... });
-```
-
-#### Mesh Test Files — Update `testLoginWithMagicLink` Return
-
-All mesh tests currently do `const userId = await testLoginWithMagicLink(...)`. Update to destructure `sub`:
-```typescript
-// Before:
-const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
-
-// After:
-const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
-```
-
-**Access gate consideration**: Mesh tests create subjects via `testLoginWithMagicLink` which sets `emailVerified=true` but `adminApproved=false`. With the new access gate, these subjects would be blocked (403) by the hooks. Two options:
-- (a) Pass `subjectData: { adminApproved: true }` in all mesh test calls
-- (b) Add `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` to mesh test vitest configs and use that email
-
-Going with **(a)** — it's explicit and doesn't require matching emails. Every mesh test `testLoginWithMagicLink` call will need `{ subjectData: { adminApproved: true } }`.
-
-#### `auth.test.ts` — Test Updates
-
-- All `createAuthMiddleware` tests → test `createRouteDORequestAuthHooks` (`onBeforeRequest`)
-- All `createWebSocketAuthMiddleware` tests → test `onBeforeConnect` from same hooks
-- Assert `Authorization: Bearer <jwt>` header instead of `X-Auth-User-Id`/`X-Auth-Verified`
-- Remove: tests asserting `X-Auth-*` headers exist
-- Add: bootstrap admin tests (login with `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` → JWT has all three flags)
-- Add: non-bootstrap tests (verify `emailVerified: true`, `adminApproved: false`)
-- Add: access gate tests — hooks return 403 for `emailVerified && !adminApproved`, 200 for approved/admin
-- Add: access gate passes for admin even without `adminApproved` (admin implicitly satisfies)
-- Update: `verifyWebSocketToken` tests — `result.userId` → `result.sub`
-
-**Success criteria**:
-- Bootstrap email logs in and gets `isAdmin: true`, `adminApproved: true`, `emailVerified: true` in JWT claims
-- Bootstrap check is idempotent — same result on subsequent logins and after DO reset
-- Non-bootstrap subject logs in, gets `emailVerified: true`, `adminApproved: false` in claims
-- Auth hooks return 403 for subjects with `emailVerified && !adminApproved`
-- Auth hooks return 200 and forward `Authorization: Bearer <jwt>` for approved subjects
-- Auth hooks return 200 for admin subjects (even without explicit `adminApproved`)
-- Old `createAuthMiddleware`/`createWebSocketAuthMiddleware` removed; `X-Auth-*` headers removed
-- `testLoginWithMagicLink` returns `{ accessToken, claims, sub }`
-- Gateway reads `sub` from `Authorization: Bearer <jwt>` header (not `X-Auth-User-Id`)
-- All 56 auth tests pass (updated for new API)
-- All 263 mesh tests pass (updated imports + `testLoginWithMagicLink` return type + `subjectData`)
+**What changed during Phase 2 implementation:**
+1. **`claims` removed from `TestLoginResult`** — was redundant with `parseJwtUnsafe(accessToken)`. Only `{ accessToken, sub }` now. Doc examples updated. Phase 4's `actorSub` tests should use `parseJwtUnsafe` to inspect the `act` claim.
+2. **Negative security test added** — `security/index.test.ts` now has a separate test proving the Worker rejects forged JWTs before they reach the gateway. This was a gap in the original plan (gateway unit tests used fake JWTs, integration tests covered happy path, but no e2e test for the rejection case).
+3. **Gateway header migration included in Phase 2** — as planned, to avoid auth/mesh incompatibility window. The gateway now reads `Authorization: Bearer <jwt>` and uses `attachment.sub` internally with a bridge to `originAuth.userId`. The follow-on `userId` → `sub` rename is a separate, smaller task.
+4. **Test counts**: auth 63 tests (up from 56 in Phase 1), mesh 264 tests (up from 263).
 
 ### Phase 3: Subject Management & Admin Approval
 
@@ -529,28 +355,114 @@ Admin CRUD on subjects plus the approval flow that completes self-signup.
 
 **Goal**: Admins can list, get, update, and delete subjects. The approve endpoint (linked from admin email) sets `adminApproved: true`. Self-protection and bootstrap protection rules enforced.
 
-**Email service note**: This phase introduces new email types (admin notification, approval confirmation) beyond the existing magic link email. The current `EmailService` interface (`send(to, magicLinkUrl)`) is too narrow. Broaden it to support multiple email types when implementing this phase. Note: actual email delivery (e.g., AWS SES) is not yet tested — Cloudflare is expected to release a competing email service, and email templates/polish will come then. For now, `ConsoleEmailService` and `MockEmailService` are sufficient for the new email types.
+**Phase 2 foundation**: The `POST /auth/test/set-subject-data` endpoint (built in Phase 2) provides a good pattern — Phase 3's real admin endpoints will use proper auth (Bearer/cookie) instead of the test-only endpoint.
 
-**Deltas**:
+#### New Routes
+
+Add these admin-only routes to the LumenizeAuth DO's `fetch()` handler (currently dispatches via `path.endsWith()` matching):
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `{prefix}/subjects` | Admin | List subjects (pagination, role filter) |
+| GET | `{prefix}/subject/:id` | Admin | Get single subject |
+| PATCH | `{prefix}/subject/:id` | Admin | Update flags (isAdmin, adminApproved, authorizedActors) |
+| DELETE | `{prefix}/subject/:id` | Admin | Delete subject + revoke tokens |
+| GET | `{prefix}/approve/:id` | Admin | Set adminApproved=true (email link) + send "you're approved" email |
+
+The design spec for request/response shapes is in `website/docs/auth/api-reference.mdx` (Subject Management section). The approval flow narrative is in `website/docs/auth/index.mdx`.
+
+#### Dual Auth (Design Decision #12)
+
+All authenticated LumenizeAuth endpoints accept either `Authorization: Bearer <access_token>` or `refresh_token` cookie. The approve endpoint is linked from notification emails — browsers send cookies automatically but cannot add Bearer headers from a link click. Rather than special-casing, implement dual auth uniformly for all authenticated endpoints.
+
+Extract a `#authenticateRequest(request): { sub, isAdmin, ... } | Response` helper that checks Bearer token OR refresh token cookie. This will be used by all admin endpoints and can also be wired into the existing `#handleRefreshToken` and `#handleLogout` endpoints.
+
+#### EmailService Broadening
+
+Current interface is `send(to: string, magicLinkUrl: string)` — too narrow for the new email types. Broaden to support:
+1. Magic link emails (existing)
+2. Admin notification: "New signup from {email} — click to approve"
+3. Approval confirmation: "You've been approved — click to continue"
+
+**Important constraint**: Real email delivery (AWS SES, etc.) is deferred — Cloudflare is expected to release a competing email service, and email templates/polish will come then. For now, `ConsoleEmailService` and `MockEmailService` are sufficient. Don't over-design the email abstraction — a simple approach like changing `send()` to accept a type discriminator or adding separate methods is fine.
+
+#### Protection Rules
+
+- **Self-modification prevention**: Admin cannot demote/delete themselves (prevents lockout). Return 403 with descriptive error.
+- **Bootstrap protection**: Cannot demote/delete the subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` (identity-based, not role-based). Return 403 with descriptive error.
+
+#### Token Revocation
+
+- **Revoke-all on status change**: when `adminApproved` set to false or subject deleted, revoke all refresh tokens: `UPDATE refresh_tokens SET revoked = 1 WHERE subject_id = ?`
+- **Lazy token cleanup**: on any rejected token (expired or revoked), sweep: `DELETE FROM refresh_tokens WHERE expires_at < ?`
+
+#### Logging
+
+Use `@lumenize/debug` for all new operations. Namespace: `auth.*` (e.g., `auth.subject-management`, `auth.token`). The debug helper is already initialized at `this.#debug`.
+
+#### Deltas
+
+*LumenizeAuth DO (`packages/auth/src/lumenize-auth.ts`):*
+- `#authenticateRequest` dual auth helper (Bearer token or refresh token cookie)
 - `#private` subject management handlers: list (with pagination, role filter), get, update, delete
 - `#private` flag management: approve, promote/demote admin
-- Admin-only route guards (dual auth: Bearer or refresh token cookie)
-- `GET {prefix}/approve/:id` endpoint (works from email links via cookie auth)
 - Admin notification: after magic link validation, if subject needs approval, email all admins with approve link
 - "You're approved" email to subject after approval
-- Revoke-all on status change: when `adminApproved` set to false or subject deleted, revoke all refresh tokens
-- Lazy token cleanup: on rejected token, sweep expired tokens
-- Self-modification prevention (cannot demote/delete self)
-- Bootstrap protection (cannot demote/delete bootstrap admin)
-- Logging with `@lumenize/debug` (namespace: `auth.*`)
+- Revoke-all on status change (wired into update and delete flows)
+- Lazy token cleanup on rejected token
+- Self-modification prevention and bootstrap protection (403 responses)
+- Logging with `@lumenize/debug`
 
-**Success criteria**:
+*createAuthRoutes (`packages/auth/src/create-auth-routes.ts`):*
+- Split `createAuthRoutes` factory function from `lumenize-auth.ts` into its own file. `createAuthRoutes` is a thin wrapper that rewrites the URL and hands off the Request to `routeDORequest` — it does not contain route handlers. The route handlers live in the `LumenizeAuth` class in `lumenize-auth.ts`. No new admin-level guards are needed here — the DO handles admin auth internally via `#authenticateRequest`.
+
+*Types and email service (`packages/auth/src/types.ts`, `packages/auth/src/email-service.ts`):*
+- Broaden `EmailService` interface for multiple email types
+- Update `ConsoleEmailService`, `MockEmailService`, `HttpEmailService` implementations
+
+*Tests (`packages/auth/test/auth.test.ts`):*
+- Tests for all new CRUD endpoints (happy paths)
+- Abuse case tests: self-demotion attempt, bootstrap deletion attempt, unauthorized access to admin routes, non-admin accessing admin routes
+- Approval flow: magic link → admin notification → approve → subject can access
+- Token revocation: verify refresh tokens invalidated when subject loses access
+
+#### Suggested Implementation Order
+
+Phase 3 is the largest remaining phase. Suggested incremental approach:
+
+1. **Dual auth helper** — `#authenticateRequest` method
+2. **Subject CRUD** — list, get, update, delete behind dual auth + isAdmin check, including protection rules
+3. **Token revocation** — wire into update (when adminApproved→false) and delete
+4. **Approve endpoint** — `GET {prefix}/approve/:id` sets adminApproved, sends email, redirects
+5. **Admin notification** — after magic link validation, email admins if subject needs approval
+6. **Lazy token cleanup** — on rejected token, sweep expired
+
+After each increment, run `cd packages/auth && npx vitest run`. At the end, also run `cd packages/mesh && npx vitest run` to verify nothing broke.
+
+#### Success Criteria
+
 - Admin can list, get, update, delete subjects via API
 - `GET /auth/approve/:id` with cookie auth sets `adminApproved: true`
 - Self-signup → magic link click → admin gets notification email → admin approves → subject can access
 - Cannot demote/delete self or bootstrap admin (403 with descriptive error)
 - Refresh tokens revoked when subject loses access
 - All operations logged via `@lumenize/debug`
+- All existing auth tests still pass
+- All existing mesh tests still pass (264 tests)
+- New tests cover happy paths AND abuse cases
+
+**Status: Complete**
+
+**What changed during Phase 3 implementation:**
+1. **SQL naming convention adopted** — PascalCase table names (`Subjects`, `MagicLinks`, `InviteTokens`, `RefreshTokens`), camelCase column names (`emailVerified`, `tokenHash`, `createdAt`), index names as `idx_TableName_columnName`. Applied retroactively to all four tables. Added to CLAUDE.md and DO conventions skill. No migration needed (schema is `CREATE IF NOT EXISTS`).
+2. **Filtered index on isAdmin** — `CREATE INDEX IF NOT EXISTS idx_Subjects_isAdmin ON Subjects(sub) WHERE isAdmin = 1` for efficient admin lookups.
+3. **ON DELETE CASCADE** — RefreshTokens FK now cascades on subject deletion, simplifying `#handleDeleteSubject`.
+4. **EmailMessage discriminated union** — `type EmailMessage = { type: 'magic-link'; ... } | { type: 'admin-notification'; ... } | { type: 'approval-confirmation'; ... }`. Each variant includes email subject line. All three service implementations updated.
+5. **`#authenticateRequest` dual auth** — checks Bearer JWT first, falls back to refresh-token cookie. Returns `{ sub, isAdmin, email }` or 401 Response. Does NOT perform access-gate checks — callers decide authorization level.
+6. **createAuthRoutes split** — moved to `packages/auth/src/create-auth-routes.ts`. LumenizeAuth DO keeps all route handlers; the factory is just URL rewriting + `routeDORequest` delegation.
+7. **`#handleRefreshToken` and `#handleLogout` kept their own logic** — the plan said to refactor them to use `#authenticateRequest`, but their core purpose IS token rotation/revocation respectively, which `#authenticateRequest` doesn't do. The helper was designed for the new admin endpoints.
+8. **Lazy sweep placement** — `#sweepExpiredTokens` called in `#handleRefreshToken` after returning 401 for revoked/expired tokens (not on success path).
+9. **Test counts**: auth 91 tests (up from 63 in Phase 2), mesh 264 tests (unchanged).
 
 ### Phase 4: Invite Flow & Delegation
 
@@ -558,19 +470,29 @@ Admin invite (pre-approval) and the `act` claim for delegated access.
 
 **Goal**: Admins can bulk-invite emails (pre-approved). Invited subjects click link and get immediate access. Authenticated subjects can request delegated tokens with proper authorization checks.
 
+**Phase 2 change**: `TestLoginResult` no longer has a `claims` field. Tests verifying `act.sub` in delegated tokens should use `parseJwtUnsafe(accessToken)` instead. The `actorSub` option for `testLoginWithMagicLink` is the remaining delta.
+
 **Email service note**: Invite emails are a third email type (alongside magic link and admin notification). The broadened `EmailService` from Phase 3 should accommodate this. Same caveat: real email delivery deferred until Cloudflare's email service launches.
 
 **Deltas**:
-- `POST {prefix}/invite` endpoint: bulk emails, sets `adminApproved: true`, sends invite emails
-- `GET {prefix}/accept-invite?invite_token=...` endpoint: validates reusable token, sets `emailVerified: true`
-- Invite token: 7-day TTL (`LUMENIZE_AUTH_INVITE_TTL`), reusable until expiry
-- Test mode for invite: `?_test=true` returns invite links instead of sending emails
-- `POST {prefix}/delegated-token` endpoint: actor provides access token + `actFor` target
-- `act` claim support in JWT creation
-- Verify `act.sub` corresponds to existing subject
-- Admins bypass `authorizedActors` check
+
+*LumenizeAuth DO:*
+- `act` claim support in JWT creation (for delegated access)
+- Verify `act.sub` corresponds to existing subject when issuing delegated tokens
+- Admins bypass `authorizedActors` check — can delegate as any subject
 - Non-admin actors must be in principal's `authorizedActors` list
 - `#private` actor authorization handlers: authorizeActor, revokeActor (validates actor IDs are existing subjects)
+
+*createAuthRoutes:*
+- `POST {prefix}/invite` endpoint: bulk emails, sets `adminApproved: true`, sends invite emails
+- `GET {prefix}/accept-invite?invite_token=...` endpoint: validates reusable token, sets `emailVerified: true`
+- `POST {prefix}/delegated-token` endpoint: actor provides own access token + `actFor` (target subject ID)
+- Test mode for invite: `?_test=true` returns invite links instead of sending emails
+
+*Tokens:*
+- Invite token: 7-day TTL (`LUMENIZE_AUTH_INVITE_TTL`), reusable until expiry (schema exists from Phase 1)
+
+*Test helpers:*
 - `actorSub` option for `testLoginWithMagicLink`
 
 **Success criteria**:
@@ -578,7 +500,7 @@ Admin invite (pre-approval) and the `act` claim for delegated access.
 - Invite tokens reusable within TTL window
 - Delegated token has correct `sub` (principal) and `act.sub` (actor)
 - Admin can delegate as any subject; non-admin blocked without `authorizedActors`
-- `testLoginWithMagicLink` with `actorSub` produces correct delegation claims
+- `testLoginWithMagicLink` with `actorSub` produces correct delegation claims (verify via `parseJwtUnsafe`)
 
 ### Phase 5: Rate Limiting & Turnstile
 
@@ -618,15 +540,15 @@ Clean up test mode safety and update documentation examples.
 - ✅ Updated `website/docs/mesh/testing.mdx` — replaced `.dev.vars` example with vitest config pattern
 - ✅ Consolidated `AUTH_TEST_MODE` → `LUMENIZE_AUTH_TEST_MODE` (gateway's `__testForceClose`)
 - ✅ No `LUMENIZE_AUTH_TEST_MODE` in any `wrangler.jsonc`
-- [ ] `security.mdx` skip-checks converted to `@check-example` — deferred until Phase 2 adds the claims needed for security examples
+- [ ] `security.mdx` skip-checks converted to `@check-example` — **now unblocked** by Phase 2 (claims available in JWT). Do alongside the `originAuth.userId` → `originAuth.sub` rename (follow-on task)
 - [ ] Website build validation — deferred until doc examples are wired up
 
 ## Notes
 
-This unblocks `security.mdx` testing:
+Phase 2 unblocks `security.mdx` testing:
 - `@skip-check` at lines 127, 155 can become `@check-example`
-- Guards checking `originAuth.isAdmin` will be testable
-- `requireRole()` pattern will be testable
+- Guards checking `originAuth.isAdmin` are testable (claims in JWT)
+- `requireRole()` pattern needs custom role claims (Phase 4+)
 
 ### Terminology Note
 
@@ -640,33 +562,36 @@ We avoid "user" except as an example alongside "agent", "system", etc. The abstr
 
 ## Follow-on: Mesh Access Control Integration
 
-**Status**: Not Started (blocked by this task)
+**Status**: Partially done (gateway header migration completed in Phase 2) — remaining work is `originAuth.userId` → `originAuth.sub` rename
 
-### Problem
+### What was completed in Phase 2
 
-Once this task ships, `createRouteDORequestAuthHooks` will verify JWTs and enforce `emailVerified && adminApproved` at the Worker level, forwarding the verified JWT in the standard `Authorization: Bearer <jwt>` header. Lumenize Mesh currently reads identity from the old `X-Auth-*` headers and constructs `OriginAuth` with `userId` instead of `sub`. The mesh needs to be updated to consume the new JWT-based identity.
+The gateway header migration was included in Phase 2 to avoid a period where auth and mesh were incompatible:
+- [x] `LumenizeClientGateway`: reads JWT from `Authorization: Bearer <jwt>` header (not `X-Auth-*`)
+- [x] `LumenizeClientGateway`: decodes JWT payload (base64url, no signature re-verification — trusts Worker hooks)
+- [x] `LumenizeClientGateway`: `WebSocketAttachment` uses `sub` (from JWT payload) internally
+- [x] `LumenizeClientGateway`: constructs `originAuth` with bridge: `{ userId: attachment.sub, claims: attachment.claims }`
+- [x] Negative security test: Worker rejects forged JWT before it reaches gateway DO (e2e)
+- [x] All 264 mesh tests pass with the new header contract
 
 ### Architecture: LumenizeClientGateway as Trust Boundary
 
 All Lumenize Mesh client access goes through `LumenizeClientGateway` via WebSocket. The gateway is the **second layer of defense-in-depth** (after the Worker hooks) and the **DMZ boundary** for the mesh:
 
 1. **Worker hooks** verify the JWT and forward it in `Authorization: Bearer <jwt>` to the gateway
-2. **LumenizeClientGateway** re-verifies/decodes the JWT (cheap — sub-millisecond Ed25519 via `crypto.subtle`) and translates claims into `CallContext.originAuth`
+2. **LumenizeClientGateway** decodes the JWT payload (trusts Worker hooks verified signature) and translates claims into `CallContext.originAuth`
 3. **Downstream mesh nodes** trust `callContext` — they do NOT need to decode the JWT themselves
 
-This means `originAuth` is the internal identity format within the mesh. The JWT is the external format at the Worker→DO boundary.
+### Remaining Implementation Scope
 
-### Implementation Scope
-
-#### @lumenize/mesh changes
-- [ ] `LumenizeClientGateway`: read JWT from `Authorization: Bearer <jwt>` header instead of `X-Auth-User-Id` + `X-Auth-Claims` + `X-Auth-Token-Exp`
-- [ ] `LumenizeClientGateway`: verify/decode JWT and construct `OriginAuth` from claims — replace `{ userId, claims }` with `{ sub, isAdmin, act, ... }`
-- [ ] `LumenizeClientGateway`: update WebSocket attachment to use new `OriginAuth` shape
-- [ ] `LumenizeClient`: update any client-side references from `userId` to `sub` in `OriginAuth`
-- [ ] Update `CallContext.originAuth` type across the mesh
+#### @lumenize/mesh changes — `originAuth.userId` → `originAuth.sub` rename
+- [ ] Rename `OriginAuth.userId` → `OriginAuth.sub` in the type definition
+- [ ] Update `LumenizeClientGateway`: `{ userId: attachment.sub }` → `{ sub: attachment.sub }` (remove bridge)
+- [ ] Update `LumenizeClient`: any client-side references to `originAuth.userId`
 - [ ] Update all guards and `onBeforeCall` hooks that reference `originAuth.userId` → `originAuth.sub`
+- [ ] Update all tests that assert `originAuth.userId`
 
 #### Documentation updates
-- [ ] `website/docs/mesh/security.mdx` - Major updates for access control, update guard examples from `originAuth.userId` to `originAuth.sub`
+- [ ] `website/docs/mesh/security.mdx` - Update guard examples from `originAuth.userId` to `originAuth.sub`
 - [ ] `website/docs/mesh/getting-started.mdx` - Mention access control in setup
 - [ ] Audit all code examples across docs for `userId` → `sub` in auth contexts, onBeforeCall, and @mesh(guard)

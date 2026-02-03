@@ -392,10 +392,10 @@ await fetch('/auth/subject/' + targetSub, {
 
 // Login alice with delegation — actorSub acts on her behalf
 const actorBrowser = new Browser();
-const { accessToken, claims, sub } = await testLoginWithMagicLink(actorBrowser, 'alice@test.com', {
+const { accessToken, sub } = await testLoginWithMagicLink(actorBrowser, 'alice@test.com', {
   actorSub  // this subject is acting on behalf of alice
 });
-// sub = alice's sub, claims.act.sub = actorSub
+// sub = alice's sub, parseJwtUnsafe(accessToken).payload.act.sub = actorSub
 ```
 
 ## Subject Record

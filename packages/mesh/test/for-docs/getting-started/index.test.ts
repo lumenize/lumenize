@@ -32,7 +32,7 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com', { subjectData: { adminApproved: true } });
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using alice = new EditorClient({
@@ -74,7 +74,7 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const bobBrowser = new Browser();
-  const bobUserId = await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
+  const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
 
   using bob = new EditorClient({
     instanceName: `${bobUserId}.tab1`,

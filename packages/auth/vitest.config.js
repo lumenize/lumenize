@@ -9,7 +9,10 @@ export default defineWorkersProject({
         isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
-          bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
+          bindings: {
+            LUMENIZE_AUTH_TEST_MODE: 'true',
+            LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+          },
         },
       },
     },

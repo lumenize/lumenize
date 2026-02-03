@@ -38,7 +38,7 @@ export interface Subject {
 export interface MagicLink {
   token: string;
   email: string;
-  expires_at: number;
+  expiresAt: number;
   used: boolean;
 }
 
@@ -48,17 +48,17 @@ export interface MagicLink {
 export interface InviteToken {
   token: string;
   email: string;
-  expires_at: number;
+  expiresAt: number;
 }
 
 /**
  * Refresh token record stored in the Auth DO
  */
 export interface RefreshToken {
-  token_hash: string;
-  subject_id: string;
-  expires_at: number;
-  created_at: number;
+  tokenHash: string;
+  subjectId: string;
+  expiresAt: number;
+  createdAt: number;
   revoked: boolean;
 }
 
@@ -100,11 +100,21 @@ export interface JwtHeader {
 }
 
 /**
- * Email service interface for sending magic links
- * Implement this interface to integrate with your email provider
+ * Discriminated union for email messages sent by LumenizeAuth.
+ * The `subject` field is the email subject line (not JWT sub).
+ */
+export type EmailMessage =
+  | { type: 'magic-link'; to: string; subject: string; magicLinkUrl: string }
+  | { type: 'admin-notification'; to: string; subject: string; subjectEmail: string; approveUrl: string }
+  | { type: 'approval-confirmation'; to: string; subject: string; redirectUrl: string };
+
+/**
+ * Email service interface for sending auth-related emails.
+ * Implement this interface to integrate with your email provider.
+ * @see https://lumenize.com/docs/auth/
  */
 export interface EmailService {
-  send(to: string, magicLinkUrl: string): Promise<void>;
+  send(message: EmailMessage): Promise<void>;
 }
 
 /**

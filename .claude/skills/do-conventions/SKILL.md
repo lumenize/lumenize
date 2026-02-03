@@ -66,6 +66,8 @@ Only these entry points should be `async`:
 
 All other methods — business logic, route handlers, helpers — should be synchronous. Never use `setTimeout`, `setInterval`, `waitUntil`, or `await` in business logic.
 
+**Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
+
 ```typescript
 async fetch(request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -77,6 +79,13 @@ async fetch(request: Request): Promise<Response> {
   // Synchronous — no await, no setTimeout
   const token = this.#createToken(body.userId);
   return Response.json({ token });
+}
+
+// OK: async because crypto.subtle.verify is inherently async
+async #verifyToken(token: string): Promise<Identity | null> {
+  const payload = await verifyJwt(token, publicKey); // crypto.subtle.verify
+  if (!payload) return null;
+  return this.#lookupSubject(payload.sub); // sync SQL
 }
 ```
 
@@ -229,3 +238,15 @@ Each directory has its own:
 - Performance or stress tests
 
 A `for-docs/` test should read like a guided walkthrough: setup context, perform an action, verify the outcome, then build on that for the next step. Each phase corresponds to a section in the documentation.
+
+---
+
+## 12. SQL Naming Convention
+
+When using `ctx.storage.sql` for DO storage:
+
+- **Table names**: PascalCase (`Subjects`, `RefreshTokens`, `MagicLinks`)
+- **Column names**: camelCase (`emailVerified`, `adminApproved`, `tokenHash`, `createdAt`)
+- **Index names**: `idx_TableName_columnName` (e.g., `idx_Subjects_email`, `idx_RefreshTokens_subjectId`)
+
+This matches TypeScript/JavaScript conventions and allows SQL row objects to map directly to TypeScript interfaces with minimal conversion. SQLite column names are case-insensitive for queries but case-preserved in output.

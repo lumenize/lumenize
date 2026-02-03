@@ -47,11 +47,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Key selection tradeoff**: JWT verification before rate limiting exposes crypto ops to DDoS; consider two-tier approach (coarse IP-based limit first, then userId-based after JWT verify). Revisit when implementing.
   - **Limitation**: Cloudflare rate limiter only supports 10s or 60s periods (no hourly like current impl)
 
-- [ ] Add admin token revocation endpoint to LumenizeAuth
-  - Endpoint like `DELETE /auth/users/:userId/sessions` to revoke all refresh tokens for a user
-  - Requires super-admin concept (not yet implemented)
-  - Use case: user device stolen, employee leaves, suspicious activity
-  - Implementation: `DELETE FROM refresh_tokens WHERE user_id = ${userId}`
+- [x] Add admin token revocation endpoint to LumenizeAuth (DONE in Phase 3)
+  - Implemented via `#revokeAllTokensForSubject` — called when `adminApproved` set to false or subject deleted
+  - Admin CRUD endpoints (`PATCH /auth/subject/:id`, `DELETE /auth/subject/:id`) handle the use cases
 
 - [ ] Evolve LumenizeAuth schema for multi-email users (Nebula prep)
   - Current: 1:1 user↔email (`users.email` column)
@@ -212,6 +210,24 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Lumenize Auth now supports delegation from one human subject to another human subject. Upgrade to support non-human subjects (agents in particular)
 - [ ] Consider adding an additional flag to Lumenize Auth for admins to opt out of getting an email when a self-signup occurs. Maybe even have a flag that supresses all admin emails. Assumes the system implements a dashboard or some other mechanism for approving.
+
+- [ ] Debounce admin notification emails on repeated self-signup logins
+  - **Problem**: If a user requests a new magic link N times and clicks each, admins get N notification emails with the same approve link
+  - **Options**: Track "notification sent" flag per subject (column or KV), or deduplicate by approve URL within a time window
+  - **Priority**: Low — admins just get duplicate emails with the same approve link, no security issue
+
+- [ ] Consider adding DPoP (RFC 9449) as opt-in sender-constrained token binding
+  - **What**: DPoP binds tokens to a client-generated key pair so stolen tokens are unusable without the private key
+  - **Why**: Complements refresh token rotation — rotation detects reuse, DPoP makes exfiltrated tokens inert. Strongest against token leaks from logs, network, or limited XSS
+  - **Scope**: Browser generates ECDSA P-256 key pair (non-extractable), sends signed DPoP proof JWT with each request. Server stamps key thumbprint into access token `cnf.jkt` claim, validates proof on each request
+  - **Ecosystem**: RFC 9449 finalized, Okta GA, Auth0 Early Access, Keycloak 26.4 GA. `panva/dpop` and `panva/jose` libraries work in both browser and Cloudflare Workers
+  - **Limitation**: Does not protect against full XSS (attacker can use the non-extractable key to sign proofs in-page). True hardware-bound keys await Device Bound Session Credentials (DBSC, W3C proposal)
+  - **Implementation**: ~100 lines client-side (or use `dpop` package), server-side proof validation + jti replay tracking in DO SQL storage
+
+- [ ] Add configurable redirect behavior for auth error scenarios
+  - **Current state**: `LUMENIZE_AUTH_REDIRECT` is the only redirect target, used for both success (post-login) and errors (approve endpoint unauthenticated). The approve endpoint redirects to `{redirect}?error=login_required` but the frontend has no convention for handling this.
+  - **Consider**: Separate config options like `LUMENIZE_AUTH_ERROR_REDIRECT` or `LUMENIZE_AUTH_LOGIN_URL`, with a convention for query params (`?error=<code>&return_to=<url>`). Would let the approve endpoint redirect to the login page with a return URL, so after re-auth the admin lands back on the approve link.
+  - **Related**: Other browser-facing error scenarios (expired magic link redirects to `{redirect}?error=token_expired`) would also benefit from a dedicated error redirect.
 
 - [ ] Consider switching MCP subscriptions to keying off of the original request id rather than rely upon session id
 

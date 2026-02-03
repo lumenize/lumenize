@@ -14,6 +14,23 @@ export interface TestLoginOptions {
   baseUrl?: string;
   /** Auth route prefix (default: '/auth') */
   prefix?: string;
+  /** Subject data to set after login (requires LUMENIZE_AUTH_TEST_MODE) */
+  subjectData?: {
+    /** Grant admin approval (default: false — subject has emailVerified but not adminApproved) */
+    adminApproved?: boolean;
+    /** Grant admin role (implicitly sets adminApproved) */
+    isAdmin?: boolean;
+  };
+}
+
+/**
+ * Result of testLoginWithMagicLink
+ */
+export interface TestLoginResult {
+  /** The signed JWT access token (decode with `parseJwtUnsafe` if you need claims) */
+  accessToken: string;
+  /** Subject ID (UUID) extracted from the JWT */
+  sub: string;
 }
 
 /**
@@ -22,7 +39,8 @@ export interface TestLoginOptions {
  * Steps:
  * 1. Request magic link (test mode returns URL in response)
  * 2. "Click" the magic link - Browser follows redirect and captures cookies
- * 3. Exchange refresh token cookie for access token
+ * 3. If subjectData provided: set flags via test-only endpoint
+ * 4. Exchange refresh token cookie for access token (re-queries subject from DB)
  *
  * Requires:
  * - LumenizeAuth DO configured with `LUMENIZE_AUTH_TEST_MODE=true`
@@ -30,33 +48,25 @@ export interface TestLoginOptions {
  *
  * @param browser - Browser instance from @lumenize/utils or @lumenize/testing
  * @param email - Email address for the magic link
- * @param options - Optional configuration (baseUrl, prefix)
- * @returns The userId from the JWT access token
+ * @param options - Optional configuration (baseUrl, prefix, subjectData)
+ * @returns `{ accessToken, sub }` — use `parseJwtUnsafe(accessToken)` if you need claims
  *
  * @example
  * ```typescript
  * const browser = new Browser();
- * const userId = await testLoginWithMagicLink(browser, 'alice@example.com');
- * // Browser now has refresh-token cookie stored
- * // Can inject (or monkey batch globalThis versions) with browser.fetch and
- * // browser.WebSocket to LumenizeClient, Agent, or other places where you want
- * // to test with simulated cookie behavior
- * ```
- *
- * @example
- * ```typescript
- * // With custom prefix
- * const userId = await testLoginWithMagicLink(browser, 'alice@example.com', {
- *   prefix: '/api/auth'
+ * const { accessToken, sub } = await testLoginWithMagicLink(browser, 'alice@example.com', {
+ *   subjectData: { adminApproved: true }
  * });
  * ```
+ *
+ * @see https://lumenize.com/docs/auth/#test-mode
  */
 export async function testLoginWithMagicLink(
   browser: Browser,
   email: string,
   options: TestLoginOptions = {}
-): Promise<string> {
-  const { baseUrl = 'https://localhost', prefix = '/auth' } = options;
+): Promise<TestLoginResult> {
+  const { baseUrl = 'https://localhost', prefix = '/auth', subjectData } = options;
 
   // Step 1: Request magic link
   const magicLinkResponse = await browser.fetch(`${baseUrl}${prefix}/email-magic-link?_test=true`, {
@@ -75,7 +85,25 @@ export async function testLoginWithMagicLink(
   // Step 2: "Click" the magic link - Browser follows redirect and captures cookies
   await browser.fetch(responseBody.magic_link);
 
-  // Step 3: Exchange refresh token cookie for access token
+  // Step 3: If subjectData provided, set flags via test-only endpoint
+  if (subjectData) {
+    const setDataResponse = await browser.fetch(`${baseUrl}${prefix}/test/set-subject-data`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, ...subjectData })
+    });
+    if (!setDataResponse.ok) {
+      const errorBody = await setDataResponse.text();
+      throw new Error(
+        `testLoginWithMagicLink: Failed to set subject data. ` +
+        `Status: ${setDataResponse.status}, Response: ${errorBody}`
+      );
+    }
+  }
+
+  // Step 4: Exchange refresh token cookie for access token
+  // #handleRefreshToken re-queries the subject from DB, so the JWT
+  // will reflect any flags set in step 3
   const refreshResponse = await browser.fetch(`${baseUrl}${prefix}/refresh-token`, {
     method: 'POST'
   });
@@ -88,7 +116,11 @@ export async function testLoginWithMagicLink(
     );
   }
 
-  // Extract userId from JWT payload (base64 decode middle part)
-  const payload = JSON.parse(atob(refreshBody.access_token.split('.')[1]));
-  return payload.sub;
+  // Extract sub from JWT payload (base64url decode middle part)
+  const accessToken = refreshBody.access_token;
+  const payloadB64 = accessToken.split('.')[1];
+  const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
+  const { sub } = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+
+  return { accessToken, sub };
 }

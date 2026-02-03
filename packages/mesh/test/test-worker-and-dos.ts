@@ -1067,8 +1067,12 @@ export class EchoDO extends LumenizeDO<Env> {
 }
 
 // Import routeDORequest for e2e testing with Browser.WebSocket
+import { env } from 'cloudflare:workers';
 import { routeDORequest } from '@lumenize/utils';
-import { createWebSocketAuthMiddleware, createAuthMiddleware } from '@lumenize/auth';
+import { createRouteDORequestAuthHooks } from '@lumenize/auth';
+
+// Create auth hooks once at module level (async — imports public keys from env)
+const authHooks = await createRouteDORequestAuthHooks(env);
 
 // Default export for worker - routes to DOs for e2e testing
 export default {
@@ -1077,17 +1081,9 @@ export default {
     // The routeDORequest function matches URLs like /gateway/LUMENIZE_CLIENT_GATEWAY/{instanceName}
     // and routes them to the appropriate DO
 
-    // Get public keys from env (from .dev.vars)
-    const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-
-    // Create auth middleware for WebSocket and HTTP requests
-    const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
-    const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
-
     const response = await routeDORequest(request, env, {
       prefix: 'gateway',
-      onBeforeConnect: wsAuth,
-      onBeforeRequest: httpAuth,
+      ...authHooks,
     });
 
     if (response) {

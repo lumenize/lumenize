@@ -29,7 +29,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // the onLoginRequired callback is invoked.
 
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
+  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com', { subjectData: { adminApproved: true } });
 
   // Track login required errors
   const loginRequiredErrors: LoginRequiredError[] = [];
@@ -81,7 +81,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // The onBeforeCall() checks that originAuth.userId exists.
 
   const bobBrowser = new Browser();
-  const bobUserId = await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
+  const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
 
   using bob = new SecurityClient({
     instanceName: `${bobUserId}.tab1`,
@@ -120,10 +120,9 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)
   // ============================================
-  // TODO: Requires custom claims support in @lumenize/auth
+  // TODO: Now that @lumenize/auth supports isAdmin via testLoginWithMagicLink subjectData,
+  // implement this test: Bob (no isAdmin) fails, Admin ({ subjectData: { isAdmin: true } }) succeeds.
   // The adminMethod guard checks originAuth.claims.isAdmin.
-  // Once @lumenize/auth supports custom claims in testLoginWithMagicLink,
-  // we can test: Bob (no isAdmin) fails, Admin (isAdmin: true) succeeds.
 
   // ============================================
   // Phase 5: @mesh(guard) with instance state (allowed editors)
@@ -132,7 +131,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // After being added, her call succeeds.
 
   const carolBrowser = new Browser();
-  const carolUserId = await testLoginWithMagicLink(carolBrowser, 'carol@example.com');
+  const { sub: carolUserId } = await testLoginWithMagicLink(carolBrowser, 'carol@example.com', { subjectData: { adminApproved: true } });
 
   using carol = new SecurityClient({
     instanceName: `${carolUserId}.tab1`,
@@ -164,9 +163,9 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
   // Phase 6: Reusable guards (requireRole pattern)
   // ============================================
-  // TODO: Requires custom claims support in @lumenize/auth
+  // TODO: Custom roles are not yet part of @lumenize/auth JWT claims.
   // The requireRole guard checks originAuth.claims.roles.
-  // Once @lumenize/auth supports custom claims, we can test:
+  // Once @lumenize/auth supports custom role claims, we can test:
   // Bob (no roles) fails editDocument, Admin (roles: ['editor']) succeeds.
 
   // ============================================
@@ -197,4 +196,39 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // Cleanup
   // ============================================
   // Clients auto-disconnect via `using`
+});
+
+/**
+ * Negative security test: verify that forged/invalid JWTs are rejected
+ * by the Worker's auth hooks BEFORE reaching the gateway DO.
+ *
+ * This is the end-to-end counterpart to the auth package unit tests.
+ * The gateway unit tests use fake JWTs (since gateway trusts the Worker),
+ * but this test proves the Worker actually blocks invalid tokens.
+ */
+it('Worker rejects forged JWT before it reaches the gateway DO', async () => {
+  const browser = new Browser();
+
+  // Attempt WebSocket upgrade with a completely forged JWT
+  // The Worker's onBeforeConnect should reject this with 401
+  const forgedToken = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJmYWtlLXVzZXIifQ.not-a-real-signature';
+  const response = await browser.fetch('https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/forged-user.tab1', {
+    headers: {
+      'Upgrade': 'websocket',
+      'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${forgedToken}`,
+    },
+  });
+
+  // Worker hooks should reject — invalid signature never reaches gateway
+  expect(response.status).toBe(401);
+
+  // Also verify: no token at all
+  const noTokenResponse = await browser.fetch('https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/no-token.tab1', {
+    headers: {
+      'Upgrade': 'websocket',
+      'Sec-WebSocket-Protocol': 'lmz',
+    },
+  });
+
+  expect(noTokenResponse.status).toBe(401);
 });

@@ -11,6 +11,20 @@ import {
   type IncomingCallResponseMessage,
 } from '../src/lumenize-client-gateway';
 
+/**
+ * Create a fake JWT for gateway unit tests.
+ * Gateway decodes JWT payload inline (no signature verification — Worker hooks already verified).
+ * This builds a structurally valid JWT with the given payload claims.
+ */
+function createFakeJwt(payload: Record<string, unknown>): string {
+  const header = btoa(JSON.stringify({ alg: 'EdDSA', typ: 'JWT' }))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const body = btoa(JSON.stringify(payload))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const sig = 'fakesig';
+  return `${header}.${body}.${sig}`;
+}
+
 describe('LumenizeClientGateway', () => {
   describe('WebSocket connection', () => {
     it('rejects non-WebSocket requests', async () => {
@@ -24,7 +38,7 @@ describe('LumenizeClientGateway', () => {
       expect(response.status).toBe(426); // Upgrade Required
     });
 
-    it('rejects WebSocket upgrade without X-Auth-User-Id header', async () => {
+    it('rejects WebSocket upgrade without Authorization header', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('alice.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
@@ -41,10 +55,11 @@ describe('LumenizeClientGateway', () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('alice.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
+      const token = createFakeJwt({ sub: 'bob', exp: Math.floor(Date.now() / 1000) + 900 });
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
-          'X-Auth-User-Id': 'bob', // Different from 'alice' in instance name
+          'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'alice.tab1',
         },
       });
@@ -52,14 +67,15 @@ describe('LumenizeClientGateway', () => {
       expect(response.status).toBe(403); // Forbidden - identity mismatch
     });
 
-    it('accepts WebSocket upgrade with valid auth headers', async () => {
+    it('accepts WebSocket upgrade with valid Authorization header', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('alice.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
+      const token = createFakeJwt({ sub: 'alice', exp: Math.floor(Date.now() / 1000) + 900 });
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
-          'X-Auth-User-Id': 'alice',
+          'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'alice.tab1',
         },
       });
@@ -72,10 +88,11 @@ describe('LumenizeClientGateway', () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('fresh-conn.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
+      const token = createFakeJwt({ sub: 'fresh-conn', exp: Math.floor(Date.now() / 1000) + 900 });
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
-          'X-Auth-User-Id': 'fresh-conn',
+          'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'fresh-conn.tab1',
         },
       });
@@ -110,10 +127,11 @@ describe('LumenizeClientGateway', () => {
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
       // Establish WebSocket connection
+      const token = createFakeJwt({ sub: 'caller', exp: Math.floor(Date.now() / 1000) + 900 });
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
-          'X-Auth-User-Id': 'caller',
+          'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'caller.tab1',
         },
       });
@@ -193,12 +211,18 @@ describe('LumenizeClientGateway', () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('auth-user.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
-      // Establish WebSocket with claims
+      // Establish WebSocket with JWT carrying claims
+      const token = createFakeJwt({
+        sub: 'auth-user',
+        exp: Math.floor(Date.now() / 1000) + 900,
+        emailVerified: true,
+        adminApproved: true,
+        isAdmin: true,
+      });
       const response = await gateway.fetch('https://example.com', {
         headers: {
           'Upgrade': 'websocket',
-          'X-Auth-User-Id': 'auth-user',
-          'X-Auth-Claims': JSON.stringify({ role: 'admin', org: 'acme' }),
+          'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'auth-user.tab1',
         },
       });
@@ -252,8 +276,12 @@ describe('LumenizeClientGateway', () => {
 
       expect(callResponse.success).toBe(true);
       expect(callResponse.result.originAuth).toMatchObject({
-        userId: 'auth-user',
-        claims: { role: 'admin', org: 'acme' },
+        userId: 'auth-user', // Bridge: attachment.sub → originAuth.userId
+        claims: {
+          emailVerified: true,
+          adminApproved: true,
+          isAdmin: true,
+        },
       });
 
       ws.close();

@@ -9,8 +9,7 @@ import { routeDORequest } from '@lumenize/utils';
 import {
   LumenizeAuth,
   createAuthRoutes,
-  createWebSocketAuthMiddleware,
-  createAuthMiddleware
+  createRouteDORequestAuthHooks
 } from '@lumenize/auth';
 import { LumenizeClientGateway } from '../../../src/index.js';
 
@@ -21,11 +20,9 @@ export { CalculatorDO } from './calculator-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
 export { AnalyticsWorker, type AnalyticsResult } from './analytics-worker.js';
 
-// Create auth routes and middleware once at module level
-const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+// Create auth routes and hooks once at module level
 const authRoutes = createAuthRoutes(env);
-const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
-const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
+const authHooks = await createRouteDORequestAuthHooks(env);
 
 // Worker entry point
 export default {
@@ -38,8 +35,7 @@ export default {
 
     const response = await routeDORequest(request, env, {
       prefix: 'gateway',
-      onBeforeConnect: wsAuth,
-      onBeforeRequest: httpAuth,
+      ...authHooks,
     });
 
     if (response) {
