@@ -1,6 +1,6 @@
 # Lumenize Auth Upgrade (Bootstrap, Admin, Flow)
 
-**Status**: Design Drafted - Awaiting Review
+**Status**: Design Complete
 **Design Documents**:
 - `/website/docs/auth/index.mdx` - Overview, access flows, bootstrap
 - `/website/docs/auth/api-reference.mdx` - Endpoints, environment variables, subject management, delegation
@@ -343,15 +343,15 @@ Signature: `testLoginWithMagicLink(browser: Browser, email: string, options?): P
 
 ### Documentation
 - [x] Draft `website/docs/auth/index.mdx` (overview, access flows, bootstrap)
-- [ ] Reviewed and approved by maintainer `website/docs/auth/index.mdx` 
+- [x] Reviewed and approved by maintainer `website/docs/auth/index.mdx`
 - [x] Draft `website/docs/auth/api-reference.mdx` (roles, subject management)
-- [ ] Reviewed and approved by maintainer `website/docs/auth/api-reference.mdx` 
+- [x] Reviewed and approved by maintainer `website/docs/auth/api-reference.mdx` 
 - [x] Update `website/sidebars.ts` to include new pages
 - [ ] Update `security.mdx` examples once claims work
 
 ## Prerequisites
 - [x] Design/APIs drafted in MDX (reads as final docs)
-- [ ] Design/APIs reviewed and approved by maintainer
+- [x] Design/APIs reviewed and approved by maintainer
 
 ## Implementation Phases
 
