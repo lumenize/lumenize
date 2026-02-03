@@ -21,7 +21,7 @@ export { GuardedDO } from './guarded-do.js';
 
 // Create auth routes and middleware once at module level
 const publicKeys = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-const authRoutes = createAuthRoutes(env, { redirect: '/app' });
+const authRoutes = createAuthRoutes(env);
 const wsAuth = await createWebSocketAuthMiddleware({ publicKeysPem: publicKeys });
 const httpAuth = await createAuthMiddleware({ publicKeysPem: publicKeys });
 

@@ -1,8 +1,8 @@
 import { debug } from '@lumenize/debug';
-import { LumenizeDO } from '@lumenize/mesh';
+import { DurableObject } from 'cloudflare:workers';
 import { routeDORequest, type CorsOptions } from '@lumenize/utils';
 import { ALL_SCHEMAS } from './schemas';
-import type { User, MagicLink, RefreshToken, LoginResponse, AuthError, AuthConfig, EmailService } from './types';
+import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, AuthRoutesOptions, EmailService } from './types';
 import {
   generateRandomString,
   generateUuid,
@@ -14,73 +14,41 @@ import {
 import { ConsoleEmailService } from './email-service';
 
 /**
- * Default configuration values
- * Note: redirect is intentionally undefined - it must be set via configure()
+ * SQL template literal tag for Durable Object storage.
+ * Copied from @lumenize/mesh/src/sql.ts (originally from @cloudflare/actors).
  */
-const DEFAULT_CONFIG: Omit<Required<AuthConfig>, 'redirect' | 'cors'> & { redirect: string | undefined; cors: undefined } = {
-  issuer: 'https://lumenize.local',
-  audience: 'https://lumenize.local',
-  accessTokenTtl: 900, // 15 minutes
-  refreshTokenTtl: 2592000, // 30 days
-  magicLinkTtl: 1800, // 30 minutes
-  rateLimitPerHour: 5, // 5 requests per hour per email
-  prefix: '/auth',
-  gatewayBindingName: 'LUMENIZE_AUTH',
-  instanceName: 'default',
-  cors: undefined,
-  redirect: undefined, // Must be configured - DO returns 'not_configured' if missing
-};
-
-/**
- * Error code returned when LumenizeAuth needs configuration.
- * Used by createAuthRoutes to trigger lazy initialization.
- */
-export const AUTH_NOT_CONFIGURED_ERROR = 'not_configured';
+function sql(doInstance: any) {
+  const ctx = doInstance.ctx;
+  return (strings: TemplateStringsArray, ...values: any[]) => {
+    const query = strings.reduce((acc, str, i) =>
+      acc + str + (i < values.length ? '?' : ''), '');
+    return [...ctx.storage.sql.exec(query, ...values)];
+  };
+}
 
 /**
  * LumenizeAuth - Durable Object for authentication
  *
  * Provides magic link login, JWT access tokens, and refresh token rotation.
+ * All configuration is read from environment variables (no RPC config needed).
  *
- * Endpoints (using configurable prefix, default `/auth`):
- * - GET {prefix}/enter - Returns login form (or redirect to form)
- * - POST {prefix}/email-magic-link - Request magic link
- * - GET {prefix}/magic-link - Validate magic link and login
- * - POST {prefix}/refresh-token - Refresh access token
- * - POST {prefix}/logout - Revoke refresh token
+ * @see https://lumenize.com/docs/auth/
  */
-export class LumenizeAuth extends LumenizeDO {
+export class LumenizeAuth extends DurableObject {
   #debug = debug(this);
+  #sql = sql(this);
   #schemaInitialized = false;
-  #config: Required<AuthConfig> | null = null; // null until configure() called
   #emailService: EmailService = new ConsoleEmailService();
-  // Rate limiting uses instance variables, not storage (storage writes are expensive, rate limits are ephemeral)
-  #rateLimits = new Map<string, { count: number; windowStart: number }>();
 
   /**
    * Ensure database schema is created
    */
   #ensureSchema(): void {
     if (this.#schemaInitialized) return;
-
     for (const schema of ALL_SCHEMAS) {
       this.ctx.storage.sql.exec(schema);
     }
-
     this.#schemaInitialized = true;
-  }
-
-  /**
-   * Configure auth settings
-   *
-   * Must be called before auth endpoints can be used.
-   * createAuthRoutes handles this automatically via lazy initialization.
-   */
-  configure(config: AuthConfig): void {
-    if (!config.redirect) {
-      throw new Error('redirect is required in auth config');
-    }
-    this.#config = { ...DEFAULT_CONFIG, ...config } as Required<AuthConfig>;
   }
 
   /**
@@ -90,32 +58,35 @@ export class LumenizeAuth extends LumenizeDO {
     this.#emailService = service;
   }
 
+  // ============================================
+  // Environment-based config helpers
+  // ============================================
+
+  get #redirect(): string { return (this.env as any).LUMENIZE_AUTH_REDIRECT; }
+  get #issuer(): string { return (this.env as any).LUMENIZE_AUTH_ISSUER || 'https://lumenize.local'; }
+  get #audience(): string { return (this.env as any).LUMENIZE_AUTH_AUDIENCE || 'https://lumenize.local'; }
+  get #accessTokenTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_ACCESS_TOKEN_TTL) || 900; }
+  get #refreshTokenTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_REFRESH_TOKEN_TTL) || 2592000; }
+  get #magicLinkTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_MAGIC_LINK_TTL) || 1800; }
+  get #prefix(): string { return (this.env as any).LUMENIZE_AUTH_PREFIX || '/auth'; }
+
   /**
-   * HTTP request handler - routes to appropriate endpoint
+   * HTTP request handler — routes to appropriate endpoint
    */
   async fetch(request: Request): Promise<Response> {
-    // Auto-initialize from headers (LumenizeBase)
-    await super.fetch(request);
+    // Validate required config
+    if (!this.#redirect) {
+      return this.#errorResponse(500, 'server_error', 'LUMENIZE_AUTH_REDIRECT not set');
+    }
 
     // Ensure schema exists
     this.#ensureSchema();
 
-    // Check config is set - if not, return error so Worker can call configure() and retry
-    if (!this.#config) {
-      return this.#errorResponse(503, AUTH_NOT_CONFIGURED_ERROR, 'Auth DO not configured. Call configure() first.');
-    }
-
     const url = new URL(request.url);
     const path = url.pathname;
-
-    const log = this.#debug('lmz.auth.LumenizeAuth');
+    const log = this.#debug('auth.LumenizeAuth');
 
     try {
-      // Route to appropriate handler
-      if (path.endsWith('/enter') && request.method === 'GET') {
-        return this.#handleEnter(request);
-      }
-
       if (path.endsWith('/email-magic-link') && request.method === 'POST') {
         return await this.#handleEmailMagicLink(request, url);
       }
@@ -148,33 +119,10 @@ export class LumenizeAuth extends LumenizeDO {
   // ============================================
 
   /**
-   * GET {prefix}/enter - Entry point for login flow
-   * Returns a simple HTML form or instructions
-   */
-  #handleEnter(_request: Request): Response {
-    const prefix = this.#config!.prefix;
-    // For now, return a simple JSON response indicating the endpoint exists
-    // In a real app, this would return an HTML form or redirect
-    return Response.json({
-      message: `Login endpoint. POST email to ${prefix}/email-magic-link`,
-      endpoints: {
-        request_magic_link: `POST ${prefix}/email-magic-link`,
-        validate_magic_link: `GET ${prefix}/magic-link?magic-link-token=...&state=...`,
-        refresh_token: `POST ${prefix}/refresh-token`,
-        logout: `POST ${prefix}/logout`
-      }
-    });
-  }
-
-  /**
-   * POST {prefix}/email-magic-link - Request a magic link
-   * Body: { email: string }
+   * POST {prefix}/email-magic-link — Request a magic link
    */
   async #handleEmailMagicLink(request: Request, url: URL): Promise<Response> {
-    const config = this.#config!;
-
     let email: string;
-
     try {
       const body = await request.json() as { email?: string };
       email = body.email?.toLowerCase().trim() || '';
@@ -186,43 +134,35 @@ export class LumenizeAuth extends LumenizeDO {
       return this.#errorResponse(400, 'invalid_request', 'Valid email required');
     }
 
-    // Rate limiting check
-    if (!this.#checkRateLimit(email, config)) {
-      return this.#errorResponse(429, 'rate_limit_exceeded', 'Too many requests. Please try again later.');
-    }
-
-    // Generate magic link token and state
+    // Generate one-time login token
     const token = generateRandomString(32);
-    const state = generateRandomString(32);
-    const expiresAt = Date.now() + (config.magicLinkTtl * 1000);
+    const expiresAt = Date.now() + (this.#magicLinkTtl * 1000);
 
-    // Store magic link
-    this.svc.sql`
-      INSERT INTO magic_links (token, state, email, expires_at, used)
-      VALUES (${token}, ${state}, ${email}, ${expiresAt}, 0)
+    this.#sql`
+      INSERT INTO magic_links (token, email, expires_at, used)
+      VALUES (${token}, ${email}, ${expiresAt}, 0)
     `;
 
     // Build magic link URL
     const baseUrl = url.origin;
-    const prefix = config.prefix;
-    const magicLinkUrl = `${baseUrl}${prefix}/magic-link?magic-link-token=${token}&state=${state}`;
+    const magicLinkUrl = `${baseUrl}${this.#prefix}/magic-link?one_time_token=${token}`;
 
-    // Check for test mode - return magic link in response instead of sending email
-    const isTestMode = this.env.LUMENIZE_AUTH_TEST_MODE === 'true' && url.searchParams.get('_test') === 'true';
+    // Check for test mode
+    const isTestMode = (this.env as any).LUMENIZE_AUTH_TEST_MODE === 'true' && url.searchParams.get('_test') === 'true';
 
     if (isTestMode) {
       return Response.json({
         message: 'Magic link generated (test mode)',
         magic_link: magicLinkUrl,
-        expires_in: config.magicLinkTtl
+        expires_in: this.#magicLinkTtl
       });
     }
 
-    // Send email via email service
+    // Send email
     try {
       await this.#emailService.send(email, magicLinkUrl);
     } catch (error) {
-      const log = this.#debug('lmz.auth.LumenizeAuth');
+      const log = this.#debug('auth.LumenizeAuth');
       log.error('Failed to send magic link email', {
         error: error instanceof Error ? error.message : String(error),
         email
@@ -232,85 +172,72 @@ export class LumenizeAuth extends LumenizeDO {
 
     return Response.json({
       message: 'Check your email for the magic link',
-      expires_in: config.magicLinkTtl
+      expires_in: this.#magicLinkTtl
     });
   }
 
   /**
-   * GET {prefix}/magic-link - Validate magic link and complete login
-   * Query params: magic-link-token, state
+   * GET {prefix}/magic-link — Validate magic link and complete login
    */
   async #handleMagicLink(_request: Request, url: URL): Promise<Response> {
-    const config = this.#config!;
+    const token = url.searchParams.get('one_time_token');
 
-    const token = url.searchParams.get('magic-link-token');
-    const state = url.searchParams.get('state');
-
-    if (!token || !state) {
-      return this.#errorResponse(400, 'invalid_request', 'Missing token or state');
+    if (!token) {
+      return this.#errorResponse(400, 'invalid_request', 'Missing one_time_token');
     }
 
     // Look up magic link
-    const rows = this.svc.sql`
-      SELECT token, state, email, expires_at, used
+    const rows = this.#sql`
+      SELECT token, email, expires_at, used
       FROM magic_links
       WHERE token = ${token}
     ` as MagicLink[];
 
     if (rows.length === 0) {
-      return this.#errorResponse(400, 'invalid_token', 'Invalid or expired magic link');
+      return this.#redirectWithError('invalid_token');
     }
 
     const magicLink = rows[0];
 
-    // Validate state (CSRF protection)
-    if (magicLink.state !== state) {
-      return this.#errorResponse(400, 'invalid_state', 'Invalid state parameter');
-    }
-
     // Check if already used
     if (magicLink.used) {
-      return this.#errorResponse(400, 'token_used', 'Magic link already used');
+      return this.#redirectWithError('token_used');
     }
 
     // Check expiration
     if (Date.now() > magicLink.expires_at) {
-      return this.#errorResponse(400, 'token_expired', 'Magic link expired');
+      return this.#redirectWithError('token_expired');
     }
 
-    // Mark as used
-    this.svc.sql`
-      UPDATE magic_links SET used = 1 WHERE token = ${token}
+    // Delete the token (single-use)
+    this.#sql`DELETE FROM magic_links WHERE token = ${token}`;
+
+    // Get or create subject
+    const subject = this.#getOrCreateSubject(magicLink.email);
+
+    // Update last login and set emailVerified
+    this.#sql`
+      UPDATE subjects
+      SET last_login_at = ${Date.now()}, email_verified = 1
+      WHERE sub = ${subject.sub}
     `;
 
-    // Get or create user
-    const user = await this.#getOrCreateUser(magicLink.email);
+    // Generate refresh token
+    const refreshToken = await this.#generateRefreshToken(subject.sub);
 
-    // Update last login
-    this.svc.sql`
-      UPDATE users SET last_login_at = ${Date.now()} WHERE id = ${user.id}
-    `;
-
-    // Generate refresh token (access token obtained via /refresh-token after redirect)
-    const refreshToken = await this.#generateRefreshToken(user.id, config);
-
-    // Return 302 redirect with refresh token in cookie
-    // Browser navigates to redirect URL, then SPA calls /refresh-token to get access token
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': config.redirect,
-        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken, config)
+        'Location': this.#redirect,
+        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
       }
     });
   }
 
   /**
-   * POST {prefix}/refresh-token - Refresh access token using refresh token from cookie
+   * POST {prefix}/refresh-token — Exchange refresh token for access token
    */
   async #handleRefreshToken(request: Request): Promise<Response> {
-    const config = this.#config!;
-
     const cookieHeader = request.headers.get('Cookie') || '';
     const refreshToken = this.#extractCookie(cookieHeader, 'refresh-token');
 
@@ -318,12 +245,10 @@ export class LumenizeAuth extends LumenizeDO {
       return this.#errorResponse(401, 'invalid_token', 'No refresh token provided');
     }
 
-    // Hash the token to look up
     const tokenHash = await hashString(refreshToken);
 
-    // Look up refresh token
-    const rows = this.svc.sql`
-      SELECT token_hash, user_id, expires_at, revoked
+    const rows = this.#sql`
+      SELECT token_hash, subject_id, expires_at, revoked
       FROM refresh_tokens
       WHERE token_hash = ${tokenHash}
     ` as RefreshToken[];
@@ -334,42 +259,50 @@ export class LumenizeAuth extends LumenizeDO {
 
     const storedToken = rows[0];
 
-    // Check if revoked
     if (storedToken.revoked) {
       return this.#errorResponse(401, 'token_revoked', 'Refresh token has been revoked');
     }
 
-    // Check expiration
     if (Date.now() > storedToken.expires_at) {
       return this.#errorResponse(401, 'token_expired', 'Refresh token expired');
     }
 
     // Revoke old refresh token (rotation)
-    this.svc.sql`
-      UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}
-    `;
+    this.#sql`UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}`;
+
+    // Look up the subject to get current flags for JWT claims
+    const subjectRows = this.#sql`
+      SELECT sub, email, email_verified, admin_approved, is_admin, authorized_actors, created_at, last_login_at
+      FROM subjects WHERE sub = ${storedToken.subject_id}
+    ` as any[];
+
+    if (subjectRows.length === 0) {
+      return this.#errorResponse(401, 'invalid_token', 'Subject not found');
+    }
+
+    const subject = this.#rowToSubject(subjectRows[0]);
 
     // Generate new tokens
-    const newAccessToken = await this.#generateAccessToken(storedToken.user_id, config);
-    const newRefreshToken = await this.#generateRefreshToken(storedToken.user_id, config);
+    const newAccessToken = await this.#generateAccessToken(subject);
+    const newRefreshToken = await this.#generateRefreshToken(storedToken.subject_id);
 
     const response: LoginResponse = {
       access_token: newAccessToken,
       token_type: 'Bearer',
-      expires_in: config.accessTokenTtl
+      expires_in: this.#accessTokenTtl
     };
 
     return new Response(JSON.stringify(response), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Set-Cookie': this.#createRefreshTokenCookie(newRefreshToken, config)
+        'Set-Cookie': this.#createRefreshTokenCookie(newRefreshToken)
       }
     });
   }
 
   /**
-   * POST {prefix}/logout - Revoke refresh token
+   * POST {prefix}/logout — Revoke refresh token
    */
   async #handleLogout(request: Request): Promise<Response> {
     const cookieHeader = request.headers.get('Cookie') || '';
@@ -377,14 +310,9 @@ export class LumenizeAuth extends LumenizeDO {
 
     if (refreshToken) {
       const tokenHash = await hashString(refreshToken);
-      
-      // Revoke the refresh token
-      this.svc.sql`
-        UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}
-      `;
+      this.#sql`UPDATE refresh_tokens SET revoked = 1 WHERE token_hash = ${tokenHash}`;
     }
 
-    // Clear the cookie
     return new Response(JSON.stringify({ message: 'Logged out' }), {
       status: 200,
       headers: {
@@ -395,85 +323,70 @@ export class LumenizeAuth extends LumenizeDO {
   }
 
   // ============================================
-  // RPC Methods (for Workers RPC calls)
-  // ============================================
-
-  /**
-   * Get user by ID (RPC method)
-   */
-  getUserById(userId: string): User | null {
-    this.#ensureSchema();
-    
-    const rows = this.svc.sql`
-      SELECT id, email, created_at, last_login_at
-      FROM users
-      WHERE id = ${userId}
-    ` as User[];
-
-    return rows[0] || null;
-  }
-
-  /**
-   * Get user by email (RPC method)
-   */
-  getUserByEmail(email: string): User | null {
-    this.#ensureSchema();
-    
-    const rows = this.svc.sql`
-      SELECT id, email, created_at, last_login_at
-      FROM users
-      WHERE email = ${email.toLowerCase()}
-    ` as User[];
-
-    return rows[0] || null;
-  }
-
-  // ============================================
   // Helper Methods
   // ============================================
 
   /**
-   * Get or create a user by email
+   * Get or create a subject by email
    */
-  async #getOrCreateUser(email: string): Promise<User> {
+  #getOrCreateSubject(email: string): Subject {
     const normalizedEmail = email.toLowerCase();
-    
-    // Try to find existing user
-    const existingRows = this.svc.sql`
-      SELECT id, email, created_at, last_login_at
-      FROM users
+
+    const existingRows = this.#sql`
+      SELECT sub, email, email_verified, admin_approved, is_admin, authorized_actors, created_at, last_login_at
+      FROM subjects
       WHERE email = ${normalizedEmail}
-    ` as User[];
+    ` as any[];
 
     if (existingRows.length > 0) {
-      return existingRows[0];
+      return this.#rowToSubject(existingRows[0]);
     }
 
-    // Create new user
-    const userId = generateUuid();
+    // Create new subject
+    const sub = generateUuid();
     const now = Date.now();
 
-    this.svc.sql`
-      INSERT INTO users (id, email, created_at, last_login_at)
-      VALUES (${userId}, ${normalizedEmail}, ${now}, ${now})
+    this.#sql`
+      INSERT INTO subjects (sub, email, email_verified, admin_approved, is_admin, authorized_actors, created_at, last_login_at)
+      VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, '[]', ${now}, ${now})
     `;
 
     return {
-      id: userId,
+      sub,
       email: normalizedEmail,
-      created_at: now,
-      last_login_at: now
+      emailVerified: false,
+      adminApproved: false,
+      isAdmin: false,
+      authorizedActors: [],
+      createdAt: now,
+      lastLoginAt: now
     };
   }
 
   /**
-   * Generate a signed JWT access token
+   * Convert a SQL row to a Subject object
    */
-  async #generateAccessToken(userId: string, config: Required<AuthConfig>): Promise<string> {
-    const activeKey = this.env.PRIMARY_JWT_KEY || 'BLUE';
+  #rowToSubject(row: any): Subject {
+    return {
+      sub: row.sub,
+      email: row.email,
+      emailVerified: Boolean(row.email_verified),
+      adminApproved: Boolean(row.admin_approved),
+      isAdmin: Boolean(row.is_admin),
+      authorizedActors: JSON.parse(row.authorized_actors || '[]'),
+      createdAt: row.created_at,
+      lastLoginAt: row.last_login_at
+    };
+  }
+
+  /**
+   * Generate a signed JWT access token with subject claims
+   */
+  async #generateAccessToken(subject: Subject): Promise<string> {
+    const activeKey = (this.env as any).PRIMARY_JWT_KEY || 'BLUE';
     const privateKeyPem = activeKey === 'GREEN'
-      ? this.env.JWT_PRIVATE_KEY_GREEN
-      : this.env.JWT_PRIVATE_KEY_BLUE;
+      ? (this.env as any).JWT_PRIVATE_KEY_GREEN
+      : (this.env as any).JWT_PRIVATE_KEY_BLUE;
 
     if (!privateKeyPem) {
       throw new Error(`JWT private key not configured for ${activeKey}`);
@@ -482,10 +395,13 @@ export class LumenizeAuth extends LumenizeDO {
     const privateKey = await importPrivateKey(privateKeyPem);
 
     const payload = createJwtPayload({
-      issuer: config.issuer,
-      audience: config.audience,
-      subject: userId,
-      expiresInSeconds: config.accessTokenTtl
+      issuer: this.#issuer,
+      audience: this.#audience,
+      subject: subject.sub,
+      expiresInSeconds: this.#accessTokenTtl,
+      emailVerified: subject.emailVerified,
+      adminApproved: subject.adminApproved,
+      isAdmin: subject.isAdmin || undefined,
     });
 
     return signJwt(payload, privateKey, activeKey);
@@ -494,15 +410,15 @@ export class LumenizeAuth extends LumenizeDO {
   /**
    * Generate a refresh token and store its hash
    */
-  async #generateRefreshToken(userId: string, config: Required<AuthConfig>): Promise<string> {
+  async #generateRefreshToken(subjectId: string): Promise<string> {
     const token = generateRandomString(32);
     const tokenHash = await hashString(token);
     const now = Date.now();
-    const expiresAt = now + (config.refreshTokenTtl * 1000);
+    const expiresAt = now + (this.#refreshTokenTtl * 1000);
 
-    this.svc.sql`
-      INSERT INTO refresh_tokens (token_hash, user_id, expires_at, created_at, revoked)
-      VALUES (${tokenHash}, ${userId}, ${expiresAt}, ${now}, 0)
+    this.#sql`
+      INSERT INTO refresh_tokens (token_hash, subject_id, expires_at, created_at, revoked)
+      VALUES (${tokenHash}, ${subjectId}, ${expiresAt}, ${now}, 0)
     `;
 
     return token;
@@ -511,9 +427,19 @@ export class LumenizeAuth extends LumenizeDO {
   /**
    * Create a secure cookie for the refresh token
    */
-  #createRefreshTokenCookie(token: string, config: Required<AuthConfig>): string {
-    const maxAge = config.refreshTokenTtl;
-    return `refresh-token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+  #createRefreshTokenCookie(token: string): string {
+    return `refresh-token=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${this.#refreshTokenTtl}`;
+  }
+
+  /**
+   * Redirect to LUMENIZE_AUTH_REDIRECT with an error query param
+   */
+  #redirectWithError(error: string): Response {
+    const separator = this.#redirect.includes('?') ? '&' : '?';
+    return new Response(null, {
+      status: 302,
+      headers: { 'Location': `${this.#redirect}${separator}error=${error}` }
+    });
   }
 
   /**
@@ -534,47 +460,7 @@ export class LumenizeAuth extends LumenizeDO {
    * Validate email format
    */
   #isValidEmail(email: string): boolean {
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  }
-
-  /**
-   * Check and update rate limit for an email
-   * Returns true if request is allowed, false if rate limited
-   *
-   * Uses instance variables instead of storage - rate limiting is ephemeral.
-   * If DO evicts, limits reset (acceptable: low traffic = not hitting rate limits).
-   */
-  #checkRateLimit(email: string, config: Required<AuthConfig>): boolean {
-    const now = Date.now();
-    const windowMs = 60 * 60 * 1000; // 1 hour in milliseconds
-    const windowStart = now - windowMs;
-
-    const record = this.#rateLimits.get(email);
-
-    if (!record) {
-      // No record - create one
-      this.#rateLimits.set(email, { count: 1, windowStart: now });
-      return true;
-    }
-
-    // Check if window has expired
-    if (record.windowStart < windowStart) {
-      // Reset window
-      this.#rateLimits.set(email, { count: 1, windowStart: now });
-      return true;
-    }
-
-    // Check if under limit
-    if (record.count < config.rateLimitPerHour) {
-      // Increment count
-      record.count++;
-      return true;
-    }
-
-    // Rate limited
-    return false;
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
   /**
@@ -592,35 +478,23 @@ export class LumenizeAuth extends LumenizeDO {
 /**
  * Creates an auth routes handler that wraps routeDORequest with URL rewriting.
  *
- * Translates clean auth URLs to proper DO routing paths:
- * - `/auth/magic-link` → `/auth/LUMENIZE_AUTH/default/magic-link`
- * - `/auth/refresh-token` → `/auth/LUMENIZE_AUTH/default/refresh-token`
+ * All auth configuration (redirect, issuer, audience, TTLs, prefix)
+ * is read from environment variables — only Worker-level routing options
+ * are passed here.
  *
- * Handles lazy initialization: if the DO returns 'not_configured' error,
- * calls `configure()` and retries the request. This happens only on the first
- * request after DO eviction, so normal operation has zero overhead.
- *
- * @example
- * ```typescript
- * const authRoutes = createAuthRoutes(env, {
- *   redirect: '/app',
- *   cors: { origin: ['https://app.example.com'] }
- * });
- *
- * const authResponse = await authRoutes(request);
- * if (authResponse) return authResponse;
- * ```
+ * @see https://lumenize.com/docs/auth/api-reference#createauthroutes
  */
 export function createAuthRoutes(
   env: Env,
-  options: AuthConfig
+  options: AuthRoutesOptions = {}
 ): (request: Request) => Promise<Response | undefined> {
   const {
-    prefix = '/auth',
-    gatewayBindingName = 'LUMENIZE_AUTH',
-    instanceName = 'default',
+    authBindingName = 'LUMENIZE_AUTH',
+    authInstanceName = 'default',
     cors,
   } = options;
+
+  const prefix = (env as any).LUMENIZE_AUTH_PREFIX || '/auth';
 
   // Normalize prefix (ensure starts with /, no trailing /)
   const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
@@ -638,60 +512,20 @@ export function createAuthRoutes(
     }
 
     // Extract the endpoint path after the prefix
-    // e.g., "/auth/magic-link" → "magic-link"
     const endpointPath = path.slice(cleanPrefix.length + 1) || '';
 
     // Rewrite URL to include binding and instance name
-    // "/auth/magic-link" → "/auth/LUMENIZE_AUTH/default/magic-link"
-    const rewrittenPath = `${cleanPrefix}/${gatewayBindingName}/${instanceName}/${endpointPath}`;
+    const rewrittenPath = `${cleanPrefix}/${authBindingName}/${authInstanceName}/${endpointPath}`;
     const rewrittenUrl = new URL(request.url);
     rewrittenUrl.pathname = rewrittenPath;
 
-    // Clone the original request before consuming it, so we can retry if needed
-    // The body can only be read once, so we need two clones: one for initial attempt, one for retry
-    const [requestForFirstAttempt, requestForRetry] = [request.clone(), request.clone()];
+    const rewrittenRequest = new Request(rewrittenUrl.toString(), request.clone() as RequestInit);
 
-    // Create new request with rewritten URL
-    // Note: Passing Request as init is valid per Fetch API spec, but workerd types don't reflect this
-    const rewrittenRequest = new Request(rewrittenUrl.toString(), requestForFirstAttempt as RequestInit);
-
-    // Route to DO
-    let response = await routeDORequest(rewrittenRequest, env, {
+    const response = await routeDORequest(rewrittenRequest, env, {
       prefix: cleanPrefix,
       cors: cors as CorsOptions,
     });
 
-    if (!response) {
-      return undefined;
-    }
-
-    // Check for 'not_configured' error - indicates DO needs lazy initialization
-    if (response.status === 503) {
-      // Clone response to read body without consuming
-      const clonedResponse = response.clone();
-      try {
-        const body = await clonedResponse.json() as { error?: string };
-        if (body.error === AUTH_NOT_CONFIGURED_ERROR) {
-          // Configure the DO with full options
-          const doNamespace = env[gatewayBindingName as keyof Env] as unknown as DurableObjectNamespace<LumenizeAuth>;
-          if (doNamespace) {
-            const stub = doNamespace.get(doNamespace.idFromName(instanceName));
-            await (stub as any).configure(options);
-          }
-
-          // Retry the original request using the preserved clone
-          const retryRequest = new Request(rewrittenUrl.toString(), requestForRetry as RequestInit);
-          response = await routeDORequest(retryRequest, env, {
-            prefix: cleanPrefix,
-            cors: cors as CorsOptions,
-          });
-        }
-      } catch {
-        // Not JSON or other error - return original response
-      }
-    }
-
     return response ?? undefined;
   };
 }
-

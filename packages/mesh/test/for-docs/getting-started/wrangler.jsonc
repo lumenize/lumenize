@@ -33,7 +33,6 @@
   ],
   "vars": {
     "PRIMARY_JWT_KEY": "BLUE",
-    // Test-specific: enables test login without real email
-    "AUTH_TEST_MODE": "true"
+    "LUMENIZE_AUTH_REDIRECT": "/app"
   }
 }

@@ -1,16 +1,19 @@
 /**
  * @lumenize/auth - Authentication for Cloudflare Durable Objects
- * 
- * Provides magic link login, JWT access tokens, and refresh token rotation.
+ *
+ * Provides magic link login, JWT access tokens, refresh token rotation,
+ * and built-in admin role with two-phase access control.
+ *
+ * @see https://lumenize.com/docs/auth/
  */
 
 // Main Auth DO class and routing
-export { LumenizeAuth, createAuthRoutes, AUTH_NOT_CONFIGURED_ERROR } from './lumenize-auth';
+export { LumenizeAuth, createAuthRoutes } from './lumenize-auth';
 
 // JWT utilities
-export { 
-  signJwt, 
-  verifyJwt, 
+export {
+  signJwt,
+  verifyJwt,
   verifyJwtWithRotation,
   importPrivateKey,
   importPublicKey,
@@ -30,12 +33,12 @@ export {
   type HttpEmailServiceOptions
 } from './email-service';
 
-// Auth middleware for routeDORequest
+// Auth hooks for routeDORequest (renamed from middleware.ts)
 export {
   createAuthMiddleware,
   type AuthMiddlewareConfig,
   type AuthContext
-} from './middleware';
+} from './hooks';
 
 // WebSocket authentication
 export {
@@ -46,20 +49,22 @@ export {
   WS_CLOSE_CODES,
   type WebSocketAuthMiddlewareConfig,
   type WebSocketTokenVerifyResult
-} from './middleware';
+} from './hooks';
 
 // Types
 export type {
-  User,
+  Subject,
   MagicLink,
+  InviteToken,
   RefreshToken,
   JwtPayload,
   JwtHeader,
   EmailService,
-  AuthConfig,
+  AuthRoutesOptions,
+  ActClaim,
   LoginResponse,
   AuthError,
-  AuthCorsOptions
+  CorsOptions
 } from './types';
 
 // Schemas (for reference/customization)
@@ -67,4 +72,3 @@ export { ALL_SCHEMAS } from './schemas';
 
 // Test helpers
 export { testLoginWithMagicLink } from './test-helpers';
-

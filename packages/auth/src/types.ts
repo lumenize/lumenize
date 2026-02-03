@@ -1,11 +1,35 @@
 /**
- * User record stored in the Auth DO
+ * Actor claim for delegation per RFC 8693
+ * Recursive: each layer records who delegated to whom
  */
-export interface User {
-  id: string;
+export interface ActClaim {
+  /** Actor ID (who is performing the action) */
+  sub: string;
+  /** Nested delegation chain */
+  act?: ActClaim;
+}
+
+/**
+ * Subject record stored in the Auth DO
+ * @see https://lumenize.com/docs/auth/api-reference#subject-record
+ */
+export interface Subject {
+  /** Subject ID (UUID, per RFC 7519) */
+  sub: string;
+  /** Email address (unique) */
   email: string;
-  created_at: number;
-  last_login_at: number | null;
+  /** Subject clicked magic link or invite link */
+  emailVerified: boolean;
+  /** Admin granted access (or subject is admin) */
+  adminApproved: boolean;
+  /** Full admin access (implicitly satisfies adminApproved) */
+  isAdmin: boolean;
+  /** Actor IDs authorized to act for this subject (delegation) */
+  authorizedActors: string[];
+  /** Unix timestamp */
+  createdAt: number;
+  /** Unix timestamp of last login */
+  lastLoginAt: number | null;
 }
 
 /**
@@ -13,10 +37,18 @@ export interface User {
  */
 export interface MagicLink {
   token: string;
-  state: string;
   email: string;
   expires_at: number;
   used: boolean;
+}
+
+/**
+ * Invite token record stored in the Auth DO
+ */
+export interface InviteToken {
+  token: string;
+  email: string;
+  expires_at: number;
 }
 
 /**
@@ -24,7 +56,7 @@ export interface MagicLink {
  */
 export interface RefreshToken {
   token_hash: string;
-  user_id: string;
+  subject_id: string;
   expires_at: number;
   created_at: number;
   revoked: boolean;
@@ -32,13 +64,14 @@ export interface RefreshToken {
 
 /**
  * JWT payload claims
+ * @see https://lumenize.com/docs/auth/#jwt-claims
  */
 export interface JwtPayload {
   /** Issuer */
   iss: string;
   /** Audience */
   aud: string;
-  /** Subject (user ID) */
+  /** Subject (UUID of the principal) */
   sub: string;
   /** Expiration time (Unix timestamp) */
   exp: number;
@@ -46,6 +79,14 @@ export interface JwtPayload {
   iat: number;
   /** JWT ID (unique identifier) */
   jti: string;
+  /** Subject has confirmed email */
+  emailVerified: boolean;
+  /** Admin has granted access */
+  adminApproved: boolean;
+  /** Full admin access */
+  isAdmin?: boolean;
+  /** Delegation chain per RFC 8693 */
+  act?: ActClaim;
 }
 
 /**
@@ -67,36 +108,31 @@ export interface EmailService {
 }
 
 /**
- * Auth configuration options
- * Used by both createAuthRoutes and LumenizeAuth.configure()
+ * Options for createAuthRoutes — Worker-level routing only.
+ * All auth configuration (redirect, TTLs, issuer, audience, prefix)
+ * is read from environment variables.
+ * @see https://lumenize.com/docs/auth/api-reference#auth-config
  */
-export interface AuthConfig {
-  /** URL to redirect to after magic link validation (REQUIRED) */
-  redirect: string;
-  /** Issuer identifier for JWTs (default: 'https://lumenize.local') */
-  issuer?: string;
-  /** Audience identifier for JWTs (default: 'https://lumenize.local') */
-  audience?: string;
-  /** Access token expiration in seconds (default: 900 = 15 minutes) */
-  accessTokenTtl?: number;
-  /** Refresh token expiration in seconds (default: 2592000 = 30 days) */
-  refreshTokenTtl?: number;
-  /** Magic link expiration in seconds (default: 1800 = 30 minutes) */
-  magicLinkTtl?: number;
-  /** Max magic link requests per email per hour (default: 5) */
-  rateLimitPerHour?: number;
-  /** URL prefix for auth endpoints (default: '/auth') */
-  prefix?: string;
-  /** DO binding name (default: 'LUMENIZE_AUTH') */
-  gatewayBindingName?: string;
-  /** DO instance name (default: 'default') */
-  instanceName?: string;
+export interface AuthRoutesOptions {
   /** CORS configuration for auth endpoints */
-  cors?: AuthCorsOptions;
+  cors?: CorsOptions;
+  /** DO binding name (default: 'LUMENIZE_AUTH') */
+  authBindingName?: string;
+  /** DO instance name (default: 'default') */
+  authInstanceName?: string;
 }
 
 /**
- * Login response returned after successful magic link validation
+ * CORS configuration for auth routes
+ */
+export type CorsOptions =
+  | false // No CORS headers
+  | true // Permissive: echo any Origin
+  | { origin: string[] } // Whitelist of allowed origins
+  | { origin: (origin: string, request: Request) => boolean }; // Custom validation function
+
+/**
+ * Login response returned after successful token refresh
  */
 export interface LoginResponse {
   access_token: string;
@@ -111,14 +147,3 @@ export interface AuthError {
   error: string;
   error_description?: string;
 }
-
-/**
- * CORS configuration for auth routes
- */
-export type AuthCorsOptions =
-  | false // No CORS headers
-  | true // Permissive: echo any Origin
-  | { origin: string[] } // Whitelist of allowed origins
-  | { origin: (origin: string, request: Request) => boolean }; // Custom validation function
-
-

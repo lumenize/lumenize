@@ -49,7 +49,7 @@
     }
   ],
   "vars": {
-    "AUTH_TEST_MODE": "true",
-    "PRIMARY_JWT_KEY": "BLUE"
+    "PRIMARY_JWT_KEY": "BLUE",
+    "LUMENIZE_AUTH_REDIRECT": "/app"
   }
 }

@@ -64,6 +64,9 @@ export default defineWorkersConfig({
           poolOptions: {
             workers: {
               wrangler: { configPath: './test/for-docs/getting-started/test/wrangler.jsonc' },
+              miniflare: {
+                bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
+              },
             },
           },
         },
@@ -77,6 +80,9 @@ export default defineWorkersConfig({
           poolOptions: {
             workers: {
               wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
+              miniflare: {
+                bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
+              },
             },
           },
         },
@@ -103,6 +109,9 @@ export default defineWorkersConfig({
           poolOptions: {
             workers: {
               wrangler: { configPath: './test/for-docs/security/test/wrangler.jsonc' },
+              miniflare: {
+                bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
+              },
             },
           },
         },

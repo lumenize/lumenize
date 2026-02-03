@@ -179,7 +179,7 @@ const bobBrowser = new Browser();
 ```typescript @skip-check
 import { testLoginWithMagicLink } from '@lumenize/auth';
 
-// Requires AUTH_TEST_MODE=true in your .dev.vars
+// Requires LUMENIZE_AUTH_TEST_MODE=true in your vitest.config miniflare bindings
 const userId = await testLoginWithMagicLink(browser, 'alice@example.com');
 
 // Browser now has refresh-token cookie stored
@@ -283,12 +283,15 @@ export default defineWorkersProject({
 });
 ```
 
-### .dev.vars
+### Test mode binding
 
-Enable test mode for magic link authentication:
+Enable test mode for magic link authentication in your vitest config's miniflare bindings (never in wrangler.jsonc):
 
-```
-AUTH_TEST_MODE=true
+```javascript @skip-check
+// In vitest.config.js poolOptions.workers.miniflare
+miniflare: {
+  bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
+},
 ```
 
 ### test/wrangler.jsonc

@@ -1,6 +1,6 @@
 # Lumenize Auth Upgrade (Bootstrap, Admin, Flow)
 
-**Status**: Design Complete
+**Status**: Phase 1 Complete, Phase 6 Complete (done early) — Ready for Phase 2
 **Design Documents**:
 - `/website/docs/auth/index.mdx` - Overview, access flows, bootstrap
 - `/website/docs/auth/api-reference.mdx` - Endpoints, environment variables, subject management, delegation
@@ -278,6 +278,7 @@ Changes needed from current state:
 - [ ] Update `Subject` interface with flags and authorizedActors
 
 ### LumenizeAuth DO
+- [ ] Extend `DurableObject` directly instead of `LumenizeDO` — removes `@lumenize/mesh` dependency. Copy `sql()` template literal tag (~15 lines) into auth as private `#sql` field. Remove `super.fetch()` call. Remove `@lumenize/mesh` from `package.json` dependencies.
 - [ ] Remove `configure()` RPC method, `#config` instance variable, and `DEFAULT_CONFIG` constant
 - [ ] Read all config from `this.env` with inline defaults: `this.env.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local'`, etc.
 - [ ] Validate `this.env.LUMENIZE_AUTH_REDIRECT` at top of `fetch` handler — return `500 { error: 'server_error', error_description: 'LUMENIZE_AUTH_REDIRECT not set' }` if missing (required, no default)
@@ -302,6 +303,9 @@ Changes needed from current state:
 - [ ] **Logging**: Use `@lumenize/debug` for all logging (audit trail, errors, diagnostics). Namespace: `auth.*` (e.g., `auth.subject-management`, `auth.delegation`, `auth.token`)
 - [ ] Remove `#rateLimits` instance variable and `#checkRateLimit()` method (rate limiting moves to Worker level)
 - [ ] Remove `rateLimitPerHour` from `AuthConfig` (replaced by Worker-level rate limiting binding)
+- [ ] Drop `state` column from `magic_links` table; rename `magic-link-token` query param to `one_time_token`; remove CSRF state generation and validation (state adds no security — the one-time token is already high-entropy and single-use; dropping it keeps magic link and invite flows consistent)
+- [ ] Rename `users` table to `subjects` (and `user_id` → `subject_id` in `refresh_tokens`)
+- [ ] Add `invite_tokens` table (token, email, expires_at — reusable until expiry)
 
 ### createAuthRoutes
 - [ ] Remove `redirect`, `issuer`, `audience`, `accessTokenTtl`, `refreshTokenTtl`, `magicLinkTtl`, `prefix` from options — these are now env vars
@@ -317,7 +321,8 @@ Changes needed from current state:
 - [ ] Validate `cf-turnstile-response` token from request body via Cloudflare siteverify API before forwarding magic-link requests to DO. Return 403 on failure.
 - [ ] Fail fast: throw at creation time if `env.TURNSTILE_SECRET_KEY` is not set
 
-### createRouteDORequestAuthHooks
+### createRouteDORequestAuthHooks (file: `hooks.ts`, renamed from `middleware.ts`)
+- [ ] Rename `middleware.ts` → `hooks.ts` (avoids ambiguity — "middleware" could mean either `createAuthRoutes` or the hook functions)
 - [ ] Rename from `createAuthMiddleware`/`createWebSocketAuthMiddleware` to single `createRouteDORequestAuthHooks`
 - [ ] Change signature to `createRouteDORequestAuthHooks(env, options?)` — options object is entirely optional
 - [ ] Remove `issuer`/`audience` options — read from `env.LUMENIZE_AUTH_ISSUER` / `env.LUMENIZE_AUTH_AUDIENCE` (same source of truth as the DO)
@@ -338,8 +343,9 @@ Signature: `testLoginWithMagicLink(browser: Browser, email: string, options?): P
 
 ### LUMENIZE_AUTH_TEST_MODE safety
 - [x] Move `LUMENIZE_AUTH_TEST_MODE` from `packages/auth/wrangler.jsonc` vars to `vitest.config.js` `miniflare.bindings` (never accidentally deployable)
-- [ ] Remove `LUMENIZE_AUTH_TEST_MODE` from all `wrangler.jsonc` files under `packages/mesh/test/` — move to each test's `vitest.config.js` `miniflare.bindings`
-- [ ] Remove `LUMENIZE_AUTH_TEST_MODE` from `website/docs/mesh/testing.mdx` `.dev.vars` example — update to show `vitest.config.js` pattern
+- [x] Remove `LUMENIZE_AUTH_TEST_MODE` from all `wrangler.jsonc` files under `packages/mesh/test/` — move to each test's `vitest.config.js` `miniflare.bindings`
+- [x] Remove `LUMENIZE_AUTH_TEST_MODE` from `website/docs/mesh/testing.mdx` `.dev.vars` example — update to show `vitest.config.js` pattern
+- [x] Consolidate `AUTH_TEST_MODE` → `LUMENIZE_AUTH_TEST_MODE` (gateway's `__testForceClose` now uses the same env var)
 
 ### Documentation
 - [x] Draft `website/docs/auth/index.mdx` (overview, access flows, bootstrap)
@@ -355,7 +361,159 @@ Signature: `testLoginWithMagicLink(browser: Browser, email: string, options?): P
 
 ## Implementation Phases
 
-TBD after design is approved.
+Each phase produces a testable increment. Phases build on each other — earlier phases must pass before starting the next. **Phases 2–6 are provisional** — revisit after Phase 1 completes, since implementation often reveals things that change the plan.
+
+**No migration gymnastics needed.** This package has never been deployed to production. Tests start with a clean slate every run. So schemas and `wrangler.jsonc` migrations can be written as if from scratch — no `ALTER TABLE`, no multi-tag migration chains, no backwards compatibility with existing data.
+
+### Phase 1: Config Delivery & Schema Foundation
+
+Remove the configure() RPC mechanism and establish the new schema.
+
+**Goal**: The DO reads all config from `this.env`, the 503 lazy-init dance is gone, and the database has the new columns. Existing magic link login still works end-to-end.
+
+**Deltas**:
+- Remove `configure()` RPC method, `#config` instance variable, `DEFAULT_CONFIG` constant
+- Read all config from `this.env` with inline defaults
+- Validate `LUMENIZE_AUTH_REDIRECT` at top of `fetch` handler (500 if missing)
+- Remove 503 lazy-init retry and `configure()` call from `createAuthRoutes`
+- New `createAuthRoutes(env, options?)` signature (only `cors`, `authBindingName`, `authInstanceName`)
+- Read `prefix` from `env.LUMENIZE_AUTH_PREFIX || '/auth'`
+- Rename `instanceName` to `authInstanceName`
+- Remove `rateLimitPerHour` from `AuthConfig` (and from types)
+- Remove `#rateLimits` instance variable and `#checkRateLimit()` method
+- Write schemas from scratch: `subjects` table (with `emailVerified`, `adminApproved`, `isAdmin`, `authorizedActors` columns), `magic_links` (without `state` column), `refresh_tokens` (with `subject_id` not `user_id`), `invite_tokens` (new)
+- Write `wrangler.jsonc` migration from scratch (single `v1` tag) — no need to chain onto existing tags
+- Rename `magic-link-token` query param to `one_time_token`; remove CSRF state generation and validation
+- Update `types.ts`: add flags to `Subject` (renamed from `User`), update `JwtPayload`, add `ActClaim`
+- Rename `middleware.ts` → `hooks.ts` (the "middleware" name was ambiguous — could refer to either `createAuthRoutes` or the hook functions; "hooks" matches the `createRouteDORequestAuthHooks` name and the `onBeforeRequest`/`onBeforeConnect` pattern)
+- **Remove `@lumenize/mesh` dependency**: `LumenizeAuth` extends `DurableObject` directly instead of `LumenizeDO`. Copy the `sql()` template literal tag (~15 lines from `packages/mesh/src/sql.ts`) into auth as a private `#sql` field (no attribution needed — same monorepo, and the original attribution to `@cloudflare/actors` is already in `ATTRIBUTIONS.md`). Remove the `super.fetch()` call (it only initializes mesh metadata that LumenizeAuth doesn't use). `this.ctx` and `this.env` come from `DurableObject` directly. Remove `@lumenize/mesh` from `package.json` dependencies.
+
+**Success criteria**:
+- `npm run type-check` passes ✅
+- Existing magic link login flow works (request magic link → click → get refresh token → exchange for access token) ✅
+- New columns exist and default correctly for new subjects ✅
+- No `configure()` anywhere; DO reads from `this.env` ✅
+- `createAuthRoutes(env)` works with no options arg ✅
+- Auth tests: 56 passed, mesh tests: 263 passed ✅
+- `AUTH_TEST_MODE` consolidated to `LUMENIZE_AUTH_TEST_MODE` (Phase 6 done early) ✅
+
+### Phase 2: Bootstrap Admin & Two-Phase Access
+
+Implement the bootstrap admin flow and the `emailVerified`/`adminApproved` gate.
+
+**Goal**: The bootstrap email gets automatic admin on first login. Non-bootstrap subjects get `emailVerified` on magic link click but must be admin-approved before the auth hooks grant access. Existing tests updated for the new access model.
+
+**Deltas**:
+- Bootstrap check: if email matches `LUMENIZE_AUTH_BOOTSTRAP_EMAIL`, set all three flags on first login
+- Set `emailVerified: true` on magic link click (non-bootstrap subjects)
+- Embed `emailVerified`, `adminApproved`, `isAdmin` in JWT claims at token creation
+- `createRouteDORequestAuthHooks`: new unified function replacing `createAuthMiddleware`/`createWebSocketAuthMiddleware`
+- Hooks read `issuer`/`audience` from env, public keys from `JWT_PUBLIC_KEY_BLUE`/`GREEN`
+- Hooks check `emailVerified && adminApproved` (admins pass implicitly)
+- Hooks forward verified JWT as `Authorization: Bearer <jwt>` (remove all `X-Auth-*` headers)
+- Return `{ onBeforeRequest, onBeforeConnect }` for destructuring
+- WebSocket: extract token from subprotocol, verify, set `Authorization: Bearer <jwt>` on upgrade
+- Update `testLoginWithMagicLink` return type to `{ accessToken, claims, sub }`
+- Add `subjectData` option to `testLoginWithMagicLink`
+
+**Success criteria**:
+- Bootstrap email logs in and gets `isAdmin: true` in JWT claims
+- Non-bootstrap subject logs in, gets `emailVerified: true`, `adminApproved: false` in claims
+- Auth hooks return 403 for subjects without `adminApproved`
+- Auth hooks return 200 and forward `Authorization: Bearer <jwt>` for approved subjects
+- Old `createAuthMiddleware`/`createWebSocketAuthMiddleware` removed; `X-Auth-*` headers removed
+- `testLoginWithMagicLink` returns `{ accessToken, claims, sub }`
+
+### Phase 3: Subject Management & Admin Approval
+
+Admin CRUD on subjects plus the approval flow that completes self-signup.
+
+**Goal**: Admins can list, get, update, and delete subjects. The approve endpoint (linked from admin email) sets `adminApproved: true`. Self-protection and bootstrap protection rules enforced.
+
+**Email service note**: This phase introduces new email types (admin notification, approval confirmation) beyond the existing magic link email. The current `EmailService` interface (`send(to, magicLinkUrl)`) is too narrow. Broaden it to support multiple email types when implementing this phase. Note: actual email delivery (e.g., AWS SES) is not yet tested — Cloudflare is expected to release a competing email service, and email templates/polish will come then. For now, `ConsoleEmailService` and `MockEmailService` are sufficient for the new email types.
+
+**Deltas**:
+- `#private` subject management handlers: list (with pagination, role filter), get, update, delete
+- `#private` flag management: approve, promote/demote admin
+- Admin-only route guards (dual auth: Bearer or refresh token cookie)
+- `GET {prefix}/approve/:id` endpoint (works from email links via cookie auth)
+- Admin notification: after magic link validation, if subject needs approval, email all admins with approve link
+- "You're approved" email to subject after approval
+- Revoke-all on status change: when `adminApproved` set to false or subject deleted, revoke all refresh tokens
+- Lazy token cleanup: on rejected token, sweep expired tokens
+- Self-modification prevention (cannot demote/delete self)
+- Bootstrap protection (cannot demote/delete bootstrap admin)
+- Logging with `@lumenize/debug` (namespace: `auth.*`)
+
+**Success criteria**:
+- Admin can list, get, update, delete subjects via API
+- `GET /auth/approve/:id` with cookie auth sets `adminApproved: true`
+- Self-signup → magic link click → admin gets notification email → admin approves → subject can access
+- Cannot demote/delete self or bootstrap admin (403 with descriptive error)
+- Refresh tokens revoked when subject loses access
+- All operations logged via `@lumenize/debug`
+
+### Phase 4: Invite Flow & Delegation
+
+Admin invite (pre-approval) and the `act` claim for delegated access.
+
+**Goal**: Admins can bulk-invite emails (pre-approved). Invited subjects click link and get immediate access. Authenticated subjects can request delegated tokens with proper authorization checks.
+
+**Email service note**: Invite emails are a third email type (alongside magic link and admin notification). The broadened `EmailService` from Phase 3 should accommodate this. Same caveat: real email delivery deferred until Cloudflare's email service launches.
+
+**Deltas**:
+- `POST {prefix}/invite` endpoint: bulk emails, sets `adminApproved: true`, sends invite emails
+- `GET {prefix}/accept-invite?invite_token=...` endpoint: validates reusable token, sets `emailVerified: true`
+- Invite token: 7-day TTL (`LUMENIZE_AUTH_INVITE_TTL`), reusable until expiry
+- Test mode for invite: `?_test=true` returns invite links instead of sending emails
+- `POST {prefix}/delegated-token` endpoint: actor provides access token + `actFor` target
+- `act` claim support in JWT creation
+- Verify `act.sub` corresponds to existing subject
+- Admins bypass `authorizedActors` check
+- Non-admin actors must be in principal's `authorizedActors` list
+- `#private` actor authorization handlers: authorizeActor, revokeActor (validates actor IDs are existing subjects)
+- `actorSub` option for `testLoginWithMagicLink`
+
+**Success criteria**:
+- Admin invites emails → subjects click invite link → immediate access (both flags true)
+- Invite tokens reusable within TTL window
+- Delegated token has correct `sub` (principal) and `act.sub` (actor)
+- Admin can delegate as any subject; non-admin blocked without `authorizedActors`
+- `testLoginWithMagicLink` with `actorSub` produces correct delegation claims
+
+### Phase 5: Rate Limiting & Turnstile
+
+Worker-level abuse protection for both public and authenticated routes.
+
+**Goal**: Magic link endpoint requires Turnstile verification. Authenticated routes enforce per-subject rate limiting via Cloudflare binding. Both throw at creation time if bindings are missing.
+
+**Deltas**:
+- Turnstile validation in `createAuthRoutes` for `email-magic-link` endpoint
+- Fail fast: throw at creation time if `TURNSTILE_SECRET_KEY` missing
+- Rate limiter in `createRouteDORequestAuthHooks`: default `env.LUMENIZE_AUTH_RATE_LIMITER`, optional `rateLimiterBinding` override
+- Rate limit keyed on `sub` from decoded JWT; return 429 on failure
+- Fail fast: throw at creation time if no rate limiter binding available
+
+**Success criteria**:
+- Magic link requests without valid Turnstile token get 403
+- `createAuthRoutes(env)` throws if `TURNSTILE_SECRET_KEY` missing
+- Authenticated requests exceeding rate limit get 429
+- `createRouteDORequestAuthHooks(env)` throws if rate limiter binding missing
+
+### Phase 6: Test Safety & Documentation ✅ (completed during Phase 1)
+
+Clean up test mode safety and update documentation examples.
+
+**Goal**: `LUMENIZE_AUTH_TEST_MODE` only lives in vitest config (never in wrangler.jsonc). Documentation code examples validated.
+
+**Completed**:
+- ✅ Removed `LUMENIZE_AUTH_TEST_MODE` from all `wrangler.jsonc` files (auth + all mesh test dirs)
+- ✅ Moved to `vitest.config.js` `miniflare.bindings` (auth + mesh getting-started, calls, security projects)
+- ✅ Updated `website/docs/mesh/testing.mdx` — replaced `.dev.vars` example with vitest config pattern
+- ✅ Consolidated `AUTH_TEST_MODE` → `LUMENIZE_AUTH_TEST_MODE` (gateway's `__testForceClose`)
+- ✅ No `LUMENIZE_AUTH_TEST_MODE` in any `wrangler.jsonc`
+- [ ] `security.mdx` skip-checks converted to `@check-example` — deferred until Phase 2 adds the claims needed for security examples
+- [ ] Website build validation — deferred until doc examples are wired up
 
 ## Notes
 

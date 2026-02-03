@@ -1,51 +1,35 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt';
-import { 
-  createAuthMiddleware, 
+import {
+  createAuthMiddleware,
   createWebSocketAuthMiddleware,
   extractWebSocketToken,
   verifyWebSocketToken,
   getTokenTtl,
   WS_CLOSE_CODES
-} from '../src/middleware';
+} from '../src/hooks';
 
 describe('@lumenize/auth - LumenizeAuth DO', () => {
   describe('Schema Initialization', () => {
-    it('creates tables on first access', async () => {
+    it('creates tables on first access and returns 404 for unknown paths', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('schema-test-1');
-      
-      // Any RPC call should trigger schema initialization
-      const user = await stub.getUserById('nonexistent');
-      expect(user).toBeNull();
-    });
-  });
 
-  describe('GET /auth/enter', () => {
-    it('returns endpoint information', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('enter-test-1');
-      await stub.configure({ redirect: '/app' });
-
-      const response = await stub.fetch(new Request('http://localhost/auth/enter'));
-      expect(response.status).toBe(200);
-      
-      const body = await response.json() as any;
-      expect(body.message).toContain('Login endpoint');
-      expect(body.endpoints).toBeDefined();
-      expect(body.endpoints.request_magic_link).toBe('POST /auth/email-magic-link');
+      // Any fetch should trigger schema initialization
+      const response = await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+      expect(response.status).toBe(404);
     });
   });
 
   describe('POST /auth/email-magic-link', () => {
     it('returns error for invalid JSON', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('magic-link-test-1');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/email-magic-link', {
         method: 'POST',
         body: 'not json'
       }));
-      
+
       expect(response.status).toBe(400);
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_request');
@@ -53,14 +37,13 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('returns error for missing email', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('magic-link-test-2');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/email-magic-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
       }));
-      
+
       expect(response.status).toBe(400);
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_request');
@@ -69,45 +52,41 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('returns error for invalid email format', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('magic-link-test-3');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/email-magic-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'not-an-email' })
       }));
-      
+
       expect(response.status).toBe(400);
     });
 
     it('generates magic link in test mode', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('magic-link-test-4');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'test@example.com' })
       }));
-      
+
       expect(response.status).toBe(200);
       const body = await response.json() as any;
       expect(body.message).toContain('test mode');
       expect(body.magic_link).toBeDefined();
-      expect(body.magic_link).toContain('magic-link-token=');
-      expect(body.magic_link).toContain('state=');
+      expect(body.magic_link).toContain('one_time_token=');
     });
 
     it('returns success message in production mode (without _test)', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('magic-link-test-5');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/email-magic-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: 'test@example.com' })
       }));
-      
+
       expect(response.status).toBe(200);
       const body = await response.json() as any;
       expect(body.message).toContain('Check your email');
@@ -118,55 +97,32 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
   describe('GET /auth/magic-link - Validation', () => {
     it('returns error for missing token', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('validate-test-1');
-      await stub.configure({ redirect: '/app' });
 
-      const response = await stub.fetch(new Request('http://localhost/auth/magic-link?state=abc'));
-
-      expect(response.status).toBe(400);
-      const body = await response.json() as any;
-      expect(body.error).toBe('invalid_request');
-    });
-
-    it('returns error for missing state', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('validate-test-2');
-      await stub.configure({ redirect: '/app' });
-
-      const response = await stub.fetch(new Request('http://localhost/auth/magic-link?magic-link-token=abc'));
+      const response = await stub.fetch(new Request('http://localhost/auth/magic-link'));
 
       expect(response.status).toBe(400);
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_request');
     });
 
-    it('returns error for invalid token', async () => {
+    it('redirects with error for invalid token', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('validate-test-3');
-      await stub.configure({ redirect: '/app' });
 
-      const response = await stub.fetch(new Request('http://localhost/auth/magic-link?magic-link-token=invalid&state=invalid'));
+      const response = await stub.fetch(
+        new Request('http://localhost/auth/magic-link?one_time_token=invalid'),
+        { redirect: 'manual' } as any
+      );
 
-      expect(response.status).toBe(400);
-      const body = await response.json() as any;
-      expect(body.error).toBe('invalid_token');
-    });
-
-    it('returns not_configured error when redirect not set', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('validate-test-4');
-      // Do NOT call configure()
-
-      const response = await stub.fetch(new Request('http://localhost/auth/magic-link?magic-link-token=abc&state=def'));
-
-      expect(response.status).toBe(503);
-      const body = await response.json() as any;
-      expect(body.error).toBe('not_configured');
+      // Invalid tokens now redirect with error query param
+      expect(response.status).toBe(302);
+      const location = response.headers.get('Location');
+      expect(location).toContain('error=invalid_token');
     });
   });
 
   describe('Full Login Flow', () => {
     it('completes login flow end-to-end with redirect and refresh token', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('login-flow-full-1');
-
-      // Configure redirect URL
-      await stub.configure({ redirect: '/app' });
 
       // Step 1: Request magic link (test mode)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -215,15 +171,10 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       expect(jwtParts.length).toBe(3);
     });
 
-    it('creates user on first login', async () => {
+    it('creates subject on first login', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('login-flow-full-2');
-      await stub.configure({ redirect: '/app' });
 
       const email = 'newuser@example.com';
-
-      // Verify user doesn't exist
-      let user = await stub.getUserByEmail(email);
-      expect(user).toBeNull();
 
       // Request and validate magic link
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -231,78 +182,28 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
       }));
-      
+
       const magicLinkBody = await magicLinkResponse.json() as any;
-      await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
+      const validateResponse = await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
+      expect(validateResponse.status).toBe(302);
 
-      // Verify user was created
-      user = await stub.getUserByEmail(email);
-      expect(user).not.toBeNull();
-      expect(user!.email).toBe(email);
-      expect(user!.created_at).toBeDefined();
-      expect(user!.last_login_at).toBeDefined();
-    });
-
-    it('updates last_login_at on subsequent logins', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('login-flow-full-3');
-      await stub.configure({ redirect: '/app' });
-
-      const email = 'returning@example.com';
-
-      // First login
-      const magicLinkResponse1 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+      // Get a refresh token so we can inspect the JWT for the subject ID
+      const setCookie = validateResponse.headers.get('Set-Cookie')!;
+      const refreshToken = setCookie.split(';')[0].split('=')[1];
+      const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        headers: { 'Cookie': `refresh-token=${refreshToken}` }
       }));
-      const magicLinkBody1 = await magicLinkResponse1.json() as any;
-      await stub.fetch(new Request(magicLinkBody1.magic_link, { redirect: 'manual' }));
+      const refreshBody = await refreshResponse.json() as any;
+      const parsed = parseJwtUnsafe(refreshBody.access_token);
 
-      const userAfterFirst = await stub.getUserByEmail(email);
-      const firstLoginAt = userAfterFirst!.last_login_at;
-      
-      // Wait a tiny bit to ensure timestamp changes
-      await new Promise(resolve => setTimeout(resolve, 10));
-      
-      // Second login
-      const magicLinkResponse2 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      }));
-      const magicLinkBody2 = await magicLinkResponse2.json() as any;
-      await stub.fetch(new Request(magicLinkBody2.magic_link, { redirect: 'manual' }));
-
-      const userAfterSecond = await stub.getUserByEmail(email);
-      expect(userAfterSecond!.last_login_at).toBeGreaterThan(firstLoginAt!);
-    });
-
-    it('rejects magic link with wrong state', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('login-flow-full-4');
-      await stub.configure({ redirect: '/app' });
-
-      // Request magic link
-      const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'user@example.com' })
-      }));
-      
-      const magicLinkBody = await magicLinkResponse.json() as any;
-      const magicLinkUrl = new URL(magicLinkBody.magic_link);
-      const token = magicLinkUrl.searchParams.get('magic-link-token');
-      
-      // Try to validate with wrong state
-      const validateResponse = await stub.fetch(new Request(`http://localhost/auth/magic-link?magic-link-token=${token}&state=wrong-state`));
-      
-      expect(validateResponse.status).toBe(400);
-      const body = await validateResponse.json() as any;
-      expect(body.error).toBe('invalid_state');
+      // Verify a subject ID was assigned
+      expect(parsed!.payload.sub).toBeDefined();
+      expect(parsed!.payload.sub.length).toBeGreaterThan(0);
     });
 
     it('rejects already-used magic link', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('login-flow-full-5');
-      await stub.configure({ redirect: '/app' });
 
       // Request magic link
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -317,135 +218,24 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       // First use - should succeed (302 redirect)
       const firstResponse = await stub.fetch(new Request(magicLink, { redirect: 'manual' }));
       expect(firstResponse.status).toBe(302);
+      expect(firstResponse.headers.get('Location')).toBe('/app');
 
-      // Second use - should fail
+      // Second use - should redirect with error (token was deleted after first use)
       const secondResponse = await stub.fetch(new Request(magicLink, { redirect: 'manual' }));
-      expect(secondResponse.status).toBe(400);
-
-      const body = await secondResponse.json() as any;
-      expect(body.error).toBe('token_used');
-    });
-  });
-
-  describe('RPC Methods', () => {
-    it('getUserById returns null for nonexistent user', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('rpc-test-1');
-      
-      const user = await stub.getUserById('nonexistent-user-id');
-      expect(user).toBeNull();
-    });
-
-    it('getUserByEmail returns null for nonexistent email', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('rpc-test-2');
-      
-      const user = await stub.getUserByEmail('nobody@example.com');
-      expect(user).toBeNull();
-    });
-  });
-
-  describe('Rate Limiting', () => {
-    it('allows requests under the rate limit', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('rate-limit-test-1');
-      
-      // Configure lower rate limit for testing
-      await stub.configure({ redirect: '/app', rateLimitPerHour: 3 });
-      
-      // First request should succeed
-      const response1 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'rate-test-1@example.com' })
-      }));
-      expect(response1.status).toBe(200);
-      
-      // Second request should succeed
-      const response2 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'rate-test-1@example.com' })
-      }));
-      expect(response2.status).toBe(200);
-      
-      // Third request should succeed
-      const response3 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'rate-test-1@example.com' })
-      }));
-      expect(response3.status).toBe(200);
-    });
-
-    it('blocks requests over the rate limit', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('rate-limit-test-2');
-      
-      // Configure lower rate limit for testing
-      await stub.configure({ redirect: '/app', rateLimitPerHour: 2 });
-      
-      // First two requests should succeed
-      await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'rate-test-2@example.com' })
-      }));
-      await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'rate-test-2@example.com' })
-      }));
-      
-      // Third request should be rate limited
-      const response = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'rate-test-2@example.com' })
-      }));
-      
-      expect(response.status).toBe(429);
-      const body = await response.json() as any;
-      expect(body.error).toBe('rate_limit_exceeded');
-    });
-
-    it('rate limits are per-email', async () => {
-      const stub = env.LUMENIZE_AUTH.getByName('rate-limit-test-3');
-      
-      // Configure lower rate limit for testing
-      await stub.configure({ redirect: '/app', rateLimitPerHour: 1 });
-      
-      // First email - should succeed
-      const response1 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'user-a@example.com' })
-      }));
-      expect(response1.status).toBe(200);
-      
-      // Same email again - should be rate limited
-      const response2 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'user-a@example.com' })
-      }));
-      expect(response2.status).toBe(429);
-      
-      // Different email - should succeed (separate rate limit)
-      const response3 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'user-b@example.com' })
-      }));
-      expect(response3.status).toBe(200);
+      expect(secondResponse.status).toBe(302);
+      const location = secondResponse.headers.get('Location');
+      expect(location).toContain('error=invalid_token');
     });
   });
 
   describe('POST /auth/refresh-token', () => {
     it('returns error when no refresh token cookie', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('refresh-test-1');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
         method: 'POST'
       }));
-      
+
       expect(response.status).toBe(401);
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_token');
@@ -453,7 +243,6 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('returns error for invalid refresh token', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('refresh-test-2');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
         method: 'POST',
@@ -461,7 +250,7 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
           'Cookie': 'refresh-token=invalid-token-that-does-not-exist'
         }
       }));
-      
+
       expect(response.status).toBe(401);
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_token');
@@ -469,7 +258,6 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('issues new tokens with valid refresh token', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('refresh-test-3');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login to get refresh token (now 302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -510,7 +298,6 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('rotates refresh token - old token invalidated', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('refresh-test-4');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login to get refresh token (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -545,7 +332,6 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('new refresh token works after rotation', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('refresh-test-5');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login to get refresh token (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -581,9 +367,8 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       expect(secondRefresh.status).toBe(200);
     });
 
-    it('access token from refresh has correct user ID', async () => {
+    it('access token from refresh has correct subject ID', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('refresh-test-6');
-      await stub.configure({ redirect: '/app' });
       const email = 'userid-test@example.com';
 
       // Complete login (302 redirect)
@@ -606,29 +391,45 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       }));
       const refreshBody = await refreshResponse.json() as any;
 
-      // Parse access token
+      // Parse access token — sub should be a UUID
       const parsed = parseJwtUnsafe(refreshBody.access_token);
-      const userId = parsed!.payload.sub;
+      expect(parsed!.payload.sub).toBeDefined();
+      expect(parsed!.payload.sub.length).toBe(36); // UUID v4 length
 
-      // User ID should match the user in database
-      const user = await stub.getUserByEmail(email);
-      expect(userId).toBe(user!.id);
+      // Do a second login with the same email — sub should remain the same
+      const magicLinkResponse2 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      }));
+      const magicLinkBody2 = await magicLinkResponse2.json() as any;
+      const loginResponse2 = await stub.fetch(new Request(magicLinkBody2.magic_link, { redirect: 'manual' }));
+      const loginCookie2 = loginResponse2.headers.get('Set-Cookie')!;
+      const refreshToken2 = loginCookie2.split(';')[0].split('=')[1];
+      const refreshResponse2 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken2}` }
+      }));
+      const refreshBody2 = await refreshResponse2.json() as any;
+      const parsed2 = parseJwtUnsafe(refreshBody2.access_token);
+
+      // Same email → same subject ID
+      expect(parsed2!.payload.sub).toBe(parsed!.payload.sub);
     });
   });
 
   describe('POST /auth/logout', () => {
     it('clears refresh token cookie', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('logout-test-1');
-      await stub.configure({ redirect: '/app' });
 
       const response = await stub.fetch(new Request('http://localhost/auth/logout', {
         method: 'POST'
       }));
-      
+
       expect(response.status).toBe(200);
       const body = await response.json() as any;
       expect(body.message).toBe('Logged out');
-      
+
       const setCookie = response.headers.get('Set-Cookie');
       expect(setCookie).toContain('refresh-token=');
       expect(setCookie).toContain('Max-Age=0');
@@ -636,7 +437,6 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
 
     it('revokes refresh token on logout', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('logout-test-2');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login to get refresh token (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -672,7 +472,6 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
   describe('JWT Token Verification', () => {
     it('issues valid JWT with correct claims', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('jwt-verify-test-1');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login flow (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -706,15 +505,18 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       // Verify payload claims
       expect(parsed!.payload.iss).toBeDefined(); // issuer
       expect(parsed!.payload.aud).toBeDefined(); // audience
-      expect(parsed!.payload.sub).toBeDefined(); // subject (user ID)
+      expect(parsed!.payload.sub).toBeDefined(); // subject (UUID)
       expect(parsed!.payload.exp).toBeGreaterThan(Date.now() / 1000); // not expired
       expect(parsed!.payload.iat).toBeLessThanOrEqual(Date.now() / 1000); // issued in past
       expect(parsed!.payload.jti).toBeDefined(); // unique token ID
+
+      // Verify new auth flags
+      expect(parsed!.payload.emailVerified).toBe(true); // set after magic link click
+      expect(parsed!.payload.adminApproved).toBe(false); // default for new subject
     });
 
     it('JWT can be verified with public key', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('jwt-verify-test-2');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login flow (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -744,66 +546,70 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
       expect(payload!.sub).toBeDefined();
     });
 
-    it('user ID in JWT matches created user', async () => {
+    it('subject ID in JWT is consistent across logins', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('jwt-verify-test-3');
-      await stub.configure({ redirect: '/app' });
       const email = 'jwt-user-match@example.com';
 
-      // Complete login flow (302 redirect)
-      const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+      // First login
+      const magicLinkResponse1 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
       }));
-      const magicLinkBody = await magicLinkResponse.json() as any;
-
-      const loginResponse = await stub.fetch(new Request(magicLinkBody.magic_link, { redirect: 'manual' }));
-      expect(loginResponse.status).toBe(302);
-      const loginCookie = loginResponse.headers.get('Set-Cookie')!;
-      const refreshToken = loginCookie.split(';')[0].split('=')[1];
-
-      // Get access token via refresh endpoint
-      const refreshResponse = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      const magicLinkBody1 = await magicLinkResponse1.json() as any;
+      const loginResponse1 = await stub.fetch(new Request(magicLinkBody1.magic_link, { redirect: 'manual' }));
+      const loginCookie1 = loginResponse1.headers.get('Set-Cookie')!;
+      const refreshToken1 = loginCookie1.split(';')[0].split('=')[1];
+      const refreshResponse1 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${refreshToken}` }
+        headers: { 'Cookie': `refresh-token=${refreshToken1}` }
       }));
-      const refreshBody = await refreshResponse.json() as any;
+      const refreshBody1 = await refreshResponse1.json() as any;
+      const sub1 = parseJwtUnsafe(refreshBody1.access_token)!.payload.sub;
 
-      // Parse JWT to get user ID
-      const parsed = parseJwtUnsafe(refreshBody.access_token);
-      const tokenUserId = parsed!.payload.sub;
+      // Second login - same email should get same sub
+      const magicLinkResponse2 = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      }));
+      const magicLinkBody2 = await magicLinkResponse2.json() as any;
+      const loginResponse2 = await stub.fetch(new Request(magicLinkBody2.magic_link, { redirect: 'manual' }));
+      const loginCookie2 = loginResponse2.headers.get('Set-Cookie')!;
+      const refreshToken2 = loginCookie2.split(';')[0].split('=')[1];
+      const refreshResponse2 = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken2}` }
+      }));
+      const refreshBody2 = await refreshResponse2.json() as any;
+      const sub2 = parseJwtUnsafe(refreshBody2.access_token)!.payload.sub;
 
-      // Get user from database
-      const user = await stub.getUserByEmail(email);
-
-      // Verify they match
-      expect(user).not.toBeNull();
-      expect(tokenUserId).toBe(user!.id);
+      expect(sub1).toBe(sub2);
     });
   });
 });
 
-describe('@lumenize/auth - Auth Middleware', () => {
+describe('@lumenize/auth - Auth Hooks', () => {
   // Mock context for hooks
   const mockContext = { doNamespace: {}, doInstanceNameOrId: 'test-instance' };
-  
+
   describe('createAuthMiddleware', () => {
     it('returns 401 when no Authorization header', async () => {
       const middleware = await createAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       const request = new Request('http://localhost/protected/resource');
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
       expect(response.status).toBe(401);
-      
+
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_request');
       expect(body.error_description).toContain('Missing Authorization');
-      
+
       // Check WWW-Authenticate header
       const wwwAuth = response.headers.get('WWW-Authenticate');
       expect(wwwAuth).toContain('Bearer');
@@ -814,12 +620,12 @@ describe('@lumenize/auth - Auth Middleware', () => {
       const middleware = await createAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': 'Basic sometoken' }
       });
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(401);
     });
@@ -828,16 +634,16 @@ describe('@lumenize/auth - Auth Middleware', () => {
       const middleware = await createAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': 'Bearer invalid.jwt.token' }
       });
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
       expect(response.status).toBe(401);
-      
+
       const body = await response.json() as any;
       expect(body.error).toBe('invalid_token');
     });
@@ -846,29 +652,31 @@ describe('@lumenize/auth - Auth Middleware', () => {
       const middleware = await createAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       // Create a valid JWT using the test keys
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
         issuer: 'https://lumenize.local',
         audience: 'https://lumenize.local',
         subject: 'user-123',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
-      
+
       const request = new Request('http://localhost/protected/resource', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Request);
       const enhancedRequest = result as Request;
-      
+
       // Check auth headers were added
       expect(enhancedRequest.headers.get('X-Auth-User-Id')).toBe('user-123');
       expect(enhancedRequest.headers.get('X-Auth-Verified')).toBe('true');
-      
+
       // Authorization header should be removed
       expect(enhancedRequest.headers.get('Authorization')).toBeNull();
     });
@@ -878,27 +686,31 @@ describe('@lumenize/auth - Auth Middleware', () => {
       const middleware = await createAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
       });
-      
+
       // Sign with BLUE key
       const bluePrivateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const bluePayload = createJwtPayload({
         issuer: 'test',
         audience: 'test',
         subject: 'user-blue',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const blueToken = await signJwt(bluePayload, bluePrivateKey, 'BLUE');
-      
+
       // Sign with GREEN key
       const greenPrivateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_GREEN);
       const greenPayload = createJwtPayload({
         issuer: 'test',
         audience: 'test',
         subject: 'user-green',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: false,
+        adminApproved: true,
       });
       const greenToken = await signJwt(greenPayload, greenPrivateKey, 'GREEN');
-      
+
       // Both should be accepted
       const blueRequest = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${blueToken}` }
@@ -906,7 +718,7 @@ describe('@lumenize/auth - Auth Middleware', () => {
       const blueResult = await middleware(blueRequest, mockContext);
       expect(blueResult).toBeInstanceOf(Request);
       expect((blueResult as Request).headers.get('X-Auth-User-Id')).toBe('user-blue');
-      
+
       const greenRequest = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${greenToken}` }
       });
@@ -920,26 +732,28 @@ describe('@lumenize/auth - Auth Middleware', () => {
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE],
         audience: 'https://expected-audience.com'
       });
-      
+
       // Create JWT with wrong audience
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
         issuer: 'test',
         audience: 'https://wrong-audience.com',
         subject: 'user-123',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
-      
+
       const request = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
       expect(response.status).toBe(401);
-      
+
       const body = await response.json() as any;
       expect(body.error_description).toContain('audience');
     });
@@ -949,26 +763,28 @@ describe('@lumenize/auth - Auth Middleware', () => {
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE],
         issuer: 'https://expected-issuer.com'
       });
-      
+
       // Create JWT with wrong issuer
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
         issuer: 'https://wrong-issuer.com',
         audience: 'test',
         subject: 'user-123',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
-      
+
       const request = new Request('http://localhost/protected', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
       expect(response.status).toBe(401);
-      
+
       const body = await response.json() as any;
       expect(body.error_description).toContain('issuer');
     });
@@ -978,10 +794,10 @@ describe('@lumenize/auth - Auth Middleware', () => {
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE],
         realm: 'MyCustomApp'
       });
-      
+
       const request = new Request('http://localhost/protected');
       const result = await middleware(request, mockContext);
-      
+
       expect(result).toBeInstanceOf(Response);
       const wwwAuth = (result as Response).headers.get('WWW-Authenticate');
       expect(wwwAuth).toContain('realm="MyCustomApp"');
@@ -991,7 +807,6 @@ describe('@lumenize/auth - Auth Middleware', () => {
   describe('Integration with LumenizeAuth', () => {
     it('middleware accepts tokens issued by LumenizeAuth', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('middleware-integration-1');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login to get refresh token (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -1028,13 +843,14 @@ describe('@lumenize/auth - Auth Middleware', () => {
       // Should return enhanced request (not 401)
       expect(result).toBeInstanceOf(Request);
 
-      // User ID should be set
+      // User ID should be set and be a UUID
       const userId = (result as Request).headers.get('X-Auth-User-Id');
       expect(userId).toBeDefined();
+      expect(userId!.length).toBe(36); // UUID v4
 
-      // User ID should match the user in database
-      const user = await stub.getUserByEmail('middleware-test@example.com');
-      expect(userId).toBe(user!.id);
+      // The sub in the JWT should match what middleware extracts
+      const parsed = parseJwtUnsafe(accessToken);
+      expect(userId).toBe(parsed!.payload.sub);
     });
   });
 });
@@ -1050,7 +866,7 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
           'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.my-jwt-token-here'
         }
       });
-      
+
       const token = extractWebSocketToken(request);
       expect(token).toBe('my-jwt-token-here');
     });
@@ -1059,7 +875,7 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const request = new Request('http://localhost/ws', {
         headers: { 'Upgrade': 'websocket' }
       });
-      
+
       const token = extractWebSocketToken(request);
       expect(token).toBeNull();
     });
@@ -1071,7 +887,7 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
           'Sec-WebSocket-Protocol': 'lmz, other-protocol'
         }
       });
-      
+
       const token = extractWebSocketToken(request);
       expect(token).toBeNull();
     });
@@ -1083,7 +899,7 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
           'Sec-WebSocket-Protocol': 'lmz.access-token.token-value'
         }
       });
-      
+
       const token = extractWebSocketToken(request);
       expect(token).toBe('token-value');
     });
@@ -1094,14 +910,14 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const middleware = await createWebSocketAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
           'Sec-WebSocket-Protocol': 'lmz'
         }
       });
-      
+
       const result = await middleware(request, mockContext);
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(401);
@@ -1111,14 +927,14 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const middleware = await createWebSocketAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
           'Sec-WebSocket-Protocol': 'lmz, lmz.access-token.invalid-token'
         }
       });
-      
+
       const result = await middleware(request, mockContext);
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(401);
@@ -1128,27 +944,29 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const middleware = await createWebSocketAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE]
       });
-      
+
       // Create valid JWT
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const payload = createJwtPayload({
         issuer: 'test',
         audience: 'test',
         subject: 'ws-user-123',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
-      
+
       const request = new Request('http://localhost/ws', {
         headers: {
           'Upgrade': 'websocket',
           'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${token}`
         }
       });
-      
+
       const result = await middleware(request, mockContext);
       expect(result).toBeInstanceOf(Request);
-      
+
       const enhancedRequest = result as Request;
       expect(enhancedRequest.headers.get('X-Auth-User-Id')).toBe('ws-user-123');
       expect(enhancedRequest.headers.get('X-Auth-Verified')).toBe('true');
@@ -1160,17 +978,19 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
     it('returns valid result for valid token', async () => {
       const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-      
+
       const payload = createJwtPayload({
         issuer: 'test',
         audience: 'test',
         subject: 'verify-user',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
-      
+
       const result = await verifyWebSocketToken(token, [publicKey]);
-      
+
       expect(result.valid).toBe(true);
       expect(result.userId).toBe('verify-user');
       expect(result.payload).toBeDefined();
@@ -1181,18 +1001,20 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
     it('returns expired=true for expired token', async () => {
       const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
-      
+
       // Create token that expired 1 hour ago
       const payload = createJwtPayload({
         issuer: 'test',
         audience: 'test',
         subject: 'expired-user',
-        expiresInSeconds: -3600 // Negative = already expired
+        expiresInSeconds: -3600, // Negative = already expired
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'BLUE');
-      
+
       const result = await verifyWebSocketToken(token, [publicKey]);
-      
+
       expect(result.valid).toBe(false);
       expect(result.expired).toBe(true);
       expect(result.error).toContain('expired');
@@ -1202,35 +1024,37 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
       // Sign with GREEN key but verify with BLUE
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_GREEN);
-      
+
       const payload = createJwtPayload({
         issuer: 'test',
         audience: 'test',
         subject: 'wrong-key-user',
-        expiresInSeconds: 900
+        expiresInSeconds: 900,
+        emailVerified: true,
+        adminApproved: false,
       });
       const token = await signJwt(payload, privateKey, 'GREEN');
-      
+
       const result = await verifyWebSocketToken(token, [publicKey]);
-      
+
       expect(result.valid).toBe(false);
       expect(result.error).toContain('signature');
     });
 
     it('returns error for malformed token', async () => {
       const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
-      
+
       const result = await verifyWebSocketToken('not-a-valid-jwt', [publicKey]);
-      
+
       expect(result.valid).toBe(false);
       expect(result.error).toContain('Malformed');
     });
 
     it('returns error when no token provided', async () => {
       const publicKey = await importPublicKey(env.JWT_PUBLIC_KEY_BLUE);
-      
+
       const result = await verifyWebSocketToken('', [publicKey]);
-      
+
       expect(result.valid).toBe(false);
       expect(result.error).toContain('No token');
     });
@@ -1240,9 +1064,9 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
     it('returns seconds until expiration', () => {
       const now = Math.floor(Date.now() / 1000);
       const payload = { exp: now + 300 }; // Expires in 5 minutes
-      
+
       const ttl = getTokenTtl(payload);
-      
+
       // Allow 1 second margin for test execution time
       expect(ttl).toBeGreaterThanOrEqual(299);
       expect(ttl).toBeLessThanOrEqual(300);
@@ -1251,14 +1075,14 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
     it('returns 0 for expired token', () => {
       const now = Math.floor(Date.now() / 1000);
       const payload = { exp: now - 100 }; // Expired 100 seconds ago
-      
+
       const ttl = getTokenTtl(payload);
       expect(ttl).toBe(0);
     });
 
     it('returns Infinity when no exp claim', () => {
       const payload = {}; // No exp
-      
+
       const ttl = getTokenTtl(payload);
       expect(ttl).toBe(Infinity);
     });
@@ -1275,7 +1099,6 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
   describe('Integration: WebSocket auth with LumenizeAuth tokens', () => {
     it('WebSocket middleware accepts tokens from LumenizeAuth', async () => {
       const stub = env.LUMENIZE_AUTH.getByName('ws-integration-1');
-      await stub.configure({ redirect: '/app' });
 
       // Complete login to get refresh token (302 redirect)
       const magicLinkResponse = await stub.fetch(new Request('http://localhost/auth/email-magic-link?_test=true', {
@@ -1302,7 +1125,7 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
       const middleware = await createWebSocketAuthMiddleware({
         publicKeysPem: [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN]
       });
-      
+
       // Simulate WebSocket upgrade request with token in subprotocol
       const wsRequest = new Request('http://localhost/ws/my-do/instance', {
         headers: {
@@ -1311,27 +1134,26 @@ describe('@lumenize/auth - WebSocket Authentication', () => {
           'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${accessToken}`
         }
       });
-      
+
       const result = await middleware(wsRequest, mockContext);
-      
+
       // Should return enhanced request
       expect(result).toBeInstanceOf(Request);
-      
+
       const enhancedRequest = result as Request;
       const userId = enhancedRequest.headers.get('X-Auth-User-Id');
-      
-      // User ID should match database
-      const user = await stub.getUserByEmail('ws-user@example.com');
-      expect(userId).toBe(user!.id);
+
+      // User ID should be a UUID and match the JWT sub
+      expect(userId).toBeDefined();
+      expect(userId!.length).toBe(36); // UUID v4
+
+      const parsed = parseJwtUnsafe(accessToken);
+      expect(userId).toBe(parsed!.payload.sub);
     });
   });
 });
 
 describe('@lumenize/auth - createAuthRoutes', () => {
-  // Note: We can't fully test createAuthRoutes in vitest-pool-workers because it relies on
-  // routeDORequest which in turn needs the full Worker environment. These tests validate
-  // the basic function structure and URL rewriting logic.
-
   it('exports createAuthRoutes function', async () => {
     const { createAuthRoutes } = await import('../src/lumenize-auth');
     expect(typeof createAuthRoutes).toBe('function');
@@ -1340,9 +1162,7 @@ describe('@lumenize/auth - createAuthRoutes', () => {
   it('createAuthRoutes returns a function', async () => {
     const { createAuthRoutes } = await import('../src/lumenize-auth');
 
-    const authRoutes = createAuthRoutes(env, {
-      redirect: '/app'
-    });
+    const authRoutes = createAuthRoutes(env);
 
     expect(typeof authRoutes).toBe('function');
   });
@@ -1350,24 +1170,21 @@ describe('@lumenize/auth - createAuthRoutes', () => {
   it('returns undefined for non-auth routes', async () => {
     const { createAuthRoutes } = await import('../src/lumenize-auth');
 
-    const authRoutes = createAuthRoutes(env, {
-      redirect: '/app'
-    });
+    const authRoutes = createAuthRoutes(env);
 
     // Non-auth routes should return undefined
     const result = await authRoutes(new Request('http://localhost/api/users'));
     expect(result).toBeUndefined();
   });
 
-  it('handles custom prefix', async () => {
+  it('handles custom prefix via env var', async () => {
     const { createAuthRoutes } = await import('../src/lumenize-auth');
 
-    const authRoutes = createAuthRoutes(env, {
-      redirect: '/app',
-      prefix: '/custom-auth'
-    });
+    // Create a modified env with custom prefix
+    const customEnv = { ...env, LUMENIZE_AUTH_PREFIX: '/custom-auth' };
+    const authRoutes = createAuthRoutes(customEnv as typeof env);
 
-    // Non-matching prefix should return undefined
+    // Default /auth prefix should return undefined
     const result = await authRoutes(new Request('http://localhost/auth/magic-link'));
     expect(result).toBeUndefined();
   });
@@ -1375,14 +1192,15 @@ describe('@lumenize/auth - createAuthRoutes', () => {
   it('accepts valid auth route paths', async () => {
     const { createAuthRoutes } = await import('../src/lumenize-auth');
 
-    const authRoutes = createAuthRoutes(env, {
-      redirect: '/app'
-    });
+    const authRoutes = createAuthRoutes(env);
 
     // Auth routes should be handled (not return undefined)
     // Note: The actual response depends on routeDORequest working correctly
-    const result = await authRoutes(new Request('http://localhost/auth/enter'));
+    const result = await authRoutes(new Request('http://localhost/auth/email-magic-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'test@example.com' })
+    }));
     expect(result).toBeDefined();
   });
 });
-

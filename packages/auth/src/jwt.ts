@@ -251,23 +251,31 @@ export function parseJwtUnsafe(token: string): { header: JwtHeader; payload: Jwt
 }
 
 /**
- * Create a JWT payload with standard claims
+ * Create a JWT payload with standard claims and auth flags
  */
 export function createJwtPayload(options: {
   issuer: string;
   audience: string;
   subject: string;
   expiresInSeconds: number;
+  emailVerified: boolean;
+  adminApproved: boolean;
+  isAdmin?: boolean;
+  act?: { sub: string; act?: any };
 }): JwtPayload {
   const now = Math.floor(Date.now() / 1000);
-  
+
   return {
     iss: options.issuer,
     aud: options.audience,
     sub: options.subject,
     exp: now + options.expiresInSeconds,
     iat: now,
-    jti: generateUuid()
+    jti: generateUuid(),
+    emailVerified: options.emailVerified,
+    adminApproved: options.adminApproved,
+    ...(options.isAdmin ? { isAdmin: true } : {}),
+    ...(options.act ? { act: options.act } : {}),
   };
 }
 
