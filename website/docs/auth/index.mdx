@@ -49,7 +49,7 @@ LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 wrangler secret put LUMENIZE_AUTH_BOOTSTRAP_EMAIL
 ```
 
-When this email address logs in for the first time, LumenizeAuth automatically grants `isAdmin: true`, `emailVerified: true`, and `adminApproved: true`. No database seeding required. The bootstrap admin can then approve other subjects and promote them to admin via the [subject management APIs](/docs/auth/api-reference#subject-management-endpoints).
+When this email address logs in, LumenizeAuth automatically grants `isAdmin: true`, `emailVerified: true`, and `adminApproved: true`. This check is idempotent — it runs on every login, so the bootstrap admin is restored even after a DO reset or if the environment variable is added after the subject already exists. No database seeding required. The bootstrap admin can then approve other subjects and promote them to admin via the [subject management APIs](/docs/auth/api-reference#subject-management-endpoints).
 
 The bootstrap subject has special protection: it cannot be demoted or deleted via API. To change the bootstrap admin, update the environment variable and deploy.
 

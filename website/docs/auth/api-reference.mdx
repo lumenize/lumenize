@@ -42,7 +42,7 @@ The Auth DO and Worker hooks read configuration from environment variables. This
 | `LUMENIZE_AUTH_MAGIC_LINK_TTL` | Variable | No | `1800` (30 min) | Auth DO | One-time login token expiration in seconds |
 | `LUMENIZE_AUTH_INVITE_TTL` | Variable | No | `604800` (7 days) | Auth DO | Invite token expiration in seconds (reusable until expiry) |
 | `LUMENIZE_AUTH_PREFIX` | Variable | No | `'/auth'` | Auth DO, `createAuthRoutes` | URL prefix for all auth endpoints. `createAuthRoutes` uses it for route matching; the Auth DO uses it to compose links in emails |
-| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | Variable | No | — | Auth DO | Email auto-promoted to admin on first login. Without this, no bootstrap admin is created — you'll need another mechanism to create the first admin |
+| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | Variable | No | — | Auth DO | Email idempotently promoted to admin on every login. Without this, no bootstrap admin is created — you'll need another mechanism to create the first admin |
 
 ### Bindings and Keys
 
