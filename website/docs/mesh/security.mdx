@@ -112,7 +112,7 @@ export class ProtectedDO extends LumenizeDO<Env> {
     super.onBeforeCall();
 
     // Require authentication
-    if (!this.lmz.callContext.originAuth?.userId) {
+    if (!this.lmz.callContext.originAuth?.sub) {
       throw new Error('Authentication required');
     }
   }
@@ -139,7 +139,7 @@ adminMethod() {
 ```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
   // Check instance state to determine access
   @mesh((instance: GuardedDO) => {
-    const userId = instance.lmz.callContext.originAuth?.userId;
+    const userId = instance.lmz.callContext.originAuth?.sub;
     if (!instance.allowedEditors.has(userId!)) {
       throw new Error('Not an allowed editor');
     }
@@ -184,10 +184,10 @@ Use it to attach computed data (like user records or permissions) so method guar
   onBeforeCall() {
     super.onBeforeCall();
     const callContext = this.lmz.callContext;
-    if (!callContext.originAuth?.userId) throw new Error('Auth required');
+    if (!callContext.originAuth?.sub) throw new Error('Auth required');
 
     // Populate state for use by method guards
-    const session = this.loadSession(callContext.originAuth.userId);
+    const session = this.loadSession(callContext.originAuth.sub);
     callContext.state.session = session;
     callContext.state.permissions = this.computePermissions(session);
   }
@@ -258,7 +258,7 @@ request.headers.set('X-Auth-Claims', JSON.stringify({
 @mesh()
 someMethod() {
   const { originAuth } = this.lmz.callContext;
-  console.log(originAuth.userId);        // 'user-123'
+  console.log(originAuth.sub);            // 'user-123'
   console.log(originAuth.claims.roles);  // ['editor']
   console.log(originAuth.claims.orgId);  // 'org-456'
 }

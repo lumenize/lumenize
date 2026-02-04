@@ -78,6 +78,7 @@ export function parseDebugFilter(filter: string | undefined): ParsedPattern[] {
  * Rules:
  * - "proxy-fetch" matches "proxy-fetch", "proxy-fetch.serialization", etc.
  * - "proxy-fetch.*" same as above (explicit wildcard)
+ * - "auth*" matches "auth", "auth.LumenizeAuth", etc. (npm debug compatibility)
  * - "*" matches everything
  * - Exact match has priority
  *
@@ -96,6 +97,12 @@ function namespaceMatches(namespace: string, pattern: string): boolean {
   if (pattern.endsWith('.*')) {
     const prefix = pattern.slice(0, -2);
     return namespace === prefix || namespace.startsWith(prefix + '.');
+  }
+
+  // Trailing * without dot (npm debug compatibility): "auth*" matches "auth.LumenizeAuth.login"
+  if (pattern.endsWith('*')) {
+    const prefix = pattern.slice(0, -1);
+    return namespace === prefix || namespace.startsWith(prefix) ;
   }
 
   // Implicit wildcard: "proxy-fetch" matches "proxy-fetch.serialization"

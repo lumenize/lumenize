@@ -24,7 +24,7 @@ Lumenize automatically propagates **Call Context** across any call chain (e.g., 
 @mesh()
 doSomething() {
   // Always correct for the current request
-  const user = this.lmz.callContext.originAuth?.userId;
+  const user = this.lmz.callContext.originAuth?.sub;
 }
 ```
 

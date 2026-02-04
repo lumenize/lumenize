@@ -557,7 +557,7 @@ Clean up test mode safety and update documentation examples.
 - ✅ Updated `website/docs/mesh/testing.mdx` — replaced `.dev.vars` example with vitest config pattern
 - ✅ Consolidated `AUTH_TEST_MODE` → `LUMENIZE_AUTH_TEST_MODE` (gateway's `__testForceClose`)
 - ✅ No `LUMENIZE_AUTH_TEST_MODE` in any `wrangler.jsonc`
-- [ ] `security.mdx` skip-checks converted to `@check-example` — **now unblocked** by Phase 2 (claims available in JWT). Do alongside the `originAuth.userId` → `originAuth.sub` rename (follow-on task)
+- [ ] `security.mdx` skip-checks converted to `@check-example` — **unblocked**: rename complete, claims in JWT. Conversion in progress as part of auth doc `@skip-check` pass
 - [ ] Website build validation — deferred until doc examples are wired up
 
 ### Phase 7: Audit Logging
@@ -673,7 +673,7 @@ We avoid "user" except as an example alongside "agent", "system", etc. The abstr
 
 ## Follow-on: Mesh Access Control Integration
 
-**Status**: Partially done (gateway header migration completed in Phase 2) — remaining work is `originAuth.userId` → `originAuth.sub` rename
+**Status**: ✅ Complete — gateway header migration (Phase 2) + `originAuth.userId` → `originAuth.sub` rename (Phase 7 follow-up)
 
 ### What was completed in Phase 2
 
@@ -696,13 +696,17 @@ All Lumenize Mesh client access goes through `LumenizeClientGateway` via WebSock
 ### Remaining Implementation Scope
 
 #### @lumenize/mesh changes — `originAuth.userId` → `originAuth.sub` rename
-- [ ] Rename `OriginAuth.userId` → `OriginAuth.sub` in the type definition
-- [ ] Update `LumenizeClientGateway`: `{ userId: attachment.sub }` → `{ sub: attachment.sub }` (remove bridge)
-- [ ] Update `LumenizeClient`: any client-side references to `originAuth.userId`
-- [ ] Update all guards and `onBeforeCall` hooks that reference `originAuth.userId` → `originAuth.sub`
-- [ ] Update all tests that assert `originAuth.userId`
+- [x] Rename `OriginAuth.userId` → `OriginAuth.sub` in the type definition (`packages/mesh/src/types.ts`)
+- [x] Update `LumenizeClientGateway`: removed bridge comment, `{ sub: attachment.sub }` directly
+- [x] Update all guards and `onBeforeCall` hooks that reference `originAuth.userId` → `originAuth.sub` (source JSDoc + test DOs)
+- [x] Update all tests that assert `originAuth.userId` (gateway test, security tests, calls tests, getting-started)
 
 #### Documentation updates
-- [ ] `website/docs/mesh/security.mdx` - Update guard examples from `originAuth.userId` to `originAuth.sub`
-- [ ] `website/docs/mesh/getting-started.mdx` - Mention access control in setup
-- [ ] Audit all code examples across docs for `userId` → `sub` in auth contexts, onBeforeCall, and @mesh(guard)
+- [x] `website/docs/mesh/security.mdx` — all 5 `originAuth.userId` refs → `originAuth.sub`
+- [x] `website/docs/mesh/getting-started.mdx` — `originAuth?.userId` → `originAuth?.sub`
+- [x] `website/docs/mesh/lumenize-client.mdx`, `managing-context.mdx`, `index.mdx` — all updated
+- [x] All 133 auth tests + 264 mesh tests pass, type-check clean (no new errors)
+
+#### Also completed (cleanup during this pass)
+- [x] Removed `#debug = debug` dead indirection from `lumenize-auth.ts` and `lumenize-do.ts` (→ direct `debug()` calls)
+- [x] Replaced `console.log` → `@lumenize/debug` in `ConsoleEmailService`

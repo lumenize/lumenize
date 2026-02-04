@@ -60,10 +60,10 @@ export class GuardedDO extends LumenizeDO<Env> {
   onBeforeCall() {
     super.onBeforeCall();
     const callContext = this.lmz.callContext;
-    if (!callContext.originAuth?.userId) throw new Error('Auth required');
+    if (!callContext.originAuth?.sub) throw new Error('Auth required');
 
     // Populate state for use by method guards
-    const session = this.loadSession(callContext.originAuth.userId);
+    const session = this.loadSession(callContext.originAuth.sub);
     callContext.state.session = session;
     callContext.state.permissions = this.computePermissions(session);
   }
@@ -129,7 +129,7 @@ export class GuardedDO extends LumenizeDO<Env> {
 
   // Check instance state to determine access
   @mesh((instance: GuardedDO) => {
-    const userId = instance.lmz.callContext.originAuth?.userId;
+    const userId = instance.lmz.callContext.originAuth?.sub;
     if (!instance.allowedEditors.has(userId!)) {
       throw new Error('Not an allowed editor');
     }

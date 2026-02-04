@@ -138,7 +138,7 @@ class CollaborativeClient extends LumenizeClient {
     const callContext = this.lmz.callContext;
     if (callContext.origin.type === 'LumenizeClient') {
       // Allow peers, but require authentication
-      if (!callContext.originAuth?.userId) {
+      if (!callContext.originAuth?.sub) {
         throw new Error('Authentication required for peer calls');
       }
     }

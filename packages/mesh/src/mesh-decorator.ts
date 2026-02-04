@@ -111,7 +111,7 @@ export function meshFn<F extends (...args: any[]) => any>(fn: F): F {
  *   @mesh((instance: SecureDocumentDO) => {
  *     // Guard runs before the method executes
  *     const { originAuth } = instance.lmz.callContext;
- *     if (!originAuth?.userId) {
+ *     if (!originAuth?.sub) {
  *       throw new Error('Authentication required');
  *     }
  *   })

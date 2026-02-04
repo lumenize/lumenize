@@ -1,4 +1,7 @@
+import { debug } from '@lumenize/debug';
 import type { EmailService, EmailMessage } from './types';
+
+const log = debug('auth.ConsoleEmailService');
 
 /**
  * No-op email service that logs instead of sending
@@ -8,16 +11,16 @@ export class ConsoleEmailService implements EmailService {
   async send(message: EmailMessage): Promise<void> {
     switch (message.type) {
       case 'magic-link':
-        console.log(`[ConsoleEmailService] Magic link for ${message.to}: ${message.magicLinkUrl}`);
+        log.info(`Magic link for ${message.to}`, { to: message.to, magicLinkUrl: message.magicLinkUrl });
         break;
       case 'admin-notification':
-        console.log(`[ConsoleEmailService] Admin notification to ${message.to}: new signup from ${message.subjectEmail}, approve at ${message.approveUrl}`);
+        log.info(`Admin notification to ${message.to}`, { to: message.to, subjectEmail: message.subjectEmail, approveUrl: message.approveUrl });
         break;
       case 'approval-confirmation':
-        console.log(`[ConsoleEmailService] Approval confirmation to ${message.to}: continue at ${message.redirectUrl}`);
+        log.info(`Approval confirmation to ${message.to}`, { to: message.to, redirectUrl: message.redirectUrl });
         break;
       case 'invite':
-        console.log(`[ConsoleEmailService] Invite for ${message.to}: ${message.inviteUrl}`);
+        log.info(`Invite for ${message.to}`, { to: message.to, inviteUrl: message.inviteUrl });
         break;
     }
   }

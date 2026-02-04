@@ -240,17 +240,18 @@ Use `createRouteDORequestAuthHooks` to create hooks that verify access tokens an
 4. Return 401 (invalid/missing token), 403 (not approved), or 429 (rate limited)
 5. Forward the verified JWT to the DO in the standard `Authorization: Bearer` header
 
-```typescript @skip-check
-import { env } from 'cloudflare:workers';
+```typescript @check-example('packages/auth/test/for-docs/middleware.test.ts')
 import { createRouteDORequestAuthHooks } from '@lumenize/auth';
+import { routeDORequest } from '@lumenize/utils';
 
-// Create once at module level — reads JWT_PUBLIC_KEY_BLUE/GREEN from env automatically
-const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env);
+// Create hooks (reads JWT_PUBLIC_KEY_BLUE/GREEN from env automatically)
+const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);
 
-// In fetch handler:
+// Use in routeDORequest
 const response = await routeDORequest(request, env, {
   onBeforeRequest,
   onBeforeConnect,
+  // ...
 });
 ```
 
@@ -432,30 +433,27 @@ const { accessToken: delegatedToken } = await testLoginWithMagicLink(aliceBrowse
 
 Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to protect your DOs over HTTP (`onBeforeRequest`) or WebSockets (`onBeforeConnect`). Both integrate with [`routeDORequest`](/docs/utils/route-do-request). All auth configuration — including the URL prefix (default `/auth`), redirect URL, token TTLs, and issuer/audience — is read from [environment variables](/docs/auth/api-reference#auth-config):
 
-```typescript @skip-check
-import { env } from 'cloudflare:workers';
-import { createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
+```typescript @check-example('packages/auth/test/for-docs/quick-start.test.ts')
+import { LumenizeAuth, createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
 import { routeDORequest } from '@lumenize/utils';
 
-// Create routes and hooks once at module level (not per request)
-// Auth config (redirect, issuer, audience, TTLs) comes from environment variables
-const authRoutes = createAuthRoutes(env, {
-  cors: { origin: ['https://app.example.com'] },
-});
-const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env);
+export { LumenizeAuth };
 
 export default {
-  async fetch(request: Request): Promise<Response> {
-    // Auth routes - public, clean URLs (/auth/magic-link, /auth/refresh-token, etc.)
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Auth routes - public endpoints
+    const authRoutes = createAuthRoutes(env);
     const authResponse = await authRoutes(request);
     if (authResponse) return authResponse;
 
-    // Protected routes use auth hooks
-    return routeDORequest(request, env, {
-      onBeforeRequest,
-      onBeforeConnect,
-      cors: { origin: ['https://app.example.com'] }
-    }) ?? new Response('Not Found', { status: 404 });
+    // Protected routes - with auth hooks
+    const authHooks = await createRouteDORequestAuthHooks(env);
+
+    const response = await routeDORequest(request, env, {
+      ...authHooks,
+      cors: true
+    });
+    return response ?? new Response('Not Found', { status: 404 });
   }
 };
 ```

@@ -369,7 +369,7 @@ export interface LmzApi {
    * ```typescript
    * @mesh()
    * updateDocument(changes: DocumentChange) {
-   *   const userId = this.lmz.callContext.originAuth?.userId;
+   *   const sub = this.lmz.callContext.originAuth?.sub;
    *   const fullPath = this.lmz.callContext.callChain.map(n => n.bindingName).join(' → ');
    * }
    * ```

@@ -56,7 +56,7 @@ Access context in any mesh node via `this.lmz.callContext`:
 @mesh()
 updateDocument(changes: DocumentChange) {
   const { origin, callChain, originAuth } = this.lmz.callContext;
-  const userId = originAuth?.userId;
+  const sub = originAuth?.sub;
   const caller = callChain.at(-1) ?? origin;  // Immediate caller
   // Make decisions based on who's calling
 }

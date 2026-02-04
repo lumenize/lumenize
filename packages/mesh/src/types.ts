@@ -28,7 +28,7 @@ export interface NodeIdentity {
 
 /** Verified authentication claims from the origin of a call chain */
 export interface OriginAuth {
-  userId: string;
+  sub: string;
   claims?: Record<string, unknown>; // Additional JWT claims (roles, permissions, etc.)
 }
 

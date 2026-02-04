@@ -57,7 +57,6 @@ export type { Continuation, AnyContinuation };
  * ```
  */
 export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
-  #debug = debug;
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
   #lmzApi: LmzApi | null = null;
@@ -72,7 +71,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
         try {
           await this.onStart();
         } catch (error) {
-          const log = this.#debug('lmz.mesh.LumenizeDO.onStart');
+          const log = debug('lmz.mesh.LumenizeDO.onStart');
           log.error('onStart() failed', {
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined,
@@ -167,12 +166,12 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    *     const { origin, originAuth, state } = this.lmz.callContext;
    *
    *     // Require authenticated origin for client calls
-   *     if (origin.type === 'LumenizeClient' && !originAuth?.userId) {
+   *     if (origin.type === 'LumenizeClient' && !originAuth?.sub) {
    *       throw new Error('Authentication required');
    *     }
    *
    *     // Cache computed permissions in state (synchronously)
-   *     state.canEdit = this.#permissions.get(originAuth?.userId);
+   *     state.canEdit = this.#permissions.get(originAuth?.sub);
    *   }
    * }
    * ```
@@ -257,7 +256,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
     // Validate that instance is a name, not an ID
     if (doInstanceNameOrId && isDurableObjectId(doInstanceNameOrId)) {
-      const log = this.#debug('lmz.mesh.LumenizeDO.__initFromHeaders');
+      const log = debug('lmz.mesh.LumenizeDO.__initFromHeaders');
       const message = 'LumenizeDO requires instanceName, not a DO id string.';
       log.error(message, { receivedValue: doInstanceNameOrId });
       return new Response(message, { status: 400 });
@@ -272,7 +271,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
         });
       } catch (error) {
         // __init throws on mismatch - convert to HTTP response
-        const log = this.#debug('lmz.mesh.LumenizeDO.__initFromHeaders');
+        const log = debug('lmz.mesh.LumenizeDO.__initFromHeaders');
         const message = error instanceof Error ? error.message : String(error);
         log.error('Initialization from headers failed', {
           error: message,
@@ -402,7 +401,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
   async __executeOperation(envelope: CallEnvelope): Promise<any> {
-    const log = this.#debug('lmz.mesh.LumenizeDO.__executeOperation');
+    const log = debug('lmz.mesh.LumenizeDO.__executeOperation');
 
     return await executeEnvelope(envelope, this, {
       nodeTypeName: 'LumenizeDO',
@@ -447,7 +446,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    * ```
    */
   async __receiveResult(workType: string, workId: string, preprocessedResult: any): Promise<void> {
-    const log = this.#debug('lmz.mesh.LumenizeDO.__receiveResult');
+    const log = debug('lmz.mesh.LumenizeDO.__receiveResult');
 
     // 1. Idempotency check - prevent duplicate result processing
     const processedKey = `__lmz_result_processed:${workType}:${workId}`;
@@ -552,7 +551,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
           return service;
         }
 
-        const log = this.#debug('lmz.mesh.LumenizeDO.svc');
+        const log = debug('lmz.mesh.LumenizeDO.svc');
         const error = new Error(
           `Service '${prop}' not found. Did you import the NADIS package? ` +
           `Example: import '@lumenize/${prop}';`

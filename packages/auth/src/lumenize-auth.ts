@@ -53,7 +53,6 @@ function sql(doInstance: any) {
  * @see https://lumenize.com/docs/auth/
  */
 export class LumenizeAuth extends DurableObject {
-  #debug = debug;
   #sql = sql(this);
   #schemaInitialized = false;
   #emailService: EmailService = new ConsoleEmailService();
@@ -110,7 +109,7 @@ export class LumenizeAuth extends DurableObject {
 
     const url = new URL(request.url);
     const path = url.pathname;
-    const log = this.#debug('auth.LumenizeAuth');
+    const log = debug('auth.LumenizeAuth');
 
     try {
       if (path.endsWith('/email-magic-link') && request.method === 'POST') {
@@ -241,7 +240,7 @@ export class LumenizeAuth extends DurableObject {
         magicLinkUrl,
       });
     } catch (error) {
-      const log = this.#debug('auth.LumenizeAuth');
+      const log = debug('auth.LumenizeAuth');
       log.error('Failed to send magic link email', {
         error: error instanceof Error ? error.message : String(error),
         email
@@ -273,7 +272,7 @@ export class LumenizeAuth extends DurableObject {
     ` as MagicLink[];
 
     if (rows.length === 0) {
-      const auditLog = this.#debug('auth.LumenizeAuth.login.failed');
+      const auditLog = debug('auth.LumenizeAuth.login.failed');
       auditLog.warn('Invalid magic link token', { reason: 'not_found' });
       return this.#redirectWithError('invalid_token');
     }
@@ -282,14 +281,14 @@ export class LumenizeAuth extends DurableObject {
 
     // Check if already used
     if (magicLink.used) {
-      const auditLog = this.#debug('auth.LumenizeAuth.login.failed');
+      const auditLog = debug('auth.LumenizeAuth.login.failed');
       auditLog.warn('Used magic link token', { reason: 'token_used', email: magicLink.email });
       return this.#redirectWithError('token_used');
     }
 
     // Check expiration
     if (Date.now() > magicLink.expiresAt) {
-      const auditLog = this.#debug('auth.LumenizeAuth.login.failed');
+      const auditLog = debug('auth.LumenizeAuth.login.failed');
       auditLog.warn('Expired magic link token', { reason: 'token_expired', email: magicLink.email });
       return this.#redirectWithError('token_expired');
     }
@@ -300,7 +299,7 @@ export class LumenizeAuth extends DurableObject {
     // Get or create subject, set emailVerified, apply bootstrap promotion
     const subject = this.#loginSubject(magicLink.email);
 
-    const loginLog = this.#debug('auth.LumenizeAuth.login.succeeded');
+    const loginLog = debug('auth.LumenizeAuth.login.succeeded');
     loginLog.info('Magic link login', { targetSub: subject.sub, actorSub: 'system', email: magicLink.email });
 
     // Notify admins about non-approved signups (fire-and-forget, errors don't block login)
@@ -402,7 +401,7 @@ export class LumenizeAuth extends DurableObject {
       ` as any[];
       this.#sql`UPDATE RefreshTokens SET revoked = 1 WHERE tokenHash = ${tokenHash}`;
       if (tokenRows.length > 0) {
-        const auditLog = this.#debug('auth.LumenizeAuth.token.revoked');
+        const auditLog = debug('auth.LumenizeAuth.token.revoked');
         auditLog.warn('Logout', { targetSub: tokenRows[0].subjectId, actorSub: tokenRows[0].subjectId, method: 'logout' });
       }
     }
@@ -514,7 +513,7 @@ export class LumenizeAuth extends DurableObject {
     }
 
     // Apply updates
-    const auditLog = this.#debug('auth.LumenizeAuth.subject.updated');
+    const auditLog = debug('auth.LumenizeAuth.subject.updated');
     if (body.isAdmin !== undefined) {
       // isAdmin: true implicitly sets adminApproved: true
       if (body.isAdmin) {
@@ -531,7 +530,7 @@ export class LumenizeAuth extends DurableObject {
       // Revoking approval invalidates existing sessions
       if (!body.adminApproved) {
         this.#revokeAllTokensForSubject(subjectId);
-        const revokeLog = this.#debug('auth.LumenizeAuth.token.revoked');
+        const revokeLog = debug('auth.LumenizeAuth.token.revoked');
         revokeLog.warn('Tokens revoked on approval revocation', { targetSub: subjectId, actorSub: auth.sub, method: 'approval_revoked' });
       }
     }
@@ -582,7 +581,7 @@ export class LumenizeAuth extends DurableObject {
     this.#sql`DELETE FROM MagicLinks WHERE email = ${targetEmail}`;
     this.#sql`DELETE FROM InviteTokens WHERE email = ${targetEmail}`;
 
-    const auditLog = this.#debug('auth.LumenizeAuth.subject.deleted');
+    const auditLog = debug('auth.LumenizeAuth.subject.deleted');
     auditLog.warn('Subject deleted', { targetSub: subjectId, actorSub: auth.sub, email: targetEmail });
 
     return Response.json({ ok: true });
@@ -626,7 +625,7 @@ export class LumenizeAuth extends DurableObject {
       principalSub, actorSub
     );
 
-    const auditLogAdd = this.#debug('auth.LumenizeAuth.actor.added');
+    const auditLogAdd = debug('auth.LumenizeAuth.actor.added');
     auditLogAdd.info('Authorized actor added', { targetSub: principalSub, actorSub, adminSub: auth.sub });
 
     // Return the updated subject
@@ -654,7 +653,7 @@ export class LumenizeAuth extends DurableObject {
     // Delete the relationship (idempotent)
     this.#sql`DELETE FROM AuthorizedActors WHERE principalSub = ${principalSub} AND actorSub = ${actorSub}`;
 
-    const auditLogRemove = this.#debug('auth.LumenizeAuth.actor.removed');
+    const auditLogRemove = debug('auth.LumenizeAuth.actor.removed');
     auditLogRemove.info('Authorized actor removed', { targetSub: principalSub, actorSub, adminSub: auth.sub });
 
     // Return the updated subject
@@ -702,7 +701,7 @@ export class LumenizeAuth extends DurableObject {
     // Set adminApproved (idempotent)
     this.#sql`UPDATE Subjects SET adminApproved = 1 WHERE sub = ${subjectId}`;
 
-    const auditLog = this.#debug('auth.LumenizeAuth.subject.updated');
+    const auditLog = debug('auth.LumenizeAuth.subject.updated');
     auditLog.info('Subject approved', { targetSub: subjectId, actorSub: auth.sub, field: 'adminApproved', from: Boolean(rows[0].adminApproved), to: true });
 
     // Send approval confirmation email to the subject
@@ -714,7 +713,7 @@ export class LumenizeAuth extends DurableObject {
         redirectUrl: this.#redirect,
       });
     } catch (error) {
-      const log = this.#debug('auth.LumenizeAuth');
+      const log = debug('auth.LumenizeAuth');
       log.error('Failed to send approval confirmation email', {
         error: error instanceof Error ? error.message : String(error),
         email: rows[0].email
@@ -791,11 +790,11 @@ export class LumenizeAuth extends DurableObject {
                   inviteUrl: this.#redirect,
                 });
               } catch (error) {
-                const log = this.#debug('auth.LumenizeAuth');
+                const log = debug('auth.LumenizeAuth');
                 log.error('Failed to send invite email', { error: error instanceof Error ? error.message : String(error), email });
               }
             }
-            const inviteLog = this.#debug('auth.LumenizeAuth.invite.sent');
+            const inviteLog = debug('auth.LumenizeAuth.invite.sent');
             inviteLog.info('Invite sent', { targetSub: existing.sub, actorSub: auth.sub, email });
             invited.push(email);
             continue;
@@ -810,7 +809,7 @@ export class LumenizeAuth extends DurableObject {
             INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
             VALUES (${sub}, ${email}, 0, 1, 0, ${now}, ${null})
           `;
-          const createdLog = this.#debug('auth.LumenizeAuth.subject.created');
+          const createdLog = debug('auth.LumenizeAuth.subject.created');
           createdLog.info('Subject created via invite', { targetSub: sub, actorSub: auth.sub, email });
         }
 
@@ -835,12 +834,12 @@ export class LumenizeAuth extends DurableObject {
               inviteUrl,
             });
           } catch (error) {
-            const log = this.#debug('auth.LumenizeAuth');
+            const log = debug('auth.LumenizeAuth');
             log.error('Failed to send invite email', { error: error instanceof Error ? error.message : String(error), email });
           }
         }
 
-        const inviteLog = this.#debug('auth.LumenizeAuth.invite.sent');
+        const inviteLog = debug('auth.LumenizeAuth.invite.sent');
         inviteLog.info('Invite sent', { actorSub: auth.sub, email });
         invited.push(email);
       } catch (error) {
@@ -871,7 +870,7 @@ export class LumenizeAuth extends DurableObject {
     ` as any[];
 
     if (rows.length === 0) {
-      const auditLog = this.#debug('auth.LumenizeAuth.login.failed');
+      const auditLog = debug('auth.LumenizeAuth.login.failed');
       auditLog.warn('Invalid invite token', { reason: 'not_found' });
       return this.#redirectWithError('invalid_token');
     }
@@ -879,7 +878,7 @@ export class LumenizeAuth extends DurableObject {
     const inviteToken = rows[0];
 
     if (Date.now() > inviteToken.expiresAt) {
-      const auditLog = this.#debug('auth.LumenizeAuth.login.failed');
+      const auditLog = debug('auth.LumenizeAuth.login.failed');
       auditLog.warn('Expired invite token', { reason: 'token_expired', email: inviteToken.email });
       return this.#redirectWithError('token_expired');
     }
@@ -891,7 +890,7 @@ export class LumenizeAuth extends DurableObject {
     ` as any[];
 
     if (subjectRows.length === 0) {
-      const auditLog = this.#debug('auth.LumenizeAuth.login.failed');
+      const auditLog = debug('auth.LumenizeAuth.login.failed');
       auditLog.warn('Invite token for missing subject', { reason: 'subject_not_found', email: inviteToken.email });
       return this.#redirectWithError('invalid_token');
     }
@@ -902,11 +901,11 @@ export class LumenizeAuth extends DurableObject {
     // Set emailVerified and update lastLoginAt
     this.#sql`UPDATE Subjects SET emailVerified = 1, lastLoginAt = ${now} WHERE sub = ${sub}`;
 
-    const loginLog = this.#debug('auth.LumenizeAuth.login.succeeded');
+    const loginLog = debug('auth.LumenizeAuth.login.succeeded');
     loginLog.info('Invite accepted', { targetSub: sub, actorSub: 'system', email: inviteToken.email });
 
     if (!subjectRows[0].emailVerified) {
-      const updateLog = this.#debug('auth.LumenizeAuth.subject.updated');
+      const updateLog = debug('auth.LumenizeAuth.subject.updated');
       updateLog.info('Email verified via invite', { targetSub: sub, actorSub: 'system', field: 'emailVerified', from: false, to: true });
     }
 
@@ -961,7 +960,7 @@ export class LumenizeAuth extends DurableObject {
         SELECT 1 FROM AuthorizedActors WHERE principalSub = ${actFor} AND actorSub = ${auth.sub}
       ` as any[];
       if (actorRows.length === 0) {
-        const auditLog = this.#debug('auth.LumenizeAuth.access.denied');
+        const auditLog = debug('auth.LumenizeAuth.access.denied');
         auditLog.warn('Unauthorized delegation attempt', { sub: auth.sub, endpoint: 'POST /delegated-token', targetSub: actFor });
         return this.#errorResponse(403, 'forbidden', 'Not authorized to act for this subject');
       }
@@ -970,7 +969,7 @@ export class LumenizeAuth extends DurableObject {
     // Generate delegated access token: sub=principal, act.sub=actor
     const accessToken = await this.#generateAccessToken(principal, auth.sub);
 
-    const auditLog = this.#debug('auth.LumenizeAuth.token.delegated');
+    const auditLog = debug('auth.LumenizeAuth.token.delegated');
     auditLog.info('Delegated token issued', { targetSub: actFor, actorSub: auth.sub, principalSub: actFor });
 
     return Response.json({
@@ -1056,7 +1055,7 @@ export class LumenizeAuth extends DurableObject {
         const token = parts[1];
         const identity = await this.#verifyBearerToken(token);
         if (identity) return identity;
-        const auditLog = this.#debug('auth.LumenizeAuth.access.denied');
+        const auditLog = debug('auth.LumenizeAuth.access.denied');
         auditLog.warn('Invalid or expired access token', { reason: 'invalid_token' });
         throw new AuthenticationError(401, 'invalid_token', 'Invalid or expired access token');
       }
@@ -1070,7 +1069,7 @@ export class LumenizeAuth extends DurableObject {
       if (identity) return identity;
     }
 
-    const auditLog = this.#debug('auth.LumenizeAuth.access.denied');
+    const auditLog = debug('auth.LumenizeAuth.access.denied');
     auditLog.warn('Authentication required', { reason: 'no_valid_credential' });
     throw new AuthenticationError(401, 'invalid_token', 'Authentication required');
   }
@@ -1173,7 +1172,7 @@ export class LumenizeAuth extends DurableObject {
           approveUrl,
         });
       } catch (error) {
-        const log = this.#debug('auth.LumenizeAuth');
+        const log = debug('auth.LumenizeAuth');
         log.error('Failed to send admin notification', {
           error: error instanceof Error ? error.message : String(error),
           adminEmail: admin.email,
@@ -1209,7 +1208,7 @@ export class LumenizeAuth extends DurableObject {
         INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
         VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, ${now}, ${now})
       `;
-      const auditLog = this.#debug('auth.LumenizeAuth.subject.created');
+      const auditLog = debug('auth.LumenizeAuth.subject.created');
       auditLog.info('Subject created via magic link', { targetSub: sub, actorSub: 'system', email: normalizedEmail });
     }
 
@@ -1218,7 +1217,7 @@ export class LumenizeAuth extends DurableObject {
     if (isBootstrap) {
       // Only log bootstrap promotion when flags actually change
       if (existingRows.length === 0 || !existingRows[0].isAdmin) {
-        const auditLog = this.#debug('auth.LumenizeAuth.subject.updated');
+        const auditLog = debug('auth.LumenizeAuth.subject.updated');
         auditLog.info('Bootstrap promotion', { targetSub: sub, actorSub: 'system', field: 'isAdmin', from: false, to: true });
       }
       this.#sql`
@@ -1349,7 +1348,7 @@ export class LumenizeAuth extends DurableObject {
    * Log access.denied and return a 403 response.
    */
   #accessDenied(sub: string, endpoint: string): Response {
-    const auditLog = this.#debug('auth.LumenizeAuth.access.denied');
+    const auditLog = debug('auth.LumenizeAuth.access.denied');
     auditLog.warn('Non-admin access denied', { sub, endpoint });
     return this.#errorResponse(403, 'forbidden', 'Admin access required');
   }

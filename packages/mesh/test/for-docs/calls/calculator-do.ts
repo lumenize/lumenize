@@ -11,7 +11,7 @@ export class CalculatorDO extends LumenizeDO<Env> {
   // Require authentication for all mesh calls
   onBeforeCall(): void {
     super.onBeforeCall();
-    if (!this.lmz.callContext.originAuth?.userId) {
+    if (!this.lmz.callContext.originAuth?.sub) {
       throw new Error('Authentication required');
     }
   }

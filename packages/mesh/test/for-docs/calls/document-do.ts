@@ -78,7 +78,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   // Require authentication for all mesh calls
   onBeforeCall(): void {
     super.onBeforeCall();
-    if (!this.lmz.callContext.originAuth?.userId) {
+    if (!this.lmz.callContext.originAuth?.sub) {
       throw new Error('Authentication required');
     }
   }
@@ -166,7 +166,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   @mesh()
   admin(): AdminInterface {
     // Check if caller has admin role (simplified - in production, check JWT claims or database)
-    const userId = this.lmz.callContext.originAuth?.userId;
+    const userId = this.lmz.callContext.originAuth?.sub;
     const isAdmin = this.ctx.storage.kv.get(`admin:${userId}`) === true;
     if (!isAdmin) {
       throw new AdminAccessError('Admin access required', userId);
@@ -254,7 +254,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 
     return {
       executed: true,
-      originalUserId: context.originAuth?.userId
+      originalUserId: context.originAuth?.sub
     };
   }
 

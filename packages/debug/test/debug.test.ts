@@ -81,6 +81,19 @@ describe('@lumenize/debug', () => {
       expect(dbLog.enabled).toBe(false);
     });
 
+    it('supports trailing * without dot (npm debug compatibility)', () => {
+      process.env.DEBUG = 'auth*';
+      debug.reset();
+
+      const authLog = debug('auth.LumenizeAuth.login');
+      const authExact = debug('auth');
+      const otherLog = debug('other.thing');
+
+      expect(authLog.enabled).toBe(true);
+      expect(authExact.enabled).toBe(true);
+      expect(otherLog.enabled).toBe(false);
+    });
+
     it('respects exclusion patterns', () => {
       process.env.DEBUG = 'app,-app.verbose';
       debug.reset();

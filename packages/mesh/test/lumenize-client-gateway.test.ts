@@ -276,7 +276,7 @@ describe('LumenizeClientGateway', () => {
 
       expect(callResponse.success).toBe(true);
       expect(callResponse.result.originAuth).toMatchObject({
-        userId: 'auth-user', // Bridge: attachment.sub → originAuth.userId
+        sub: 'auth-user',
         claims: {
           emailVerified: true,
           adminApproved: true,

@@ -11,7 +11,7 @@ export class ProtectedDO extends LumenizeDO<Env> {
     super.onBeforeCall();
 
     // Require authentication
-    if (!this.lmz.callContext.originAuth?.userId) {
+    if (!this.lmz.callContext.originAuth?.sub) {
       throw new Error('Authentication required');
     }
   }
@@ -20,10 +20,10 @@ export class ProtectedDO extends LumenizeDO<Env> {
    * A simple method that requires authentication (enforced by onBeforeCall)
    */
   @mesh()
-  getData(): { message: string; userId: string } {
+  getData(): { message: string; sub: string } {
     return {
       message: 'Protected data',
-      userId: this.lmz.callContext.originAuth!.userId,
+      sub: this.lmz.callContext.originAuth!.sub,
     };
   }
 }

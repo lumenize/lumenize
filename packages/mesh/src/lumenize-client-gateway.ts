@@ -533,11 +533,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
       };
 
       // Build originAuth from VERIFIED sources (WebSocket attachment)
-      // Bridge: attachment uses `sub` (JWT RFC 7519), OriginAuth uses `userId` (mesh API)
-      // Mesh follow-on task will rename OriginAuth.userId → sub
       const originAuth: OriginAuth | undefined = attachment?.sub
         ? {
-            userId: attachment.sub,
+            sub: attachment.sub,
             claims: attachment.claims,
           }
         : undefined;

@@ -57,6 +57,24 @@ Key scripts available from the monorepo root:
 
 ---
 
+## Cross-Platform Cloudflare Detection
+
+When library code needs to access Cloudflare-specific APIs (like `env` from `cloudflare:workers`) but must also work in Node.js, Bun, and browsers, use top-level `await import()` in a try/catch:
+
+```typescript
+let cfEnv: { MY_VAR?: string } | null = null;
+try {
+  const mod = await import('cloudflare:workers');
+  cfEnv = (mod as { env?: { MY_VAR?: string } }).env ?? null;
+} catch {
+  // Not in Cloudflare Workers runtime — expected in Node.js, Bun, browser
+}
+```
+
+This resolves in Workers and silently fails elsewhere. No build-time flags or dynamic import hacks needed. See `@lumenize/debug` for the canonical example — it auto-detects `env.DEBUG` this way, so callers just use `debug('namespace')` in all environments.
+
+---
+
 ## Coding Style
 
 - **Type system**: TypeScript types for in-memory; TypeBox schemas for wire/persistence boundaries

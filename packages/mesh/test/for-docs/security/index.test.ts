@@ -78,7 +78,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // Phase 2 & 3: onBeforeCall() and authenticated access
   // ============================================
   // Bob is authenticated, so he can access ProtectedDO.
-  // The onBeforeCall() checks that originAuth.userId exists.
+  // The onBeforeCall() checks that originAuth.sub exists.
 
   const bobBrowser = new Browser();
   const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
@@ -115,7 +115,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   const protectedResult = protectedCallResults[0];
   expect(protectedResult).not.toBeInstanceOf(Error);
   expect((protectedResult as any).message).toBe('Protected data');
-  expect((protectedResult as any).userId).toBe(bobUserId);
+  expect((protectedResult as any).sub).toBe(bobUserId);
 
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)

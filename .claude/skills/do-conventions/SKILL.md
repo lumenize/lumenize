@@ -57,6 +57,26 @@ There is no `wrangler` CLI equivalent for non-secret production environment vari
 
 ---
 
+## 3a. Cross-Platform `cloudflare:workers` Detection
+
+Library code that needs `env` from `cloudflare:workers` but must also run in Node.js/Bun/browser should use top-level `await import()` in a try/catch:
+
+```typescript
+let cfEnv: { DEBUG?: string } | null = null;
+try {
+  const mod = await import('cloudflare:workers');
+  cfEnv = (mod as { env?: { DEBUG?: string } }).env ?? null;
+} catch {
+  // Not in Workers runtime — expected in Node.js, Bun, browser
+}
+```
+
+This resolves in Workers and silently fails elsewhere. No build-time flags needed. The canonical example is `@lumenize/debug` — it auto-detects `env.DEBUG` this way, letting callers use `debug('namespace')` in all environments without calling `debug.configure(env)`.
+
+**Do NOT use this pattern in code that only runs in Workers** (DO classes, Worker entry points). Those can directly `import { env } from 'cloudflare:workers'` since the runtime is guaranteed.
+
+---
+
 ## 4. Synchronous Methods
 
 Only these entry points should be `async`:
