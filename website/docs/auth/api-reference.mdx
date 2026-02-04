@@ -76,7 +76,7 @@ const authRoutes = createAuthRoutes(env, {
   authInstanceName?: string,     // Default: 'default'
 });
 // Options object is optional — createAuthRoutes(env) uses all defaults
-// Throws if env.TURNSTILE_SECRET_KEY is not set
+// Throws if env.TURNSTILE_SECRET_KEY is not set (skipped in test mode)
 ```
 
 For `CorsConfig` options, see [CORS Support](/docs/utils/cors-support).
@@ -87,11 +87,11 @@ Creates hooks for [`routeDORequest`](/docs/utils/route-do-request) that verify J
 
 ```typescript @skip-check
 const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env, {
-  rateLimiterBinding?: RateLimit,    // Default: env.LUMENIZE_AUTH_RATE_LIMITER
+  rateLimiterBindingName?: string,   // Default: 'LUMENIZE_AUTH_RATE_LIMITER'
 });
 // Options object is optional — createRouteDORequestAuthHooks(env) uses all defaults
 // Throws if no public keys available (env.JWT_PUBLIC_KEY_BLUE or env.JWT_PUBLIC_KEY_GREEN)
-// Throws if rate limiter binding not available (env.LUMENIZE_AUTH_RATE_LIMITER or rateLimiterBinding option)
+// Throws if rate limiter binding not available (env[rateLimiterBindingName])
 // issuer/audience read from env.LUMENIZE_AUTH_ISSUER / env.LUMENIZE_AUTH_AUDIENCE
 ```
 
@@ -124,7 +124,7 @@ const response = await fetch('/auth/email-magic-link', {
 // 403: Turnstile verification failed
 ```
 
-In [test mode](/docs/auth/#test-mode), append `?_test=true` to get the magic link directly without email delivery:
+In [test mode](/docs/auth/#test-mode), Turnstile validation is skipped entirely. Append `?_test=true` to get the magic link directly without email delivery:
 
 ```typescript @skip-check
 // 200: { message: "Magic link generated (test mode)", magic_link: "..." }

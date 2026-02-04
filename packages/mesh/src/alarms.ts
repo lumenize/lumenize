@@ -80,7 +80,7 @@ export class Alarms {
       throw new Error('Alarms requires sql service (built-in to @lumenize/mesh)');
     }
     this.#sql = doInstance.svc.sql;
-    this.#log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.alarms.Alarms');
+    this.#log = debug('lmz.alarms.Alarms');
 
     // Create table synchronously (idempotent)
     this.#storage.sql.exec(`

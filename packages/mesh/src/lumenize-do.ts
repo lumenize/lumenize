@@ -10,7 +10,7 @@ import {
 import { parse, postprocess } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
 import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
-import { debug, type DebugLogger } from '@lumenize/debug';
+import { debug } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
 // Re-export continuation types from ocan for convenience
@@ -57,7 +57,7 @@ export type { Continuation, AnyContinuation };
  * ```
  */
 export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
-  #debug: (namespace: string) => DebugLogger = debug(this);
+  #debug = debug;
   #serviceCache = new Map<string, any>();
   #svcProxy: LumenizeServices | null = null;
   #lmzApi: LmzApi | null = null;

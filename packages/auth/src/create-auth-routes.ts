@@ -1,4 +1,5 @@
 import { routeDORequest, type CorsOptions } from '@lumenize/utils';
+import { verifyTurnstileToken } from './turnstile';
 import type { AuthRoutesOptions } from './types';
 
 /**
@@ -12,6 +13,10 @@ import type { AuthRoutesOptions } from './types';
  * is read from environment variables — only Worker-level routing options
  * are passed here.
  *
+ * Turnstile validation: POST requests to `email-magic-link` require a valid
+ * `cf-turnstile-response` in the JSON body. Skipped in test mode.
+ *
+ * @throws If `TURNSTILE_SECRET_KEY` is not set and `LUMENIZE_AUTH_TEST_MODE !== 'true'`
  * @see https://lumenize.com/docs/auth/api-reference#createauthroutes
  */
 export function createAuthRoutes(
@@ -24,7 +29,20 @@ export function createAuthRoutes(
     cors,
   } = options;
 
-  const prefix = (env as any).LUMENIZE_AUTH_PREFIX || '/auth';
+  // Optional env vars not in wrangler.jsonc vars (secrets / test-only — cast required)
+  const envRecord = env as unknown as Record<string, unknown>;
+  const testMode = envRecord.LUMENIZE_AUTH_TEST_MODE === 'true';
+  const turnstileSecretKey = envRecord.TURNSTILE_SECRET_KEY as string | undefined;
+
+  // Fail fast: require Turnstile secret key in non-test mode
+  if (!testMode && !turnstileSecretKey) {
+    throw new Error(
+      'TURNSTILE_SECRET_KEY is required for createAuthRoutes. ' +
+      'Set it in your environment or enable LUMENIZE_AUTH_TEST_MODE for testing.'
+    );
+  }
+
+  const prefix = (envRecord.LUMENIZE_AUTH_PREFIX as string) || '/auth';
 
   // Normalize prefix (ensure starts with /, no trailing /)
   const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
@@ -43,6 +61,47 @@ export function createAuthRoutes(
 
     // Extract the endpoint path after the prefix
     const endpointPath = path.slice(cleanPrefix.length + 1) || '';
+
+    // Turnstile validation for POST email-magic-link (non-test mode only)
+    if (!testMode && request.method === 'POST' && endpointPath === 'email-magic-link') {
+      // Clone before consuming body so the original streams through to the DO
+      const clonedRequest = request.clone();
+
+      let body: Record<string, unknown>;
+      try {
+        body = await clonedRequest.json() as Record<string, unknown>;
+      } catch {
+        return new Response(
+          JSON.stringify({ error: 'invalid_request', error_description: 'Invalid JSON body' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const turnstileToken = body['cf-turnstile-response'];
+      if (!turnstileToken || typeof turnstileToken !== 'string') {
+        return new Response(
+          JSON.stringify({
+            error: 'turnstile_required',
+            error_description: 'Missing cf-turnstile-response in request body'
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const result = await verifyTurnstileToken(turnstileSecretKey!, turnstileToken);
+      if (!result.success) {
+        return new Response(
+          JSON.stringify({
+            error: 'turnstile_failed',
+            error_description: 'Turnstile verification failed',
+            error_codes: result.errorCodes,
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Fall through — original request body is unconsumed
+    }
 
     // Rewrite URL to include binding and instance name
     const rewrittenPath = `${cleanPrefix}/${authBindingName}/${authInstanceName}/${endpointPath}`;

@@ -124,6 +124,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] Add vitest-workers-pool tests for `@lumenize/debug`
+  - Current tests run in Node.js only (plain vitest)
+  - Need Workers pool tests to verify `cloudflare:workers` env auto-detection works end-to-end
+  - Test that `env.DEBUG` set in wrangler.jsonc/miniflare bindings is picked up without any manual configuration
+
 - [ ] Add consistent debug logging across all Lumenize packages
   - Currently only added debug logging where we actively debugged issues
   - Should have comprehensive logging at key points in all packages

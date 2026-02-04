@@ -64,7 +64,7 @@ export class Fetch extends NadisPlugin {
       throw new Error('Fetch requires alarms service for timeout handling (should be built-in to @lumenize/mesh)');
     }
     
-    this.#log = debug(doInstance as unknown as { env: { DEBUG?: string } })('lmz.fetch.Fetch');
+    this.#log = debug('lmz.fetch.Fetch');
   }
 
   /**

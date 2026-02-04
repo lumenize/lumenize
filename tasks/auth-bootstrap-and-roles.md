@@ -1,6 +1,6 @@
 # Lumenize Auth Upgrade (Bootstrap, Admin, Flow)
 
-**Status**: Phases 1, 2, 3, 4, 6 Complete — Ready for Phase 5
+**Status**: Phases 1–6 Complete — Ready for Phase 7
 **Design Documents**:
 - `/website/docs/auth/index.mdx` - Overview, access flows, bootstrap
 - `/website/docs/auth/api-reference.mdx` - Endpoints, environment variables, subject management, delegation
@@ -515,7 +515,7 @@ Admin invite (pre-approval) and the `act` claim for delegated access.
 8. **SQL cleanup** — removed `authorizedActors` from all SELECT and INSERT statements (column has DEFAULT, `#rowToSubject` overrides from junction table).
 9. **Test counts**: auth 120 tests (up from 91 in Phase 3), mesh 264 tests (unchanged), type-check clean.
 
-### Phase 5: Rate Limiting & Turnstile
+### Phase 5: Rate Limiting & Turnstile ✅
 
 Worker-level abuse protection for both public and authenticated routes.
 
@@ -524,22 +524,26 @@ Worker-level abuse protection for both public and authenticated routes.
 **Deltas**:
 - Turnstile validation in `createAuthRoutes` for `email-magic-link` endpoint
 - Fail fast: throw at creation time if `TURNSTILE_SECRET_KEY` missing
-- Rate limiter in `createRouteDORequestAuthHooks`: default `env.LUMENIZE_AUTH_RATE_LIMITER`, optional `rateLimiterBinding` override
+- Rate limiter in `createRouteDORequestAuthHooks`: default `env.LUMENIZE_AUTH_RATE_LIMITER`, optional `rateLimiterBindingName` override
 - Rate limit keyed on `sub` from decoded JWT; return 429 on failure
 - Fail fast: throw at creation time if no rate limiter binding available
 
-**Testing question (captured during Phase 2 planning)**: Turnstile tokens are designed to prove the requester is human — they can't be obtained programmatically in tests. Options to investigate:
-- Cloudflare provides [test keys](https://developers.cloudflare.com/turnstile/troubleshooting/testing/) with predictable pass/fail behavior — check if these work in vitest/miniflare
-- Mock the Turnstile siteverify fetch call in test mode
-- Bypass Turnstile validation when `LUMENIZE_AUTH_TEST_MODE=true` (acceptable since test mode already bypasses email delivery)
+**What changed (implementation notes)**:
+1. **`rateLimiterBinding` → `rateLimiterBindingName`** — The option is a string that indexes into `env`, not a `RateLimit` binding directly. Default: `'LUMENIZE_AUTH_RATE_LIMITER'`.
+2. **Turnstile bypass in test mode** — When `LUMENIZE_AUTH_TEST_MODE === 'true'`, both the `TURNSTILE_SECRET_KEY` construction-time check and per-request Turnstile validation are skipped entirely.
+3. **Turnstile testing strategy** — Resolved: test mode bypass for most tests, one integration test using Cloudflare's always-pass dummy keys (`1x0000000000000000000000000000000AA` / `XXXX.DUMMY.TOKEN.XXXX`) and one with always-fail keys (`2x0000000000000000000000000000000AA`). Both hit the real `siteverify` endpoint.
+4. **New `src/turnstile.ts` module** — Standalone `verifyTurnstileToken()` function, exported from index.
+5. **Body consumption in Turnstile path** — `createAuthRoutes` clones the request before reading JSON to extract `cf-turnstile-response`, so the original request body streams through to the DO unconsumed.
+6. **Auth endpoints NOT rate-limited** — Per-subject rate limiting only applies to `createRouteDORequestAuthHooks` (authenticated routes), not to `createAuthRoutes` (public auth endpoints). Auth endpoints are protected by Turnstile instead. This is a known design limitation; DDoS against auth endpoints should be handled at the Cloudflare edge (WAF rules, etc.).
+7. **Mesh wrangler.jsonc updates** — Added `ratelimits` binding to mesh root + 3 for-docs test wrangler configs since they call `createRouteDORequestAuthHooks(env)` which now throws without it.
+8. **Doc alignment** — Updated `api-reference.mdx`: `rateLimiterBinding` → `rateLimiterBindingName`, added test mode note for Turnstile throw.
+9. **Test counts**: auth 133 tests (up from 120 in Phase 4), mesh 264 tests (unchanged), type-check clean.
 
-The rate limiter binding throw is deferred from Phase 2 — Phase 2 accepts the `rateLimiterBinding` option but doesn't enforce it. Phase 5 adds the enforcement and the throw.
-
-**Success criteria**:
-- Magic link requests without valid Turnstile token get 403
-- `createAuthRoutes(env)` throws if `TURNSTILE_SECRET_KEY` missing
-- Authenticated requests exceeding rate limit get 429
-- `createRouteDORequestAuthHooks(env)` throws if rate limiter binding missing
+**Success criteria** (all met):
+- ✅ Magic link requests without valid Turnstile token get 403
+- ✅ `createAuthRoutes(env)` throws if `TURNSTILE_SECRET_KEY` missing (non-test mode)
+- ✅ Authenticated requests exceeding rate limit get 429
+- ✅ `createRouteDORequestAuthHooks(env)` throws if rate limiter binding missing
 
 ### Phase 6: Test Safety & Documentation ✅ (completed during Phase 1)
 
@@ -558,42 +562,97 @@ Clean up test mode safety and update documentation examples.
 
 ### Phase 7: Audit Logging
 
-Structured audit logging for all subject management and authentication operations. Provides accountability and traceability for admin actions, delegation events, and security-sensitive operations.
+Structured audit logging for all subject management and authentication operations via `@lumenize/debug`. Provides accountability and traceability for admin actions, delegation events, and security-sensitive operations — queryable through Cloudflare's observability dashboard.
 
-**Goal**: Every write operation in the Auth DO produces a structured audit log entry. Entries are queryable by subject, action type, and time range.
+**Goal**: Every write operation and security-relevant event in the Auth DO produces a structured JSON log entry via `@lumenize/debug`. No new tables, no new API endpoints — Cloudflare's logging infrastructure handles storage, retention, and querying.
 
-**What to log** (all subject-mutating operations):
-- [ ] Subject creation (magic link login, invite acceptance)
-- [ ] Subject deletion (admin action)
-- [ ] Flag changes: `emailVerified`, `adminApproved`, `isAdmin`
-- [ ] AuthorizedActor additions and removals
-- [ ] Delegated token issuance (`act.sub` → `sub`)
-- [ ] Admin approval (via `/approve/:id` endpoint)
-- [ ] Refresh token revocation (logout, admin revoke)
-- [ ] Invite sent (bulk invite endpoint)
+**Completed**:
+- ✅ All 11 distinct audit namespaces instrumented in `lumenize-auth.ts` — covering all 13 planned operation types (some handlers emit multiple categories)
+- ✅ `#accessDenied` helper method DRYs up 8 admin guard patterns
+- ✅ `#handleLogout` resolves `subjectId` from RefreshTokens before revoking
+- ✅ `@lumenize/debug` simplified — auto-detects `env.DEBUG` in Workers, removed `debug.configure()` and `debug(this)` overload
+- ✅ All packages updated to use `debug('namespace')` directly
+- ✅ `DEBUG: 'auth'` in `packages/auth/vitest.config.js` miniflare bindings
+- ✅ Audit Logging docs section added to `website/docs/auth/index.mdx`
+- ✅ All 133 auth tests pass, full monorepo green, type-check clean
+- ✅ Coverage: `lumenize-auth.ts` at 87.82% statements / 80.79% branch (meets >80% branch target)
+- ✅ Console spy tests deferred — 353 audit entries across all 11 namespaces visible in test stdout with `DEBUG=auth`; existing test suite exercises all audit paths without dedicated spy tests
 
-**Audit entry shape** (minimum):
-- `timestamp`: Unix ms
-- `action`: string enum (`subject.created`, `subject.deleted`, `subject.updated`, `actor.added`, `actor.removed`, `token.delegated`, `token.revoked`, `invite.sent`, etc.)
-- `targetSub`: subject ID the action was performed on
-- `actorSub`: who performed the action (admin sub, or system for auto-operations)
-- `details`: JSON object with action-specific data (e.g., `{ field: 'isAdmin', from: false, to: true }`)
+**Audit log categories verified in test output** (counts from `npx vitest run`):
+- `subject.created` — 123 entries
+- `login.succeeded` — 122 entries
+- `subject.updated` — 64 entries
+- `invite.sent` — 11 entries
+- `access.denied` — 11 entries (both "Authentication required" and "Non-admin access denied")
+- `actor.added` — 8 entries
+- `token.delegated` — 5 entries
+- `subject.deleted` — 3 entries
+- `login.failed` — 3 entries (invalid token; `token_used`/`token_expired` branches uncovered but low-risk)
+- `token.revoked` — 2 entries (both "Logout" and "Tokens revoked on approval revocation")
+- `actor.removed` — 1 entry
 
-**Storage**:
-- [ ] `AuditLog` table in the Auth DO SQLite (per-instance, co-located with the data it describes)
-- [ ] Index on `targetSub` + `timestamp` for per-subject history queries
-- [ ] Index on `action` + `timestamp` for action-type filtering
-- [ ] Consider TTL-based sweep (e.g., 90-day retention) to bound storage growth
+**Design decision: `@lumenize/debug` over SQLite + API**
 
-**API**:
-- [ ] `GET {prefix}/audit-log` — Admin-only, query params: `subject`, `action`, `since`, `until`, `limit`, `offset`
-- [ ] Response: `{ entries: AuditEntry[], total: number }`
+The original design called for an `AuditLog` table, indexes, TTL sweep, and a `GET /audit-log` admin endpoint. During planning, we pivoted to using `@lumenize/debug` structured JSON logging because:
+- The existing debug package already outputs JSON with `type`, `level`, `namespace`, `message`, `timestamp`, and arbitrary `data` fields — exactly the shape of an audit entry
+- Cloudflare's observability dashboard supports semi-structured queries on JSON log output (filter by namespace, level, data fields)
+- Eliminates: AuditLog table + 2 indexes + TTL sweep + query API endpoint + AuditEntry type + pagination logic + wrangler migration concerns
+- Retention is managed by Cloudflare's log retention settings, not our code
+- Namespace hierarchy (`auth.LumenizeAuth.*`) enables powerful dashboard filtering: `auth.LumenizeAuth.subject*` for subject lifecycle, `auth.LumenizeAuth*:warn` for security events only
+
+**Namespace convention**: `auth.LumenizeAuth.{category}.{action}` using the existing `this.#debug(...)` factory. Each instrumentation point creates a scoped logger:
+
+```typescript
+const auditLog = this.#debug('auth.LumenizeAuth.subject.created');
+auditLog.info('Subject created via magic link', { targetSub: sub, actorSub: 'system', email });
+```
+
+**Level categorization**:
+
+`warn` — security-relevant events an admin should notice:
+- `auth.LumenizeAuth.login.failed` — invalid/expired/used magic link or invite token
+- `auth.LumenizeAuth.access.denied` — non-admin hitting admin endpoint, failed `#authenticateRequest`
+- `auth.LumenizeAuth.token.revoked` — logout, admin revoke, approval revocation
+- `auth.LumenizeAuth.subject.deleted` — admin deleted a subject
+
+`info` — normal operational events for audit trail:
+- `auth.LumenizeAuth.subject.created` — magic link login (new subject), invite (new subject)
+- `auth.LumenizeAuth.subject.updated` — flag changes (`isAdmin`, `adminApproved`, `emailVerified`), bootstrap promotion (first time only)
+- `auth.LumenizeAuth.login.succeeded` — magic link validation, invite acceptance
+- `auth.LumenizeAuth.actor.added` — authorized actor added
+- `auth.LumenizeAuth.actor.removed` — authorized actor removed
+- `auth.LumenizeAuth.token.delegated` — delegated token issued
+- `auth.LumenizeAuth.invite.sent` — invite email sent (per email in batch)
+
+**`actorSub` resolution** (in `data` field):
+- Admin endpoints: `auth.sub` from `#authenticateRequest` (the admin performing the action)
+- Self-service operations (magic link login, accept-invite): `'system'`
+- Logout: resolve `subjectId` from the RefreshTokens row (lighter than full `#authenticateRequest`)
+
+**Idempotent operations**: Bootstrap promotion logs `subject.updated` only on first login (when flags actually change), not on subsequent idempotent logins.
+
+**What was instrumented** (all handlers in `lumenize-auth.ts`):
+
+- [x] `#loginSubject` — `subject.created` (info) when new, `subject.updated` (info) on first bootstrap promotion only
+- [x] `#handleMagicLink` — `login.succeeded` (info) on valid token; `login.failed` (warn) on invalid/expired/used token
+- [x] `#handleAcceptInvite` — `login.succeeded` (info) + `subject.updated` (info) on valid token; `login.failed` (warn) on invalid/expired token
+- [x] `#handleUpdateSubject` — `subject.updated` (info) per flag changed, with `{ field, from, to }`
+- [x] `#handleDeleteSubject` — `subject.deleted` (warn) with `{ email }`
+- [x] `#handleAddActor` — `actor.added` (info) with `{ actorSub }`
+- [x] `#handleRemoveActor` — `actor.removed` (info) with `{ actorSub }`
+- [x] `#handleDelegatedToken` — `token.delegated` (info) with `{ principalSub }`
+- [x] `#handleApprove` — `subject.updated` (info) with `{ field: 'adminApproved', from: false, to: true }`
+- [x] `#handleLogout` — `token.revoked` (warn) with `{ method: 'logout' }`
+- [x] `#handleInvite` — `invite.sent` (info) per email; `subject.created` (info) when new subject created
+- [x] `#authenticateRequest` failures — `access.denied` (warn) on AuthenticationError throw
+- [x] Non-admin hitting admin endpoint — `access.denied` (warn) with `{ endpoint, sub }`
 
 **Tests**:
-- [ ] Verify audit entries are created for each operation type
-- [ ] Verify admin-only access to audit log endpoint
-- [ ] Verify query filtering works (by subject, action, time range)
-- [ ] Verify audit entries include correct actor (who performed the action)
+- [x] Existing 133 tests exercise all 11 audit namespaces (353 entries in test output with `DEBUG=auth`)
+- [x] Dedicated console spy tests deferred — audit output is thoroughly exercised by existing test suite
+
+**Documentation**:
+- [x] "Audit Logging" section added to `website/docs/auth/index.mdx`
 
 ## Notes
 

@@ -8,6 +8,7 @@ import {
   getTokenTtl,
   WS_CLOSE_CODES
 } from '../src/hooks';
+import { createAuthRoutes } from '../src/create-auth-routes';
 
 describe('@lumenize/auth - LumenizeAuth DO', () => {
   describe('Schema Initialization', () => {
@@ -2579,3 +2580,197 @@ describe('@lumenize/auth - E2E delegation flow', () => {
     expect(parsed!.payload.act!.sub).toBe(actor.sub);
   });
 });
+
+// ============================================
+// Phase 5: Turnstile & Rate Limiting
+// ============================================
+
+describe('@lumenize/auth - Turnstile validation', () => {
+  it('createAuthRoutes does not throw in test mode (no TURNSTILE_SECRET_KEY needed)', () => {
+    // env has LUMENIZE_AUTH_TEST_MODE=true from vitest config, no TURNSTILE_SECRET_KEY
+    // createAuthRoutes imported at top of file
+    expect(() => createAuthRoutes(env)).not.toThrow();
+  });
+
+  it('createAuthRoutes throws without TURNSTILE_SECRET_KEY in non-test mode', () => {
+    // createAuthRoutes imported at top of file
+    const nonTestEnv = { ...env, LUMENIZE_AUTH_TEST_MODE: undefined };
+    expect(() => createAuthRoutes(nonTestEnv as typeof env)).toThrow('TURNSTILE_SECRET_KEY');
+  });
+
+  it('createAuthRoutes does not throw with TURNSTILE_SECRET_KEY in non-test mode', () => {
+    // createAuthRoutes imported at top of file
+    const prodEnv = {
+      ...env,
+      LUMENIZE_AUTH_TEST_MODE: undefined,
+      TURNSTILE_SECRET_KEY: 'some-secret',
+    };
+    expect(() => createAuthRoutes(prodEnv as typeof env)).not.toThrow();
+  });
+
+  it('test mode bypasses Turnstile — existing magic link flow still works', async () => {
+    // This validates that the test-mode bypass allows the existing login flow
+    // to work unchanged (no cf-turnstile-response needed)
+    const stub = env.LUMENIZE_AUTH.getByName('turnstile-bypass-1');
+    const { accessToken } = await loginOnStub(stub, 'turnstile-bypass@example.com');
+    expect(accessToken).toBeDefined();
+    expect(accessToken.split('.').length).toBe(3); // valid JWT
+  });
+
+  it('returns 403 when cf-turnstile-response is missing (non-test mode)', async () => {
+    // createAuthRoutes imported at top of file
+    const prodEnv = {
+      ...env,
+      LUMENIZE_AUTH_TEST_MODE: undefined,
+      TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+    };
+    const authRoutes = createAuthRoutes(prodEnv as typeof env);
+
+    const response = await authRoutes(new Request('http://localhost/auth/email-magic-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'test@example.com' }),
+    }));
+
+    expect(response).toBeDefined();
+    expect(response!.status).toBe(403);
+    const body = await response!.json() as any;
+    expect(body.error).toBe('turnstile_required');
+  });
+
+  it('returns 403 for invalid Turnstile token (non-test mode)', async () => {
+    // createAuthRoutes imported at top of file
+    const prodEnv = {
+      ...env,
+      LUMENIZE_AUTH_TEST_MODE: undefined,
+      // Always-fail test secret key
+      TURNSTILE_SECRET_KEY: '2x0000000000000000000000000000000AA',
+    };
+    const authRoutes = createAuthRoutes(prodEnv as typeof env);
+
+    const response = await authRoutes(new Request('http://localhost/auth/email-magic-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'test@example.com',
+        'cf-turnstile-response': 'XXXX.DUMMY.TOKEN.XXXX',
+      }),
+    }));
+
+    expect(response).toBeDefined();
+    expect(response!.status).toBe(403);
+    const body = await response!.json() as any;
+    expect(body.error).toBe('turnstile_failed');
+  }, 10_000);
+
+  it('passes Turnstile validation with dummy always-pass keys', async () => {
+    // createAuthRoutes imported at top of file
+    const prodEnv = {
+      ...env,
+      LUMENIZE_AUTH_TEST_MODE: undefined,
+      // Always-pass test secret key
+      TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+    };
+    const authRoutes = createAuthRoutes(prodEnv as typeof env);
+
+    const response = await authRoutes(new Request('http://localhost/auth/email-magic-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'turnstile-pass@example.com',
+        'cf-turnstile-response': 'XXXX.DUMMY.TOKEN.XXXX',
+      }),
+    }));
+
+    expect(response).toBeDefined();
+    // Should pass Turnstile and reach the DO (200 for test success or whatever the DO returns)
+    expect(response!.status).not.toBe(403);
+  }, 10_000);
+
+  it('returns 400 for invalid JSON body (non-test mode)', async () => {
+    // createAuthRoutes imported at top of file
+    const prodEnv = {
+      ...env,
+      LUMENIZE_AUTH_TEST_MODE: undefined,
+      TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+    };
+    const authRoutes = createAuthRoutes(prodEnv as typeof env);
+
+    const response = await authRoutes(new Request('http://localhost/auth/email-magic-link', {
+      method: 'POST',
+      body: 'not json',
+    }));
+
+    expect(response).toBeDefined();
+    expect(response!.status).toBe(400);
+    const body = await response!.json() as any;
+    expect(body.error).toBe('invalid_request');
+  });
+
+  it('non-magic-link POST routes are not Turnstile-gated (non-test mode)', async () => {
+    // createAuthRoutes imported at top of file
+    const prodEnv = {
+      ...env,
+      LUMENIZE_AUTH_TEST_MODE: undefined,
+      TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',
+    };
+    const authRoutes = createAuthRoutes(prodEnv as typeof env);
+
+    // POST to refresh-token should not require Turnstile
+    const response = await authRoutes(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+    }));
+
+    expect(response).toBeDefined();
+    // Should not be 403 — would be 401 or 400 from the actual endpoint
+    expect(response!.status).not.toBe(403);
+  });
+});
+
+describe('@lumenize/auth - Rate limiting', () => {
+  it('createRouteDORequestAuthHooks throws when rate limiter binding is missing', async () => {
+    const envWithoutRateLimiter = { ...env, LUMENIZE_AUTH_RATE_LIMITER: undefined } as unknown as Env;
+    await expect(
+      createRouteDORequestAuthHooks(envWithoutRateLimiter)
+    ).rejects.toThrow('Rate limiter binding');
+  });
+
+  it('createRouteDORequestAuthHooks throws with custom binding name when missing', async () => {
+    await expect(
+      createRouteDORequestAuthHooks(env, { rateLimiterBindingName: 'NONEXISTENT_BINDING' })
+    ).rejects.toThrow("Rate limiter binding 'NONEXISTENT_BINDING'");
+  });
+
+  it('createRouteDORequestAuthHooks succeeds with default rate limiter binding', async () => {
+    const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+    expect(typeof onBeforeRequest).toBe('function');
+    expect(typeof onBeforeConnect).toBe('function');
+  });
+
+  it('returns 429 when rate limit is exceeded', async () => {
+    // Get a valid access token via login flow
+    const stub = env.LUMENIZE_AUTH.getByName('rate-limit-test-1');
+    const { accessToken } = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // Create hooks — these use the rate limiter from env
+    const { onBeforeRequest } = await createRouteDORequestAuthHooks(env);
+
+    // The rate limit is 100 per 60s. We need to exceed it.
+    // Make 101 requests to trigger the limit
+    let hitRateLimit = false;
+    for (let i = 0; i < 110; i++) {
+      const request = new Request('http://localhost/test', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const result = await onBeforeRequest(request, { doNamespace: {}, doInstanceNameOrId: 'test' });
+      if (result instanceof Response && result.status === 429) {
+        hitRateLimit = true;
+        const body = await result.json() as any;
+        expect(body.error).toBe('rate_limited');
+        break;
+      }
+    }
+    expect(hitRateLimit).toBe(true);
+  });
+});
+

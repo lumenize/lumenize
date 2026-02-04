@@ -60,7 +60,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
    * Runs in background via ctx.waitUntil()
    */
   async #executeFetch(message: FetchMessage): Promise<void> {
-    const log = debug(this)('lmz.proxyFetch.worker');
+    const log = debug('lmz.proxyFetch.worker');
     
     const isString = typeof message.request === 'string';
     const url = isString 

@@ -195,7 +195,7 @@ function addCorsHeaders(response: Response, origin: string): Response {
  * @throws {MultipleBindingsFoundError} When multiple DO bindings match the doBindingName segment
  */
 export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
-  const log = debug({ env })('lmz.utils.routeDORequest');
+  const log = debug('lmz.utils.routeDORequest');
   const url = new URL(request.url);
   const pathname = url.pathname;
 

@@ -30,13 +30,13 @@ Set the `DEBUG` environment variable (uppercase) to filter which namespaces log:
 
 ### Cloudflare Workers
 
-In Workers, call `debug.configure(env)` once per request:
+In Workers, `env.DEBUG` is auto-detected via `import('cloudflare:workers')` — no manual configuration needed:
 
 ```typescript
+import { debug } from '@lumenize/debug';
+
 export default {
   async fetch(request: Request, env: Env) {
-    debug.configure(env);
-
     const log = debug('Worker.router');
     log.debug('Routing request');
 

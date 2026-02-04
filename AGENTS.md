@@ -430,7 +430,7 @@ DOs can be evicted from memory at any time. Design accordingly:
 **Never use instance variables for mutable application state** — always store that in `ctx.storage`.
 
 Instance variables are only safe for:
-- **Statically initialized utilities**: `#log = debug(this)('MyDO')` ✅
+- **Statically initialized utilities**: `#log = debug('MyDO')` ✅
 - **Ephemeral caches** where storage is the source of truth ✅
 - **Configuration set once** in constructor/onStart ✅
 

@@ -6,12 +6,14 @@ describe('@lumenize/debug', () => {
 
   beforeEach(() => {
     debug.reset();
+    delete process.env.DEBUG;
     consoleSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
   });
 
   afterEach(() => {
     consoleSpy.mockRestore();
     debug.reset();
+    delete process.env.DEBUG;
   });
 
   describe('basic functionality', () => {
@@ -44,15 +46,17 @@ describe('@lumenize/debug', () => {
     });
   });
 
-  describe('debug.configure() for Workers', () => {
+  describe('DEBUG environment variable', () => {
     it('enables logging for matching namespace', () => {
-      debug.configure({ DEBUG: 'test' });
+      process.env.DEBUG = 'test';
+      debug.reset();
       const log = debug('test.namespace');
       expect(log.enabled).toBe(true);
     });
 
     it('logs when enabled', () => {
-      debug.configure({ DEBUG: '*' });
+      process.env.DEBUG = '*';
+      debug.reset();
       const log = debug('test.namespace');
       log.info('hello world', { key: 'value' });
 
@@ -67,7 +71,8 @@ describe('@lumenize/debug', () => {
     });
 
     it('respects namespace patterns', () => {
-      debug.configure({ DEBUG: 'app.auth' });
+      process.env.DEBUG = 'app.auth';
+      debug.reset();
 
       const authLog = debug('app.auth.login');
       const dbLog = debug('app.database');
@@ -77,7 +82,8 @@ describe('@lumenize/debug', () => {
     });
 
     it('respects exclusion patterns', () => {
-      debug.configure({ DEBUG: 'app,-app.verbose' });
+      process.env.DEBUG = 'app,-app.verbose';
+      debug.reset();
 
       const normalLog = debug('app.normal');
       const verboseLog = debug('app.verbose.detail');
@@ -87,7 +93,8 @@ describe('@lumenize/debug', () => {
     });
 
     it('respects level filters', () => {
-      debug.configure({ DEBUG: 'app:warn' });
+      process.env.DEBUG = 'app:warn';
+      debug.reset();
 
       const log = debug('app.service');
 
@@ -106,7 +113,8 @@ describe('@lumenize/debug', () => {
 
   describe('safe serialization', () => {
     it('handles circular references', () => {
-      debug.configure({ DEBUG: '*' });
+      process.env.DEBUG = '*';
+      debug.reset();
       const log = debug('test');
 
       const obj: any = { name: 'test' };
@@ -121,7 +129,8 @@ describe('@lumenize/debug', () => {
     });
 
     it('handles BigInt values', () => {
-      debug.configure({ DEBUG: '*' });
+      process.env.DEBUG = '*';
+      debug.reset();
       const log = debug('test');
 
       log.info('bigint value', { big: BigInt(12345) });
@@ -134,7 +143,8 @@ describe('@lumenize/debug', () => {
 
   describe('log levels', () => {
     beforeEach(() => {
-      debug.configure({ DEBUG: '*' });
+      process.env.DEBUG = '*';
+      debug.reset();
     });
 
     it('logs at debug level', () => {
@@ -167,47 +177,6 @@ describe('@lumenize/debug', () => {
 
       const output = JSON.parse(consoleSpy.mock.calls[0][0]);
       expect(output.level).toBe('error');
-    });
-  });
-
-  describe('debug(doInstance) overload for DOs', () => {
-    it('auto-configures from DO instance env', () => {
-      // Simulate a DO instance with env
-      const doInstance = { env: { DEBUG: 'mydo' } };
-
-      // debug(doInstance) returns a factory function
-      const logFactory = debug(doInstance);
-      const log = logFactory('mydo.fetch');
-
-      expect(log.enabled).toBe(true);
-      expect(log.namespace).toBe('mydo.fetch');
-    });
-
-    it('works as class property initializer pattern', () => {
-      // Simulate how it would be used in a DO class
-      const mockDO = {
-        env: { DEBUG: '*' },
-      };
-
-      // This is the pattern: #log = debug(this)('MyDO')
-      const log = debug(mockDO)('MyDO');
-
-      expect(log.enabled).toBe(true);
-      log.info('test message');
-
-      expect(consoleSpy).toHaveBeenCalledTimes(1);
-      const output = JSON.parse(consoleSpy.mock.calls[0][0]);
-      expect(output.namespace).toBe('MyDO');
-    });
-
-    it('works when env.DEBUG is undefined', () => {
-      const doInstance = { env: {} as { DEBUG?: string } };
-
-      const logFactory = debug(doInstance);
-      const log = logFactory('mydo.fetch');
-
-      // Should be disabled when DEBUG is not set
-      expect(log.enabled).toBe(false);
     });
   });
 });

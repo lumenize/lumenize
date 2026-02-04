@@ -9,11 +9,10 @@ const WS_TOKEN_PREFIX = 'lmz.access-token.';
  */
 export interface RouteDORequestAuthHooksOptions {
   /**
-   * Rate limiter binding name override.
-   * Default: reads from env.LUMENIZE_AUTH_RATE_LIMITER.
-   * Not enforced until Phase 5 — accepted but ignored for now.
+   * Name of the rate limiter binding in `env`.
+   * Default: `'LUMENIZE_AUTH_RATE_LIMITER'`
    */
-  rateLimiterBinding?: string;
+  rateLimiterBindingName?: string;
 }
 
 /**
@@ -61,6 +60,22 @@ function createForbiddenResponse(error: string, description: string): Response {
     }),
     {
       status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    }
+  );
+}
+
+/**
+ * Create a 429 Too Many Requests response for rate limit violations
+ */
+function createRateLimitResponse(): Response {
+  return new Response(
+    JSON.stringify({
+      error: 'rate_limited',
+      error_description: 'Too many requests. Please try again later.'
+    }),
+    {
+      status: 429,
       headers: { 'Content-Type': 'application/json' }
     }
   );
@@ -161,7 +176,8 @@ function forwardJwtRequest(request: Request, token: string): Request {
  * 1. Verify JWT signature and expiration
  * 2. Validate issuer and audience claims
  * 3. Check access gate: `isAdmin || (emailVerified && adminApproved)`
- * 4. Forward the verified JWT to the DO in `Authorization: Bearer <jwt>`
+ * 4. Enforce per-subject rate limiting (keyed on `sub` from JWT)
+ * 5. Forward the verified JWT to the DO in `Authorization: Bearer <jwt>`
  *
  * Returns `{ onBeforeRequest, onBeforeConnect }` for destructuring into routeDORequest options.
  *
@@ -175,24 +191,35 @@ function forwardJwtRequest(request: Request, token: string): Request {
  * });
  * ```
  *
+ * @throws If no JWT public keys found or rate limiter binding missing
  * @see https://lumenize.com/docs/auth/#server-side-token-verification
  */
 export async function createRouteDORequestAuthHooks(
   env: Env,
-  _options?: RouteDORequestAuthHooksOptions,
+  options?: RouteDORequestAuthHooksOptions,
 ): Promise<{ onBeforeRequest: RouteDORequestHook; onBeforeConnect: RouteDORequestHook }> {
-  const envAny = env as any;
-
-  // Import public keys from env
-  const publicKeysPem = [envAny.JWT_PUBLIC_KEY_BLUE, envAny.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
+  // Import public keys from env (typed in Env)
+  const publicKeysPem = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
   const publicKeys = await Promise.all(publicKeysPem.map((pem: string) => importPublicKey(pem)));
 
   if (publicKeys.length === 0) {
     throw new Error('No JWT public keys found in env (JWT_PUBLIC_KEY_BLUE / JWT_PUBLIC_KEY_GREEN)');
   }
 
-  const issuer = envAny.LUMENIZE_AUTH_ISSUER || 'https://lumenize.local';
-  const audience = envAny.LUMENIZE_AUTH_AUDIENCE || 'https://lumenize.local';
+  // Resolve rate limiter binding (dynamic key requires cast)
+  const rateLimiterName = options?.rateLimiterBindingName ?? 'LUMENIZE_AUTH_RATE_LIMITER';
+  const rateLimiter = (env as unknown as Record<string, unknown>)[rateLimiterName] as RateLimit | undefined;
+  if (!rateLimiter) {
+    throw new Error(
+      `Rate limiter binding '${rateLimiterName}' not found in env. ` +
+      'Add a rate_limits binding to your wrangler.jsonc or provide rateLimiterBindingName option.'
+    );
+  }
+
+  // Optional env vars not in wrangler.jsonc vars (cast required)
+  const envRecord = env as unknown as Record<string, unknown>;
+  const issuer = (envRecord.LUMENIZE_AUTH_ISSUER as string) || 'https://lumenize.local';
+  const audience = (envRecord.LUMENIZE_AUTH_AUDIENCE as string) || 'https://lumenize.local';
 
   // HTTP request hook: Bearer token from Authorization header
   const onBeforeRequest: RouteDORequestHook = async (request, _context) => {
@@ -204,6 +231,10 @@ export async function createRouteDORequestAuthHooks(
 
     const result = await verifyAndGate(token, publicKeys, issuer, audience);
     if ('error' in result) return result.error;
+
+    // Per-subject rate limiting
+    const { success } = await rateLimiter.limit({ key: result.payload.sub });
+    if (!success) return createRateLimitResponse();
 
     return forwardJwtRequest(request, token);
   };
@@ -221,6 +252,10 @@ export async function createRouteDORequestAuthHooks(
 
     const result = await verifyAndGate(token, publicKeys, issuer, audience);
     if ('error' in result) return result.error;
+
+    // Per-subject rate limiting
+    const { success } = await rateLimiter.limit({ key: result.payload.sub });
+    if (!success) return createRateLimitResponse();
 
     return forwardJwtRequest(request, token);
   };

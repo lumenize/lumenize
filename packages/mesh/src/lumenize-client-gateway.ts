@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { getDOStub } from '@lumenize/utils';
-import { debug, type DebugLogger } from '@lumenize/debug';
+import { debug } from '@lumenize/debug';
 import type { CallEnvelope } from './lmz-api.js';
 import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js';
 
@@ -218,8 +218,7 @@ interface ReconnectWaiter {
  * | Empty | None | Disconnected | Throw ClientDisconnectedError |
  */
 export class LumenizeClientGateway extends DurableObject<any> {
-  /** Debug logger factory - call with namespace to get logger */
-  #debugFactory: (namespace: string) => DebugLogger = debug(this);
+  #debugFactory = debug;
 
   /** Pending calls waiting for client response */
   #pendingCalls = new Map<string, PendingCall>();

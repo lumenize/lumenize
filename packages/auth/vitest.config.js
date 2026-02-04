@@ -12,6 +12,7 @@ export default defineWorkersProject({
           bindings: {
             LUMENIZE_AUTH_TEST_MODE: 'true',
             LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+            DEBUG: 'auth',
           },
         },
       },
@@ -24,9 +25,9 @@ export default defineWorkersProject({
         '**/test/test-worker-and-dos.ts'
       ],
       exclude: [
-        '**/node_modules/**', 
-        '**/dist/**', 
-        '**/build/**', 
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/build/**',
         '**/*.config.*',
         '**/scratch/**',
         '**/test/**/*.test.ts'
@@ -36,4 +37,3 @@ export default defineWorkersProject({
     },
   },
 });
-

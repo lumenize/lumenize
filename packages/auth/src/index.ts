@@ -68,6 +68,9 @@ export type {
   CorsOptions
 } from './types';
 
+// Turnstile verification
+export { verifyTurnstileToken, type TurnstileVerifyResult } from './turnstile';
+
 // Schemas (for reference/customization)
 export { ALL_SCHEMAS } from './schemas';
 

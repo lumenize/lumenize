@@ -460,6 +460,20 @@ export default {
 };
 ```
 
+## Audit Logging
+
+All authentication and subject management operations produce structured JSON log entries via [`@lumenize/debug`](/docs/debug). These are emitted to `console.debug` and captured by Cloudflare's observability pipeline — no additional tables, endpoints, or retention logic needed.
+
+Every audit entry includes a hierarchical namespace (`auth.LumenizeAuth.{category}.{action}`), a level (`info` or `warn`), a message, and a `data` object with fields like `targetSub`, `actorSub`, and action-specific details. Security-relevant events (failed logins, access denials, token revocations, subject deletions) use `warn` level; normal operational events (subject creation, logins, invites) use `info`.
+
+Filter in the Cloudflare dashboard by namespace and level:
+
+- `auth.LumenizeAuth` — all auth audit events
+- `auth.LumenizeAuth.login` — login successes and failures
+- `auth.LumenizeAuth:warn` — security-relevant events only
+
+Audit logging is always active when `DEBUG` includes `auth` (or `*`). In production, set `DEBUG=auth` as an environment variable. In tests, inject it via `miniflare.bindings` in your `vitest.config.js`.
+
 ## API Reference
 
 See the [API Reference](/docs/auth/api-reference) for endpoints, environment variables, function signatures, the [subject record](/docs/auth/api-reference#subject-record) schema, subject management, and delegation.

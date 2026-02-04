@@ -296,7 +296,7 @@ export class MyPlugin extends NadisPlugin {
 DOs can be evicted from memory at any time. Never use instance variables for **mutable application state** — always store that in `ctx.storage`.
 
 Instance variables are only safe for:
-- Statically initialized utilities (e.g., `#log = debug(this)('MyPlugin')`)
+- Statically initialized utilities (e.g., `#log = debug('MyPlugin')`)
 - Ephemeral caches where storage is the source of truth (like above)
 - Configuration set once in constructor (e.g., `#ttl = options?.ttl ?? 3600`)
 :::
