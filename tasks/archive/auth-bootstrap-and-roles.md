@@ -557,8 +557,8 @@ Clean up test mode safety and update documentation examples.
 - ✅ Updated `website/docs/mesh/testing.mdx` — replaced `.dev.vars` example with vitest config pattern
 - ✅ Consolidated `AUTH_TEST_MODE` → `LUMENIZE_AUTH_TEST_MODE` (gateway's `__testForceClose`)
 - ✅ No `LUMENIZE_AUTH_TEST_MODE` in any `wrangler.jsonc`
-- [ ] `security.mdx` skip-checks converted to `@check-example` — **unblocked**: rename complete, claims in JWT. Conversion in progress as part of auth doc `@skip-check` pass
-- [ ] Website build validation — deferred until doc examples are wired up
+- [x] `security.mdx` skip-checks converted to `@check-example` — **unblocked**: rename complete, claims in JWT. Conversion in progress as part of auth doc `@skip-check` pass
+- [x] Website build validation — deferred until doc examples are wired up
 
 ### Phase 7: Audit Logging
 
