@@ -416,10 +416,15 @@ const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, '
   subjectData: { isAdmin: true }  // Admins implicitly have adminApproved
 });
 
-// Login with delegation — alice is the principal, actorSubId acts on her behalf
-const { accessToken: delegatedToken } = await testLoginWithMagicLink(browser, 'alice@test.com', {
+// Login with delegation — alice is the principal, the actor acts on her behalf
+const actorBrowser = new Browser();
+const { accessToken: actorToken } = await testLoginWithMagicLink(actorBrowser, 'actor@test.com', {
+  subjectData: { adminApproved: true }
+});
+const aliceBrowser = new Browser();
+const { accessToken: delegatedToken } = await testLoginWithMagicLink(aliceBrowser, 'alice@test.com', {
   subjectData: { adminApproved: true },
-  actorSub: actorSubId  // this subject is acting on behalf of alice
+  actorAccessToken: actorToken  // actor's access token for delegation
 });
 ```
 

@@ -16,6 +16,9 @@ export class ConsoleEmailService implements EmailService {
       case 'approval-confirmation':
         console.log(`[ConsoleEmailService] Approval confirmation to ${message.to}: continue at ${message.redirectUrl}`);
         break;
+      case 'invite':
+        console.log(`[ConsoleEmailService] Invite for ${message.to}: ${message.inviteUrl}`);
+        break;
     }
   }
 }

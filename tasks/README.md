@@ -40,6 +40,12 @@ For user-facing API changes. MDX documentation dominates; task file holds implem
 
 ### Phase 2: [Name]
 ...
+
+### Final Verification (every phase)
+- [ ] All tests pass (`npx vitest run` in package dir)
+- [ ] Type-check clean (`npm run type-check`)
+- [ ] Docs match implementation: grep `.mdx` files for keywords from changed APIs
+- [ ] JSDoc comments in source reflect current behavior
 ```
 
 ### Implementation-First Task File

@@ -17,6 +17,21 @@ import {
 import { ConsoleEmailService } from './email-service';
 
 /**
+ * Error thrown by #authenticateRequest when authentication fails.
+ * Caught by the top-level fetch() handler, which converts it to the appropriate Response.
+ */
+class AuthenticationError extends Error {
+  status: number;
+  errorCode: string;
+  constructor(status: number, errorCode: string, message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+    this.status = status;
+    this.errorCode = errorCode;
+  }
+}
+
+/**
  * SQL template literal tag for Durable Object storage.
  * Copied from @lumenize/mesh/src/sql.ts (originally from @cloudflare/actors).
  */
@@ -51,8 +66,11 @@ export class LumenizeAuth extends DurableObject {
     for (const schema of ALL_SCHEMAS) {
       this.ctx.storage.sql.exec(schema);
     }
-    // Sweep expired tokens on every DO wake-up (indexed on expiresAt, fast even with zero matches)
-    this.ctx.storage.sql.exec('DELETE FROM RefreshTokens WHERE expiresAt < ?', Date.now());
+    // Sweep expired tokens on every DO wake-up (tables are small, no extra indexes needed)
+    const now = Date.now();
+    this.ctx.storage.sql.exec('DELETE FROM RefreshTokens WHERE expiresAt < ?', now);
+    this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', now);
+    this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', now);
     this.#schemaInitialized = true;
   }
 
@@ -75,6 +93,7 @@ export class LumenizeAuth extends DurableObject {
   get #magicLinkTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_MAGIC_LINK_TTL) || 1800; }
   get #prefix(): string { return (this.env as any).LUMENIZE_AUTH_PREFIX || '/auth'; }
   get #bootstrapEmail(): string | undefined { return (this.env as any).LUMENIZE_AUTH_BOOTSTRAP_EMAIL?.toLowerCase(); }
+  get #inviteTtl(): number { return Number((this.env as any).LUMENIZE_AUTH_INVITE_TTL) || 604800; }
   get #isTestMode(): boolean { return (this.env as any).LUMENIZE_AUTH_TEST_MODE === 'true'; }
 
   /**
@@ -102,6 +121,10 @@ export class LumenizeAuth extends DurableObject {
         return await this.#handleMagicLink(request, url);
       }
 
+      if (path.endsWith('/accept-invite') && request.method === 'GET') {
+        return await this.#handleAcceptInvite(request, url);
+      }
+
       if (path.endsWith('/refresh-token') && request.method === 'POST') {
         return await this.#handleRefreshToken(request);
       }
@@ -110,11 +133,26 @@ export class LumenizeAuth extends DurableObject {
         return await this.#handleLogout(request);
       }
 
+      if (path.endsWith('/delegated-token') && request.method === 'POST') {
+        return await this.#handleDelegatedToken(request);
+      }
+
       // Admin CRUD routes — parameterized paths matched via regex
       // Approve must come before subject to avoid /approve/:id matching /subject/:id
       const approveMatch = path.match(/\/approve\/([^/]+)$/);
       if (approveMatch && request.method === 'GET') {
         return await this.#handleApprove(request, approveMatch[1]);
+      }
+
+      // Actor management: /subject/:id/actors and /subject/:id/actors/:actorId
+      const actorRemoveMatch = path.match(/\/subject\/([^/]+)\/actors\/([^/]+)$/);
+      if (actorRemoveMatch && request.method === 'DELETE') {
+        return await this.#handleRemoveActor(request, actorRemoveMatch[1], actorRemoveMatch[2]);
+      }
+
+      const actorAddMatch = path.match(/\/subject\/([^/]+)\/actors$/);
+      if (actorAddMatch && request.method === 'POST') {
+        return await this.#handleAddActor(request, actorAddMatch[1]);
       }
 
       const subjectMatch = path.match(/\/subject\/([^/]+)$/);
@@ -128,12 +166,19 @@ export class LumenizeAuth extends DurableObject {
         return await this.#handleListSubjects(request, url);
       }
 
+      if (path.endsWith('/invite') && request.method === 'POST') {
+        return await this.#handleInvite(request, url);
+      }
+
       if (path.endsWith('/test/set-subject-data') && request.method === 'POST') {
         return await this.#handleTestSetSubjectData(request);
       }
 
       return new Response('Not Found', { status: 404 });
     } catch (error) {
+      if (error instanceof AuthenticationError) {
+        return this.#errorResponse(error.status, error.errorCode, error.message);
+      }
       log.error('Auth error', {
         error: error instanceof Error ? error.message : String(error),
         path,
@@ -304,7 +349,7 @@ export class LumenizeAuth extends DurableObject {
 
     // Look up the subject to get current flags for JWT claims
     const subjectRows = this.#sql`
-      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects WHERE sub = ${storedToken.subjectId}
     ` as any[];
 
@@ -364,7 +409,6 @@ export class LumenizeAuth extends DurableObject {
    */
   async #handleListSubjects(request: Request, url: URL): Promise<Response> {
     const auth = await this.#authenticateRequest(request);
-    if (auth instanceof Response) return auth;
     if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
 
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 200);
@@ -374,19 +418,19 @@ export class LumenizeAuth extends DurableObject {
     let rows: any[];
     if (role === 'admin') {
       rows = this.#sql`
-        SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+        SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
         FROM Subjects WHERE isAdmin = 1
         ORDER BY createdAt DESC LIMIT ${limit} OFFSET ${offset}
       `;
     } else if (role === 'none') {
       rows = this.#sql`
-        SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+        SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
         FROM Subjects WHERE isAdmin = 0
         ORDER BY createdAt DESC LIMIT ${limit} OFFSET ${offset}
       `;
     } else {
       rows = this.#sql`
-        SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+        SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
         FROM Subjects
         ORDER BY createdAt DESC LIMIT ${limit} OFFSET ${offset}
       `;
@@ -400,11 +444,10 @@ export class LumenizeAuth extends DurableObject {
    */
   async #handleGetSubject(request: Request, subjectId: string): Promise<Response> {
     const auth = await this.#authenticateRequest(request);
-    if (auth instanceof Response) return auth;
     if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
 
     const rows = this.#sql`
-      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects WHERE sub = ${subjectId}
     ` as any[];
 
@@ -417,11 +460,10 @@ export class LumenizeAuth extends DurableObject {
 
   /**
    * PATCH {prefix}/subject/:id — Update a subject (admin only)
-   * Updatable fields: isAdmin, adminApproved, authorizedActors
+   * Updatable fields: isAdmin, adminApproved
    */
   async #handleUpdateSubject(request: Request, subjectId: string): Promise<Response> {
     const auth = await this.#authenticateRequest(request);
-    if (auth instanceof Response) return auth;
     if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
 
     // Self-modification prevention
@@ -449,6 +491,11 @@ export class LumenizeAuth extends DurableObject {
       return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
     }
 
+    // authorizedActors is managed via POST/DELETE /subject/:id/actors — reject if attempted via PATCH
+    if (body.authorizedActors !== undefined) {
+      return this.#errorResponse(400, 'invalid_request', 'Use POST /subject/:id/actors and DELETE /subject/:id/actors/:actorId to manage authorized actors');
+    }
+
     // Apply updates
     if (body.isAdmin !== undefined) {
       // isAdmin: true implicitly sets adminApproved: true
@@ -467,13 +514,9 @@ export class LumenizeAuth extends DurableObject {
       }
     }
 
-    if (body.authorizedActors !== undefined) {
-      this.#sql`UPDATE Subjects SET authorizedActors = ${JSON.stringify(body.authorizedActors)} WHERE sub = ${subjectId}`;
-    }
-
     // Re-read and return the updated subject
     const freshRows = this.#sql`
-      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects WHERE sub = ${subjectId}
     ` as any[];
 
@@ -485,12 +528,11 @@ export class LumenizeAuth extends DurableObject {
    */
   async #handleDeleteSubject(request: Request, subjectId: string): Promise<Response> {
     const auth = await this.#authenticateRequest(request);
-    if (auth instanceof Response) return auth;
     if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
 
     // Self-deletion prevention
     if (auth.sub === subjectId) {
-      return this.#errorResponse(403, 'forbidden', 'Cannot modify own admin status');
+      return this.#errorResponse(403, 'forbidden', 'Cannot delete yourself');
     }
 
     // Bootstrap protection
@@ -511,7 +553,7 @@ export class LumenizeAuth extends DurableObject {
     // Revoke all tokens before deletion
     this.#revokeAllTokensForSubject(subjectId);
 
-    // Delete subject — RefreshTokens cleaned up via ON DELETE CASCADE
+    // Delete subject — RefreshTokens and AuthorizedActors cleaned up via ON DELETE CASCADE
     this.#sql`DELETE FROM Subjects WHERE sub = ${subjectId}`;
 
     // Clean up MagicLinks and InviteTokens by email (no FK, manual cleanup)
@@ -522,18 +564,95 @@ export class LumenizeAuth extends DurableObject {
   }
 
   /**
+   * POST {prefix}/subject/:id/actors — Add an authorized actor (admin only)
+   * Body: { actorSub: string }
+   */
+  async #handleAddActor(request: Request, principalSub: string): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    let body: { actorSub?: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+    }
+
+    const actorSub = body.actorSub;
+    if (!actorSub) {
+      return this.#errorResponse(400, 'invalid_request', 'actorSub required');
+    }
+
+    // Verify principal exists
+    const principalRows = this.#sql`SELECT sub FROM Subjects WHERE sub = ${principalSub}` as any[];
+    if (principalRows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    // Verify actor exists
+    const actorRows = this.#sql`SELECT sub FROM Subjects WHERE sub = ${actorSub}` as any[];
+    if (actorRows.length === 0) {
+      return this.#errorResponse(400, 'invalid_request', `Actor ID not found: ${actorSub}`);
+    }
+
+    // Insert (idempotent — INSERT OR IGNORE for composite PK)
+    this.ctx.storage.sql.exec(
+      'INSERT OR IGNORE INTO AuthorizedActors (principalSub, actorSub) VALUES (?, ?)',
+      principalSub, actorSub
+    );
+
+    // Return the updated subject
+    const freshRows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${principalSub}
+    ` as any[];
+
+    return Response.json({ subject: this.#rowToSubject(freshRows[0]) });
+  }
+
+  /**
+   * DELETE {prefix}/subject/:id/actors/:actorId — Remove an authorized actor (admin only)
+   */
+  async #handleRemoveActor(request: Request, principalSub: string, actorSub: string): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    // Verify principal exists
+    const principalRows = this.#sql`SELECT sub FROM Subjects WHERE sub = ${principalSub}` as any[];
+    if (principalRows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    // Delete the relationship (idempotent)
+    this.#sql`DELETE FROM AuthorizedActors WHERE principalSub = ${principalSub} AND actorSub = ${actorSub}`;
+
+    // Return the updated subject
+    const freshRows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${principalSub}
+    ` as any[];
+
+    return Response.json({ subject: this.#rowToSubject(freshRows[0]) });
+  }
+
+  /**
    * GET {prefix}/approve/:id — Approve a subject (admin only, browser-friendly)
    * Redirects to LUMENIZE_AUTH_REDIRECT on success.
    */
   async #handleApprove(request: Request, subjectId: string): Promise<Response> {
-    const auth = await this.#authenticateRequest(request);
-    if (auth instanceof Response) {
-      // Not authenticated — redirect with error so browser doesn't show raw JSON
-      const separator = this.#redirect.includes('?') ? '&' : '?';
-      return new Response(null, {
-        status: 302,
-        headers: { 'Location': `${this.#redirect}${separator}error=login_required` }
-      });
+    let auth: { sub: string; isAdmin: boolean; email: string };
+    try {
+      auth = await this.#authenticateRequest(request);
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        // Not authenticated — redirect with error so browser doesn't show raw JSON
+        const separator = this.#redirect.includes('?') ? '&' : '?';
+        return new Response(null, {
+          status: 302,
+          headers: { 'Location': `${this.#redirect}${separator}error=login_required` }
+        });
+      }
+      throw error;
     }
 
     if (!auth.isAdmin) {
@@ -572,6 +691,233 @@ export class LumenizeAuth extends DurableObject {
     return new Response(null, {
       status: 302,
       headers: { 'Location': this.#redirect }
+    });
+  }
+
+  // ============================================
+  // Invite & Delegation Endpoints
+  // ============================================
+
+  /**
+   * POST {prefix}/invite — Bulk invite emails (admin only)
+   *
+   * Creates subjects with adminApproved=true and sends invite emails.
+   * Test mode: returns invite links instead of sending emails.
+   */
+  async #handleInvite(request: Request, url: URL): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+    if (!auth.isAdmin) return this.#errorResponse(403, 'forbidden', 'Admin access required');
+
+    let body: { emails?: string[] };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+    }
+
+    const emails = body.emails;
+    if (!Array.isArray(emails)) {
+      return this.#errorResponse(400, 'invalid_request', 'emails array required');
+    }
+
+    const isTestMode = this.#isTestMode && url.searchParams.get('_test') === 'true';
+    const invited: string[] = [];
+    const errors: Array<{ email: string; error: string }> = [];
+    const links: Record<string, string> = {};
+
+    for (const rawEmail of emails) {
+      const email = rawEmail?.toLowerCase().trim();
+      if (!email || !this.#isValidEmail(email)) {
+        errors.push({ email: rawEmail, error: 'Invalid email format' });
+        continue;
+      }
+
+      try {
+        // Look up existing subject
+        const existingRows = this.#sql`
+          SELECT sub, email, emailVerified, adminApproved FROM Subjects WHERE email = ${email}
+        ` as any[];
+
+        if (existingRows.length > 0) {
+          const existing = existingRows[0];
+          // Ensure adminApproved regardless
+          this.#sql`UPDATE Subjects SET adminApproved = 1 WHERE sub = ${existing.sub}`;
+
+          if (existing.emailVerified) {
+            // Already verified — send invite email (notification), no token needed
+            if (isTestMode) {
+              // No invite link for already-verified subjects
+              links[email] = '(already verified)';
+            } else {
+              try {
+                await this.#emailService.send({
+                  type: 'invite',
+                  to: email,
+                  subject: "You've been invited",
+                  inviteUrl: this.#redirect,
+                });
+              } catch (error) {
+                const log = this.#debug('auth.LumenizeAuth');
+                log.error('Failed to send invite email', { error: error instanceof Error ? error.message : String(error), email });
+              }
+            }
+            invited.push(email);
+            continue;
+          }
+
+          // Exists but not verified — generate invite token and send
+        } else {
+          // Create new subject with adminApproved=true, emailVerified=false
+          const sub = generateUuid();
+          const now = Date.now();
+          this.#sql`
+            INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
+            VALUES (${sub}, ${email}, 0, 1, 0, ${now}, ${null})
+          `;
+        }
+
+        // Generate invite token (for new subjects and existing-not-verified)
+        const token = generateRandomString(32);
+        const expiresAt = Date.now() + (this.#inviteTtl * 1000);
+        this.#sql`
+          INSERT INTO InviteTokens (token, email, expiresAt)
+          VALUES (${token}, ${email}, ${expiresAt})
+        `;
+
+        const inviteUrl = `${url.origin}${this.#prefix}/accept-invite?invite_token=${token}`;
+
+        if (isTestMode) {
+          links[email] = inviteUrl;
+        } else {
+          try {
+            await this.#emailService.send({
+              type: 'invite',
+              to: email,
+              subject: "You've been invited",
+              inviteUrl,
+            });
+          } catch (error) {
+            const log = this.#debug('auth.LumenizeAuth');
+            log.error('Failed to send invite email', { error: error instanceof Error ? error.message : String(error), email });
+          }
+        }
+
+        invited.push(email);
+      } catch (error) {
+        errors.push({ email, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+
+    const responseBody: any = { invited, errors };
+    if (isTestMode) responseBody.links = links;
+    return Response.json(responseBody);
+  }
+
+  /**
+   * GET {prefix}/accept-invite?invite_token=... — Accept invite and complete login
+   *
+   * Validates reusable invite token, sets emailVerified=true, issues refresh token, redirects.
+   */
+  async #handleAcceptInvite(_request: Request, url: URL): Promise<Response> {
+    const token = url.searchParams.get('invite_token');
+
+    if (!token) {
+      return this.#errorResponse(400, 'invalid_request', 'Missing invite_token');
+    }
+
+    // Look up invite token (reusable — do NOT delete)
+    const rows = this.#sql`
+      SELECT token, email, expiresAt FROM InviteTokens WHERE token = ${token}
+    ` as any[];
+
+    if (rows.length === 0) {
+      return this.#redirectWithError('invalid_token');
+    }
+
+    const inviteToken = rows[0];
+
+    if (Date.now() > inviteToken.expiresAt) {
+      return this.#redirectWithError('token_expired');
+    }
+
+    // Look up subject by email
+    const subjectRows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
+      FROM Subjects WHERE email = ${inviteToken.email}
+    ` as any[];
+
+    if (subjectRows.length === 0) {
+      return this.#redirectWithError('invalid_token');
+    }
+
+    const sub = subjectRows[0].sub;
+    const now = Date.now();
+
+    // Set emailVerified and update lastLoginAt
+    this.#sql`UPDATE Subjects SET emailVerified = 1, lastLoginAt = ${now} WHERE sub = ${sub}`;
+
+    // Generate refresh token
+    const refreshToken = await this.#generateRefreshToken(sub);
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        'Location': this.#redirect,
+        'Set-Cookie': this.#createRefreshTokenCookie(refreshToken)
+      }
+    });
+  }
+
+  /**
+   * POST {prefix}/delegated-token — Request token to act on behalf of another subject
+   *
+   * Actor authenticates with their own token. Returns access token with
+   * sub=principal, act.sub=actor. Admins bypass AuthorizedActors check.
+   */
+  async #handleDelegatedToken(request: Request): Promise<Response> {
+    const auth = await this.#authenticateRequest(request);
+
+    let body: { actFor?: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+    }
+
+    const actFor = body.actFor;
+    if (!actFor) {
+      return this.#errorResponse(400, 'invalid_request', 'actFor required');
+    }
+
+    // Look up principal
+    const principalRows = this.#sql`
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
+      FROM Subjects WHERE sub = ${actFor}
+    ` as any[];
+
+    if (principalRows.length === 0) {
+      return this.#errorResponse(404, 'not_found', 'Subject not found');
+    }
+
+    const principal = this.#rowToSubject(principalRows[0]);
+
+    // Authorization: admin bypasses, non-admin must be in AuthorizedActors table
+    if (!auth.isAdmin) {
+      const actorRows = this.#sql`
+        SELECT 1 FROM AuthorizedActors WHERE principalSub = ${actFor} AND actorSub = ${auth.sub}
+      ` as any[];
+      if (actorRows.length === 0) {
+        return this.#errorResponse(403, 'forbidden', 'Not authorized to act for this subject');
+      }
+    }
+
+    // Generate delegated access token: sub=principal, act.sub=actor
+    const accessToken = await this.#generateAccessToken(principal, auth.sub);
+
+    return Response.json({
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: this.#accessTokenTtl
     });
   }
 
@@ -641,7 +987,7 @@ export class LumenizeAuth extends DurableObject {
    * decide what level of authorization they need.
    */
   async #authenticateRequest(request: Request): Promise<
-    { sub: string; isAdmin: boolean; email: string } | Response
+    { sub: string; isAdmin: boolean; email: string }
   > {
     // Strategy 1: Bearer JWT
     const authHeader = request.headers.get('Authorization');
@@ -651,7 +997,7 @@ export class LumenizeAuth extends DurableObject {
         const token = parts[1];
         const identity = await this.#verifyBearerToken(token);
         if (identity) return identity;
-        return this.#errorResponse(401, 'invalid_token', 'Invalid or expired access token');
+        throw new AuthenticationError(401, 'invalid_token', 'Invalid or expired access token');
       }
     }
 
@@ -663,7 +1009,7 @@ export class LumenizeAuth extends DurableObject {
       if (identity) return identity;
     }
 
-    return this.#errorResponse(401, 'invalid_token', 'Authentication required');
+    throw new AuthenticationError(401, 'invalid_token', 'Authentication required');
   }
 
   /**
@@ -784,7 +1130,7 @@ export class LumenizeAuth extends DurableObject {
     const isBootstrap = this.#bootstrapEmail === normalizedEmail;
 
     const existingRows = this.#sql`
-      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects
       WHERE email = ${normalizedEmail}
     ` as any[];
@@ -797,8 +1143,8 @@ export class LumenizeAuth extends DurableObject {
       // Create new subject
       sub = generateUuid();
       this.#sql`
-        INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt)
-        VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, '[]', ${now}, ${now})
+        INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
+        VALUES (${sub}, ${normalizedEmail}, 0, 0, 0, ${now}, ${now})
       `;
     }
 
@@ -820,7 +1166,7 @@ export class LumenizeAuth extends DurableObject {
 
     // Re-read to return fresh state
     const freshRows = this.#sql`
-      SELECT sub, email, emailVerified, adminApproved, isAdmin, authorizedActors, createdAt, lastLoginAt
+      SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects WHERE sub = ${sub}
     ` as any[];
 
@@ -828,22 +1174,26 @@ export class LumenizeAuth extends DurableObject {
   }
 
   /**
-   * Convert a SQL row to a Subject object
+   * Convert a SQL row to a Subject object.
+   * Queries the AuthorizedActors junction table for the delegation list.
    */
   #rowToSubject(row: any): Subject {
+    const actorRows = this.#sql`
+      SELECT actorSub FROM AuthorizedActors WHERE principalSub = ${row.sub}
+    ` as any[];
     return {
       ...row,
       emailVerified: Boolean(row.emailVerified),
       adminApproved: Boolean(row.adminApproved),
       isAdmin: Boolean(row.isAdmin),
-      authorizedActors: JSON.parse(row.authorizedActors || '[]'),
+      authorizedActors: actorRows.map((r: any) => r.actorSub),
     };
   }
 
   /**
    * Generate a signed JWT access token with subject claims
    */
-  async #generateAccessToken(subject: Subject): Promise<string> {
+  async #generateAccessToken(subject: Subject, actorSub?: string): Promise<string> {
     const activeKey = (this.env as any).PRIMARY_JWT_KEY || 'BLUE';
     const privateKeyPem = activeKey === 'GREEN'
       ? (this.env as any).JWT_PRIVATE_KEY_GREEN
@@ -863,6 +1213,7 @@ export class LumenizeAuth extends DurableObject {
       emailVerified: subject.emailVerified,
       adminApproved: subject.adminApproved,
       isAdmin: subject.isAdmin || undefined,
+      act: actorSub ? { sub: actorSub } : undefined,
     });
 
     return signJwt(payload, privateKey, activeKey);

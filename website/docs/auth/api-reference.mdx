@@ -21,8 +21,10 @@ All endpoints use the configured `prefix` (default: `/auth`). Authenticated endp
 | [`{prefix}/delegated-token`](#request-delegated-token) | POST | Auth | Request token to act on behalf of another subject |
 | [`{prefix}/subjects`](#list-subjects) | GET | Admin | List subjects |
 | [`{prefix}/subject/:id`](#get-subject) | GET | Admin | Get subject |
-| [`{prefix}/subject/:id`](#update-subject) | PATCH | Admin | Update subject |
+| [`{prefix}/subject/:id`](#update-subject) | PATCH | Admin | Update subject flags |
 | [`{prefix}/subject/:id`](#delete-subject) | DELETE | Admin | Delete subject |
+| [`{prefix}/subject/:id/actors`](#add-authorized-actor) | POST | Admin | Add an authorized actor for delegation |
+| [`{prefix}/subject/:id/actors/:actorId`](#remove-authorized-actor) | DELETE | Admin | Remove an authorized actor |
 
 **Cookie** = refresh token cookie. **Auth** = Bearer token or refresh token cookie. **Admin** = Auth + `isAdmin` required.
 
@@ -190,7 +192,7 @@ Query parameters:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `limit` | number | Max subjects to return (default: 100, max: 1000) |
+| `limit` | number | Max subjects to return (default: 50, max: 200) |
 | `offset` | number | Skip this many subjects (for pagination) |
 | `role` | string | Filter by role: `admin` or `none` |
 
@@ -217,6 +219,8 @@ const { subject } = await response.json();
 
 `PATCH {prefix}/subject/:id` — Admin required
 
+Updates `isAdmin` and/or `adminApproved` flags. Use [Add Authorized Actor](#add-authorized-actor) / [Remove Authorized Actor](#remove-authorized-actor) to manage delegation — `authorizedActors` in the PATCH body is rejected with `400`.
+
 ```typescript @skip-check
 const response = await fetch(`/auth/subject/${sub}`, {
   method: 'PATCH',
@@ -232,8 +236,8 @@ const { subject } = await response.json();
 ```
 
 **Rules:**
-- Cannot demote yourself (prevents lockout)
-- Cannot demote or modify the [bootstrap admin](/docs/auth/#bootstrap-your-first-admin)
+- Cannot modify yourself (prevents lockout)
+- Cannot modify the [bootstrap admin](/docs/auth/#bootstrap-your-first-admin)
 
 ### Delete Subject
 
@@ -244,7 +248,7 @@ const response = await fetch(`/auth/subject/${sub}`, {
   method: 'DELETE',
   headers: { 'Authorization': `Bearer ${accessToken}` }
 });
-// 200: { message: "Subject deleted" }
+// 200: { ok: true }
 ```
 
 **Rules:**
@@ -276,7 +280,7 @@ const { invited, errors } = await response.json();
 Creates subject records with `adminApproved: true`, `emailVerified: false` and sends invite emails. When subjects click the invite link ([Accept Invite](#accept-invite)), `emailVerified` is set to `true` and they gain immediate access.
 
 **Behavior:**
-- If email already exists and subject has `emailVerified: true` — skips (already active)
+- If email already exists and subject has `emailVerified: true` — sets `adminApproved: true` and sends invite email
 - If email already exists and subject has `emailVerified: false` — re-sends invite
 
 In [test mode](/docs/auth/#test-mode), append `?_test=true` to get invite links in the response instead of sending emails.
@@ -288,7 +292,7 @@ In [test mode](/docs/auth/#test-mode), append `?_test=true` to get invite links 
 Linked from the admin notification email sent during [self-signup](/docs/auth/#self-signup-flow). Works from email links because the DO accepts the refresh token cookie (no Bearer header needed).
 
 - **Authenticated admin**: Sets `adminApproved: true`, sends a "You've been approved" email to the subject, redirects to `LUMENIZE_AUTH_REDIRECT`.
-- **Not authenticated**: Redirects to `LUMENIZE_AUTH_REDIRECT?error=401&return_to={original_url}` so the app can prompt login and redirect back.
+- **Not authenticated**: Redirects to `LUMENIZE_AUTH_REDIRECT?error=login_required` so the app can prompt login and redirect back.
 
 Equivalent to `PATCH /subject/:id` with `{ adminApproved: true }` — this endpoint exists as a GET so it works as an email link.
 
@@ -304,27 +308,44 @@ Currently, the actor must be an authenticated subject and the principal must be 
 
 **Non-admin delegation flow:**
 
-1. **Authorize actor** — an admin adds the actor's `sub` to the principal's `authorizedActors` list via [Update Subject](#update-subject)
+1. **Authorize actor** — an admin adds the actor via [Add Authorized Actor](#add-authorized-actor)
 2. **Actor authenticates normally** — logs in via magic link or invite, gets their own access token
 3. **Actor requests delegated token** — calls [Request Delegated Token](#request-delegated-token) with their access token and the principal's `sub`
-4. **Auth verifies and issues token** — checks that the actor is in the principal's `authorizedActors` list. Token has `sub` = principal, `act.sub` = actor
+4. **Auth verifies and issues token** — checks that the actor is authorized for the principal. Token has `sub` = principal, `act.sub` = actor
 5. **Actor makes calls** — guards check `sub` (principal's permissions), logs show `act.sub`
 
-### Authorize an Actor
+### Add Authorized Actor
 
-Use [Update Subject](#update-subject) to set the `authorizedActors` list (actor IDs must be valid subject IDs):
+`POST {prefix}/subject/:id/actors` — Admin required
+
+Adds an actor to a subject's authorized delegation list. The actor must be a valid subject ID. Idempotent — adding the same actor twice is a no-op.
 
 ```typescript @skip-check
-const response = await fetch(`/auth/subject/${targetSub}`, {
-  method: 'PATCH',
+const response = await fetch(`/auth/subject/${targetSub}/actors`, {
+  method: 'POST',
   headers: {
     'Authorization': `Bearer ${adminAccessToken}`,
     'Content-Type': 'application/json'
   },
-  body: JSON.stringify({
-    authorizedActors: [actorSub1, actorSub2]
-  })
+  body: JSON.stringify({ actorSub: actorSubId })
 });
+const { subject } = await response.json();
+// subject.authorizedActors now includes actorSubId
+```
+
+### Remove Authorized Actor
+
+`DELETE {prefix}/subject/:id/actors/:actorId` — Admin required
+
+Removes an actor from a subject's authorized delegation list. Idempotent — removing an actor that isn't authorized is a no-op.
+
+```typescript @skip-check
+const response = await fetch(`/auth/subject/${targetSub}/actors/${actorSubId}`, {
+  method: 'DELETE',
+  headers: { 'Authorization': `Bearer ${adminAccessToken}` }
+});
+const { subject } = await response.json();
+// subject.authorizedActors no longer includes actorSubId
 ```
 
 ### Request Delegated Token
@@ -348,7 +369,7 @@ const { access_token } = await response.json();
 // Token claims: { sub: targetSub, act: { sub: actorSub }, ... }
 ```
 
-**Fails if:** the actor is not an admin and their `sub` is not in the principal's `authorizedActors` list.
+**Fails if:** the actor is not an admin and has not been [authorized](#add-authorized-actor) for the principal.
 
 ### Using Delegated Tokens
 
@@ -369,7 +390,7 @@ console.log(`Document updated by ${actor}${claims.sub}`);
 
 ### Delegation in Tests
 
-Use `testLoginWithMagicLink` with the `actorSub` parameter. The `browser` parameter provides a cookie jar for the multi-step login flow. First authorize the actor via the [Update Subject](#update-subject) HTTP endpoint, then login with delegation:
+Use `testLoginWithMagicLink` with the `actorAccessToken` parameter. The `browser` parameter provides a cookie jar for the multi-step login flow. First authorize the actor via the [Add Authorized Actor](#add-authorized-actor) endpoint, then login the principal with the actor's access token:
 
 ```typescript @skip-check
 import { testLoginWithMagicLink } from '@lumenize/auth';
@@ -380,20 +401,27 @@ const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, '
   subjectData: { isAdmin: true }
 });
 
-// Authorize actorSub to act on behalf of targetSub (admin endpoint)
-await fetch('/auth/subject/' + targetSub, {
-  method: 'PATCH',
+// Login the actor
+const actorBrowser = new Browser();
+const { accessToken: actorToken, sub: actorSub } = await testLoginWithMagicLink(
+  actorBrowser, 'actor@test.com', { subjectData: { adminApproved: true } }
+);
+
+// Authorize actorSub to act on behalf of targetSub
+await fetch(`/auth/subject/${targetSub}/actors`, {
+  method: 'POST',
   headers: {
     'Authorization': `Bearer ${adminToken}`,
     'Content-Type': 'application/json'
   },
-  body: JSON.stringify({ authorizedActors: [actorSub] })
+  body: JSON.stringify({ actorSub })
 });
 
-// Login alice with delegation — actorSub acts on her behalf
-const actorBrowser = new Browser();
-const { accessToken, sub } = await testLoginWithMagicLink(actorBrowser, 'alice@test.com', {
-  actorSub  // this subject is acting on behalf of alice
+// Login alice with delegation — actor acts on her behalf
+const aliceBrowser = new Browser();
+const { accessToken, sub } = await testLoginWithMagicLink(aliceBrowser, 'alice@test.com', {
+  subjectData: { adminApproved: true },
+  actorAccessToken: actorToken  // actor's access token for delegation
 });
 // sub = alice's sub, parseJwtUnsafe(accessToken).payload.act.sub = actorSub
 ```
@@ -407,12 +435,12 @@ const { accessToken, sub } = await testLoginWithMagicLink(actorBrowser, 'alice@t
 | `emailVerified` | `boolean` | No | Subject clicked magic link or invite link |
 | `adminApproved` | `boolean` | Yes | Admin granted access (or subject is admin) |
 | `isAdmin` | `boolean` | Yes | Full admin access (implicitly satisfies `adminApproved`) |
-| `authorizedActors` | `string[]` | Yes | Actor IDs authorized to act for this subject ([Delegation](#delegation)) |
+| `authorizedActors` | `string[]` | [POST/DELETE](#add-authorized-actor) | Actor IDs authorized to act for this subject ([Delegation](#delegation)) |
 | `createdAt` | `number` | No | Unix timestamp |
 | `lastLoginAt` | `number \| null` | No | Unix timestamp of last login |
 
 ## Security Rules
 
-- **Self-modification prevention**: Subjects cannot demote or delete themselves (prevents lockout). Returns `403 { error: "forbidden", error_description: "Cannot modify own admin status" }` or `"Cannot delete yourself"`.
-- **Bootstrap protection**: The subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` cannot be demoted or deleted via API. Returns `403 { error: "forbidden", error_description: "Cannot modify bootstrap admin" }`.
-- **Audit trail**: All subject management operations log who (`sub`, optionally `act.sub`), what changed, and when
+- **Self-modification prevention**: Admins cannot modify or delete themselves (prevents lockout). PATCH returns `403 "Cannot modify own admin status"`, DELETE returns `403 "Cannot delete yourself"`.
+- **Bootstrap protection**: The subject matching `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` cannot be modified or deleted via API. Returns `403 "Cannot modify bootstrap admin"`.
+- **Actor validation**: [Add Authorized Actor](#add-authorized-actor) verifies the actor ID exists before creating the relationship. Returns `400 "Actor ID not found: {id}"` if invalid. Deleting a subject automatically removes all their delegation relationships (both as principal and actor) via cascading delete.

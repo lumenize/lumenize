@@ -106,7 +106,8 @@ export interface JwtHeader {
 export type EmailMessage =
   | { type: 'magic-link'; to: string; subject: string; magicLinkUrl: string }
   | { type: 'admin-notification'; to: string; subject: string; subjectEmail: string; approveUrl: string }
-  | { type: 'approval-confirmation'; to: string; subject: string; redirectUrl: string };
+  | { type: 'approval-confirmation'; to: string; subject: string; redirectUrl: string }
+  | { type: 'invite'; to: string; subject: string; inviteUrl: string };
 
 /**
  * Email service interface for sending auth-related emails.

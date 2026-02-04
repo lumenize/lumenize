@@ -93,6 +93,20 @@ CREATE INDEX IF NOT EXISTS idx_RefreshTokens_expiresAt ON RefreshTokens(expiresA
 `;
 
 /**
+ * AuthorizedActors junction table — maps principals to actors for delegation.
+ * ON DELETE CASCADE on both FKs: deleting either side auto-cleans the relationship.
+ */
+export const AUTHORIZED_ACTORS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS AuthorizedActors (
+  principalSub TEXT NOT NULL,
+  actorSub TEXT NOT NULL,
+  PRIMARY KEY (principalSub, actorSub),
+  FOREIGN KEY (principalSub) REFERENCES Subjects(sub) ON DELETE CASCADE,
+  FOREIGN KEY (actorSub) REFERENCES Subjects(sub) ON DELETE CASCADE
+)
+`;
+
+/**
  * All schemas in creation order
  */
 export const ALL_SCHEMAS = [
@@ -106,4 +120,5 @@ export const ALL_SCHEMAS = [
   REFRESH_TOKENS_SCHEMA,
   REFRESH_TOKENS_SUBJECT_INDEX,
   REFRESH_TOKENS_EXPIRES_INDEX,
+  AUTHORIZED_ACTORS_SCHEMA,
 ];

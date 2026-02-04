@@ -1,6 +1,6 @@
 # Lumenize Auth Upgrade (Bootstrap, Admin, Flow)
 
-**Status**: Phases 1, 2, 3, 6 Complete — Ready for Phase 4
+**Status**: Phases 1, 2, 3, 4, 6 Complete — Ready for Phase 5
 **Design Documents**:
 - `/website/docs/auth/index.mdx` - Overview, access flows, bootstrap
 - `/website/docs/auth/api-reference.mdx` - Endpoints, environment variables, subject management, delegation
@@ -496,11 +496,24 @@ Admin invite (pre-approval) and the `act` claim for delegated access.
 - `actorSub` option for `testLoginWithMagicLink`
 
 **Success criteria**:
-- Admin invites emails → subjects click invite link → immediate access (both flags true)
-- Invite tokens reusable within TTL window
-- Delegated token has correct `sub` (principal) and `act.sub` (actor)
-- Admin can delegate as any subject; non-admin blocked without `authorizedActors`
-- `testLoginWithMagicLink` with `actorSub` produces correct delegation claims (verify via `parseJwtUnsafe`)
+- Admin invites emails → subjects click invite link → immediate access (both flags true) ✅
+- Invite tokens reusable within TTL window ✅
+- Delegated token has correct `sub` (principal) and `act.sub` (actor) ✅
+- Admin can delegate as any subject; non-admin blocked without `authorizedActors` ✅
+- `testLoginWithMagicLink` with `actorAccessToken` produces correct delegation claims (verify via `parseJwtUnsafe`) ✅
+
+**Status: Complete**
+
+**What changed during Phase 4 implementation:**
+1. **AuthorizedActors junction table** — replaced the `authorizedActors TEXT` column on Subjects with a proper `AuthorizedActors` junction table (`principalSub`, `actorSub` composite PK, ON DELETE CASCADE on both FKs). PATCH `/subject/:id` no longer accepts `authorizedActors` (returns 400 with redirect message). New endpoints: `POST /subject/:id/actors` (add, idempotent via INSERT OR IGNORE) and `DELETE /subject/:id/actors/:actorId` (remove).
+2. **`#authenticateRequest` throw refactor** — changed from returning `Response | identity` union to throwing `AuthenticationError`. Top-level `catch` in `fetch()` handles it. Removed all `if (auth instanceof Response) return auth;` lines. `#handleApprove` uses local try/catch for redirect on auth failure.
+3. **`actorSub` → `actorAccessToken` in test helpers** — `testLoginWithMagicLink` accepts `actorAccessToken` (a Bearer token from a separately-logged-in actor) instead of `actorSub`. The helper POSTs to `/delegated-token` with the actor's token to get a delegated access token. More realistic than the original plan's approach.
+4. **Invite email type** — added `{ type: 'invite'; to; subject; inviteUrl }` variant to the `EmailMessage` discriminated union.
+5. **Token sweep** — `#ensureSchema` sweeps expired MagicLinks and InviteTokens on schema init.
+6. **Delete error message** — changed from "Cannot modify own admin status" to "Cannot delete yourself".
+7. **Doc alignment audit** — 12 fixes to `api-reference.mdx` including actor management endpoints, List Subjects defaults (50/200 not 100/1000), Delete Subject response body, Approve redirect error format, and delegation test examples. Added doc/JSDoc alignment as a standard final verification step in `tasks/README.md`.
+8. **SQL cleanup** — removed `authorizedActors` from all SELECT and INSERT statements (column has DEFAULT, `#rowToSubject` overrides from junction table).
+9. **Test counts**: auth 120 tests (up from 91 in Phase 3), mesh 264 tests (unchanged), type-check clean.
 
 ### Phase 5: Rate Limiting & Turnstile
 
@@ -542,6 +555,45 @@ Clean up test mode safety and update documentation examples.
 - ✅ No `LUMENIZE_AUTH_TEST_MODE` in any `wrangler.jsonc`
 - [ ] `security.mdx` skip-checks converted to `@check-example` — **now unblocked** by Phase 2 (claims available in JWT). Do alongside the `originAuth.userId` → `originAuth.sub` rename (follow-on task)
 - [ ] Website build validation — deferred until doc examples are wired up
+
+### Phase 7: Audit Logging
+
+Structured audit logging for all subject management and authentication operations. Provides accountability and traceability for admin actions, delegation events, and security-sensitive operations.
+
+**Goal**: Every write operation in the Auth DO produces a structured audit log entry. Entries are queryable by subject, action type, and time range.
+
+**What to log** (all subject-mutating operations):
+- [ ] Subject creation (magic link login, invite acceptance)
+- [ ] Subject deletion (admin action)
+- [ ] Flag changes: `emailVerified`, `adminApproved`, `isAdmin`
+- [ ] AuthorizedActor additions and removals
+- [ ] Delegated token issuance (`act.sub` → `sub`)
+- [ ] Admin approval (via `/approve/:id` endpoint)
+- [ ] Refresh token revocation (logout, admin revoke)
+- [ ] Invite sent (bulk invite endpoint)
+
+**Audit entry shape** (minimum):
+- `timestamp`: Unix ms
+- `action`: string enum (`subject.created`, `subject.deleted`, `subject.updated`, `actor.added`, `actor.removed`, `token.delegated`, `token.revoked`, `invite.sent`, etc.)
+- `targetSub`: subject ID the action was performed on
+- `actorSub`: who performed the action (admin sub, or system for auto-operations)
+- `details`: JSON object with action-specific data (e.g., `{ field: 'isAdmin', from: false, to: true }`)
+
+**Storage**:
+- [ ] `AuditLog` table in the Auth DO SQLite (per-instance, co-located with the data it describes)
+- [ ] Index on `targetSub` + `timestamp` for per-subject history queries
+- [ ] Index on `action` + `timestamp` for action-type filtering
+- [ ] Consider TTL-based sweep (e.g., 90-day retention) to bound storage growth
+
+**API**:
+- [ ] `GET {prefix}/audit-log` — Admin-only, query params: `subject`, `action`, `since`, `until`, `limit`, `offset`
+- [ ] Response: `{ entries: AuditEntry[], total: number }`
+
+**Tests**:
+- [ ] Verify audit entries are created for each operation type
+- [ ] Verify admin-only access to audit log endpoint
+- [ ] Verify query filtering works (by subject, action, time range)
+- [ ] Verify audit entries include correct actor (who performed the action)
 
 ## Notes
 

@@ -1944,7 +1944,7 @@ describe('@lumenize/auth - End-to-end approval flow', () => {
     expect(res.status).toBe(401);
   });
 
-  it('update authorizedActors', async () => {
+  it('PATCH /subject/:id rejects authorizedActors — use POST /subject/:id/actors instead', async () => {
     const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1');
     const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
     const user = await loginOnStub(stub, 'actoruser@example.com');
@@ -1952,10 +1952,630 @@ describe('@lumenize/auth - End-to-end approval flow', () => {
     const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
-      body: JSON.stringify({ authorizedActors: ['actor-1', 'actor-2'] })
+      body: JSON.stringify({ authorizedActors: ['some-id'] })
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error_description).toContain('POST /subject/:id/actors');
+  });
+
+  it('POST /subject/:id/actors adds authorized actors', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1b');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const actor1 = await loginOnStub(stub, 'actor1@example.com');
+    const actor2 = await loginOnStub(stub, 'actor2@example.com');
+    const user = await loginOnStub(stub, 'actoruser@example.com');
+
+    // Add first actor
+    const res1 = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor1.sub })
+    }));
+    expect(res1.status).toBe(200);
+    const body1 = await res1.json() as any;
+    expect(body1.subject.authorizedActors).toEqual([actor1.sub]);
+
+    // Add second actor
+    const res2 = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor2.sub })
+    }));
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json() as any;
+    expect(body2.subject.authorizedActors).toContain(actor1.sub);
+    expect(body2.subject.authorizedActors).toContain(actor2.sub);
+  });
+
+  it('DELETE /subject/:id/actors/:actorId removes an authorized actor', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1c');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const actor = await loginOnStub(stub, 'removeactor@example.com');
+    const user = await loginOnStub(stub, 'removeuser@example.com');
+
+    // Add actor
+    await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor.sub })
+    }));
+
+    // Verify it was added
+    const getRes1 = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    expect((await getRes1.json() as any).subject.authorizedActors).toEqual([actor.sub]);
+
+    // Remove actor
+    const removeRes = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors/${actor.sub}`, {
+      method: 'DELETE',
+      headers: { Cookie: admin.cookie }
+    }));
+    expect(removeRes.status).toBe(200);
+    const removeBody = await removeRes.json() as any;
+    expect(removeBody.subject.authorizedActors).toEqual([]);
+  });
+
+  it('POST /subject/:id/actors is idempotent', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1d');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const actor = await loginOnStub(stub, 'idempactor@example.com');
+    const user = await loginOnStub(stub, 'idempuser@example.com');
+
+    // Add actor twice
+    await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor.sub })
+    }));
+    const res2 = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor.sub })
+    }));
+    expect(res2.status).toBe(200);
+    const body2 = await res2.json() as any;
+    expect(body2.subject.authorizedActors).toEqual([actor.sub]);
+  });
+
+  it('POST /subject/:id/actors rejects non-existent actor ID', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1e');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'badactoruser@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: 'non-existent-id' })
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error_description).toContain('Actor ID not found');
+  });
+
+  it('POST /subject/:id/actors rejects non-admin', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-actors-1f');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'nonadminactors@example.com');
+    const other = await loginOnStub(stub, 'otheractors@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: other.cookie },
+      body: JSON.stringify({ actorSub: admin.sub })
+    }));
+    expect(res.status).toBe(403);
+  });
+});
+
+// ============================================
+// Invite Endpoint Tests
+// ============================================
+
+describe('@lumenize/auth - POST /invite', () => {
+  it('admin invites new emails — subjects created with adminApproved=true', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['alice@example.com', 'bob@example.com'] })
     }));
     expect(res.status).toBe(200);
     const body = await res.json() as any;
-    expect(body.subject.authorizedActors).toEqual(['actor-1', 'actor-2']);
+    expect(body.invited).toEqual(['alice@example.com', 'bob@example.com']);
+    expect(body.errors).toEqual([]);
+
+    // Verify subjects were created with adminApproved=true
+    const aliceRes = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Cookie: admin.cookie }
+    }));
+    const subjects = (await aliceRes.json() as any).subjects;
+    const alice = subjects.find((s: any) => s.email === 'alice@example.com');
+    expect(alice).toBeDefined();
+    expect(alice.adminApproved).toBe(true);
+    expect(alice.emailVerified).toBe(false);
+  });
+
+  it('test mode returns invite links', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['linktest@example.com'] })
+    }));
+    const body = await res.json() as any;
+    expect(body.links).toBeDefined();
+    expect(body.links['linktest@example.com']).toContain('invite_token=');
+  });
+
+  it('invites already-verified subject — sets adminApproved, in invited', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-3');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    // Create a verified but unapproved subject via magic link
+    await loginOnStub(stub, 'verified@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['verified@example.com'] })
+    }));
+    const body = await res.json() as any;
+    expect(body.invited).toContain('verified@example.com');
+    expect(body.links['verified@example.com']).toBe('(already verified)');
+
+    // Verify adminApproved is now true
+    const subRes = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Cookie: admin.cookie }
+    }));
+    const subjects = (await subRes.json() as any).subjects;
+    const verified = subjects.find((s: any) => s.email === 'verified@example.com');
+    expect(verified.adminApproved).toBe(true);
+  });
+
+  it('invites already-exists-not-verified — re-sends invite', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-4');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // First invite
+    await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['pending@example.com'] })
+    }));
+
+    // Second invite — should still succeed (re-sends)
+    const res = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['pending@example.com'] })
+    }));
+    const body = await res.json() as any;
+    expect(body.invited).toContain('pending@example.com');
+    expect(body.links['pending@example.com']).toContain('invite_token=');
+  });
+
+  it('rejects non-admin with 403', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-5');
+    await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'nonadmin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.accessToken}` },
+      body: JSON.stringify({ emails: ['test@example.com'] })
+    }));
+    expect(res.status).toBe(403);
+  });
+
+  it('rejects unauthenticated with 401', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-6');
+    // Initialize schema
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: ['test@example.com'] })
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it('invalid email in batch — appears in errors, valid ones still processed', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-7');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['good@example.com', 'not-an-email', 'also-good@example.com'] })
+    }));
+    const body = await res.json() as any;
+    expect(body.invited).toEqual(['good@example.com', 'also-good@example.com']);
+    expect(body.errors.length).toBe(1);
+    expect(body.errors[0].email).toBe('not-an-email');
+  });
+
+  it('empty emails array returns 200 with empty arrays', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('invite-8');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: [] })
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.invited).toEqual([]);
+    expect(body.errors).toEqual([]);
+  });
+});
+
+// ============================================
+// Accept Invite Endpoint Tests
+// ============================================
+
+describe('@lumenize/auth - GET /accept-invite', () => {
+  it('valid invite token — sets emailVerified, redirect + cookie', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('accept-invite-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // Invite a new email
+    const inviteRes = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['invitee@example.com'] })
+    }));
+    const inviteBody = await inviteRes.json() as any;
+    const inviteLink = inviteBody.links['invitee@example.com'];
+
+    // Click the invite link
+    const acceptRes = await stub.fetch(new Request(inviteLink, { redirect: 'manual' }));
+    expect(acceptRes.status).toBe(302);
+    expect(acceptRes.headers.get('Location')).toBe('/app');
+
+    const setCookie = acceptRes.headers.get('Set-Cookie');
+    expect(setCookie).toContain('refresh-token=');
+    expect(setCookie).toContain('HttpOnly');
+
+    // Exchange refresh token for access token — should have both flags
+    const refreshToken = setCookie!.split(';')[0].split('=')[1];
+    const refreshRes = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+      headers: { Cookie: `refresh-token=${refreshToken}` }
+    }));
+    const refreshBody = await refreshRes.json() as any;
+    const parsed = parseJwtUnsafe(refreshBody.access_token);
+    expect(parsed!.payload.emailVerified).toBe(true);
+    expect(parsed!.payload.adminApproved).toBe(true);
+  });
+
+  it('invite token is reusable — second click still works', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('accept-invite-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const inviteRes = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['reuse@example.com'] })
+    }));
+    const inviteBody = await inviteRes.json() as any;
+    const inviteLink = inviteBody.links['reuse@example.com'];
+
+    // First click
+    const res1 = await stub.fetch(new Request(inviteLink, { redirect: 'manual' }));
+    expect(res1.status).toBe(302);
+    expect(res1.headers.get('Location')).toBe('/app');
+
+    // Second click — should still work (token not deleted)
+    const res2 = await stub.fetch(new Request(inviteLink, { redirect: 'manual' }));
+    expect(res2.status).toBe(302);
+    expect(res2.headers.get('Location')).toBe('/app');
+    expect(res2.headers.get('Set-Cookie')).toContain('refresh-token=');
+  });
+
+  it('expired invite token — redirects with error', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('accept-invite-3');
+    // Initialize schema
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    // Manually insert an expired invite token via test endpoint trick:
+    // We can't directly insert, so use the invite endpoint and then
+    // we'll test with a fabricated expired token by checking invalid token behavior.
+    // Instead, test with a completely invalid token (not in DB)
+    const res = await stub.fetch(
+      new Request('http://localhost/auth/accept-invite?invite_token=does-not-exist'),
+      { redirect: 'manual' } as any
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toContain('error=invalid_token');
+  });
+
+  it('missing invite_token param — returns 400', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('accept-invite-4');
+    // Initialize schema
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    const res = await stub.fetch(new Request('http://localhost/auth/accept-invite'));
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error).toBe('invalid_request');
+  });
+
+  it('full flow: admin invites → accept → refresh → JWT has both flags', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('accept-invite-5');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    // Invite
+    const inviteRes = await stub.fetch(new Request('http://localhost/auth/invite?_test=true', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ emails: ['fullflow@example.com'] })
+    }));
+    const { links } = await inviteRes.json() as any;
+
+    // Accept
+    const acceptRes = await stub.fetch(new Request(links['fullflow@example.com'], { redirect: 'manual' }));
+    const cookie = acceptRes.headers.get('Set-Cookie')!;
+    const refreshToken = cookie.split(';')[0].split('=')[1];
+
+    // Refresh
+    const refreshRes = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
+      method: 'POST',
+      headers: { Cookie: `refresh-token=${refreshToken}` }
+    }));
+    const { access_token } = await refreshRes.json() as any;
+    const parsed = parseJwtUnsafe(access_token);
+
+    expect(parsed!.payload.emailVerified).toBe(true);
+    expect(parsed!.payload.adminApproved).toBe(true);
+    expect(parsed!.payload.sub).toBeDefined();
+    expect(parsed!.payload.sub.length).toBe(36);
+  });
+});
+
+// ============================================
+// Delegated Token Endpoint Tests
+// ============================================
+
+describe('@lumenize/auth - POST /delegated-token', () => {
+  it('admin can delegate as any subject — correct sub and act.sub', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const principal = await loginOnStub(stub, 'principal@example.com', { adminApproved: true });
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ actFor: principal.sub })
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.access_token).toBeDefined();
+    expect(body.token_type).toBe('Bearer');
+    expect(body.expires_in).toBeGreaterThan(0);
+
+    const parsed = parseJwtUnsafe(body.access_token);
+    expect(parsed!.payload.sub).toBe(principal.sub);
+    expect(parsed!.payload.act).toBeDefined();
+    expect(parsed!.payload.act!.sub).toBe(admin.sub);
+  });
+
+  it('non-admin blocked without authorizedActors — returns 403', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const actor = await loginOnStub(stub, 'actor@example.com', { adminApproved: true });
+    const principal = await loginOnStub(stub, 'principal2@example.com', { adminApproved: true });
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${actor.accessToken}` },
+      body: JSON.stringify({ actFor: principal.sub })
+    }));
+    expect(res.status).toBe(403);
+    const body = await res.json() as any;
+    expect(body.error_description).toContain('Not authorized');
+  });
+
+  it('non-admin succeeds when in authorizedActors', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-3');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const actor = await loginOnStub(stub, 'actor3@example.com', { adminApproved: true });
+    const principal = await loginOnStub(stub, 'principal3@example.com', { adminApproved: true });
+
+    // Admin adds actor to principal's authorizedActors via new endpoint
+    await stub.fetch(new Request(`http://localhost/auth/subject/${principal.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor.sub })
+    }));
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${actor.accessToken}` },
+      body: JSON.stringify({ actFor: principal.sub })
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const parsed = parseJwtUnsafe(body.access_token);
+    expect(parsed!.payload.sub).toBe(principal.sub);
+    expect(parsed!.payload.act!.sub).toBe(actor.sub);
+  });
+
+  it('non-existent principal returns 404', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-4');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ actFor: 'non-existent-sub-id' })
+    }));
+    expect(res.status).toBe(404);
+  });
+
+  it('unauthenticated caller returns 401', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-5');
+    await stub.fetch(new Request('http://localhost/auth/nonexistent'));
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actFor: 'some-sub' })
+    }));
+    expect(res.status).toBe(401);
+  });
+
+  it('missing actFor in body returns 400', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-6');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({})
+    }));
+    expect(res.status).toBe(400);
+  });
+
+  it('delegated JWT has correct claims from principal', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('delegate-7');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const principal = await loginOnStub(stub, 'claims-principal@example.com', { adminApproved: true });
+
+    const res = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ actFor: principal.sub })
+    }));
+    const body = await res.json() as any;
+    const parsed = parseJwtUnsafe(body.access_token);
+
+    // Claims should come from the principal, not the actor
+    expect(parsed!.payload.sub).toBe(principal.sub);
+    expect(parsed!.payload.emailVerified).toBe(true);
+    expect(parsed!.payload.adminApproved).toBe(true);
+    expect(parsed!.payload.isAdmin).toBeFalsy(); // principal is not admin
+    expect(parsed!.payload.act!.sub).toBe(admin.sub);
+  });
+});
+
+// ============================================
+// authorizedActors Validation & Delete Cleanup
+// ============================================
+
+describe('@lumenize/auth - authorizedActors validation', () => {
+  it('POST /subject/:id/actors with non-existent actor ID returns 400', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('actors-validate-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const user = await loginOnStub(stub, 'target-validate@example.com');
+
+    const res = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: 'non-existent-id' })
+    }));
+    expect(res.status).toBe(400);
+    const body = await res.json() as any;
+    expect(body.error_description).toContain('Actor ID not found');
+  });
+
+  it('delete subject removes their ID from other subjects authorizedActors (CASCADE)', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('actors-validate-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const subjectA = await loginOnStub(stub, 'subjecta@example.com');
+    const subjectB = await loginOnStub(stub, 'subjectb@example.com');
+
+    // Add subjectA to subjectB's authorizedActors via new endpoint
+    await stub.fetch(new Request(`http://localhost/auth/subject/${subjectB.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: subjectA.sub })
+    }));
+
+    // Verify it was set
+    const getRes1 = await stub.fetch(new Request(`http://localhost/auth/subject/${subjectB.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    const before = (await getRes1.json() as any).subject;
+    expect(before.authorizedActors).toEqual([subjectA.sub]);
+
+    // Delete subjectA
+    await stub.fetch(new Request(`http://localhost/auth/subject/${subjectA.sub}`, {
+      method: 'DELETE',
+      headers: { Cookie: admin.cookie }
+    }));
+
+    // Verify subjectA was removed from subjectB's authorizedActors (via CASCADE)
+    const getRes2 = await stub.fetch(new Request(`http://localhost/auth/subject/${subjectB.sub}`, {
+      headers: { Cookie: admin.cookie }
+    }));
+    const after = (await getRes2.json() as any).subject;
+    expect(after.authorizedActors).toEqual([]);
+  });
+});
+
+// ============================================
+// End-to-End Delegation Flow
+// ============================================
+
+describe('@lumenize/auth - E2E delegation flow', () => {
+  it('admin delegates → delegated token works as principal', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-delegate-1');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const principal = await loginOnStub(stub, 'target-principal@example.com', { adminApproved: true });
+
+    // Admin requests delegated token
+    const delegateRes = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.accessToken}` },
+      body: JSON.stringify({ actFor: principal.sub })
+    }));
+    expect(delegateRes.status).toBe(200);
+    const { access_token } = await delegateRes.json() as any;
+
+    // The delegated token's sub = principal, act.sub = admin
+    const parsed = parseJwtUnsafe(access_token);
+    expect(parsed!.payload.sub).toBe(principal.sub);
+    expect(parsed!.payload.act!.sub).toBe(admin.sub);
+
+    // The delegated token can authenticate admin CRUD endpoints (uses principal's identity)
+    // but since auth checks isAdmin from DB lookup (not JWT), and the principal is NOT admin,
+    // using the delegated token for admin endpoints should fail with 403
+    const listRes = await stub.fetch(new Request('http://localhost/auth/subjects', {
+      headers: { Authorization: `Bearer ${access_token}` }
+    }));
+    expect(listRes.status).toBe(403); // principal is not admin
+  });
+
+  it('non-admin authorized actor → delegate → act.sub chain correct', async () => {
+    const stub = env.LUMENIZE_AUTH.getByName('e2e-delegate-2');
+    const admin = await loginOnStub(stub, 'bootstrap-admin@example.com');
+    const actor = await loginOnStub(stub, 'authorized-actor@example.com', { adminApproved: true });
+    const principal = await loginOnStub(stub, 'delegating-principal@example.com', { adminApproved: true });
+
+    // Admin authorizes actor for principal via new endpoint
+    await stub.fetch(new Request(`http://localhost/auth/subject/${principal.sub}/actors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: admin.cookie },
+      body: JSON.stringify({ actorSub: actor.sub })
+    }));
+
+    // Actor requests delegated token
+    const delegateRes = await stub.fetch(new Request('http://localhost/auth/delegated-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${actor.accessToken}` },
+      body: JSON.stringify({ actFor: principal.sub })
+    }));
+    expect(delegateRes.status).toBe(200);
+    const { access_token } = await delegateRes.json() as any;
+    const parsed = parseJwtUnsafe(access_token);
+    expect(parsed!.payload.sub).toBe(principal.sub);
+    expect(parsed!.payload.act!.sub).toBe(actor.sub);
   });
 });

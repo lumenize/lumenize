@@ -21,6 +21,15 @@ export interface TestLoginOptions {
     /** Grant admin role (implicitly sets adminApproved) */
     isAdmin?: boolean;
   };
+  /**
+   * Pre-existing access token of an actor requesting delegation.
+   * When provided, after the normal login flow the helper calls
+   * POST {prefix}/delegated-token with this token as Bearer auth
+   * and `{ actFor: sub }` where sub is the logged-in principal.
+   * The returned accessToken will have `act.sub` = the actor's sub.
+   * Use `parseJwtUnsafe(accessToken)` to inspect delegation claims.
+   */
+  actorAccessToken?: string;
 }
 
 /**
@@ -121,6 +130,26 @@ export async function testLoginWithMagicLink(
   const payloadB64 = accessToken.split('.')[1];
   const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
   const { sub } = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+
+  // Step 5 (optional): Request delegated token if actorAccessToken provided
+  if (options.actorAccessToken) {
+    const delegateResponse = await browser.fetch(`${baseUrl}${prefix}/delegated-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${options.actorAccessToken}`,
+      },
+      body: JSON.stringify({ actFor: sub })
+    });
+    const delegateBody = await delegateResponse.json() as { access_token?: string };
+    if (!delegateBody.access_token) {
+      throw new Error(
+        `testLoginWithMagicLink: Failed to get delegated token. ` +
+        `Status: ${delegateResponse.status}, Response: ${JSON.stringify(delegateBody)}`
+      );
+    }
+    return { accessToken: delegateBody.access_token, sub };
+  }
 
   return { accessToken, sub };
 }
