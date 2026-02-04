@@ -40,7 +40,7 @@ CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
 DEBUG=
 
 # @lumenize/auth configuration
-# See https://lumenize.com/docs/auth/api-reference#auth-config for all options
+# See https://lumenize.com/docs/auth/configuration#what-mustmight-be-in-env for all options
 LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 # Relative (/app) or absolute (https://example.com/app)
 LUMENIZE_AUTH_REDIRECT=/app

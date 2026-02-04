@@ -2,7 +2,7 @@
  * Cloudflare Turnstile server-side verification.
  *
  * @see https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
- * @see https://lumenize.com/docs/auth/api-reference#createauthroutes
+ * @see https://lumenize.com/docs/auth/getting-started#createauthroutes
  */
 
 const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';

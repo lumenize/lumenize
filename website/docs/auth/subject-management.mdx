@@ -1,0 +1,150 @@
+---
+title: Subject Management
+description: Admin endpoints and subject record schema
+---
+
+# Subject Management Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| [`{prefix}/subjects`](#list-subjects) | GET | List subjects |
+| [`{prefix}/subject/:id`](#get-subject) | GET | Get subject |
+| [`{prefix}/subject/:id`](#update-subject) | PATCH | Update subject flags |
+| [`{prefix}/subject/:id`](#delete-subject) | DELETE | Delete subject |
+| [`{prefix}/invite`](#invite-subjects) | POST | Invite subjects (bulk) → `adminApproved`, send invite emails |
+| [`{prefix}/approve/:id`](#approve-subject) | GET | Approve subject → `adminApproved` (from admin notification email) |
+
+All endpoints require **Admin** auth (Bearer token or refresh token cookie + `isAdmin`). You don't need to check `emailVerified` or `adminApproved` in your DO guards — subjects without both flags are blocked at the Worker level before any DO code runs. Your guards only need to check application-level concerns like `isAdmin` or resource ownership.
+
+## Subject Record
+
+| Field | Type | Updatable | Description |
+|-------|------|-----------|-------------|
+| `sub` | `string` | No | Subject ID (UUID, per RFC 7519) |
+| `email` | `string` | No | Email address (unique) |
+| `emailVerified` | `boolean` | No | Subject clicked magic link or invite link |
+| `adminApproved` | `boolean` | Yes | Admin granted access (or subject is admin) |
+| `isAdmin` | `boolean` | Yes | Full admin access (implicitly satisfies `adminApproved`) |
+| `authorizedActors` | `string[]` | [POST/DELETE](/docs/auth/delegation#add-authorized-actor) | Actor IDs authorized to act for this subject ([Delegation](/docs/auth/delegation)) |
+| `createdAt` | `number` | No | Unix timestamp |
+| `lastLoginAt` | `number \| null` | No | Unix timestamp of last login |
+
+## List Subjects
+
+`GET {prefix}/subjects` — Admin required
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch('/auth/subjects', {
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+const { subjects } = await response.json();
+```
+
+Query parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | number | Max subjects to return (default: 50, max: 200) |
+| `offset` | number | Skip this many subjects (for pagination) |
+| `role` | string | Filter by role: `admin` or `none` |
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+// Get first 50 admins
+const response = await fetch('/auth/subjects?role=admin&limit=50', {
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+```
+
+## Get Subject
+
+`GET {prefix}/subject/:id` — Admin required
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch(`/auth/subject/${sub}`, {
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+const { subject } = await response.json();
+```
+
+## Update Subject
+
+`PATCH {prefix}/subject/:id` — Admin required
+
+Updates `isAdmin` and/or `adminApproved` flags. Use [Add Authorized Actor](/docs/auth/delegation#add-authorized-actor) / [Remove Authorized Actor](/docs/auth/delegation#remove-authorized-actor) to manage delegation — `authorizedActors` in the PATCH body is rejected with `400`.
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch(`/auth/subject/${sub}`, {
+  method: 'PATCH',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    isAdmin: true
+  })
+});
+const { subject } = await response.json();
+```
+
+**Rules:**
+- Cannot modify yourself (prevents lockout)
+- Cannot modify the [bootstrap admin](/docs/auth/getting-started#bootstrap-your-first-admin)
+
+## Delete Subject
+
+`DELETE {prefix}/subject/:id` — Admin required
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch(`/auth/subject/${sub}`, {
+  method: 'DELETE',
+  headers: { 'Authorization': `Bearer ${accessToken}` }
+});
+```
+
+Returns `204 No Content` on success.
+
+**Rules:**
+- Cannot delete yourself
+- Cannot delete the [bootstrap admin](/docs/auth/getting-started#bootstrap-your-first-admin)
+- Deleting a subject removes all their [delegation](/docs/auth/delegation) relationships (both as principal and actor) via cascading delete
+
+## Invite Subjects
+
+`POST {prefix}/invite` — Admin required
+
+Pre-approves subjects by sending invite emails:
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch('/auth/invite', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    emails: ['alice@example.com', 'bob@example.com']
+  })
+});
+const { invited, errors } = await response.json();
+// invited: ['alice@example.com', 'bob@example.com']
+// errors: [] (or [{email, error}] for failures)
+```
+
+Creates subject records with `adminApproved: true`, `emailVerified: false` and sends invite emails. When subjects click the invite link ([Accept Invite](/docs/auth/auth-flow#accept-invite)), `emailVerified` is set to `true` and they gain immediate access.
+
+**Behavior:**
+- If email already exists and subject has `emailVerified: true` — sets `adminApproved: true` and sends invite email
+- If email already exists and subject has `emailVerified: false` — re-sends invite
+
+In [test mode](/docs/auth/testing#test-mode), append `?_test=true` to get invite links in the response instead of sending emails.
+
+## Approve Subject
+
+`GET {prefix}/approve/:id` — Admin required
+
+Linked from the admin notification email sent during [self-signup](/docs/auth/#self-signup-flow). Works from email links because the DO accepts the refresh token cookie (no Bearer header needed).
+
+- **Authenticated admin**: Sets `adminApproved: true`, sends a "You've been approved" email to the subject, redirects to `env.LUMENIZE_AUTH_REDIRECT`.
+- **Not authenticated**: Redirects to `env.LUMENIZE_AUTH_REDIRECT?error=login_required` so the app can prompt login and redirect back.
+
+Equivalent to `PATCH /subject/:id` with `{ adminApproved: true }` — this endpoint exists as a GET so it works as an email link.

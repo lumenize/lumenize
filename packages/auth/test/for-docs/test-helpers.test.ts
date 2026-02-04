@@ -70,7 +70,7 @@ describe('testLoginWithMagicLink Examples', () => {
     expect(claims.act).toBeDefined();
   }, { timeout: 15000 });
 
-  // Matches api-reference.mdx:395 — Delegation test flow with actor authorization
+  // Matches testing.mdx:395 — Delegation test flow with actor authorization
   it('delegation test flow with authorization', async () => {
     const fetch = (url: string, init?: RequestInit) => new Browser().fetch(`https://localhost${url}`, init);
 
@@ -80,7 +80,7 @@ describe('testLoginWithMagicLink Examples', () => {
       subjectData: { adminApproved: true }
     });
 
-    // --- Doc code from api-reference.mdx:395 ---
+    // --- Doc code from testing.mdx:395 ---
 
     const adminBrowser = new Browser();
     const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, 'admin@test.com', {

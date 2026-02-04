@@ -68,7 +68,7 @@ export interface TestLoginResult {
  * });
  * ```
  *
- * @see https://lumenize.com/docs/auth/#test-mode
+ * @see https://lumenize.com/docs/auth/testing
  */
 export async function testLoginWithMagicLink(
   browser: Browser,

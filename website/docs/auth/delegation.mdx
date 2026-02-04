@@ -1,0 +1,106 @@
+---
+title: Delegation
+description: Actor authorization, delegated tokens, and RFC 8693 act claims
+---
+
+# Delegation
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| [`{prefix}/subject/:id/actors`](#add-authorized-actor) | POST | Admin | Add an authorized actor for delegation |
+| [`{prefix}/subject/:id/actors/:actorId`](#remove-authorized-actor) | DELETE | Admin | Remove an authorized actor |
+| [`{prefix}/delegated-token`](#request-delegated-token) | POST | Auth | Request token to act on behalf of another subject |
+
+**Auth** = Bearer token or refresh token cookie. **Admin** = Auth + `isAdmin` required.
+
+Delegation allows one authenticated subject to act on behalf of another (e.g., admin impersonation for support). The principal's permissions apply; the actor's identity is recorded for audit. See [JWT Claims: Delegation](/docs/auth/#jwt-claims) for the `act` claim format.
+
+:::note Non-human actors (coming soon)
+Currently, the actor must be an authenticated subject and the principal must be a valid subject (exists in the database). Service account and AI agent authentication (API keys, service tokens) is planned for a future release.
+:::
+
+**Admin delegation:** Admins can delegate as any subject — no setup needed. Authenticate, request a delegated token, done.
+
+**Non-admin delegation flow:**
+
+1. **Authorize actor** — an admin adds the actor via [Add Authorized Actor](#add-authorized-actor)
+2. **Actor authenticates normally** — logs in via magic link or invite, gets their own access token
+3. **Actor requests delegated token** — calls [Request Delegated Token](#request-delegated-token) with their access token and the principal's `sub`
+4. **Auth verifies and issues token** — checks that the actor is authorized for the principal. Token has `sub` = principal, `act.sub` = actor
+5. **Actor makes calls** — guards check `sub` (principal's permissions), logs show `act.sub`
+
+## Add Authorized Actor
+
+`POST {prefix}/subject/:id/actors` — Admin required
+
+Adds an actor to a subject's authorized delegation list. The actor must be a valid subject ID — returns `400 "Actor ID not found: {id}"` if not. Idempotent — adding the same actor twice is a no-op.
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch(`/auth/subject/${targetSub}/actors`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${adminAccessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ actorSub: actorSubId })
+});
+const { subject } = await response.json();
+// subject.authorizedActors now includes actorSubId
+```
+
+## Remove Authorized Actor
+
+`DELETE {prefix}/subject/:id/actors/:actorId` — Admin required
+
+Removes an actor from a subject's authorized delegation list. Idempotent — removing an actor that isn't authorized is a no-op.
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch(`/auth/subject/${targetSub}/actors/${actorSubId}`, {
+  method: 'DELETE',
+  headers: { 'Authorization': `Bearer ${adminAccessToken}` }
+});
+const { subject } = await response.json();
+// subject.authorizedActors no longer includes actorSubId
+```
+
+## Request Delegated Token
+
+`POST {prefix}/delegated-token` — Auth required
+
+The actor uses their own access token and specifies who to act for:
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch('/auth/delegated-token', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${actorAccessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    actFor: targetSub  // Subject ID to act on behalf of
+  })
+});
+const { access_token } = await response.json();
+// Token claims: { sub: targetSub, act: { sub: actorSub }, ... }
+```
+
+**Fails if:** the actor is not an admin and has not been [authorized](#add-authorized-actor) for the principal.
+
+## Using Delegated Tokens
+
+Delegated tokens work like regular tokens. Your DO reads the JWT from the `Authorization: Bearer` header (see [How the JWT Reaches Your DO](/docs/auth/getting-started#createroutedorequestauthhooks)) and checks `sub` for authorization. The `act` chain is available for audit logging.
+
+:::note Delegated token refresh
+LumenizeClient auto-refreshes regular access tokens using the refresh token cookie. Delegated tokens require a separate refresh flow: the actor must first refresh their own access token, then call `/auth/delegated-token` again. LumenizeClient does not currently auto-refresh delegated tokens — your application is responsible for re-requesting them when they expire.
+:::
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+// Guard checks sub (principal's permissions)
+if (claims.sub !== ownerId) throw new Error('Forbidden');
+
+// Audit logging includes actor if present
+const actor = claims.act ? `${claims.act.sub} for ` : '';
+console.log(`Document updated by ${actor}${claims.sub}`);
+```
+
+For testing delegation flows, see [Testing: Delegation in Tests](/docs/auth/testing#delegation-in-tests).

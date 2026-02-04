@@ -1,0 +1,129 @@
+---
+title: Auth Flow
+description: Magic link, invite, refresh token, and logout endpoints
+---
+
+# Auth Flow Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| [`{prefix}/email-magic-link`](#request-magic-link) | POST | — | Request magic link (self-signup) |
+| [`{prefix}/magic-link`](#validate-magic-link) | GET | — | Validate magic link → `emailVerified`, notify admins |
+| [`{prefix}/accept-invite`](#accept-invite) | GET | — | Accept invite → `emailVerified` |
+| [`{prefix}/refresh-token`](#refresh-token) | POST | Cookie | Exchange refresh token for access token |
+| [`{prefix}/logout`](#logout) | POST | Cookie | Clear refresh token cookie |
+
+**Cookie** = refresh token cookie (HttpOnly, Secure, SameSite=Strict).
+
+## Tokens
+
+| Token | Query param / storage | Lifetime | Reusable? | Purpose |
+|-------|----------------------|----------|-----------|---------|
+| **One-time login token** | `?one_time_token=...` | 30 min | No (deleted on use) | Magic link self-signup |
+| **Invite token** | `?invite_token=...` | 7 days | Yes (valid until expiry) | Admin invite acceptance |
+| **Refresh token** | HttpOnly cookie | 30 days | No (rotated on use) | Obtain new access tokens |
+| **Access token** | Memory (JS) | 15 min | N/A (stateless JWT) | Authenticate requests, carries claims |
+
+## Client-Side Token Management
+
+**With LumenizeClient**: token management is automatic. `LumenizeClient` handles retrieving the access token using the refresh token cookie, transparent access token refresh, reconnection, and a callback for you to re-route to a login page when necessary. See [LumenizeClient: Authentication](/docs/mesh/lumenize-client#authentication).
+
+**Manual token management** (for non-Lumenize Mesh use):
+
+```typescript @skip-check-approved('conceptual')
+// On app load, get access token using the refresh token cookie
+const response = await fetch('/auth/refresh-token', { method: 'POST' });
+if (response.status === 401) {
+  window.location.href = '/login';       // Refresh token expired or missing
+} else if (response.status === 403) {
+  window.location.href = '/pending';     // Authenticated but not yet approved
+} else {
+  const { access_token } = await response.json();
+  // access_token contains claims: { sub, isAdmin, ... }
+}
+```
+
+## Request Magic Link
+
+`POST {prefix}/email-magic-link` — No auth required
+
+Sends a magic link email to the given address. Creates the subject record if it doesn't exist. Requires a valid [Turnstile](https://developers.cloudflare.com/turnstile/) token in the body.
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch('/auth/email-magic-link', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    'cf-turnstile-response': turnstileToken  // from the Turnstile widget callback
+  })
+});
+```
+
+Response (200):
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+{
+  message: "Check your email for the magic link",
+  expires_in: 1800
+}
+```
+
+Returns `403` if Turnstile verification fails.
+
+In [test mode](/docs/auth/testing#test-mode), Turnstile validation is skipped entirely. Append `?_test=true` to get the magic link directly without email delivery. Response (200):
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+{
+  message: "Magic link generated (test mode)"
+}
+```
+
+## Validate Magic Link
+
+`GET {prefix}/magic-link?one_time_token=...` — No auth required
+
+Called when the subject clicks the magic link. Validates the one-time login token (single use — deleted after validation), sets `emailVerified: true`, creates a refresh token, and redirects. If the subject is not yet admin-approved, sends a notification email to all admins.
+
+- **Valid token**: `302 → LUMENIZE_AUTH_REDIRECT` with `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict`
+- **Invalid/expired token**: `302 → LUMENIZE_AUTH_REDIRECT?error=invalid_token`
+
+## Accept Invite
+
+`GET {prefix}/accept-invite?invite_token=...` — No auth required
+
+Called when an invited subject clicks the invite link. Validates the invite token (reusable until expiry), sets `emailVerified: true` (subject already has `adminApproved: true` from the invite), creates a refresh token, and redirects. The subject has immediate access since both flags are now true.
+
+- **Valid token**: `302 → LUMENIZE_AUTH_REDIRECT` with `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict`
+- **Invalid/expired token**: `302 → LUMENIZE_AUTH_REDIRECT?error=invalid_token`
+
+## Refresh Token
+
+`POST {prefix}/refresh-token` — Auth required
+
+Exchanges the refresh token cookie for a new access token. The access token JWT contains all [claims](/docs/auth/#jwt-claims) including status flags and role.
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch('/auth/refresh-token', { method: 'POST' });
+// 200: { access_token: "eyJ..." }
+// 401: Refresh token expired, revoked, or missing
+// 403: Subject has emailVerified but not adminApproved (pending approval)
+```
+
+## Logout
+
+`POST {prefix}/logout` — Auth required
+
+Revokes the refresh token and clears the cookie.
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+await fetch('/auth/logout', { method: 'POST' });
+```
+
+Response (200):
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+{
+  message: "Logged out"
+}
+```

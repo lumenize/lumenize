@@ -2733,12 +2733,6 @@ describe('@lumenize/auth - Rate limiting', () => {
     ).rejects.toThrow('Rate limiter binding');
   });
 
-  it('createRouteDORequestAuthHooks throws with custom binding name when missing', async () => {
-    await expect(
-      createRouteDORequestAuthHooks(env, { rateLimiterBindingName: 'NONEXISTENT_BINDING' })
-    ).rejects.toThrow("Rate limiter binding 'NONEXISTENT_BINDING'");
-  });
-
   it('createRouteDORequestAuthHooks succeeds with default rate limiter binding', async () => {
     const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);
     expect(typeof onBeforeRequest).toBe('function');

@@ -11,7 +11,7 @@ export interface ActClaim {
 
 /**
  * Subject record stored in the Auth DO
- * @see https://lumenize.com/docs/auth/api-reference#subject-record
+ * @see https://lumenize.com/docs/auth/subject-management#subject-record
  */
 export interface Subject {
   /** Subject ID (UUID, per RFC 7519) */
@@ -122,15 +122,11 @@ export interface EmailService {
  * Options for createAuthRoutes — Worker-level routing only.
  * All auth configuration (redirect, TTLs, issuer, audience, prefix)
  * is read from environment variables.
- * @see https://lumenize.com/docs/auth/api-reference#auth-config
+ * @see https://lumenize.com/docs/auth/configuration#what-mustmight-be-in-env
  */
 export interface AuthRoutesOptions {
   /** CORS configuration for auth endpoints */
   cors?: CorsOptions;
-  /** DO binding name (default: 'LUMENIZE_AUTH') */
-  authBindingName?: string;
-  /** DO instance name (default: 'default') */
-  authInstanceName?: string;
 }
 
 /**

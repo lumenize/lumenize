@@ -21,7 +21,7 @@ describe('Auth Endpoint Examples', () => {
 
   describe('Authentication Endpoints', () => {
 
-    // Matches index.mdx:164 — Request Magic Link (no Turnstile)
+    // Matches auth-flow.mdx — Request Magic Link (no Turnstile)
     it('request magic link', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -35,7 +35,7 @@ describe('Auth Endpoint Examples', () => {
       expect(response.status).toBe(200);
     }, { timeout: 5000 });
 
-    // Matches index.mdx:322 and api-reference.mdx:114 — Magic Link with Turnstile
+    // Matches auth-flow.mdx and getting-started.mdx — Magic Link with Turnstile
     it('request magic link with turnstile', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -60,8 +60,7 @@ describe('Auth Endpoint Examples', () => {
       );
     }, { timeout: 5000 });
 
-    // Matches index.mdx:371 — Test Mode Magic Link
-    // Also matches api-reference.mdx response shape for test mode
+    // Matches auth-flow.mdx and testing.mdx — Test Mode Magic Link
     it('request magic link test mode', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -80,7 +79,7 @@ describe('Auth Endpoint Examples', () => {
       );
     }, { timeout: 5000 });
 
-    // Matches api-reference.mdx:157 — Refresh Token
+    // Matches auth-flow.mdx — Refresh Token
     it('refresh token', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -97,7 +96,7 @@ describe('Auth Endpoint Examples', () => {
       expect(body.access_token).toBeDefined();
     }, { timeout: 5000 });
 
-    // Matches index.mdx:198 and api-reference.mdx:170 — Logout
+    // Matches auth-flow.mdx — Logout
     it('logout', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -121,7 +120,7 @@ describe('Auth Endpoint Examples', () => {
 
   describe('Subject Management Endpoints', () => {
 
-    // Matches api-reference.mdx:183 — List Subjects
+    // Matches subject-management.mdx — List Subjects
     it('list subjects', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -139,7 +138,7 @@ describe('Auth Endpoint Examples', () => {
       expect(Array.isArray(subjects)).toBe(true);
     }, { timeout: 5000 });
 
-    // Matches api-reference.mdx:199 — List Subjects with Filters
+    // Matches subject-management.mdx — List Subjects with Filters
     it('list subjects with filters', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -155,7 +154,7 @@ describe('Auth Endpoint Examples', () => {
       expect(response.status).toBe(200);
     }, { timeout: 5000 });
 
-    // Matches api-reference.mdx:210 — Get Subject
+    // Matches subject-management.mdx — Get Subject
     it('get subject', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -179,7 +178,7 @@ describe('Auth Endpoint Examples', () => {
       expect(subject.sub).toBe(sub);
     }, { timeout: 5000 });
 
-    // Matches api-reference.mdx:224 — Update Subject
+    // Matches subject-management.mdx — Update Subject
     it('update subject', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -210,7 +209,7 @@ describe('Auth Endpoint Examples', () => {
       expect(subject.isAdmin).toBe(true);
     }, { timeout: 5000 });
 
-    // Matches api-reference.mdx:264 — Invite Subjects
+    // Matches subject-management.mdx — Invite Subjects
     it('invite subjects', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -236,7 +235,7 @@ describe('Auth Endpoint Examples', () => {
       expect(invited).toContain('bob@example.com');
     }, { timeout: 5000 });
 
-    // Matches api-reference.mdx:246 — Delete Subject
+    // Matches subject-management.mdx — Delete Subject
     it('delete subject', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -264,7 +263,7 @@ describe('Auth Endpoint Examples', () => {
 
   describe('Delegation Endpoints', () => {
 
-    // Matches api-reference.mdx:323 — Add Authorized Actor
+    // Matches delegation.mdx — Add Authorized Actor
     it('add authorized actor', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -297,7 +296,7 @@ describe('Auth Endpoint Examples', () => {
       expect(subject.authorizedActors).toContain(actorSubId);
     }, { timeout: 10000 });
 
-    // Matches api-reference.mdx:342 — Remove Authorized Actor
+    // Matches delegation.mdx — Remove Authorized Actor
     it('remove authorized actor', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -336,7 +335,7 @@ describe('Auth Endpoint Examples', () => {
       expect(subject.authorizedActors).not.toContain(actorSubId);
     }, { timeout: 10000 });
 
-    // Matches api-reference.mdx:357 — Request Delegated Token
+    // Matches delegation.mdx — Request Delegated Token
     it('request delegated token', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -383,7 +382,7 @@ describe('Auth Endpoint Examples', () => {
       expect(claims.act.sub).toBe(actorSub);
     }, { timeout: 10000 });
 
-    // Matches api-reference.mdx:382 — Using Delegated Tokens (guard code)
+    // Matches delegation.mdx — Using Delegated Tokens (guard code)
     it('using delegated tokens', async () => {
       const browser = new Browser();
 

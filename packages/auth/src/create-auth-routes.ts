@@ -17,17 +17,13 @@ import type { AuthRoutesOptions } from './types';
  * `cf-turnstile-response` in the JSON body. Skipped in test mode.
  *
  * @throws If `TURNSTILE_SECRET_KEY` is not set and `LUMENIZE_AUTH_TEST_MODE !== 'true'`
- * @see https://lumenize.com/docs/auth/api-reference#createauthroutes
+ * @see https://lumenize.com/docs/auth/getting-started#createauthroutes
  */
 export function createAuthRoutes(
   env: Env,
   options: AuthRoutesOptions = {}
 ): (request: Request) => Promise<Response | undefined> {
-  const {
-    authBindingName = 'LUMENIZE_AUTH',
-    authInstanceName = 'default',
-    cors,
-  } = options;
+  const { cors } = options;
 
   // Optional env vars not in wrangler.jsonc vars (secrets / test-only — cast required)
   const envRecord = env as unknown as Record<string, unknown>;
@@ -104,7 +100,7 @@ export function createAuthRoutes(
     }
 
     // Rewrite URL to include binding and instance name
-    const rewrittenPath = `${cleanPrefix}/${authBindingName}/${authInstanceName}/${endpointPath}`;
+    const rewrittenPath = `${cleanPrefix}/LUMENIZE_AUTH/default/${endpointPath}`;
     const rewrittenUrl = new URL(request.url);
     rewrittenUrl.pathname = rewrittenPath;
 

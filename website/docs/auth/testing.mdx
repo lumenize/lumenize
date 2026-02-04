@@ -1,0 +1,111 @@
+---
+title: Testing
+description: Test mode, test helpers, and delegation testing for Lumenize Auth
+---
+
+# Testing
+
+## Test Mode
+
+Set `LUMENIZE_AUTH_TEST_MODE` to `"true"` to bypass email delivery and Turnstile validation. Append `?_test=true` to get links directly in the response instead of sending emails. This works for both magic link and invite endpoints:
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+const response = await fetch('/auth/email-magic-link?_test=true', {
+  method: 'POST',
+  body: JSON.stringify({ email: 'test@example.com' })
+});
+// Returns: { message: "Magic link generated (test mode)", magic_link: "..." }
+```
+
+The [invite endpoint](/docs/auth/subject-management#invite-subjects) supports the same pattern — `POST {prefix}/invite?_test=true` returns invite links in the response instead of sending emails. A dedicated test helper for invite flows may be added in a future release.
+
+:::info Recommendation: Put LUMENIZE_AUTH_TEST_MODE in vitest config
+`LUMENIZE_AUTH_TEST_MODE="true"` must be set as an environment variable for test mode to work, but putting it in `wrangler.jsonc` risks accidentally deploying it — which would let anyone obtain magic links without email delivery. Instead, inject it via `miniflare.bindings` in your `vitest.config.js`, which only exists during test runs and is never deployed:
+
+```javascript @skip-check-approved('config')
+// vitest.config.js
+export default defineWorkersProject({
+  test: {
+    poolOptions: {
+      workers: {
+        wrangler: { configPath: './wrangler.jsonc' },
+        miniflare: {
+          bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
+        },
+      },
+    },
+  },
+});
+```
+:::
+
+## testLoginWithMagicLink
+
+For testing with specific roles, use `testLoginWithMagicLink`. The `browser` parameter is required — it provides a cookie jar that preserves the refresh token across the multi-step login flow:
+
+```typescript @check-example('packages/auth/test/for-docs/test-helpers.test.ts')
+import { testLoginWithMagicLink } from '@lumenize/auth';
+import { Browser } from '@lumenize/testing';
+
+const browser = new Browser();
+
+// Login as approved regular subject
+const { accessToken, sub } = await testLoginWithMagicLink(browser, 'alice@test.com', {
+  subjectData: { adminApproved: true }  // emailVerified is set automatically
+});
+
+// Login as admin
+const adminBrowser = new Browser();
+const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, 'admin@test.com', {
+  subjectData: { isAdmin: true }  // Admins implicitly have adminApproved
+});
+
+// Login with delegation — alice is the principal, the actor acts on her behalf
+const actorBrowser = new Browser();
+const { accessToken: actorToken } = await testLoginWithMagicLink(actorBrowser, 'actor@test.com', {
+  subjectData: { adminApproved: true }
+});
+const aliceBrowser = new Browser();
+const { accessToken: delegatedToken } = await testLoginWithMagicLink(aliceBrowser, 'alice@test.com', {
+  subjectData: { adminApproved: true },
+  actorAccessToken: actorToken  // actor's access token for delegation
+});
+```
+
+## Delegation in Tests
+
+The example above passes `actorAccessToken` directly — useful when you don't need to test the authorization setup. For integration tests that exercise the full flow, first authorize the actor via the [Add Authorized Actor](/docs/auth/delegation#add-authorized-actor) endpoint, then login the principal with the actor's access token:
+
+```typescript @check-example('packages/auth/test/for-docs/test-helpers.test.ts')
+import { testLoginWithMagicLink } from '@lumenize/auth';
+import { Browser } from '@lumenize/testing';
+
+const adminBrowser = new Browser();
+const { accessToken: adminToken } = await testLoginWithMagicLink(adminBrowser, 'admin@test.com', {
+  subjectData: { isAdmin: true }
+});
+
+// Login the actor
+const actorBrowser = new Browser();
+const { accessToken: actorToken, sub: actorSub } = await testLoginWithMagicLink(
+  actorBrowser, 'actor@test.com', { subjectData: { adminApproved: true } }
+);
+
+// Authorize actorSub to act on behalf of targetSub
+await fetch(`/auth/subject/${targetSub}/actors`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${adminToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({ actorSub })
+});
+
+// Login alice with delegation — actor acts on her behalf
+const aliceBrowser = new Browser();
+const { accessToken, sub } = await testLoginWithMagicLink(aliceBrowser, 'alice@test.com', {
+  subjectData: { adminApproved: true },
+  actorAccessToken: actorToken  // actor's access token for delegation
+});
+// sub = alice's sub, parseJwtUnsafe(accessToken).payload.act.sub = actorSub
+```

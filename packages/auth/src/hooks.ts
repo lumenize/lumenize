@@ -5,17 +5,6 @@ import type { JwtPayload } from './types';
 const WS_TOKEN_PREFIX = 'lmz.access-token.';
 
 /**
- * Options for createRouteDORequestAuthHooks
- */
-export interface RouteDORequestAuthHooksOptions {
-  /**
-   * Name of the rate limiter binding in `env`.
-   * Default: `'LUMENIZE_AUTH_RATE_LIMITER'`
-   */
-  rateLimiterBindingName?: string;
-}
-
-/**
  * Hook context from routeDORequest
  */
 interface HookContext {
@@ -196,7 +185,6 @@ function forwardJwtRequest(request: Request, token: string): Request {
  */
 export async function createRouteDORequestAuthHooks(
   env: Env,
-  options?: RouteDORequestAuthHooksOptions,
 ): Promise<{ onBeforeRequest: RouteDORequestHook; onBeforeConnect: RouteDORequestHook }> {
   // Import public keys from env (typed in Env)
   const publicKeysPem = [env.JWT_PUBLIC_KEY_BLUE, env.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
@@ -206,13 +194,12 @@ export async function createRouteDORequestAuthHooks(
     throw new Error('No JWT public keys found in env (JWT_PUBLIC_KEY_BLUE / JWT_PUBLIC_KEY_GREEN)');
   }
 
-  // Resolve rate limiter binding (dynamic key requires cast)
-  const rateLimiterName = options?.rateLimiterBindingName ?? 'LUMENIZE_AUTH_RATE_LIMITER';
-  const rateLimiter = (env as unknown as Record<string, unknown>)[rateLimiterName] as RateLimit | undefined;
+  // Resolve rate limiter binding (cast required — not in generated Env type)
+  const rateLimiter = (env as unknown as Record<string, unknown>)['LUMENIZE_AUTH_RATE_LIMITER'] as RateLimit | undefined;
   if (!rateLimiter) {
     throw new Error(
-      `Rate limiter binding '${rateLimiterName}' not found in env. ` +
-      'Add a rate_limits binding to your wrangler.jsonc or provide rateLimiterBindingName option.'
+      "Rate limiter binding 'LUMENIZE_AUTH_RATE_LIMITER' not found in env. " +
+      'Add a rate_limits binding to your wrangler.jsonc.'
     );
   }
 

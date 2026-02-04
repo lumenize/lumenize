@@ -39,7 +39,6 @@ export {
 // Auth hooks for routeDORequest
 export {
   createRouteDORequestAuthHooks,
-  type RouteDORequestAuthHooksOptions
 } from './hooks';
 
 // WebSocket authentication utilities (used by DOs for message-level auth)

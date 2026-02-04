@@ -1,0 +1,58 @@
+---
+title: Configuration
+description: Environment variables, secrets, keys, and bindings
+---
+
+# Configuration
+
+All auth configuration is read from environment variables and bindings — no constructor options or config files.
+
+## What Must/Might Be in `env`
+
+### Required Config
+
+Only one variable is needed to get started:
+
+| Variable | Read By | Description |
+|----------|---------|-------------|
+| `LUMENIZE_AUTH_REDIRECT` | Auth DO | [302 `Location`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Location) after magic link / invite — relative (`/app`) or absolute (`https://example.com/app`) |
+
+### Optional Config
+
+The Auth DO and Worker hooks read these from environment variables. Sensible defaults mean you can skip all of them initially.
+
+| Variable | Default | Read By | Description |
+|----------|---------|---------|-------------|
+| `LUMENIZE_AUTH_ISSUER` | `'https://lumenize.local'` | Auth DO, hooks | JWT `iss` claim |
+| `LUMENIZE_AUTH_AUDIENCE` | `'https://lumenize.local'` | Auth DO, hooks | JWT `aud` claim |
+| `LUMENIZE_AUTH_ACCESS_TOKEN_TTL` | `900` (15 min) | Auth DO | Access token expiration in seconds |
+| `LUMENIZE_AUTH_REFRESH_TOKEN_TTL` | `2592000` (30 days) | Auth DO | Refresh token expiration in seconds |
+| `LUMENIZE_AUTH_MAGIC_LINK_TTL` | `1800` (30 min) | Auth DO | One-time login token expiration in seconds |
+| `LUMENIZE_AUTH_INVITE_TTL` | `604800` (7 days) | Auth DO | Invite token expiration in seconds (reusable until expiry) |
+| `LUMENIZE_AUTH_PREFIX` | `'/auth'` | Auth DO, `createAuthRoutes` | URL prefix for all auth endpoints. `createAuthRoutes` uses it for route matching; the Auth DO uses it to compose links in emails |
+| `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` | — | Auth DO | Email idempotently promoted to admin on every login. Without this, no bootstrap admin is created — you'll need another mechanism to create the first admin |
+| `LUMENIZE_AUTH_TEST_MODE` | `"false"` | Auth DO | Set to `"true"` to enable [test mode](/docs/auth/testing#test-mode) — **never deploy to production** |
+
+### Secrets and Keys
+
+| Variable | Type | Required | Read By | Description |
+|----------|------|----------|---------|-------------|
+| `JWT_PRIVATE_KEY_BLUE` | Secret | Yes¹ | Auth DO | Ed25519 private key (BLUE slot) |
+| `JWT_PUBLIC_KEY_BLUE` | Secret | Yes¹ | Auth DO, hooks | Ed25519 public key (BLUE slot) |
+| `JWT_PRIVATE_KEY_GREEN` | Secret | No² | Auth DO | Ed25519 private key (GREEN slot) |
+| `JWT_PUBLIC_KEY_GREEN` | Secret | No² | Auth DO, hooks | Ed25519 public key (GREEN slot) |
+| `PRIMARY_JWT_KEY` | Variable | Yes | Auth DO | Active signing slot: `"BLUE"` or `"GREEN"` |
+| `TURNSTILE_SECRET_KEY` | Secret | Yes | `createAuthRoutes` | [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) server-side secret |
+
+¹ At least one key pair (BLUE or GREEN) is required. ² Second slot needed only during [key rotation](/docs/auth/getting-started#key-rotation).
+
+**Naming convention**: `LUMENIZE_AUTH_*` for Lumenize-specific config, `JWT_*` for industry-standard key material (shared across packages), vendor prefix (e.g., `TURNSTILE_*`) for third-party services.
+
+### Required Bindings
+
+These are Lumenize conventions — define them in your `wrangler.jsonc` with these exact names.
+
+| Binding | Type | Read By | Description |
+|---------|------|---------|-------------|
+| `LUMENIZE_AUTH` | Durable Object namespace | `createAuthRoutes` | Namespace binding for the [LumenizeAuth](/docs/auth/) DO |
+| `LUMENIZE_AUTH_RATE_LIMITER` | [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) | `createRouteDORequestAuthHooks` | Per-subject rate limiting keyed on `sub` from the decoded JWT |
