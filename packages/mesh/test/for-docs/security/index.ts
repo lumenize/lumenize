@@ -16,7 +16,7 @@ import { LumenizeClientGateway } from '../../../src/index.js';
 // Re-export classes for wrangler bindings
 export { LumenizeClientGateway, LumenizeAuth };
 export { ProtectedDO } from './protected-do.js';
-export { GuardedDO } from './guarded-do.js';
+export { TeamDocDO } from './team-doc-do.js';
 
 // Create auth routes and hooks once at module level
 const authRoutes = createAuthRoutes(env);

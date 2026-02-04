@@ -124,21 +124,22 @@ export class ProtectedDO extends LumenizeDO<Env> {
 
 Guards receive the instance, providing access to instance state. The correct `lmz.callContext` is also available in the guard. This works for all node types (`LumenizeDO`, `LumenizeWorker`, `LumenizeClient`):
 
-```typescript @skip-check
-// Check `callContext.originAuth.claims` to determine access
-@mesh((instance: MyDO) => {
-  if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
-    throw new Error('Admin only');
+```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
+  // Check `callContext.originAuth.claims` to determine access
+  @mesh((instance: TeamDocDO) => {
+    if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
+      throw new Error('Admin only');
+    }
+  })
+  adminMethod(): string {
+    // Only admins reach here
+    // ...
   }
-})
-adminMethod() {
-  // Only admins reach here
-}
 ```
 
-```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
+```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
   // Check instance state to determine access
-  @mesh((instance: GuardedDO) => {
+  @mesh((instance: TeamDocDO) => {
     const userId = instance.lmz.callContext.originAuth?.sub;
     if (!instance.allowedEditors.has(userId!)) {
       throw new Error('Not an allowed editor');
@@ -152,21 +153,29 @@ adminMethod() {
 
 ### Reusable Guards
 
-```typescript @skip-check
-function requireRole(role: string) {
-  return (instance: { lmz: LmzApi }) => {
-    const roles = instance.lmz.callContext.originAuth?.claims?.roles ?? [];
-    if (!roles.includes(role)) {
-      throw new Error(`Role ${role} required`);
-    }
-  };
+Extract common access checks into standalone functions and pass them to `@mesh()`. This `requireSubscriber` guard combines JWT identity (`originAuth.sub`) with instance state (a `subscribers` Set in storage):
+
+```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
+function requireSubscriber(instance: TeamDocDO) {
+  const sub = instance.lmz.callContext.originAuth?.sub;
+  if (!sub || !instance.subscribers.has(sub)) {
+    throw new Error('Subscriber access required');
+  }
 }
+```
 
-@mesh(requireRole('editor'))
-editDocument(changes: DocumentChange) { /* ... */ }
+Then reuse it across multiple methods:
 
-@mesh(requireRole('admin'))
-deleteDocument() { /* ... */ }
+```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
+  @mesh(requireSubscriber)
+  editDocument(changes: DocumentChange): { edited: true; content: string } {
+    // ...
+  }
+
+  @mesh(requireSubscriber)
+  addComment(comment: string): { commented: true } {
+    // ...
+  }
 ```
 
 ### State-Based Access
@@ -180,7 +189,7 @@ The `callContext.state` object is a mutable `Record<string, unknown>` that:
 
 Use it to attach computed data (like user records or permissions) so method guards don't need to re-load/re-compute:
 
-```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
+```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
   onBeforeCall() {
     super.onBeforeCall();
     const callContext = this.lmz.callContext;
@@ -193,8 +202,8 @@ Use it to attach computed data (like user records or permissions) so method guar
   }
 ```
 
-```typescript @check-example('packages/mesh/test/for-docs/security/guarded-do.ts')
-  @mesh((instance: GuardedDO) => {
+```typescript @check-example('packages/mesh/test/for-docs/security/team-doc-do.ts')
+  @mesh((instance: TeamDocDO) => {
     // ...
     if (!permissions?.canEdit) {
       throw new Error('Edit permission required');

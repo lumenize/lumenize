@@ -11,11 +11,11 @@ import { instrumentDOProject } from '@lumenize/testing';
 // Instrument the DOs
 const instrumented = instrumentDOProject({
   sourceModule,
-  doClassNames: ['LumenizeClientGateway', 'ProtectedDO', 'GuardedDO', 'LumenizeAuth'],
+  doClassNames: ['LumenizeClientGateway', 'ProtectedDO', 'TeamDocDO', 'LumenizeAuth'],
 });
 
 // Re-export instrumented DOs for wrangler bindings
-export const { LumenizeClientGateway, ProtectedDO, GuardedDO, LumenizeAuth } = instrumented.dos;
+export const { LumenizeClientGateway, ProtectedDO, TeamDocDO, LumenizeAuth } = instrumented.dos;
 
 // Re-export the instrumented default export (worker handler)
 export default instrumented;

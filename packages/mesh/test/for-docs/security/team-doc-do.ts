@@ -1,5 +1,5 @@
 /**
- * GuardedDO - Demonstrates @mesh(guard) patterns
+ * TeamDocDO - Demonstrates @mesh(guard) patterns
  *
  * From website/docs/mesh/security.mdx:
  * - Method-Level: `@mesh(guard)` with claims and instance state
@@ -7,7 +7,7 @@
  * - State-Based Access
  */
 
-import { LumenizeDO, mesh, type LmzApi } from '../../../src/index.js';
+import { LumenizeDO, mesh } from '../../../src/index.js';
 
 // ============================================
 // Types
@@ -31,26 +31,30 @@ export interface Permissions {
 // Reusable Guards (from security.mdx)
 // ============================================
 
-function requireRole(role: string) {
-  return (instance: { lmz: LmzApi }) => {
-    const claims = instance.lmz.callContext.originAuth?.claims;
-    const roles = (Array.isArray(claims?.roles) ? claims.roles : []) as string[];
-    if (!roles.includes(role)) {
-      throw new Error(`Role ${role} required`);
-    }
-  };
+function requireSubscriber(instance: TeamDocDO) {
+  const sub = instance.lmz.callContext.originAuth?.sub;
+  if (!sub || !instance.subscribers.has(sub)) {
+    throw new Error('Subscriber access required');
+  }
 }
 
 // ============================================
-// GuardedDO
+// TeamDocDO
 // ============================================
 
-export class GuardedDO extends LumenizeDO<Env> {
+export class TeamDocDO extends LumenizeDO<Env> {
   /**
    * Get allowed editors from storage
    */
   get allowedEditors(): Set<string> {
     return this.ctx.storage.kv.get('allowedEditors') ?? new Set<string>();
+  }
+
+  /**
+   * Get subscribers from storage
+   */
+  get subscribers(): Set<string> {
+    return this.ctx.storage.kv.get('subscribers') ?? new Set<string>();
   }
 
   // ============================================
@@ -108,12 +112,19 @@ export class GuardedDO extends LumenizeDO<Env> {
     this.ctx.storage.kv.put('allowedEditors', editors);
   }
 
+  @mesh()
+  addSubscriber(userId: string): void {
+    const subs = this.subscribers;
+    subs.add(userId);
+    this.ctx.storage.kv.put('subscribers', subs);
+  }
+
   // ============================================
   // Guards checking claims (block 3, first example)
   // ============================================
 
   // Check `callContext.originAuth.claims` to determine access
-  @mesh((instance: GuardedDO) => {
+  @mesh((instance: TeamDocDO) => {
     if (!instance.lmz.callContext.originAuth?.claims?.isAdmin) {
       throw new Error('Admin only');
     }
@@ -128,7 +139,7 @@ export class GuardedDO extends LumenizeDO<Env> {
   // ============================================
 
   // Check instance state to determine access
-  @mesh((instance: GuardedDO) => {
+  @mesh((instance: TeamDocDO) => {
     const userId = instance.lmz.callContext.originAuth?.sub;
     if (!instance.allowedEditors.has(userId!)) {
       throw new Error('Not an allowed editor');
@@ -142,25 +153,29 @@ export class GuardedDO extends LumenizeDO<Env> {
 
   // ============================================
   // Reusable guards (block 4)
+  // Keep editDocument and addComment contiguous — check-examples
+  // does substring matching, so they must be adjacent.
   // ============================================
 
-  @mesh(requireRole('editor'))
-  editDocument(changes: DocumentChange): { edited: true } {
+  @mesh(requireSubscriber)
+  editDocument(changes: DocumentChange): { edited: true; content: string } {
     this.ctx.storage.kv.put('content', changes.content);
-    return { edited: true };
+    return { edited: true, content: changes.content };
   }
 
-  @mesh(requireRole('admin'))
-  deleteDocument(): { deleted: true } {
-    this.ctx.storage.kv.delete('content');
-    return { deleted: true };
+  @mesh(requireSubscriber)
+  addComment(comment: string): { commented: true } {
+    const comments: string[] = this.ctx.storage.kv.get('comments') ?? [];
+    comments.push(comment);
+    this.ctx.storage.kv.put('comments', comments);
+    return { commented: true };
   }
 
   // ============================================
   // State-based access (block 5)
   // ============================================
 
-  @mesh((instance: GuardedDO) => {
+  @mesh((instance: TeamDocDO) => {
     const permissions = instance.lmz.callContext.state.permissions as Permissions | undefined;
     if (!permissions?.canEdit) {
       throw new Error('Edit permission required');

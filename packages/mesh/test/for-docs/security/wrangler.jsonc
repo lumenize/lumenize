@@ -13,8 +13,8 @@
         "class_name": "ProtectedDO"
       },
       {
-        "name": "GUARDED_DO",
-        "class_name": "GuardedDO"
+        "name": "TEAM_DOC_DO",
+        "class_name": "TeamDocDO"
       },
       {
         "name": "LUMENIZE_AUTH",
@@ -25,7 +25,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "ProtectedDO", "GuardedDO", "LumenizeAuth"]
+      "new_sqlite_classes": ["LumenizeClientGateway", "ProtectedDO", "TeamDocDO", "LumenizeAuth"]
     }
   ],
   "vars": {

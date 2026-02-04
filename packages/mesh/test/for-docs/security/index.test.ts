@@ -10,7 +10,7 @@
  * 3. Authenticated user accessing protected resources
  * 4. @mesh(guard) with claims check (admin only)
  * 5. @mesh(guard) with instance state (allowed editors)
- * 6. Reusable guards (requireRole pattern)
+ * 6. Reusable guards (requireSubscriber pattern)
  * 7. State-based access control (permissions in callContext.state)
  */
 
@@ -19,7 +19,7 @@ import { createTestingClient, Browser } from '@lumenize/testing';
 import { testLoginWithMagicLink } from '@lumenize/auth';
 import { SecurityClient } from './security-client.js';
 import { LoginRequiredError, type LumenizeClientGateway } from '../../../src/index.js';
-import type { GuardedDO } from './guarded-do.js';
+import type { TeamDocDO } from './team-doc-do.js';
 
 it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
@@ -147,26 +147,44 @@ it('security patterns: auth, guards, and state-based access', async () => {
 
   // Use testing client to set up and verify guard behavior
   {
-    using guardedClient = createTestingClient<typeof GuardedDO>('GUARDED_DO', 'editor-doc-1');
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'editor-doc-1');
 
     // Initially Carol is NOT an allowed editor
     // If she tries to call updateDocument, the guard would throw "Not an allowed editor"
 
     // Add Carol as an allowed editor
-    await guardedClient.addEditor(carolUserId);
+    await teamDocClient.addEditor(carolUserId);
 
     // Verify the editor was added
-    const editors = await guardedClient.allowedEditors;
+    const editors = await teamDocClient.allowedEditors;
     expect(editors.has(carolUserId)).toBe(true);
   }
 
   // ============================================
-  // Phase 6: Reusable guards (requireRole pattern)
+  // Phase 6: Reusable guards (requireSubscriber pattern)
   // ============================================
-  // TODO: Custom roles are not yet part of @lumenize/auth JWT claims.
-  // The requireRole guard checks originAuth.claims.roles.
-  // Once @lumenize/auth supports custom role claims, we can test:
-  // Bob (no roles) fails editDocument, Admin (roles: ['editor']) succeeds.
+  // The requireSubscriber guard checks originAuth.sub against the
+  // subscribers Set in DO storage — combining JWT identity with instance state.
+
+  {
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'subscriber-doc-1');
+
+    // Add Bob as a subscriber
+    await teamDocClient.addSubscriber(bobUserId);
+
+    // Verify subscriber was added
+    const subs = await teamDocClient.subscribers;
+    expect(subs.has(bobUserId)).toBe(true);
+
+    // Both editDocument and addComment use requireSubscriber —
+    // Bob can call them because he's subscribed
+    const editResult = await teamDocClient.editDocument({ content: 'Team doc content' });
+    expect(editResult.edited).toBe(true);
+    expect(editResult.content).toBe('Team doc content');
+
+    const commentResult = await teamDocClient.addComment('Looks good!');
+    expect(commentResult.commented).toBe(true);
+  }
 
   // ============================================
   // Phase 7: State-based access control
@@ -175,17 +193,17 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // onBeforeCall loads permissions from storage into state.
 
   {
-    using guardedClient = createTestingClient<typeof GuardedDO>('GUARDED_DO', 'state-doc-1');
+    using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'state-doc-1');
 
     // Initially Bob has no edit permission
-    const canEditBefore = await guardedClient.ctx.storage.kv.get(`user:${bobUserId}:canEdit`);
+    const canEditBefore = await teamDocClient.ctx.storage.kv.get(`user:${bobUserId}:canEdit`);
     expect(canEditBefore).toBeUndefined();
 
     // Grant edit permission to Bob
-    await guardedClient.grantEditPermission(bobUserId);
+    await teamDocClient.grantEditPermission(bobUserId);
 
     // Verify permission was stored
-    const canEditAfter = await guardedClient.ctx.storage.kv.get(`user:${bobUserId}:canEdit`);
+    const canEditAfter = await teamDocClient.ctx.storage.kv.get(`user:${bobUserId}:canEdit`);
     expect(canEditAfter).toBe(true);
 
     // When Bob calls through the mesh, his callContext.state.permissions.canEdit
