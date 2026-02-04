@@ -836,7 +836,7 @@ class LumenizeClient {
 - [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
 - [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
 - [ ] (review and vitest-pool) Clients must be authenticated (verify auth middleware is enforced)
-- [ ] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
+- [x] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
 - [ ] Messages are queued when the client is in a reconnection grace period with various timing scenarios (tab wake, immediate send, etc.). Needs analysis.
 
 ## References

@@ -5,7 +5,7 @@ description: Passwordless authentication with magic links, invites, and JWT toke
 
 # Auth
 
-Passwordless authentication for Cloudflare Durable Objects with magic link login, JWT access tokens, refresh token rotation, and built-in admin role. Serves as the default authentication for Lumenize Mesh but can be used with any Cloudflare Workers project.
+De✨light✨ful passwordless authentication for Cloudflare Durable Objects with magic link login, JWT access tokens, refresh token rotation, and built-in admin role. Serves as the default authentication for Lumenize Mesh but can be used with any Cloudflare Workers project.
 
 | Feature | Description |
 |---------|-------------|
@@ -33,7 +33,7 @@ For a complete setup walkthrough including key generation, environment configura
 
 ## Installation
 
-```bash @skip-check
+```bash
 npm install @lumenize/auth
 ```
 
@@ -41,7 +41,7 @@ npm install @lumenize/auth
 
 Before anyone can log in with admin privileges, you need to designate a bootstrap admin. Set the `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` environment variable:
 
-```bash @skip-check
+```bash
 # In .dev.vars or wrangler.jsonc (local development)
 LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
 
@@ -161,7 +161,7 @@ sequenceDiagram
 
 ### Request Magic Link
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/email-magic-link', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -180,7 +180,7 @@ When the subject clicks the magic link, the server validates the one-time login 
 
 **Manual token management** (for non-Lumenize Mesh use):
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // On app load, get access token using the refresh token cookie
 const response = await fetch('/auth/refresh-token', { method: 'POST' });
 if (response.status === 401) {
@@ -195,7 +195,7 @@ if (response.status === 401) {
 
 ### Logout
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 await fetch('/auth/logout', { method: 'POST' });
 // Refresh token cookie is cleared
 ```
@@ -204,8 +204,8 @@ await fetch('/auth/logout', { method: 'POST' });
 
 Access tokens contain standard JWT claims plus status and role information:
 
-```typescript @skip-check
-interface JwtClaims {
+```typescript @check-example('packages/auth/src/types.ts')
+interface JwtPayload {
   // Standard claims (RFC 7519)
   iss: string;          // Issuer
   aud: string;          // Audience
@@ -221,8 +221,8 @@ interface JwtClaims {
   // Role flag
   isAdmin?: boolean;
 
-  // Delegation (RFC 8693) - recursive for delegation chains
-  act?: { sub: string; act?: ActClaim };
+  // Delegation (RFC 8693)
+  act?: ActClaim;
 }
 ```
 
@@ -257,7 +257,7 @@ const response = await routeDORequest(request, env, {
 
 **WebSocket token delivery** (if not using LumenizeClient): Smuggle the token via the subprotocol list:
 
-```javascript @skip-check
+```javascript @skip-check-approved('conceptual')
 // Client-side
 const ws = new WebSocket(url, ['lmz', `lmz.access-token.${accessToken}`]);
 ```
@@ -277,14 +277,14 @@ The BLUE/GREEN pattern enables zero-downtime key rotation. Tokens are verified a
 ### Secrets and Variables
 
 **Secrets** - Generate two key pairs with:
-```bash @skip-check
+```bash
 # Generate and display private key (copy for next step)
 openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
 ```
 
 Set in the dashboard or via command line:
 
-```bash @skip-check
+```bash
 # Primary key pair (signs new tokens)
 wrangler secret put JWT_PRIVATE_KEY_BLUE
 wrangler secret put JWT_PUBLIC_KEY_BLUE
@@ -319,7 +319,7 @@ The unauthenticated `POST {prefix}/email-magic-link` endpoint needs abuse protec
 
 Your frontend embeds the [Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/) and includes the resulting token as `cf-turnstile-response` in the JSON body alongside `email`:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/email-magic-link', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -340,7 +340,7 @@ const response = await fetch('/auth/email-magic-link', {
 
 Add the rate limiting binding to your `wrangler.jsonc`:
 
-```jsonc @skip-check
+```jsonc
 {
   "rate_limits": [
     { "binding": "LUMENIZE_AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 100, "period": 60 } }
@@ -350,7 +350,7 @@ Add the rate limiting binding to your `wrangler.jsonc`:
 
 Add the Turnstile secret key:
 
-```bash @skip-check
+```bash
 # Local development (.dev.vars)
 TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 
@@ -368,7 +368,7 @@ The rate limiting binding is **per Cloudflare location** (not globally consisten
 
 For development, add `?_test=true` to get links directly instead of sending emails. This works for both magic link and invite endpoints:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/email-magic-link?_test=true', {
   method: 'POST',
   body: JSON.stringify({ email: 'test@example.com' })
@@ -381,7 +381,7 @@ The [invite endpoint](/docs/auth/api-reference#invite-subjects) supports the sam
 :::info Recommendation: Put LUMENIZE_AUTH_TEST_MODE in vitest config
 `LUMENIZE_AUTH_TEST_MODE="true"` must be set as an environment variable for test mode to work, but putting it in `wrangler.jsonc` risks accidentally deploying it — which would let anyone obtain magic links without email delivery. Instead, inject it via `miniflare.bindings` in your `vitest.config.js`, which only exists during test runs and is never deployed:
 
-```javascript @skip-check
+```javascript @skip-check-approved('config')
 // vitest.config.js
 export default defineWorkersProject({
   test: {
@@ -400,7 +400,7 @@ export default defineWorkersProject({
 
 For testing with specific roles, use `testLoginWithMagicLink`. The `browser` parameter is required — it provides a cookie jar that preserves the refresh token across the multi-step login flow:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/test-helpers.test.ts')
 import { testLoginWithMagicLink } from '@lumenize/auth';
 import { Browser } from '@lumenize/testing';
 

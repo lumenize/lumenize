@@ -584,7 +584,7 @@ export class LumenizeAuth extends DurableObject {
     const auditLog = debug('auth.LumenizeAuth.subject.deleted');
     auditLog.warn('Subject deleted', { targetSub: subjectId, actorSub: auth.sub, email: targetEmail });
 
-    return Response.json({ ok: true });
+    return new Response(null, { status: 204 });
   }
 
   /**
@@ -1027,7 +1027,7 @@ export class LumenizeAuth extends DurableObject {
       this.#sql`UPDATE Subjects SET isAdmin = ${body.isAdmin ? 1 : 0}, adminApproved = 1 WHERE sub = ${sub}`;
     }
 
-    return Response.json({ ok: true, sub });
+    return new Response(null, { status: 204 });
   }
 
   // ============================================

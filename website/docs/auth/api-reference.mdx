@@ -69,30 +69,38 @@ The Auth DO and Worker hooks read configuration from environment variables. This
 
 Creates a request handler for all auth endpoints. Call once at module level. All auth configuration (redirect, TTLs, issuer, audience, prefix) is read from [environment variables](#auth-config) — only Worker-level routing options are passed here.
 
-```typescript @skip-check
-const authRoutes = createAuthRoutes(env, {
-  cors?: CorsConfig,             // Optional: see CORS Support docs
-  authBindingName?: string,      // Default: 'LUMENIZE_AUTH'
-  authInstanceName?: string,     // Default: 'default'
-});
+```typescript @skip-check-approved('conceptual')
+const authRoutes = createAuthRoutes(env, options);
 // Options object is optional — createAuthRoutes(env) uses all defaults
-// Throws if env.TURNSTILE_SECRET_KEY is not set (skipped in test mode)
 ```
 
-For `CorsConfig` options, see [CORS Support](/docs/utils/cors-support).
+Options interface:
+
+```typescript @check-example('packages/auth/src/types.ts')
+interface AuthRoutesOptions {
+  cors?: CorsOptions;
+  authBindingName?: string;
+  authInstanceName?: string;
+}
+```
+
+For `CorsOptions`, see [CORS Support](/docs/utils/cors-support).
 
 ### createRouteDORequestAuthHooks
 
 Creates hooks for [`routeDORequest`](/docs/utils/route-do-request) that verify JWTs and enforce [two-phase access control](/docs/auth/#access-flows). Reads `issuer`, `audience`, public keys, and rate limiter binding from [environment variables](#auth-config).
 
-```typescript @skip-check
-const { onBeforeRequest, onBeforeConnect } = createRouteDORequestAuthHooks(env, {
-  rateLimiterBindingName?: string,   // Default: 'LUMENIZE_AUTH_RATE_LIMITER'
-});
+```typescript @skip-check-approved('conceptual')
+const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env, options);
 // Options object is optional — createRouteDORequestAuthHooks(env) uses all defaults
-// Throws if no public keys available (env.JWT_PUBLIC_KEY_BLUE or env.JWT_PUBLIC_KEY_GREEN)
-// Throws if rate limiter binding not available (env[rateLimiterBindingName])
-// issuer/audience read from env.LUMENIZE_AUTH_ISSUER / env.LUMENIZE_AUTH_AUDIENCE
+```
+
+Options interface:
+
+```typescript @check-example('packages/auth/src/hooks.ts')
+interface RouteDORequestAuthHooksOptions {
+  rateLimiterBindingName?: string;
+}
 ```
 
 Both hooks:
@@ -111,7 +119,7 @@ Both hooks:
 
 Sends a magic link email to the given address. Creates the subject record if it doesn't exist. Requires a valid [Turnstile](https://developers.cloudflare.com/turnstile/) token in the body.
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/email-magic-link', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -120,14 +128,25 @@ const response = await fetch('/auth/email-magic-link', {
     'cf-turnstile-response': turnstileToken  // from the Turnstile widget callback
   })
 });
-// 200: { message: "Check your email for the magic link", expires_in: 1800 }
-// 403: Turnstile verification failed
 ```
 
-In [test mode](/docs/auth/#test-mode), Turnstile validation is skipped entirely. Append `?_test=true` to get the magic link directly without email delivery:
+Response (200):
 
-```typescript @skip-check
-// 200: { message: "Magic link generated (test mode)", magic_link: "..." }
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+{
+  message: "Check your email for the magic link",
+  expires_in: 1800
+}
+```
+
+Returns `403` if Turnstile verification fails.
+
+In [test mode](/docs/auth/#test-mode), Turnstile validation is skipped entirely. Append `?_test=true` to get the magic link directly without email delivery. Response (200):
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+{
+  message: "Magic link generated (test mode)"
+}
 ```
 
 ### Validate Magic Link
@@ -154,7 +173,7 @@ Called when an invited subject clicks the invite link. Validates the invite toke
 
 Exchanges the refresh token cookie for a new access token. The access token JWT contains all [claims](/docs/auth/#jwt-claims) including status flags and role.
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/refresh-token', { method: 'POST' });
 // 200: { access_token: "eyJ..." }
 // 401: Refresh token expired, revoked, or missing
@@ -167,9 +186,16 @@ const response = await fetch('/auth/refresh-token', { method: 'POST' });
 
 Revokes the refresh token and clears the cookie.
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 await fetch('/auth/logout', { method: 'POST' });
-// 200: { message: "Logged out" }
+```
+
+Response (200):
+
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
+{
+  message: "Logged out"
+}
 ```
 
 ## Subject Management Endpoints
@@ -180,7 +206,7 @@ Admin-only. You don't need to check `emailVerified` or `adminApproved` in your D
 
 `GET {prefix}/subjects` — Admin required
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/subjects', {
   headers: { 'Authorization': `Bearer ${accessToken}` }
 });
@@ -196,7 +222,7 @@ Query parameters:
 | `offset` | number | Skip this many subjects (for pagination) |
 | `role` | string | Filter by role: `admin` or `none` |
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 // Get first 50 admins
 const response = await fetch('/auth/subjects?role=admin&limit=50', {
   headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -207,7 +233,7 @@ const response = await fetch('/auth/subjects?role=admin&limit=50', {
 
 `GET {prefix}/subject/:id` — Admin required
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch(`/auth/subject/${sub}`, {
   headers: { 'Authorization': `Bearer ${accessToken}` }
 });
@@ -221,7 +247,7 @@ const { subject } = await response.json();
 
 Updates `isAdmin` and/or `adminApproved` flags. Use [Add Authorized Actor](#add-authorized-actor) / [Remove Authorized Actor](#remove-authorized-actor) to manage delegation — `authorizedActors` in the PATCH body is rejected with `400`.
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch(`/auth/subject/${sub}`, {
   method: 'PATCH',
   headers: {
@@ -243,13 +269,14 @@ const { subject } = await response.json();
 
 `DELETE {prefix}/subject/:id` — Admin required
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch(`/auth/subject/${sub}`, {
   method: 'DELETE',
   headers: { 'Authorization': `Bearer ${accessToken}` }
 });
-// 200: { ok: true }
 ```
+
+Returns `204 No Content` on success.
 
 **Rules:**
 - Cannot delete yourself
@@ -261,7 +288,7 @@ const response = await fetch(`/auth/subject/${sub}`, {
 
 Pre-approves subjects by sending invite emails:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/invite', {
   method: 'POST',
   headers: {
@@ -320,7 +347,7 @@ Currently, the actor must be an authenticated subject and the principal must be 
 
 Adds an actor to a subject's authorized delegation list. The actor must be a valid subject ID. Idempotent — adding the same actor twice is a no-op.
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch(`/auth/subject/${targetSub}/actors`, {
   method: 'POST',
   headers: {
@@ -339,7 +366,7 @@ const { subject } = await response.json();
 
 Removes an actor from a subject's authorized delegation list. Idempotent — removing an actor that isn't authorized is a no-op.
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch(`/auth/subject/${targetSub}/actors/${actorSubId}`, {
   method: 'DELETE',
   headers: { 'Authorization': `Bearer ${adminAccessToken}` }
@@ -354,7 +381,7 @@ const { subject } = await response.json();
 
 The actor uses their own access token and specifies who to act for:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/delegated-token', {
   method: 'POST',
   headers: {
@@ -379,7 +406,7 @@ Delegated tokens work like regular tokens. Your DO reads the JWT from the `Autho
 LumenizeClient auto-refreshes regular access tokens using the refresh token cookie. Delegated tokens require a separate refresh flow: the actor must first refresh their own access token, then call `/auth/delegated-token` again. LumenizeClient does not currently auto-refresh delegated tokens — your application is responsible for re-requesting them when they expire.
 :::
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 // Guard checks sub (principal's permissions)
 if (claims.sub !== ownerId) throw new Error('Forbidden');
 
@@ -392,7 +419,7 @@ console.log(`Document updated by ${actor}${claims.sub}`);
 
 Use `testLoginWithMagicLink` with the `actorAccessToken` parameter. The `browser` parameter provides a cookie jar for the multi-step login flow. First authorize the actor via the [Add Authorized Actor](#add-authorized-actor) endpoint, then login the principal with the actor's access token:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/test-helpers.test.ts')
 import { testLoginWithMagicLink } from '@lumenize/auth';
 import { Browser } from '@lumenize/testing';
 

@@ -357,7 +357,7 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, adminApproved: true })
       }));
-      expect(setDataResp.status).toBe(200);
+      expect(setDataResp.status).toBe(204);
 
       // Refresh to get updated JWT (re-reads subject from DB)
       const refreshResp = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
@@ -391,7 +391,7 @@ describe('@lumenize/auth - LumenizeAuth DO', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, isAdmin: true })
       }));
-      expect(setDataResp.status).toBe(200);
+      expect(setDataResp.status).toBe(204);
 
       // Refresh to get updated JWT
       const refreshResp = await stub.fetch(new Request('http://localhost/auth/refresh-token', {
@@ -1624,9 +1624,7 @@ describe('@lumenize/auth - Subject CRUD (admin endpoints)', () => {
       method: 'DELETE',
       headers: { Cookie: admin.cookie }
     }));
-    expect(res.status).toBe(200);
-    const body = await res.json() as any;
-    expect(body.ok).toBe(true);
+    expect(res.status).toBe(204);
 
     // Verify subject is gone
     const getRes = await stub.fetch(new Request(`http://localhost/auth/subject/${user.sub}`, {

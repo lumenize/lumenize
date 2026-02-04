@@ -84,7 +84,9 @@ interface CallContext {
   // Mutable — can be modified by onBeforeCall or any handler along the way
   state: Record<string, unknown>;
 }
+```
 
+```typescript @check-example('packages/mesh/src/types.ts')
 interface NodeIdentity {
   type: 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient';
   bindingName: string;
