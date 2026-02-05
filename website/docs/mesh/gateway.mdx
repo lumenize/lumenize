@@ -65,7 +65,7 @@ Gateway state is **derived**, not stored. On every message, it checks:
 
 ## WebSocket Attachments
 
-Attachments store per-connection context **without using DO storage**. When a client connects, the Gateway verifies their JWT and stores the identity (userId, claims) in an attachment associated with the hibernatable WebSocket.
+Attachments store per-connection context **without using DO storage**. When a client connects, the Gateway decodes the verified JWT and stores the identity (`sub`, claims, expiration) in an attachment associated with the hibernatable WebSocket.
 
 This mechanism ensures:
 - **Hibernation Safety**: Attachments persist across DO hibernation. When the DO wakes up to handle a message, it can immediately access the verified identity from the active WebSocket.

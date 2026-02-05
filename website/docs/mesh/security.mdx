@@ -7,10 +7,10 @@ description: Identity propagation, access control, and callContext in the mesh
 
 Authentication has two parts:
 
-1. **Identity verification** — "You are who you say you are" — handled by auth middleware ([`@lumenize/auth`](/docs/auth), Auth0, Stytch, etc.) *before* requests reach the mesh
+1. **Identity verification** — "You are who you say you are" — handled by auth hooks ([`@lumenize/auth`](/docs/auth), Auth0, Stytch, etc.) *before* requests reach the mesh
 2. **Identity propagation** — "The mesh knows who you are throughout the call chain" — handled by headers flowing through the Gateway into `callContext.originAuth`
 
-This page covers the second of those, **identity propagation**, as well as **access control** (enforcing permissions via guards). For the first of those, identity verification, see your auth provider's docs or [`@lumenize/auth`](/docs/auth). If you're using a third-party provider like Auth0, Clerk, Stytch, etc. see [Integrating Alternative Auth](#integrating-alternative-auth) for the header contract that serves as the bridge between 1 and 2 above.
+This page covers the second of those, **identity propagation**, as well as **access control** (enforcing permissions via guards). For the first of those, identity verification, see your auth provider's docs or [`@lumenize/auth`](/docs/auth). If you're using a third-party provider like Auth0, Clerk, Stytch, etc. see [Integrating Alternative Auth](#integrating-alternative-auth-advanced) for the header contract that serves as the bridge between 1 and 2 above.
 
 ## Architecture Overview
 
@@ -23,20 +23,20 @@ sequenceDiagram
 
     Note over Client,Worker: WebSocket Upgrade (one-time)
     Client->>Worker: Upgrade + Authorization: Bearer {jwt}
-    Note over Worker: Middleware verifies JWT,<br/>extracts userId & claims
-    Worker->>Gateway: Upgrade + X-Auth-User-Id, X-Auth-Claims
-    Note over Gateway: Stores originAuth in<br/>WebSocket attachment
+    Note over Worker: Auth hooks verify JWT
+    Worker->>Gateway: Upgrade + Authorization: Bearer {verified-jwt}
+    Note over Gateway: Decodes JWT, stores<br/>originAuth in WebSocket attachment
     Gateway-->>Worker: 101 Switching Protocols
     Worker-->>Client: 101 Switching Protocols
 
     Note over Client,SomeMeshDO: Subsequent Calls (via WebSocket)
     Client->>Gateway: call(SomeMeshDO, method, args)
     Note over Gateway: Attaches stored<br/>originAuth to callContext
-    Gateway->>SomeMeshDO: callContext.originAuth {userId, claims}
+    Gateway->>SomeMeshDO: callContext.originAuth {sub, claims}
     Note over SomeMeshDO: Guards check originAuth
 ```
 
-The key insight: **`Authorization: Bearer {jwt}` is the *input* to auth middleware; `X-Auth-User-Id`** (and optionally `X-Auth-Claims`) **is the *output*.** The mesh cares about verified identity, not tokens to verify.
+The key insight: **auth hooks *verify* the JWT and forward it** via `Authorization: Bearer {jwt}`. The Gateway decodes the verified JWT to extract `sub` and claims into `originAuth`. The mesh cares about verified identity, not raw tokens.
 
 ## WebSocket Authentication
 
@@ -50,15 +50,16 @@ Sec-WebSocket-Protocol: lmz, lmz.access-token.eyJhbGciOiJF...
 
 Here's how each component handles it:
 
-1. **Worker middleware** extracts the token from `lmz.access-token.{jwt}` in the subprotocol header
-2. **Worker middleware** verifies JWT signature and expiration
-3. **Worker middleware** sets `X-Auth-User-Id` and `X-Auth-Claims` headers on the upgrade request
-4. **Gateway** receives the upgrade with verified headers, stores `originAuth` in WebSocket attachment
-5. **Gateway** responds with `Sec-WebSocket-Protocol: lmz`
-6. **On each call**, Gateway checks the stored expiration — if expired, closes with `4401`
-7. **On 4401**, client refreshes via HTTP and reconnects automatically
+1. **Auth hooks** extract the token from `lmz.access-token.{jwt}` in the subprotocol header
+2. **Auth hooks** verify JWT signature and expiration
+3. **Auth hooks** forward the verified JWT via `Authorization: Bearer {jwt}` header
+4. **Gateway** decodes the JWT payload to extract `sub`, `exp`, and claims — stores as `originAuth` in WebSocket attachment
+5. **Gateway** validates that JWT `sub` matches the Gateway instance name prefix (prevents hijacking)
+6. **Gateway** responds with `Sec-WebSocket-Protocol: lmz`
+7. **On each call**, Gateway checks the stored expiration — if expired, closes with `4401`
+8. **On 4401**, client refreshes via HTTP and reconnects automatically
 
-The Gateway never sees or verifies the token — it trusts the identity headers set by Worker middleware. This is the same trust boundary shown in the [Architecture Overview](#architecture-overview) diagram.
+The Gateway doesn't re-verify the JWT signature — it trusts that the auth hooks already did. This is the same trust boundary shown in the [Architecture Overview](#architecture-overview) diagram.
 
 :::note Access Token vs Refresh Token
 **Access tokens** are short-lived (15 min) and kept in memory — if stolen, damage is time-limited. **Refresh tokens** are long-lived (30 days) and stored in HTTP-only cookies — JavaScript can't access them, protecting against XSS. This is the standard [OAuth 2.0 refresh token pattern](https://oauth.net/2/refresh-tokens/).
@@ -88,7 +89,7 @@ You should never have to deal with these unless you are writing your own custom 
 |------|---------|--------|
 | `4401` | Token expired | Refresh and reconnect (automatic) |
 
-Other auth failures (missing identity, invalid signature) are rejected by Worker middleware before the WebSocket is established, resulting in HTTP 401/403 errors rather than WebSocket close codes.
+Other auth failures (missing identity, invalid signature) are rejected by the auth hooks before the WebSocket is established, resulting in HTTP 401/403 errors rather than WebSocket close codes.
 
 ## Access Control
 
@@ -220,18 +221,22 @@ Each request gets its own `callContext` instance with its own `state` object, ev
 
 ## Integrating Alternative Auth (Advanced)
 
-The mesh reads identity from HTTP headers — it doesn't care how authentication happens. If you're using Auth0, Clerk, Supabase Auth, Stytch, etc. or a custom solution, your middleware just needs to set the right headers.
+The Gateway reads identity from a verified JWT in the `Authorization: Bearer {jwt}` header — it doesn't care how authentication happens. If you're using Auth0, Clerk, Supabase Auth, Stytch, etc. or a custom solution, your `onBeforeConnect` hook just needs to verify the token and forward it.
 
 ### Header Contract
 
-The mesh requires these headers to be set by your middleware:
+The Gateway requires this header to be set by your `onBeforeConnect` hook:
 
 | Header | Required | Description |
 |--------|----------|-------------|
-| `X-Auth-User-Id` | Yes | Verified user ID (typically from JWT `sub` claim) |
-| `X-Auth-Claims` | No | JSON-encoded object with additional claims |
+| `Authorization` | Yes | `Bearer {jwt}` — a verified JWT with at least a `sub` claim |
 
-The presence of `X-Auth-User-Id` indicates successful authentication. If authentication fails, the request should never reach the LumenizeClientGateway, but if for some reason it does, a missing `X-Auth-User-Id` will cause it to be rejected there.
+The Gateway decodes the JWT payload (without re-verifying the signature) and extracts:
+- **`sub`** (required) — becomes `originAuth.sub`
+- **`exp`** — stored for per-message expiration checks
+- **Claims** (`emailVerified`, `adminApproved`, `isAdmin`, `act`) — become `originAuth.claims`
+
+If the `Authorization` header is missing or the JWT lacks a `sub` claim, the Gateway rejects the WebSocket upgrade with 401.
 
 Additionally, [`routeDORequest`](/docs/utils/route-do-request) automatically adds routing context headers that the mesh requires:
 
@@ -242,46 +247,43 @@ Additionally, [`routeDORequest`](/docs/utils/route-do-request) automatically add
 
 These headers allow DOs to know their own identity, which is essential for participating in mesh calls. If you're not using `routeDORequest`, you must set these headers yourself.
 
-:::warning Never trust client-provided identity headers
-Your middleware must **set** `X-Auth-User-Id` after verification — never pass through what the client sent. Attackers can send any headers they want.
+:::warning Never trust client-provided tokens
+Your `onBeforeConnect` hook must **verify** the JWT before forwarding — never pass through an unverified token. Attackers can send any token they want.
 :::
 
-:::note Why its secure for the Gateway to trust these headers
-The Gateway doesn't re-verify JWTs — it trusts that your middleware already did. This is secure because:
+:::note Why it's secure for the Gateway to trust the forwarded JWT
+The Gateway doesn't re-verify JWT signatures — it trusts that your auth hooks already did. This is secure because:
 
-1. **Your middleware *sets* these headers, not trusts them** — Even if an attacker sends a forged `X-Auth-User-Id`, your middleware overwrites it with the verified value (or returns 401)
-2. **DOs are only reachable through your Worker** — There's no way to bypass the middleware and call a DO binding directly
+1. **Your `onBeforeConnect` hook *verifies then forwards* the token** — Even if an attacker sends a forged JWT, the hook rejects it (returns 401) before it reaches the Gateway
+2. **DOs are only reachable through your Worker** — There's no way to bypass the hooks and call a DO binding directly
 :::
 
-### How Headers Map to callContext
+### How the JWT Maps to callContext
 
-```typescript @skip-check-approved('conceptual - shows mapping between middleware headers and callContext')
-// Your middleware sets headers
-request.headers.set('X-Auth-User-Id', 'user-123');
-request.headers.set('X-Auth-Claims', JSON.stringify({
-  roles: ['editor'],
-  orgId: 'org-456'
-}));
+```typescript @skip-check-approved('conceptual - shows mapping between JWT claims and callContext')
+// Your onBeforeConnect hook verifies and forwards the JWT
+// JWT payload: { sub: 'user-123', emailVerified: true, isAdmin: false, ... }
+const enhanced = new Request(request);
+enhanced.headers.set('Authorization', `Bearer ${verifiedJwt}`);
 
 // In your mesh handlers, access via callContext
 @mesh()
 someMethod() {
   const { originAuth } = this.lmz.callContext;
-  console.log(originAuth.sub);            // 'user-123'
-  console.log(originAuth.claims.roles);  // ['editor']
-  console.log(originAuth.claims.orgId);  // 'org-456'
+  console.log(originAuth.sub);                       // 'user-123'
+  console.log(originAuth.claims.emailVerified);      // true
 }
 ```
 
 ### Example: Auth0 Integration
 
-This example shows how to create WebSocket auth middleware for Auth0. It follows the same contract as `@lumenize/auth`, so it works as a drop-in replacement for `onBeforeConnect` in `routeDORequest`. Browsers can't set custom headers on WebSocket upgrades, so `LumenizeClient` smuggles the token in the subprotocol header.
+This example shows how to create an `onBeforeConnect` hook for Auth0. It follows the same contract as `@lumenize/auth` — verify the JWT and forward it via `Authorization: Bearer`. Browsers can't set custom headers on WebSocket upgrades, so `LumenizeClient` smuggles the token in the subprotocol header.
 
 ```typescript @skip-check-approved('requires Auth0 account to test')
 import { jwtVerify, importSPKI } from 'jose';
 import type { RouteDORequestHooksContext } from '@lumenize/utils';
 
-async function createAuth0WebSocketMiddleware(env: Env) {
+async function createAuth0WebSocketHooks(env: Env) {
   const publicKey = await importSPKI(env.AUTH0_PUBLIC_KEY, 'RS256');
 
   return async (request: Request, context: RouteDORequestHooksContext): Promise<Request | Response> => {
@@ -292,17 +294,15 @@ async function createAuth0WebSocketMiddleware(env: Env) {
     if (!token) return new Response('Unauthorized', { status: 401 });
 
     try {
-      const { payload } = await jwtVerify(token, publicKey, {
+      // Verify JWT — ensures sub, exp, and signature are valid
+      await jwtVerify(token, publicKey, {
         issuer: `https://${env.AUTH0_DOMAIN}/`,
         audience: env.AUTH0_AUDIENCE
       });
 
+      // Forward the verified JWT — Gateway will decode sub and claims
       const enhanced = new Request(request);
-      enhanced.headers.set('X-Auth-User-Id', payload.sub);
-      enhanced.headers.set('X-Auth-Claims', JSON.stringify({
-        roles: payload['https://myapp.com/roles'] ?? [],
-        email: payload.email
-      }));
+      enhanced.headers.set('Authorization', `Bearer ${token}`);
       return enhanced;
     } catch {
       return new Response('Invalid token', { status: 401 });
@@ -311,7 +311,7 @@ async function createAuth0WebSocketMiddleware(env: Env) {
 }
 
 // Usage in Worker fetch handler
-const wsAuth = await createAuth0WebSocketMiddleware(env);
+const wsAuth = await createAuth0WebSocketHooks(env);
 
 routeDORequest(request, env, {
   onBeforeConnect: wsAuth

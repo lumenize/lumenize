@@ -6,6 +6,14 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] Measure Gateway hop latency overhead (requires live deployment)
+  - **Question**: How much latency does the 1:1 Gateway architecture add compared to connecting directly to a DO over WebSocket?
+  - **What to measure**: Round-trip time for Client→Gateway→DO→Gateway→Client vs hypothetical Client→DO→Client direct
+  - **Patterns to benchmark**: fire-and-forget calls, request/response calls, broadcast fanout
+  - **Consider**: Whether always using the two one-way call pattern (to avoid DO wall-clock billing) changes the latency tradeoff
+  - **Related**: gateway.mdx documents that intra-datacenter hops are typically <10ms, but cross-region can be several hundred ms
+  - **Tooling**: Use `performance.now()` or Cloudflare analytics to measure; compare same-region and cross-region scenarios
+
 - [ ] Confirm that alarms, fetch, and sql NADIS modules have what they need in the hand-written docs and confirm the rest of mesh has what it needs. (Related: [migrate older packages from doc-testing/TypeDoc](#documentation) backlog item covers the broader migration.)
 
 - [ ] Improve continuation ergonomics (discovered during manual persistence test implementation)

@@ -101,7 +101,7 @@ export interface LumenizeClientConfig {
   /**
    * Unique client identifier
    *
-   * Recommended format: `${userId}.${tabId}`
+   * Recommended format: `${sub}.${tabId}` where `sub` is the JWT subject.
    * This becomes the Gateway DO instance name.
    */
   instanceName: string;
@@ -260,7 +260,7 @@ interface QueuedMessage {
  * }
  *
  * using client = new EditorClient({
- *   instanceName: `${userId}.${tabId}`
+ *   instanceName: `${sub}.${tabId}`
  * });
  * ```
  */
@@ -559,7 +559,7 @@ export abstract class LumenizeClient {
 
     // Check if this is an auth-related close
     // 4400 (no token) and 4403 (invalid signature) are unlikely since the auth
-    // middleware typically handles these before the WebSocket upgrade reaches
+    // auth hooks typically handle these before the WebSocket upgrade reaches
     // the Gateway, but we handle them defensively just in case.
     if (code === 4400 || code === 4403) {
       const error = new LoginRequiredError(

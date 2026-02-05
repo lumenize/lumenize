@@ -8,7 +8,7 @@ description: Understanding the Dual-Context Strategy in Lumenize - Call Context 
 When making calls in to another place or time, you often need to maintain **context**: information from the call site that must be available for the callee to accomplish its work.
 
 Lumenize uses a **Dual-Context Strategy** to handle this:
-1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations (`callContext.state`) added by middleware, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh()` handler.
+1. **Call Context (`this.lmz.callContext`)**: For information about the caller/callee including mesh node type and auth as well as custom annotations (`callContext.state`) added by hooks, like the `onBeforeCall` auth hook, to assist with later access control decisions, like made in the `@mesh()` handler.
 2. **Application Context (Continuations)**: For your business logic and data flow that only the continuation needs.
 
 ## 1. Call Context (`this.lmz.callContext`)

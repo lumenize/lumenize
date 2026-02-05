@@ -10,7 +10,7 @@ Every mesh node communicates via `this.lmz.call()`. Any node type can call any o
 However, keep in mind these nuances:
 - **Calling a Worker**: Use `undefined` as the `instanceName` parameter since Workers don't have an instance name
 - **Calling a client**: The `bindingName` is always `'LUMENIZE_CLIENT_GATEWAY'` (unless you've customized it)
-- **Client-to-client calls**: Disabled by default. See [Opting In to Peer Communication](./lumenize-client#opting-in-to-peer-communication) to enable.
+- **Client-to-client calls**: Disabled by default. See [Opting In to Peer Communication](./lumenize-client#opting-in-to-calls-from-other-lumenizeclients) to enable.
 
 ## Why Not Just Use Workers RPC?
 
@@ -213,7 +213,7 @@ async check(content: string, clientId: string, documentId: string): Promise<void
 
 Chain multiple operations in a single round trip.
 
-Chaining is particularly useful for the [Capability Trust](./security#capability-trust) pattern — get a restricted interface, then call methods on it:
+Chaining is particularly useful for the [Capability Trust](./security#three-layer-access-control-model) pattern — get a restricted interface, then call methods on it:
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
 // Only admins can get the admin interface; once granted, its methods are trusted

@@ -1,6 +1,6 @@
 # LumenizeClientGateway & LumenizeClient
 
-**Status**: Phase 8 - Verification & Final Testing (NEAR COMPLETE)
+**Status**: COMPLETE (live performance testing in `tasks/backlog.md`)
 **Created**: 2025-12-08
 **Design Document**: `/website/docs/mesh/`
 
@@ -33,7 +33,7 @@ See docs for full API details:
 ### Gateway-Client Relationship
 - Gateway is 1:1 with a **connection**, not a user
 - Same user can have multiple clients (one per tab, multiple browsers, browser+node.js, etc.)
-- Client "name" becomes Gateway DO name (e.g., `${userId}.${tabId}`)
+- Client "name" becomes Gateway DO name (e.g., `${sub}.${tabId}` where `sub` is the JWT subject)
 
 ### Gateway State Machine (No Storage)
 State derived from `this.ctx.getWebSockets()` + `this.ctx.getAlarm()`:
@@ -207,8 +207,8 @@ log.info('Something happened', { data });
   - Type exported from `@lumenize/mesh` for use in other packages (e.g., `@lumenize/alarms`)
   - Standalone usage removed — mesh is a tightly coupled system
 - [x] ~~Merge `@lumenize/auth` into `@lumenize/mesh`~~ **REVISED (2025-01-14)**: Keep `@lumenize/auth` as separate package
-  - The coupling is minimal: just two headers (`X-Auth-User-Id`, `X-Auth-Claims`)
-  - Users with existing auth (Auth0, Clerk, custom) only need the header contract
+  - The coupling is minimal: just the `Authorization: Bearer {jwt}` header contract
+  - Users with existing auth (Auth0, Clerk, custom) only need to verify and forward the JWT
   - Separation of concerns — auth is a distinct domain from mesh communication
   - See `/website/docs/mesh/security.mdx` for integration details and Auth0 example
 - [ ] Publish `@lumenize/debug` as a standalone cross-platform package (deferred to mesh publish)
@@ -238,7 +238,7 @@ interface CallContext {
   originAuth?: AuthClaims;   // Verified JWT claims from origin
   caller: NodeIdentity;      // Immediate caller (per-hop)
   callee: NodeIdentity;      // This node (per-hop)
-  state: Record<string, any>; // Mutable middleware data
+  state: Record<string, any>; // Mutable hook data
 }
 ```
 
@@ -253,7 +253,7 @@ interface NodeIdentity {
 interface CallContext {
   origin: NodeIdentity;           // Original caller at chain start (immutable)
   originAuth?: {                  // Verified JWT claims from origin (immutable)
-    userId: string;
+    sub: string;                  // JWT subject (RFC 7519)
     claims?: Record<string, any>;
   };
   callChain: NodeIdentity[];      // Full chain: [origin, hop1, hop2, ..., immediateCallerBeforeThis]
@@ -481,7 +481,7 @@ get caller(): NodeIdentity {
 - [x] Reconnection scenario tests
 - [x] Auth flow tests
 - [x] `test/for-docs/` examples
-- [ ] `@check-example` annotations pass — some docs need test alignment
+- [x] `@check-example` annotations pass — 99/99 verified
 
 ## Code Sharing Strategy
 
@@ -490,7 +490,7 @@ get caller(): NodeIdentity {
 | OCAN/Continuations | `mesh/src/ocan/` | Direct import |
 | CallEnvelope format | `mesh/src/lmz-api.ts` | Shared types |
 | WebSocket transport | `rpc/src/websocket-rpc-transport.ts` | **Fork** (~200 lines) |
-| Auth middleware | `mesh/src/auth/` | Direct import (merged from packages/auth) |
+| Auth hooks | `mesh/src/auth/` | Direct import (merged from packages/auth) |
 
 ### WebSocket Transport: Learn and borrow from Lumenize RPC's websocket-transport
 
@@ -558,7 +558,7 @@ async fetch(request: Request): Promise<Response> {
   
   // Store metadata in attachment (not DO storage!)
   pair[1].serializeAttachment({
-    userId: payload.sub,
+    sub: payload.sub,
     connectedAt: Date.now(),
     token
   });
@@ -755,8 +755,8 @@ async webSocketMessage(ws: WebSocket, message: string) {
     };
     
     const originAuth = {
-      userId: attachment.verifiedUserId,    // From JWT
-      claims: attachment.verifiedClaims,    // From JWT
+      sub: attachment.sub,                  // From JWT
+      claims: attachment.claims,            // From JWT
     };
     
     // Even if the client sent fake originAuth in msg, we ignore it
@@ -773,7 +773,7 @@ async webSocketMessage(ws: WebSocket, message: string) {
 // 1. On Connection (via Middleware)
 onBeforeConnect: async (request, context) => {
   const result = await wsAuthMiddleware(request, context);
-  // Returns enhanced request with X-Auth-User-Id header
+  // Returns enhanced request with Authorization: Bearer {verified-jwt} header
   return result;
 }
 
@@ -790,13 +790,14 @@ async webSocketMessage(ws: WebSocket, message: string) {
   // Process message...
 }
 
-// 3. Identity Validation
+// 3. Identity Validation (Gateway decodes JWT and validates sub matches instance name)
 async fetch(request: Request) {
-  const authUserId = request.headers.get('X-Auth-User-Id');
-  const instanceUserId = this.lmz.instanceName?.split('.')[0];
-  
-  if (authUserId && instanceUserId && authUserId !== instanceUserId) {
-    return new Response('Unauthorized', { status: 403 });
+  // Gateway decodes JWT from Authorization: Bearer header to extract sub
+  const sub = /* decoded from JWT payload */ '';
+  const instanceSub = instanceName.substring(0, instanceName.indexOf('.'));
+
+  if (sub && instanceSub && sub !== instanceSub) {
+    return new Response('Forbidden: identity mismatch', { status: 403 });
   }
 }
 
@@ -819,7 +820,7 @@ class LumenizeClient {
 - [x] (vitest-pool) Verify that `callContext.state` modifications in DO2 are visible in DO1's continuation after the call returns. **VERIFIED**: `test/call-context.test.ts` - "State propagation > state modifications propagate to downstream calls"
 - [x] LumenizeDO and LumenizeWorker are upgraded to support the new access control model **DONE**: Both use `requireMeshDecorator: true` and support `@mesh` decorator, `onBeforeCall()` hook, and full `CallContext` propagation
 - [x] (code review) Message queueing implemented: `lumenize-client.ts` lines 832-872 - queues up to 100 messages, 30s timeout for callRaw, flushes on `connection_status` receipt
-- [x] (code review) Gateway builds verified callContext from WebSocket attachment (not from client message): `lumenize-client-gateway.ts` lines 509-550 - uses `attachment.userId`, `attachment.claims` from verified JWT
+- [x] (code review) Gateway builds verified callContext from WebSocket attachment (not from client message): `lumenize-client-gateway.ts` lines 509-550 - uses `attachment.sub`, `attachment.claims` from verified JWT
 - [x] (code review) Token refresh before onLoginRequired: `lumenize-client.ts` lines 586-602 (`#handleTokenExpired`) calls `#refreshToken()` before reconnect; only fires `onLoginRequired` on 401 from refresh endpoint
 - [x] (search and review) `blockConcurrencyWhile` is not used by call. I mistakenly did that for the current implementation because I didn't realize we could get fire and forget behavior with simple use of Promise/then/catch
 - [x] (vitest-pool) When you do a call where you want the result handler to be called right after the await returns that it does not require the handler to have an @mesh annotation. However, in a two one-way call situation, the final callback would need to have an @mesh decorator. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` 
@@ -832,15 +833,15 @@ class LumenizeClient {
 ### Pending Verification ⏳
 
 - [x] (vitest-pool) Verify manual persistence pattern from `managing-context.mdx` works: `getOperationChain()` + `this.lmz.callContext` can be stored to `ctx.storage.kv` and later restored/executed. **VERIFIED**: `packages/mesh/test/for-docs/calls/index.test.ts` - "manual persistence: store and execute continuation with context". Converted to `@check-example`. See `backlog.md` for ergonomic improvements discovered during implementation.
-- [ ] (vitest-pool) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down.
-- [ ] (vitest-pool) CORS with a whitelist blocks even for calls with no preflight
-- [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing.
-- [ ] (review and vitest-pool) Clients must be authenticated (verify auth middleware is enforced)
+- [x] (vitest-pool) Round trip between two clients. Clients can be on same machine but the call will go up into Cloudflare hop from one Gateway to the next, then back down. **VERIFIED**: getting-started test (`packages/mesh/test/for-docs/getting-started/index.test.ts`) covers Client→DO→Client (broadcast) and Client→Worker→Client (direct delivery) with Alice and Bob as two separate EditorClient instances. Security test (`packages/mesh/test/for-docs/security/index.test.ts`) covers Alice+Bob+Carol three-client scenario. Direct Client→Client peer calls via `onBeforeCall` override are a separate post-MVP feature.
+- [x] (vitest-pool) CORS with an allowlist blocks WebSocket upgrades from disallowed origins. **VERIFIED**: `packages/mesh/test/for-docs/security/index.test.ts` — "CORS allowlist rejects WebSocket upgrade from disallowed origin". Security Worker configured with `cors: { origin: ['https://localhost'] }`. Test verifies: evil origin → 403 "Forbidden: Origin not allowed" (before auth hooks or Gateway), allowed origin → not 403.
+- [ ] (live) Performance of various patterns for remote calls for both fire-and-forget as well as for ones where it actually awaits. Consider always making it two one-way calls but only after live testing. **DEFERRED**: Requires deployment.
+- [x] (review and vitest-pool) Clients must be authenticated (verify auth hooks are enforced). **VERIFIED**: Gateway rejects connections without `Authorization: Bearer` header (`lumenize-client-gateway.ts:243`), validates JWT `sub` matches instance name prefix (`lumenize-client-gateway.ts:294`). Test coverage in `test/lumenize-client-gateway.test.ts` (lines 41-85: missing auth → 401, identity mismatch → 403, valid → 101) and `test/for-docs/security/index.test.ts` (Worker rejects forged JWT with 401).
 - [x] (review) That we don't have lots of duplication in implementations of execute continuations and call including when packages/fetch and packages/alarms are used. Maybe they need to be different accross LumenizeDO, LumenizeWorker, and LumenizeClient (although reuse would be ideal), but fetch and alarms probably shouldn't have their own.
-- [ ] Messages are queued when the client is in a reconnection grace period with various timing scenarios (tab wake, immediate send, etc.). Needs analysis.
+- [x] Messages are queued when the client is in a reconnection grace period with various timing scenarios (tab wake, immediate send, etc.). **VERIFIED** (code review): `lumenize-client.ts` lines 832-872 implement message queuing (max 100 messages, 30s timeout for callRaw). Queue flushed on `connection_status` receipt (lines 862-872). Tab wake sensing (lines 625-665) triggers immediate reconnect with backoff reset. Timing scenarios: (1) tab wake → visibilitychange listener resets backoff, calls connectInternal immediately; (2) immediate send while disconnected → queued with 30s timeout; (3) queue overflow → rejected with "Message queue full" error.
 
 ## References
 
 - Design docs: `/website/docs/mesh/`
 - `packages/rpc/src/websocket-rpc-transport.ts` - Transport patterns
-- `packages/mesh/src/auth/` - Auth middleware (after merge from packages/auth)
+- `packages/mesh/src/auth/` - Auth hooks (after merge from packages/auth)

@@ -97,7 +97,7 @@ interface NodeIdentity {
 **Property summary:**
 - `callChain` — Full call path from origin to immediate caller. **Immutable** — grows at each hop (managed by framework).
 - `originAuth` — Verified JWT claims from original caller. **Immutable**. Only set for authenticated LumenizeClient origins.
-- `state` — Middleware data. **Mutable** — starts as `{}`, often populated in `onBeforeCall()` but can be set or modified anywhere in this call context.
+- `state` — Hook data. **Mutable** — starts as `{}`, often populated in `onBeforeCall()` but can be set or modified anywhere in this call context.
 
 **Accessing identity:**
 - Origin (who started the chain): `callChain[0]`

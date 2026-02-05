@@ -32,7 +32,7 @@ class EditorClient extends LumenizeClient {
 
 // Minimal config — baseUrl defaults to origin, refresh defaults to /auth/refresh-token
 using client = new EditorClient({
-  instanceName: `${userId}.${tabId}`
+  instanceName: `${sub}.${tabId}`
 });
 ```
 
@@ -45,7 +45,7 @@ Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `baseUrl` | `string?` | Current origin | WebSocket URL base. Required in Node.js. |
-| `instanceName` | `string` | — | **Required.** Format: `{userId}.{tabId}`. Gateway validates userId matches auth. |
+| `instanceName` | `string` | — | **Required.** Format: `{sub}.{tabId}`. Gateway validates `sub` matches JWT. |
 | `gatewayBindingName` | `string?` | `LUMENIZE_CLIENT_GATEWAY` | [Gateway](./gateway) DO binding name. |
 
 ### Authentication
@@ -58,7 +58,7 @@ Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the 
 **Custom refresh example** (for non-standard auth providers):
 ```typescript @skip-check
 using client = new EditorClient({
-  instanceName: `${userId}.${tabId}`,
+  instanceName: `${sub}.${tabId}`,
   refresh: async () => {
     const response = await fetch('/my/custom/refresh');  // Cookies sent automatically
     const data = await response.json();
@@ -151,7 +151,7 @@ class CollaborativeClient extends LumenizeClient {
 }
 ```
 
-For method-level guards, see [Security](./security#method-level-guards).
+For method-level guards, see [Security](./security#method-level-meshguard).
 
 ## Reconnection & Subscription Loss
 
@@ -183,7 +183,7 @@ Token expiration is handled automatically — refresh and reconnect happen trans
 
 ```typescript @skip-check
 using client = new EditorClient({
-  instanceName: `${userId}.${tabId}`,
+  instanceName: `${sub}.${tabId}`,
   onLoginRequired: (error) => {
     console.log('Login required:', error.reason);
     window.location.href = '/login';
@@ -209,7 +209,7 @@ Test clients using `@lumenize/testing`'s `Browser` class, which provides cookie 
 
 ## API Reference
 
-See [Mesh API](./mesh-api#api-reference) for the full `LumenizeClient` class reference including `connectionState`, `lmz`, `connect()`, `disconnect()`, `onBeforeCall()`, and `ctn<T>()`.
+See [Mesh API](./mesh-api) for the full `LumenizeClient` class reference including `connectionState`, `lmz`, `connect()`, `disconnect()`, `onBeforeCall()`, and `ctn<T>()`.
 
 ### Type: `LumenizeClientConfig`
 

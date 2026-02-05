@@ -328,7 +328,7 @@ import type { SpellFinding } from './spell-check-worker.js';
 
 **Key patterns:**
 - Use `using` keyword for automatic cleanup via `Symbol.dispose`
-- `instanceName` uniquely identifies the client (typically `userId.tabId`)
+- `instanceName` uniquely identifies the client (typically `sub.tabId` where `sub` is the JWT subject)
 - `openDocument()` returns a handle with `saveContent()` and `close()` methods
 - Event callbacks receive updates in real-time
 

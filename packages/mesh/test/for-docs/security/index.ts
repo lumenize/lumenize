@@ -33,6 +33,7 @@ export default {
 
     const response = await routeDORequest(request, env, {
       prefix: 'gateway',
+      cors: { origin: ['https://localhost'] },
       ...authHooks,
     });
 

@@ -217,6 +217,48 @@ it('security patterns: auth, guards, and state-based access', async () => {
 });
 
 /**
+ * CORS test: verify that WebSocket upgrades from disallowed origins are
+ * rejected with 403 by routeDORequest's server-side CORS enforcement.
+ *
+ * The security Worker is configured with cors: { origin: ['https://localhost'] }.
+ * Requests without an Origin header pass through (same-origin assumed),
+ * but cross-origin requests from unlisted origins are blocked before
+ * reaching the Gateway or auth hooks.
+ *
+ * Uses browser.fetch directly (not browser.context) to bypass the Browser's
+ * client-side CORS simulation and inspect the raw server response.
+ */
+it('CORS allowlist rejects WebSocket upgrade from disallowed origin', async () => {
+  // Authenticate normally first — we need a valid token to isolate the CORS behavior
+  const browser = new Browser();
+  const { sub, accessToken } = await testLoginWithMagicLink(browser, 'cors-test@example.com', { subjectData: { adminApproved: true } });
+
+  // Attempt WebSocket upgrade from a disallowed origin (raw fetch to see server response)
+  const rejectedResponse = await browser.fetch(`https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/${sub}.tab1`, {
+    headers: {
+      'Origin': 'https://evil.com',
+      'Upgrade': 'websocket',
+      'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${accessToken}`,
+    },
+  });
+
+  // Server-side CORS enforcement: 403 before auth hooks or Gateway are invoked
+  expect(rejectedResponse.status).toBe(403);
+  expect(await rejectedResponse.text()).toBe('Forbidden: Origin not allowed');
+
+  // Same request from the allowed origin should NOT get 403
+  const allowedResponse = await browser.fetch(`https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/${sub}.tab1`, {
+    headers: {
+      'Origin': 'https://localhost',
+      'Upgrade': 'websocket',
+      'Sec-WebSocket-Protocol': `lmz, lmz.access-token.${accessToken}`,
+    },
+  });
+
+  expect(allowedResponse.status).not.toBe(403);
+});
+
+/**
  * Negative security test: verify that forged/invalid JWTs are rejected
  * by the Worker's auth hooks BEFORE reaching the gateway DO.
  *

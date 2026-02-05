@@ -157,7 +157,7 @@ interface CallContext {
   callChain: NodeIdentity[];
 
   /** Verified JWT claims from origin (immutable) */
-  originAuth?: { userId: string; claims?: Record<string, unknown> };
+  originAuth?: { sub: string; claims?: Record<string, unknown> };
 
   /** Mutable state propagated through chain */
   state: Record<string, unknown>;
