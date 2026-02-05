@@ -4,7 +4,16 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
+- [ ] **CRITICAL**: Gateway must close existing WebSocket when new connection arrives
+  - **Current bug**: `fetch()` accepts new WebSocket without closing existing one
+  - **Risk**: Multiple WebSockets could exist simultaneously; `#getActiveWebSocket()` returns `sockets[0]` which may be stale
+  - **Fix**: Before `ctx.acceptWebSocket(server)`, check `ctx.getWebSockets()` and close any existing connections with a specific close code (e.g., 4409 "Superseded by new connection")
+  - **Race condition concern**: Unknown whether `ws.close()` synchronously removes socket from `getWebSockets()` or if it enters a "closing" state first. If the latter, a call arriving during handoff could see both sockets. Safeguard: update `#getActiveWebSocket()` to filter for `readyState === WebSocket.OPEN` rather than just taking `sockets[0]`
+  - **Location**: `packages/mesh/src/lumenize-client-gateway.ts` around line 306
+
 ## Lumenize Mesh
+
+- [ ] Confirm whether or not a pending alarm consumes ongoing storage. Try checking ctx.storage.sql.databaseSize. Failing that, try the Cloudflare dashboard for DOs.
 
 - [ ] Measure Gateway hop latency overhead (requires live deployment)
   - **Question**: How much latency does the 1:1 Gateway architecture add compared to connecting directly to a DO over WebSocket?
@@ -13,8 +22,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Consider**: Whether always using the two one-way call pattern (to avoid DO wall-clock billing) changes the latency tradeoff
   - **Related**: gateway.mdx documents that intra-datacenter hops are typically <10ms, but cross-region can be several hundred ms
   - **Tooling**: Use `performance.now()` or Cloudflare analytics to measure; compare same-region and cross-region scenarios
-
-- [ ] Confirm that alarms, fetch, and sql NADIS modules have what they need in the hand-written docs and confirm the rest of mesh has what it needs. (Related: [migrate older packages from doc-testing/TypeDoc](#documentation) backlog item covers the broader migration.)
 
 - [ ] Improve continuation ergonomics (discovered during manual persistence test implementation)
   - **Reference**: `packages/mesh/test/for-docs/calls/document-do.ts` (`scheduleLocalTask`, `executePendingTask`) and `managing-context.mdx` Manual Persistence section
@@ -42,31 +49,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     6. Redundant initialization flags/methods
     7. Overly verbose JSDoc (shorten and link to docs)
   - **Files to review**: `lumenize-do.ts`, `lumenize-worker.ts`, `lumenize-client.ts`, `lumenize-client-gateway.ts`, `lumenize-auth.ts`, `ocan/*.ts`
-
-- [ ] Replace LumenizeAuth's in-memory rate limiter with Cloudflare's native rate limiter binding
-  - Docs: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
-  - **Why**: Current implementation uses instance variables (violates CLAUDE.md guidance), resets on DO eviction, doesn't coordinate across instances
-  - **Where to add rate limiting**:
-    1. Auth HTTP routes (magic link, refresh) — key by email pre-auth, userId post-auth
-    2. WebSocket upgrade in auth middleware — key by userId from JWT
-    3. WebSocket messages in LumenizeClientGateway — key by userId (from attachment, no JWT re-verify needed)
-    4. `onBeforeConnect`/`onBeforeRequest` middleware hooks — key by userId from callContext
-  - **DDoS surface**: Bad actors can create unlimited Gateway instances (`{userId}.anything`) with one valid token, then spam messages across all of them. Rate limiting must be per-userId, not per-connection.
-  - **Key selection tradeoff**: JWT verification before rate limiting exposes crypto ops to DDoS; consider two-tier approach (coarse IP-based limit first, then userId-based after JWT verify). Revisit when implementing.
-  - **Limitation**: Cloudflare rate limiter only supports 10s or 60s periods (no hourly like current impl)
-
-- [x] Add admin token revocation endpoint to LumenizeAuth (DONE in Phase 3)
-  - Implemented via `#revokeAllTokensForSubject` — called when `adminApproved` set to false or subject deleted
-  - Admin CRUD endpoints (`PATCH /auth/subject/:id`, `DELETE /auth/subject/:id`) handle the use cases
-
-- [ ] Evolve LumenizeAuth schema for multi-email users (Nebula prep)
-  - Current: 1:1 user↔email (`users.email` column)
-  - Future: 1:many via separate `user_emails` table
-  - Support verified/unverified emails, primary email designation
-  - Domain extraction for enterprise domain restrictions (e.g., `@acme.com` only)
-  - Discovery flow: existing user adds new email, links to same account
-
-- [x] Create `website/docs/mesh/testing.mdx` — Adapt `@lumenize/testing` Agents patterns for LumenizeClient (DONE 2025-01-23)
 
 - [ ] Investigate call chain depth and fanout limits
   - **Call chain depth**: We track `maxDepth: 50` in OCAN, but Cloudflare may enforce its own limit on RPC call depth
@@ -161,6 +143,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
+- [ ] Enforce `@skip-check` fails the build (only `@skip-check-approved` should pass)
+  - **Current state**: `check-examples` silently skips both `@skip-check` and `@skip-check-approved` blocks
+  - **Goal**: `@skip-check` (pending) should fail the build; only `@skip-check-approved` (human-reviewed) should pass
+  - **Implementation**: In `tooling/check-examples/src/index.js`, add error collection for non-approved skips in verification mode
+  - **Context**: `@skip-check` is meant to be temporary during Phase 1 drafting; we need enforcement to ensure examples are tested before publishing
+
 - [ ] Review `@lumenize/auth` API Reference section for what should be public vs internal
   - RPC Methods: `configure()` and `setEmailService()` — only used in tests, not production
   - JWT Utilities: `signJwt`, `verifyJwt`, `verifyJwtWithRotation`, `importPrivateKey`, `importPublicKey`, `parseJwtUnsafe` — which are truly needed by users?
@@ -184,6 +172,23 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Read state + version, do work, check version hasn't changed before writing
   - Retry or fail strategies
   - More advanced topic — don't clutter basic docs
+
+- [ ] Document Saga pattern for distributed transactions using `callContext.state`
+  - **Use case**: Accumulate transaction steps across multiple hops (even across DOs), then commit atomically at the end
+  - **Pattern**:
+    1. **Accumulate** — Each hop adds its "intent" to `callContext.state.pendingOps` (writes, deletes, validations)
+    2. **Validate** — At chain end, check optimistic concurrency (versions match, no conflicts)
+    3. **Commit** — Apply all ops atomically within the final DO's synchronous execution
+  - **Why `callContext.state` fits**:
+    - State propagates through the entire call chain automatically
+    - Each request gets isolated state via AsyncLocalStorage (no cross-request leakage)
+    - Already established for "compute once, use everywhere"
+  - **Tricky part**: Each DO has its own storage — no true distributed transaction across DOs. But you can:
+    - Collect all ops in state
+    - Have the "coordinator" DO apply its own ops
+    - Make calls to other DOs to apply theirs (with version checks)
+  - This is essentially the Saga pattern, where `callContext.state` becomes the saga's context
+  - **Location**: New section in a concurrency/patterns doc, or expand `callContext.state` section in security.mdx
 
 - [ ] Audit all docs and internal identifiers to favor `callContext` over `metadata` or `meta` where referring to the user-facing API
   - `envelope.metadata` is the transport layer field containing `{ callChain, callee, originAuth }`
@@ -232,6 +237,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Consider adding DPoP (RFC 9449) as opt-in sender-constrained token binding
   - **What**: DPoP binds tokens to a client-generated key pair so stolen tokens are unusable without the private key
   - **Why**: Complements refresh token rotation — rotation detects reuse, DPoP makes exfiltrated tokens inert. Strongest against token leaks from logs, network, or limited XSS
+  - Consider reverting refresh token rotation once this is published
   - **Scope**: Browser generates ECDSA P-256 key pair (non-extractable), sends signed DPoP proof JWT with each request. Server stamps key thumbprint into access token `cnf.jkt` claim, validates proof on each request
   - **Ecosystem**: RFC 9449 finalized, Okta GA, Auth0 Early Access, Keycloak 26.4 GA. `panva/dpop` and `panva/jose` libraries work in both browser and Cloudflare Workers
   - **Limitation**: Does not protect against full XSS (attacker can use the non-extractable key to sign proofs in-page). True hardware-bound keys await Device Bound Session Credentials (DBSC, W3C proposal)
@@ -248,21 +254,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Publish our test-endpoints as part of @lumenize/testing. It's particularly useful now that it can be run in-process. Does it still need a token when used that way? Should we rename it httpbin to match? What's different about it compared to httpbin?
 
-- [ ] Investigate refactoring `@lumenize/rpc` to use new `this.lmz.call()` infrastructure
-  - Currently uses manual `processIncomingOperations()` function (lines 277-318 in `lumenize-rpc-do.ts`)
-  - Originally had `createIncomingOperationsTransform()` for postprocess hooks, but it was never called (dead code)
-  - RPC was great learning and we developed OCAN for it, but it's somewhat a dead-end product now
-  - Might be worth simplifying to use the standard `this.lmz.call()` pattern
-  - Or might be worth keeping as-is since it works and has its own specialized needs
-
-- [ ] Research microtask batching for atomic execution in Lumenize RPC batches
-  - Lumenize RPC has batch execution but currently awaits every operation (allows interleaving)
-  - Wrapping batch execution with `queueMicrotask` pattern could ensure atomicity (all operations execute without yielding)
-  - Pattern: Queue all batch operations, then execute them together in one microtask before yielding to event loop
-  - Would guarantee no other requests interleave during batch execution on remote DO
-  - Reference implementation: [Discord - microtask transaction pattern](https://discord.com/channels/595317990191398933/773219443911819284/1440314373473046529)
-  - Note: This is about remote execution atomicity, not serializable continuations (microtasks can't be stored)
-
 - [ ] Research adding `ctnBatch()` API to `this.lmz.call` for atomic multi-operation execution
   - Syntax: `this.ctnBatch([this.ctn().methodA(), this.ctn().methodB()])`
   - Would execute multiple operations atomically on remote DO without yielding between them
@@ -271,22 +262,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Could batch the continuations into single RPC call, then use microtask pattern on receiver side
   - Reference: [Discord - microtask transaction pattern](https://discord.com/channels/595317990191398933/773219443911819284/1440314373473046529)
 
-- [ ] RPC. Maybe we need a way to secure the DO access over RPC so it can't change storage, or maybe we just need examples that show it not being accessible. Maybe you move this.ctx to this.#ctx and this.env to this.#env. Extending from DurableObject makes those public, but it's JavaScript so you can dynamically do whatever you want in the constructor.
-
-- [ ] Authentication patterns
-  ```ts
-  // Single round trip: authenticate + fetch notifications
-  let user = api.authenticate(cookie);
-  let notifications = await user.getNotifications();
-  ```
-
-- [ ] Consider creating a two hop version of proxy-fetch that moves the timeout functionality served by the Orchestrator to the origin DO. It would create a dependency on alarms though. Right now, we use the single native alarm in the Orchestrator.
-
-- [ ] Add an option to call for including the result handler execution in the same blockConcurrencyWhile on caller side.
-
-- [ ] Add an option to call for blockConcurrencyWhile on callee side... or maybe transaction?
-
-- [ ] Consider whether transaction is better for call than blockConcurrencyWhile?
+- [ ] Add an alternative to ctn (maybe ctnTransaction) to use a transaction for execution
 
 
 ## MCP
@@ -303,8 +279,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Infrastructure
 
-- [ ] Deploy to Cloudflare button
-- [ ] Move SonarQube Cloud account over to lumenize repo
 - [ ] See `tasks/github-actions-publishing.md` for automation plans
 
 ## Website, Blog, etc.

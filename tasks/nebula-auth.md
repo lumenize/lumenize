@@ -36,6 +36,12 @@ My first thought on how to accomplish this is with NebulaDO, NebulaWorker, Nebul
 
 - Lumenize Auth has isSuperAdmin and isAdmin hard coded. This should change to isUniverseAdmin, isGalaxyAdmin, and isStarAdmin
 - **Auth pluggability:** `@lumenize/auth` exports utilities that `@lumenize/mesh` imports directly: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES`. For custom auth to be pluggable (Nebula Auth or third-party), these need to be injectable or documented as the interface contract any auth package must implement. Building Nebula Auth will test this pluggability. _(Captured during auth-bootstrap-and-roles Phase 2 planning)_
+- Support more than one email for each sub
+  - Current: 1:1 sub↔email
+  - Future: 1:many
+  - Support verified/unverified emails, primary email designation
+  - Domain extraction for enterprise domain restrictions (e.g., `@acme.com` only)
+  - Discovery flow: existing user adds new email, links to same account
 
 ## Security Questions
 

@@ -1,37 +1,34 @@
 /**
- * SecurityClient - Demonstrates onLoginRequired callback
+ * SecurityClient - Test client for security.mdx examples
  *
- * From website/docs/mesh/security.mdx - Handling Login Required
- *
- * This is a minimal client that demonstrates the onLoginRequired callback
- * pattern. In a real application, this would trigger a redirect to login.
+ * From website/docs/mesh/security.mdx
  */
 
-import { LumenizeClient, mesh, type LoginRequiredError } from '../../../src/index.js';
-import type { ProtectedDO } from './protected-do.js';
+import { LumenizeClient, mesh } from '../../../src/index.js';
+import type { UserProfileDO } from './user-profile-do.js';
 
 export class SecurityClient extends LumenizeClient {
   /**
-   * Call a protected DO method
+   * Call a user profile DO method
    */
-  callProtectedDO(instanceId: string): void {
+  callUserProfile(instanceId: string): void {
     this.lmz.call(
-      'PROTECTED_DO',
+      'USER_PROFILE_DO',
       instanceId,
-      this.ctn<ProtectedDO>().getData(),
-      this.ctn().handleProtectedResponse(this.ctn().$result)
+      this.ctn<UserProfileDO>().getProfile(),
+      this.ctn().handleProfileResponse(this.ctn().$result)
     );
   }
 
   /**
-   * Handle response from protected DO
+   * Handle response from user profile DO
    */
   @mesh()
-  handleProtectedResponse(result: { message: string; userId: string } | Error): void {
+  handleProfileResponse(result: { message: string; sub: string } | Error): void {
     if (result instanceof Error) {
-      console.error('Protected call failed:', result.message);
+      console.error('Profile call failed:', result.message);
       return;
     }
-    console.log('Protected data received:', result.message);
+    console.log('Profile data received:', result.message);
   }
 }

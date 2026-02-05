@@ -17,16 +17,6 @@ export interface DocumentChange {
   content: string;
 }
 
-export interface Session {
-  userId: string;
-  email: string;
-}
-
-export interface Permissions {
-  canEdit: boolean;
-  canDelete: boolean;
-}
-
 // ============================================
 // Reusable Guards (from security.mdx)
 // ============================================
@@ -58,52 +48,30 @@ export class TeamDocDO extends LumenizeDO<Env> {
   }
 
   // ============================================
-  // onBeforeCall with state population (block 5)
+  // onBeforeCall with state population (Call Context State section)
   // ============================================
 
   onBeforeCall() {
     super.onBeforeCall();
-    const callContext = this.lmz.callContext;
-    if (!callContext.originAuth?.sub) throw new Error('Auth required');
-
-    // Populate state for use by method guards
-    const session = this.loadSession(callContext.originAuth.sub);
-    callContext.state.session = session;
-    callContext.state.permissions = this.computePermissions(session);
+    // Compute once, use in multiple guards
+    const sub = this.lmz.callContext.originAuth!.sub;
+    this.lmz.callContext.state.isEditor = this.allowedEditors.has(sub);
   }
 
-  /**
-   * Load session from storage (simplified for testing)
-   */
-  loadSession(userId: string): Session {
-    // In a real app, this would load from storage
-    const email = this.ctx.storage.kv.get(`user:${userId}:email`) ?? `${userId}@example.com`;
-    return { userId, email: email as string };
-  }
-
-  /**
-   * Compute permissions based on session
-   */
-  computePermissions(session: Session): Permissions {
-    // Check if user has edit/delete permissions in storage
-    const canEdit = this.ctx.storage.kv.get(`user:${session.userId}:canEdit`) === true;
-    const canDelete = this.ctx.storage.kv.get(`user:${session.userId}:canDelete`) === true;
-    return { canEdit, canDelete };
+  @mesh((instance: TeamDocDO) => {
+    if (!instance.lmz.callContext.state.isEditor) {
+      throw new Error('Editor access required');
+    }
+  })
+  editWithStateCheck(changes: DocumentChange): { edited: true; byUser: string } {
+    const sub = this.lmz.callContext.originAuth!.sub;
+    this.ctx.storage.kv.put('content', changes.content);
+    return { edited: true, byUser: sub };
   }
 
   // ============================================
   // Setup methods (for testing)
   // ============================================
-
-  @mesh()
-  grantEditPermission(userId: string): void {
-    this.ctx.storage.kv.put(`user:${userId}:canEdit`, true);
-  }
-
-  @mesh()
-  grantDeletePermission(userId: string): void {
-    this.ctx.storage.kv.put(`user:${userId}:canDelete`, true);
-  }
 
   @mesh()
   addEditor(userId: string): void {
@@ -169,22 +137,6 @@ export class TeamDocDO extends LumenizeDO<Env> {
     comments.push(comment);
     this.ctx.storage.kv.put('comments', comments);
     return { commented: true };
-  }
-
-  // ============================================
-  // State-based access (block 5)
-  // ============================================
-
-  @mesh((instance: TeamDocDO) => {
-    const permissions = instance.lmz.callContext.state.permissions as Permissions | undefined;
-    if (!permissions?.canEdit) {
-      throw new Error('Edit permission required');
-    }
-  })
-  editWithStateCheck(changes: DocumentChange): { edited: true; byUser: string } {
-    const session = this.lmz.callContext.state.session as Session;
-    this.ctx.storage.kv.put('content', changes.content);
-    return { edited: true, byUser: session.userId };
   }
 
   // ============================================

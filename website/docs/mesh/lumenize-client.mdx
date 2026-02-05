@@ -135,13 +135,7 @@ For collaborative features (cursors, voice/video signaling, etc.), override `onB
 class CollaborativeClient extends LumenizeClient {
   onBeforeCall() {
     // Note: NOT calling super.onBeforeCall() — we WANT to allow peers
-    const callContext = this.lmz.callContext;
-    if (callContext.origin.type === 'LumenizeClient') {
-      // Allow peers, but require authentication
-      if (!callContext.originAuth?.sub) {
-        throw new Error('Authentication required for peer calls');
-      }
-    }
+    // Auth is already guaranteed by auth hooks — originAuth.sub always exists
   }
 
   @mesh()
@@ -191,7 +185,7 @@ using client = new EditorClient({
 });
 ```
 
-For call errors, see [Making Calls: Error Handling](./calls#error-handling). For auth close codes, see [Security: Auth Close Codes](./security#auth-close-codes).
+For call errors, see [Making Calls: Error Handling](./calls#error-handling).
 
 ## Browser Considerations
 

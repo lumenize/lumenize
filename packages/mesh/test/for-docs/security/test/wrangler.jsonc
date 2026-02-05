@@ -10,7 +10,7 @@
       },
       {
         "name": "PROTECTED_DO",
-        "class_name": "ProtectedDO"
+        "class_name": "UserProfileDO"
       },
       {
         "name": "TEAM_DOC_DO",
@@ -25,7 +25,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["LumenizeClientGateway", "ProtectedDO", "TeamDocDO", "LumenizeAuth"]
+      "new_sqlite_classes": ["LumenizeClientGateway", "UserProfileDO", "TeamDocDO", "LumenizeAuth"]
     }
   ],
   "ratelimits": [

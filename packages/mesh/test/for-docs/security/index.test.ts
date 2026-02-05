@@ -75,10 +75,12 @@ it('security patterns: auth, guards, and state-based access', async () => {
   expect(alice.connectionState).toBe('disconnected');
 
   // ============================================
-  // Phase 2 & 3: onBeforeCall() and authenticated access
+  // Phase 2 & 3: onBeforeCall() ownership check
   // ============================================
-  // Bob is authenticated, so he can access ProtectedDO.
-  // The onBeforeCall() checks that originAuth.sub exists.
+  // UserProfileDO demonstrates owner-or-admin access:
+  // - Owner (sub matches instance name) can access
+  // - Admin (isAdmin claim) can access anyone's profile
+  // - Others get "Access denied"
 
   const bobBrowser = new Browser();
   const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
@@ -95,27 +97,28 @@ it('security patterns: auth, guards, and state-based access', async () => {
     expect(bob.connectionState).toBe('connected');
   });
 
-  // Make a call through the mesh to verify authenticated access works
-  const protectedCallResults: Array<{ message: string; userId: string } | Error> = [];
+  // Make a call through the mesh to verify owner access works
+  const profileCallResults: Array<{ message: string; sub: string } | Error> = [];
 
   // Capture results via the handler
-  const originalHandler = bob.handleProtectedResponse.bind(bob);
-  (bob as any).handleProtectedResponse = (result: any) => {
-    protectedCallResults.push(result);
+  const originalHandler = bob.handleProfileResponse.bind(bob);
+  (bob as any).handleProfileResponse = (result: any) => {
+    profileCallResults.push(result);
     originalHandler(result);
   };
 
-  bob.callProtectedDO('protected-doc-1');
+  // Bob accesses his OWN profile (instance name = bobUserId)
+  bob.callUserProfile(bobUserId);
 
   await vi.waitFor(() => {
-    expect(protectedCallResults.length).toBe(1);
+    expect(profileCallResults.length).toBe(1);
   });
 
-  // Should succeed for authenticated user
-  const protectedResult = protectedCallResults[0];
-  expect(protectedResult).not.toBeInstanceOf(Error);
-  expect((protectedResult as any).message).toBe('Protected data');
-  expect((protectedResult as any).sub).toBe(bobUserId);
+  // Should succeed because Bob is the owner
+  const profileResult = profileCallResults[0];
+  expect(profileResult).not.toBeInstanceOf(Error);
+  expect((profileResult as any).message).toBe('Profile data');
+  expect((profileResult as any).sub).toBe(bobUserId);
 
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)
@@ -187,27 +190,27 @@ it('security patterns: auth, guards, and state-based access', async () => {
   }
 
   // ============================================
-  // Phase 7: State-based access control
+  // Phase 7: Call context state
   // ============================================
-  // The editWithStateCheck guard checks callContext.state.permissions.canEdit.
-  // onBeforeCall loads permissions from storage into state.
+  // The editWithStateCheck guard checks callContext.state.isEditor.
+  // onBeforeCall computes isEditor once from allowedEditors Set.
 
   {
     using teamDocClient = createTestingClient<typeof TeamDocDO>('TEAM_DOC_DO', 'state-doc-1');
 
-    // Initially Bob has no edit permission
-    const canEditBefore = await teamDocClient.ctx.storage.kv.get(`user:${bobUserId}:canEdit`);
-    expect(canEditBefore).toBeUndefined();
+    // Initially Bob is not an editor
+    const editorsBefore = await teamDocClient.allowedEditors;
+    expect(editorsBefore.has(bobUserId)).toBe(false);
 
-    // Grant edit permission to Bob
-    await teamDocClient.grantEditPermission(bobUserId);
+    // Add Bob as an editor
+    await teamDocClient.addEditor(bobUserId);
 
-    // Verify permission was stored
-    const canEditAfter = await teamDocClient.ctx.storage.kv.get(`user:${bobUserId}:canEdit`);
-    expect(canEditAfter).toBe(true);
+    // Verify editor was added
+    const editorsAfter = await teamDocClient.allowedEditors;
+    expect(editorsAfter.has(bobUserId)).toBe(true);
 
-    // When Bob calls through the mesh, his callContext.state.permissions.canEdit
-    // will be true (populated in onBeforeCall) and the guard will pass
+    // When Bob calls through the mesh, his callContext.state.isEditor
+    // will be true (computed in onBeforeCall) and the guard will pass
   }
 
   // ============================================

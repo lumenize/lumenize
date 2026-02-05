@@ -9,15 +9,14 @@ import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
 
 export class DocumentDO extends LumenizeDO<Env> {
-  // Require authentication for all mesh calls
-  onBeforeCall(): void {
-    super.onBeforeCall();
-    if (!this.lmz.callContext.originAuth?.sub) {
-      throw new Error('Authentication required');
+  // Only subscribers can update — auth is already guaranteed by auth hooks
+  @mesh((instance: DocumentDO) => {
+    const sub = instance.lmz.callContext.originAuth!.sub;
+    const subscribers: Set<string> = instance.ctx.storage.kv.get('subscribers') ?? new Set();
+    if (!subscribers.has(sub)) {
+      throw new Error('Must be subscribed to edit');
     }
-  }
-
-  @mesh()
+  })
   update(content: string) {
     this.ctx.storage.kv.put('content', content);
 
