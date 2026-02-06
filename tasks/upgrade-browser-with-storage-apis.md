@@ -2,64 +2,19 @@
 
 > **Blocks**: [solve-bootstrap-problem-with-lumenize-client.md](./solve-bootstrap-problem-with-lumenize-client.md)
 
-## Open Question: Where Should Browser Live?
+## Decision: Move Browser to `@lumenize/testing`
 
-Currently `Browser` lives in `@lumenize/utils` (`packages/utils/src/browser.ts`) alongside DO routing utilities. It's re-exported from `@lumenize/testing` with a thin wrapper that injects `SELF.fetch`. This upgrade is a natural moment to decide on its permanent home.
+Browser and its dependencies (cookie-utils, websocket-shim, websocket-utils, metrics) move from `@lumenize/utils` to `@lumenize/testing`. The existing thin wrapper that injects `SELF.fetch` gets flattened — Browser becomes the real implementation directly in `@lumenize/testing`. Node.js scripting use case still works since Browser accepts a custom `baseFetch` argument (no cloudflare:test dependency required).
 
-### Analysis of @lumenize/utils
-
-After this potential split, @lumenize/utils contains two cleanly separated groups:
-
-**Group A: DO Routing (5 modules, ~728 lines)**
-- `route-do-request.ts` — main DO request router with hooks & CORS
-- `parse-pathname.ts` — URL path parsing
-- `get-do-namespace-from-path-segment.ts` — case-insensitive binding lookup
-- `get-do-stub.ts` — create DO stubs from namespace + name/ID
-- `is-durable-object-id.ts` — validate 64-char hex DO IDs
-- Dependencies: `@lumenize/debug` only
-- Used by: `@lumenize/mesh`, `@lumenize/auth`
-
-**Group B: Browser/HTTP Client (4 modules, ~900+ lines)**
-- `browser.ts` — cookie-aware HTTP/WebSocket client
-- `cookie-utils.ts` — cookie parsing, serialization, matching
-- `websocket-shim.ts` — WebSocket via fetch for test environments
-- `websocket-utils.ts` — detect WebSocket upgrade requests (15 lines, also used by routing)
-- Dependencies: none beyond internal
-- Used by: `@lumenize/testing` (re-export), `@lumenize/auth` (type import in test helpers)
-
-**Shared**: `metrics.ts` (55 lines, type definitions only)
-
-### Options
-
-**Option A: Move Browser to `@lumenize/testing`** (recommended)
-- Flatten the re-export indirection — Browser becomes the real implementation in @lumenize/testing
-- 95%+ usage is testing; the 5% node.js scripting works fine since Browser already accepts a custom `baseFetch` argument (no cloudflare:test dependency required)
-- Move cookie-utils, websocket-shim, metrics type alongside it
-- Leave websocket-utils in both (15 lines, copy is fine) or extract to tiny shared module
-- Rename remaining @lumenize/utils to `@lumenize/routing`
-
-**Option B: Create `@lumenize/browser`**
-- Dedicated package for the HTTP client
-- Cleaner for the node.js scripting use case
-- More packages to maintain
-- @lumenize/testing would import from @lumenize/browser instead of @lumenize/utils
-
-**Option C: Keep in `@lumenize/utils`, don't split**
-- Least work
-- Package remains a grab-bag
-- @lumenize/utils as a name becomes increasingly misleading
-
-### Decision
-
-_TBD — decide before starting implementation._
+Renaming the remaining `@lumenize/utils` → `@lumenize/routing` is a separate follow-up (see backlog.md).
 
 ## Motivation
 
-The `Browser` class in `@lumenize/testing` (via `@lumenize/utils`) is the primary tool for testing `LumenizeClient` instances. Adding `sessionStorage`, `localStorage`, and `BroadcastChannel` support enables:
+The `Browser` class is the primary tool for testing `LumenizeClient` instances. Adding `sessionStorage` and `BroadcastChannel` support enables:
 
 1. **Testing the LumenizeClient bootstrap flow** — auto-generated `instanceName` using `sessionStorage` tabId with `BroadcastChannel` duplicate detection (see [solve-bootstrap-problem-with-lumenize-client.md](./solve-bootstrap-problem-with-lumenize-client.md))
 2. **Broader testing capability** — any user building browser apps with Lumenize gains realistic tab/storage simulation
-3. **Duplicate-tab testing** — `browser.duplicateTab(existingTab)` clones sessionStorage, enabling the exact scenario BroadcastChannel is designed to detect
+3. **Duplicate-tab testing** — `browser.duplicateContext(existingContext)` clones sessionStorage, enabling the exact scenario BroadcastChannel is designed to detect
 
 ## Current State
 
@@ -70,112 +25,159 @@ The Browser class (~770 lines, 1020-line test suite) currently supports:
 - `context(origin)` returning `{ fetch, WebSocket }` per origin with full CORS simulation
 - Metrics tracking
 
-It does NOT support: sessionStorage, localStorage, BroadcastChannel, or any concept of "tab" identity beyond origin contexts.
+It does NOT support: sessionStorage, BroadcastChannel, or any concept of per-context state beyond origin scoping.
 
 ## Design
 
-### Tab Model
+### Context Evolution
 
-The key insight is that `context(origin)` needs to evolve into a "tab" concept. Currently contexts are stateless wrappers — they just scope fetch/WebSocket to an origin. Tabs add per-tab state:
+`context(origin)` currently returns a plain object `{ fetch, WebSocket, lastPreflight }`. It evolves to return a `Context` class instance that adds per-context state while remaining backward compatible (existing destructuring still works):
 
 ```typescript
-// Current API
-const ctx = browser.context('https://example.com');
-ctx.fetch(...)   // Cookie-aware, CORS-validated
-ctx.WebSocket    // Cookie-aware shim
+// Current API — still works
+const { fetch, WebSocket } = browser.context('https://example.com');
 
-// New API — backward compatible, adds storage
-const tab = browser.tab('https://example.com');
-tab.fetch(...)          // Same as before
-tab.WebSocket           // Same as before
-tab.sessionStorage      // Per-tab, per-origin
-tab.localStorage        // Per-origin, shared across tabs
-tab.BroadcastChannel    // Per-origin, cross-tab messaging
+// New API — same method, richer return type
+const ctx = browser.context('https://example.com');
+ctx.fetch(...)              // Same as before
+ctx.WebSocket               // Same as before
+ctx.sessionStorage          // Per-context, per-origin
+ctx.BroadcastChannel        // Constructor, scoped to origin
 ```
 
-**Backward compatibility**: `context()` can become an alias for `tab()` or remain as-is for contexts that don't need storage. Decide during implementation.
+Each `browser.context()` call creates a new `Context` instance (conceptually a new "tab"). Multiple contexts with the same origin share the BroadcastChannel namespace but have independent sessionStorage.
+
+### `Context` Class
+
+```typescript
+class Context {
+  readonly fetch: typeof fetch;
+  readonly WebSocket: typeof WebSocket;
+  readonly sessionStorage: Storage;
+  readonly BroadcastChannel: typeof BroadcastChannel;  // constructor
+  readonly lastPreflight: PreflightInfo | null;
+  close(): void;  // cleanup: clear sessionStorage, close BroadcastChannels
+}
+```
 
 ### sessionStorage
 
-- Scoped per-tab, per-origin
-- Implements full `Storage` interface: `getItem()`, `setItem()`, `removeItem()`, `clear()`, `key()`, `length`
-- Backed by `Map<string, string>` — one map per tab
-- Cleared when tab is "closed" (if we support that lifecycle)
-
-### localStorage
-
-- Scoped per-origin, shared across all tabs from same origin
-- Same `Storage` interface as sessionStorage
-- Backed by `Map<string, string>` — one map per origin, shared across tabs
-- Persists for Browser instance lifetime
-- `storage` events fired to other tabs when values change (stretch goal)
+- Scoped per-context (each `browser.context()` call gets its own)
+- Implements `Storage` interface: `getItem()`, `setItem()`, `removeItem()`, `clear()`, `key()`, `length`
+- Backed by `Map<string, string>`
+- Cleared when context is closed
+- No Proxy-based index access (`storage['key']`, `storage[0]`) — method API only. Note this in docs as a known limitation.
 
 ### BroadcastChannel
 
-- Scoped per-origin, cross-tab messaging
+- Scoped per-origin, cross-context messaging
 - Implements: `postMessage(message)`, `close()`, `onmessage` handler
-- Messages from one channel instance are delivered to all other instances with the same name and origin
-- **Critical**: messages must be delivered asynchronously (microtask/setTimeout), matching real browser behavior
+- Messages from one channel instance delivered to all other instances with same name and origin
+- **Critical**: messages delivered asynchronously via `queueMicrotask()`, matching real browser behavior
 - Extends EventTarget (same pattern as existing WebSocketShim)
-- Track channels by name and origin: `Map<origin, Map<channelName, Set<BroadcastChannelInstance>>>`
+- Registry tracked by Browser instance: `Map<origin, Map<channelName, Set<BroadcastChannelInstance>>>`
 
-### Tab Duplication
+### Context Duplication
 
 For testing duplicate-tab detection:
 
 ```typescript
-const tab1 = browser.tab('https://example.com');
-// tab1.sessionStorage has { lmz_tab: 'abc12345' }
+const ctx1 = browser.context('https://example.com');
+// ctx1.sessionStorage has { lmz_tab: 'abc12345' }
 
-const tab2 = browser.duplicateTab(tab1);
-// tab2.sessionStorage is a CLONE of tab1's — { lmz_tab: 'abc12345' }
-// tab2 shares localStorage with tab1 (same origin)
-// tab2 shares BroadcastChannel namespace with tab1 (same origin)
-// tab2 has its own fetch/WebSocket (separate cookies? or shared?)
+const ctx2 = browser.duplicateContext(ctx1);
+// ctx2.sessionStorage is a CLONE of ctx1's — { lmz_tab: 'abc12345' }
+// ctx2 shares BroadcastChannel namespace with ctx1 (same origin)
+// ctx2 shares cookies with ctx1 (same browser — already the case)
+// ctx2 has its own fetch/WebSocket
 ```
 
-This enables testing the exact scenario from the bootstrap task: two tabs with cloned sessionStorage, BroadcastChannel probe detects the collision, duplicate tab regenerates its tabId.
+### Deferred: localStorage and StorageEvent
 
-### Open Design Questions
+localStorage is skipped for now. The bootstrap task only needs sessionStorage and BroadcastChannel. localStorage's main cross-tab feature is `StorageEvent` (fired on other tabs when values change), which adds real complexity. When there's demand, add both together. Note this in docs as a planned future enhancement.
 
-1. **Tab lifecycle** — should tabs have an explicit `close()` that clears sessionStorage and unregisters BroadcastChannel listeners? Probably yes for cleanup in tests.
-2. **`storage` events for localStorage** — real browsers fire `StorageEvent` on other tabs when localStorage changes. Worth implementing? Probably a stretch goal.
-3. **Cookie sharing** — currently all contexts share cookies (correct browser behavior). Tabs should continue this. Confirm.
-4. **`context()` vs `tab()` naming** — deprecate `context()`, or keep both? `tab()` is more intuitive for the new capabilities. Could alias `context()` → `tab()` with a deprecation notice.
+## Design Decisions
+
+1. **Keep `context()` name** — it's the correct browser spec term ("browsing context") and already established in the API
+2. **Return a `Context` class** instead of plain object — backward compatible, adds lifecycle management
+3. **BroadcastChannel delivery via `queueMicrotask()`** — matches real browser async semantics, important for bootstrap task's Promise-based duplicate detection
+4. **Skip Proxy-based index access on Storage** — nobody uses `storage[0]` or `storage['key']` in practice; method API only
+5. **Skip localStorage and StorageEvent** — not needed for bootstrap task; add later when there's demand
+6. **Package move is first commit** — move files, verify tests pass, then add features
 
 ## Implementation Steps
 
-1. **Decide on package location** (open question above)
-2. **Implement `Storage` mock class** — memory-backed, full interface compliance
-3. **Implement `BroadcastChannel` mock class** — EventTarget-based, async message delivery
-4. **Create tab abstraction** — wraps existing context with storage + channel access
-5. **Implement `duplicateTab()`** — clones sessionStorage, shares localStorage and BroadcastChannel namespace
-6. **Update existing context() API** — either alias to tab() or keep parallel
-7. **Write comprehensive tests** — per-tab isolation, cross-tab sharing, duplicate-tab cloning, BroadcastChannel messaging, async delivery timing
-8. **Update @lumenize/testing** — re-export or integrate depending on package decision
+### Phase 1: Package Move
+
+1. **Move Browser modules** from `packages/utils/src/` to `packages/testing/src/`:
+   - `browser.ts`, `cookie-utils.ts`, `websocket-shim.ts`, `metrics.ts`
+   - Copy `websocket-utils.ts` (15 lines, also used by routing — keep in both)
+2. **Move Browser tests** from `packages/utils/test/` to `packages/testing/test/`
+3. **Flatten @lumenize/testing's Browser wrapper** — remove the subclass indirection, make Browser the primary implementation with optional `SELF.fetch` injection
+4. **Update imports** across monorepo:
+   - `@lumenize/auth` test helpers: `Browser` import → `@lumenize/testing`
+   - Any other consumers of Browser from `@lumenize/utils`
+5. **Remove moved files** from `@lumenize/utils`
+6. **Update package.json** files (exports, dependencies)
+7. **Verify all tests pass**
+
+### Phase 2: BroadcastChannel (implement first — highest risk)
+
+1. **Implement BroadcastChannel mock** — EventTarget-based, async delivery via `queueMicrotask()`
+2. **Add channel registry to Browser** — tracks channels by origin and name
+3. **Wire into Context** — each context gets a `BroadcastChannel` constructor scoped to its origin
+4. **Test**: cross-context messaging, async delivery, close() cleanup, same-name isolation
+
+### Phase 3: sessionStorage
+
+1. **Implement Storage mock** — Map-backed, full interface (getItem/setItem/removeItem/clear/key/length)
+2. **Add per-context storage to Context class**
+3. **Test**: per-context isolation, clear on close
+
+### Phase 4: Context Class and `duplicateContext()`
+
+1. **Replace plain object return** from `context()` with `Context` class
+2. **Add `close()` method** — clears sessionStorage, closes BroadcastChannels
+3. **Implement `browser.duplicateContext(ctx)`** — clones sessionStorage, shares BroadcastChannel namespace
+4. **Test**: duplication clones storage, channels can communicate across original and duplicate
+
+### Phase 5: Integration Test
+
+1. **Full bootstrap scenario test** — duplicate-context detection via BroadcastChannel probe
+   - Create context, set `lmz_tab` in sessionStorage
+   - Duplicate the context
+   - Duplicated context probes via BroadcastChannel, detects conflict
+   - Duplicated context regenerates tabId
 
 ## Files to Change
 
-Depends on package decision. If staying in @lumenize/utils:
+### Phase 1 (package move)
+- `packages/testing/src/browser.ts` — **moved from utils**, flatten SELF.fetch wrapper
+- `packages/testing/src/cookie-utils.ts` — **moved from utils**
+- `packages/testing/src/websocket-shim.ts` — **moved from utils**
+- `packages/testing/src/metrics.ts` — **moved from utils**
+- `packages/testing/src/index.ts` — update exports
+- `packages/testing/test/browser.test.ts` — **moved from utils**
+- `packages/testing/package.json` — update if needed
+- `packages/utils/src/index.ts` — remove Browser-related exports
+- `packages/utils/package.json` — update if needed
+- `packages/auth/src/test-helpers.ts` — update Browser import
 
-- `packages/utils/src/browser.ts` — add tab abstraction, integrate storage/channels
-- `packages/utils/src/storage-mock.ts` — **new file**, Storage interface implementation
-- `packages/utils/src/broadcast-channel-mock.ts` — **new file**, BroadcastChannel implementation
-- `packages/utils/test/browser.test.ts` — extend with storage/channel tests
-- `packages/testing/src/index.ts` — update re-export if API changes
+### Phase 2-5 (features)
+- `packages/testing/src/browser.ts` — Context class, duplicateContext(), channel registry
+- `packages/testing/src/storage-mock.ts` — **new file**
+- `packages/testing/src/broadcast-channel-mock.ts` — **new file**
+- `packages/testing/test/browser.test.ts` — extend with storage/channel/duplication tests
 
 ## Testing
 
-- sessionStorage is per-tab isolated (tab1 writes don't appear in tab2)
-- sessionStorage within same origin but different tabs is independent
-- localStorage is shared across tabs of same origin
-- localStorage is isolated across different origins
+- sessionStorage is per-context isolated (ctx1 writes don't appear in ctx2)
 - BroadcastChannel delivers messages to other instances with same name/origin
-- BroadcastChannel does NOT deliver messages to the posting instance
-- BroadcastChannel messages are delivered asynchronously
-- BroadcastChannel `close()` stops message delivery
-- `duplicateTab()` clones sessionStorage contents
-- `duplicateTab()` shares localStorage reference
-- `duplicateTab()` shares BroadcastChannel namespace (can communicate)
-- Tab close cleans up BroadcastChannel listeners and sessionStorage
+- BroadcastChannel does NOT deliver to the posting instance itself
+- BroadcastChannel messages are delivered asynchronously (verify with timing)
+- BroadcastChannel `close()` stops message delivery to that instance
+- `duplicateContext()` clones sessionStorage contents
+- `duplicateContext()` shares BroadcastChannel namespace (can communicate)
+- Context `close()` cleans up BroadcastChannel listeners and sessionStorage
 - Full integration: duplicate-tab detection via BroadcastChannel probe (the bootstrap scenario)
+- All existing Browser tests still pass after package move (Phase 1 gate)

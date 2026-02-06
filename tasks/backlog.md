@@ -11,6 +11,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Race condition concern**: Unknown whether `ws.close()` synchronously removes socket from `getWebSockets()` or if it enters a "closing" state first. If the latter, a call arriving during handoff could see both sockets. Safeguard: update `#getActiveWebSocket()` to filter for `readyState === WebSocket.OPEN` rather than just taking `sockets[0]`
   - **Location**: `packages/mesh/src/lumenize-client-gateway.ts` around line 306
 
+## Package Maintenance
+
+- [ ] Rename `@lumenize/utils` → `@lumenize/routing`
+  - After Browser moves to `@lumenize/testing` (see `tasks/upgrade-browser-with-storage-apis.md`), only DO routing modules remain: `route-do-request`, `parse-pathname`, `get-do-namespace-from-path-segment`, `get-do-stub`, `is-durable-object-id`, plus `websocket-utils` (15 lines) and `metrics` (55 lines, types only)
+  - Mechanical change: update package name, update all imports across monorepo (`@lumenize/utils` → `@lumenize/routing`)
+  - Also update the `routeAgentRequest` convenience wrapper in index.ts
+
 ## Lumenize Mesh
 
 - [ ] Confirm whether or not a pending alarm consumes ongoing storage. Try checking ctx.storage.sql.databaseSize. Failing that, try the Cloudflare dashboard for DOs.
