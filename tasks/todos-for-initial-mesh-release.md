@@ -6,18 +6,18 @@ Must have:
     - [x] Upgrade Browser with BroadcastChannel and sessionStorage in support of testing above
   - [x] Fix Worker call() bugs (missing __localChainExecutor, missing bindingName validation)
     - [x] Worker callRaw() and call() tests (18 new tests in lumenize-worker.test.ts)
-  - [ ] Gateway must close old connection when new one arrives
+  - [x] Gateway must close old connection when new one arrives
   - [ ] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
   - [ ] Refactor Gateway depending upon results of experiment to confirm alarm takes storage
   - [ ] Get test coverage up to targets
 - [ ] Website home page rewrite
   - [ ] Tag line
   - [ ] Hero sections
-  - [ ] Products
-    - [ ] Mesh beta
-    - [ ] Auth beta
-    - [ ] debug
-    - [ ] Nebula - coming soon
+  - [ ] Products (one paragraph each and then links to docs for each except Nebula)
+    - [ ] Mesh marked beta
+    - [ ] Auth marked beta
+    - [ ] debug marked GA
+    - [ ] Nebula marked coming soon
 - [ ] Website - what to do with older packages
   - [ ] Move RPC under Testing and mark with "use Mesh instead"
   - [ ] Actor Alarms - archive except keep doc-testing folder

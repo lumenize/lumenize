@@ -4,6 +4,7 @@ import { stringify, parse, preprocess, postprocess } from '@lumenize/structured-
 import {
   GatewayMessageType,
   ClientDisconnectedError,
+  WS_CLOSE_SUPERSEDED,
   type ConnectionStatusMessage,
   type CallMessage,
   type CallResponseMessage,
@@ -297,6 +298,129 @@ describe('LumenizeClientGateway', () => {
       expect(restored).toBeInstanceOf(ClientDisconnectedError);
       expect(restored.message).toBe('Test error');
       expect((restored as ClientDisconnectedError).clientInstanceName).toBe('alice.tab1');
+    });
+  });
+
+  describe('WebSocket supersession', () => {
+    /**
+     * Helper: connect a WebSocket to a gateway and wait for connection_status.
+     * Returns { ws, statusMessage }.
+     */
+    async function connectAndWait(
+      gateway: DurableObjectStub,
+      sub: string,
+      instanceName: string,
+    ) {
+      const token = createFakeJwt({ sub, exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+        },
+      });
+
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+
+      return { ws, statusMessage };
+    }
+
+    it('closes first connection with 4409 when second connection arrives', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('super.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      // First connection
+      const { ws: ws1 } = await connectAndWait(gateway, 'super', 'super.tab1');
+
+      // Listen for close on first socket
+      const closePromise = new Promise<{ code: number; reason: string }>((resolve) => {
+        ws1.addEventListener('close', (event) => {
+          resolve({ code: event.code, reason: event.reason });
+        });
+      });
+
+      // Second connection — should supersede the first
+      const { ws: ws2 } = await connectAndWait(gateway, 'super', 'super.tab1');
+
+      // First socket should have been closed with 4409
+      const closeEvent = await closePromise;
+      expect(closeEvent.code).toBe(WS_CLOSE_SUPERSEDED);
+      expect(closeEvent.reason).toBe('Superseded by new connection');
+
+      ws2.close();
+    });
+
+    it('routes mesh calls to the new socket after supersession', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('route.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      // First connection
+      const { ws: ws1 } = await connectAndWait(gateway, 'route', 'route.tab1');
+
+      // Second connection supersedes the first
+      const { ws: ws2 } = await connectAndWait(gateway, 'route', 'route.tab1');
+
+      // Send a call through the second socket — verify it routes to EchoDO
+      const chain = preprocess([
+        { type: 'get', key: 'echo' },
+        { type: 'apply', args: ['Hello from new socket!'] },
+      ]);
+
+      const callMessage: CallMessage = {
+        type: GatewayMessageType.CALL,
+        callId: 'supersession-call-1',
+        binding: 'ECHO_DO',
+        instance: 'echo-supersession-1',
+        chain,
+      };
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws2.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws2.removeEventListener('message', handler);
+            msg.result = postprocess(msg.result);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws2.send(JSON.stringify(callMessage));
+      const callResponse = await responsePromise;
+
+      expect(callResponse.success).toBe(true);
+      expect(callResponse.result).toMatchObject({
+        message: 'Echo: Hello from new socket!',
+      });
+
+      ws2.close();
+    });
+
+    it('reports subscriptionsLost: false on supersession (no grace period elapsed)', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('subs.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      // First connection
+      const { ws: ws1 } = await connectAndWait(gateway, 'subs', 'subs.tab1');
+
+      // Second connection — supersedes first, no grace period involved
+      const { ws: ws2, statusMessage } = await connectAndWait(gateway, 'subs', 'subs.tab1');
+
+      expect(statusMessage.subscriptionsLost).toBe(false);
+
+      ws2.close();
     });
   });
 

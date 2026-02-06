@@ -612,6 +612,82 @@ describe('Message Queue', () => {
   });
 });
 
+describe('Stale close from superseded socket', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('does not clobber new connection when old socket closes with 4409', () => {
+    const states: ConnectionState[] = [];
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+      onConnectionStateChange: (state) => states.push(state),
+    });
+
+    // First WebSocket connects
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+    expect(client.connectionState).toBe('connected');
+
+    // Simulate network drop — close fires, triggers reconnect
+    ws1.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+
+    // Client reconnects — new WebSocket is created
+    // (reconnect timer fires, creating ws2)
+    // For unit test, manually trigger connect since timers are mocked
+    client.connect();
+    const ws2 = createdWebSockets[1];
+    expect(ws2).toBeDefined();
+
+    ws2.simulateOpen();
+    ws2.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+    expect(client.connectionState).toBe('connected');
+
+    // Now the old socket's stale close event arrives (e.g., server sent 4409).
+    // Before the fix, this would set this.#ws = null, clobbering ws2.
+    ws1.simulateClose(4409, 'Superseded by new connection');
+
+    // Connection should still be 'connected' — stale close must be ignored
+    expect(client.connectionState).toBe('connected');
+
+    client.disconnect();
+  });
+
+  it('still handles close normally when socket is current', () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+    expect(client.connectionState).toBe('connected');
+
+    // Normal close on the current socket should still work
+    ws1.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+
+    client.disconnect();
+  });
+});
+
 describe('@mesh(guard) on LumenizeClient', () => {
   beforeEach(() => {
     createdWebSockets = [];

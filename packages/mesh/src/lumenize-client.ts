@@ -557,8 +557,14 @@ export abstract class LumenizeClient {
       this.#ws = new this.#WebSocketClass(url, protocols);
 
       // Set up event handlers
+      // Capture the socket reference so stale close events from superseded
+      // sockets don't clobber the new connection (see #handleClose guard).
+      const thisWs = this.#ws;
       this.#ws.onopen = () => this.#handleOpen();
-      this.#ws.onclose = (event) => this.#handleClose(event.code, event.reason);
+      this.#ws.onclose = (event) => {
+        if (this.#ws !== thisWs) return; // stale close from superseded socket
+        this.#handleClose(event.code, event.reason);
+      };
       this.#ws.onerror = (event) => this.#handleError(event);
       this.#ws.onmessage = (event) => this.#handleMessage(event.data);
 

@@ -18,6 +18,9 @@ const MARKER_ALARM_OFFSET_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 /** Timeout for client to respond to an incoming call (30 seconds) */
 const CLIENT_CALL_TIMEOUT_MS = 30000;
 
+/** Close code for superseded connections (parallel to HTTP 409 Conflict) */
+export const WS_CLOSE_SUPERSEDED = 4409;
+
 // ============================================
 // Wire Protocol Message Types
 // ============================================
@@ -316,6 +319,13 @@ export class LumenizeClientGateway extends DurableObject<any> {
       instanceName,
     };
 
+    // Close any existing sockets before accepting the new one.
+    // Multiple sockets means the client reconnected — supersede the old connection.
+    const existingSockets = this.ctx.getWebSockets();
+    for (const sock of existingSockets) {
+      sock.close(WS_CLOSE_SUPERSEDED, 'Superseded by new connection');
+    }
+
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment(attachment);
 
@@ -402,6 +412,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketClose');
 
     log.info('WebSocket closed', { code, reason });
+
+    // Skip grace period for superseded connections — a new connection already exists
+    if (code === WS_CLOSE_SUPERSEDED) {
+      return;
+    }
 
     // Set grace period alarm (5 seconds)
     // If client reconnects before alarm fires, subscriptions are preserved
@@ -697,7 +712,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
    */
   #getActiveWebSocket(): WebSocket | null {
     const sockets = this.ctx.getWebSockets();
-    return sockets.length > 0 ? sockets[0] : null;
+    return sockets.find(s => s.readyState === WebSocket.OPEN) ?? null;
   }
 
   /**
