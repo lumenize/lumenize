@@ -446,3 +446,7 @@ export default {
 :::note `SpellCheckWorker`
 The `SpellCheckWorker` is a [named entrypoint](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`.
 :::
+
+## (Recommended) Step 8: Configure Turnstile and Rate Limiting {#turnstile-and-rate-limiting}
+
+Turnstile and rate limiting are optional so you can get started quickly, but you should enable both before deploying to production. See [@lumenize/auth: Rate Limiting](/docs/auth/getting-started#rate-limiting) for setup instructions and why they matter.

@@ -180,7 +180,7 @@ function forwardJwtRequest(request: Request, token: string): Request {
  * });
  * ```
  *
- * @throws If no JWT public keys found or rate limiter binding missing
+ * @throws If no JWT public keys found
  * @see https://lumenize.com/docs/auth/#server-side-token-verification
  */
 export async function createRouteDORequestAuthHooks(
@@ -197,9 +197,11 @@ export async function createRouteDORequestAuthHooks(
   // Resolve rate limiter binding (cast required — not in generated Env type)
   const rateLimiter = (env as unknown as Record<string, unknown>)['LUMENIZE_AUTH_RATE_LIMITER'] as RateLimit | undefined;
   if (!rateLimiter) {
-    throw new Error(
-      "Rate limiter binding 'LUMENIZE_AUTH_RATE_LIMITER' not found in env. " +
-      'Add a rate_limits binding to your wrangler.jsonc.'
+    console.warn(
+      '[lumenize/auth] LUMENIZE_AUTH_RATE_LIMITER binding not found — rate limiting is disabled. ' +
+      'This leaves your authenticated routes unprotected against abuse. ' +
+      'Add a rate_limits binding to your wrangler.jsonc. ' +
+      'See https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/'
     );
   }
 
@@ -219,9 +221,11 @@ export async function createRouteDORequestAuthHooks(
     const result = await verifyAndGate(token, publicKeys, issuer, audience);
     if ('error' in result) return result.error;
 
-    // Per-subject rate limiting
-    const { success } = await rateLimiter.limit({ key: result.payload.sub });
-    if (!success) return createRateLimitResponse();
+    // Per-subject rate limiting (skipped when binding not configured)
+    if (rateLimiter) {
+      const { success } = await rateLimiter.limit({ key: result.payload.sub });
+      if (!success) return createRateLimitResponse();
+    }
 
     return forwardJwtRequest(request, token);
   };
@@ -240,9 +244,11 @@ export async function createRouteDORequestAuthHooks(
     const result = await verifyAndGate(token, publicKeys, issuer, audience);
     if ('error' in result) return result.error;
 
-    // Per-subject rate limiting
-    const { success } = await rateLimiter.limit({ key: result.payload.sub });
-    if (!success) return createRateLimitResponse();
+    // Per-subject rate limiting (skipped when binding not configured)
+    if (rateLimiter) {
+      const { success } = await rateLimiter.limit({ key: result.payload.sub });
+      if (!success) return createRateLimitResponse();
+    }
 
     return forwardJwtRequest(request, token);
   };

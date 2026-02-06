@@ -7,9 +7,10 @@ Must have:
   - [x] Fix Worker call() bugs (missing __localChainExecutor, missing bindingName validation)
     - [x] Worker callRaw() and call() tests (18 new tests in lumenize-worker.test.ts)
   - [x] Gateway must close old connection when new one arrives
-  - [ ] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
+  - [x] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
   - [ ] Refactor Gateway depending upon results of experiment to confirm alarm takes storage
   - [ ] Get test coverage up to targets
+  - [ ] Resolve remaining skip-checks
 - [ ] Website home page rewrite
   - [ ] Tag line
   - [ ] Hero sections

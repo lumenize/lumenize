@@ -134,15 +134,27 @@ Rate limiting runs at the Worker level, not in the LumenizeAuth DO. This keeps t
 
 Fingerprint-reputation filtering handles volumetric attacks automatically. No configuration needed.
 
-### Magic-Link Endpoint: Turnstile
+### Magic-Link Endpoint: Turnstile {#turnstile}
 
-The unauthenticated `POST {prefix}/email-magic-link` endpoint needs abuse protection. [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) proves the requester is human before the request reaches your Worker — it's free, GDPR-compliant, and requires no CAPTCHA interaction. `createAuthRoutes` requires `TURNSTILE_SECRET_KEY` in your environment and throws at creation time if missing.
+The unauthenticated `POST {prefix}/email-magic-link` endpoint needs abuse protection. [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) proves the requester is human before the request reaches your Worker — it's free, GDPR-compliant, and requires no CAPTCHA interaction.
+
+If `TURNSTILE_SECRET_KEY` is set, `createAuthRoutes` verifies every magic-link request against Cloudflare and returns 403 on failure. If the key is **not** set, Turnstile verification is skipped and a console warning is emitted. See [Get Started with Turnstile](https://developers.cloudflare.com/turnstile/get-started/) to obtain your secret key.
+
+:::warning Deploy with Turnstile enabled
+Without Turnstile, anyone can request magic links for arbitrary email addresses, generating email traffic and potentially exhausting your email sending quota. Always configure `TURNSTILE_SECRET_KEY` before deploying to production.
+:::
 
 Your frontend embeds the [Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/) and includes the resulting token as `cf-turnstile-response` in the request body alongside `email` (see [Request Magic Link](/docs/auth/auth-flow#request-magic-link) for the full request example). `createAuthRoutes` extracts it and verifies with Cloudflare before forwarding to the DO. Returns 403 if verification fails.
 
-### Authenticated Routes: Rate Limiter
+### Authenticated Routes: Rate Limiter {#rate-limiter}
 
-`LUMENIZE_AUTH_RATE_LIMITER` protects all authenticated routes handled by `createRouteDORequestAuthHooks`, keyed on `sub` from the decoded JWT. Uses Cloudflare's [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/). `createRouteDORequestAuthHooks` **requires** this binding and throws at creation time if missing.
+`LUMENIZE_AUTH_RATE_LIMITER` protects all authenticated routes handled by `createRouteDORequestAuthHooks`, keyed on `sub` from the decoded JWT. Uses Cloudflare's [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+
+If the binding is not configured, rate limiting is skipped and a console warning is emitted.
+
+:::warning Deploy with rate limiting enabled
+Without per-subject rate limiting, a compromised or malicious JWT can flood your Durable Objects with requests. Always add the `LUMENIZE_AUTH_RATE_LIMITER` binding before deploying to production.
+:::
 
 ### Setup
 

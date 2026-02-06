@@ -14,9 +14,9 @@ import type { AuthRoutesOptions } from './types';
  * are passed here.
  *
  * Turnstile validation: POST requests to `email-magic-link` require a valid
- * `cf-turnstile-response` in the JSON body. Skipped in test mode.
+ * `cf-turnstile-response` in the JSON body. Skipped in test mode or when
+ * `TURNSTILE_SECRET_KEY` is not set (with a console warning).
  *
- * @throws If `TURNSTILE_SECRET_KEY` is not set and `LUMENIZE_AUTH_TEST_MODE !== 'true'`
  * @see https://lumenize.com/docs/auth/getting-started#createauthroutes
  */
 export function createAuthRoutes(
@@ -30,11 +30,12 @@ export function createAuthRoutes(
   const testMode = envRecord.LUMENIZE_AUTH_TEST_MODE === 'true';
   const turnstileSecretKey = envRecord.TURNSTILE_SECRET_KEY as string | undefined;
 
-  // Fail fast: require Turnstile secret key in non-test mode
+  // Warn when Turnstile secret key is missing in non-test mode
   if (!testMode && !turnstileSecretKey) {
-    throw new Error(
-      'TURNSTILE_SECRET_KEY is required for createAuthRoutes. ' +
-      'Set it in your environment or enable LUMENIZE_AUTH_TEST_MODE for testing.'
+    console.warn(
+      '[lumenize/auth] TURNSTILE_SECRET_KEY is not set — Turnstile verification is disabled. ' +
+      'This leaves your magic-link endpoint unprotected against automated abuse. ' +
+      'See https://developers.cloudflare.com/turnstile/get-started/ to obtain a key.'
     );
   }
 
@@ -58,8 +59,8 @@ export function createAuthRoutes(
     // Extract the endpoint path after the prefix
     const endpointPath = path.slice(cleanPrefix.length + 1) || '';
 
-    // Turnstile validation for POST email-magic-link (non-test mode only)
-    if (!testMode && request.method === 'POST' && endpointPath === 'email-magic-link') {
+    // Turnstile validation for POST email-magic-link (skipped in test mode or when no secret key)
+    if (!testMode && turnstileSecretKey && request.method === 'POST' && endpointPath === 'email-magic-link') {
       // Clone before consuming body so the original streams through to the DO
       const clonedRequest = request.clone();
 
@@ -84,7 +85,7 @@ export function createAuthRoutes(
         );
       }
 
-      const result = await verifyTurnstileToken(turnstileSecretKey!, turnstileToken);
+      const result = await verifyTurnstileToken(turnstileSecretKey, turnstileToken);
       if (!result.success) {
         return new Response(
           JSON.stringify({

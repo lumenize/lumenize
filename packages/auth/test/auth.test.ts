@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parseJwtUnsafe, verifyJwt, importPublicKey, signJwt, importPrivateKey, createJwtPayload } from '../src/jwt';
 import {
@@ -2590,20 +2590,24 @@ describe('@lumenize/auth - Turnstile validation', () => {
     expect(() => createAuthRoutes(env)).not.toThrow();
   });
 
-  it('createAuthRoutes throws without TURNSTILE_SECRET_KEY in non-test mode', () => {
-    // createAuthRoutes imported at top of file
+  it('createAuthRoutes warns without TURNSTILE_SECRET_KEY in non-test mode', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const nonTestEnv = { ...env, LUMENIZE_AUTH_TEST_MODE: undefined };
-    expect(() => createAuthRoutes(nonTestEnv as typeof env)).toThrow('TURNSTILE_SECRET_KEY');
+    expect(() => createAuthRoutes(nonTestEnv as typeof env)).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('TURNSTILE_SECRET_KEY'));
+    warnSpy.mockRestore();
   });
 
-  it('createAuthRoutes does not throw with TURNSTILE_SECRET_KEY in non-test mode', () => {
-    // createAuthRoutes imported at top of file
+  it('createAuthRoutes does not warn with TURNSTILE_SECRET_KEY in non-test mode', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const prodEnv = {
       ...env,
       LUMENIZE_AUTH_TEST_MODE: undefined,
       TURNSTILE_SECRET_KEY: 'some-secret',
     };
     expect(() => createAuthRoutes(prodEnv as typeof env)).not.toThrow();
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   it('test mode bypasses Turnstile — existing magic link flow still works', async () => {
@@ -2726,11 +2730,14 @@ describe('@lumenize/auth - Turnstile validation', () => {
 });
 
 describe('@lumenize/auth - Rate limiting', () => {
-  it('createRouteDORequestAuthHooks throws when rate limiter binding is missing', async () => {
+  it('createRouteDORequestAuthHooks warns when rate limiter binding is missing', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const envWithoutRateLimiter = { ...env, LUMENIZE_AUTH_RATE_LIMITER: undefined } as unknown as Env;
-    await expect(
-      createRouteDORequestAuthHooks(envWithoutRateLimiter)
-    ).rejects.toThrow('Rate limiter binding');
+    const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(envWithoutRateLimiter);
+    expect(typeof onBeforeRequest).toBe('function');
+    expect(typeof onBeforeConnect).toBe('function');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('LUMENIZE_AUTH_RATE_LIMITER'));
+    warnSpy.mockRestore();
   });
 
   it('createRouteDORequestAuthHooks succeeds with default rate limiter binding', async () => {

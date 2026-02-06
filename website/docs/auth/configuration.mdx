@@ -42,17 +42,17 @@ The Auth DO and Worker hooks read these from environment variables. Sensible def
 | `JWT_PRIVATE_KEY_GREEN` | Secret | No² | Auth DO | Ed25519 private key (GREEN slot) |
 | `JWT_PUBLIC_KEY_GREEN` | Secret | No² | Auth DO, hooks | Ed25519 public key (GREEN slot) |
 | `PRIMARY_JWT_KEY` | Variable | Yes | Auth DO | Active signing slot: `"BLUE"` or `"GREEN"` |
-| `TURNSTILE_SECRET_KEY` | Secret | Yes | `createAuthRoutes` | [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) server-side secret |
+| `TURNSTILE_SECRET_KEY` | Secret | Recommended | `createAuthRoutes` | [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) server-side secret. Without it, the magic-link endpoint has no bot protection. See [Get Started with Turnstile](https://developers.cloudflare.com/turnstile/get-started/) |
 
 ¹ At least one key pair (BLUE or GREEN) is required. ² Second slot needed only during [key rotation](/docs/auth/getting-started#key-rotation).
 
 **Naming convention**: `LUMENIZE_AUTH_*` for Lumenize-specific config, `JWT_*` for industry-standard key material (shared across packages), vendor prefix (e.g., `TURNSTILE_*`) for third-party services.
 
-### Required Bindings
+### Bindings
 
 These are Lumenize conventions — define them in your `wrangler.jsonc` with these exact names.
 
-| Binding | Type | Read By | Description |
-|---------|------|---------|-------------|
-| `LUMENIZE_AUTH` | Durable Object namespace | `createAuthRoutes` | Namespace binding for the [LumenizeAuth](/docs/auth/) DO |
-| `LUMENIZE_AUTH_RATE_LIMITER` | [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) | `createRouteDORequestAuthHooks` | Per-subject rate limiting keyed on `sub` from the decoded JWT |
+| Binding | Type | Required | Read By | Description |
+|---------|------|----------|---------|-------------|
+| `LUMENIZE_AUTH` | Durable Object namespace | Yes | `createAuthRoutes` | Namespace binding for the [LumenizeAuth](/docs/auth/) DO |
+| `LUMENIZE_AUTH_RATE_LIMITER` | [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) | Recommended | `createRouteDORequestAuthHooks` | Per-subject rate limiting keyed on `sub` from the decoded JWT. Without it, authenticated routes have no per-user rate limiting |
