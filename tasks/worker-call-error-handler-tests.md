@@ -14,6 +14,9 @@ DO `call()` throws if `this.bindingName` isn't set (`lmz-api.ts:614-619`). Worke
 ### Cleanup: Unnecessary @mesh on DO result handlers
 `TestDO.handleCallResult()` and `TestDO.handleCallError()` have `@mesh()` decorators, but result handlers don't need them — `createHandlerExecutor` passes `{ requireMeshDecorator: false }` (line 133). These are likely pre-bug-fix remnants. Remove them.
 
+### Worker `callRaw()` is also untested
+`TestWorker` has `testCallRawToDO` and `testCallRawToWorker` helper methods (lines 867-888 of `test-worker-and-dos.ts`) but they are never called from any test file. A comment in `lumenize-worker.test.ts:87` claims they're tested elsewhere — this is wrong. Since `call()` delegates to `callRaw()` internally, `callRaw` coverage is foundational and should come first.
+
 ### DO→Worker error path is untested
 No test exists where a DO calls a Worker method that throws and the DO's result handler receives the error. `TestWorker` has no `throwError()` remote handler.
 
@@ -73,7 +76,19 @@ Add to `TestDO`:
 - `storeForwardedError(error)` — stores a forwarded error from a Worker
 - `getForwardedResult()` / `getForwardedError()` — getters for the above
 
-### Step 6: Add Worker `call()` tests
+### Step 6: Add Worker `callRaw()` tests
+**File**: `packages/mesh/test/lumenize-worker.test.ts`
+
+New describe block: `'LumenizeWorker - callRaw() RPC Calls'`
+
+Tests (using existing `testCallRawToDO` and `testCallRawToWorker` helpers):
+1. **Worker→DO callRaw** — Worker calls DO `remoteEcho`, gets result
+2. **Worker→Worker callRaw** — Worker calls Worker `workerEcho`, gets result
+3. **Worker→DO callRaw error** — Worker calls DO `throwError`, gets error
+
+Also remove the incorrect "tested via callRaw" comment placeholder tests.
+
+### Step 7: Add Worker `call()` tests
 **File**: `packages/mesh/test/lumenize-worker.test.ts`
 
 New describe block: `'LumenizeWorker - call() Fire-and-Forget with Result Handlers'`
