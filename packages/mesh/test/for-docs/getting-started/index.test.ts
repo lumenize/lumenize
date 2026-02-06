@@ -39,7 +39,8 @@ it('collaborative document editing with multiple clients', async () => {
   // Test setup - authenticate user
   // ============================================
   const browser = new Browser();
-  const { sub: userId } = await testLoginWithMagicLink(browser, 'alice@example.com', { subjectData: { adminApproved: true } });
+  const aliceCtx = browser.context('https://localhost');
+  await testLoginWithMagicLink(browser, 'alice@example.com', { subjectData: { adminApproved: true } });
 
   // ============================================
   // Example code - this is what we show in docs
@@ -47,11 +48,12 @@ it('collaborative document editing with multiple clients', async () => {
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using client = new EditorClient({
-    instanceName: `${userId}.tab1`,  // From auth context (JWT sub claim)
     baseUrl: 'https://localhost',
     refresh: 'https://localhost/auth/refresh-token',
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
+    sessionStorage: aliceCtx.sessionStorage,
+    BroadcastChannel: aliceCtx.BroadcastChannel,
   });
 
   await vi.waitFor(() => {
@@ -80,14 +82,16 @@ it('collaborative document editing with multiple clients', async () => {
   // Additional test: second client (Bob) joins
   // ============================================
   const bobBrowser = new Browser();
-  const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
+  const bobCtx = bobBrowser.context('https://localhost');
+  await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
 
   using bob = new EditorClient({
-    instanceName: `${bobUserId}.tab1`,
     baseUrl: 'https://localhost',
     refresh: 'https://localhost/auth/refresh-token',
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
+    sessionStorage: bobCtx.sessionStorage,
+    BroadcastChannel: bobCtx.BroadcastChannel,
   });
 
   await vi.waitFor(() => {
@@ -114,7 +118,7 @@ it('collaborative document editing with multiple clients', async () => {
     using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
     const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
     expect(subscribers).toBeInstanceOf(Set);
-    expect(subscribers!.has(`${bobUserId}.tab1`)).toBe(true);
+    expect(subscribers!.has(bob.lmz.instanceName)).toBe(true);
   }
 
   // Bob continues the document, both receive the broadcast

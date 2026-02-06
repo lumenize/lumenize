@@ -2,7 +2,8 @@
 
 Must have:
 - [ ] Code:
-  - [ ] Fix bootstrap problem for LumenizeClient
+  - [x] Fix bootstrap problem for LumenizeClient
+    - [x] Upgrade Browser with BroadcastChannel and sessionStorage in support of testing above
   - [ ] Refactor Gateway depending upon results of experiment to confirm alarm takes storage
   - [ ] Gateway must close old connection when new one arrives
   - [ ] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
