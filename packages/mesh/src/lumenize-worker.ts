@@ -29,7 +29,7 @@ export type { Continuation, AnyContinuation };
  * **Key differences from LumenizeBase**:
  * - Workers are ephemeral (no storage, no persistence)
  * - No `instanceName` or `id` (always undefined)
- * - `call()` is async (no `blockConcurrencyWhile`)
+ * - `call()` uses `ctx.waitUntil()` to keep the Worker alive for fire-and-forget calls
  * - No NADIS support (no `this.svc`)
  * 
  * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples

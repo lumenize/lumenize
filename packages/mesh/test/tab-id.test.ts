@@ -40,13 +40,10 @@ describe('getOrCreateTabId', () => {
       const tab = browser.context('https://example.com');
 
       const id1 = await getOrCreateTabId(tab);
-      // Simulate the same tab calling again (e.g., page reload within SPA)
-      // Close doesn't happen in real browsers on reload — sessionStorage persists
-      // But the listener from the first call is gone, so probe gets no response
-      const id2 = await getOrCreateTabId({
-        sessionStorage: tab.sessionStorage,
-        BroadcastChannel: tab.BroadcastChannel,
-      });
+      // Simulate page reload: JS state (BroadcastChannel listeners) torn down,
+      // but sessionStorage persists
+      tab.closeChannels();
+      const id2 = await getOrCreateTabId(tab);
 
       expect(id2).toBe(id1);
     });

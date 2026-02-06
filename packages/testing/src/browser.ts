@@ -86,16 +86,24 @@ export class Context {
   }
 
   /**
+   * Close all open BroadcastChannels without clearing sessionStorage.
+   * Models a page reload where JS state is destroyed but storage persists.
+   */
+  closeChannels(): void {
+    for (const channel of this.#openChannels) {
+      channel.close();
+    }
+    this.#openChannels.clear();
+  }
+
+  /**
    * Close this context. Clears sessionStorage and closes all open BroadcastChannels.
    */
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
     this.sessionStorage.clear();
-    for (const channel of this.#openChannels) {
-      channel.close();
-    }
-    this.#openChannels.clear();
+    this.closeChannels();
   }
 }
 

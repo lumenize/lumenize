@@ -180,8 +180,8 @@ export function setupFireAndForgetHandler(
   callPromise: Promise<any>,
   handlerChain: OperationChain | undefined,
   executeHandler: (chain: OperationChain) => Promise<any>
-): void {
-  callPromise
+): Promise<void> {
+  return callPromise
     .then(async (result) => {
       await executeHandlerWithResult(handlerChain, result, executeHandler);
     })
@@ -760,38 +760,32 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       return response?.$result;
     },
 
-    async call<T = any>(
+    call<T = any>(
       calleeBindingName: string,
       calleeInstanceName: string | undefined,
       remoteContinuation: Continuation<T>,
-      handlerContinuation: AnyContinuation,
+      handlerContinuation?: AnyContinuation,
       options?: CallOptions
-    ): Promise<void> {
-      // Async version - Workers don't have blockConcurrencyWhile, so we await
+    ): void {
       // 1. Extract and validate chains (shared helper)
-      // Note: Worker requires handlerContinuation, so we validate it here
       const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
-      if (!handlerChain) {
-        throw new Error('Invalid handlerContinuation: must be created with this.ctn()');
-      }
 
       // 2. Set up handler execution (shared helpers)
       const capturedContext = captureCallContext();
       const localExecutor = workerInstance.__localChainExecutor;
       const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
 
-      // 3. Make remote call with context and await result
-      try {
-        const result = await (capturedContext
-          ? runWithCallContext(capturedContext, () =>
-              this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
-          : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options));
+      // 3. Make remote call with context
+      const callPromise = capturedContext
+        ? runWithCallContext(capturedContext, () =>
+            this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
+        : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
 
-        await executeHandlerWithResult(handlerChain, result, executeHandler);
-      } catch (error) {
-        const errorObj = error instanceof Error ? error : new Error(String(error));
-        await executeHandlerWithResult(handlerChain, errorObj, executeHandler);
-      }
+      // 4. Fire-and-forget with handler callbacks (shared helper)
+      // Workers are ephemeral — ctx.waitUntil() keeps the runtime alive
+      // until the fire-and-forget promise settles
+      const handledPromise = setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);
+      workerInstance.ctx.waitUntil(handledPromise);
     },
   };
 }
