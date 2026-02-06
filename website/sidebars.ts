@@ -231,6 +231,7 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/testing/testing-agent-with-agent-client/test/agents.test.ts'
           }
         },
+        'testing/cors-support',
         ...(typedocTestingSidebar && typedocTestingSidebar.length > 0
           ? [wrapInApiReference(typedocTestingSidebar, 'API Reference')]
           : []),
@@ -293,7 +294,6 @@ const sidebars: SidebarsConfig = {
       label: 'Utils',
       items: [
         'utils/route-do-request',
-        'utils/cors-support',
         ...(typedocUtilsSidebar && typedocUtilsSidebar.length > 0
           ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
           : []),

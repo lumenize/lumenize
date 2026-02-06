@@ -7,7 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { ExampleDO } from './test-worker-and-dos';
 
 describe('WebSocket Edge Cases', () => {

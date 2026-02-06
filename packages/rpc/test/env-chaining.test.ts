@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { env, SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { ManualRoutingDO } from './test-worker-and-dos';
 
 describe('Env chaining functionality', () => {

@@ -1,7 +1,6 @@
 # Solve Bootstrap Problem with LumenizeClient
 
-> **Status**: BLOCKED on [upgrade-browser-with-storage-apis.md](./upgrade-browser-with-storage-apis.md)
-> Complete the Browser upgrade first, then return here.
+> **Status**: READY — Browser upgrade complete ([upgrade-browser-with-storage-apis.md](./upgrade-browser-with-storage-apis.md) is DONE)
 
 ## Problem
 

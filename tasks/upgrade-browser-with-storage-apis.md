@@ -1,6 +1,6 @@
-# Upgrade Browser Class with Storage APIs
+# Upgrade Browser Class with Storage APIs — DONE
 
-> **Blocks**: [solve-bootstrap-problem-with-lumenize-client.md](./solve-bootstrap-problem-with-lumenize-client.md)
+> **Unblocks**: [solve-bootstrap-problem-with-lumenize-client.md](./solve-bootstrap-problem-with-lumenize-client.md)
 
 ## Decision: Move Browser to `@lumenize/testing`
 

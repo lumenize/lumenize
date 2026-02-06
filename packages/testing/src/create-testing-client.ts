@@ -1,6 +1,6 @@
 import type { RpcAccessible, RpcClientProxy } from '@lumenize/rpc';
 import { createRpcClient, createHttpTransport, createWebSocketTransport } from '@lumenize/rpc';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from './websocket-shim';
 
 /**
  * Creates a testing-optimized RPC client for Cloudflare Durable Objects.

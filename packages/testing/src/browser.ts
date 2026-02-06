@@ -1,6 +1,8 @@
 import { Cookie, parseSetCookies, serializeCookies, cookieMatches } from './cookie-utils';
 import { getWebSocketShim } from './websocket-shim';
 import type { Metrics } from './metrics';
+import { StorageMock } from './storage-mock';
+import { createBroadcastChannelConstructor, type BroadcastChannelRegistry } from './broadcast-channel-mock';
 
 /**
  * Configuration options for Browser
@@ -12,7 +14,7 @@ export interface BrowserOptions {
 
 /**
  * Information about a CORS preflight request
- * 
+ *
  * @private
  */
 type PreflightInfo = {
@@ -21,6 +23,81 @@ type PreflightInfo = {
   headers: string[];
   success: boolean;
 };
+
+/**
+ * A browsing context (conceptually a browser tab) with its own sessionStorage
+ * and access to shared BroadcastChannel for cross-context communication.
+ *
+ * Created via `browser.context(origin)`. Each context is independent —
+ * sessionStorage is per-context, while BroadcastChannel and cookies are
+ * shared across all contexts from the same origin/browser.
+ *
+ * Backward compatible with the previous plain-object return type:
+ * `const { fetch, WebSocket } = browser.context(origin)` still works.
+ */
+export class Context {
+  /** Cookie-aware, CORS-validating fetch scoped to this context's origin */
+  readonly fetch: typeof fetch;
+  /** Cookie-aware WebSocket constructor scoped to this context's origin */
+  readonly WebSocket: typeof WebSocket;
+  /** Per-context Storage (independent per context, like real sessionStorage) */
+  readonly sessionStorage: Storage;
+  /** BroadcastChannel constructor scoped to this context's origin */
+  readonly BroadcastChannel: typeof BroadcastChannel;
+
+  /** @internal */ readonly origin: string;
+  /** @internal */ #preflightTracker: { lastPreflight: PreflightInfo | null };
+  /** @internal */ #openChannels = new Set<{ close(): void }>();
+  /** @internal */ #closed = false;
+
+  /** @internal */
+  constructor(
+    origin: string,
+    contextFetch: typeof fetch,
+    ContextWebSocket: typeof WebSocket,
+    sessionStorage: StorageMock,
+    channelRegistry: BroadcastChannelRegistry,
+    preflightTracker: { lastPreflight: PreflightInfo | null },
+  ) {
+    this.origin = origin;
+    this.fetch = contextFetch;
+    this.WebSocket = ContextWebSocket;
+    this.sessionStorage = sessionStorage;
+    this.#preflightTracker = preflightTracker;
+
+    // Create a BroadcastChannel constructor that tracks open channels for cleanup
+    const ctx = this;
+    const BaseBroadcastChannel = createBroadcastChannelConstructor(channelRegistry);
+    this.BroadcastChannel = class TrackedBroadcastChannel extends BaseBroadcastChannel {
+      constructor(name: string) {
+        super(name);
+        ctx.#openChannels.add(this);
+      }
+      close() {
+        super.close();
+        ctx.#openChannels.delete(this);
+      }
+    } as unknown as typeof BroadcastChannel;
+  }
+
+  /** Information about the last CORS preflight request (for testing/debugging) */
+  get lastPreflight(): PreflightInfo | null {
+    return this.#preflightTracker.lastPreflight;
+  }
+
+  /**
+   * Close this context. Clears sessionStorage and closes all open BroadcastChannels.
+   */
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.sessionStorage.clear();
+    for (const channel of this.#openChannels) {
+      channel.close();
+    }
+    this.#openChannels.clear();
+  }
+}
 
 /**
  * Cookie and Origin-aware client for HTTP and WebSockets
@@ -35,8 +112,8 @@ type PreflightInfo = {
  * 
  * The Browser automatically detects the appropriate fetch function to use:
  * 1. Uses provided fetch if passed to constructor
- * 2. Uses SELF.fetch from cloudflare:test if in Cloudflare Workers vitest environment
- * 3. Uses globalThis.fetch if available
+ * 2. Uses `SELF.fetch` from `cloudflare:test` if in Cloudflare Workers vitest environment
+ * 3. Uses `globalThis.fetch` if available (Node.js, browsers, bun)
  * 4. Throws error if no fetch is available
  * 
  * @example
@@ -66,25 +143,26 @@ export class Browser {
   #inferredHostname?: string;
   #baseFetch: typeof fetch;
   #metrics?: Metrics;
+  #channelRegistries = new Map<string, BroadcastChannelRegistry>();
 
   /**
    * Create a new Browser instance
-   * 
-   * @param fetchFn - Optional fetch function to use. If not provided, will use globalThis.fetch.
-   *   In Cloudflare Workers vitest environment, use the Browser from @lumenize/testing which
-   *   automatically provides SELF.fetch.
+   *
+   * @param fetchFn - Optional fetch function to use. If not provided, auto-detects:
+   *   first tries `SELF.fetch` from `cloudflare:test` (Workers vitest environment),
+   *   then falls back to `globalThis.fetch`.
    * @param options - Optional configuration including metrics tracking.
-   * 
+   *
    * @example
    * ```typescript
-   * // In Cloudflare Workers test environment - use Browser from @lumenize/testing
+   * // In Cloudflare Workers test environment — auto-detects SELF.fetch
    * import { Browser } from '@lumenize/testing';
-   * const browser = new Browser(); // Auto-detects SELF.fetch
-   * 
-   * // Outside Workers environments - pass fetch explicitly or use globalThis.fetch
-   * import { Browser } from '@lumenize/utils';
+   * const browser = new Browser();
+   *
+   * // Outside Workers environments — pass fetch explicitly or rely on globalThis.fetch
+   * import { Browser } from '@lumenize/testing';
    * const browser = new Browser(fetch);
-   * 
+   *
    * // With metrics tracking
    * const metrics: Metrics = {};
    * const browser = new Browser(fetch, { metrics });
@@ -95,15 +173,25 @@ export class Browser {
   constructor(fetchFn?: typeof fetch, options?: BrowserOptions) {
     if (fetchFn) {
       this.#baseFetch = fetchFn;
-    } else if (typeof globalThis?.fetch === 'function') {
-      this.#baseFetch = globalThis.fetch;
     } else {
-      throw new Error(
-        'No fetch function available. Either:\n' +
-        '1. Pass fetch to Browser constructor: new Browser(fetch)\n' +
-        '2. Use Browser from @lumenize/testing in Cloudflare Workers vitest environment\n' +
-        '3. Ensure globalThis.fetch is available'
-      );
+      // Try SELF.fetch from Cloudflare Workers test environment
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { SELF } = require('cloudflare:test');
+        this.#baseFetch = SELF.fetch.bind(SELF);
+      } catch {
+        // Not in Workers test environment — fall back to globalThis.fetch
+        if (typeof globalThis?.fetch === 'function') {
+          this.#baseFetch = globalThis.fetch;
+        } else {
+          throw new Error(
+            'No fetch function available. Either:\n' +
+            '1. Pass fetch to Browser constructor: new Browser(fetch)\n' +
+            '2. Ensure you are in a Cloudflare Workers vitest environment\n' +
+            '3. Ensure globalThis.fetch is available'
+          );
+        }
+      }
     }
     this.#metrics = options?.metrics;
   }
@@ -255,71 +343,89 @@ export class Browser {
   }
 
   /**
-   * Create a context with Origin header for browser-like CORS behavior
-   * 
-   * Returns an object with fetch and WebSocket that both:
-   * - Include cookies from this browser
-   * - Include the specified Origin header
-   * - Include any custom headers
-   * 
-   * The fetch function returned by context() validates CORS headers and will throw
-   * a TypeError (like a real browser) if the server doesn't properly allow the origin.
-   * 
+   * Create a browsing context (conceptually a browser tab)
+   *
+   * Each context has:
+   * - Cookie-aware, CORS-validating `fetch` scoped to the origin
+   * - Cookie-aware `WebSocket` constructor
+   * - Per-context `sessionStorage` (independent per context)
+   * - `BroadcastChannel` constructor for cross-context messaging (shared per origin)
+   *
    * @param origin - The origin to use (e.g., 'https://example.com')
    * @param options - Optional headers and WebSocket configuration
-   * @returns Object with fetch function and WebSocket constructor
-   * 
+   * @returns A Context instance (backward-compatible: destructuring still works)
+   *
    * @example
    * ```typescript
    * const browser = new Browser();
-   * 
-   * // Simple usage - validates CORS on cross-origin requests
-   * const page = browser.context('https://example.com');
-   * await page.fetch('https://api.example.com/data'); // Validates CORS
-   * 
-   * // Same-origin request - no CORS validation needed
-   * await page.fetch('https://example.com/data'); // No validation
-   * 
-   * // With custom headers
-   * const page2 = browser.context('https://example.com', {
-   *   headers: { 'X-Custom': 'value' },
-   *   maxQueueBytes: 1024 * 1024
-   * });
-   * const ws = new page2.WebSocket('wss://api.example.com/ws');
-   * 
-   * // CORS error example - will throw TypeError
-   * try {
-   *   await browser.context('https://app.com').fetch('https://api.com/data');
-   *   // Throws if api.com doesn't send proper CORS headers
-   * } catch (err) {
-   *   console.error('CORS error:', err); // TypeError: Failed to fetch
-   * }
+   *
+   * // Full context with storage and messaging
+   * const tab = browser.context('https://example.com');
+   * tab.sessionStorage.setItem('key', 'value');
+   * const ch = new tab.BroadcastChannel('sync');
+   *
+   * // Backward-compatible destructuring
+   * const { fetch, WebSocket } = browser.context('https://example.com');
    * ```
    */
-  context(origin: string, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): {
-    fetch: typeof fetch;
-    WebSocket: typeof WebSocket;
-    lastPreflight: PreflightInfo | null;
-  } {
+  context(origin: string, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): Context {
+    return this.#createContext(origin, new StorageMock(), options);
+  }
+
+  /**
+   * Create a duplicate of an existing context, simulating browser tab duplication.
+   *
+   * The new context gets a **clone** of the original's sessionStorage (same data,
+   * independent mutations) and shares the same BroadcastChannel namespace and cookies.
+   * This is exactly how real browsers behave when a tab is duplicated.
+   *
+   * @param ctx - The context to duplicate
+   * @param options - Optional headers and WebSocket configuration overrides
+   * @returns A new Context with cloned sessionStorage
+   *
+   * @example
+   * ```typescript
+   * const tab1 = browser.context('https://example.com');
+   * tab1.sessionStorage.setItem('lmz_tab', 'abc123');
+   *
+   * const tab2 = browser.duplicateContext(tab1);
+   * tab2.sessionStorage.getItem('lmz_tab'); // 'abc123' (cloned)
+   *
+   * // BroadcastChannel works across original and duplicate
+   * const ch1 = new tab1.BroadcastChannel('probe');
+   * const ch2 = new tab2.BroadcastChannel('probe');
+   * // ch1 and ch2 can communicate
+   * ```
+   */
+  duplicateContext(ctx: Context, options?: { headers?: Record<string, string>; maxQueueBytes?: number }): Context {
+    const clonedStorage = (ctx.sessionStorage as StorageMock).clone();
+    return this.#createContext(ctx.origin, clonedStorage, options);
+  }
+
+  #createContext(
+    origin: string,
+    sessionStorage: StorageMock,
+    options?: { headers?: Record<string, string>; maxQueueBytes?: number },
+  ): Context {
     // Track the last preflight request (non-standard extension for testing/debugging)
     const preflightTracker = { lastPreflight: null as PreflightInfo | null };
-    
+
     // Wrap fetch to add Origin header, send preflight if needed, and validate CORS
     const contextFetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const request = new Request(input, init);
       const requestUrl = new URL(request.url);
-      
+
       // Add Origin header if not already present
       if (!request.headers.has('Origin')) {
         request.headers.set('Origin', origin);
       }
-      
+
       // Get the actual origin that will be sent (might be explicitly overridden)
       const actualOrigin = request.headers.get('Origin') || origin;
-      
+
       // Check if this is a cross-origin request
       const isCrossOrigin = requestUrl.origin !== actualOrigin;
-      
+
       // Send preflight OPTIONS if this is a cross-origin non-simple request
       if (isCrossOrigin && this.#requiresPreflight(request)) {
         try {
@@ -332,34 +438,44 @@ export class Browser {
       } else {
         preflightTracker.lastPreflight = null;
       }
-      
+
       // Make the actual request
       const response = await this.fetch(request);
-      
+
       // Validate CORS for cross-origin requests
       if (isCrossOrigin) {
         this.#validateCorsResponse(response, actualOrigin, request.credentials === 'include');
       }
-      
+
       return response;
     };
-    
+
     // Create WebSocket with Origin header
     const headers = {
       Origin: origin,
       ...options?.headers
     };
-    
+
     const ContextWebSocket = getWebSocketShim(this.fetch, {
       headers,
       maxQueueBytes: options?.maxQueueBytes
     });
-    
-    return {
-      fetch: contextFetch as typeof fetch,
-      WebSocket: ContextWebSocket,
-      get lastPreflight() { return preflightTracker.lastPreflight; }
-    };
+
+    // Get or create BroadcastChannel registry for this origin
+    let channelRegistry = this.#channelRegistries.get(origin);
+    if (!channelRegistry) {
+      channelRegistry = new Map();
+      this.#channelRegistries.set(origin, channelRegistry);
+    }
+
+    return new Context(
+      origin,
+      contextFetch as typeof fetch,
+      ContextWebSocket,
+      sessionStorage,
+      channelRegistry,
+      preflightTracker,
+    );
   }
 
   /**

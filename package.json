@@ -35,5 +35,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@esbuild/linux-arm64": "^0.27.3",
+    "@rollup/rollup-linux-arm64-gnu": "^4.57.1"
   }
 }

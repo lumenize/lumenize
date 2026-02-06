@@ -11,11 +11,11 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createHttpTransport, createWebSocketTransport, type RpcAccessible } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { ExampleDO } from './test-worker-and-dos';
 import { behaviorTests, testCategories, type TestableClient } from './shared/behavior-tests';
 import { batchingTests, type TestableClientWithMetrics } from './shared/batching-tests';
-import type { Metrics } from '@lumenize/utils';
+import type { Metrics } from '@lumenize/testing';
 
 type ExampleDOType = RpcAccessible<InstanceType<typeof ExampleDO>>;
 

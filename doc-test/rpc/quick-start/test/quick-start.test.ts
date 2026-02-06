@@ -29,7 +29,7 @@ import {
   createWebSocketTransport, 
   createHttpTransport 
 } from '@lumenize/rpc';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 
 /*
 ## Version(s)

@@ -1,14 +1,12 @@
-// Export all utility functions
+// Routing utilities
 export * from './get-do-namespace-from-path-segment';
 export * from './get-do-stub';
 export * from './is-durable-object-id';
 export * from './parse-pathname';
-export * from './websocket-utils';
 export * from './route-do-request';
-export * from './cookie-utils';
-export * from './browser';
-export * from './websocket-shim';
-export * from './metrics';
+
+// Moved to @lumenize/testing: browser, cookie-utils, websocket-shim, metrics
+// Dead code (no consumers): websocket-utils
 
 // Convenience exports
 import { routeDORequest, type RouteOptions } from './route-do-request';

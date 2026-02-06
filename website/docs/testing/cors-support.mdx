@@ -169,8 +169,8 @@ a request or WebSocket upgrade from a particular Origin by using
 3. **Validates CORS headers** on preflight and actual responses
 4. **Throws `TypeError`** on CORS violations (browser-standard behavior)
 
-```typescript @check-example('packages/utils/test/unit/browser.test.ts')
-import { Browser } from '@lumenize/utils';
+```typescript @check-example('packages/testing/test/unit/browser.test.ts')
+import { Browser } from '@lumenize/testing';
 
 const browser = new Browser();
 const context = browser.context('https://app.example.com');
@@ -187,7 +187,7 @@ const response = await context.fetch('https://api.example.com/data', {
 
 CORS failures throw `TypeError` like browsers do:
 
-```typescript @check-example('packages/utils/test/unit/browser.test.ts')
+```typescript @check-example('packages/testing/test/unit/browser.test.ts')
 try {
   await context.fetch('https://api.example.com/data', { 
     method: 'POST',

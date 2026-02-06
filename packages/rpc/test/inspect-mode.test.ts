@@ -1,7 +1,7 @@
 import { it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport, setInspectMode, getLastBatchRequest } from '@lumenize/rpc';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { ExampleDO } from './test-worker-and-dos';
 
 it('simple case with inspect mode', async () => {

@@ -4,6 +4,16 @@ import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 export default defineConfig({
   test: {
     projects: [
+      // Unit tests - Node environment (Browser, cookie-utils)
+      {
+        test: {
+          name: 'unit',
+          environment: 'node',
+          include: ['test/unit/**/*.test.ts'],
+          setupFiles: ['./test/unit/setup.ts'],
+        },
+      },
+
       // Integration tests - Core testing library functionality
       defineWorkersProject({
         test: {

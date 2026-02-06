@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport, sendDownstream } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 
 /**
  * Test DO for downstream messaging

@@ -25,15 +25,13 @@ async function measureProductionSize() {
     'packages/rpc/dist/types.js',
   ];
   
-  // Utils package files (excluding Browser and WebSocket shim)
+  // Utils package files (routing only — browser/websocket/metrics moved to @lumenize/testing)
   const utilsFiles = [
     'packages/utils/dist/route-do-request.js',
     'packages/utils/dist/get-do-namespace-from-path-segment.js',
     'packages/utils/dist/get-do-stub.js',
     'packages/utils/dist/parse-pathname.js',
-    'packages/utils/dist/cookie-utils.js',
-    'packages/utils/dist/websocket-utils.js',
-    'packages/utils/dist/metrics.js',
+    'packages/utils/dist/is-durable-object-id.js',
   ];
   
   const allFiles = [...rpcFiles, ...utilsFiles];

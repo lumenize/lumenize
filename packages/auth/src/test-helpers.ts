@@ -4,7 +4,7 @@
  * These utilities simulate browser auth flows for integration testing.
  */
 
-import type { Browser } from '@lumenize/utils';
+import type { Browser } from '@lumenize/testing';
 
 /**
  * Options for testLoginWithMagicLink
