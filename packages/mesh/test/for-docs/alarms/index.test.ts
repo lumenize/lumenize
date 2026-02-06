@@ -97,6 +97,7 @@ it('demonstrates alarm scheduling patterns', async () => {
     const schedule = await client.scheduleAndReturnInfo('Important reminder', 300);
     expect(schedule.id).toBeDefined();
     expect(schedule.type).toBe('delayed');
+    // @ts-expect-error — delayInSeconds exists on DelayedAlarm but schedule is union type
     expect(schedule.delayInSeconds).toBe(300);
 
     // Get schedule by ID

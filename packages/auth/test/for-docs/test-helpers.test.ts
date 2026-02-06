@@ -66,7 +66,8 @@ describe('testLoginWithMagicLink Examples', () => {
     expect(delegatedToken).toBeDefined();
 
     // Verify delegation claim
-    const claims = parseJwtUnsafe(delegatedToken).payload as any;
+    // @ts-ignore — parseJwtUnsafe returns nullable
+    const claims = parseJwtUnsafe(delegatedToken)!.payload;
     expect(claims.act).toBeDefined();
   }, { timeout: 15000 });
 
@@ -116,7 +117,9 @@ describe('testLoginWithMagicLink Examples', () => {
     expect(sub).toBe(targetSub);
 
     // Verify: sub = alice's sub, parseJwtUnsafe(accessToken).payload.act.sub = actorSub
-    const claims = parseJwtUnsafe(accessToken).payload as any;
+    // @ts-ignore — parseJwtUnsafe returns nullable
+    const claims = parseJwtUnsafe(accessToken)!.payload;
+    // @ts-ignore — claims.act may be undefined
     expect(claims.act.sub).toBe(actorSub);
   }, { timeout: 15000 });
 });

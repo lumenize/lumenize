@@ -4,7 +4,7 @@
  * Example of a LumenizeDO from getting-started.mdx and calls.mdx
  */
 
-import { LumenizeDO, mesh, getOperationChain, executeOperationChain, type OperationChain, type CallContext } from '../../../src/index.js';
+import { LumenizeDO, mesh, getOperationChain, executeOperationChain, type OperationChain, type Continuation, type CallContext } from '../../../src/index.js';
 import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
 import type { AnalyticsWorker, AnalyticsResult } from './analytics-worker.js';
@@ -135,6 +135,7 @@ export class DocumentDO extends LumenizeDO<Env> {
     this.lmz.call(
       'ANALYTICS_WORKER',
       undefined,
+      // @ts-expect-error — content is untyped from kv.get; runtime type is string
       this.ctn<AnalyticsWorker>().computeAnalytics(content, documentId)
     );
     // DO returns immediately — no wall-clock charges while waiting
@@ -276,7 +277,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   }
 
   // Reusable broadcast helper that accepts any continuation
-  #broadcast(continuation: OperationChain) {
+  #broadcast(continuation: Continuation<any>) {
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
     for (const clientId of subscribers) {
       this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation, undefined, { newChain: true });

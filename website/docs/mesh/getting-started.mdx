@@ -53,9 +53,9 @@ import type { EditorClient } from './editor-client.js';
 export class DocumentDO extends LumenizeDO<Env> {
   // @mesh annotation with guard function. Allows only subscribers to call update()
   @mesh((instance: DocumentDO) => {
-    const sub = instance.lmz.callContext.originAuth!.sub;
+    const clientId = instance.lmz.callContext.callChain[0]?.instanceName;
     const subscribers: Set<string> = instance.ctx.storage.kv.get('subscribers') ?? new Set();
-    if (!subscribers.has(sub)) {
+    if (!clientId || !subscribers.has(clientId)) {
       throw new Error('Must be subscribed to edit');
     }
   })

@@ -41,6 +41,7 @@ declare const process: { env?: { DEBUG?: string } } | undefined;
 // Resolved via top-level await; null in non-Workers environments
 let cfEnv: { DEBUG?: string } | null = null;
 try {
+  // @ts-ignore — cloudflare:workers resolves in Workers-typed packages but not in debug's own tsconfig
   const mod = await import('cloudflare:workers');
   cfEnv = (mod as { env?: { DEBUG?: string } }).env ?? null;
 } catch {

@@ -9,6 +9,7 @@ import { stringify, parse } from '../../src/index.js';
 describe('Primitive Keys Work as Expected', () => {
   it('handles string, number, and boolean keys', async () => {
     // Sender side
+    // @ts-expect-error — heterogeneous Map keys; docs show idiomatic JS
     const map = new Map([
       ["user123", { name: "Alice" }],
       [42, { count: 100 }],
@@ -42,7 +43,9 @@ describe('Object Keys - Reconstructed but Different Identity', () => {
     expect(keys[0]).toEqual({ userId: 123, role: "admin" });
 
     // All properties are preserved...
+    // @ts-expect-error — keys are untyped after deserialization
     expect(keys[0].userId).toBe(123);
+    // @ts-expect-error — keys are untyped after deserialization
     expect(keys[0].role).toBe("admin");
     
     // BUT it's a new object with different identity...
@@ -74,6 +77,7 @@ describe('Finding Object Keys After Deserialization', () => {
     
     // Find the key for userId 456
     const targetKey = Array.from(restored.keys()).find(
+      // @ts-ignore — keys are untyped after deserialization
       key => key.userId === 456
     );
     

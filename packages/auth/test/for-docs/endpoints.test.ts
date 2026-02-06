@@ -51,6 +51,7 @@ describe('Auth Endpoint Examples', () => {
       });
 
       expect(response.status).toBe(200);
+      // @ts-ignore — response.json() returns unknown
       const body = await response.json();
       expect(body).toMatchObject(
         {
@@ -70,7 +71,9 @@ describe('Auth Endpoint Examples', () => {
         body: JSON.stringify({ email: 'test@example.com' })
       });
 
+      // @ts-ignore — response.json() returns unknown
       const body = await response.json();
+      // @ts-ignore — body is unknown from response.json()
       expect(body.magic_link).toBeDefined();
       expect(body).toMatchObject(
         {
@@ -92,7 +95,9 @@ describe('Auth Endpoint Examples', () => {
       const response = await fetch('/auth/refresh-token', { method: 'POST' });
 
       expect(response.status).toBe(200);
+      // @ts-ignore — response.json() returns unknown
       const body = await response.json();
+      // @ts-ignore — body is unknown from response.json()
       expect(body.access_token).toBeDefined();
     }, { timeout: 5000 });
 
@@ -107,6 +112,7 @@ describe('Auth Endpoint Examples', () => {
       });
 
       const response = await fetch('/auth/logout', { method: 'POST' });
+      // @ts-ignore — response.json() returns unknown
       const body = await response.json();
       expect(body).toMatchObject(
         {
@@ -132,6 +138,7 @@ describe('Auth Endpoint Examples', () => {
       const response = await fetch('/auth/subjects', {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
+      // @ts-ignore — response.json() returns unknown
       const { subjects } = await response.json();
 
       expect(response.status).toBe(200);
@@ -172,6 +179,7 @@ describe('Auth Endpoint Examples', () => {
       const response = await fetch(`/auth/subject/${sub}`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
+      // @ts-ignore — response.json() returns unknown
       const { subject } = await response.json();
 
       expect(response.status).toBe(200);
@@ -203,6 +211,7 @@ describe('Auth Endpoint Examples', () => {
           isAdmin: true
         })
       });
+      // @ts-ignore — response.json() returns unknown
       const { subject } = await response.json();
 
       expect(response.status).toBe(200);
@@ -228,6 +237,7 @@ describe('Auth Endpoint Examples', () => {
           emails: ['alice@example.com', 'bob@example.com']
         })
       });
+      // @ts-ignore — response.json() returns unknown
       const { invited, errors } = await response.json();
 
       expect(response.status).toBe(200);
@@ -290,6 +300,7 @@ describe('Auth Endpoint Examples', () => {
         },
         body: JSON.stringify({ actorSub: actorSubId })
       });
+      // @ts-ignore — response.json() returns unknown
       const { subject } = await response.json();
 
       expect(response.status).toBe(200);
@@ -329,6 +340,7 @@ describe('Auth Endpoint Examples', () => {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${adminAccessToken}` }
       });
+      // @ts-ignore — response.json() returns unknown
       const { subject } = await response.json();
 
       expect(response.status).toBe(200);
@@ -373,12 +385,15 @@ describe('Auth Endpoint Examples', () => {
           actFor: targetSub  // Subject ID to act on behalf of
         })
       });
+      // @ts-ignore — response.json() returns unknown
       const { access_token } = await response.json();
 
       expect(response.status).toBe(200);
       expect(access_token).toBeDefined();
-      const claims = parseJwtUnsafe(access_token).payload;
+      // @ts-ignore — parseJwtUnsafe returns nullable
+      const claims = parseJwtUnsafe(access_token)!.payload;
       expect(claims.sub).toBe(targetSub);
+      // @ts-ignore — claims.act may be undefined
       expect(claims.act.sub).toBe(actorSub);
     }, { timeout: 10000 });
 
@@ -416,8 +431,10 @@ describe('Auth Endpoint Examples', () => {
         },
         body: JSON.stringify({ actFor: ownerId })
       });
-      const delegBody = await delegResponse.json() as any;
-      const claims = parseJwtUnsafe(delegBody.access_token).payload as any;
+      // @ts-ignore — response.json() returns unknown
+      const delegBody = await delegResponse.json();
+      // @ts-ignore — parseJwtUnsafe returns nullable
+      const claims = parseJwtUnsafe(delegBody.access_token)!.payload;
 
       // Guard checks sub (principal's permissions)
       if (claims.sub !== ownerId) throw new Error('Forbidden');
@@ -427,6 +444,7 @@ describe('Auth Endpoint Examples', () => {
       console.log(`Document updated by ${actor}${claims.sub}`);
 
       expect(claims.sub).toBe(ownerId);
+      // @ts-ignore — claims.act may be undefined
       expect(claims.act.sub).toBe(actorSub);
     }, { timeout: 10000 });
   });

@@ -300,7 +300,7 @@ As shown above, `callChain` grows with each hop. This is usually what you want â
 
 ```typescript @check-example('packages/mesh/test/for-docs/calls/document-do.ts')
 // Reusable broadcast helper that accepts any continuation
-#broadcast(continuation: OperationChain) {
+#broadcast(continuation: Continuation<any>) {
   const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
   for (const clientId of subscribers) {
     this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, continuation, undefined, { newChain: true });
