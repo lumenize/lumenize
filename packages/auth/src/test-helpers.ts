@@ -112,12 +112,13 @@ export async function testLoginWithMagicLink(
 
   // Step 4: Exchange refresh token cookie for access token
   // #handleRefreshToken re-queries the subject from DB, so the JWT
-  // will reflect any flags set in step 3
+  // will reflect any flags set in step 3.
+  // The response includes `sub` directly — no need to decode the JWT.
   const refreshResponse = await browser.fetch(`${baseUrl}${prefix}/refresh-token`, {
     method: 'POST'
   });
-  const refreshBody = await refreshResponse.json() as { access_token?: string };
-  if (!refreshBody.access_token) {
+  const refreshBody = await refreshResponse.json() as { access_token?: string; sub?: string };
+  if (!refreshBody.access_token || !refreshBody.sub) {
     throw new Error(
       `testLoginWithMagicLink: Failed to get access token. ` +
       `Status: ${refreshResponse.status}, Response: ${JSON.stringify(refreshBody)}, ` +
@@ -125,11 +126,8 @@ export async function testLoginWithMagicLink(
     );
   }
 
-  // Extract sub from JWT payload (base64url decode middle part)
   const accessToken = refreshBody.access_token;
-  const payloadB64 = accessToken.split('.')[1];
-  const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
-  const { sub } = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+  const sub = refreshBody.sub;
 
   // Step 5 (optional): Request delegated token if actorAccessToken provided
   if (options.actorAccessToken) {

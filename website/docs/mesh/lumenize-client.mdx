@@ -30,10 +30,9 @@ class EditorClient extends LumenizeClient {
   }
 }
 
-// Minimal config — baseUrl defaults to origin, refresh defaults to /auth/refresh-token
-using client = new EditorClient({
-  instanceName: `${sub}.${tabId}`
-});
+// Minimal config — instanceName auto-generated, baseUrl defaults to origin,
+// refresh defaults to /auth/refresh-token
+using client = new EditorClient();
 ```
 
 Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`.
@@ -45,7 +44,7 @@ Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `baseUrl` | `string?` | Current origin | WebSocket URL base. Required in Node.js. |
-| `instanceName` | `string` | — | **Required.** Format: `{sub}.{tabId}`. Gateway validates `sub` matches JWT. |
+| `instanceName` | `string?` | Auto-generated | Format: `{sub}.{tabId}`. Auto-generated from `sub` returned by `refresh` and a sessionStorage-backed tab ID. Pass explicitly to override. |
 | `gatewayBindingName` | `string?` | `LUMENIZE_CLIENT_GATEWAY` | [Gateway](./gateway) DO binding name. |
 
 ### Authentication
@@ -53,16 +52,17 @@ Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `accessToken` | `string?` | — | Initial JWT. If omitted, fetched via `refresh` (recommended). |
-| `refresh` | `string \| () => Promise<string>` | `/auth/refresh-token` | Token refresh endpoint or custom function. |
+| `refresh` | `string \| () => Promise<{ access_token, sub }>` | `/auth/refresh-token` | Token refresh endpoint or custom function. Both must return `sub`. |
+
+Both forms return `{ access_token, sub }`. The client uses `sub` to auto-construct `instanceName` as `${sub}.${tabId}`.
 
 **Custom refresh example** (for non-standard auth providers):
 ```typescript @skip-check
 using client = new EditorClient({
-  instanceName: `${sub}.${tabId}`,
   refresh: async () => {
     const response = await fetch('/my/custom/refresh');  // Cookies sent automatically
     const data = await response.json();
-    return data.token;  // Return just the access token string
+    return { access_token: data.token, sub: data.sub };
   }
 });
 ```
@@ -177,7 +177,6 @@ Token expiration is handled automatically — refresh and reconnect happen trans
 
 ```typescript @skip-check
 using client = new EditorClient({
-  instanceName: `${sub}.${tabId}`,
   onLoginRequired: (error) => {
     console.log('Login required:', error.reason);
     window.location.href = '/login';
@@ -191,7 +190,7 @@ For call errors, see [Making Calls: Error Handling](./calls#error-handling).
 
 ### Tab Identity
 
-While it's possible to instantiate multiple Clients with different instanceNames in the same browser tab, we recommend that you have only one active `LumenizeClient` instance at a time for each browser tab. See the [Getting Started Guide](./getting-started#step-4-connect-from-the-browser) for the `getTabId()` helper pattern.
+Tab ID management is built in. Each tab gets a unique ID stored in `sessionStorage`. The tab ID is combined with `sub` from the refresh response to form the `instanceName` automatically. Use one `LumenizeClient` instance per tab.
 
 ### Hibernation and Backgrounding
 
@@ -210,16 +209,18 @@ See [Mesh API](./mesh-api) for the full `LumenizeClient` class reference includi
 ```typescript @skip-check
 interface LumenizeClientConfig {
   baseUrl?: string;
-  instanceName: string;
+  instanceName?: string;               // Auto-generated from refresh sub + tabId
   gatewayBindingName?: string;
   accessToken?: string;
-  refresh?: string | (() => Promise<string>);
+  refresh?: string | (() => Promise<{ access_token: string; sub: string }>);
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;
   onLoginRequired?: (error: LoginRequiredError) => void;
   onSubscriptionsLost?: () => void;
-  WebSocket?: typeof WebSocket;  // For testing
-  fetch?: typeof fetch;          // For testing
+  WebSocket?: typeof WebSocket;         // For testing
+  fetch?: typeof fetch;                 // For testing
+  sessionStorage?: Storage;             // For testing (tab ID)
+  BroadcastChannel?: typeof BroadcastChannel;  // For testing (duplicate-tab detection)
 }
 
 type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';

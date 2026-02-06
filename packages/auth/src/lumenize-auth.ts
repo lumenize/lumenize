@@ -374,7 +374,8 @@ export class LumenizeAuth extends DurableObject {
     const response: LoginResponse = {
       access_token: newAccessToken,
       token_type: 'Bearer',
-      expires_in: this.#accessTokenTtl
+      expires_in: this.#accessTokenTtl,
+      sub: subject.sub,
     };
 
     return new Response(JSON.stringify(response), {

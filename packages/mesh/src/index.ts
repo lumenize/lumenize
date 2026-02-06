@@ -64,3 +64,7 @@ export type {
   LmzApiClient,
   Continuation as ClientContinuation,  // Alias to avoid conflict with DO's Continuation
 } from './lumenize-client';
+
+// Tab ID management for browser clients
+export { getOrCreateTabId } from './tab-id';
+export type { TabIdDeps } from './tab-id';

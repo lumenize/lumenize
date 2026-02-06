@@ -196,12 +196,37 @@ describe('LumenizeClient', () => {
   });
 
   describe('Configuration', () => {
-    it('throws if instanceName is not provided', () => {
-      expect(() => {
-        new TestClient({
-          WebSocket: createMockWebSocketClass(),
-        } as any);
-      }).toThrow('LumenizeClient requires instanceName in config');
+    it('allows omitting instanceName when refresh is a URL string', () => {
+      // Should not throw — instanceName will be auto-generated on connect
+      const client = new TestClient({
+        baseUrl: 'wss://example.com',
+        WebSocket: createMockWebSocketClass(),
+        refresh: '/auth/refresh-token',
+      });
+      client.disconnect();
+    });
+
+    it('allows omitting instanceName when refresh is a function', () => {
+      // Should not throw — function returns { access_token, sub }
+      const client = new TestClient({
+        baseUrl: 'wss://example.com',
+        WebSocket: createMockWebSocketClass(),
+        refresh: async () => ({ access_token: 'token', sub: 'user-123' }),
+      });
+      client.disconnect();
+    });
+
+    it('throws when accessing lmz.instanceName before connected (auto-generate mode)', () => {
+      const client = new TestClient({
+        baseUrl: 'wss://example.com',
+        WebSocket: createMockWebSocketClass(),
+        refresh: '/auth/refresh-token',
+      });
+
+      expect(() => client.lmz.instanceName).toThrow(
+        'instanceName is only available after connected state'
+      );
+      client.disconnect();
     });
 
     it('uses default gateway binding name', () => {

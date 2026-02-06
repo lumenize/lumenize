@@ -139,12 +139,17 @@ export type CorsOptions =
   | { origin: (origin: string, request: Request) => boolean }; // Custom validation function
 
 /**
- * Login response returned after successful token refresh
+ * Login response returned after successful token refresh.
+ *
+ * The `sub` field allows clients to construct identity-based names
+ * (e.g., `${sub}.${tabId}`) without parsing the JWT.
+ * RFC 6749 explicitly allows additional fields in token responses.
  */
 export interface LoginResponse {
   access_token: string;
   token_type: 'Bearer';
   expires_in: number;
+  sub: string;
 }
 
 /**

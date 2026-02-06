@@ -56,11 +56,10 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const aliceBrowser = new Browser();
-  const aliceUserId = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
+  await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using alice = new EditorClient({
-    instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
     refresh: 'https://localhost/auth/refresh-token',
     // Test-specific: inject browser's fetch/WebSocket
@@ -98,10 +97,9 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const bobBrowser = new Browser();
-  const bobUserId = await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
+  await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
 
   using bob = new EditorClient({
-    instanceName: `${bobUserId}.tab1`,
     baseUrl: 'https://localhost',
     refresh: 'https://localhost/auth/refresh-token',
     fetch: bobBrowser.fetch,
@@ -180,7 +178,7 @@ const bobBrowser = new Browser();
 import { testLoginWithMagicLink } from '@lumenize/auth';
 
 // Requires LUMENIZE_AUTH_TEST_MODE=true in your vitest.config miniflare bindings
-const sub = await testLoginWithMagicLink(browser, 'alice@example.com');
+const { sub } = await testLoginWithMagicLink(browser, 'alice@example.com');
 
 // Browser now has refresh-token cookie stored
 // Pass browser.fetch and browser.WebSocket to LumenizeClient
@@ -190,27 +188,38 @@ This function:
 1. Requests a magic link (test mode returns URL in response)
 2. "Clicks" the magic link (Browser follows redirect and captures cookies)
 3. Exchanges refresh token cookie for access token
-4. Returns the `sub` (subject ID) from the JWT
+4. Returns `{ sub, accessToken }` — `sub` from the refresh response
 
-### WebSocket and fetch injection
+### Dependency injection for testing
 
-`LumenizeClient` accepts `fetch` and `WebSocket` in its constructor for testing:
+`LumenizeClient` accepts several dependencies in its constructor for testing. Use `Browser` for cookie-aware HTTP/WebSocket, and `Browser.context()` for per-tab sessionStorage and BroadcastChannel:
+
+| Option | What to inject | Why |
+|--------|---------------|-----|
+| `fetch` | `browser.fetch` | Cookie-aware HTTP with CORS validation |
+| `WebSocket` | `browser.WebSocket` | Cookie-aware WebSocket handshake |
+| `sessionStorage` | `context.sessionStorage` | Per-tab tab ID persistence |
+| `BroadcastChannel` | `context.BroadcastChannel` | Duplicate-tab detection across contexts |
 
 ```typescript @skip-check
+const browser = new Browser();
+const ctx = browser.context('https://localhost');
+
 const client = new EditorClient({
-  instanceName: `${sub}.tab1`,
   baseUrl: 'https://localhost',
   refresh: 'https://localhost/auth/refresh-token',
-  // Inject browser's implementations
+  // Inject browser-level implementations (shared across tabs)
   fetch: browser.fetch,
   WebSocket: browser.WebSocket,
+  // Inject context-level implementations (per-tab)
+  sessionStorage: ctx.sessionStorage,
+  BroadcastChannel: ctx.BroadcastChannel,
 });
 ```
 
-This enables:
-- Cookie sharing between HTTP requests and WebSocket handshake
-- Full request/response inspection
-- Realistic CORS behavior
+For simpler tests that don't need tab ID isolation, `browser.fetch` and `browser.WebSocket` are sufficient — the client falls back to `globalThis` for sessionStorage and BroadcastChannel.
+
+Use `browser.duplicateContext(ctx)` to simulate browser tab duplication (clones sessionStorage, shares BroadcastChannel). The client's built-in duplicate-tab detection will automatically generate a fresh tab ID for the duplicate.
 
 ### RPC access to DO storage
 

@@ -31,6 +31,7 @@ import {
   type GatewayMessage
 } from './lumenize-client-gateway.js';
 import type { NodeIdentity, CallContext, CallOptions } from './types.js';
+import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 
 // ============================================
 // Constants
@@ -101,10 +102,14 @@ export interface LumenizeClientConfig {
   /**
    * Unique client identifier
    *
-   * Recommended format: `${sub}.${tabId}` where `sub` is the JWT subject.
+   * Format: `${sub}.${tabId}` where `sub` is the JWT subject.
    * This becomes the Gateway DO instance name.
+   *
+   * **Optional** — auto-generated from the `sub` returned by `refresh`
+   * and a sessionStorage-backed `tabId` (with BroadcastChannel
+   * duplicate-tab detection). Pass explicitly to override.
    */
-  instanceName: string;
+  instanceName?: string;
 
   /**
    * Gateway DO binding name
@@ -123,12 +128,15 @@ export interface LumenizeClientConfig {
   /**
    * Token refresh source
    *
-   * - String: endpoint URL (POST, expects `{ access_token }`)
-   * - Function: custom refresh logic returning access token string
+   * - String: endpoint URL (POST, expects `{ access_token, sub }`)
+   * - Function: custom refresh logic returning `{ access_token, sub }`
+   *
+   * Both forms must provide `sub` so the client can auto-generate
+   * `instanceName` as `${sub}.${tabId}`.
    *
    * Default: `/auth/refresh-token`
    */
-  refresh?: string | (() => Promise<string>);
+  refresh?: string | (() => Promise<{ access_token: string; sub: string }>);
 
   /**
    * Called when connection state changes
@@ -169,6 +177,26 @@ export interface LumenizeClientConfig {
    * Default: globalThis.fetch
    */
   fetch?: typeof fetch;
+
+  /**
+   * sessionStorage for tab ID persistence
+   *
+   * Used for auto-generating `instanceName`. In tests, pass
+   * `context.sessionStorage` from `@lumenize/testing`'s Browser.
+   *
+   * Default: `globalThis.sessionStorage` (browser) or undefined (Node.js)
+   */
+  sessionStorage?: Storage;
+
+  /**
+   * BroadcastChannel constructor for duplicate-tab detection
+   *
+   * Used for auto-generating `instanceName`. In tests, pass
+   * `context.BroadcastChannel` from `@lumenize/testing`'s Browser.
+   *
+   * Default: `globalThis.BroadcastChannel` (browser) or undefined (Node.js)
+   */
+  BroadcastChannel?: typeof BroadcastChannel;
 }
 
 /**
@@ -269,10 +297,12 @@ export abstract class LumenizeClient {
   // Private Fields
   // ============================================
 
-  #config: Required<Pick<LumenizeClientConfig, 'instanceName' | 'gatewayBindingName'>> & LumenizeClientConfig;
+  #config: Required<Pick<LumenizeClientConfig, 'gatewayBindingName'>> & LumenizeClientConfig;
+  #instanceName: string | null = null;
   #ws: WebSocket | null = null;
   #connectionState: ConnectionState = 'disconnected';
   #accessToken: string | null = null;
+  #sub: string | null = null;
   #pendingCalls = new Map<string, PendingCall>();
   #messageQueue: QueuedMessage[] = [];
   #reconnectAttempts = 0;
@@ -286,17 +316,17 @@ export abstract class LumenizeClient {
   // ============================================
 
   constructor(config: LumenizeClientConfig) {
-    // Validate required config
-    if (!config.instanceName) {
-      throw new Error('LumenizeClient requires instanceName in config');
-    }
-
     // Set defaults
     this.#config = {
       ...config,
       gatewayBindingName: config.gatewayBindingName ?? DEFAULT_GATEWAY_BINDING,
       refresh: config.refresh ?? DEFAULT_REFRESH_ENDPOINT,
     };
+
+    // Store explicit instanceName if provided
+    if (config.instanceName) {
+      this.#instanceName = config.instanceName;
+    }
 
     // Get WebSocket class
     this.#WebSocketClass = config.WebSocket ?? globalThis.WebSocket;
@@ -345,7 +375,16 @@ export abstract class LumenizeClient {
     const api: LmzApiClient = {
       type: 'LumenizeClient',
       bindingName: self.#config.gatewayBindingName,
-      instanceName: self.#config.instanceName,
+
+      get instanceName(): string {
+        if (!self.#instanceName) {
+          throw new Error(
+            'instanceName is only available after connected state. ' +
+            'When instanceName is auto-generated, it is constructed during the first connection.'
+          );
+        }
+        return self.#instanceName;
+      },
 
       get callContext(): CallContext {
         if (!self.#currentCallContext) {
@@ -471,7 +510,7 @@ export abstract class LumenizeClient {
     const origin = this.#currentCallContext?.callChain[0];
     if (origin?.type === 'LumenizeClient') {
       // Allow if origin is this same client instance (response to our own request)
-      if (origin.instanceName === this.#config.instanceName) {
+      if (origin.instanceName === this.#instanceName) {
         return;
       }
       throw new Error(
@@ -490,8 +529,18 @@ export abstract class LumenizeClient {
     this.#setConnectionState(isReconnect ? 'reconnecting' : 'connecting');
 
     try {
-      // Get access token if not available
-      if (!this.#accessToken) {
+      // Auto-generate instanceName if not set (parallel optimization)
+      if (!this.#instanceName && !this.#accessToken) {
+        // Run tabId generation and token refresh in parallel
+        // tabId takes ≤50ms, refresh is a network call (usually >50ms)
+        const tabIdDeps = this.#getTabIdDeps();
+        const [tabId] = await Promise.all([
+          tabIdDeps ? getOrCreateTabId(tabIdDeps) : Promise.resolve(crypto.randomUUID().slice(0, 8)),
+          this.#refreshToken(),  // Sets this.#accessToken and this.#sub
+        ]);
+        this.#instanceName = `${this.#sub}.${tabId}`;
+      } else if (!this.#accessToken) {
+        // instanceName already set, just need the token
         await this.#refreshToken();
       }
 
@@ -541,7 +590,10 @@ export abstract class LumenizeClient {
 
     // Build URL: /gateway/{bindingName}/{instanceName}
     const binding = this.#config.gatewayBindingName;
-    const instance = this.#config.instanceName;
+    const instance = this.#instanceName;
+    if (!instance) {
+      throw new Error('instanceName not available — connect has not completed');
+    }
 
     return `${baseUrl}/gateway/${binding}/${instance}`;
   }
@@ -679,8 +731,12 @@ export abstract class LumenizeClient {
     const refresh = this.#config.refresh;
 
     if (typeof refresh === 'function') {
-      // Custom refresh function
-      this.#accessToken = await refresh();
+      // Custom refresh function — returns { access_token, sub }
+      const result = await refresh();
+      this.#accessToken = result.access_token;
+      if (result.sub) {
+        this.#sub = result.sub;
+      }
     } else if (typeof refresh === 'string') {
       // Endpoint URL - use custom fetch if provided (for cookie-aware requests)
       const fetchFn = this.#config.fetch ?? fetch;
@@ -693,8 +749,12 @@ export abstract class LumenizeClient {
         throw new Error(`Token refresh failed: ${response.status}`);
       }
 
-      const data = await response.json() as { access_token?: string };
+      const data = await response.json() as { access_token?: string; sub?: string };
       this.#accessToken = data.access_token ?? null;
+      // Store sub for instanceName auto-generation
+      if (data.sub) {
+        this.#sub = data.sub;
+      }
     } else {
       throw new Error('No refresh method configured');
     }
@@ -702,6 +762,21 @@ export abstract class LumenizeClient {
     if (!this.#accessToken) {
       throw new Error('Refresh returned no token');
     }
+  }
+
+  /**
+   * Get TabIdDeps from config or globals. Returns null if unavailable
+   * (non-browser environment without injected deps).
+   */
+  #getTabIdDeps(): TabIdDeps | null {
+    const sessionStorage = this.#config.sessionStorage ?? globalThis.sessionStorage;
+    const BroadcastChannelCtor = this.#config.BroadcastChannel ?? globalThis.BroadcastChannel;
+
+    if (!sessionStorage || !BroadcastChannelCtor) {
+      return null;
+    }
+
+    return { sessionStorage, BroadcastChannel: BroadcastChannelCtor };
   }
 
   // ============================================
@@ -891,7 +966,7 @@ export abstract class LumenizeClient {
     const callerIdentity: NodeIdentity = {
       type: 'LumenizeClient',
       bindingName: this.#config.gatewayBindingName,
-      instanceName: this.#config.instanceName,
+      instanceName: this.#instanceName!,
     };
 
     const callContext = buildOutgoingCallContext(callerIdentity, options);
