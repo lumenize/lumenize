@@ -26,6 +26,8 @@ Should have:
   - [ ] Deploy to Cloudflare button
   - [ ] What to use for UI?
 - [ ] At least one example from Agent
+- [ ] Experiments
+  - [ ] When do we hit max sub-request limit
 - [ ] Blog
   - [ ] Gateway pattern
     - [ ] Experiments on Gateway latency
