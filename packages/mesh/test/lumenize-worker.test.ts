@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 import type { TestWorker } from './test-worker-and-dos';
@@ -76,18 +76,7 @@ describe('LumenizeWorker - RPC Receiver (__executeOperation)', () => {
     ).rejects.toThrow(/Unsupported RPC envelope version: 2/);
   });
 
-  test('accepts valid v1 envelopes (tested via callRaw)', async () => {
-    // Valid v1 envelopes are tested via this.lmz.callRaw() which creates proper envelopes
-    // Direct envelope testing with manual construction is error-prone
-    // This test placeholder ensures we know validation works
-    expect(true).toBe(true);
-  });
-
-  test('auto-initializes identity from envelope metadata (tested via callRaw)', async () => {
-    // Auto-initialization is tested via this.lmz.callRaw() in DO-to-Worker and Worker-to-Worker tests
-    // Full integration testing will validate this behavior
-    expect(true).toBe(true);
-  });
+  // Valid envelope and auto-init are tested via callRaw() tests below
 });
 
 describe('LumenizeWorker - Direct Method Execution', () => {
@@ -98,10 +87,108 @@ describe('LumenizeWorker - Direct Method Execution', () => {
 
   test('returns identity information (within single call)', async () => {
     const identity = await env.TEST_WORKER.testGetIdentityAfterInit('IDENTITY_TEST');
-    
+
     expect(identity).toEqual({
       type: 'LumenizeWorker',
       bindingName: 'IDENTITY_TEST'
+    });
+  });
+});
+
+describe('LumenizeWorker - callRaw() RPC Calls', () => {
+  test('Worker→DO callRaw returns result', async () => {
+    const result = await env.TEST_WORKER.testCallRawToDO(
+      'TEST_DO',
+      'worker-callraw-do-1',
+      'hello-from-worker'
+    );
+    expect(result).toBe('echo: hello-from-worker');
+  });
+
+  test('Worker→Worker callRaw returns result', async () => {
+    const result = await env.TEST_WORKER.testCallRawToWorker(
+      'TEST_WORKER',
+      'hello-worker-to-worker'
+    );
+    expect(result).toBe('worker-echo: hello-worker-to-worker');
+  });
+
+  test('Worker→DO callRaw propagates errors', async () => {
+    await expect(
+      env.TEST_WORKER.testCallRawToDOThrowError('TEST_DO', 'worker-callraw-error-1')
+    ).rejects.toThrow('Remote error for testing');
+  });
+});
+
+describe('LumenizeWorker - call() Fire-and-Forget with Result Handlers', () => {
+  test('result handler receives success result', async () => {
+    const storeDO = env.TEST_DO.getByName('worker-call-result-store-1');
+
+    // Worker calls DO remoteEcho, result handler forwards result to storeDO
+    await env.TEST_WORKER.testCallToDO(
+      'TEST_DO',
+      'worker-call-target-1',
+      'call-test-value',
+      'worker-call-result-store-1'
+    );
+
+    // Wait for the fire-and-forget chain to complete
+    await vi.waitFor(async () => {
+      const result = await storeDO.getForwardedResult();
+      expect(result).toBe('echo: call-test-value');
+    });
+  });
+
+  test('result handler receives error as Error', async () => {
+    const storeDO = env.TEST_DO.getByName('worker-call-error-store-1');
+
+    // Worker calls DO throwError, result handler forwards error to storeDO
+    await env.TEST_WORKER.testCallWithErrorToDO(
+      'TEST_DO',
+      'worker-call-error-target-1',
+      'worker-call-error-store-1'
+    );
+
+    // Wait for the fire-and-forget chain to complete
+    await vi.waitFor(async () => {
+      const error = await storeDO.getForwardedError();
+      expect(error).toBe('Remote error for testing');
+    });
+  });
+
+  test('fire-and-forget without handler does not crash', async () => {
+    // This should not throw — call returns void, work happens in background
+    await env.TEST_WORKER.testCallFireAndForget(
+      'TEST_DO',
+      'worker-call-fandf-1',
+      'fire-and-forget-value'
+    );
+
+    // Verify the remote DO received the call by checking its envelope
+    const targetDO = env.TEST_DO.getByName('worker-call-fandf-1');
+    await vi.waitFor(async () => {
+      const envelope = await targetDO.getLastEnvelope();
+      expect(envelope).toBeTruthy();
+    });
+  });
+
+  test('throws if caller has no bindingName', async () => {
+    await expect(
+      env.TEST_WORKER.testCallWithoutBindingName()
+    ).rejects.toThrow(/Cannot use call\(\) from a Worker that doesn't know its own binding name/);
+  });
+
+  test('DO→Worker error: DO result handler receives error from Worker throwError', async () => {
+    const callerDO = env.TEST_DO.getByName('do-worker-error-caller-1');
+
+    await callerDO.testLmzApiInit({ bindingName: 'TEST_DO' });
+
+    // DO calls Worker throwError, DO result handler stores error
+    callerDO.testCallWithErrorToWorker('TEST_WORKER');
+
+    await vi.waitFor(async () => {
+      const error = await callerDO.getLastCallError();
+      expect(error).toBe('Worker remote error for testing');
     });
   });
 });

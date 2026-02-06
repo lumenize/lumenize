@@ -210,14 +210,13 @@ export class TestDO extends LumenizeDO<Env> {
     );
   }
 
-  // Handler for successful call results
-  @mesh()
+  // Result handler for successful call results (no @mesh needed — result handlers
+  // are executed locally via __localChainExecutor with requireMeshDecorator: false)
   handleCallResult(result: any): void {
     this.ctx.storage.kv.put('last_call_result', result);
   }
 
-  // Handler for call errors
-  @mesh()
+  // Result handler for call errors (no @mesh needed — see handleCallResult)
   handleCallError(error: any): void {
     this.ctx.storage.kv.put('last_call_error', error instanceof Error ? error.message : String(error));
   }
@@ -230,6 +229,47 @@ export class TestDO extends LumenizeDO<Env> {
   // Test helper to get last call error
   async getLastCallError() {
     return this.ctx.storage.kv.get('last_call_error');
+  }
+
+  // ============================================
+  // Forwarded result storage (for Worker→DO→store pattern)
+  // ============================================
+
+  // Stores a result forwarded from a Worker result handler
+  @mesh()
+  storeForwardedResult(result: any): void {
+    this.ctx.storage.kv.put('forwarded_result', result);
+  }
+
+  // Stores an error forwarded from a Worker result handler
+  @mesh()
+  storeForwardedError(error: any): void {
+    this.ctx.storage.kv.put('forwarded_error', error);
+  }
+
+  // Get forwarded result
+  async getForwardedResult() {
+    return this.ctx.storage.kv.get('forwarded_result');
+  }
+
+  // Get forwarded error
+  async getForwardedError() {
+    return this.ctx.storage.kv.get('forwarded_error');
+  }
+
+  // ============================================
+  // DO→Worker error path test helper
+  // ============================================
+
+  // DO calls Worker throwError, result handler stores error locally
+  testCallWithErrorToWorker(workerBindingName: string): void {
+    const remote = this.ctn<TestWorker>().throwError();
+    this.lmz.call(
+      workerBindingName,
+      undefined,
+      remote,
+      this.ctn().handleCallError(remote)
+    );
   }
 
   // ============================================
@@ -863,7 +903,7 @@ export class TestWorker extends LumenizeWorker<Env> {
     };
   }
 
-  // Test helpers for Worker RPC calls
+  // Test helpers for Worker RPC calls (callRaw)
   async testCallRawToDO(
     doBindingName: string,
     doInstanceName: string,
@@ -887,10 +927,102 @@ export class TestWorker extends LumenizeWorker<Env> {
     );
   }
 
+  async testCallRawToDOThrowError(
+    doBindingName: string,
+    doInstanceName: string
+  ): Promise<any> {
+    return await this.lmz.callRaw(
+      doBindingName,
+      doInstanceName,
+      this.ctn<TestDO>().throwError()
+    );
+  }
+
+  // ============================================
+  // Test helpers for Worker call() fire-and-forget
+  // ============================================
+
+  // Worker calls DO remoteEcho, result handler forwards result to a storage DO
+  // Workers are stateless — must init bindingName within each call
+  testCallToDO(
+    doBindingName: string,
+    doInstanceName: string,
+    value: string,
+    resultStoreDOInstance: string
+  ): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    const remote = this.ctn<TestDO>().remoteEcho(value);
+    this.lmz.call(
+      doBindingName,
+      doInstanceName,
+      remote,
+      this.ctn().forwardResultToDO(resultStoreDOInstance, remote)
+    );
+  }
+
+  // Worker calls DO throwError, result handler forwards error to a storage DO
+  testCallWithErrorToDO(
+    doBindingName: string,
+    doInstanceName: string,
+    resultStoreDOInstance: string
+  ): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    const remote = this.ctn<TestDO>().throwError();
+    this.lmz.call(
+      doBindingName,
+      doInstanceName,
+      remote,
+      this.ctn().forwardErrorToDO(resultStoreDOInstance, remote)
+    );
+  }
+
+  // Worker calls DO remoteEcho without handler (fire-and-forget)
+  testCallFireAndForget(
+    doBindingName: string,
+    doInstanceName: string,
+    value: string
+  ): void {
+    this.lmz.__init({ bindingName: 'TEST_WORKER' });
+    const remote = this.ctn<TestDO>().remoteEcho(value);
+    this.lmz.call(doBindingName, doInstanceName, remote);
+  }
+
+  // Worker calls call() without setting bindingName (should throw)
+  testCallWithoutBindingName(): void {
+    const remote = this.ctn<TestDO>().remoteEcho('test');
+    this.lmz.call('TEST_DO', 'some-instance', remote);
+  }
+
+  // Result handler: forwards result to a DO for persistence (no @mesh needed)
+  async forwardResultToDO(resultStoreDOInstance: string, result: any): Promise<void> {
+    await this.lmz.callRaw(
+      'TEST_DO',
+      resultStoreDOInstance,
+      this.ctn<TestDO>().storeForwardedResult(result)
+    );
+  }
+
+  // Result handler: forwards error to a DO for persistence (no @mesh needed)
+  async forwardErrorToDO(resultStoreDOInstance: string, error: any): Promise<void> {
+    await this.lmz.callRaw(
+      'TEST_DO',
+      resultStoreDOInstance,
+      this.ctn<TestDO>().storeForwardedError(
+        error instanceof Error ? error.message : String(error)
+      )
+    );
+  }
+
   // Remote methods that can be called via RPC
   @mesh()
   workerEcho(value: string): string {
     return `worker-echo: ${value}`;
+  }
+
+  // Remote handler that throws an error (for DO→Worker error path tests)
+  @mesh()
+  throwError(): never {
+    throw new Error('Worker remote error for testing');
   }
 
   @mesh()

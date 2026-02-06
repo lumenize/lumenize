@@ -770,18 +770,26 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       // 1. Extract and validate chains (shared helper)
       const { remoteChain, handlerChain } = extractCallChains(remoteContinuation, handlerContinuation);
 
-      // 2. Set up handler execution (shared helpers)
+      // 2. Validate caller knows its own binding (fail fast!)
+      if (!this.bindingName) {
+        throw new Error(
+          `Cannot use call() from a Worker that doesn't know its own binding name. ` +
+          `Ensure incoming calls include metadata or call this.lmz.__init() first.`
+        );
+      }
+
+      // 3. Set up handler execution (shared helpers)
       const capturedContext = captureCallContext();
       const localExecutor = workerInstance.__localChainExecutor;
       const executeHandler = createHandlerExecutor(localExecutor, capturedContext);
 
-      // 3. Make remote call with context
+      // 4. Make remote call with context
       const callPromise = capturedContext
         ? runWithCallContext(capturedContext, () =>
             this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options))
         : this.callRaw(calleeBindingName, calleeInstanceName, remoteChain, options);
 
-      // 4. Fire-and-forget with handler callbacks (shared helper)
+      // 5. Fire-and-forget with handler callbacks (shared helper)
       // Workers are ephemeral — ctx.waitUntil() keeps the runtime alive
       // until the fire-and-forget promise settles
       const handledPromise = setupFireAndForgetHandler(callPromise, handlerChain, executeHandler);

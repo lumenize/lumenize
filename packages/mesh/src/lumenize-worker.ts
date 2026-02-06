@@ -138,16 +138,16 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    *
    * This method enables remote DOs/Workers to call methods on this Worker via RPC.
    * Any Worker extending LumenizeWorker can receive remote calls without additional setup.
-   * 
+   *
    * @internal This is called by this.lmz.callRaw(), not meant for direct use
    * @param chain - The operation chain to execute
    * @returns The result of executing the operation chain
-   * 
+   *
    * @example
    * ```typescript
    * // Remote DO/Worker sends this chain:
    * const remote = this.ctn<MyWorker>().processData(data);
-   * 
+   *
    * // This Worker receives and executes it:
    * const result = await this.__executeChain(remote);
    * // Equivalent to: this.processData(data)
@@ -155,6 +155,21 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    */
   async __executeChain(chain: OperationChain): Promise<any> {
     return await executeOperationChain(chain, this);
+  }
+
+  /**
+   * Get the local chain executor for internal use
+   *
+   * This method provides access to __executeChain with configurable options
+   * for trusted internal code (like lmz.call() result handlers).
+   *
+   * **Security**: The returned function can bypass @mesh checks, but it won't
+   * serialize over RPC boundaries so attackers can't use it remotely.
+   *
+   * @internal
+   */
+  get __localChainExecutor(): (chain: OperationChain, options?: { requireMeshDecorator?: boolean }) => Promise<any> {
+    return (chain, options) => executeOperationChain(chain, this, options);
   }
 
   /**

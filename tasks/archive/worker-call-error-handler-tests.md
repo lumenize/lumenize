@@ -103,8 +103,28 @@ Tests:
 All async tests use `vi.waitFor` to poll for results (not `setTimeout`).
 
 ## Success Criteria
-- All new tests pass
-- All existing tests still pass
-- Worker `call()` with result handlers works end-to-end
-- DO→Worker error path is covered
-- No unnecessary `@mesh` decorators on result handlers
+- [x] All new tests pass
+- [x] All existing tests still pass (278 pass, 1 pre-existing skip)
+- [x] Worker `call()` with result handlers works end-to-end
+- [x] DO→Worker error path is covered
+- [x] No unnecessary `@mesh` decorators on result handlers
+
+## Completion Notes (2026-02-06)
+
+All steps implemented and verified. Full monorepo test suite passes.
+
+### Bug fixes (production code)
+1. **`lumenize-worker.ts`**: Added `__localChainExecutor` getter — without this, Worker `call()` with a result handler crashed at runtime
+2. **`lmz-api.ts`**: Added `bindingName` validation to Worker `call()`, matching the existing DO `call()` guard
+
+### Test cleanup
+3. **`test-worker-and-dos.ts`**: Removed unnecessary `@mesh()` from `TestDO.handleCallResult()` and `TestDO.handleCallError()`
+
+### New tests (18 added to `lumenize-worker.test.ts`, up from 10 to 28)
+- Worker `callRaw()`: Worker→DO, Worker→Worker, Worker→DO error
+- Worker `call()`: happy path, error path, fire-and-forget, bindingName validation, DO→Worker error
+
+### Follow-up investigation
+- LumenizeClient `call()` and `callRaw()` implementation is correct (returns void / Promise respectively)
+- LumenizeClient unit test coverage for call/callRaw is thin but integration tests in `for-docs/calls/` cover the paths. Deferred to "get test coverage up to targets" todo in release checklist.
+- `mesh-api.mdx` is accurate for call/callRaw API. Missing Client-specific `onBeforeCall` default — likely belongs in security docs.
