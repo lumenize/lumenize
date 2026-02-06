@@ -46,7 +46,7 @@ For `call()` patterns including fire-and-forget, response handlers, chaining, an
 
 ### `callRaw()` — Async Call
 
-Lower-level method that returns a Promise and can accept an already extracted OperationChain. This is useful when you have already extracted the operation chain from a continuation using `getOperationChain(continuation)`, stored or sent it over the wire, and restored it. You might use this if you were building your own [NADIS plugin](./creating-plugins.mdx) and/or building your own transport to extend Lumenize Mesh. Prefer `call()` with continuations for most use cases.
+Lower-level method that returns a Promise and can accept an already extracted OperationChain. This is useful when you have already extracted the operation chain from a continuation using `getOperationChain(continuation)`, stored or sent it over the wire, and restored it. You might use this if you were building your own [NADIS plugin](./creating-plugins.mdx) and/or building your own transport to extend Lumenize Mesh. Prefer `call()` with continuations for other use cases.
 
 ```typescript @check-example('packages/mesh/src/lmz-api.ts')
 // this.lmz.callRaw()

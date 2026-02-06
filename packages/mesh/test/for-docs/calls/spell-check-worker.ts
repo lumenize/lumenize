@@ -17,26 +17,21 @@ export interface SpellFinding {
 export class SpellCheckWorker extends LumenizeWorker<Env> {
   @mesh()
   async check(content: string, clientId: string, documentId: string): Promise<void> {
-    // Mock implementation - in real app this would call external API
-    // For testing, we'll flag any word containing "teh" as a typo
+    // Mock spell checker - flags "teh" as misspelled
     const findings: SpellFinding[] = [];
-    const words = content.split(/\s+/);
+    const words = content.split(' ');
     let position = 0;
 
     for (const word of words) {
-      if (word.toLowerCase().includes('teh')) {
-        findings.push({
-          word,
-          position,
-          suggestions: [word.replaceAll(/teh/gi, 'the')],
-        });
+      if (word.toLowerCase() === 'teh') {
+        findings.push({ word, position, suggestions: ['the'] });
       }
-      position += word.length + 1; // +1 for space
+      position += word.length + 1;
     }
 
     // Send results directly to the originating client (fire-and-forget)
     if (findings.length > 0) {
-      await this.lmz.callRaw(
+      this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         this.ctn<EditorClient>().handleSpellFindings(documentId, findings)

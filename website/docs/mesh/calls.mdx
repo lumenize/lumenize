@@ -121,7 +121,7 @@ async computeAnalytics(
   };
 
   // Fire-and-forget back to the DO with results
-  await this.lmz.callRaw(
+  this.lmz.call(
     'DOCUMENT_DO',
     documentId,
     this.ctn<DocumentDO>().handleAnalyticsResult(result)
@@ -142,7 +142,7 @@ update(content: string) {
 
   // Trigger spell check - worker sends results directly to originator
   const { callChain } = this.lmz.callContext;
-  const clientId = callChain.at(-1)?.instanceName;
+  const clientId = callChain[0]?.instanceName;
   const documentId = this.lmz.instanceName!;
 
   if (clientId) {
@@ -166,7 +166,7 @@ async check(content: string, clientId: string, documentId: string): Promise<void
   // ...
   // Send results directly to the originating client (fire-and-forget)
   if (findings.length > 0) {
-    await this.lmz.callRaw(
+    this.lmz.call(
       'LUMENIZE_CLIENT_GATEWAY',
       clientId,
       this.ctn<EditorClient>().handleSpellFindings(documentId, findings)
@@ -198,9 +198,9 @@ requestSpellCheck(documentId: string, content: string) {
 @mesh()
 async check(content: string, clientId: string, documentId: string): Promise<void> {
   // ...
-  // Send results directly to the client
+  // Send results directly to the originating client (fire-and-forget)
   if (findings.length > 0) {
-    await this.lmz.callRaw(
+    this.lmz.call(
       'LUMENIZE_CLIENT_GATEWAY',
       clientId,
       this.ctn<EditorClient>().handleSpellFindings(documentId, findings)

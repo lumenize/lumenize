@@ -15,14 +15,24 @@ This tutorial builds a **collaborative document editor** using all mesh node typ
 
 ## What You'll Build
 
-With the exception of the Workspace LumenizeDO, which we leave as a potential exercise for the reader, we will flesh out the nodes in this diagram:
-
 <MeshArchitectureDiagram />
 
 **Call flows:**
 1. **User edits** → Client → Gateway → DocumentDO
 2. **DocumentDO notifies** → Gateway → Client (real-time update)
-3. **DocumentDO spell checks** → SpellCheckWorker → DocumentDO → Gateway → Client
+3. **DocumentDO spell checks** → SpellCheckWorker → Gateway → Client
+
+:::note Diagram vs Implementation
+
+<details>
+<summary>Minor differences between the diagram and the code below</summary>
+
+- **Workspace DO** — Shown in diagram but omitted from tutorial (left as exercise for the reader)
+- **Spell check return path** — Diagram shows results flowing back through DocumentDO, but we implement a more efficient "three one-way calls" pattern where SpellCheckWorker sends results directly to the client, bypassing DocumentDO entirely.
+
+</details>
+
+:::
 
 ## Prerequisites
 
@@ -36,11 +46,12 @@ npm install @lumenize/mesh @lumenize/utils
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/document-do.ts')
 import { LumenizeDO, mesh } from '@lumenize/mesh';
+// import types for type checked continuation construction
 import type { SpellCheckWorker } from './spell-check-worker.js';
 import type { EditorClient } from './editor-client.js';
 
 export class DocumentDO extends LumenizeDO<Env> {
-  // Only subscribers can update — auth is already guaranteed by auth hooks
+  // @mesh annotation with guard function. Allows only subscribers to call update()
   @mesh((instance: DocumentDO) => {
     const sub = instance.lmz.callContext.originAuth!.sub;
     const subscribers: Set<string> = instance.ctx.storage.kv.get('subscribers') ?? new Set();
@@ -51,27 +62,25 @@ export class DocumentDO extends LumenizeDO<Env> {
   update(content: string) {
     this.ctx.storage.kv.put('content', content);
 
-    // Notify all subscribers with new content
     this.#broadcastContent(content);
 
     // Trigger spell check - worker sends results directly to originator
     const { callChain } = this.lmz.callContext;
-    const clientId = callChain.at(-1)?.instanceName;
+    const clientId = callChain[0]?.instanceName;
     const documentId = this.lmz.instanceName!;
-
     if (clientId) {
       this.lmz.call(
         'SPELLCHECK_WORKER',
-        undefined,
+        undefined,  // Workers have no instance name
         this.ctn<SpellCheckWorker>().check(content, clientId, documentId)
       );
     }
   }
 
-  @mesh()
+  @mesh()  // No guard function, so any mesh node can subscribe()
   subscribe(): string {
     const { callChain } = this.lmz.callContext;
-    const clientId = callChain.at(-1)?.instanceName;
+    const clientId = callChain[0]?.instanceName;
     if (clientId) {
       const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
       subscribers.add(clientId);
@@ -85,38 +94,37 @@ export class DocumentDO extends LumenizeDO<Env> {
   #broadcastContent(content: string) {
     const documentId = this.lmz.instanceName!;
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    // Continuation is created once and reused — serialization has no side effects
+    const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
     // Note: In production, you'd skip the originator to avoid redundant updates
     for (const clientId of subscribers) {
-      const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
-      // Start new chain - this is a server-initiated push, not a response to client
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         remote,
         undefined,
-        { newChain: true }
+        { newChain: true }  // so clients won't see who initiated the update
       );
     }
   }
 }
 ```
 
-**Key patterns:**
-- `@mesh(guard)` enforces fine-grained access control at the method level — only subscribers can edit
-- `@mesh()` without a guard exposes methods with no additional checks (auth is already guaranteed)
+**Features demonstrated:**
+- [`@mesh(guard)`](./security#method-level-meshguard) enforces fine-grained access control at the method level — only subscribers can edit
+- `@mesh()` without a guard exposes methods with no additional checks
 - `this.lmz.call()` makes fire-and-forget or request/response calls
 - `this.ctn<T>()` builds type-safe continuations for remote methods
 - `{ newChain: true }` starts a fresh call chain for server-initiated pushes
 
-### Design Insights
+### Patterns to Notice
 
 | Pattern | Why It Matters |
 |---------|----------------|
-| No `async`/`await` | Continuations describe work; framework handles timing. Avoids race conditions. |
+| No `async`/`await` | Continuations describe work; framework handles timing. Helps avoid race conditions. |
 | No instance variables | State in storage survives hibernation/eviction. Reads are cached and cheap (writes cost 10,000x more). |
 | Direct delivery | SpellCheckWorker sends findings straight to the originating client, not back through DocumentDO (as is shown in the incomplete diagram). |
-| `{ newChain: true }` | Server-initiated broadcasts start fresh call chains, not continuations of client requests. |
-| `@mesh(guard)` not shown | Fine-grained permissions per method. See [Security](./security#method-level-meshguard). |
+| No instance name for Workers | Pass `undefined` as the 2nd parameter to `lmz.call()` |
 
 ## Step 2: Define the Spell Check Worker
 
@@ -135,26 +143,21 @@ export interface SpellFinding {
 export class SpellCheckWorker extends LumenizeWorker<Env> {
   @mesh()
   async check(content: string, clientId: string, documentId: string): Promise<void> {
-    // Mock implementation - in real app this would call external API
-    // For testing, we'll flag any word containing "teh" as a typo
+    // Mock spell checker - flags "teh" as misspelled
     const findings: SpellFinding[] = [];
-    const words = content.split(/\s+/);
+    const words = content.split(' ');
     let position = 0;
 
     for (const word of words) {
-      if (word.toLowerCase().includes('teh')) {
-        findings.push({
-          word,
-          position,
-          suggestions: [word.replaceAll(/teh/gi, 'the')],
-        });
+      if (word.toLowerCase() === 'teh') {
+        findings.push({ word, position, suggestions: ['the'] });
       }
-      position += word.length + 1; // +1 for space
+      position += word.length + 1;
     }
 
     // Send results directly to the originating client (fire-and-forget)
     if (findings.length > 0) {
-      await this.lmz.callRaw(
+      this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',
         clientId,
         this.ctn<EditorClient>().handleSpellFindings(documentId, findings)
@@ -165,17 +168,16 @@ export class SpellCheckWorker extends LumenizeWorker<Env> {
 ```
 
 **Key patterns:**
-- Workers can be `async` — they don't have the same consistency constraints as DOs
-- Workers have no instance name (pass `undefined` to `lmz.call`)
+- It's fine for Worker methods to be `async` — they don't have the same consistency concerns as DOs
 - Direct delivery: Worker sends findings straight to the client that triggered the check
 
 :::tip Cost Optimization
-For long-running external calls, consider using `@lumenize/fetch` with the "two one-way call" pattern to avoid DO wall-clock billing while waiting for long-running (>2s) responses.
+For long-running external calls, consider using [`@lumenize/fetch`](/docs/fetch) which utilizes a ["two one-way call" pattern](./calls#two-one-way-calls) to avoid DO wall-clock billing while waiting for long-running (>5s) external fetches.
 :::
 
 ## Step 3: Define the Browser Client
 
-`LumenizeClient` runs in the browser and is a **full mesh peer** — it can both make and receive calls.
+`LumenizeClient` runs anywhere with JavaScript and WebSocket support (browser, node.js, bun, etc.) and is a **full mesh peer** — it can both make and receive calls.
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/editor-client.ts')
 import { LumenizeClient, mesh, type LumenizeClientConfig } from '@lumenize/mesh';
@@ -278,8 +280,7 @@ export class EditorClient extends LumenizeClient {
 ```
 
 **Key patterns:**
-- Extend `LumenizeClient` and define `@mesh()` methods for incoming calls
-- Use an `openDocument()` pattern that returns a `DocumentHandle` for multi-document support
+- Unlike for DOs, instance variables are fine
 - `onSubscriptionsLost` handles resubscription. This is only called if auto-reconnect is unsuccessful within the 5-second grace period
 - The client can call any mesh node using the same `this.lmz.call()` API
 - Results can be `Error` — always check before using
@@ -287,55 +288,36 @@ export class EditorClient extends LumenizeClient {
 ## Step 4: Connect from the Browser
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.test.ts')
-// ...
 import { EditorClient } from './editor-client.js';
-import type { SpellFinding } from './spell-check-worker.js';
-
 // ...
 
-  // Track events for each client
-  const aliceEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
+// Use `using` for automatic cleanup via Symbol.dispose
+using client = new EditorClient({
+  baseUrl: 'https://localhost',
+  refresh: 'https://localhost/auth/refresh-token',
   // ...
+});
+// ...
 
-  // ...
+const doc = client.openDocument(documentId, {
+  onContentUpdate: updateEditor,
+  onSpellFindings: showSpellingSuggestions,
+});
+// ...
 
-  // Use `using` for automatic cleanup via Symbol.dispose
-  using alice = new EditorClient({
-    instanceName: `${aliceUserId}.tab1`,
-    baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
-    // ...
-  });
+doc.saveContent('The quick brown fox');
+// ...
 
-  // ...
-
-  // Alice opens the document - should receive empty content for new document
-  const aliceDoc = alice.openDocument(documentId, {
-    onContentUpdate: (content) => aliceEvents.content.push(content),
-    onSpellFindings: (findings) => aliceEvents.spellFindings.push(findings),
-  });
-
-  // ...
-
-  aliceDoc.saveContent('The quick brown fox');
-  // ...
-
-  // Cleanup: close document handles (clients auto-disconnect via `using`)
-  aliceDoc.close();
-  // ...
+// Cleanup: close document handles (clients auto-disconnect via `using`)
+doc.close();
 ```
 
 **Key patterns:**
 - Use `using` keyword for automatic cleanup via `Symbol.dispose`
-- `instanceName` uniquely identifies the client (typically `sub.tabId` where `sub` is the JWT subject)
-- `openDocument()` returns a handle with `saveContent()` and `close()` methods
-- Event callbacks receive updates in real-time
-
-When `accessToken` is omitted, `LumenizeClient` automatically calls the `refresh` endpoint to get a token before connecting. This uses the refresh cookie that was set when the user clicked the magic link.
 
 ## Step 5: Set Up Authentication
 
-The mesh uses `@lumenize/auth` for passwordless authentication with magic link login. This step sets up the keys and environment.
+The default auth solution for the mesh is `@lumenize/auth` which provides passwordless magic link login. This step sets up the keys and environment.
 
 ### Generate Ed25519 Key Pairs
 
@@ -398,7 +380,7 @@ const authHooks = await createRouteDORequestAuthHooks(env);
 // Worker entry point
 export default {
   async fetch(request: Request) {
-    // Handle auth routes (/auth/email-magic-link, /auth/magic-link, /auth/refresh-token, /auth/logout)
+    // Handle auth routes
     const authResponse = await authRoutes(request);
     if (authResponse) {
       return authResponse;

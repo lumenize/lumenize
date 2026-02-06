@@ -1,11 +1,25 @@
 # Website Refactor for Initial Lumenize Mesh Release
 
 Must have:
-- [ ] Alpha or Beta label on mesh and auth packages
+- [ ] Code:
+  - [ ] Fix bootstrap problem for LumenizeClient
+  - [ ] Refactor Gateway depending upon results of experiment to confirm alarm takes storage
+  - [ ] Gateway must close old connection when new one arrives
+  - [ ] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
 - [ ] Website home page rewrite
   - [ ] Tag line
   - [ ] Hero sections
   - [ ] Products
+    - [ ] Mesh beta
+    - [ ] Auth beta
+    - [ ] debug
+    - [ ] Nebula - coming soon
+- [ ] Website - what to do with older packages
+  - [ ] Move RPC under Testing and mark with "use Mesh instead"
+  - [ ] Actor Alarms - archive except keep doc-testing folder
+  - [ ] Cap'n Web comparison - archive except keep doc-testing folder
+- [ ] Blog
+  - [ ] Announcing Lumenize Mesh and Auth
 
 Should have:
 - [ ] Working Document editor system example
@@ -13,7 +27,13 @@ Should have:
   - [ ] What to use for UI?
 - [ ] At least one example from Agent
 - [ ] Blog
-  - [ ] Announcing Lumenize Mesh and Auth
+  - [ ] Gateway pattern
+    - [ ] Experiments on Gateway latency
+      - [ ] Direct to DO round trip
+      - [ ] Mesh round trip - expect +20ms or so
+      - [ ] Direct to DO to Worker back to DO back to client
+      - [ ] Mesh three one-way calls - expect even w/ above
+  - [ ] 
 
 Could have:
 - [ ] @lumenize/resources NADIS plugin

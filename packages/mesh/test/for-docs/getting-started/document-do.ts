@@ -25,7 +25,7 @@ export class DocumentDO extends LumenizeDO<Env> {
 
     // Trigger spell check - worker sends results directly to originator
     const { callChain } = this.lmz.callContext;
-    const clientId = callChain.at(-1)?.instanceName;
+    const clientId = callChain[0]?.instanceName;
     const documentId = this.lmz.instanceName!;
 
     if (clientId) {
@@ -40,7 +40,7 @@ export class DocumentDO extends LumenizeDO<Env> {
   @mesh()
   subscribe(): string {
     const { callChain } = this.lmz.callContext;
-    const clientId = callChain.at(-1)?.instanceName;
+    const clientId = callChain[0]?.instanceName;
     if (clientId) {
       const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
       subscribers.add(clientId);
@@ -54,9 +54,10 @@ export class DocumentDO extends LumenizeDO<Env> {
   #broadcastContent(content: string) {
     const documentId = this.lmz.instanceName!;
     const subscribers: Set<string> = this.ctx.storage.kv.get('subscribers') ?? new Set();
+    // Continuation is created once and reused — serialization has no side effects
+    const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
     // Note: In production, you'd skip the originator to avoid redundant updates
     for (const clientId of subscribers) {
-      const remote = this.ctn<EditorClient>().handleContentUpdate(documentId, content);
       // Start new chain - this is a server-initiated push, not a response to client
       this.lmz.call(
         'LUMENIZE_CLIENT_GATEWAY',

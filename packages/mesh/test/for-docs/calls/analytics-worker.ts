@@ -30,7 +30,7 @@ export class AnalyticsWorker extends LumenizeWorker<Env> {
     };
 
     // Fire-and-forget back to the DO with results
-    await this.lmz.callRaw(
+    this.lmz.call(
       'DOCUMENT_DO',
       documentId,
       this.ctn<DocumentDO>().handleAnalyticsResult(result)
