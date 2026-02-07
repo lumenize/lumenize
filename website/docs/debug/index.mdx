@@ -24,51 +24,16 @@ npm install @lumenize/debug
 
 ## Quick Start
 
-### In Cloudflare Workers/DOs
+The API is identical across Cloudflare Workers, Node.js, Bun, and browsers. Here's how `@lumenize/auth` uses it for security audit logging:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/src/lumenize-auth.ts')
 import { debug } from '@lumenize/debug';
-
-class ChatRoom extends DurableObject {
-  #log = debug('ChatRoom');
-
-  async fetch(request: Request) {
-    const log = debug('ChatRoom.fetch');
-
-    log.debug('Processing request', {
-      method: request.method,
-      url: request.url,
-    });
-
-    // Handle the request
-    const messages = this.ctx.storage.kv.get('messages') || [];
-    const response = new Response(JSON.stringify(messages));
-
-    log.info('Request completed', {
-      messageCount: messages.length
-    });
-
-    return response;
-  }
-}
-```
-
-### In Node.js/Bun
-
-```typescript @skip-check
-import { debug } from '@lumenize/debug';
-
-const log = debug('MyApp.startup');
-log.info('Server starting', { port: 3000 });
-```
-
-### In Browser
-
-```typescript @skip-check
-import { debug } from '@lumenize/debug';
-
-const log = debug('EditorClient.onDocumentUpdate');
-log.debug('Received changes', { count: changes.length });
+// ...
+const auditLog = debug('auth.LumenizeAuth.login.failed');
+auditLog.warn('Invalid magic link token', { reason: 'not_found' });
+// ...
+const loginLog = debug('auth.LumenizeAuth.login.succeeded');
+loginLog.info('Magic link login', { targetSub: subject.sub, actorSub: 'system', email: magicLink.email });
 ```
 
 ## Configuration
@@ -97,7 +62,7 @@ DEBUG=* node server.js
 ```
 
 **Browser**: Set via localStorage in DevTools console:
-```javascript @skip-check
+```javascript @skip-check-approved('conceptual')
 localStorage.setItem('DEBUG', '*');
 // Refresh the page
 ```
@@ -149,24 +114,33 @@ This format integrates with Cloudflare's observability dashboard, allowing you t
 
 The debug system provides a simple, type-safe logging interface:
 
-```typescript @skip-check
-import { debug } from '@lumenize/debug';
+```typescript @check-example('packages/debug/src/types.ts')
+// ...
+export interface DebugLogger {
+  /** Namespace for this logger */
+  readonly namespace: string;
 
-// Create logger
-const log = debug('MyDO.myMethod');
+  /** Whether this logger is enabled based on current filter */
+  readonly enabled: boolean;
 
-// Log at different levels
-log.debug(message: string, data?: any);  // Most verbose
-log.info(message: string, data?: any);   // Milestones, events
-log.warn(message: string, data?: any);   // Expected operational issues
-log.error(message: string, data?: any);  // ⚠️ ALWAYS outputs - never filtered
+  /** Log at debug level (most verbose) */
+  debug(message: string, data?: any, options?: DebugOptions): void;
+
+  /** Log at info level */
+  info(message: string, data?: any, options?: DebugOptions): void;
+
+  /** Log at warn level */
+  warn(message: string, data?: any, options?: DebugOptions): void;
+
+  error(message: string, data?: any, options?: DebugOptions): void;
+}
 ```
 
 ### `enabled` Flag as Performance Guard
 
 Check `enabled` flag before expensive operations. `enabled` is computed based on the current `DEBUG` filter and the namespace for the logger:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 const log = debug('NotChat');
 if (log.enabled) {
   const expensiveData = computeExpensiveDetails();

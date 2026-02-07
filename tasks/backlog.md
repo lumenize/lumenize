@@ -150,6 +150,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Documentation
 
+- [ ] Review, edit, and convert `@skip-check` annotations in `website/docs/mesh/protocol.mdx` (13 pending)
+  - File is explicitly labeled as a draft — decide which blocks should be `@skip-check-approved('conceptual')` vs converted to `@check-example`
+  - Many are TypeScript interface definitions that could point at real source files
+
 - [ ] Enforce `@skip-check` fails the build (only `@skip-check-approved` should pass)
   - **Current state**: `check-examples` silently skips both `@skip-check` and `@skip-check-approved` blocks
   - **Goal**: `@skip-check` (pending) should fail the build; only `@skip-check-approved` (human-reviewed) should pass

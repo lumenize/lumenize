@@ -1,6 +1,6 @@
 ---
 title: LumenizeClient
-description: Browser and Node.js clients as full mesh peers
+description: Browser, Node.js, Bun, etc. clients as full mesh peers
 ---
 
 # LumenizeClient
@@ -11,7 +11,7 @@ description: Browser and Node.js clients as full mesh peers
 
 Despites WebSocket's bidirectional nature, most WebSocket architectures make a distinction between client and server. Lumenize takes a different approach.
 
-Each `LumenizeClient` connects via a hibernating WebSocket to its own dedicated [LumenizeClientGateway](./gateway) Durable Object instance. This Gateway acts as the client's proxy inside the mesh — any mesh node can call your client's `@mesh()` methods just like they'd call a DO or Worker. The Gateway maintains the connection, handles authentication, and routes messages bidirectionally.
+Each `LumenizeClient` connects via a hibernating WebSocket to its own dedicated [LumenizeClientGateway](./gateway) Durable Object instance. This Gateway acts as the client's proxy inside the mesh — any mesh node can call your client's `@mesh()` methods just like they'd call a DO or Worker. The Gateway maintains the connection, handles authentication, and routes calls bidirectionally.
 
 This architecture means:
 - **Server-initiated calls work** — A DO can call `this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)` and your client's handler executes
@@ -22,20 +22,35 @@ See [Gateway Internals](./gateway) for the full architecture and protocol detail
 
 ## Quick Start
 
-```typescript @skip-check
-class EditorClient extends LumenizeClient {
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+export class EditorClient extends LumenizeClient {
+  // ...
   @mesh()
-  handleDocumentChange(change: DocumentChange) {
-    this.editor.applyChange(change);
+  handleContentUpdate(documentId: string, content: string) {
+    // ...
+  }
+  // ...
+  requestSpellCheck(documentId: string, content: string) {
+    // ...
   }
 }
-
-// Minimal config — instanceName auto-generated, baseUrl defaults to origin,
-// refresh defaults to /auth/refresh-token
-using client = new EditorClient();
 ```
 
-Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`.
+Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the same pattern as `LumenizeDO` and `LumenizeWorker`. Methods _without_ `@mesh()` (like `requestSpellCheck`) are local-only — callable from your UI code but invisible to the mesh.
+
+```typescript @skip-check-approved('conceptual')
+using client = new EditorClient({
+  onLoginRequired: (err) => { /* route user to login form */ },
+  // ...
+});
+```
+
+The `using` keyword ensures the WebSocket disconnects when `client` goes out of scope.
+
+| Call Origin | Example | Access Control |
+|-------------|---------|----------------|
+| **Local** (your browser code) | `client.requestSpellCheck(...)` | No checks — direct method call |
+| **Mesh** (from DO/Worker) | `this.lmz.call()` via Gateway | `@mesh()` decorator required |
 
 ## Configuration
 
@@ -52,12 +67,10 @@ Extend `LumenizeClient` and define `@mesh()` methods for incoming calls — the 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `accessToken` | `string?` | — | Initial JWT. If omitted, fetched via `refresh` (recommended). |
-| `refresh` | `string \| () => Promise<{ access_token, sub }>` | `/auth/refresh-token` | Token refresh endpoint or custom function. Both must return `sub`. |
-
-Both forms return `{ access_token, sub }`. The client uses `sub` to auto-construct `instanceName` as `${sub}.${tabId}`.
+| `refresh` | `string \| () => Promise<{ access_token, sub }>` | `/auth/refresh-token` | Token refresh endpoint or custom function. Both must return `{ access_token, sub }`. |
 
 **Custom refresh example** (for non-standard auth providers):
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 using client = new EditorClient({
   refresh: async () => {
     const response = await fetch('/my/custom/refresh');  // Cookies sent automatically
@@ -80,37 +93,13 @@ using client = new EditorClient({
 
 `LumenizeClient` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh()` decorator for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations.
 
-### Local vs Mesh Calls
-
-Methods on your client class can be called two ways:
-
-| Call Origin | Example | Access Control |
-|-------------|---------|----------------|
-| **Local** (your browser code) | `client.sendChange(change)` | No checks — direct method call |
-| **Mesh** (from DO/Worker) | `this.lmz.call()` via Gateway | `@mesh()` decorator required |
-
-This means you can have both public methods for your UI and `@mesh()` decorated methods for the mesh on the same class:
-
-```typescript @skip-check
-class EditorClient extends LumenizeClient {
-  // Called by your browser code — no @mesh needed
-  sendChange(change: DocumentChange) {
-    this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().update(change));
-  }
-
-  // Called by mesh nodes — requires @mesh
-  @mesh()
-  handleDocumentChange(change: DocumentChange) {
-    this.editor.applyChange(change);
-  }
-}
-```
+See [Making Calls](./calls) for `this.lmz.call()` patterns, continuations, and error handling.
 
 ## Connection Lifecycle
 
 The WebSocket connection is established automatically upon instantiation. Use the `using` keyword for automatic cleanup:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 {
   using client = new EditorClient(config);
   // ...
@@ -125,13 +114,13 @@ LumenizeClient has almost the exact same **secure-by-default** model as Lumenize
 
 - ✅ Calls from LumenizeDOs and LumenizeWorkers are allowed
 - ✅ Calls that originated from this same client instance (responses flowing back through the mesh) are also allowed
-- ❌ Calls originating from other LumenizeClients are rejected
+- ❌ Calls originating from other LumenizeClients are rejected by default
 
 ### Opting In to Calls From Other LumenizeClients
 
 For collaborative features (cursors, voice/video signaling, etc.), override `onBeforeCall`:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 class CollaborativeClient extends LumenizeClient {
   onBeforeCall() {
     // Note: NOT calling super.onBeforeCall() — we WANT to allow peers
@@ -162,29 +151,27 @@ When disconnected, the mesh maintains client state for at least a **5-second gra
 
 `onSubscriptionRequired` fires on every connection except reconnects within the 5-second grace period. Use it as the single place to establish all subscriptions:
 
-```typescript @skip-check
-class EditorClient extends LumenizeClient {
+```typescript @check-example('packages/mesh/test/for-docs/calls/editor-client.ts')
+  // Called on every connection (except reconnects within 5s grace period)
   onSubscriptionRequired = () => {
-    // (Re)establish subscriptions
-    this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
+    // (Re)subscribe to all open documents
+    for (const [documentId, callbacks] of this.#documents) {
+      this.#subscribe(documentId, callbacks);
+    }
   };
-}
 ```
 
 ## Handling Relogin
 
 Token expiration is handled automatically — refresh and reconnect happen transparently. `onLoginRequired` only fires when the user must re-login (e.g., refresh token expired):
 
-```typescript @skip-check
-using client = new EditorClient({
-  onLoginRequired: (error) => {
-    console.log('Login required:', error.reason);
-    window.location.href = '/login';
-  }
-});
+```typescript @check-example('packages/mesh/test/for-docs/security/index.test.ts')
+    onLoginRequired: (error) => {
+      // Only fires when refresh fails — user must re-login
+      console.log('Login required:', error.code, error.reason);
+      loginRequiredErrors.push(error);
+    },
 ```
-
-For call errors, see [Making Calls: Error Handling](./calls#error-handling).
 
 ## Browser Considerations
 
@@ -194,34 +181,31 @@ Tab ID management is built in. Each tab gets a unique ID stored in `sessionStora
 
 ### Hibernation and Backgrounding
 
-No manual handling needed. `LumenizeClient` automatically detects tab wake-up, reconnects, and triggers `onSubscriptionRequired` to re-establish subscriptions.
+No manual handling needed. `LumenizeClient` automatically detects tab wake-up, reconnects, and triggers `onSubscriptionRequired` so your code can re-establish subscriptions.
 
 ## Testing
 
-Test clients using `@lumenize/testing`'s `Browser` class, which provides cookie simulation, CORS behavior, and injectable WebSocket polyfills. See **[@lumenize/testing: Agents](/docs/testing/agents)** for complete patterns including multi-user scenarios and authentication testing.
-
-## API Reference
-
-See [Mesh API](./mesh-api) for the full `LumenizeClient` class reference including `connectionState`, `lmz`, `connect()`, `disconnect()`, `onBeforeCall()`, and `ctn<T>()`.
+Test clients using `@lumenize/testing`'s `Browser` class, which provides cookie simulation, injectable browser built-in polyfills, etc. See [Testing](./testing) for complete patterns including multi-user scenarios and authentication testing.
 
 ### Type: `LumenizeClientConfig`
 
-```typescript @skip-check
-interface LumenizeClientConfig {
+```typescript @check-example('packages/mesh/src/lumenize-client.ts')
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+```
+
+```typescript @check-example('packages/mesh/src/lumenize-client.ts')
+export interface LumenizeClientConfig {
   baseUrl?: string;
-  instanceName?: string;               // Auto-generated from refresh sub + tabId
+  instanceName?: string;
   gatewayBindingName?: string;
   accessToken?: string;
   refresh?: string | (() => Promise<{ access_token: string; sub: string }>);
   onConnectionStateChange?: (state: ConnectionState) => void;
-  onConnectionError?: (error: Error) => void;
   onLoginRequired?: (error: LoginRequiredError) => void;
   onSubscriptionRequired?: () => void;
-  WebSocket?: typeof WebSocket;         // For testing
-  fetch?: typeof fetch;                 // For testing
-  sessionStorage?: Storage;             // For testing (tab ID)
-  BroadcastChannel?: typeof BroadcastChannel;  // For testing (duplicate-tab detection)
+  onConnectionError?: (error: Error) => void;
+  // ...
 }
-
-type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 ```
+
+`LumenizeClientConfig` also accepts testing overrides (`WebSocket`, `fetch`, `sessionStorage`, `BroadcastChannel`) for dependency injection in tests. See [Testing](./testing#dependency-injection-for-testing) for details.

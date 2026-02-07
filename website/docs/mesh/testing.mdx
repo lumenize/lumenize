@@ -5,15 +5,9 @@ description: Testing Lumenize Mesh applications with multi-user scenarios and RP
 
 # Testing
 
-This document demonstrates testing Lumenize Mesh applications using `@lumenize/testing`. We cover:
+Testing Lumenize Mesh applications using `@lumenize/testing`. For basic usage of `@lumenize/testing`, see the [usage documentation](/docs/testing/usage).
 
-1. **Multi-user collaboration** - Testing state synchronization across multiple WebSocket connections with separate `Browser` instances
-2. **Magic link authentication** - Using `testLoginWithMagicLink` for realistic auth flows
-3. **RPC storage access** - Inspecting and modifying DO storage directly for test verification
-
-For basic usage of `@lumenize/testing`, see the [usage documentation](/docs/testing/usage). For testing Cloudflare's `Agent` class, see [Testing Agents](/docs/testing/agents).
-
-## Why testing LumenizeClient is hard
+## Why testing real-time code is hard
 
 Testing real-time collaborative applications typically requires:
 - Separate processes for server and client
@@ -27,242 +21,6 @@ Testing real-time collaborative applications typically requires:
 - **`testLoginWithMagicLink`** for complete auth flow simulation
 - **RPC access** to DO internals via `createTestingClient`
 
-## Multi-user collaboration example
-
-This example demonstrates testing a collaborative document editor where:
-- Multiple users connect via separate `Browser` instances (cookie isolation)
-- Users authenticate via magic link flow
-- Real-time updates broadcast to all subscribers
-- Server-side spell checking sends results to originators
-
-### The test
-
-```typescript @skip-check
-import { it, expect, vi } from 'vitest';
-import { Browser } from '@lumenize/testing';
-import { testLoginWithMagicLink } from '@lumenize/auth';
-import { EditorClient } from './editor-client.js';
-import type { SpellFinding } from './spell-check-worker.js';
-
-it('collaborative document editing with multiple clients', async () => {
-  const documentId = 'collab-doc-1';
-
-  // Track events for each client
-  const aliceEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
-  const bobEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
-
-  // ============================================
-  // Phase 1: Alice connects and opens a document
-  // ============================================
-
-  const aliceBrowser = new Browser();
-  await testLoginWithMagicLink(aliceBrowser, 'alice@example.com');
-
-  // Use `using` for automatic cleanup via Symbol.dispose
-  using alice = new EditorClient({
-    baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
-    // Test-specific: inject browser's fetch/WebSocket
-    fetch: aliceBrowser.fetch,
-    WebSocket: aliceBrowser.WebSocket,
-  });
-
-  await vi.waitFor(() => {
-    expect(alice.connectionState).toBe('connected');
-  });
-
-  // Alice opens the document - should receive empty content for new document
-  const aliceDoc = alice.openDocument(documentId, {
-    onContentUpdate: (content) => aliceEvents.content.push(content),
-    onSpellFindings: (findings) => aliceEvents.spellFindings.push(findings),
-  });
-
-  await vi.waitFor(() => {
-    expect(aliceEvents.content[0]).toBe('');
-  });
-
-  // ============================================
-  // Phase 2: Alice starts writing the document
-  // ============================================
-
-  aliceDoc.saveContent('The quick brown fox');
-
-  // Alice should receive the broadcast of her own update
-  await vi.waitFor(() => {
-    expect(aliceEvents.content[1]).toBe('The quick brown fox');
-  });
-
-  // ============================================
-  // Phase 3: Bob connects and opens the same document
-  // ============================================
-
-  const bobBrowser = new Browser();
-  await testLoginWithMagicLink(bobBrowser, 'bob@example.com');
-
-  using bob = new EditorClient({
-    baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
-    fetch: bobBrowser.fetch,
-    WebSocket: bobBrowser.WebSocket,
-  });
-
-  await vi.waitFor(() => {
-    expect(bob.connectionState).toBe('connected');
-  });
-
-  // Bob opens the same document - should receive current content
-  const bobDoc = bob.openDocument(documentId, {
-    onContentUpdate: (content) => bobEvents.content.push(content),
-    onSpellFindings: (findings) => bobEvents.spellFindings.push(findings),
-  });
-
-  await vi.waitFor(() => {
-    expect(bobEvents.content[0]).toBe('The quick brown fox');
-  });
-
-  // ============================================
-  // Phase 4: Bob continues the document, both receive the broadcast
-  // ============================================
-
-  bobDoc.saveContent('The quick brown fox jumps over teh lazy dog.');
-
-  // Both Alice and Bob should receive the broadcast
-  await vi.waitFor(() => {
-    expect(aliceEvents.content[2]).toBe('The quick brown fox jumps over teh lazy dog.');
-    expect(bobEvents.content[1]).toBe('The quick brown fox jumps over teh lazy dog.');
-  });
-
-  // ============================================
-  // Phase 5: Spell check findings go only to the originator
-  // ============================================
-
-  // The spell checker sends results directly to the client who made the update.
-  // Only Bob should receive findings (he made the update with "teh").
-  await vi.waitFor(() => {
-    expect(bobEvents.spellFindings.length).toBeGreaterThan(0);
-  });
-
-  // Alice should NOT receive spell findings (she didn't make this update)
-  expect(aliceEvents.spellFindings.length).toBe(0);
-
-  // Verify Bob's findings
-  const bobFindings = bobEvents.spellFindings.at(-1)!;
-  expect(bobFindings[0].word).toBe('teh');
-  expect(bobFindings[0].suggestions).toContain('the');
-
-  // Cleanup: close document handles (clients auto-disconnect via `using`)
-  aliceDoc.close();
-  bobDoc.close();
-});
-```
-
-## Key patterns
-
-### Browser isolation for multi-user testing
-
-Each user needs their own `Browser` instance for cookie isolation:
-
-```typescript @skip-check
-const aliceBrowser = new Browser();
-const bobBrowser = new Browser();
-
-// Each browser has its own cookie jar
-// Auth cookies from Alice's login won't leak to Bob
-```
-
-### Magic link authentication
-
-`testLoginWithMagicLink` simulates the complete magic link flow:
-
-```typescript @skip-check
-import { testLoginWithMagicLink } from '@lumenize/auth';
-
-// Requires LUMENIZE_AUTH_TEST_MODE=true in your vitest.config miniflare bindings
-const { sub } = await testLoginWithMagicLink(browser, 'alice@example.com');
-
-// Browser now has refresh-token cookie stored
-// Pass browser.fetch and browser.WebSocket to LumenizeClient
-```
-
-This function:
-1. Requests a magic link (test mode returns URL in response)
-2. "Clicks" the magic link (Browser follows redirect and captures cookies)
-3. Exchanges refresh token cookie for access token
-4. Returns `{ sub, accessToken }` — `sub` from the refresh response
-
-### Dependency injection for testing
-
-`LumenizeClient` accepts several dependencies in its constructor for testing. Use `Browser` for cookie-aware HTTP/WebSocket, and `Browser.context()` for per-tab sessionStorage and BroadcastChannel:
-
-| Option | What to inject | Why |
-|--------|---------------|-----|
-| `fetch` | `browser.fetch` | Cookie-aware HTTP with CORS validation |
-| `WebSocket` | `browser.WebSocket` | Cookie-aware WebSocket handshake |
-| `sessionStorage` | `context.sessionStorage` | Per-tab tab ID persistence |
-| `BroadcastChannel` | `context.BroadcastChannel` | Duplicate-tab detection across contexts |
-
-```typescript @skip-check
-const browser = new Browser();
-const ctx = browser.context('https://localhost');
-
-const client = new EditorClient({
-  baseUrl: 'https://localhost',
-  refresh: 'https://localhost/auth/refresh-token',
-  // Inject browser-level implementations (shared across tabs)
-  fetch: browser.fetch,
-  WebSocket: browser.WebSocket,
-  // Inject context-level implementations (per-tab)
-  sessionStorage: ctx.sessionStorage,
-  BroadcastChannel: ctx.BroadcastChannel,
-});
-```
-
-For simpler tests that don't need tab ID isolation, `browser.fetch` and `browser.WebSocket` are sufficient — the client falls back to `globalThis` for sessionStorage and BroadcastChannel.
-
-Use `browser.duplicateContext(ctx)` to simulate browser tab duplication (clones sessionStorage, shares BroadcastChannel). The client's built-in duplicate-tab detection will automatically generate a fresh tab ID for the duplicate.
-
-### RPC access to DO storage
-
-Use `createTestingClient` to directly inspect or modify DO storage:
-
-```typescript @skip-check
-import { createTestingClient } from '@lumenize/testing';
-import type { RpcAccessible } from '@lumenize/testing';
-import type { DocumentDO } from './document-do.js';
-
-type DocumentDOType = RpcAccessible<InstanceType<typeof DocumentDO>>;
-
-// Create RPC client for direct DO access
-using client = createTestingClient<DocumentDOType>('DOCUMENT_DO', 'collab-doc-1');
-
-// Read storage directly
-const content = await client.ctx.storage.kv.get('content');
-expect(content).toBe('The quick brown fox');
-
-// Read subscribers set
-const subscribers = await client.ctx.storage.kv.get('subscribers');
-expect(subscribers.size).toBe(2);
-
-// You can also write to storage for test setup
-await client.ctx.storage.kv.put('content', 'Pre-populated content');
-```
-
-### Using `vi.waitFor()` for async events
-
-Always use `vi.waitFor()` for WebSocket events and async state changes:
-
-```typescript @skip-check
-// Wait for connection
-await vi.waitFor(() => {
-  expect(client.connectionState).toBe('connected');
-});
-
-// Wait for broadcast to arrive
-await vi.waitFor(() => {
-  expect(events.content.length).toBeGreaterThan(0);
-});
-```
-
 ## Installation
 
 ```bash
@@ -275,7 +33,7 @@ npm install --save-dev @lumenize/testing
 
 ### vitest.config.js
 
-```javascript @skip-check
+```javascript @skip-check-approved('conceptual')
 import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersProject({
@@ -292,12 +50,9 @@ export default defineWorkersProject({
 });
 ```
 
-### Test mode binding
+Enable test mode for `testLoginWithMagicLink` in your vitest config's miniflare bindings (never in wrangler.jsonc):
 
-Enable test mode for magic link authentication in your vitest config's miniflare bindings (never in wrangler.jsonc):
-
-```javascript @skip-check
-// In vitest.config.js poolOptions.workers.miniflare
+```javascript @check-example('packages/mesh/vitest.config.js')
 miniflare: {
   bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
 },
@@ -318,23 +73,171 @@ Point to your test harness that instruments DO classes:
 
 ### test/test-harness.ts
 
-```typescript @skip-check
-import * as sourceModule from '../src';
+The test harness wraps your DO classes with RPC instrumentation so `createTestingClient` can access storage and other internals:
+
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/test/test-harness.ts')
+import * as sourceModule from '../index.js';
 import { instrumentDOProject } from '@lumenize/testing';
 
+// ...
 const instrumented = instrumentDOProject({
   sourceModule,
-  doClassNames: ['DocumentDO', 'LumenizeClientGateway', 'LumenizeAuth']
+  doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'LumenizeAuth'],
 });
 
-export const { DocumentDO, LumenizeClientGateway, LumenizeAuth } = instrumented.dos;
+// ...
+export const { LumenizeClientGateway, DocumentDO, LumenizeAuth } = instrumented.dos;
+
+// ...
 export default instrumented;
 ```
 
-## Tips
+## Multi-user collaboration example
 
-- **Use `using`** for automatic cleanup of LumenizeClient connections
-- **Separate Browser instances** for each user to ensure cookie isolation
-- **`vi.waitFor()`** for all async assertions (WebSocket events, broadcasts)
-- **RPC clients** for test setup/verification without going through the public API
-- **`testLoginWithMagicLink`** for realistic auth flows without manual token management
+The following test exercises the full mesh architecture: two users connect via separate `Browser` instances (cookie isolation), authenticate via magic link, exchange real-time updates via broadcasts, and receive targeted spell-check results.
+
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.test.ts')
+import { it, expect, vi } from 'vitest';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { testLoginWithMagicLink } from '@lumenize/auth';
+import { EditorClient } from './editor-client.js';
+// ...
+
+it('collaborative document editing with multiple clients', async () => {
+  const documentId = 'collab-doc-1';
+
+  // ...
+  const events = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
+  const bobEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
+
+  // ...
+
+  const browser = new Browser();
+  const aliceCtx = browser.context('https://localhost');
+  await testLoginWithMagicLink(browser, 'alice@example.com', { subjectData: { adminApproved: true } });
+
+  // ...
+
+  using client = new EditorClient({
+    baseUrl: 'https://localhost',
+    refresh: 'https://localhost/auth/refresh-token',
+    fetch: browser.fetch,
+    WebSocket: browser.WebSocket,
+    sessionStorage: aliceCtx.sessionStorage,
+    BroadcastChannel: aliceCtx.BroadcastChannel,
+  });
+
+  await vi.waitFor(() => {
+    expect(client.connectionState).toBe('connected');
+  });
+
+  const doc = client.openDocument(documentId, {
+    onContentUpdate: updateEditor,
+    onSpellFindings: showSpellingSuggestions,
+  });
+
+  await vi.waitFor(() => {
+    expect(events.content[0]).toBe('');
+  });
+
+  doc.saveContent('The quick brown fox');
+
+  await vi.waitFor(() => {
+    expect(events.content[1]).toBe('The quick brown fox');
+  });
+
+  // ...
+
+  const bobBrowser = new Browser();
+  const bobCtx = bobBrowser.context('https://localhost');
+  await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
+
+  using bob = new EditorClient({
+    baseUrl: 'https://localhost',
+    refresh: 'https://localhost/auth/refresh-token',
+    fetch: bobBrowser.fetch,
+    WebSocket: bobBrowser.WebSocket,
+    sessionStorage: bobCtx.sessionStorage,
+    BroadcastChannel: bobCtx.BroadcastChannel,
+  });
+
+  await vi.waitFor(() => {
+    expect(bob.connectionState).toBe('connected');
+  });
+
+  // ...
+
+  const bobDoc = bob.openDocument(documentId, {
+    onContentUpdate: updateBobEditor,
+    onSpellFindings: showBobSpellingSuggestions,
+  });
+
+  await vi.waitFor(() => {
+    expect(bobEvents.content[0]).toBe('The quick brown fox');
+  });
+
+  // ...
+
+  // Verify Bob is subscribed via direct storage inspection
+  {
+    using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
+    const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
+    expect(subscribers).toBeInstanceOf(Set);
+    expect(subscribers!.has(bob.lmz.instanceName)).toBe(true);
+  }
+
+  // ...
+  bobDoc.saveContent('The quick brown fox jumps over teh lazy dog.');
+
+  // ...
+  await vi.waitFor(() => {
+    expect(events.content.at(-1)).toBe('The quick brown fox jumps over teh lazy dog.');
+    expect(bobEvents.content.at(-1)).toBe('The quick brown fox jumps over teh lazy dog.');
+  });
+
+  // ...
+  await vi.waitFor(() => {
+    expect(bobEvents.spellFindings.length).toBeGreaterThan(0);
+  });
+
+  // ...
+  expect(events.spellFindings.length).toBe(0);
+
+  // ...
+  const bobFindings = bobEvents.spellFindings.at(-1)!;
+  expect(bobFindings[0].word).toBe('teh');
+  expect(bobFindings[0].suggestions).toContain('the');
+  // ...
+});
+```
+
+### What to notice
+
+**`using` for automatic cleanup** — `using client` and `using bob` ensure WebSocket connections disconnect when the variables go out of scope. No manual `client.disconnect()` needed.
+
+**Separate `Browser` instances** — Each user gets their own `Browser` with an independent cookie jar. Alice's auth cookies never leak to Bob.
+
+**`testLoginWithMagicLink`** simulates the complete magic link flow:
+1. Requests a magic link (test mode returns URL in response)
+2. "Clicks" the magic link (Browser follows redirect and captures cookies)
+3. Exchanges refresh token cookie for access token
+4. Returns `{ sub, accessToken }` — `sub` from the refresh response
+
+**`vi.waitFor()`** — WebSocket events arrive asynchronously. Never use `setTimeout` — `vi.waitFor()` retries the assertion until it passes or times out, giving you deterministic tests without arbitrary delays.
+
+**`createTestingClient` for RPC access** — Directly inspect or modify DO storage without going through the public API. The test uses it to verify Bob's subscription was stored correctly. Also useful for pre-populating state during test setup.
+
+### Dependency injection
+
+`LumenizeClient` accepts testing overrides for dependency injection. Use `Browser` for cookie-aware HTTP/WebSocket, and `browser.context()` for per-tab sessionStorage and BroadcastChannel:
+
+| Option | What to inject | Why |
+|--------|---------------|-----|
+| `fetch` | `browser.fetch` | Cookie-aware HTTP with CORS validation |
+| `WebSocket` | `browser.WebSocket` | Cookie-aware WebSocket handshake |
+| `sessionStorage` | `context.sessionStorage` | Per-tab tab ID persistence |
+| `BroadcastChannel` | `context.BroadcastChannel` | Duplicate-tab detection across contexts |
+
+For simpler tests that don't need tab ID isolation, `browser.fetch` and `browser.WebSocket` are sufficient.
+
+Use `browser.duplicateContext(ctx)` to simulate browser tab duplication (clones sessionStorage, shares BroadcastChannel). The client's built-in duplicate-tab detection will automatically generate a fresh tab ID for the duplicate.

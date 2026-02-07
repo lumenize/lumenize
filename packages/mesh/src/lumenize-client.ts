@@ -162,6 +162,8 @@ export interface LumenizeClientConfig {
    */
   onConnectionError?: (error: Error) => void;
 
+  // --- Testing overrides (see @lumenize/testing docs) ---
+
   /**
    * WebSocket constructor for testing
    *

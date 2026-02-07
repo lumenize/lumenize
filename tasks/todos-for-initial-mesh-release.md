@@ -10,7 +10,7 @@ Must have:
   - [x] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
   - [x] Refactor Gateway
   - [x] Get test coverage up to targets
-  - [ ] Resolve remaining skip-checks
+  - [x] Resolve remaining skip-checks
 - [ ] Website home page rewrite
   - [ ] Tag line
   - [ ] Hero sections
