@@ -12,9 +12,6 @@ import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js
 /** Grace period before marking subscriptions as lost (5 seconds) */
 const GRACE_PERIOD_MS = 5000;
 
-/** Marker alarm offset - 100 years in the future (no ongoing cost for pending alarms) */
-const MARKER_ALARM_OFFSET_MS = 100 * 365 * 24 * 60 * 60 * 1000;
-
 /** Timeout for client to respond to an incoming call (30 seconds) */
 const CLIENT_CALL_TIMEOUT_MS = 30000;
 
@@ -119,7 +116,7 @@ export interface IncomingCallResponseMessage {
 /** Post-handshake status message */
 export interface ConnectionStatusMessage {
   type: typeof GatewayMessageType.CONNECTION_STATUS;
-  subscriptionsLost: boolean;
+  subscriptionRequired: boolean;
 }
 
 /** Union of all Gateway messages */
@@ -214,11 +211,11 @@ interface ReconnectWaiter {
  * - Trust DMZ (builds callContext.callChain[0] and originAuth from verified sources)
  *
  * **Connection States (derived, not stored):**
- * | getWebSockets() | getAlarm() | State | Behavior |
- * |-----------------|------------|-------|----------|
- * | Has connection | Any | Connected | Forward calls immediately |
- * | Empty | Pending | Grace Period | Wait for reconnect (up to 5s) |
- * | Empty | None | Disconnected | Throw ClientDisconnectedError |
+ * | getWebSockets() | getAlarm() | State | subscriptionRequired |
+ * |-----------------|------------|-------|---------------------|
+ * | Has connection | Any | Connected | n/a |
+ * | Empty | Pending (≤5s) | Grace Period | false |
+ * | Empty | None | Disconnected | true |
  */
 export class LumenizeClientGateway extends DurableObject<any> {
   #debugFactory = debug;
@@ -303,8 +300,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return new Response('Forbidden: identity mismatch', { status: 403 });
     }
 
-    // Determine if subscriptions were lost (before accepting new connection)
-    const subscriptionsLost = await this.#determineSubscriptionState();
+    // Determine if client needs to (re)establish subscriptions
+    const subscriptionRequired = await this.#isSubscriptionRequired();
 
     // Accept WebSocket with hibernation support
     const pair = new WebSocketPair();
@@ -342,14 +339,14 @@ export class LumenizeClientGateway extends DurableObject<any> {
     // No complex types, use JSON.stringify directly
     const statusMessage: ConnectionStatusMessage = {
       type: GatewayMessageType.CONNECTION_STATUS,
-      subscriptionsLost,
+      subscriptionRequired,
     };
     server.send(JSON.stringify(statusMessage));
 
     log.info('WebSocket connection accepted', {
       sub,
       instanceName,
-      subscriptionsLost,
+      subscriptionRequired,
     });
 
     // Return upgrade response with 'lmz' protocol
@@ -437,19 +434,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
   async alarm(): Promise<void> {
     const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.alarm');
 
-    // Check if this is a marker alarm (far future) - ignore those
-    // Marker alarms are set when grace period expires, not when this method is called
-    const currentAlarm = await this.ctx.storage.getAlarm();
-    if (currentAlarm && currentAlarm > Date.now() + GRACE_PERIOD_MS) {
-      // This is a marker alarm check, not a grace period expiry
-      return;
-    }
+    // Grace period expired - client didn't reconnect in time
+    log.info('Grace period expired');
 
-    // Grace period expired - client didn't reconnect
-    log.info('Grace period expired, marking subscriptions as lost');
-
-    // Set marker alarm so we know subscriptions were lost when client reconnects
-    await this.ctx.storage.setAlarm(Date.now() + MARKER_ALARM_OFFSET_MS);
+    // Explicitly delete alarm to ensure zero storage remains
+    await this.ctx.storage.deleteAlarm();
 
     // Reject all pending reconnect waiters
     this.#rejectReconnectWaiters(new ClientDisconnectedError(
@@ -728,25 +717,30 @@ export class LumenizeClientGateway extends DurableObject<any> {
   }
 
   /**
-   * Determine if subscriptions were lost based on alarm state
+   * Determine if client needs to (re)establish subscriptions
+   *
+   * Returns false when:
+   * - Superseding an existing connection (subscriptions still active)
+   * - Reconnecting within the 5-second grace period (alarm pending)
+   *
+   * Returns true for everything else: fresh connection, reconnect after
+   * grace period expired, tab wake-up.
    */
-  async #determineSubscriptionState(): Promise<boolean> {
-    const alarm = await this.ctx.storage.getAlarm();
-
-    if (alarm === null) {
-      // Fresh connection (never disconnected)
+  async #isSubscriptionRequired(): Promise<boolean> {
+    // Supersession: existing socket means subscriptions are still active
+    if (this.ctx.getWebSockets().length > 0) {
       return false;
     }
 
-    if (alarm > Date.now() + GRACE_PERIOD_MS) {
-      // Marker alarm - grace period had expired
-      await this.ctx.storage.deleteAlarm();
-      return true;
+    const alarm = await this.ctx.storage.getAlarm();
+
+    if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+      // Reconnected within grace period — subscriptions still active
+      return false;
     }
 
-    // Alarm still in grace period range - subscriptions intact
-    await this.ctx.storage.deleteAlarm();
-    return false;
+    // Everything else: fresh connection, post-grace-period, or no alarm
+    return true;
   }
 
   // ============================================
@@ -762,14 +756,6 @@ export class LumenizeClientGateway extends DurableObject<any> {
     if (alarm === null) {
       throw new ClientDisconnectedError(
         'Client is not connected and no grace period active',
-        this.#getInstanceName()
-      );
-    }
-
-    // Check if alarm is a marker (far future) - means grace period already expired
-    if (alarm > Date.now() + GRACE_PERIOD_MS) {
-      throw new ClientDisconnectedError(
-        'Client grace period has expired',
         this.#getInstanceName()
       );
     }

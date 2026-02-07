@@ -8,7 +8,7 @@ Must have:
     - [x] Worker callRaw() and call() tests (18 new tests in lumenize-worker.test.ts)
   - [x] Gateway must close old connection when new one arrives
   - [x] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
-  - [ ] Refactor Gateway depending upon results of experiment to confirm alarm takes storage
+  - [x] Refactor Gateway
   - [x] Get test coverage up to targets
   - [ ] Resolve remaining skip-checks
 - [ ] Website home page rewrite

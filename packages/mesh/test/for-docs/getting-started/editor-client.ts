@@ -69,9 +69,9 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
-  // Called when reconnecting after grace period expired
-  onSubscriptionsLost = () => {
-    // Re-subscribe to all open documents
+  // Called on every connection (except reconnects within 5s grace period)
+  onSubscriptionRequired = () => {
+    // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }

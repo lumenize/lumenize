@@ -367,7 +367,7 @@ describe('LumenizeClient', () => {
       // Send connection_status message
       ws.simulateMessage(JSON.stringify({
         type: 'connection_status',
-        subscriptionsLost: false,
+        subscriptionRequired: false,
       }));
 
       expect(client.connectionState).toBe('connected');
@@ -375,14 +375,14 @@ describe('LumenizeClient', () => {
       client.disconnect();
     });
 
-    it('calls onSubscriptionsLost when subscriptionsLost is true', () => {
-      let subscriptionsLostCalled = false;
+    it('calls onSubscriptionRequired when subscriptionRequired is true', () => {
+      let subscriptionRequiredCalled = false;
       const client = new TestClient({
         instanceName: 'user.tab1',
         baseUrl: 'wss://example.com',
         accessToken: 'token',
         WebSocket: createMockWebSocketClass(),
-        onSubscriptionsLost: () => { subscriptionsLostCalled = true; },
+        onSubscriptionRequired: () => { subscriptionRequiredCalled = true; },
       });
 
       const ws = createdWebSockets[0];
@@ -390,10 +390,10 @@ describe('LumenizeClient', () => {
 
       ws.simulateMessage(JSON.stringify({
         type: 'connection_status',
-        subscriptionsLost: true,
+        subscriptionRequired: true,
       }));
 
-      expect(subscriptionsLostCalled).toBe(true);
+      expect(subscriptionRequiredCalled).toBe(true);
       client.disconnect();
     });
 
@@ -602,7 +602,7 @@ describe('Message Queue', () => {
     // Send connection_status
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Now the queued message should have been sent
@@ -632,7 +632,7 @@ describe('Stale close from superseded socket', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -650,7 +650,7 @@ describe('Stale close from superseded socket', () => {
     ws2.simulateOpen();
     ws2.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -676,7 +676,7 @@ describe('Stale close from superseded socket', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -782,7 +782,7 @@ describe('Token refresh', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
     expect(client.connectionState).toBe('connected');
 
@@ -819,7 +819,7 @@ describe('Token refresh', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Token expiry close triggers refresh, which fails
@@ -852,7 +852,7 @@ describe('Reconnection', () => {
     ws1.simulateOpen();
     ws1.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Close triggers reconnect scheduling
@@ -896,7 +896,7 @@ describe('Reconnection', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Should not create a new WebSocket
@@ -924,7 +924,7 @@ describe('Incoming calls from mesh', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Simulate incoming call from gateway
@@ -974,7 +974,7 @@ describe('Incoming calls from mesh', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     const { preprocess: pp } = await import('@lumenize/structured-clone');
@@ -1059,7 +1059,7 @@ describe('call() fire-and-forget', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // call() should not throw and should return void
@@ -1084,7 +1084,7 @@ describe('call() fire-and-forget', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     const remote = client.ctn<TestClient>().handleMessage('call-with-handler');
@@ -1116,7 +1116,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Send invalid JSON — should not throw, just log error
@@ -1144,7 +1144,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Send a message with an unknown type
@@ -1172,7 +1172,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Send a call_response for a callId that doesn't exist
@@ -1205,7 +1205,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Make a call
@@ -1245,7 +1245,7 @@ describe('Message handling edge cases', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Make a call
@@ -1362,7 +1362,7 @@ describe('Disconnect cleanup', () => {
     ws.simulateOpen();
     ws.simulateMessage(JSON.stringify({
       type: 'connection_status',
-      subscriptionsLost: false,
+      subscriptionRequired: false,
     }));
 
     // Trigger reconnect scheduling

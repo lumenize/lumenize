@@ -73,7 +73,7 @@ using client = new EditorClient({
 |----------|-----------|
 | `onConnectionStateChange(state)` | State changes: `connecting`, `connected`, `reconnecting`, `disconnected` |
 | `onLoginRequired(error)` | Re-login required (not routine token refresh) |
-| `onSubscriptionsLost()` | After reconnection if grace period had expired |
+| `onSubscriptionRequired()` | Every connection except reconnects within 5s grace period |
 | `onConnectionError(error)` | Low-level WebSocket errors (rarely actionable) |
 
 ## Mesh API
@@ -158,14 +158,14 @@ When disconnected, the mesh maintains client state for at least a **5-second gra
 - **Within 5 seconds**: Reconnection is seamless — all subscriptions remain active
 - **After 5 seconds**: Mesh nodes may clean up resources. Resubscribing is necessary.
 
-### Handling Subscription Loss
+### Setting Up Subscriptions
 
-After the client reconnects once the grace period has expired, `onSubscriptionsLost` fires:
+`onSubscriptionRequired` fires on every connection except reconnects within the 5-second grace period. Use it as the single place to establish all subscriptions:
 
 ```typescript @skip-check
 class EditorClient extends LumenizeClient {
-  onSubscriptionsLost = () => {
-    // Re-establish subscriptions
+  onSubscriptionRequired = () => {
+    // (Re)establish subscriptions
     this.lmz.call('DOCUMENT_DO', this.documentId, this.ctn<DocumentDO>().subscribe());
   };
 }
@@ -194,7 +194,7 @@ Tab ID management is built in. Each tab gets a unique ID stored in `sessionStora
 
 ### Hibernation and Backgrounding
 
-No manual handling needed. `LumenizeClient` automatically detects tab wake-up, reconnects, and triggers `onSubscriptionsLost` if needed.
+No manual handling needed. `LumenizeClient` automatically detects tab wake-up, reconnects, and triggers `onSubscriptionRequired` to re-establish subscriptions.
 
 ## Testing
 
@@ -216,7 +216,7 @@ interface LumenizeClientConfig {
   onConnectionStateChange?: (state: ConnectionState) => void;
   onConnectionError?: (error: Error) => void;
   onLoginRequired?: (error: LoginRequiredError) => void;
-  onSubscriptionsLost?: () => void;
+  onSubscriptionRequired?: () => void;
   WebSocket?: typeof WebSocket;         // For testing
   fetch?: typeof fetch;                 // For testing
   sessionStorage?: Storage;             // For testing (tab ID)

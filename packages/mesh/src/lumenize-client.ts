@@ -150,11 +150,12 @@ export interface LumenizeClientConfig {
   onLoginRequired?: (error: LoginRequiredError) => void;
 
   /**
-   * Called after reconnection if the grace period had expired
+   * Called when subscriptions need to be (re)established
    *
-   * Subscriptions need to be re-established.
+   * Fires on every connection except reconnects within the 5-second grace period.
+   * Use this as the single place to set up all subscriptions.
    */
-  onSubscriptionsLost?: () => void;
+  onSubscriptionRequired?: () => void;
 
   /**
    * Called for low-level WebSocket errors (rarely actionable)
@@ -608,7 +609,7 @@ export abstract class LumenizeClient {
     this.#reconnectAttempts = 0;
 
     // State will be set to 'connected' when we receive connection_status message
-    // This ensures we don't miss the subscriptionsLost info
+    // This ensures we don't miss the subscriptionRequired info
   }
 
   #handleClose(code: number, reason: string): void {
@@ -823,9 +824,9 @@ export abstract class LumenizeClient {
     // Flush queued messages
     this.#flushMessageQueue();
 
-    // Notify if subscriptions were lost
-    if (message.subscriptionsLost) {
-      this.#config.onSubscriptionsLost?.();
+    // Notify if subscriptions need to be (re)established
+    if (message.subscriptionRequired) {
+      this.#config.onSubscriptionRequired?.();
     }
   }
 

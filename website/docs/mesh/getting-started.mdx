@@ -242,9 +242,9 @@ export class EditorClient extends LumenizeClient {
     );
   }
 
-  // Called when reconnecting after grace period expired
-  onSubscriptionsLost = () => {
-    // Re-subscribe to all open documents
+  // Called on every connection (except reconnects within 5s grace period)
+  onSubscriptionRequired = () => {
+    // (Re)subscribe to all open documents
     for (const [documentId, callbacks] of this.#documents) {
       this.#subscribe(documentId, callbacks);
     }
@@ -281,7 +281,7 @@ export class EditorClient extends LumenizeClient {
 
 **Key patterns:**
 - Unlike for DOs, instance variables are fine
-- `onSubscriptionsLost` handles resubscription. This is only called if auto-reconnect is unsuccessful within the 5-second grace period
+- `onSubscriptionRequired` handles (re)subscription. Fires on every connection except reconnects within the 5-second grace period
 - The client can call any mesh node using the same `this.lmz.call()` API
 - Results can be `Error` — always check before using
 

@@ -85,7 +85,7 @@ describe('LumenizeClientGateway', () => {
       expect(response.webSocket).toBeDefined();
     });
 
-    it('sends connection_status message with subscriptionsLost: false on fresh connection', async () => {
+    it('sends connection_status message with subscriptionRequired: true on fresh connection', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('fresh-conn.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
@@ -116,7 +116,7 @@ describe('LumenizeClientGateway', () => {
 
       const statusMessage = await messagePromise;
       expect(statusMessage.type).toBe(GatewayMessageType.CONNECTION_STATUS);
-      expect(statusMessage.subscriptionsLost).toBe(false);
+      expect(statusMessage.subscriptionRequired).toBe(true);
 
       ws.close();
     });
@@ -408,7 +408,7 @@ describe('LumenizeClientGateway', () => {
       ws2.close();
     });
 
-    it('reports subscriptionsLost: false on supersession (no grace period elapsed)', async () => {
+    it('reports subscriptionRequired: false on supersession (no grace period elapsed)', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('subs.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
@@ -418,7 +418,7 @@ describe('LumenizeClientGateway', () => {
       // Second connection — supersedes first, no grace period involved
       const { ws: ws2, statusMessage } = await connectAndWait(gateway, 'subs', 'subs.tab1');
 
-      expect(statusMessage.subscriptionsLost).toBe(false);
+      expect(statusMessage.subscriptionRequired).toBe(false);
 
       ws2.close();
     });
@@ -841,7 +841,7 @@ describe('LumenizeClientGateway', () => {
   });
 
   describe('Grace period and alarm', () => {
-    it('reconnect within grace period reports subscriptionsLost: false', async () => {
+    it('reconnect within grace period reports subscriptionRequired: false', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
@@ -893,11 +893,11 @@ describe('LumenizeClientGateway', () => {
         });
       });
 
-      expect(statusMessage.subscriptionsLost).toBe(false);
+      expect(statusMessage.subscriptionRequired).toBe(false);
       ws2.close();
     });
 
-    it('reports subscriptionsLost: true after grace period expires', async () => {
+    it('reports subscriptionRequired: true after grace period expires', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-expired.tab1');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
 
@@ -928,7 +928,7 @@ describe('LumenizeClientGateway', () => {
       // Fire the grace period alarm (simulates expiry)
       await runDurableObjectAlarm(gateway);
 
-      // Reconnect after alarm — should report subscriptionsLost: true
+      // Reconnect after alarm — should report subscriptionRequired: true
       const token2 = createFakeJwt({ sub: 'grace-expired', exp: Math.floor(Date.now() / 1000) + 900 });
       const response2 = await gateway.fetch('https://example.com', {
         headers: {
@@ -951,7 +951,7 @@ describe('LumenizeClientGateway', () => {
         });
       });
 
-      expect(statusMessage.subscriptionsLost).toBe(true);
+      expect(statusMessage.subscriptionRequired).toBe(true);
       ws2.close();
     });
   });
