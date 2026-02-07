@@ -9,7 +9,7 @@ Must have:
   - [x] Gateway must close old connection when new one arrives
   - [x] Make Turnstile and Rate Limiting optional but point to their config at bottom of getting-started.mdx
   - [ ] Refactor Gateway depending upon results of experiment to confirm alarm takes storage
-  - [ ] Get test coverage up to targets
+  - [x] Get test coverage up to targets
   - [ ] Resolve remaining skip-checks
 - [ ] Website home page rewrite
   - [ ] Tag line

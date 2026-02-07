@@ -1,8 +1,7 @@
-import { stringify, preprocess, postprocess } from '@lumenize/structured-clone';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   newContinuation,
   executeOperationChain,
-  replaceNestedOperationMarkers,
   getOperationChain,
   type OperationChain,
   type Continuation,

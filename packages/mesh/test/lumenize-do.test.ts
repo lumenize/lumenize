@@ -701,13 +701,30 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
 
       it('throws if handlerContinuation is invalid', async () => {
         const caller = env.TEST_DO.getByName('call-validation-3');
-        
+
         await caller.testLmzApiInit({ bindingName: 'CALLER_DO' });
-        
+
         // Test method that passes invalid handler continuation
         await expect(caller.testLmzCallWithInvalidHandler()).rejects.toThrow(
           /Invalid handlerContinuation/
         );
+      });
+    });
+
+    describe('DO ID validation in __initFromHeaders', () => {
+      it('returns 400 when instance header contains a DO ID', async () => {
+        const stub = env.TEST_DO.getByName('fetch-do-id-reject');
+        await stub.clearStoredMetadata();
+
+        // DO IDs are 64-char hex strings
+        const doId = 'a'.repeat(64);
+        const response = await stub.testFetch({
+          'x-lumenize-do-instance-name-or-id': doId,
+        });
+
+        expect(response.status).toBe(400);
+        const text = await response.text();
+        expect(text).toContain('LumenizeDO requires instanceName, not a DO id string');
       });
     });
 
@@ -741,5 +758,6 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       });
     });
   });
+
 });
 

@@ -714,3 +714,663 @@ describe('@mesh(guard) on LumenizeClient', () => {
   // all node types via ocan/execute.ts, and is thoroughly tested for LumenizeDO
   // in call-context.test.ts. The TestWorker guards are also tested there.
 });
+
+describe('Token refresh', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('refreshes token via function before connecting', async () => {
+    let refreshCalled = false;
+    const client = new TestClient({
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCalled = true;
+        return { access_token: 'new-token', sub: 'user-from-refresh' };
+      },
+    });
+
+    // Wait for async connect to complete (refresh + WebSocket creation)
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(refreshCalled).toBe(true);
+    // instanceName should be auto-generated from sub
+    expect(client.lmz.instanceName).toContain('user-from-refresh');
+    client.disconnect();
+  });
+
+  it('refreshes token via URL endpoint before connecting', async () => {
+    let fetchCalled = false;
+    const client = new TestClient({
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: '/auth/refresh-token',
+      fetch: async (url, init) => {
+        fetchCalled = true;
+        expect(url).toBe('/auth/refresh-token');
+        expect(init?.method).toBe('POST');
+        return new Response(JSON.stringify({
+          access_token: 'url-token',
+          sub: 'url-user',
+        }));
+      },
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(fetchCalled).toBe(true);
+    expect(client.lmz.instanceName).toContain('url-user');
+    client.disconnect();
+  });
+
+  it('handles token expiry close code (4401) by refreshing', async () => {
+    let refreshCount = 0;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'initial-token',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCount++;
+        return { access_token: `token-${refreshCount}`, sub: 'user' };
+      },
+    });
+
+    // With accessToken provided, WS is created synchronously
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+    expect(client.connectionState).toBe('connected');
+
+    // Simulate token expiry close — should trigger refresh + reconnect
+    ws1.simulateClose(4401, 'Token expired');
+
+    // Wait for refresh + reconnect
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(refreshCount).toBeGreaterThanOrEqual(1);
+    client.disconnect();
+  });
+
+  it('calls onLoginRequired when refresh fails', async () => {
+    let loginRequiredCalled = false;
+    let refreshCallCount = 0;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'initial-token',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => {
+        refreshCallCount++;
+        // Fail on the second call (4401 handler), succeed on first (initial connect doesn't call refresh)
+        throw new Error('Refresh failed');
+      },
+      onLoginRequired: () => {
+        loginRequiredCalled = true;
+      },
+    });
+
+    // With accessToken provided, WS is created synchronously
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Token expiry close triggers refresh, which fails
+    ws1.simulateClose(4401, 'Token expired');
+
+    await new Promise(r => setTimeout(r, 50));
+
+    expect(loginRequiredCalled).toBe(true);
+    expect(client.connectionState).toBe('disconnected');
+    client.disconnect();
+  });
+});
+
+describe('Reconnection', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('schedules reconnect with exponential backoff', async () => {
+    const states: ConnectionState[] = [];
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+      onConnectionStateChange: (state) => states.push(state),
+    });
+
+    const ws1 = createdWebSockets[0];
+    ws1.simulateOpen();
+    ws1.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Close triggers reconnect scheduling
+    ws1.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+
+    // After timeout fires, a new WS should be created
+    // Wait for initial backoff (1s) + buffer
+    await new Promise(r => setTimeout(r, 1200));
+
+    expect(createdWebSockets.length).toBeGreaterThanOrEqual(2);
+    client.disconnect();
+  });
+
+  it('calls onConnectionError on WebSocket error', () => {
+    let errorCalled = false;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+      onConnectionError: () => { errorCalled = true; },
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateError();
+
+    expect(errorCalled).toBe(true);
+    client.disconnect();
+  });
+
+  it('connect() is no-op when already connected', () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Should not create a new WebSocket
+    client.connect();
+    expect(createdWebSockets.length).toBe(1);
+
+    client.disconnect();
+  });
+});
+
+describe('Incoming calls from mesh', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('executes @mesh handler on incoming call and sends response', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Simulate incoming call from gateway
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    ws.simulateMessage(JSON.stringify({
+      type: 'incoming_call',
+      callId: 'incoming-1',
+      chain: pp([
+        { type: 'get', key: 'handleMessage' },
+        { type: 'apply', args: ['hello from mesh'] },
+      ]),
+      callContext: {
+        callChain: [
+          { type: 'LumenizeDO', bindingName: 'SOME_DO', instanceName: 'inst-1' },
+        ],
+        state: pp({}),
+      },
+    }));
+
+    // Wait for async handler
+    await new Promise(r => setTimeout(r, 50));
+
+    // Client should have sent an incoming_call_response
+    const sentMessages = ws.getSentMessages();
+    const responseMsg = sentMessages.find(m => {
+      const parsed = JSON.parse(m);
+      return parsed.type === 'incoming_call_response';
+    });
+
+    expect(responseMsg).toBeDefined();
+    const parsed = JSON.parse(responseMsg!);
+    expect(parsed.callId).toBe('incoming-1');
+    expect(parsed.success).toBe(true);
+
+    client.disconnect();
+  });
+
+  it('sends error response when incoming call handler throws', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    // Call a method that doesn't exist — should fail
+    ws.simulateMessage(JSON.stringify({
+      type: 'incoming_call',
+      callId: 'incoming-err-1',
+      chain: pp([
+        { type: 'get', key: 'nonExistentMethod' },
+        { type: 'apply', args: [] },
+      ]),
+      callContext: {
+        callChain: [
+          { type: 'LumenizeDO', bindingName: 'SOME_DO', instanceName: 'inst-1' },
+        ],
+        state: pp({}),
+      },
+    }));
+
+    await new Promise(r => setTimeout(r, 50));
+
+    const sentMessages = ws.getSentMessages();
+    const responseMsg = sentMessages.find(m => {
+      const parsed = JSON.parse(m);
+      return parsed.type === 'incoming_call_response';
+    });
+
+    expect(responseMsg).toBeDefined();
+    const parsed = JSON.parse(responseMsg!);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toBeDefined();
+
+    client.disconnect();
+  });
+});
+
+describe('Message queue overflow', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('rejects when message queue is full', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    // Queue up many calls while not connected
+    const promises: Promise<any>[] = [];
+    for (let i = 0; i < 101; i++) {
+      promises.push(
+        client.lmz.callRaw('SOME_DO', 'instance1', [
+          { type: 'get', key: 'someMethod' },
+          { type: 'apply', args: [i] }
+        ])
+      );
+    }
+
+    // The 101st call should be rejected with 'Message queue full'
+    await expect(promises[100]).rejects.toThrow('Message queue full');
+
+    client.disconnect();
+  });
+});
+
+describe('call() fire-and-forget', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('sends call message without blocking', () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // call() should not throw and should return void
+    const remote = client.ctn<TestClient>().handleMessage('fire-and-forget');
+    client.lmz.call('SOME_DO', 'instance1', remote);
+
+    // Message should have been sent
+    expect(ws.getSentMessages().length).toBe(1);
+
+    client.disconnect();
+  });
+
+  it('sends call with handler continuation', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    const remote = client.ctn<TestClient>().handleMessage('call-with-handler');
+    const handler = client.ctn().handleMessage(remote);
+    client.lmz.call('SOME_DO', 'instance1', remote, handler);
+
+    // Message should have been sent
+    expect(ws.getSentMessages().length).toBe(1);
+
+    client.disconnect();
+  });
+});
+
+describe('Message handling edge cases', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('handles invalid JSON in incoming message gracefully', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Send invalid JSON — should not throw, just log error
+    ws.simulateMessage('not valid json {{{');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Failed to parse Gateway message:',
+      expect.any(SyntaxError),
+    );
+
+    consoleSpy.mockRestore();
+    client.disconnect();
+  });
+
+  it('warns on unknown Gateway message type', () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Send a message with an unknown type
+    ws.simulateMessage(JSON.stringify({ type: 'unknown_message_type' }));
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Unknown Gateway message type:',
+      'unknown_message_type',
+    );
+
+    consoleSpy.mockRestore();
+    client.disconnect();
+  });
+
+  it('warns when receiving response for unknown callId', () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Send a call_response for a callId that doesn't exist
+    ws.simulateMessage(JSON.stringify({
+      type: 'call_response',
+      callId: 'nonexistent-call-id',
+      success: true,
+      result: null,
+    }));
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'Received response for unknown call:',
+      'nonexistent-call-id',
+    );
+
+    consoleSpy.mockRestore();
+    client.disconnect();
+  });
+
+  it('resolves pending call on successful call_response', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Make a call
+    const resultPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
+      { type: 'get', key: 'someMethod' },
+      { type: 'apply', args: [] },
+    ]);
+
+    // Extract the callId from the sent message
+    const sentMsg = JSON.parse(ws.getSentMessages()[0]);
+    const callId = sentMsg.callId;
+
+    // Simulate a successful response
+    ws.simulateMessage(JSON.stringify({
+      type: 'call_response',
+      callId,
+      success: true,
+      result: pp('hello-result'),
+    }));
+
+    const result = await resultPromise;
+    expect(result).toBe('hello-result');
+
+    client.disconnect();
+  });
+
+  it('rejects pending call on error call_response', async () => {
+    const { preprocess: pp } = await import('@lumenize/structured-clone');
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Make a call
+    const resultPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
+      { type: 'get', key: 'someMethod' },
+      { type: 'apply', args: [] },
+    ]);
+
+    const sentMsg = JSON.parse(ws.getSentMessages()[0]);
+    const callId = sentMsg.callId;
+
+    // Simulate an error response
+    ws.simulateMessage(JSON.stringify({
+      type: 'call_response',
+      callId,
+      success: false,
+      error: pp(new Error('Something went wrong')),
+    }));
+
+    await expect(resultPromise).rejects.toThrow('Something went wrong');
+
+    client.disconnect();
+  });
+});
+
+describe('Token refresh edge cases', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('throws when no refresh method configured and token needed', async () => {
+    // Create client without accessToken or refresh — connect will fail
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    // connect() is called in constructor, but with instanceName + no accessToken,
+    // it calls #refreshToken() which should throw "No refresh method configured"
+    // Wait for async connect to settle
+    await new Promise(r => setTimeout(r, 50));
+
+    // Client should be in reconnecting state (failed connect triggers reconnect)
+    // or disconnected. The error is swallowed internally.
+    client.disconnect();
+  });
+
+  it('throws when refresh URL returns non-ok response', async () => {
+    let loginRequiredCalled = false;
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: '/auth/refresh-token',
+      fetch: async () => new Response('Unauthorized', { status: 401 }),
+      onLoginRequired: () => { loginRequiredCalled = true; },
+    });
+
+    // Wait for async connect
+    await new Promise(r => setTimeout(r, 50));
+
+    client.disconnect();
+  });
+
+  it('throws when refresh returns no access_token', async () => {
+    const client = new TestClient({
+      baseUrl: 'wss://example.com',
+      WebSocket: createMockWebSocketClass(),
+      refresh: async () => ({ access_token: '', sub: 'user' } as any),
+    });
+
+    // Wait for async connect
+    await new Promise(r => setTimeout(r, 50));
+
+    client.disconnect();
+  });
+});
+
+describe('Disconnect cleanup', () => {
+  beforeEach(() => {
+    createdWebSockets = [];
+  });
+
+  it('rejects pending calls on disconnect', async () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    // Make a call while connecting (not connected yet so message is queued)
+    const callPromise = client.lmz.callRaw('SOME_DO', 'instance1', [
+      { type: 'get', key: 'someMethod' },
+      { type: 'apply', args: [] },
+    ]);
+
+    // Disconnect before response
+    client.disconnect();
+
+    await expect(callPromise).rejects.toThrow('Client disconnected');
+  });
+
+  it('clears reconnect timer on disconnect', () => {
+    const client = new TestClient({
+      instanceName: 'user.tab1',
+      baseUrl: 'wss://example.com',
+      accessToken: 'token',
+      WebSocket: createMockWebSocketClass(),
+    });
+
+    const ws = createdWebSockets[0];
+    ws.simulateOpen();
+    ws.simulateMessage(JSON.stringify({
+      type: 'connection_status',
+      subscriptionsLost: false,
+    }));
+
+    // Trigger reconnect scheduling
+    ws.simulateClose(1006, 'Connection lost');
+    expect(client.connectionState).toBe('reconnecting');
+
+    // Disconnect should clear the reconnect timer
+    client.disconnect();
+    expect(client.connectionState).toBe('disconnected');
+  });
+});

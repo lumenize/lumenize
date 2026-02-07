@@ -424,7 +424,535 @@ describe('LumenizeClientGateway', () => {
     });
   });
 
-  // Note: Grace period and alarm tests are more complex and may require
-  // additional test infrastructure to properly test the state machine.
-  // These can be added in a follow-up once the basic functionality is verified.
+  describe('JWT validation edge cases', () => {
+    it('rejects invalid JWT format (cannot decode)', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('jwt-invalid.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': 'Bearer not-a-valid-jwt',
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'jwt-invalid.tab1',
+        },
+      });
+
+      expect(response.status).toBe(401);
+      const text = await response.text();
+      expect(text).toBe('Unauthorized: invalid token');
+    });
+
+    it('rejects JWT missing sub claim', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('no-sub.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'no-sub.tab1',
+        },
+      });
+
+      expect(response.status).toBe(401);
+      const text = await response.text();
+      expect(text).toBe('Unauthorized: missing identity');
+    });
+
+    it('rejects missing instance name header', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('no-instance.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub: 'no-instance', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).toBe('Forbidden: missing instance name');
+    });
+
+    it('rejects instance name without dot separator', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('nodot');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub: 'nodot', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'nodot',
+        },
+      });
+
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).toContain('invalid instance name format');
+    });
+  });
+
+  describe('WebSocket message handling edge cases', () => {
+    /**
+     * Helper: connect a WebSocket and wait for connection_status.
+     */
+    async function connectGateway(sub: string, instanceName: string) {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName(instanceName);
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub, exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+        },
+      });
+
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+
+      return { ws, gateway };
+    }
+
+    it('handles unknown message type gracefully', async () => {
+      const { ws } = await connectGateway('unknown-msg', 'unknown-msg.tab1');
+
+      // Send unknown type — should not crash
+      ws.send(JSON.stringify({ type: 'some_unknown_type', data: 'test' }));
+
+      // Verify gateway still works after
+      const chain = preprocess([
+        { type: 'get', key: 'echo' },
+        { type: 'apply', args: ['still alive'] },
+      ]);
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'post-unknown-call',
+        binding: 'ECHO_DO',
+        instance: 'echo-post-unknown',
+        chain,
+      }));
+
+      const callResponse = await responsePromise;
+      expect(callResponse.success).toBe(true);
+      ws.close();
+    });
+
+    it('handles invalid JSON message gracefully', async () => {
+      const { ws } = await connectGateway('bad-json', 'bad-json.tab1');
+
+      ws.send('not valid json {{{');
+
+      // Gateway should still work after invalid JSON
+      const chain = preprocess([
+        { type: 'get', key: 'echo' },
+        { type: 'apply', args: ['after bad json'] },
+      ]);
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'post-badjson-call',
+        binding: 'ECHO_DO',
+        instance: 'echo-post-badjson',
+        chain,
+      }));
+
+      const callResponse = await responsePromise;
+      expect(callResponse.success).toBe(true);
+      ws.close();
+    });
+
+    it('handles call to Worker binding (no instance)', async () => {
+      const { ws } = await connectGateway('worker-call', 'worker-call.tab1');
+
+      const chain = preprocess([
+        { type: 'get', key: 'workerEcho' },
+        { type: 'apply', args: ['hello-from-client'] },
+      ]);
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws.removeEventListener('message', handler);
+            msg.result = postprocess(msg.result);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'worker-call-1',
+        binding: 'TEST_WORKER',
+        chain,
+      }));
+
+      const callResponse = await responsePromise;
+      expect(callResponse.success).toBe(true);
+      expect(callResponse.result).toBe('worker-echo: hello-from-client');
+      ws.close();
+    });
+
+    it('forwards call error response back to client', async () => {
+      const { ws } = await connectGateway('error-call', 'error-call.tab1');
+
+      const chain = preprocess([
+        { type: 'get', key: 'throwError' },
+        { type: 'apply', args: [] },
+      ]);
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'error-call-1',
+        binding: 'ECHO_DO',
+        instance: 'echo-error-test',
+        chain,
+      }));
+
+      const callResponse = await responsePromise;
+      expect(callResponse.success).toBe(false);
+      expect(callResponse.error).toBeDefined();
+      ws.close();
+    });
+
+    it('handles incoming_call_response for unknown callId gracefully', async () => {
+      const { ws } = await connectGateway('icr-unknown', 'icr-unknown.tab1');
+
+      // Send an incoming_call_response for a callId the gateway doesn't know about
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.INCOMING_CALL_RESPONSE,
+        callId: 'nonexistent-incoming-call',
+        success: true,
+        result: null,
+      }));
+
+      // Gateway should handle gracefully — verify it still works
+      const chain = preprocess([
+        { type: 'get', key: 'echo' },
+        { type: 'apply', args: ['still alive after unknown icr'] },
+      ]);
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws.removeEventListener('message', handler);
+            msg.result = postprocess(msg.result);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'post-icr-call',
+        binding: 'ECHO_DO',
+        instance: 'echo-post-icr',
+        chain,
+      }));
+
+      const callResponse = await responsePromise;
+      expect(callResponse.success).toBe(true);
+      ws.close();
+    });
+
+    it('passes callContext.state through to target DO', async () => {
+      const { ws } = await connectGateway('state-test', 'state-test.tab1');
+
+      const chain = preprocess([
+        { type: 'get', key: 'getCallContext' },
+        { type: 'apply', args: [] },
+      ]);
+
+      const responsePromise = new Promise<CallResponseMessage>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CALL_RESPONSE) {
+            ws.removeEventListener('message', handler);
+            msg.result = postprocess(msg.result);
+            resolve(msg);
+          }
+        });
+      });
+
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'state-call-1',
+        binding: 'ECHO_DO',
+        instance: 'echo-state-test',
+        chain,
+        callContext: {
+          callChain: [],
+          state: preprocess({ myKey: 'myValue' }),
+        },
+      }));
+
+      const callResponse = await responsePromise;
+      expect(callResponse.success).toBe(true);
+      expect(callResponse.result.state).toMatchObject({ myKey: 'myValue' });
+      ws.close();
+    });
+  });
+
+  describe('Token expiry during message handling', () => {
+    it('closes WebSocket with 4401 when token has expired', async () => {
+      const instanceName = 'exp-test.tab1';
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName(instanceName);
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      // Create JWT with exp in the past
+      const token = createFakeJwt({
+        sub: 'exp-test',
+        exp: Math.floor(Date.now() / 1000) - 60, // 1 minute ago
+      });
+
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+        },
+      });
+
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      // Skip connection_status message
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+
+      // Listen for close event
+      const closePromise = new Promise<{ code: number; reason: string }>((resolve) => {
+        ws.addEventListener('close', (event) => {
+          resolve({ code: event.code, reason: event.reason });
+        });
+      });
+
+      // Send a message — should trigger token expiry check and close
+      ws.send(JSON.stringify({
+        type: GatewayMessageType.CALL,
+        callId: 'expired-call-1',
+        binding: 'ECHO_DO',
+        instance: 'echo-expired',
+        chain: preprocess([
+          { type: 'get', key: 'echo' },
+          { type: 'apply', args: ['should not reach'] },
+        ]),
+      }));
+
+      const closeEvent = await closePromise;
+      expect(closeEvent.code).toBe(4401);
+      expect(closeEvent.reason).toBe('Token expired');
+    });
+  });
+
+  describe('__executeOperation (mesh→client calls)', () => {
+    it('returns $error for invalid envelope version', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('exec-op-v0.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
+
+      const result = await gateway.__executeOperation({
+        version: 0,
+        chain: {},
+        callContext: { callChain: [], state: {} },
+        metadata: {},
+      });
+
+      expect(result.$error).toBeDefined();
+      const error = postprocess(result.$error);
+      expect(error.message).toContain('Unsupported RPC envelope version');
+    });
+
+    it('returns ClientDisconnectedError when no client connected', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('exec-op-disconnected.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
+
+      const result = await gateway.__executeOperation({
+        version: 1,
+        chain: preprocess([
+          { type: 'get', key: 'someMethod' },
+          { type: 'apply', args: [] },
+        ]),
+        callContext: { callChain: [], state: {} },
+        metadata: {},
+      });
+
+      expect(result.$error).toBeDefined();
+      const error = postprocess(result.$error);
+      expect(error).toBeInstanceOf(ClientDisconnectedError);
+      expect(error.message).toContain('Client is not connected');
+    });
+  });
+
+  describe('Grace period and alarm', () => {
+    it('reconnect within grace period reports subscriptionsLost: false', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub: 'grace', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace.tab1',
+        },
+      });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+
+      // Close WebSocket (not superseded) — triggers grace period alarm
+      ws.close(1000, 'Normal close');
+
+      // Reconnect within grace period
+      const token2 = createFakeJwt({ sub: 'grace', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response2 = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token2}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace.tab1',
+        },
+      });
+      expect(response2.status).toBe(101);
+      const ws2 = response2.webSocket!;
+      ws2.accept();
+
+      const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
+        ws2.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws2.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+
+      expect(statusMessage.subscriptionsLost).toBe(false);
+      ws2.close();
+    });
+
+    it('reports subscriptionsLost: true after grace period expires', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-expired.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub: 'grace-expired', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-expired.tab1',
+        },
+      });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+
+      ws.close(1000, 'Normal close');
+
+      // Fire the grace period alarm (simulates expiry)
+      await runDurableObjectAlarm(gateway);
+
+      // Reconnect after alarm — should report subscriptionsLost: true
+      const token2 = createFakeJwt({ sub: 'grace-expired', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response2 = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token2}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-expired.tab1',
+        },
+      });
+      expect(response2.status).toBe(101);
+      const ws2 = response2.webSocket!;
+      ws2.accept();
+
+      const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
+        ws2.addEventListener('message', function handler(event) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws2.removeEventListener('message', handler);
+            resolve(msg);
+          }
+        });
+      });
+
+      expect(statusMessage.subscriptionsLost).toBe(true);
+      ws2.close();
+    });
+  });
 });

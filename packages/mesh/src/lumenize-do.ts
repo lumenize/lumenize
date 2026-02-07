@@ -2,12 +2,11 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   newContinuation,
   executeOperationChain,
-  replaceNestedOperationMarkers,
   type OperationChain,
   type Continuation,
   type AnyContinuation,
 } from './ocan/index.js';
-import { parse, postprocess } from '@lumenize/structured-clone';
+import { parse } from '@lumenize/structured-clone';
 import { isDurableObjectId } from '@lumenize/utils';
 import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { debug } from '@lumenize/debug';
@@ -410,99 +409,6 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
         log.error(error.message.split('.')[0], details);
       },
     });
-  }
-
-  /**
-   * Receive a result from queued work (Actor Model - Return Message)
-   * 
-   * This is called by remote DOs to send results back to the origin DO.
-   * The result is deserialized, injected into the stored continuation, and executed.
-   * 
-   * **Idempotency**: This method prevents duplicate result processing (race conditions).
-   * If the same result arrives multiple times (e.g., Executor succeeds + Orchestrator
-   * times out), only the first result is processed. Subsequent duplicates are logged
-   * as errors and ignored.
-   * 
-   * **OCAN Integration**: Uses @lumenize/mesh's operation chain machinery to:
-   * - Deserialize the stored continuation and result (via postprocess)
-   * - Inject the result into the continuation (via replaceNestedOperationMarkers)
-   * - Execute the continuation (via executeOperationChain)
-   * 
-   * Used by @lumenize/proxy-fetch and other async actor-model packages.
-   * 
-   * @param workType - Type of work that produced this result (e.g., 'call', 'proxyFetch')
-   * @param workId - ID of the work item (e.g., operationId, reqId)
-   * @param preprocessedResult - Result data (preprocessed by sender via preprocess())
-   * 
-   * @example
-   * ```typescript
-   * // Executor sends result back after external fetch completes
-   * await originDO.__receiveResult('proxyFetch', reqId, 
-   *   preprocess({ response: responseSync })
-   * );
-   * 
-   * // Origin DO executes stored continuation:
-   * // this.handleResult({ userId: '123' }, responseSync)
-   * ```
-   */
-  async __receiveResult(workType: string, workId: string, preprocessedResult: any): Promise<void> {
-    const log = debug('lmz.mesh.LumenizeDO.__receiveResult');
-
-    // 1. Idempotency check - prevent duplicate result processing
-    const processedKey = `__lmz_result_processed:${workType}:${workId}`;
-    const alreadyProcessed = this.ctx.storage.kv.get(processedKey);
-
-    if (alreadyProcessed !== undefined) {
-      log.error('Duplicate result received - race condition detected', {
-        workId,
-        workType,
-        firstProcessedAt: alreadyProcessed,
-        duplicateNote: 'Race between successful delivery and timeout (expected in rare cases)',
-      });
-      return; // Ignore duplicate
-    }
-
-    // Mark as processed BEFORE executing continuation (prevents race)
-    this.ctx.storage.kv.put(processedKey, Date.now());
-
-    // 2. Get stored continuation
-    const pendingKey = `__lmz_${workType}_pending:${workId}`;
-    const pendingData = this.ctx.storage.kv.get(pendingKey) as { continuation: any } | undefined;
-
-    if (!pendingData) {
-      log.warn('No pending continuation found', { workId, workType });
-      return;
-    }
-
-    try {
-      // 3. Deserialize continuation and result (REUSE: structured-clone)
-      const continuation = postprocess(pendingData.continuation);
-      const result = postprocess(preprocessedResult);
-
-      // 4. Inject result into continuation (REUSE: OCAN)
-      const chainWithResult = replaceNestedOperationMarkers(continuation, result);
-
-      // 5. Execute continuation (REUSE: OCAN)
-      await executeOperationChain(chainWithResult, this);
-
-      // 6. Clean up pending continuation
-      this.ctx.storage.kv.delete(pendingKey);
-
-      // Clean up processed marker after 5 minutes (prevents storage bloat)
-      setTimeout(() => {
-        this.ctx.storage.kv.delete(processedKey);
-      }, 5 * 60 * 1000);
-
-    } catch (error) {
-      log.error('Continuation execution failed', {
-        workId,
-        workType,
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      // Note: Pending continuation stays in storage for manual investigation
-      // Processed marker stays to prevent re-execution
-    }
   }
 
   /**

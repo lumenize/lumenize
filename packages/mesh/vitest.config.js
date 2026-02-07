@@ -13,10 +13,7 @@ export default defineWorkersConfig({
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov'],
       include: [
-        'src/lumenize-base.ts',
-        'src/nadis-plugin.ts',
-        'src/ocan/**/*.ts',
-        'test/test-worker-and-dos.ts'
+        '**/src/**',
       ],
       exclude: [
         '**/node_modules/**',
