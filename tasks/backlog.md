@@ -20,6 +20,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] Split `getting-started/index.test.ts` so it's a clean 1:1 match with `getting-started.mdx`
+  - Currently lines 81-151 add Bob multi-client collaboration, `createTestingClient` storage inspection, and spell check verification — none referenced by the `.mdx`
+  - Move the multi-client/Bob scenario to a separate test file (e.g., `test/for-docs/getting-started/multi-client.test.ts` or a different for-docs folder)
+  - The remaining test should mirror the `.mdx` Step 4 closely
+
 - [ ] Confirm whether or not a pending alarm consumes ongoing storage. Try checking ctx.storage.sql.databaseSize. Failing that, try the Cloudflare dashboard for DOs.
 
 - [ ] Measure Gateway hop latency overhead (requires live deployment)

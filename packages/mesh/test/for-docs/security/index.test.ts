@@ -61,7 +61,8 @@ it('security patterns: auth, guards, and state-based access', async () => {
       `${aliceUserId}.tab1`
     );
     // Force close with 4403 (invalid signature) - this triggers onLoginRequired directly
-    await (gatewayClient as any).__testForceClose(4403, 'Invalid token signature');
+    const sockets = await gatewayClient.ctx.getWebSockets();
+    await sockets[0].close(4403, 'Invalid token signature');
   }
 
   // Verify onLoginRequired was called
