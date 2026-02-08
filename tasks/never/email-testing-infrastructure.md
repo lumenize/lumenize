@@ -1,5 +1,7 @@
 # Email Testing Infrastructure
 
+> **Subsumed into `tasks/resend-email-for-auth.md` Phase 3.** This task's architecture, prior art references, and success criteria have been incorporated there, updated for Resend (instead of AWS SES) and LumenizeDO (instead of LumenizeBase). Do not start this task independently.
+
 ## Objective
 
 Build tooling to enable live integration testing of email-based flows (like magic link auth) by:

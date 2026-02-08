@@ -75,3 +75,6 @@ JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KE
 JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
 
 PRIMARY_JWT_KEY="BLUE"
+
+# Resend account: larry@lumenize.com
+RESEND_API_KEY="re_..."
