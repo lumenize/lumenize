@@ -1,29 +1,20 @@
 ---
 title: Testing
-description: Testing Lumenize Mesh applications with multi-user scenarios and RPC verification
+description: Testing Lumenize Mesh applications with integration and isolated patterns
 ---
 
 # Testing
 
-Testing Lumenize Mesh applications using `@lumenize/testing`. For basic usage of `@lumenize/testing`, see the [usage documentation](/docs/testing/usage).
+Two complementary patterns for testing Lumenize Mesh applications:
 
-## Why testing real-time code is hard
+- **Integration tests** (`LumenizeClient` + `createTestRefreshFunction`) — Full production path: Client → Worker fetch → auth hooks → Gateway → DO. The `refresh` callback mints JWTs locally; auth hooks verify them normally.
+- **Isolated DO tests** (`createTestingClient`) — Direct DO RPC, bypasses Worker/Gateway/auth. Good for testing storage, alarms, business logic, and manipulating DO state (e.g., force-closing a WebSocket to test reconnection).
 
-Testing real-time collaborative applications typically requires:
-- Separate processes for server and client
-- Complex WebSocket mocking or live connections
-- Manual token management for auth flows
-- No direct access to server-side state for verification
-
-`@lumenize/testing` solves all of these by providing:
-- **Browser simulation** with cookie isolation for multi-user scenarios
-- **WebSocket injection** that works with `vitest-pool-workers`
-- **`testLoginWithMagicLink`** for complete auth flow simulation
-- **RPC access** to DO internals via `createTestingClient`
+For basic usage of `@lumenize/testing`, see the [usage documentation](/docs/testing/usage).
 
 ## Installation
 
-```bash
+```bash @skip-check-approved('conceptual')
 npm install --save-dev vitest@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/testing
@@ -50,24 +41,15 @@ export default defineWorkersProject({
 });
 ```
 
-Enable test mode for `testLoginWithMagicLink` in your vitest config's miniflare bindings (never in wrangler.jsonc):
-
-```javascript @check-example('packages/mesh/vitest.config.js')
-miniflare: {
-  bindings: { LUMENIZE_AUTH_TEST_MODE: 'true' },
-},
-```
-
 ### test/wrangler.jsonc
 
 Point to your test harness that instruments DO classes:
 
-```json
+```json @skip-check-approved('conceptual')
 {
   "name": "my-app-test",
   "main": "./test-harness.ts",
-  "compatibility_date": "2025-09-12",
-  // ... rest of config
+  "compatibility_date": "2025-09-12"
 }
 ```
 
@@ -92,14 +74,48 @@ export const { LumenizeClientGateway, DocumentDO, LumenizeAuth } = instrumented.
 export default instrumented;
 ```
 
-## Multi-user collaboration example
+## Integration tests
 
-The following test exercises the full mesh architecture: two users connect via separate `Browser` instances (cookie isolation), authenticate via magic link, exchange real-time updates via broadcasts, and receive targeted spell-check results.
+Integration tests exercise the full production path. `createTestRefreshFunction` mints JWTs locally — auth hooks verify them against the corresponding public key with the same signature check, claims validation, and access gate as production.
+
+### `createTestRefreshFunction`
+
+```typescript @skip-check-approved('conceptual')
+import { createTestRefreshFunction } from '@lumenize/mesh';
+
+const refresh = createTestRefreshFunction({
+  sub: crypto.randomUUID(),  // default: random UUID
+  adminApproved: true,       // default: true (passes access gate)
+  emailVerified: true,       // default: true (passes access gate)
+  isAdmin: false,            // default: false
+  ttl: 3600,                 // default: 1 hour (seconds)
+  expired: false,            // default: false; true → throws on call
+});
+
+// Pass as LumenizeClient's refresh option
+using client = new MyClient({
+  baseUrl: 'https://localhost',
+  refresh,
+});
+```
+
+The `iss` and `aud` defaults (`'https://lumenize.local'`) match the auth system's defaults. Override them only if you've set `LUMENIZE_AUTH_ISSUER` / `LUMENIZE_AUTH_AUDIENCE` in your environment.
+
+The returned function can also be called directly for raw tokens (useful for CORS or header-level tests):
+
+```typescript @check-example('packages/mesh/test/for-docs/security/index.test.ts')
+  const refresh = createTestRefreshFunction({ sub: 'cors-test-user' });
+  const { access_token: accessToken, sub } = await refresh();
+```
+
+### Multi-user collaboration example
+
+Two users connect via separate `Browser` instances (cookie isolation), authenticate via `createTestRefreshFunction`, exchange real-time updates via broadcasts, and receive targeted spell-check results:
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.test.ts')
 import { it, expect, vi } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
-import { testLoginWithMagicLink } from '@lumenize/auth';
+import { createTestRefreshFunction } from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
 // ...
 
@@ -114,13 +130,13 @@ it('collaborative document editing with multiple clients', async () => {
 
   const browser = new Browser();
   const aliceCtx = browser.context('https://localhost');
-  await testLoginWithMagicLink(browser, 'alice@example.com', { subjectData: { adminApproved: true } });
+  const aliceRefresh = createTestRefreshFunction();
 
   // ...
 
   using client = new EditorClient({
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: aliceCtx.sessionStorage,
@@ -150,11 +166,11 @@ it('collaborative document editing with multiple clients', async () => {
 
   const bobBrowser = new Browser();
   const bobCtx = bobBrowser.context('https://localhost');
-  await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
+  const bobRefresh = createTestRefreshFunction();
 
   using bob = new EditorClient({
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: bobRefresh,
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
     sessionStorage: bobCtx.sessionStorage,
@@ -217,17 +233,13 @@ it('collaborative document editing with multiple clients', async () => {
 
 **Separate `Browser` instances** — Each user gets their own `Browser` with an independent cookie jar. Alice's auth cookies never leak to Bob.
 
-**`testLoginWithMagicLink`** simulates the complete magic link flow:
-1. Requests a magic link (test mode returns URL in response)
-2. "Clicks" the magic link (Browser follows redirect and captures cookies)
-3. Exchanges refresh token cookie for access token
-4. Returns `{ sub, accessToken }` — `sub` from the refresh response
+**`createTestRefreshFunction()`** with no arguments gives each user a random `sub`, `adminApproved: true`, and `emailVerified: true` — enough to pass the access gate. The client calls `refresh` eagerly on connect and again when the access token expires.
 
 **`vi.waitFor()`** — WebSocket events arrive asynchronously. Never use `setTimeout` — `vi.waitFor()` retries the assertion until it passes or times out, giving you deterministic tests without arbitrary delays.
 
 **`createTestingClient` for RPC access** — Directly inspect or modify DO storage without going through the public API. The test uses it to verify Bob's subscription was stored correctly. Also useful for pre-populating state during test setup.
 
-### Dependency injection
+### Dependency injection for testing
 
 `LumenizeClient` accepts testing overrides for dependency injection. Use `Browser` for cookie-aware HTTP/WebSocket, and `browser.context()` for per-tab sessionStorage and BroadcastChannel:
 
@@ -241,3 +253,66 @@ it('collaborative document editing with multiple clients', async () => {
 For simpler tests that don't need tab ID isolation, `browser.fetch` and `browser.WebSocket` are sufficient.
 
 Use `browser.duplicateContext(ctx)` to simulate browser tab duplication (clones sessionStorage, shares BroadcastChannel). The client's built-in duplicate-tab detection will automatically generate a fresh tab ID for the duplicate.
+
+## Isolated DO tests
+
+Use `createTestingClient` for direct DO RPC — no Worker, no Gateway, no auth. This is the right tool for testing storage logic, alarms, and business rules, and for manipulating DO state to trigger client-side behavior.
+
+### Simulating network glitches
+
+Force-close a Gateway's WebSocket via RPC to test client reconnection:
+
+```typescript @check-example('packages/mesh/test/for-docs/security/index.test.ts')
+  // Use testing client to force close the WebSocket with auth error code
+  // Code 4403 (invalid signature) triggers onLoginRequired directly without refresh attempt
+  // (4401 would attempt refresh first, which succeeds because createTestRefreshFunction keeps minting valid tokens)
+  {
+    using gatewayClient = createTestingClient<typeof LumenizeClientGateway>(
+      'LUMENIZE_CLIENT_GATEWAY',
+      `${aliceUserId}.tab1`
+    );
+    // Force close with 4403 (invalid signature) - this triggers onLoginRequired directly
+    const sockets = await gatewayClient.ctx.getWebSockets();
+    await sockets[0].close(4403, 'Invalid token signature');
+  }
+```
+
+This calls `.close()` on the actual WebSocket object inside the Gateway DO — the same thing that happens when the server detects an expired or invalid token. The client sees a real close event and responds accordingly.
+
+### Testing `onLoginRequired`
+
+Combine the force-close pattern above with `createTestRefreshFunction({ expired: true })` to test the full login-required flow:
+
+1. Connect with a working refresh function
+2. Force-close the WebSocket with code `4401` (token expired) via `createTestingClient`
+3. Client attempts refresh, which throws (`expired: true`)
+4. `onLoginRequired` callback fires
+
+```typescript @skip-check-approved('conceptual')
+// Create a refresh function that will fail on the second call
+let callCount = 0;
+const workingRefresh = createTestRefreshFunction({ sub: userId });
+const failingRefresh = createTestRefreshFunction({ sub: userId, expired: true });
+
+const refresh = async () => {
+  callCount++;
+  // First call succeeds (initial connect), subsequent calls fail
+  if (callCount <= 1) return workingRefresh();
+  return failingRefresh();
+};
+
+using client = new MyClient({
+  refresh,
+  onLoginRequired: (error) => {
+    // This fires after: 4401 close → refresh throws → login required
+    console.log('Must re-login:', error.code, error.reason);
+  },
+});
+```
+
+## Testing tips
+
+- **Use `using` everywhere** — Automatic cleanup prevents WebSocket leaks between tests.
+- **`vi.waitFor()`, never `setTimeout`** — Retries assertions deterministically. Set `testTimeout` in vitest config for slow operations.
+- **One DO instance per test** — With `isolatedStorage: false`, each test should use unique instance names to avoid state sharing.
+- **`createTestingClient` for setup and verification** — Pre-populate storage before a test, verify state after. Combine with integration tests for full-stack coverage.

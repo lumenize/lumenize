@@ -46,7 +46,7 @@ There is no `wrangler` CLI equivalent for non-secret production environment vari
 
 **Secrets must never be committable**: No secrets in `wrangler.jsonc`, source code, or any non-gitignored file. Use `.dev.vars` for local development and `wrangler secret put` or the dashboard for production.
 
-**Test-mode flags**: Variables that enable test-only behavior (e.g., bypassing auth, disabling rate limits) are a security-sensitive surface. Set them in the vitest config via `miniflare.bindings`, so they cannot leak into production. See `packages/auth/vitest.config.js` for the pattern (`LUMENIZE_AUTH_TEST_MODE`).
+**Test-mode flags**: Variables that enable test-only behavior (e.g., bypassing auth, disabling rate limits) are a security-sensitive surface. Set them in the vitest config via `miniflare.bindings`, so they cannot leak into production. `LUMENIZE_AUTH_TEST_MODE` is auth-internal only (for testing magic link delivery, invite flows, etc.) — mesh projects should use `createTestRefreshFunction` from `@lumenize/mesh` instead, which mints JWTs locally with no test-mode bindings needed. See `website/docs/mesh/testing.mdx`.
 
 **Local development setup:**
 - Single root `/lumenize/.dev.vars` file (gitignored) holds all secrets and config for local dev
@@ -215,6 +215,14 @@ Worker and DO code should be tested with integration tests that exercise the rea
 
 ### Use `vi.waitFor()`, never `setTimeout`
 When waiting for async state changes in tests, use `vi.waitFor()` which retries until the assertion passes. Never use `setTimeout` or arbitrary delays — they're flaky and slow.
+
+### Mesh testing pyramid
+Two complementary patterns for testing mesh applications:
+
+- **Integration tests** (`LumenizeClient` + `createTestRefreshFunction`) — Full production path: Client → Worker fetch → auth hooks → Gateway → DO. The `refresh` callback mints JWTs locally; auth hooks verify them normally. No test-mode infrastructure needed.
+- **Isolated DO tests** (`createTestingClient`) — Direct DO RPC, bypasses Worker/Gateway/auth. Good for testing storage, alarms, business logic, and manipulating DO state (e.g., force-closing a WebSocket via `ctx.getWebSockets()[0].close(code)` to test client reconnection).
+
+See `website/docs/mesh/testing.mdx` for full documentation and examples.
 
 ### Test organization
 A single `vitest.config.js` per package can define multiple projects when tests need different configurations. Common reasons to use multiple projects:

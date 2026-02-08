@@ -68,3 +68,7 @@ export type {
 // Tab ID management for browser clients
 export { getOrCreateTabId } from './tab-id';
 export type { TabIdDeps } from './tab-id';
+
+// Test helpers
+export { createTestRefreshFunction } from './create-test-refresh-function';
+export type { CreateTestRefreshFunctionOptions } from './create-test-refresh-function';

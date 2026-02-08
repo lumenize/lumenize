@@ -1,6 +1,6 @@
 # Mesh Testing Auth Strategy
 
-**Status**: Phase 0 complete, Phase 1 next
+**Status**: Complete — all 7 phases done (0-6)
 
 ## Objective
 
@@ -44,10 +44,10 @@ interface createTestRefreshFunctionOptions {
   // Grant admin role in the JWT claims. Default: false
   isAdmin?: boolean;
 
-  // JWT issuer. Should match env.LUMENIZE_AUTH_ISSUER if set. Default: 'lumenize-auth'
+  // JWT issuer. Should match env.LUMENIZE_AUTH_ISSUER if set. Default: 'https://lumenize.local'
   iss?: string;
 
-  // JWT audience. Should match env.LUMENIZE_AUTH_AUDIENCE if set. Default: 'lumenize'
+  // JWT audience. Should match env.LUMENIZE_AUTH_AUDIENCE if set. Default: 'https://lumenize.local'
   aud?: string;
 
   // Token TTL in seconds. Default: 3600 (1 hour — plenty for tests)
@@ -100,7 +100,7 @@ Implementation uses `signJwt` and `importPrivateKey` already exported from `@lum
 
 ### Phase 0: Validate `ctx.getWebSockets()[0].close()` over RPC
 
-**Goal**: Prove that `createTestingClient` can close a Gateway's WebSocket via `ctx.getWebSockets()[0].close(code, reason)` — eliminating the need for `__testForceClose`.
+**Goal**: Prove that `createTestingClient` can close a Gateway's WebSocket via `ctx.getWebSockets()[0].close(code, reason)` — eliminating the need for .
 
 **Success Criteria**:
 - [x] Phase 1 of the security test (`onLoginRequired` callback) passes with `ctx.getWebSockets()[0].close(4403, 'Invalid token signature')` instead of `__testForceClose`
@@ -113,9 +113,9 @@ Implementation uses `signJwt` and `importPrivateKey` already exported from `@lum
 **Goal**: Provide the self-minting helper in `@lumenize/mesh`.
 
 **Success Criteria**:
-- [ ] `createTestRefreshFunction(options)` exported from `@lumenize/mesh`
-- [ ] Minimal JSDoc without examples but a link to https://lumenize.com/docs/mesh/testing
-- [ ] Unit tests (sign a JWT, verify it's valid, check claims, verify `expired: true` throws)
+- [x] `createTestRefreshFunction(options)` exported from `@lumenize/mesh`
+- [x] Minimal JSDoc without examples but a link to https://lumenize.com/docs/mesh/testing
+- [x] Unit tests (sign a JWT, verify it's valid, check claims, verify `expired: true` throws)
 
 **Notes**:
 - New file: `packages/mesh/src/create-test-refresh-function.ts`. Lives in `@lumenize/mesh` — the package that owns LumenizeClient — so users already have it. `@lumenize/mesh` already depends on `@lumenize/auth` for `signJwt` and `importPrivateKey`.
@@ -125,17 +125,17 @@ Implementation uses `signJwt` and `importPrivateKey` already exported from `@lum
 **Goal**: Replace `testLoginWithMagicLink` with `createTestRefreshFunction` in all 3 for-docs test projects. Remove `LUMENIZE_AUTH_TEST_MODE` from mesh `vitest.config.js`.
 
 **Success Criteria**:
-- [ ] `getting-started/index.test.ts` uses `createTestRefreshFunction` instead of `testLoginWithMagicLink`
-- [ ] `calls/index.test.ts` uses `createTestRefreshFunction` instead of `testLoginWithMagicLink`
-- [ ] `security/index.test.ts` uses `createTestRefreshFunction` instead of `testLoginWithMagicLink`
-- [ ] CORS test migrated: call `createTestRefreshFunction` once to get raw `accessToken` for header injection (replaces `testLoginWithMagicLink` which was only used for the token)
-- [ ] Forged-JWT test unchanged (uses hardcoded garbage tokens, no auth helper needed)
-- [ ] `security/index.test.ts` `__testForceClose` already replaced (Phase 0)
-- [ ] `__testForceClose` method removed from `LumenizeClientGateway` (grep confirmed no other callers)
-- [ ] `LUMENIZE_AUTH_TEST_MODE` removed from all 3 miniflare bindings in `vitest.config.js`
-- [ ] `LUMENIZE_AUTH` DO binding, `createAuthRoutes`, and `LumenizeAuth` export **kept** in entry points and wrangler.jsonc — they represent production code and may be referenced by `@check-example` annotations in `.mdx` files
-- [ ] All tests pass
-- [ ] Update comment in security test line 57: "which succeeds because createTestRefreshFunction keeps minting valid tokens" (not "which succeeds in test mode")
+- [x] `getting-started/index.test.ts` uses `createTestRefreshFunction` instead of `testLoginWithMagicLink`
+- [x] `calls/index.test.ts` uses `createTestRefreshFunction` instead of `testLoginWithMagicLink`
+- [x] `security/index.test.ts` uses `createTestRefreshFunction` instead of `testLoginWithMagicLink`
+- [x] CORS test migrated: call `createTestRefreshFunction` once to get raw `accessToken` for header injection (replaces `testLoginWithMagicLink` which was only used for the token)
+- [x] Forged-JWT test unchanged (uses hardcoded garbage tokens, no auth helper needed)
+- [x] `security/index.test.ts` `__testForceClose` already replaced (Phase 0)
+- [x] `__testForceClose` method removed from `LumenizeClientGateway` (grep confirmed no other callers)
+- [x] `LUMENIZE_AUTH_TEST_MODE` removed from all 3 miniflare bindings in `vitest.config.js`
+- [x] `LUMENIZE_AUTH` DO binding, `createAuthRoutes`, and `LumenizeAuth` export **kept** in entry points and wrangler.jsonc — they represent production code and may be referenced by `@check-example` annotations in `.mdx` files
+- [x] All tests pass
+- [x] Update comment in security test line 57: "which succeeds because createTestRefreshFunction keeps minting valid tokens" (not "which succeeds in test mode")
 
 **Notes**:
 - Tests currently get `sub` from `testLoginWithMagicLink`'s return value. With `createTestRefreshFunction`, the test controls `sub` directly — use `crypto.randomUUID()` (the default when `sub` is omitted) unless the test needs a readable name.
@@ -147,30 +147,35 @@ Implementation uses `signJwt` and `importPrivateKey` already exported from `@lum
 **Goal**: Rewrite the existing `testing.mdx` to document the recommended testing patterns for users. This is a substantial rewrite — the current file is built around `testLoginWithMagicLink` and `LUMENIZE_AUTH_TEST_MODE`.
 
 **Success Criteria**:
-- [ ] `createTestRefreshFunction` pattern documented as the primary integration testing approach
-- [ ] `createTestingClient` pattern documented as the complementary approach for isolated DO testing
-- [ ] Clear testing pyramid: isolated (`createTestingClient`) → integration (`LumenizeClient` + `createTestRefreshFunction`)
-- [ ] Example showing the full path: `createTestRefreshFunction` → LumenizeClient → Worker → auth hooks → Gateway → DO
-- [ ] Example: simulating network glitch via `createTestingClient` + `ctx.getWebSockets()[0].close(code)`
-- [ ] Example: testing `onLoginRequired` via `createTestRefreshFunction({ expired: true })`
-- [ ] No mention of `LUMENIZE_AUTH_TEST_MODE` in mesh docs
+- [x] `createTestRefreshFunction` pattern documented as the primary integration testing approach
+- [x] `createTestingClient` pattern documented as the complementary approach for isolated DO testing
+- [x] Clear testing pyramid: isolated (`createTestingClient`) → integration (`LumenizeClient` + `createTestRefreshFunction`)
+- [x] Example showing the full path: `createTestRefreshFunction` → LumenizeClient → Worker → auth hooks → Gateway → DO
+- [x] Example: simulating network glitch via `createTestingClient` + `ctx.getWebSockets()[0].close(code)`
+- [x] Example: testing `onLoginRequired` via `createTestRefreshFunction({ expired: true })`
+- [x] No mention of `LUMENIZE_AUTH_TEST_MODE` in mesh docs
+- [x] Note that `iss`/`aud` defaults match the auth system's defaults (`'https://lumenize.local'`); override only if `LUMENIZE_AUTH_ISSUER`/`LUMENIZE_AUTH_AUDIENCE` are set in env
+
+**Notes**:
+- `getting-started.mdx` needed one `@check-example` fix: removed literal `refresh: 'https://localhost/auth/refresh-token'` (no longer in test), replaced with `// ...`. No narrative changes needed — auth setup is in Step 5, and testing is documented in `testing.mdx`.
+- Discovered `website/docs/utils/cors-support.mdx` was accidentally deleted in commit `842f8ed` ("moved Browser, WebSocketShim, etc. to @lumenize/testing") — collateral damage from bulk file operations. Restored from git history, updated `@check-example` paths from `packages/utils/test/unit/browser.test.ts` → `packages/testing/test/unit/browser.test.ts`, updated `Browser` import from `@lumenize/utils` → `@lumenize/testing`, and fixed sidebar entry (was under Testing, moved to Utils where it belongs).
 
 ### Phase 4: Narrow test mode scope
 
 **Goal**: Ensure `LUMENIZE_AUTH_TEST_MODE` is auth-internal only.
 
 **Success Criteria**:
-- [ ] All mesh tests work without test mode (confirmed in Phase 2)
-- [ ] `website/docs/auth/testing.mdx` documents test mode as auth-internal only
-- [ ] No user-facing mesh docs mention test mode
+- [x] All mesh tests work without test mode (confirmed in Phase 2)
+- [x] `website/docs/auth/testing.mdx` documents test mode as auth-internal only
+- [x] No user-facing mesh docs mention test mode
 
 ### Phase 5: Test expired refresh → `onLoginRequired` path
 
 **Goal**: Add a test case that exercises the 4401 → refresh fails → `onLoginRequired` flow using `createTestRefreshFunction({ expired: true })`.
 
 **Success Criteria**:
-- [ ] New test (or new phase within the existing security test) that: connects with a working refresh, force-closes with 4401 via `createTestingClient`, client attempts refresh which throws (expired), `onLoginRequired` fires
-- [ ] Validates the full path: 4401 close → client calls refresh → refresh throws → `onLoginRequired` callback invoked
+- [x] New test (or new phase within the existing security test) that: connects with a working refresh, force-closes with 4401 via `createTestingClient`, client attempts refresh which throws (expired), `onLoginRequired` fires
+- [x] Validates the full path: 4401 close → client calls refresh → refresh throws → `onLoginRequired` callback invoked
 
 **Notes**:
 - This is distinct from the existing 4403 test. 4403 skips refresh entirely and fires `onLoginRequired` directly. 4401 triggers a refresh attempt first — this test proves that when refresh *fails*, `onLoginRequired` fires correctly.
@@ -180,8 +185,8 @@ Implementation uses `signJwt` and `importPrivateKey` already exported from `@lum
 **Goal**: Update `.claude/skills/do-conventions/SKILL.md` to reflect the new testing patterns.
 
 **Success Criteria**:
-- [ ] Section 3 (Environment Variables): Update the `LUMENIZE_AUTH_TEST_MODE` reference to recommend `createTestRefreshFunction` for mesh projects, noting test mode is auth-internal only
-- [ ] Section 9 (Testing): Consider adding a note about the testing pyramid (`createTestRefreshFunction` for integration, `createTestingClient` for isolated)
+- [x] Section 3 (Environment Variables): Update the `LUMENIZE_AUTH_TEST_MODE` reference to recommend `createTestRefreshFunction` for mesh projects, noting test mode is auth-internal only
+- [x] Section 9 (Testing): Added testing pyramid note (`createTestRefreshFunction` for integration, `createTestingClient` for isolated, with `ctx.getWebSockets()[0].close()` pattern)
 
 ## Related
 

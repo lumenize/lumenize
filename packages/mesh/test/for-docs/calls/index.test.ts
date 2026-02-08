@@ -20,7 +20,7 @@
 
 import { it, expect, vi } from 'vitest';
 import { Browser, createTestingClient, type RpcAccessible } from '@lumenize/testing';
-import { testLoginWithMagicLink } from '@lumenize/auth';
+import { createTestRefreshFunction } from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
 import { CalculatorClient } from './calculator-client.js';
 import { DocumentDO, AdminInterface, AdminAccessError } from './document-do.js';
@@ -44,13 +44,14 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const aliceBrowser = new Browser();
-  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com', { subjectData: { adminApproved: true } });
+  const aliceUserId = crypto.randomUUID();
+  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
 
   // Use `using` for automatic cleanup via Symbol.dispose
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     // Test-specific: inject browser's fetch/WebSocket
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
@@ -94,12 +95,13 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
 
   const bobBrowser = new Browser();
-  const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
+  const bobUserId = crypto.randomUUID();
+  const bobRefresh = createTestRefreshFunction({ sub: bobUserId });
 
   using bob = new EditorClient({
     instanceName: `${bobUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: bobRefresh,
     // Test-specific: inject browser's fetch/WebSocket
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
@@ -165,12 +167,13 @@ it('collaborative document editing with multiple clients', async () => {
 it('operation nesting: nested method calls execute in single round trip', async () => {
   // Setup: authenticate and connect
   const browser = new Browser();
-  const { sub: userId } = await testLoginWithMagicLink(browser, 'calc-user@example.com', { subjectData: { adminApproved: true } });
+  const userId = crypto.randomUUID();
+  const refresh = createTestRefreshFunction({ sub: userId });
 
   using client = new CalculatorClient({
     instanceName: `${userId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
   });
@@ -238,12 +241,13 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
 
   // Setup: Alice connects and subscribes
   const aliceBrowser = new Browser();
-  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-newchain@example.com', { subjectData: { adminApproved: true } });
+  const aliceUserId = crypto.randomUUID();
+  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
   });
@@ -307,12 +311,13 @@ it('operation chaining: admin().forceReset() executes in single round trip', asy
 
   // Setup: Admin user connects
   const adminBrowser = new Browser();
-  const { sub: adminUserId } = await testLoginWithMagicLink(adminBrowser, 'admin@example.com', { subjectData: { adminApproved: true } });
+  const adminUserId = crypto.randomUUID();
+  const adminRefresh = createTestRefreshFunction({ sub: adminUserId });
 
   using admin = new EditorClient({
     instanceName: `${adminUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: adminRefresh,
     fetch: adminBrowser.fetch,
     WebSocket: adminBrowser.WebSocket,
   });
@@ -367,12 +372,13 @@ it('operation chaining: non-admin gets AdminAccessError with preserved type', as
 
   // Setup: Regular user (not admin) connects
   const userBrowser = new Browser();
-  const { sub: userId } = await testLoginWithMagicLink(userBrowser, 'regular-user@example.com', { subjectData: { adminApproved: true } });
+  const userId = crypto.randomUUID();
+  const userRefresh = createTestRefreshFunction({ sub: userId });
 
   using user = new EditorClient({
     instanceName: `${userId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: userRefresh,
     fetch: userBrowser.fetch,
     WebSocket: userBrowser.WebSocket,
   });
@@ -417,12 +423,13 @@ it('context preservation: callContext available in handlers after remote call', 
 
   // Setup: Alice connects
   const aliceBrowser = new Browser();
-  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-context@example.com', { subjectData: { adminApproved: true } });
+  const aliceUserId = crypto.randomUUID();
+  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
   });
@@ -475,12 +482,13 @@ it('handler without @mesh: local handlers work without @mesh decorator', async (
   // All these handlers work because they're local continuations, not remote entry points
 
   const browser = new Browser();
-  const { sub: userId } = await testLoginWithMagicLink(browser, 'handler-test@example.com', { subjectData: { adminApproved: true } });
+  const userId = crypto.randomUUID();
+  const refresh = createTestRefreshFunction({ sub: userId });
 
   using client = new CalculatorClient({
     instanceName: `${userId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
   });
@@ -522,12 +530,13 @@ it('two one-way calls: DO→Worker→DO avoids wall-clock billing', async () => 
 
   // Setup: Alice authenticates and connects
   const aliceBrowser = new Browser();
-  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-analytics@example.com', { subjectData: { adminApproved: true } });
+  const aliceUserId = crypto.randomUUID();
+  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
   });
@@ -598,12 +607,13 @@ it('manual persistence: store and execute continuation with context', async () =
 
   // Setup: Alice authenticates and connects
   const aliceBrowser = new Browser();
-  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice-persist@example.com', { subjectData: { adminApproved: true } });
+  const aliceUserId = crypto.randomUUID();
+  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
 
   using alice = new EditorClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
   });

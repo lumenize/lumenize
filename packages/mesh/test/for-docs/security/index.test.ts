@@ -16,9 +16,8 @@
 
 import { it, expect, vi } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
-import { testLoginWithMagicLink } from '@lumenize/auth';
 import { SecurityClient } from './security-client.js';
-import { LoginRequiredError, type LumenizeClientGateway } from '../../../src/index.js';
+import { LoginRequiredError, createTestRefreshFunction, type LumenizeClientGateway } from '../../../src/index.js';
 import type { TeamDocDO } from './team-doc-do.js';
 
 it('security patterns: auth, guards, and state-based access', async () => {
@@ -29,7 +28,8 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // the onLoginRequired callback is invoked.
 
   const aliceBrowser = new Browser();
-  const { sub: aliceUserId } = await testLoginWithMagicLink(aliceBrowser, 'alice@example.com', { subjectData: { adminApproved: true } });
+  const aliceUserId = crypto.randomUUID();
+  const aliceRefresh = createTestRefreshFunction({ sub: aliceUserId });
 
   // Track login required errors
   const loginRequiredErrors: LoginRequiredError[] = [];
@@ -37,7 +37,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   using alice = new SecurityClient({
     instanceName: `${aliceUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: aliceBrowser.fetch,
     WebSocket: aliceBrowser.WebSocket,
     onLoginRequired: (error) => {
@@ -54,7 +54,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
 
   // Use testing client to force close the WebSocket with auth error code
   // Code 4403 (invalid signature) triggers onLoginRequired directly without refresh attempt
-  // (4401 would attempt refresh first, which succeeds in test mode)
+  // (4401 would attempt refresh first, which succeeds because createTestRefreshFunction keeps minting valid tokens)
   {
     using gatewayClient = createTestingClient<typeof LumenizeClientGateway>(
       'LUMENIZE_CLIENT_GATEWAY',
@@ -84,12 +84,13 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // - Others get "Access denied"
 
   const bobBrowser = new Browser();
-  const { sub: bobUserId } = await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
+  const bobUserId = crypto.randomUUID();
+  const bobRefresh = createTestRefreshFunction({ sub: bobUserId });
 
   using bob = new SecurityClient({
     instanceName: `${bobUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: bobRefresh,
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
   });
@@ -124,8 +125,7 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // ============================================
   // Phase 4: @mesh(guard) with claims check (admin only)
   // ============================================
-  // TODO: Now that @lumenize/auth supports isAdmin via testLoginWithMagicLink subjectData,
-  // implement this test: Bob (no isAdmin) fails, Admin ({ subjectData: { isAdmin: true } }) succeeds.
+  // TODO: Implement this test: Bob (no isAdmin) fails, Admin (createTestRefreshFunction({ isAdmin: true })) succeeds.
   // The adminMethod guard checks originAuth.claims.isAdmin.
 
   // ============================================
@@ -135,12 +135,13 @@ it('security patterns: auth, guards, and state-based access', async () => {
   // After being added, her call succeeds.
 
   const carolBrowser = new Browser();
-  const { sub: carolUserId } = await testLoginWithMagicLink(carolBrowser, 'carol@example.com', { subjectData: { adminApproved: true } });
+  const carolUserId = crypto.randomUUID();
+  const carolRefresh = createTestRefreshFunction({ sub: carolUserId });
 
   using carol = new SecurityClient({
     instanceName: `${carolUserId}.tab1`,
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: carolRefresh,
     fetch: carolBrowser.fetch,
     WebSocket: carolBrowser.WebSocket,
   });
@@ -221,6 +222,70 @@ it('security patterns: auth, guards, and state-based access', async () => {
 });
 
 /**
+ * Test: 4401 (token expired) → refresh fails → onLoginRequired fires.
+ *
+ * Distinct from Phase 1's 4403 test: 4403 skips refresh entirely and fires
+ * onLoginRequired directly. Here, 4401 triggers a refresh attempt first —
+ * this test proves that when refresh *fails*, onLoginRequired fires correctly.
+ */
+it('4401 close triggers refresh, which fails, then fires onLoginRequired', async () => {
+  const userId = crypto.randomUUID();
+
+  // Create two refresh functions: one that works, one that throws
+  const workingRefresh = createTestRefreshFunction({ sub: userId });
+  const failingRefresh = createTestRefreshFunction({ sub: userId, expired: true });
+
+  // First call succeeds (initial connect), subsequent calls fail
+  let callCount = 0;
+  const refresh = async () => {
+    callCount++;
+    if (callCount <= 1) return workingRefresh();
+    return failingRefresh();
+  };
+
+  const browser = new Browser();
+  const loginRequiredErrors: LoginRequiredError[] = [];
+
+  using client = new SecurityClient({
+    instanceName: `${userId}.tab1`,
+    baseUrl: 'https://localhost',
+    refresh,
+    fetch: browser.fetch,
+    WebSocket: browser.WebSocket,
+    onLoginRequired: (error) => {
+      loginRequiredErrors.push(error);
+    },
+  });
+
+  // Wait for initial connection (uses workingRefresh)
+  await vi.waitFor(() => {
+    expect(client.connectionState).toBe('connected');
+  });
+  expect(callCount).toBe(1);
+
+  // Force close with 4401 (token expired) — client will attempt refresh, which throws
+  {
+    using gatewayClient = createTestingClient<typeof LumenizeClientGateway>(
+      'LUMENIZE_CLIENT_GATEWAY',
+      `${userId}.tab1`
+    );
+    const sockets = await gatewayClient.ctx.getWebSockets();
+    await sockets[0].close(4401, 'Token expired');
+  }
+
+  // onLoginRequired should fire after refresh fails
+  await vi.waitFor(() => {
+    expect(loginRequiredErrors.length).toBe(1);
+  });
+
+  expect(loginRequiredErrors[0]).toBeInstanceOf(LoginRequiredError);
+  expect(loginRequiredErrors[0].code).toBe(401);
+  expect(loginRequiredErrors[0].reason).toBe('Refresh token expired or invalid');
+  expect(client.connectionState).toBe('disconnected');
+  expect(callCount).toBe(2); // initial + failed refresh attempt
+});
+
+/**
  * CORS test: verify that WebSocket upgrades from disallowed origins are
  * rejected with 403 by routeDORequest's server-side CORS enforcement.
  *
@@ -233,9 +298,10 @@ it('security patterns: auth, guards, and state-based access', async () => {
  * client-side CORS simulation and inspect the raw server response.
  */
 it('CORS allowlist rejects WebSocket upgrade from disallowed origin', async () => {
-  // Authenticate normally first — we need a valid token to isolate the CORS behavior
+  // Mint a valid token to isolate the CORS behavior
   const browser = new Browser();
-  const { sub, accessToken } = await testLoginWithMagicLink(browser, 'cors-test@example.com', { subjectData: { adminApproved: true } });
+  const refresh = createTestRefreshFunction({ sub: 'cors-test-user' });
+  const { access_token: accessToken, sub } = await refresh();
 
   // Attempt WebSocket upgrade from a disallowed origin (raw fetch to see server response)
   const rejectedResponse = await browser.fetch(`https://localhost/gateway/LUMENIZE_CLIENT_GATEWAY/${sub}.tab1`, {

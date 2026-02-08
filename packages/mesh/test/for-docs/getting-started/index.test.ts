@@ -15,7 +15,7 @@
 
 import { it, expect, vi } from 'vitest';
 import { createTestingClient, Browser } from '@lumenize/testing';
-import { testLoginWithMagicLink } from '@lumenize/auth';
+import { createTestRefreshFunction } from '../../../src/index.js';
 import { EditorClient } from './editor-client.js';
 import type { SpellFinding } from './spell-check-worker.js';
 import type { DocumentDO } from './document-do.js';
@@ -40,7 +40,7 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
   const browser = new Browser();
   const aliceCtx = browser.context('https://localhost');
-  await testLoginWithMagicLink(browser, 'alice@example.com', { subjectData: { adminApproved: true } });
+  const aliceRefresh = createTestRefreshFunction();
 
   // ============================================
   // Example code - this is what we show in docs
@@ -49,7 +49,7 @@ it('collaborative document editing with multiple clients', async () => {
   // Use `using` for automatic cleanup via Symbol.dispose
   using client = new EditorClient({
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: aliceRefresh,
     fetch: browser.fetch,
     WebSocket: browser.WebSocket,
     sessionStorage: aliceCtx.sessionStorage,
@@ -83,11 +83,11 @@ it('collaborative document editing with multiple clients', async () => {
   // ============================================
   const bobBrowser = new Browser();
   const bobCtx = bobBrowser.context('https://localhost');
-  await testLoginWithMagicLink(bobBrowser, 'bob@example.com', { subjectData: { adminApproved: true } });
+  const bobRefresh = createTestRefreshFunction();
 
   using bob = new EditorClient({
     baseUrl: 'https://localhost',
-    refresh: 'https://localhost/auth/refresh-token',
+    refresh: bobRefresh,
     fetch: bobBrowser.fetch,
     WebSocket: bobBrowser.WebSocket,
     sessionStorage: bobCtx.sessionStorage,

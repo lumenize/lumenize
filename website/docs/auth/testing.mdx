@@ -5,6 +5,12 @@ description: Test mode, test helpers, and delegation testing for Lumenize Auth
 
 # Testing
 
+:::tip Mesh projects: use `createTestRefreshFunction`
+If you're testing a `LumenizeClient`-based application, you don't need test mode or `testLoginWithMagicLink`. Use [`createTestRefreshFunction`](/docs/mesh/testing#createtestrefreshfunction) from `@lumenize/mesh` instead — it mints JWTs locally with zero test infrastructure. Auth hooks verify them normally.
+
+Test mode and `testLoginWithMagicLink` (documented below) are for testing `@lumenize/auth` endpoints themselves — magic link delivery, invite flows, delegation, and subject management.
+:::
+
 ## Test Mode
 
 Set `LUMENIZE_AUTH_TEST_MODE` to `"true"` to bypass email delivery and Turnstile validation. Append `?_test=true` to get links directly in the response instead of sending emails. This works for both magic link and invite endpoints:
