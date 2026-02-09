@@ -180,10 +180,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Context**: `@skip-check` is meant to be temporary during Phase 1 drafting; we need enforcement to ensure examples are tested before publishing
 
 - [ ] Review `@lumenize/auth` API Reference section for what should be public vs internal
-  - RPC Methods: `configure()` and `setEmailService()` — only used in tests, not production
+  - ~~RPC Methods: `configure()` and `setEmailService()`~~ — ✅ Both removed. Config is via environment variables; email is via `AUTH_EMAIL_SENDER` service binding.
   - JWT Utilities: `signJwt`, `verifyJwt`, `verifyJwtWithRotation`, `importPrivateKey`, `importPublicKey`, `parseJwtUnsafe` — which are truly needed by users?
   - WebSocket Utilities: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES` — internal implementation details?
-  - ~~Email Services~~ — ✅ Resolved by `tasks/resend-email-for-auth.md` Phase 3. Old internal services (`ConsoleEmailService`, `HttpEmailService`, `MockEmailService`, `createDefaultEmailService`) replaced by WorkerEntrypoint architecture (`AuthEmailSenderBase` → `ResendEmailSender`). Fully documented in `configuration.mdx#email-provider` and `getting-started.mdx#email-provider`.
+  - ~~Email Services~~ — ✅ Resolved by `tasks/resend-email-for-auth.md` Phases 3-4. Old internal services (`ConsoleEmailService`, `HttpEmailService`, `MockEmailService`, `createDefaultEmailService`, `EmailService` interface) deleted. Replaced by WorkerEntrypoint architecture (`AuthEmailSenderBase` → `ResendEmailSender`). Fully documented in `configuration.mdx#email-provider` and `getting-started.mdx#email-provider`.
 
 - [ ] Consider removing "Token Delivery via Subprotocol" implementation detail from security.mdx after LumenizeClient implementation is complete
 

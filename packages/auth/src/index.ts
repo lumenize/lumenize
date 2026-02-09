@@ -38,15 +38,6 @@ export {
 } from './auth-email-sender-base';
 export { ResendEmailSender } from './resend-email-sender';
 
-// Legacy email service implementations (see Phase 4 for migration path)
-export {
-  ConsoleEmailService,
-  HttpEmailService,
-  MockEmailService,
-  createDefaultEmailService,
-  type HttpEmailServiceOptions
-} from './email-service';
-
 // Auth hooks for routeDORequest
 export {
   createRouteDORequestAuthHooks,
@@ -70,7 +61,6 @@ export type {
   JwtPayload,
   JwtHeader,
   EmailMessage,
-  EmailService,
   ResolvedEmail,
   AuthRoutesOptions,
   ActClaim,

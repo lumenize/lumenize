@@ -1,6 +1,6 @@
 # Resend Email Integration for @lumenize/auth
 
-**Status**: Phase 3 Complete — Ready for Phase 4
+**Status**: Phase 4 Complete
 
 **Revert point**: `37cc3f6b13ecb2ff164a9be588df342930a19cd5` (clean commit before Phase 2 work began)
 
@@ -441,19 +441,16 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 **Goal**: Evaluate whether `ConsoleEmailService`, `MockEmailService`, `HttpEmailService`, etc. should be updated, replaced, or deprecated in light of the WorkerEntrypoint pattern. Also, decide if any environment variables or other config needs to be removed.
 
 **Success Criteria**:
-- [ ] Evaluate whether existing tests should use the pluggable WorkerEntrypoint system instead of `LUMENIZE_AUTH_TEST_MODE=true`
-- [ ] Decide fate of `MockEmailService` — possibly replace with a test `AuthEmailSender` that collects messages
-- [ ] Decide fate of `ConsoleEmailService` — possibly replace with a development `AuthEmailSender` that logs
-- [ ] Decide fate of `HttpEmailService` — still useful internally for `ResendEmailSender`, but may no longer need to be a public export
-- [ ] Decide fate of `EmailService` interface and `createDefaultEmailService()` — likely deprecated in favor of the WorkerEntrypoint pattern
-- [ ] Evaluate `packages/auth/src/email-service.ts` as a whole — Phase 1 left it untouched (the `EmailMessage` type change propagates automatically), but this is where to clean up or deprecate the old classes
-- [ ] Update or remove `setEmailService()` references from backlog and docs
-- [ ] Clean up any dead code from the old pattern
+- [x] Evaluate whether existing tests should use the pluggable WorkerEntrypoint system instead of `LUMENIZE_AUTH_TEST_MODE=true` — No. Test mode is orthogonal to email delivery. It returns the magic link URL in the response for test automation, which is a different concern than email transport. The e2e-email tests exercise real email delivery without test mode.
+- [x] Decide fate of `MockEmailService` — Deleted. No consumers. Tests use `LUMENIZE_AUTH_TEST_MODE=true` (returns magic link URL in response) or real email via `AUTH_EMAIL_SENDER` service binding (e2e-email tests).
+- [x] Decide fate of `ConsoleEmailService` — Deleted. `LumenizeAuth.#sendEmail()` has its own debug-level logging fallback when `AUTH_EMAIL_SENDER` is not configured, serving the same dev-feedback purpose.
+- [x] Decide fate of `HttpEmailService` — Deleted. `ResendEmailSender` replaced it entirely. It was never used internally by `ResendEmailSender` (which uses `fetch` directly).
+- [x] Decide fate of `EmailService` interface and `createDefaultEmailService()` — Deleted. The `EmailService` interface had no consumers after the WorkerEntrypoint migration. `createDefaultEmailService()` only created a `ConsoleEmailService`.
+- [x] Evaluate `packages/auth/src/email-service.ts` as a whole — Deleted the entire file. All classes and the factory function were dead code with zero imports.
+- [x] Update or remove `setEmailService()` references from backlog and docs — Updated backlog.md: `setEmailService()` and `configure()` marked as resolved (both were removed in earlier work).
+- [x] Clean up any dead code from the old pattern — Removed `EmailService` interface from `types.ts`, removed all legacy exports from `index.ts`, updated stale `ConsoleEmailService` comments in `auth.test.ts` and `lumenize-auth.ts`.
 
-**Notes**:
-- This phase exists to avoid blocking Phase 1 with testing design decisions. The old utilities still work during the transition.
-- The WorkerEntrypoint pattern may provide a cleaner testing story: configure a test service binding that points to a mock `AuthEmailSender` in the test Worker.
-- **Invite split impact**: Phase 1's `invite` → `invite-existing` / `invite-new` split changes the `EmailMessage` type. Any code checking `.type === 'invite'` (e.g., `MockEmailService.getLatestFor()` consumers, `ConsoleEmailService` switch cases) will get compile errors that guide the fix. Verify all switch/case exhaustiveness checks still pass after cleanup.
+**Outcome**: Phase 4 completed. All legacy email service code deleted — `email-service.ts` (123 lines), `EmailService` interface, 5 exports from `index.ts`. Zero test changes needed (no code imported the old classes). The WorkerEntrypoint pattern (`AuthEmailSenderBase` → `ResendEmailSender`) is now the sole email architecture.
 
 ## Follow-on Considerations
 

@@ -1143,7 +1143,7 @@ export class LumenizeAuth extends DurableObject {
   /**
    * Send an email via the AUTH_EMAIL_SENDER service binding.
    * When the binding is not configured, logs the email at debug level
-   * (preserving the dev feedback from the old ConsoleEmailService default).
+   * so developers see feedback during local development.
    */
   async #sendEmail(message: EmailMessage): Promise<void> {
     const sender = (this.env as any).AUTH_EMAIL_SENDER;

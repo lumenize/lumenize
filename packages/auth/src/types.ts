@@ -130,15 +130,6 @@ export interface ResolvedEmail {
 }
 
 /**
- * Email service interface for sending auth-related emails.
- * Implement this interface to integrate with your email provider.
- * @see https://lumenize.com/docs/auth/
- */
-export interface EmailService {
-  send(message: EmailMessage): Promise<void>;
-}
-
-/**
  * Options for createAuthRoutes — Worker-level routing only.
  * All auth configuration (redirect, TTLs, issuer, audience, prefix)
  * is read from environment variables.

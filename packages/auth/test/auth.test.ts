@@ -1792,10 +1792,9 @@ describe('@lumenize/auth - Admin notification on self-signup', () => {
     // Click magic link — this triggers the notification
     await stub.fetch(new Request(magic_link, { redirect: 'manual' }));
 
-    // Notification was sent via ConsoleEmailService (logged to stdout)
-    // We can't directly inspect ConsoleEmailService output, but we've verified
-    // the code path executes without error by checking login succeeds
-    // The console output should show: [ConsoleEmailService] Admin notification to bootstrap-admin@example.com
+    // AUTH_EMAIL_SENDER is not configured in tests, so #sendEmail() logs at
+    // debug level and skips delivery. We verify the code path executes without
+    // error by checking login succeeds.
   });
 
   it('does NOT send notification when bootstrap admin logs in', async () => {
