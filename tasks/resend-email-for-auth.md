@@ -271,8 +271,8 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 │  (native,   │                                    ┌─────────────┐
 │   no mesh)  │                                    │  Resend API │
 │             │                                    └──────┬──────┘
-│             │                                           │ test.email
-│             │                                           │ @lumenize.com
+│             │                                           │ test@
+│             │                                           │ lumenize.io
 │             │                                           ▼
 │             │                                    ┌─────────────┐
 │             │                                    │  Cloudflare │
@@ -293,7 +293,7 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 
 **Test flow**:
 1. Test opens a native WebSocket to the EmailTest Worker (`/ws` on the hard-coded `"email-inbox"` instance)
-2. Test POSTs magic link request to the auth Worker (email to `test.email@lumenize.com`)
+2. Test POSTs magic link request to the auth Worker (email to `test@lumenize.io`)
 3. Auth DO sends email via Resend (through the `AUTH_EMAIL_SENDER` service binding)
 4. Cloudflare Email Routing delivers to EmailTest Worker's `email()` handler
 5. Worker routes to `EmailTestDO("email-inbox")`, which parses with `postal-mime` and stores in KV (array of parsed email objects)
@@ -331,11 +331,11 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 
 **Success Criteria**:
 - [ ] Worker (`"email-test"`) deployed to Cloudflare via `wrangler deploy`
-- [ ] Cloudflare Email Routing configured in dashboard: `test.email@lumenize.com` → EmailTest Worker (manual step — no wrangler.jsonc config for inbound email routing)
-- [ ] Manual verification: send real email to `test.email@lumenize.com` → see it in DO storage (via logs or a debug endpoint)
+- [ ] Cloudflare Email Routing configured in dashboard: `test@lumenize.io` → EmailTest Worker (manual step — no wrangler.jsonc config for inbound email routing)
+- [ ] Manual verification: send real email to `test@lumenize.io` → see it in DO storage (via logs or a debug endpoint)
 
 **Notes**:
-- **Email worker deployment**: `wrangler deploy` handles the Worker + `email()` handler. The **inbound email routing** (binding `test.email@lumenize.com` to the Worker) is a one-time manual dashboard step. The monolith hit this same issue — the comment in `test-harness.ts` says "I COULDN'T FIGURE OUT HOW TO DEPLOY AN EMAIL WORKER. I EDITED IN THE CLOUDFLARE DASHBOARD."
+- **Email worker deployment**: `wrangler deploy` handles the Worker + `email()` handler. The **inbound email routing** (binding `test@lumenize.io` to the Worker) is a one-time manual dashboard step. The monolith hit this same issue — the comment in `test-harness.ts` says "I COULDN'T FIGURE OUT HOW TO DEPLOY AN EMAIL WORKER. I EDITED IN THE CLOUDFLARE DASHBOARD."
 - This phase involves back-and-forth: agent does code/deploy, user does dashboard configuration (DNS verification, email routing rules).
 - If this takes >4 hours, abort and proceed to Phase 3 (docs). The local infrastructure from Phase 2a is still valuable.
 

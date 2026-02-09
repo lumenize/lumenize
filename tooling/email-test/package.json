@@ -1,0 +1,42 @@
+{
+  "name": "@lumenize/email-test",
+  "version": "0.17.0",
+  "description": "Email testing infrastructure — receives inbound emails via Cloudflare Email Routing and pushes to test clients via WebSocket",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --show-interactive-dev-session=false",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "test": "vitest --run"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "email",
+    "testing"
+  ],
+  "author": "Lumenize",
+  "license": "MIT",
+  "files": [
+    "src/**/*"
+  ],
+  "dependencies": {
+    "postal-mime": "^2.4.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@vitest/coverage-istanbul": "3.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "3.2.4",
+    "wrangler": "^4.38.0"
+  }
+}

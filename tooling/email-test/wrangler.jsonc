@@ -1,0 +1,22 @@
+{
+  "name": "email-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EMAIL_TEST_DO",
+        "class_name": "EmailTestDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EmailTestDO"]
+    }
+  ]
+}
