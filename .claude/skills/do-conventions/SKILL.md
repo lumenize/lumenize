@@ -229,6 +229,7 @@ A single `vitest.config.js` per package can define multiple projects when tests 
 
 - **Separate `wrangler.jsonc` per `for-docs/` mini-app** — each mini-app has its own DO bindings and migrations. See `packages/mesh/vitest.config.js` where each `for-docs/` directory gets its own project pointing to its own `wrangler.jsonc`.
 - **Same tests across multiple runtimes** — verify behavior in Node, Workers, and browser environments. See `packages/structured-clone/vitest.config.js` which runs the same test suite across all three.
+- **E2E tests with different bindings** — tests requiring service bindings or real external services get their own wrangler.jsonc (e.g., `packages/auth/test/e2e-email/wrangler.jsonc` adds `AUTH_EMAIL_SENDER` for real Resend email delivery). Use `defineWorkersConfig` with multiple projects to run these alongside unit tests.
 
 ---
 
@@ -278,3 +279,74 @@ When using `ctx.storage.sql` for DO storage:
 - **Index names**: `idx_TableName_columnName` (e.g., `idx_Subjects_email`, `idx_RefreshTokens_subjectId`)
 
 This matches TypeScript/JavaScript conventions and allows SQL row objects to map directly to TypeScript interfaces with minimal conversion. SQLite column names are case-insensitive for queries but case-preserved in output.
+
+---
+
+## 13. Migrations: `new_sqlite_classes` vs `new_classes`
+
+The synchronous storage API (`ctx.storage.kv.*`, `ctx.storage.sql.*`) requires SQLite-backed DOs. In `wrangler.jsonc` migrations, use `new_sqlite_classes` — not `new_classes`. Using `new_classes` creates a non-SQLite DO where only the legacy async API (`await ctx.storage.put/get`) is available.
+
+```jsonc
+// Wrong: creates non-SQLite DO — ctx.storage.kv.* will throw
+"migrations": [{ "tag": "v1", "new_classes": ["MyDO"] }]
+
+// Right: creates SQLite-backed DO — ctx.storage.kv.* and ctx.storage.sql.* work
+"migrations": [{ "tag": "v1", "new_sqlite_classes": ["MyDO"] }]
+```
+
+This cannot be changed after a class is deployed to production.
+
+---
+
+## 14. Self-Referencing Service Bindings
+
+A Worker can bind to its own WorkerEntrypoint classes via a self-referencing service binding. The `"service"` field matches the Worker's own `"name"` in `wrangler.jsonc`:
+
+```jsonc
+{
+  "name": "my-worker",
+  "services": [
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "my-worker",
+      "entrypoint": "AuthEmailSender"
+    }
+  ]
+}
+```
+
+The entrypoint class extends `WorkerEntrypoint` and is exported from the Worker's entry file. The DO communicates with it via RPC through the binding. This pattern works in both production and vitest-pool-workers tests.
+
+**Prior art**: `packages/mesh/test/for-docs/calls/test/wrangler.jsonc` (SpellCheckWorker, AnalyticsWorker), `packages/fetch/src/fetch-executor-entrypoint.ts` (FetchExecutorEntrypoint), `packages/auth/test/e2e-email/wrangler.jsonc` (AuthEmailSender).
+
+---
+
+## 15. Hibernation WebSocket API
+
+For DOs that push data to connected clients (e.g., the EmailTestDO in `tooling/email-test/`), use the Hibernation WebSocket API:
+
+```typescript
+// Accept WebSocket in fetch()
+async fetch(request: Request): Promise<Response> {
+  if (request.headers.get('Upgrade') === 'websocket') {
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+  // ...
+}
+
+// Push to all connected clients
+const message = JSON.stringify(data);
+for (const ws of this.ctx.getWebSockets()) {
+  ws.send(message);
+}
+
+// Handle close — code 1005 means "no status code present" and is invalid to echo back
+async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): Promise<void> {
+  ws.close(code === 1005 ? 1000 : code, reason);
+}
+```
+
+**Testing**: vitest-pool-workers tests can open `new WebSocket()` connections to external deployed Workers. This enables e2e patterns where the code under test runs in-process but interacts with deployed infrastructure via WebSocket.

@@ -41,6 +41,7 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 - Test directories use symlinks to the root `.dev.vars`
 - `/lumenize/.dev.vars.example` provides template for contributors
 - `scripts/setup-symlinks.sh` automatically creates/verifies symlinks (runs via `postinstall` hook)
+- **`.dev.vars` is resolved relative to the `wrangler.jsonc` location**, not the package root. Sub-directory wrangler configs (e.g., `test/e2e-email/wrangler.jsonc`) need their own `.dev.vars` symlink — `setup-symlinks.sh` handles this automatically for any directory containing `wrangler.jsonc`
 
 ---
 
@@ -186,6 +187,9 @@ await vi.waitFor(async () => {
   expect(status).toBe('complete');
 });
 ```
+
+### E2E Tests with External Services
+vitest-pool-workers tests can make real external `fetch()` calls and `new WebSocket()` connections to deployed Workers. This enables e2e tests where the code under test runs in-process (no deployment needed) but interacts with real external infrastructure. See `packages/auth/test/e2e-email/` for the canonical example: auth DO runs in vitest, sends real email via Resend, and a deployed `email-test` Worker receives it via Email Routing and pushes back over WebSocket.
 
 ---
 

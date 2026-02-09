@@ -20,11 +20,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
-- [ ] Add successful token refresh lifecycle test to mesh test suite
-  - **Gap**: Mesh tests cover refresh *failure* (4401 → refresh throws → `onLoginRequired`) but never test successful refresh
-  - **What to test**: Token expires (4401 close) → client refreshes → new token → reconnect → subsequent calls work
-  - **Implementation**: `createTestRefreshFunction` needs to return different tokens on successive calls (currently all calls return the same token)
-  - **Discovered during**: `tasks/resend-email-for-auth.md` Phase 4 analysis — the phase was dropped because everything except this gap was already covered by existing mesh tests
+- [ ] Add successful token refresh lifecycle test to mesh test suite — with real cookies
+  - **Gap**: Mesh tests cover refresh *failure* (4401 → refresh throws → `onLoginRequired`) but never test successful refresh. All existing mesh tests use `createTestRefreshFunction` (function form) which bypasses cookie handling entirely.
+  - **What to test**: `LumenizeClient` with `refresh: '/auth/refresh-token'` (string form, not function) + `browser.fetch` — exercises real cookie jar. Token expires (4401 close) → client calls `browser.fetch('/auth/refresh-token')` → Browser sends `refresh-token` cookie automatically → auth DO validates, returns JWT, rotates cookie → client reconnects → subsequent calls work.
+  - **Infrastructure ready**: `packages/auth/test/e2e-email/` now has the email testing infrastructure + `Browser` cookie jar pattern. The auth e2e test proves real cookies work end-to-end. A mesh test can use the same `Browser` instance to: (1) click magic link → cookie captured, (2) pass `browser.fetch` and `browser.WebSocket` to `LumenizeClient`, (3) let LumenizeClient auto-refresh via the real cookie path.
+  - **Needs**: Gateway DO binding added to a mesh e2e test wrangler.jsonc, plus auth DO + AUTH_EMAIL_SENDER service binding. The mesh `for-docs/getting-started` test harness is a good starting point — it already has Gateway + auth.
+  - **Discovered during**: `tasks/resend-email-for-auth.md` Phase 2b — the backlog item was originally about simulated refresh; with the email infrastructure now in place, it can test the full real flow.
 
 - [ ] Split `getting-started/index.test.ts` so it's a clean 1:1 match with `getting-started.mdx`
   - Currently lines 81-151 add Bob multi-client collaboration, `createTestingClient` storage inspection, and spell check verification — none referenced by the `.mdx`
