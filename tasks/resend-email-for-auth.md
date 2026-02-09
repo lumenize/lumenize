@@ -296,7 +296,7 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 2. Test POSTs magic link request to the auth Worker (email to `test.email@lumenize.com`)
 3. Auth DO sends email via Resend (through the `AUTH_EMAIL_SENDER` service binding)
 4. Cloudflare Email Routing delivers to EmailTest Worker's `email()` handler
-5. Worker routes to `EmailTestDO("email-inbox")`, which parses with `postal-mime` and stores in SQLite
+5. Worker routes to `EmailTestDO("email-inbox")`, which parses with `postal-mime` and stores in KV (array of parsed email objects)
 6. `EmailTestDO` pushes parsed email JSON to all connected WebSocket clients via `getWebSockets()`
 7. Test receives the push, extracts magic link URL from parsed email HTML
 8. Test uses `Browser.fetch` to GET the magic link URL on the auth Worker (simulating the user clicking the link — `Browser` handles cookies so the `Set-Cookie` for refresh token is captured). Test verifies the full auth flow: token exchange, JWT claims, refresh token rotation.
@@ -310,10 +310,11 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 - [ ] `postal-mime` installed as a dependency of `tooling/email-test/` (MIT-0 license, zero deps, ~4.5K SLOC — too large to copy, Cloudflare-recommended for Email Workers)
 - [ ] `SimpleMimeMessage` copied from monolith into `tooling/email-test/src/` with attribution (60 lines, MIME builder — opposite of postal-mime which is a parser)
 - [ ] Parses incoming emails with `postal-mime`
-- [ ] Stores recent emails in SQLite (for debugging/verification)
+- [ ] Stores recent emails in KV as a growing array of parsed email objects (no SQLite — KV starts clean each vitest run, simpler than schema management)
 - [ ] Hibernation WebSocket API: test clients connect to `/ws`, DO pushes parsed email JSON to all connected sockets on arrival
 - [ ] Worker `email()` handler routes inbound email to the `"email-inbox"` DO instance
-- [ ] Local test: build synthetic MIME with `SimpleMimeMessage` → feed to `email()` handler (direct call or POST to test endpoint) → verify postal-mime parsing → verify DO storage → verify WebSocket push
+- [ ] Local test: build synthetic MIME with `SimpleMimeMessage` → POST to built-in `/cdn-cgi/handler/email` endpoint (Cloudflare's local dev support for Email Workers, added April 2025) → verify postal-mime parsing → verify DO KV storage → verify WebSocket push
+- [ ] Wrangler name: `"email-test"` (matches directory name)
 - [ ] Committed before proceeding to deployment
 
 **Notes**:
@@ -321,13 +322,15 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 - `SimpleMimeMessage` (from `lumenize-monolith/test/simple-mime-message.ts`) is a MIME *builder* for constructing test emails. `postal-mime` is a MIME *parser* for reading inbound emails. Both are needed.
 - `lumenize-monolith/test/live-email-routing.test.ts` has a local email parsing test pattern.
 - No auth hooks, no Gateway, no mesh on this Worker — it's internal test infrastructure. Auth is tested on the auth Worker side (the system under test).
+- **Local email testing**: Cloudflare added local dev support for Email Workers (April 2025). `wrangler dev` exposes `/cdn-cgi/handler/email` — POST raw MIME with `?from=...&to=...` query params to trigger the `email()` handler. This replaces the monolith's custom `/test-email-routing` endpoint.
+- **DO stub shortcut**: Use `env.EMAIL_TEST_DO.getByName('email-inbox')` instead of the longer `env.EMAIL_TEST_DO.idFromName('email-inbox')` + `.get()` chain.
 
 ### Phase 2a-deploy: Deploy + Email Routing Configuration
 
 **Goal**: Deploy the EmailTest Worker to Cloudflare and configure Email Routing to deliver inbound emails to it. This is where the 4-hour abort clock starts.
 
 **Success Criteria**:
-- [ ] Worker deployed to Cloudflare via `wrangler deploy`
+- [ ] Worker (`"email-test"`) deployed to Cloudflare via `wrangler deploy`
 - [ ] Cloudflare Email Routing configured in dashboard: `test.email@lumenize.com` → EmailTest Worker (manual step — no wrangler.jsonc config for inbound email routing)
 - [ ] Manual verification: send real email to `test.email@lumenize.com` → see it in DO storage (via logs or a debug endpoint)
 
