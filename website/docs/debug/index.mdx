@@ -1,0 +1,178 @@
+---
+title: "Debug"
+description: "Scoped, filterable debug logging optimized for the JSON filter capability in Cloudflare's observability dashboard"
+---
+
+# Debug
+
+A de✨light✨ful scoped debug logging system inspired by npm's `debug` package with JSON output that works perfectly with Cloudflare's observability dashboard.
+
+## Features
+
+- **Namespace filtering**: Use dot-notation scopes (e.g., `lmz.utils.routeDORequest`) with wildcard patterns
+- **Level support**: `debug`, `info`, `warn`, and `error` levels
+- **JSON output**: Structured logs integrate seamlessly with Cloudflare's observability dashboard
+- **Zero-cost when disabled**: Early exit via `enabled` flag — no string interpolation or object creation
+- **Cross-platform**: Works in Cloudflare Workers, Node.js, Bun, and browsers
+- **⚠️ Error level never filtered**: `log.error()` always outputs regardless of filter settings
+
+## Installation
+
+```bash
+npm install @lumenize/debug
+```
+
+## Quick Start
+
+The API is identical across Cloudflare Workers, Node.js, Bun, and browsers. Here's how `@lumenize/auth` uses it for security audit logging:
+
+```typescript @check-example('packages/auth/src/lumenize-auth.ts')
+import { debug } from '@lumenize/debug';
+// ...
+const auditLog = debug('auth.LumenizeAuth.login.failed');
+auditLog.warn('Invalid magic link token', { reason: 'not_found' });
+// ...
+const loginLog = debug('auth.LumenizeAuth.login.succeeded');
+loginLog.info('Magic link login', { targetSub: subject.sub, actorSub: 'system', email: magicLink.email });
+```
+
+## Configuration
+
+Control logging via the `DEBUG` configuration. The debug module auto-detects the environment and reads from the appropriate source:
+
+| Environment | Configuration Source |
+|-------------|---------------------|
+| Cloudflare Workers | `env.DEBUG` |
+| Node.js/Bun | `process.env.DEBUG` |
+| Browser | `localStorage.getItem('DEBUG')` |
+
+**Off by default**: All filterable logs (not `.error()`) are off by default when `DEBUG` is not set.
+
+### Setting DEBUG
+
+**Cloudflare Workers**: Set via dashboard, wrangler.jsonc, or .dev.vars:
+```bash
+# .dev.vars
+DEBUG=*
+```
+
+**Node.js/Bun**: Set via environment variable:
+```bash
+DEBUG=* node server.js
+```
+
+**Browser**: Set via localStorage in DevTools console:
+```javascript @skip-check-approved('conceptual')
+localStorage.setItem('DEBUG', '*');
+// Refresh the page
+```
+
+**Important**: Environment variable changes don't take effect in Cloudflare production until redeployment.
+
+### Pattern Examples
+
+```bash
+# Development - see everything
+DEBUG=*
+
+# Single namespace, all levels
+DEBUG=ChatRoom.handleMessage
+
+# Wildcards
+DEBUG=ChatRoom.*
+
+# Combined: wildcards + levels + multiple patterns
+DEBUG=ChatRoom.*:info,lmz.rpc.RpcClient:warn
+
+# Exclusions (enable all except one verbose subsystem)
+DEBUG=ChatRoom.*,-ChatRoom.verboseDebug
+```
+
+## Log Output Format
+
+All logs output as pretty-printed JSON objects to `console.debug`:
+
+```json
+{
+  "type": "debug",  // Says "this is from Lumenize debug"
+  "level": "info",
+  "namespace": "lmz.fetch.proxyFetchQueueConsumer",
+  "message": "Processing request",
+  "url": "https://api.example.com/data",
+  "method": "POST",
+  "timestamp": "2025-11-09T12:34:56.789Z"
+}
+```
+
+This format integrates with Cloudflare's observability dashboard, allowing you to:
+- Query by field (e.g., `namespace:"lmz.fetch.proxyFetchQueueConsumer"`)
+- Filter by level
+- Search message content
+- Analyze structured data
+
+## API
+
+The debug system provides a simple, type-safe logging interface:
+
+```typescript @check-example('packages/debug/src/types.ts')
+// ...
+export interface DebugLogger {
+  /** Namespace for this logger */
+  readonly namespace: string;
+
+  /** Whether this logger is enabled based on current filter */
+  readonly enabled: boolean;
+
+  /** Log at debug level (most verbose) */
+  debug(message: string, data?: any, options?: DebugOptions): void;
+
+  /** Log at info level */
+  info(message: string, data?: any, options?: DebugOptions): void;
+
+  /** Log at warn level */
+  warn(message: string, data?: any, options?: DebugOptions): void;
+
+  error(message: string, data?: any, options?: DebugOptions): void;
+}
+```
+
+### `enabled` Flag as Performance Guard
+
+Check `enabled` flag before expensive operations. `enabled` is computed based on the current `DEBUG` filter and the namespace for the logger:
+
+```typescript @skip-check-approved('conceptual')
+const log = debug('NotChat');
+if (log.enabled) {
+  const expensiveData = computeExpensiveDetails();
+  log.debug('Details', expensiveData);
+}
+```
+
+If `DEBUG=Chat.*`, `computeExpensiveDetails()` is skipped.
+
+## Lumenize Internals
+
+`lmz.{package-name}.{ActualIdentifier}` convention:
+- Package names: kebab-case (npm convention) — `rpc`, `fetch`, `utils`
+- Identifiers: actual case from code — `RpcClient`, `routeDORequest`, `ProxyFetchDO`
+
+Examples:
+- `lmz.rpc.RpcClient`, `lmz.rpc.WebSocketRpcTransport`
+- `lmz.fetch.ProxyFetchDO`, `lmz.fetch.proxyFetchQueueConsumer`
+- `lmz.utils.routeDORequest`
+- `lmz.alarms.Alarms`
+
+## Comparison with npm's `debug`
+
+Similarities:
+- Namespace filtering with wildcards
+- Environment variable configuration
+- Zero-cost when disabled
+
+Differences:
+- **Level support**: debug, info, warn, error (vs. single level)
+- **Casing**: Use actual package, class, method case (vs. all lower-kebab-case)
+- **Error level**: Never filtered — always outputs
+- **JSON output**: Structured objects (vs. plain text)
+- **Cloudflare-optimized**: No colors, no TTY detection
+- **Cross-platform config**: Auto-detects `env.DEBUG`, `process.env.DEBUG`, or `localStorage.DEBUG`

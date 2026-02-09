@@ -14,6 +14,9 @@ export { Fetch, type FetchMessage } from './fetch';
 // Infrastructure components
 export { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
 
+// Errors
+export { FetchTimeoutError } from './errors';
+
 // Types
 export type { ProxyFetchWorkerOptions } from './types';
 

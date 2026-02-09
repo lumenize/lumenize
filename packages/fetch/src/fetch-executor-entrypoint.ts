@@ -21,10 +21,10 @@
  * 3. Origin DOs will automatically use it via RPC
  */
 
-import { debug } from '@lumenize/core';
-import { LumenizeWorker } from '@lumenize/lumenize-base';
+import { debug } from '@lumenize/debug';
+import { LumenizeWorker, mesh } from '@lumenize/mesh';
 import { ResponseSync } from '@lumenize/structured-clone';
-import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
+import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
 import type { FetchMessage } from './fetch';
 
 const DEFAULT_TIMEOUT = 30000;
@@ -32,19 +32,20 @@ const DEFAULT_TIMEOUT = 30000;
 export class FetchExecutorEntrypoint extends LumenizeWorker {
   /**
    * Execute an external fetch request
-   * 
+   *
    * Called by origin DO directly via RPC. Returns immediately, then executes
    * fetch in background. Calls back to origin DO's `svc.fetch.__handleProxyFetchResult()` via OCAN.
-   * 
+   *
    * Flow:
    * 1. Quick RPC acknowledgment (microseconds)
    * 2. Origin DO continues (alarm is scheduled)
    * 3. Fetch executes in background (CPU billing)
    * 4. Result delivered to origin DO's internal handler method
    * 5. Origin DO cancels alarm atomically to get continuation
-   * 
+   *
    * @param message - Fetch message with preprocessed continuation
    */
+  @mesh()
   async executeFetch(message: FetchMessage): Promise<void> {
     // Quick acknowledgment - return immediately
     this.ctx.waitUntil(
@@ -59,7 +60,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
    * Runs in background via ctx.waitUntil()
    */
   async #executeFetch(message: FetchMessage): Promise<void> {
-    const log = debug(this)('lmz.proxyFetch.worker');
+    const log = debug('lmz.proxyFetch.worker');
     
     const isString = typeof message.request === 'string';
     const url = isString 
@@ -129,7 +130,7 @@ export class FetchExecutorEntrypoint extends LumenizeWorker {
       // Note: stringifiedUserContinuation is NOT passed - it's extracted from the alarm
       const handleResultContinuation = (this.ctn() as any).svc.fetch.__handleProxyFetchResult(
         message.reqId,
-        (this.ctn() as any).$result // Placeholder
+        this.ctn().$result // Placeholder
       );
 
       // Fill $result placeholder with actual result

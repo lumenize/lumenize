@@ -69,7 +69,7 @@ import {
   setInspectMode,
   getLastBatchRequest 
 } from '@lumenize/rpc';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { DataService } from '../src/index';
 
 /*

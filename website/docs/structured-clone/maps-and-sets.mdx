@@ -28,10 +28,10 @@ const map = new Map([
   [true, { active: true }]
 ]);
 
-const serialized = await stringify(map);
+const serialized = stringify(map);
 
 // Receiver side
-const restored = await parse(serialized);
+const restored = parse(serialized);
 
 expect(restored.get("user123")).toEqual({ name: "Alice" });
 expect(restored.get(42)).toEqual({ count: 100 });
@@ -46,7 +46,7 @@ expect(restored.get(true)).toEqual({ active: true });
 
 When you use an object as a Map key or Set value, JavaScript uses **reference equality** (`===`), not structural equality:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Native JavaScript behavior
 const key1 = { userId: 123 };
 const key2 = { userId: 123 };
@@ -68,10 +68,10 @@ The structured-clone package **preserves this exact behavior**. Object keys are 
 const keyObj = { userId: 123, role: "admin" };
 const map = new Map([[keyObj, "user data"]]);
 
-const serialized = await stringify(map);
+const serialized = stringify(map);
 
 // Receiver side
-const restored = await parse(serialized);
+const restored = parse(serialized);
 
 // The key is fully reconstructed...
 const keys = Array.from(restored.keys());
@@ -107,10 +107,10 @@ const map = new Map([
   [adminKey, { name: "Admin", email: "admin@example.com" }]
 ]);
 
-const serialized = await stringify(map);
+const serialized = stringify(map);
 
 // Receiver side
-const restored = await parse(serialized);
+const restored = parse(serialized);
 
 // Find the key for userId 456
 const targetKey = Array.from(restored.keys()).find(
@@ -138,10 +138,10 @@ const data = {
   keyToLookup: keyObj  // ✅ Share the key explicitly!
 };
 
-const serialized = await stringify(data);
+const serialized = stringify(data);
 
 // Receiver side
-const restored = await parse(serialized);
+const restored = parse(serialized);
 
 // Now you can access the map using the shared key!
 expect(restored.map.get(restored.keyToLookup)).toBe("user data");
@@ -157,14 +157,14 @@ The same principles apply to `Set` - primitive values work as expected, while ob
 ```typescript @check-example('packages/structured-clone/test/for-docs/maps-and-sets.test.ts')
 // Primitive values work fine
 const set = new Set(["apple", "banana", 123]);
-const restored = await parse(await stringify(set));
+const restored = parse(stringify(set));
 expect(restored.has("apple")).toBe(true);
 // ...
 
 // Object values: can't use new objects, must search or store reference
 const obj = { id: 1, name: "Alice" };
 const data = { set: new Set([obj]), aliceRef: obj };
-const restored2 = await parse(await stringify(data));
+const restored2 = parse(stringify(data));
 expect(restored2.set.has(restored2.aliceRef)).toBe(true);
 ```
 
@@ -178,7 +178,7 @@ const map1 = new Map([[sharedKey, "data1"]]);
 const map2 = new Map([[sharedKey, "data2"]]);
 const data = { map1, map2, theKey: sharedKey };
 
-const restored = await parse(await stringify(data));
+const restored = parse(stringify(data));
 
 // All references point to the same reconstructed object!
 expect(restored.map1.get(restored.theKey)).toBe("data1");
@@ -191,11 +191,11 @@ expect(key1 === key2 && key1 === restored.theKey).toBe(true);
 
 ## RPC and Serialization Boundaries
 
-The same identity preservation behavior applies when using **`@lumenize/rpc`**. Within a single RPC call, object identity is preserved:
+The same identity preservation behavior applies when using `@lumenize/rpc` or `@lumenize/mesh`. Within a single RPC call, object identity is preserved:
 
-```typescript @skip-check
+```typescript @skip-check-approved('hand reviewed and conceptual')
 // Server-side DO
-export class MyDO extends LumenizeBase {
+export class MyDO extends LumenizeDO {
   getData() {
     const keyObj = { userId: 123 };
     const map = new Map([[keyObj, "user data"]]);
@@ -229,7 +229,7 @@ console.log(data.key === Array.from(data.map.keys())[0]);  // ✅ true
 - ❌ DO Storage: `put(map)` then later `get()` and use original key
 - ❌ Separate `stringify()` calls: Serialize map and key independently
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // ❌ Won't work: Separate RPC calls
 const map = await stub.getMap();      // Call 1
 const key = await stub.getKey();      // Call 2

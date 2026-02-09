@@ -1,0 +1,318 @@
+---
+title: Testing
+description: Testing Lumenize Mesh applications with integration and isolated patterns
+---
+
+# Testing
+
+Two complementary patterns for testing Lumenize Mesh applications:
+
+- **Integration tests** (`LumenizeClient` + `createTestRefreshFunction`) — Full production path: Client → Worker fetch → auth hooks → Gateway → DO. The `refresh` callback mints JWTs locally; auth hooks verify them normally.
+- **Isolated DO tests** (`createTestingClient`) — Direct DO RPC, bypasses Worker/Gateway/auth. Good for testing storage, alarms, business logic, and manipulating DO state (e.g., force-closing a WebSocket to test reconnection).
+
+For basic usage of `@lumenize/testing`, see the [usage documentation](/docs/testing/usage).
+
+## Installation
+
+```bash @skip-check-approved('conceptual')
+npm install --save-dev vitest@3.2
+npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @lumenize/testing
+```
+
+## Configuration
+
+### vitest.config.js
+
+```javascript @skip-check-approved('conceptual')
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+
+export default defineWorkersProject({
+  test: {
+    testTimeout: 5000,
+    poolOptions: {
+      workers: {
+        // Must be false for WebSocket support
+        isolatedStorage: false,
+        wrangler: { configPath: "./test/wrangler.jsonc" },
+      },
+    },
+  },
+});
+```
+
+### test/wrangler.jsonc
+
+Point to your test harness that instruments DO classes:
+
+```json @skip-check-approved('conceptual')
+{
+  "name": "my-app-test",
+  "main": "./test-harness.ts",
+  "compatibility_date": "2025-09-12"
+}
+```
+
+### test/test-harness.ts
+
+The test harness wraps your DO classes with RPC instrumentation so `createTestingClient` can access storage and other internals:
+
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/test/test-harness.ts')
+import * as sourceModule from '../index.js';
+import { instrumentDOProject } from '@lumenize/testing';
+
+// ...
+const instrumented = instrumentDOProject({
+  sourceModule,
+  doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'LumenizeAuth'],
+});
+
+// ...
+export const { LumenizeClientGateway, DocumentDO, LumenizeAuth } = instrumented.dos;
+
+// ...
+export default instrumented;
+```
+
+## Integration tests
+
+Integration tests exercise the full production path. `createTestRefreshFunction` mints JWTs locally — auth hooks verify them against the corresponding public key with the same signature check, claims validation, and access gate as production.
+
+### `createTestRefreshFunction`
+
+```typescript @skip-check-approved('conceptual')
+import { createTestRefreshFunction } from '@lumenize/mesh';
+
+const refresh = createTestRefreshFunction({
+  sub: crypto.randomUUID(),  // default: random UUID
+  adminApproved: true,       // default: true (passes access gate)
+  emailVerified: true,       // default: true (passes access gate)
+  isAdmin: false,            // default: false
+  ttl: 3600,                 // default: 1 hour (seconds)
+  expired: false,            // default: false; true → throws on call
+});
+
+// Pass as LumenizeClient's refresh option
+using client = new MyClient({
+  baseUrl: 'https://localhost',
+  refresh,
+});
+```
+
+The `iss` and `aud` defaults (`'https://lumenize.local'`) match the auth system's defaults. Override them only if you've set `LUMENIZE_AUTH_ISSUER` / `LUMENIZE_AUTH_AUDIENCE` in your environment.
+
+The returned function can also be called directly for raw tokens (useful for CORS or header-level tests):
+
+```typescript @check-example('packages/mesh/test/for-docs/security/index.test.ts')
+  const refresh = createTestRefreshFunction({ sub: 'cors-test-user' });
+  const { access_token: accessToken, sub } = await refresh();
+```
+
+### Multi-user collaboration example
+
+Two users connect via separate `Browser` instances (cookie isolation), authenticate via `createTestRefreshFunction`, exchange real-time updates via broadcasts, and receive targeted spell-check results:
+
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.test.ts')
+import { it, expect, vi } from 'vitest';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { createTestRefreshFunction } from '../../../src/index.js';
+import { EditorClient } from './editor-client.js';
+// ...
+
+it('collaborative document editing with multiple clients', async () => {
+  const documentId = 'collab-doc-1';
+
+  // ...
+  const events = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
+  const bobEvents = { content: [] as string[], spellFindings: [] as SpellFinding[][] };
+
+  // ...
+
+  const browser = new Browser();
+  const aliceCtx = browser.context('https://localhost');
+  const aliceRefresh = createTestRefreshFunction();
+
+  // ...
+
+  using client = new EditorClient({
+    baseUrl: 'https://localhost',
+    refresh: aliceRefresh,
+    fetch: browser.fetch,
+    WebSocket: browser.WebSocket,
+    sessionStorage: aliceCtx.sessionStorage,
+    BroadcastChannel: aliceCtx.BroadcastChannel,
+  });
+
+  await vi.waitFor(() => {
+    expect(client.connectionState).toBe('connected');
+  });
+
+  const doc = client.openDocument(documentId, {
+    onContentUpdate: updateEditor,
+    onSpellFindings: showSpellingSuggestions,
+  });
+
+  await vi.waitFor(() => {
+    expect(events.content[0]).toBe('');
+  });
+
+  doc.saveContent('The quick brown fox');
+
+  await vi.waitFor(() => {
+    expect(events.content[1]).toBe('The quick brown fox');
+  });
+
+  // ...
+
+  const bobBrowser = new Browser();
+  const bobCtx = bobBrowser.context('https://localhost');
+  const bobRefresh = createTestRefreshFunction();
+
+  using bob = new EditorClient({
+    baseUrl: 'https://localhost',
+    refresh: bobRefresh,
+    fetch: bobBrowser.fetch,
+    WebSocket: bobBrowser.WebSocket,
+    sessionStorage: bobCtx.sessionStorage,
+    BroadcastChannel: bobCtx.BroadcastChannel,
+  });
+
+  await vi.waitFor(() => {
+    expect(bob.connectionState).toBe('connected');
+  });
+
+  // ...
+
+  const bobDoc = bob.openDocument(documentId, {
+    onContentUpdate: updateBobEditor,
+    onSpellFindings: showBobSpellingSuggestions,
+  });
+
+  await vi.waitFor(() => {
+    expect(bobEvents.content[0]).toBe('The quick brown fox');
+  });
+
+  // ...
+
+  // Verify Bob is subscribed via direct storage inspection
+  {
+    using docClient = createTestingClient<typeof DocumentDO>('DOCUMENT_DO', documentId);
+    const subscribers = await docClient.ctx.storage.kv.get<Set<string>>('subscribers');
+    expect(subscribers).toBeInstanceOf(Set);
+    expect(subscribers!.has(bob.lmz.instanceName)).toBe(true);
+  }
+
+  // ...
+  bobDoc.saveContent('The quick brown fox jumps over teh lazy dog.');
+
+  // ...
+  await vi.waitFor(() => {
+    expect(events.content.at(-1)).toBe('The quick brown fox jumps over teh lazy dog.');
+    expect(bobEvents.content.at(-1)).toBe('The quick brown fox jumps over teh lazy dog.');
+  });
+
+  // ...
+  await vi.waitFor(() => {
+    expect(bobEvents.spellFindings.length).toBeGreaterThan(0);
+  });
+
+  // ...
+  expect(events.spellFindings.length).toBe(0);
+
+  // ...
+  const bobFindings = bobEvents.spellFindings.at(-1)!;
+  expect(bobFindings[0].word).toBe('teh');
+  expect(bobFindings[0].suggestions).toContain('the');
+  // ...
+});
+```
+
+### What to notice
+
+**`using` for automatic cleanup** — `using client` and `using bob` ensure WebSocket connections disconnect when the variables go out of scope. No manual `client.disconnect()` needed.
+
+**Separate `Browser` instances** — Each user gets their own `Browser` with an independent cookie jar. Alice's auth cookies never leak to Bob.
+
+**`createTestRefreshFunction()`** with no arguments gives each user a random `sub`, `adminApproved: true`, and `emailVerified: true` — enough to pass the access gate. The client calls `refresh` eagerly on connect and again when the access token expires.
+
+**`vi.waitFor()`** — WebSocket events arrive asynchronously. Never use `setTimeout` — `vi.waitFor()` retries the assertion until it passes or times out, giving you deterministic tests without arbitrary delays.
+
+**`createTestingClient` for RPC access** — Directly inspect or modify DO storage without going through the public API. The test uses it to verify Bob's subscription was stored correctly. Also useful for pre-populating state during test setup.
+
+### Dependency injection for testing
+
+`LumenizeClient` accepts testing overrides for dependency injection. Use `Browser` for cookie-aware HTTP/WebSocket, and `browser.context()` for per-tab sessionStorage and BroadcastChannel:
+
+| Option | What to inject | Why |
+|--------|---------------|-----|
+| `fetch` | `browser.fetch` | Cookie-aware HTTP with CORS validation |
+| `WebSocket` | `browser.WebSocket` | Cookie-aware WebSocket handshake |
+| `sessionStorage` | `context.sessionStorage` | Per-tab tab ID persistence |
+| `BroadcastChannel` | `context.BroadcastChannel` | Duplicate-tab detection across contexts |
+
+For simpler tests that don't need tab ID isolation, `browser.fetch` and `browser.WebSocket` are sufficient.
+
+Use `browser.duplicateContext(ctx)` to simulate browser tab duplication (clones sessionStorage, shares BroadcastChannel). The client's built-in duplicate-tab detection will automatically generate a fresh tab ID for the duplicate.
+
+## Isolated DO tests
+
+Use `createTestingClient` for direct DO RPC — no Worker, no Gateway, no auth. This is the right tool for testing storage logic, alarms, and business rules, and for manipulating DO state to trigger client-side behavior.
+
+### Simulating network glitches
+
+Force-close a Gateway's WebSocket via RPC to test client reconnection:
+
+```typescript @check-example('packages/mesh/test/for-docs/security/index.test.ts')
+  // Use testing client to force close the WebSocket with auth error code
+  // Code 4403 (invalid signature) triggers onLoginRequired directly without refresh attempt
+  // (4401 would attempt refresh first, which succeeds because createTestRefreshFunction keeps minting valid tokens)
+  {
+    using gatewayClient = createTestingClient<typeof LumenizeClientGateway>(
+      'LUMENIZE_CLIENT_GATEWAY',
+      `${aliceUserId}.tab1`
+    );
+    // Force close with 4403 (invalid signature) - this triggers onLoginRequired directly
+    const sockets = await gatewayClient.ctx.getWebSockets();
+    await sockets[0].close(4403, 'Invalid token signature');
+  }
+```
+
+This calls `.close()` on the actual WebSocket object inside the Gateway DO — the same thing that happens when the server detects an expired or invalid token. The client sees a real close event and responds accordingly.
+
+### Testing `onLoginRequired`
+
+Combine the force-close pattern above with `createTestRefreshFunction({ expired: true })` to test the full login-required flow:
+
+1. Connect with a working refresh function
+2. Force-close the WebSocket with code `4401` (token expired) via `createTestingClient`
+3. Client attempts refresh, which throws (`expired: true`)
+4. `onLoginRequired` callback fires
+
+```typescript @skip-check-approved('conceptual')
+// Create a refresh function that will fail on the second call
+let callCount = 0;
+const workingRefresh = createTestRefreshFunction({ sub: userId });
+const failingRefresh = createTestRefreshFunction({ sub: userId, expired: true });
+
+const refresh = async () => {
+  callCount++;
+  // First call succeeds (initial connect), subsequent calls fail
+  if (callCount <= 1) return workingRefresh();
+  return failingRefresh();
+};
+
+using client = new MyClient({
+  refresh,
+  onLoginRequired: (error) => {
+    // This fires after: 4401 close → refresh throws → login required
+    console.log('Must re-login:', error.code, error.reason);
+  },
+});
+```
+
+## Testing tips
+
+- **Use `using` everywhere** — Automatic cleanup prevents WebSocket leaks between tests.
+- **`vi.waitFor()`, never `setTimeout`** — Retries assertions deterministically. Set `testTimeout` in vitest config for slow operations.
+- **One DO instance per test** — With `isolatedStorage: false`, each test should use unique instance names to avoid state sharing.
+- **`createTestingClient` for setup and verification** — Pre-populate storage before a test, verify state after. Combine with integration tests for full-stack coverage.

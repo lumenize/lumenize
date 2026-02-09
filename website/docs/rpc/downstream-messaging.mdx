@@ -119,7 +119,7 @@ class VideoDO {
 
 **Client side** - Receive and handle progress updates:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 using client = createRpcClient<typeof VideoDO>({
   transport: createWebSocketTransport('VIDEO_DO', videoId, {
     onDownstream: (update) => {
@@ -156,7 +156,7 @@ class NotificationHub {
 
 **Client side** - Subscribe to and display notifications:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 using client = createRpcClient<typeof NotificationHub>({
   transport: createWebSocketTransport('NOTIFICATIONS', 'global', {
     onDownstream: (notification) => {
@@ -214,7 +214,7 @@ Send a message from a Durable Object to connected clients.
 Registered on the client when creating the RPC client.
 
 **Signature:**
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 onDownstream?: (message: any) => void
 ```
 
@@ -227,7 +227,7 @@ onDownstream?: (message: any) => void
 Registered on the client when creating the RPC client.
 
 **Signature:**
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 onClose?: (code: number, reason: string) => void
 ```
 
@@ -246,7 +246,7 @@ onClose?: (code: number, reason: string) => void
 
 Downstream messaging **only works with WebSocket transport**. HTTP transport doesn't support server-initiated messages.
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // ✅ Works - WebSocket transport
 createRpcClient({
   transport: createWebSocketTransport('MY_DO', 'id'),
@@ -264,7 +264,7 @@ createRpcClient({
 
 The `clientId` is optional but recommended for multi-user scenarios. See the full working example in `client-ids.test.ts`.
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 // Without clientId - broadcast to all connected clients
 const connections = this.ctx.getWebSockets();
 const clientIds = [...new Set(connections.flatMap(ws => this.ctx.getTags(ws)))];

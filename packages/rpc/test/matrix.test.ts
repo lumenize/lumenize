@@ -11,11 +11,11 @@
 import { describe, it, beforeEach, afterEach } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createHttpTransport, createWebSocketTransport, type RpcAccessible } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { ExampleDO } from './test-worker-and-dos';
 import { behaviorTests, testCategories, type TestableClient } from './shared/behavior-tests';
 import { batchingTests, type TestableClientWithMetrics } from './shared/batching-tests';
-import type { Metrics } from '@lumenize/utils';
+import type { Metrics } from '@lumenize/testing';
 
 type ExampleDOType = RpcAccessible<InstanceType<typeof ExampleDO>>;
 
@@ -405,7 +405,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
       const counterResponse = await SELF.fetch(
         new Request(`https://fake-host.com/manual-routing-do/${instanceId}/counter`)
       );
-      const counterData = await counterResponse.json();
+      const counterData = await counterResponse.json() as { counter: number };
       expect(counterData.counter).toBe(count);
 
       // Test RPC again
@@ -418,7 +418,7 @@ describe('Custom Handler Coexistence (ManualRoutingDO only)', () => {
           method: 'POST',
         })
       );
-      const resetData = await resetResponse.json();
+      const resetData = await resetResponse.json() as { message: string };
       expect(resetData.message).toBe('Counter reset');
 
       // Verify reset worked

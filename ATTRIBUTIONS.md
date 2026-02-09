@@ -18,7 +18,7 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Purpose**: Inspired our tuple-based serialization format `["type", data]` for human-readable, self-describing JSON serialization.
 - **Date Added**: 2025-01-30
 - **Author**: Cloudflare
-- **Note**: Cap'n Web uses a synchronous tuple format without cycles/aliases. We adopted the tuple approach but extended it with `["$lmz", index]` references to support cycles and aliases, and made it async to support Request/Response body reading.
+- **Note**: Cap'n Web uses a tuple format without cycles/aliases. We adopted the tuple approach but extended it with `["$lmz", index]` references to support cycles and aliases.
 
 ## Cloudflare Actors - Alarms Package
 - **Source**: https://github.com/cloudflare/actors/tree/e910e86ac1567fe58e389d1938afbdf1e53750ff/packages/alarms
@@ -28,3 +28,12 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Date Added**: 2025-11-02
 - **Author**: Cloudflare
 - **Note**: Source code adapted from cloudflare/actors alarms package with the following modifications: (1) NADIS dependency injection pattern instead of mixin approach, (2) lazy table initialization for compatibility with NADIS auto-injection, (3) removed actor-specific dependencies (setName, actorName), (4) added TypeScript generics for enhanced type safety, (5) made schedule/getSchedule/cancelSchedule methods synchronous, (6) added triggerAlarms() testing helper for reliable alarm testing.
+
+## SimpleMimeMessage (Copied)
+- **Source**: `lumenize-monolith/test/simple-mime-message.ts` (internal, same repo)
+- **License**: MIT (Lumenize)
+- **Used In**: `tooling/email-test/src/simple-mime-message.ts`
+- **Purpose**: Simple MIME message builder for constructing test emails in Workers runtime. Used to create synthetic inbound emails for testing the EmailTestDO email parsing pipeline.
+- **Date Added**: 2026-02-09
+- **Author**: Lumenize
+- **Note**: Copied with minor adaptation (TypeScript `private` → `#` prefix for private members, per project conventions).

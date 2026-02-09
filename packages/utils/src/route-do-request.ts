@@ -1,7 +1,7 @@
 import { getDOStub } from './get-do-stub';
 import { parsePathname } from './parse-pathname';
 import { getDONamespaceFromPathSegment } from './get-do-namespace-from-path-segment';
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/debug';
 
 /**
  * Error thrown when a pathname has a valid doBindingName segment but not a 
@@ -30,35 +30,44 @@ export type CorsOptions =
   | { origin: (origin: string, request: Request) => boolean };  // Custom validation function
 
 /**
+ * Context passed to routing hooks (onBeforeConnect, onBeforeRequest).
+ *
+ * Provides information about the target Durable Object so hooks can make
+ * routing decisions or enhance requests with additional context.
+ */
+export interface RouteDORequestHooksContext {
+  /** The resolved DurableObjectNamespace for the binding */
+  doNamespace: any;
+  /** The instance name or unique ID from the URL path */
+  doInstanceNameOrId: string;
+}
+
+/**
  * Configuration options for DO request routing and authentication hooks.
  */
 export interface RouteOptions {
   /**
    * Hook called before WebSocket requests (Upgrade: websocket) reach the Durable Object.
-   * 
+   *
    * @param request - The incoming WebSocket upgrade request
    * @param context - Routing context with DO namespace and instance identifier
-   * @param context.doNamespace - The resolved DurableObjectNamespace for the binding
-   * @param context.doInstanceNameOrId - The instance name or unique ID from the URL path
    * @returns Response to block call to DO, Request to enhance request, undefined/void to continue
    */
   onBeforeConnect?: (
-    request: Request, 
-    context: { doNamespace: any; doInstanceNameOrId: string }
+    request: Request,
+    context: RouteDORequestHooksContext
   ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
 
   /**
    * Hook called before non-WebSocket HTTP requests reach the Durable Object.
-   * 
-   * @param request - The incoming HTTP request  
+   *
+   * @param request - The incoming HTTP request
    * @param context - Routing context with DO namespace and instance identifier
-   * @param context.doNamespace - The resolved DurableObjectNamespace for the binding
-   * @param context.doInstanceNameOrId - The instance name or unique ID from the URL path
    * @returns Response to block call to DO, Request to enhance request, undefined/void to continue
    */
   onBeforeRequest?: (
-    request: Request, 
-    context: { doNamespace: any; doInstanceNameOrId: string }
+    request: Request,
+    context: RouteDORequestHooksContext
   ) => Promise<Response | Request | undefined | void> | Response | Request | undefined | void;
 
   /**
@@ -186,7 +195,7 @@ function addCorsHeaders(response: Response, origin: string): Response {
  * @throws {MultipleBindingsFoundError} When multiple DO bindings match the doBindingName segment
  */
 export async function routeDORequest(request: Request, env: any, options: RouteOptions = {}): Promise<Response | undefined> {
-  const log = debug({ env })('lmz.utils.routeDORequest');
+  const log = debug('lmz.utils.routeDORequest');
   const url = new URL(request.url);
   const pathname = url.pathname;
 
@@ -337,8 +346,8 @@ export async function routeDORequest(request: Request, env: any, options: RouteO
     headers.set("x-partykit-namespace", doBindingNameSegment);
   } else {
     // Standard Lumenize mode uses normalized binding name
-    headers.set("x-lumenize-do-instance-name-or-id", doInstanceNameOrId);
-    headers.set("x-lumenize-do-binding-name", bindingName);
+    headers.set("X-Lumenize-DO-Instance-Name-Or-Id", doInstanceNameOrId);
+    headers.set("X-Lumenize-DO-Binding-Name", bindingName);
   }
   
   // Create new request with added headers

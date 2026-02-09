@@ -6,8 +6,7 @@ import type {
   RpcWebSocketMessageResponse
 } from './types';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { debug } from '@lumenize/core';
-import { env } from 'cloudflare:workers';
+import { debug } from '@lumenize/debug';
 
 /**
  * Pending batch tracking - maps batch ID to resolve/reject functions
@@ -45,7 +44,7 @@ export class WebSocketRpcTransport implements RpcTransport {
   #keepAliveEnabled: boolean = false;
   #reconnectTimeoutId?: ReturnType<typeof setTimeout>;
   #reconnectAttempts: number = 0;
-  #log = debug({ env })('lmz.rpc.WebSocketRpcTransport');
+  #log = debug('lmz.rpc.WebSocketRpcTransport');
 
   constructor(config: {
     baseUrl: string;

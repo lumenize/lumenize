@@ -1,0 +1,806 @@
+---
+
+generated_by: doc-testing
+
+---
+
+
+
+# Usage
+
+<details>
+<summary><strong>📘 Doc-testing</strong> – Why do these examples look like tests?</summary>
+
+This documentation uses **testable code examples** to ensure accuracy and reliability:
+
+- **Guaranteed accuracy**: All examples are real, working code that runs against the actual package(s)
+- **Guaranteed latest comparisons**: Further, our release script won't allow us to release a new
+  version of Lumenize, without prompting us to update any doc-tested comparison package 
+  (e.g. Cap'n Web)
+- **Always up-to-date**: When a package changes, the tests fail and the docs must be updated
+- **Copy-paste confidence**: What you see is what works - no outdated or broken examples
+- **Real-world patterns**: Tests show complete, runnable scenarios, not just snippets
+
+Ignore the test boilerplate (`it()`, `describe()`, etc.) - focus on the code inside.
+
+</details>
+
+`@lumenize/testing` is a superset of functionality of `cloudflare:test` with a 
+more de✨light✨ful DX. While `cloudflare:test`'s `runInDurableObject` 
+allows you to work with `ctx`/`state`, `@lumenize/testing` also allows you to 
+do that plus:
+  - Inspect or manipulate instance variables
+  - Call instance methods directly from your test
+  - Greatly enhances your ability to test DOs via WebSockets
+  - Simulate browser behavior with cookie management and realistic CORS
+    simulation
+  - Honors input/output gates (`runInDurableObject` does not) to test for race
+    conditions
+  - Does all of the above with a fraction of the boilerplate
+
+`@lumenize/testing` provides:
+  - `createTestingClient`: An RPC client that allows you to alter and inspect 
+    DO state (`ctx`..., custom methods/properties, etc.)
+  - `Browser`: Simulates browser behavior for testing
+    - `browser.fetch` --> cookie-aware fetch (no Origin header)
+    - `browser.WebSocket` --> cookie-aware WebSocket constructor (no Origin
+      header)
+    - `browser.context(origin)` --> returns `{ fetch, WebSocket }`
+      - `fetch` and `WebSocket` from same context share cookies
+      - Simulates requests from a context/page loaded from the given origin
+      - Perfect for testing CORS and Origin validation logic
+
+## Imports
+
+
+
+
+```typescript test
+import { it, expect, vi } from 'vitest';
+import { createTestingClient, Browser } from '@lumenize/testing';
+import { MyDO } from '../src';
+```
+
+
+
+
+## Version(s)
+
+This test asserts the installed version(s) and our release script warns if we 
+aren't using the latest version published to npm, so this living documentation 
+should always be up to date.
+
+
+
+
+```typescript test
+import lumenizeTestingPackage from '../../../../packages/testing/package.json';
+it('detects package version', () => {
+  expect(lumenizeTestingPackage.version).toBe('0.17.0');
+});
+```
+
+
+
+
+## Basic Usage
+
+Now, let's show basic usage following the basic pattern for all tests:
+1. **Setup test**. initialize testing client, test variables, etc.
+2. **Setup state**. storage, instance variables, etc.
+3. **Interact as a user/caller would**. call `fetch`, custom methods, etc.
+4. **Assert on output**. check responses
+5. **Assert state**. check that storage and instance variables are as expected
+
+
+
+
+```typescript test
+it('shows basic 5-step test', async () => {
+  // 1. Create RPC testing client and Browser instance
+  using client = createTestingClient<typeof MyDO>('MY_DO', '5-step');
+  const browser = new Browser();
+
+  // 2. Pre-populate storage via RPC to call async KV API
+  await client.ctx.storage.put('count', 10);
+
+  // 3. Make a fetch and RPC call to increment
+  const resp = await browser.fetch('https://test.com/my-do/5-step/increment');
+  const rpcResult = await client.increment();
+
+  // 4. Confirm that results are as expected
+  expect(await resp.text()).toBe('11');
+  expect(rpcResult).toBe(12);  // Notice this is a number not a string
+
+  // 5. Verify that storage is correct via RPC
+  expect(await client.ctx.storage.kv.get('count')).toBe(12);
+});
+```
+
+
+
+
+Next, we'll walk through a series of more advanced scenarios, but first let's 
+show you how to configure your system to use `@lumenize/testing`.
+
+## Installation
+
+First let's install some tools
+
+```bash npm2yarn
+npm install --save-dev vitest@3.2
+npm install --save-dev @vitest/coverage-istanbul@3.2
+npm install --save-dev @cloudflare/vitest-pool-workers
+npm install --save-dev @lumenize/testing
+npm install --save-dev @lumenize/utils
+```
+
+## src/index.ts
+
+Let's say you have this Worker and Durable Object:
+
+```typescript src/index.ts
+import { DurableObject } from "cloudflare:workers";
+import { routeDORequest } from '@lumenize/utils';
+
+const handleLogin = (request: Request): Response | undefined => {
+  const url = new URL(request.url);
+  if (!url.pathname.endsWith('/login')) return undefined;
+  
+  const user = url.searchParams.get('user');
+  if (user === 'test') {
+    return new Response('OK', {
+      headers: { 'Set-Cookie': 'token=abc123; Path=/' }
+    });
+  }
+  return new Response('Invalid', { status: 401 });
+};
+
+const handleProtectedCookieEcho = (request: Request): Response | undefined => {
+  const url = new URL(request.url);
+  if (!url.pathname.endsWith('/protected-cookie-echo')) return undefined;
+  
+  const cookies = request.headers.get('Cookie') || '';
+  return new Response(`Cookies: ${cookies}`, {
+    status: cookies.includes('token=') ? 200 : 401
+  });
+};
+
+// Worker
+export default {
+  async fetch(request, env, ctx) {
+    // CORS-protected route with prefix /cors/
+    // Array form shown; also supports cors: true for permissive mode
+    // See https://lumenize.com/docs/utils/route-do-request for routing details
+    // See https://lumenize.com/docs/utils/cors-support for CORS configuration
+    const routeCORSRequest = (req: Request, e: Env) => routeDORequest(req, e, {
+      prefix: '/cors/',
+      cors: { origin: ['https://safe.com', 'https://app.example.com'] },
+    });
+    
+    // Worker handlers follow the hono convention:
+    //   - return Response if the handler wants to handle the route
+    //   - return undefined to fall through
+    return (
+      handleLogin(request) ||
+      handleProtectedCookieEcho(request) ||
+      await routeCORSRequest(request, env) ||
+      await routeDORequest(request, env) ||
+      new Response("Not Found", { status: 404 })
+    );
+  }
+} satisfies ExportedHandler<Env>;
+
+// Durable Object
+export class MyDO extends DurableObject<Env>{
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+
+    this.ctx.setWebSocketAutoResponse(
+      new WebSocketRequestResponsePair('ar-ping', 'ar-pong'),
+    );
+  }
+
+  increment(): number {
+    let count = (this.ctx.storage.kv.get<number>("count")) ?? 0;
+    this.ctx.storage.kv.put("count", ++count);
+    return count;
+  }
+
+  echo(value: any): any { return value; }
+
+  async fetch(request: Request) {
+    const url = new URL(request.url);    
+    
+    if (url.pathname.endsWith('/increment')) {
+      const count = this.increment();
+      return new Response(count.toString(), { 
+        headers: { 'Content-Type': 'text/plain' } 
+      });
+    }
+
+    if (request.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+      const webSocketPair = new WebSocketPair();
+      const [client, server] = Object.values(webSocketPair);
+      
+      // Handle sub-protocol selection
+      const requestedProtocols = request.headers.get('Sec-WebSocket-Protocol');
+      const responseHeaders = new Headers();
+      let selectedProtocol: string | undefined;
+      if (requestedProtocols) {
+        const protocols = requestedProtocols.split(',').map(p => p.trim());
+        if (protocols.includes('b')) {
+          selectedProtocol = 'b';
+          responseHeaders.set('Sec-WebSocket-Protocol', selectedProtocol);
+        }
+      }
+      
+      const name = url.pathname.split('/').at(-1) ?? 'No name in path'
+      
+      // Collect all request headers for testing
+      const headersObj: Record<string, string> = {};
+      request.headers.forEach((value, key) => {
+        headersObj[key] = value;
+      });
+      
+      const attachment = { 
+        name, 
+        headers: headersObj
+      };
+      
+      this.ctx.acceptWebSocket(server, [name]);
+      server.serializeAttachment(attachment);
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client,
+        headers: responseHeaders
+      });
+    }
+
+    return new Response('Not found', { status: 404 });
+  }
+
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (message === 'increment') {
+      return ws.send(this.increment().toString());
+    }
+
+    if (message === 'test-server-close') {   
+      return ws.close(4001, "Server initiated close for testing");
+    }
+  }
+
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean) {
+    this.ctx.storage.kv.put("lastWebSocketClose", { code, reason, wasClean });
+    ws.close(code, reason);
+  }
+};
+
+```
+
+## test/test-harness.ts
+
+Create a test folder and drop this simple test harness into it:
+
+```typescript test/test-harness.ts
+import * as sourceModule from '../src';
+import { instrumentDOProject } from '@lumenize/testing';
+
+// Simple case: Auto-detects MyDO since it's the only class export from '../src'
+const instrumented = instrumentDOProject(sourceModule);
+
+export const { MyDO } = instrumented.dos;
+export default instrumented;
+
+// If you had multiple DO classes in '../src', you'd get a helpful error like:
+//
+// Error: Found multiple class exports: MyDO, AnotherDO, HelperClass
+//
+// Please specify which are Durable Objects by using explicit configuration:
+//
+// const instrumented = instrumentDOProject({
+//   sourceModule,
+//   doClassNames: ['MyDO', 'AnotherDO']  // <-- Keep only the DO classes
+// });
+//
+// export const { MyDO, AnotherDO } = instrumented.dos;
+// export default instrumented;
+
+```
+
+## test/wrangler.jsonc
+
+Take your existing wrangler.jsonc and make a copy of it in the test folder.
+Then change the `main` setting to the `./test-harness.ts`. So:
+
+```json test/wrangler.jsonc
+{
+  "name": "testing-plain-do",
+  "main": "./test-harness.ts",  // The only change from your real wrangler.jsonc
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "migrations": [
+    {
+      "new_sqlite_classes": [
+        "MyDO"
+      ],
+      "tag": "v1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "MyDO",
+        "name": "MY_DO"
+      }
+    ]
+  }
+}
+```
+
+## vitest.config.js
+
+Then add to your `vite` config, if applicable, or create a `vitest` config that 
+looks something like this:
+
+```javascript vitest.config.js
+import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+
+export default defineWorkersProject({
+  test: {
+    testTimeout: 2000, // 2 second global timeout
+    poolOptions: {
+      workers: {
+        // Must be false to use websockets. Have each test
+        // reference a different DO instance to avoid state sharing.
+        isolatedStorage: false,
+        // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./test/wrangler.jsonc" },  
+      },
+    },
+    // Use `vitest --run --coverage` to get test coverage report(s)
+    coverage: {
+      provider: "istanbul",  // Cannot use V8
+      reporter: ['text', 'json', 'html'],
+      include: ['**/src/**'],
+      exclude: [
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
+        '**/*.config.ts',
+        '**/scratch/**'
+      ],
+    },
+  },
+});
+
+```
+
+## Your tests
+
+Then write your tests using vitest as you would normally. The rest of this 
+document are examples of tests you might write for the Worker and DO above.
+
+
+## WebSocket
+
+One of the biggest shortcomings of `cloudflare:test` and perhaps the primary
+motivator for using `@lumenize/testing` is support for testing your DO's
+WebSocket implementation. With `@lumenize/testing`:
+  - Use browser-compatible WebSocket API
+  - Routes WebSocket upgrade through Worker so that gets tested (unlike
+    `runInDurableObject`)
+  - Test WebSocket sub-protocol selection
+  - Interact with server-side WebSockets (getWebSockets("tag"), etc.)
+  - Assert on WebSocket attachments
+  - Test your `WebSocketRequestResponsePair` (impossible with 
+    `runInDurableObject`)
+
+
+
+
+```typescript test
+it('shows testing WebSocket functionality', async () => {
+  // Create RPC client to inspect server-side WebSocket state
+  using client = createTestingClient<typeof MyDO>('MY_DO', 'test-ws');
+
+  // Create WebSocket client
+  const WebSocket = new Browser().WebSocket;
+  
+  // Create a WebSocket and wait for it to open
+  const ws = new WebSocket('wss://test.com/my-do/test-ws', ['a', 'b']) as any;
+  let wsOpened = false
+  ws.onopen = () => wsOpened = true;
+  await vi.waitFor(() => expect(wsOpened).toBe(true));
+
+  // Verify the selected protocol matches what server chose
+  expect(ws.protocol).toBe('b');
+
+  // Send 'increment' message and verify response
+  let incrementResponse: string | null = null;
+  ws.onmessage = (event: any) => {
+    incrementResponse = event.data;
+  };
+  ws.send('increment');
+  await vi.waitFor(() => expect(incrementResponse).toBe('1'));
+  
+  // Trigger server-initiated close and verify close event
+  let closeCode: number | null = null;
+  ws.onclose = (event: any) => {
+    closeCode = event.code;
+  };
+  ws.send('test-server-close');
+  await vi.waitFor(() => expect(expect(closeCode).toBe(4001)));
+
+  // Access getWebSockets using tag that matches DO instance name
+  const webSocketsOnServer = await client.ctx.getWebSockets('test-ws');
+  expect(webSocketsOnServer.length).toBe(1);
+
+  // Assert on ws attachment
+  const { deserializeAttachment } = webSocketsOnServer[0];
+  const attachment = await deserializeAttachment();
+  expect(attachment).toMatchObject({
+    name: 'test-ws',  // From URL path: /my-do/test-ws
+    headers: expect.objectContaining({
+      'upgrade': 'websocket',
+      'sec-websocket-protocol': 'a, b'
+    })
+  });
+
+  // Tests ctx.setWebSocketAutoResponse w/ new connection to the same DO
+  const ws2 = new WebSocket('wss://test.com/my-do/test-ws') as any;
+  let autoResponseReceived = false;
+  let ws2Opened = false;
+  ws2.onopen = () => ws2Opened = true;
+  await vi.waitFor(() => expect(ws2Opened).toBe(true));
+  
+  ws2.send('ar-ping');
+  ws2.onmessage = async (event: any) => {
+    expect(event.data).toBe('ar-pong');
+    autoResponseReceived = true;
+  };
+  await vi.waitFor(() => expect(autoResponseReceived).toBe(true));
+
+  ws.close();
+});
+```
+
+
+
+
+## StructuredClone types
+
+All structured clone types are supported (like Cloudflare native RPC).
+
+
+
+
+```typescript test
+it('shows RPC working with StructuredClone types', async () => {
+  using client = createTestingClient<typeof MyDO>('MY_DO', 'sc');
+
+  // Map (and all StructuredClone types) works with storage
+  const testMap = new Map<string, any>([['key1', 'value1'], ['key2', 42]]);
+  await client.ctx.storage.kv.put('testMap', testMap);
+  const retrievedMap = await client.ctx.storage.kv.get('testMap');
+  expect(retrievedMap).toEqual(testMap);
+  
+  // Map (and all StructuredClone types) also works with custom method echo()
+  const echoedMap = await client.echo(testMap);
+  expect(echoedMap).toEqual(testMap);
+
+  // Set
+  const testSet = new Set<any>([1, 2, 3, 'four']);
+  expect(await client.echo(testSet)).toEqual(testSet);
+
+  // Date
+  const testDate = new Date('2025-10-12T12:00:00Z');
+  expect(await client.echo(testDate)).toEqual(testDate);
+
+  // Circular reference
+  const circular: any = { name: 'circular' };
+  circular.self = circular;
+  expect(await client.echo(circular)).toEqual(circular);
+});
+```
+
+
+
+
+## Cookies
+
+`Browser` allows cookies to be shared between `fetch` and `WebSocket` just
+like in a real browser. Use `setCookie()` and `getCookie()` for testing
+and debugging.
+
+
+
+
+```typescript test
+it('shows cookie sharing between fetch and WebSocket', async () => {
+  // Create client and browser instances
+  using client = createTestingClient<typeof MyDO>('MY_DO', 'cookies');
+  const browser = new Browser();
+  
+  // Login via fetch - sets session cookie
+  await browser.fetch('https://test.com/login?user=test');
+  
+  // Verify cookie was stored in the browser
+  expect(browser.getCookie('token')).toBe('abc123');
+  
+  // Manually add additional cookies - domain is inferred from first fetch
+  browser.setCookie('extra', 'manual-value');
+  
+  // Make another fetch request - gets BOTH cookies automatically
+  const res = await browser.fetch('https://test.com/protected-cookie-echo');
+  const text = await res.text();
+  expect(text).toContain('token=abc123');       // From login
+  expect(text).toContain('extra=manual-value'); // Manually added
+  
+  // WebSocket connection also gets BOTH cookies automatically!
+  const ws = new browser.WebSocket('wss://test.com/my-do/cookies') as any;
+  
+  let wsOpened = false;
+  ws.onopen = () => { wsOpened = true; };
+  
+  await vi.waitFor(() => expect(wsOpened).toBe(true));
+  
+  // Verify server received the cookies in the WebSocket upgrade request
+  const wsList = await client.ctx.getWebSockets('cookies');
+  const attachment = await wsList[0].deserializeAttachment();
+  expect(attachment.headers.cookie).toContain('token=abc123');
+  expect(attachment.headers.cookie).toContain('extra=manual-value');
+  
+  ws.close();
+});
+```
+
+
+
+
+## Simulate browser context Origin behavior
+
+`Browser.context()` allows you to test CORS/Origin validation logic in your 
+Worker or Durable Object. The `context().fetch` method automatically validates 
+CORS headers for cross-origin requests and throws a `TypeError` (just like a 
+real browser) when the server doesn't return proper CORS headers or when the 
+origin doesn't match.
+
+This test also shows off the non-standard extension to the WebSocket API that 
+allows you to inspect the underlying HTTP Request and Response objects, which 
+is useful for debugging and asserting.
+
+
+
+
+```typescript test
+it('shows testing Origin validation using browser.context()', async () => {
+  const browser = new Browser();
+  
+  // Create a context with Origin header
+  const context = browser.context('https://safe.com');
+  
+  // WebSocket upgrade includes Origin header
+  const ws = new context.WebSocket('wss://safe.com/cors/my-do/ws-test') as any;
+  let wsOpened = false;
+  ws.onopen = () => { wsOpened = true; };
+  await vi.waitFor(() => expect(wsOpened).toBe(true));
+  // Note: browser standard WebSocket doesn't have request/response properties, 
+  // but they're useful for debugging and asserting.
+  expect(ws.request.headers.get('Origin')).toBe('https://safe.com');
+  const acaoHeader = ws.response.headers.get('Access-Control-Allow-Origin');
+  expect(acaoHeader).toBe('https://safe.com');
+  ws.close();
+  
+  // HTTP request also includes Origin header - allowed
+  let res = await context.fetch('https://safe.com/cors/my-do/test/increment');
+  const acaoHeaderFromFetch = res.headers.get('Access-Control-Allow-Origin');
+  expect(acaoHeaderFromFetch).toBe('https://safe.com');
+  
+  // Now let's test a blocked Origin evil.com
+
+  // Set up: Pre-populate count to verify DO is never called
+  using client = createTestingClient<typeof MyDO>('MY_DO', 'blocked');
+  await client.ctx.storage.put('count', 42);
+
+  // Blocked origin - server rejects with 403 without CORS headers
+  // Browser.context().fetch validates CORS headers and throws TypeError
+  // when CORS validation fails, just like a real browser would
+  const pg = browser.context('https://evil.com');
+  
+  // Expect TypeError due to CORS error
+  await expect(async () => {
+    await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
+  }).rejects.toThrow(TypeError);
+  await expect(async () => {
+    await pg.fetch('https://safe.com/cors/my-do/blocked/increment');
+  }).rejects.toThrow('CORS error');
+  
+  // Verify DO was never called - count is still 42 (not 43)
+  const count = await client.ctx.storage.get('count');
+  expect(count).toBe(42);
+});
+```
+
+
+
+
+## CORS preflight OPTIONS
+
+Real browsers automatically send preflight OPTIONS requests for "non-simple" 
+cross-origin requests (e.g., requests with custom headers, non-simple content 
+types like application/json, or non-simple methods like PUT/DELETE/PATCH).
+
+`Browser.context(origin).fetch` also sends preflight OPTIONS requests under 
+the same conditions that real browsers do! This section demonstrates that 
+behavior using requests with a custom header.
+
+The context object includes a non-standard `lastPreflight` property which is 
+useful for testing or debugging. It lets you inspect the most recent preflight.
+
+
+
+
+```typescript test
+it('shows testing CORS preflight OPTIONS requests', async () => {
+  const browser = new Browser();
+  const appContext = browser.context('https://app.example.com');
+
+  // Common requestOptions will trigger preflight if cross-origin
+  const requestOptions = { headers: { 'X-Custom-Header': 'test-value' }};
+  
+  // Same-origin - no preflight needed even with custom header
+  await appContext.fetch(
+    'https://app.example.com/my-do/preflight/increment', 
+    requestOptions
+  );
+  expect(appContext.lastPreflight).toBeNull(); // No preflight for same-origin
+  
+  // Cross-origin with custom header - triggers automatic preflight!
+  const postResponse = await appContext.fetch(
+    'https://safe.com/cors/my-do/preflight/increment',
+    requestOptions
+  );
+  expect(appContext.lastPreflight?.success).toBe(true);  // preflight succeeded
+  expect(postResponse.ok).toBe(true);  // request worked
+  expect(postResponse.headers.get('Access-Control-Allow-Origin'))
+    .toBe('https://app.example.com');  // CORS header reflects the origin
+  
+  // Cross-origin from disallowed evil.com - preflight fails!
+  const evilContext = browser.context('https://evil.com');
+  await expect(async () => {
+    await evilContext.fetch(
+      'https://safe.com/cors/my-do/preflight/increment',
+      requestOptions
+    );
+  }).rejects.toThrow('CORS error');
+  expect(evilContext.lastPreflight?.success).toBe(false);  // preflight failed
+});
+```
+
+
+
+
+## Discover all public members of DO
+
+`createTestingClient.__asObject()` allows you to discover all public members on 
+the DO instance (env, ctx, custom methods)
+
+
+
+
+```typescript test
+it('shows DO inspection and function discovery using __asObject()', async () => {
+  using client = createTestingClient<typeof MyDO>('MY_DO', 'asObject');
+
+  const instanceAsObject = await client.__asObject?.();
+  
+  expect(instanceAsObject).toMatchObject({
+    // DO methods are discoverable
+    increment: "increment [Function]",
+    
+    // DurableObjectState context with complete API
+    ctx: {
+      storage: {
+        get: "get [Function]",
+        // ... other storage methods available
+        sql: {
+          databaseSize: expect.any(Number), // Assert on non-function properties
+          // ... other ctx.sql methods
+        },
+        kv: {
+          get: "get [Function]",
+          // ... other storage methods available
+        },
+      },
+      getWebSockets: "getWebSockets [Function]",
+      // ... other ctx methods available
+    },
+    
+    // Environment object with DO bindings
+    env: {
+      MY_DO: {
+        getByName: "getByName [Function]",
+        // ... other binding methods available
+      },
+      // ... other environment bindings available
+    }
+  });
+});
+```
+
+
+
+
+## Quirks
+
+`createTestingClient` has these quirks:
+  - Even non-async function calls require `await`
+  - Property access is synchronous on `__asObject()`, but...
+  - Even static property access requires `await` outside of `__asObject()`
+  - Operation chaining - result of one call, is used in another.
+
+
+
+
+```typescript test
+it('requires await for even non-async function calls', async () => {
+  using client = createTestingClient<typeof MyDO>('MY_DO', 'quirks');
+
+  // All calls require await even if the function is not async
+
+  // Using `async ctx.storage.put(...)` requires await in both RPC and the DO
+  await client.ctx.storage.put('key', 'value');
+
+  // Using non-async `ctx.storage.kv.get(...)`
+  // does not require await in DO but does in RPC
+  const asyncResult = await client.ctx.storage.kv.get('key');
+  expect(asyncResult).toBe('value');
+  
+  // Property access can be chained and destructured (returns a new Proxy)
+  // We call this object chaining and nesting (OCAN) and it allows you to
+  // do multiple operations with one round trip over the network.
+  // See: https://lumenize.com/docs/rpc/operation-chaining-and-nesting
+  const storage = client.ctx.storage;
+  const { sql } = storage;
+  
+  // Static properties can be accessed directly but still require await
+  expect(typeof (await sql.databaseSize)).toBe('number');
+  
+  // __asObject() is only callable from the root client, not nested proxies
+  // and it returns the complete nested structure as plain data
+  const fullObject = await client.__asObject?.();
+  
+  // No `await` needed to access nested static properties from __asObject()
+  expect(typeof fullObject.ctx.storage.sql.databaseSize).toBe('number');
+  expect(fullObject.ctx.storage.sql.databaseSize).toBe(await sql.databaseSize);
+});
+```
+
+
+
+
+## Try it out
+
+To run it as a vitest:
+```bash
+vitest --run
+```
+
+You can even see how much of the code is covered by these tests:
+```bash
+vitest --run --coverage
+```
+
+It should look something like this:
+<img
+  src="/img/coverage-report.png"
+  alt="Test coverage report" 
+  style={{maxWidth: '500px', height: 'auto'}}>
+</img>
+
+With the right vitest configuration, it'll even show you the coverage of your
+client-side code in the same report.

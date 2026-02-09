@@ -1,8 +1,7 @@
 import { it, expect, vi } from 'vitest';
-// @ts-expect-error - cloudflare:test module types
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport } from '../../../src';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { MyDO } from './MyDO';
 
 it('demonstrates client setup with onDownstream and onClose', async () => {

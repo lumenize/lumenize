@@ -6,6 +6,7 @@ import * as path from 'node:path';
  * @property {boolean} [strict] - Use strict (exact) matching for all code blocks
  * @property {string[]} [include] - File patterns to include
  * @property {string[]} [exclude] - File patterns to exclude
+ * @property {boolean} [reportMode] - If true, only report skip-check counts (don't verify)
  */
 
 /**
@@ -17,6 +18,15 @@ import * as path from 'node:path';
  * @property {string} annotation - Annotation string from fence or comment
  * @property {string} [testPath] - Path to test file to check against
  * @property {boolean} [strict] - Whether to use strict matching for this block
+ */
+
+/**
+ * @typedef {Object} SkipCheckInfo
+ * @property {string} filePath - Path to the .mdx file
+ * @property {number} lineNumber - Line number where code block starts
+ * @property {string} lang - Language identifier
+ * @property {boolean} approved - Whether it has @skip-check-approved vs @skip-check
+ * @property {string} [reason] - Reason provided for @skip-check-approved
  */
 
 /**
@@ -60,12 +70,15 @@ function normalizeCode(code) {
 
 /**
  * Normalize JSON/JSONC for comparison:
- * Remove comments and collapse whitespace
+ * Remove comments, support ellipsis wildcards, and collapse whitespace
  * @param {string} code - JSON/JSONC to normalize
  * @returns {string} Normalized JSON
  */
 function normalizeJson(code) {
   return code
+    // Replace wildcard patterns with unique placeholder before removing other comments
+    .replace(/\/\/\s*\.\.\.\s*$/gm, '___ELLIPSIS___')
+    .replace(/\/\*\s*\.\.\.\s*\*\//g, '___ELLIPSIS___')
     // Remove single-line comments (JSONC)
     .replace(/\/\/.*$/gm, '')
     // Remove multi-line comments (JSONC)
@@ -85,6 +98,34 @@ function shouldNormalize(lang, strict) {
   if (strict) return false;
   return lang === 'typescript' || lang === 'ts' || lang === 'javascript' || lang === 'js' || lang === 'json' || lang === 'jsonc';
 }
+
+/**
+ * Languages that are automatically skipped (no verification needed)
+ * These are non-code blocks like diagrams, shell commands, etc.
+ */
+const AUTO_SKIP_LANGUAGES = new Set([
+  'bash',
+  'sh',
+  'shell',
+  'zsh',
+  'mermaid',
+  'text',
+  'txt',
+  'plain',
+  'diff',
+  'markdown',
+  'md',
+  'yaml',
+  'yml',
+  'toml',
+  'ini',
+  'csv',
+  'sql',
+  'graphql',
+  'gql',
+  'json',
+  'jsonc',
+]);
 
 /**
  * Parse annotation to extract test path and options
@@ -129,46 +170,97 @@ function inferTestPath(mdxFilePath) {
 }
 
 /**
+ * Parse @skip-check-approved annotation to extract reason
+ * @param {string} line - Line containing the annotation
+ * @returns {{ approved: boolean; reason?: string }}
+ */
+function parseSkipCheckAnnotation(line) {
+  // Check for @skip-check-approved(reason)
+  const approvedMatch = line.match(/@skip-check-approved\(['"]([^'"]+)['"]\)/);
+  if (approvedMatch) {
+    return { approved: true, reason: approvedMatch[1] };
+  }
+
+  // Check for plain @skip-check-approved (no reason - shouldn't happen but handle it)
+  if (line.includes('@skip-check-approved')) {
+    return { approved: true, reason: undefined };
+  }
+
+  // Plain @skip-check
+  if (line.includes('@skip-check')) {
+    return { approved: false };
+  }
+
+  return { approved: false };
+}
+
+/**
  * Extract annotated code blocks from .mdx content
  * @param {string} content - .mdx file content
  * @param {string} filePath - Path to .mdx file
- * @returns {CodeBlock[]}
+ * @param {boolean} [collectSkips=false] - If true, also collect skip-check info
+ * @returns {{ blocks: CodeBlock[], skips: SkipCheckInfo[] }}
  */
-function extractCodeBlocks(content, filePath) {
+function extractCodeBlocks(content, filePath, collectSkips = false) {
   const blocks = [];
+  const skips = [];
   const lines = content.split('\n');
-  
+
   let inCodeBlock = false;
   let currentBlock = null;
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    
+
     // Start of code block
     const codeBlockStart = line.match(/^```(\w+)/);
     if (codeBlockStart && !inCodeBlock) {
+      const lang = codeBlockStart[1];
+
+      // Auto-skip non-verifiable languages (bash, mermaid, etc.)
+      if (AUTO_SKIP_LANGUAGES.has(lang.toLowerCase())) {
+        // Skip this block entirely - scan ahead to find the closing fence
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].startsWith('```')) {
+            i = j; // Move index to closing fence
+            break;
+          }
+        }
+        continue;
+      }
+
       inCodeBlock = true;
       currentBlock = {
-        lang: codeBlockStart[1],
+        lang,
         code: [],
         startLine: i + 1,
         fenceLine: line,
       };
       continue;
     }
-    
+
     // End of code block
     if (line.startsWith('```') && inCodeBlock && currentBlock) {
       inCodeBlock = false;
-      
-      // Check fence line for @skip-check
-      if (currentBlock.fenceLine.includes('@skip-check')) {
-        currentBlock = null;
-        continue;
-      }
-      
-      // Check first line of code for @skip-check (backward compatibility)
-      if (currentBlock.code.length > 0 && currentBlock.code[0].includes('@skip-check')) {
+
+      // Check fence line for @skip-check or @skip-check-approved
+      const fenceHasSkip = currentBlock.fenceLine.includes('@skip-check');
+      const firstLineHasSkip = currentBlock.code.length > 0 && currentBlock.code[0].includes('@skip-check');
+
+      if (fenceHasSkip || firstLineHasSkip) {
+        const skipLine = fenceHasSkip ? currentBlock.fenceLine : currentBlock.code[0];
+        const skipInfo = parseSkipCheckAnnotation(skipLine);
+
+        if (collectSkips) {
+          skips.push({
+            filePath,
+            lineNumber: currentBlock.startLine,
+            lang: currentBlock.lang,
+            approved: skipInfo.approved,
+            reason: skipInfo.reason,
+          });
+        }
+
         currentBlock = null;
         continue;
       }
@@ -216,18 +308,18 @@ function extractCodeBlocks(content, filePath) {
           strict,
         });
       }
-      
+
       currentBlock = null;
       continue;
     }
-    
+
     // Inside code block
     if (inCodeBlock && currentBlock) {
       currentBlock.code.push(line);
     }
   }
-  
-  return blocks;
+
+  return { blocks, skips };
 }
 
 /**
@@ -275,9 +367,11 @@ function verifyCodeBlock(block, testFileCache, repoRoot) {
   // Check if doc code contains ellipsis wildcards
   if (docCode.includes('___ELLIPSIS___')) {
     // Convert to regex pattern, escaping special chars except our placeholder
+    // Trim each part to avoid double-space issues (e.g., "; ___ELLIPSIS___ readonly"
+    // would otherwise require two spaces where source has one)
     const pattern = docCode
       .split('___ELLIPSIS___')
-      .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .map(part => part.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
       .join('.*?'); // Non-greedy wildcard
     
     const regex = new RegExp(pattern, 's'); // s flag for dotAll (. matches newlines)
@@ -360,40 +454,100 @@ function isGeneratedByDocTesting(content) {
 export default function pluginCheckExamples(context, options = {}) {
   return {
     name: 'docusaurus-plugin-check-examples',
-    
+
     async postBuild({ outDir }) {
       const startTime = Date.now();
-      console.log('\n🔍 Checking code examples...\n');
-      
       const repoRoot = context.siteDir.replace(/\/website$/, '');
       const docsDir = path.join(context.siteDir, 'docs');
-      
+
       // Find all .mdx files
       const mdxFiles = findMdxFiles(docsDir, options.exclude);
-      
+
+      // Report mode: just count skip-check annotations
+      if (options.reportMode) {
+        console.log('\n📊 Skip-check annotation report\n');
+
+        /** @type {Map<string, { pending: SkipCheckInfo[], approved: SkipCheckInfo[] }>} */
+        const byFile = new Map();
+        let totalPending = 0;
+        let totalApproved = 0;
+
+        for (const mdxFile of mdxFiles) {
+          const content = fs.readFileSync(mdxFile, 'utf-8');
+
+          // Skip generated files
+          if (isGeneratedByDocTesting(content) || mdxFile.includes('/api/')) {
+            continue;
+          }
+
+          const { skips } = extractCodeBlocks(content, mdxFile, true);
+
+          if (skips.length > 0) {
+            const pending = skips.filter((s) => !s.approved);
+            const approved = skips.filter((s) => s.approved);
+            totalPending += pending.length;
+            totalApproved += approved.length;
+
+            const relPath = mdxFile.replace(context.siteDir + '/', '');
+            byFile.set(relPath, { pending, approved });
+          }
+        }
+
+        // Separate files with pending vs approved-only, sort each by count
+        const withPending = [...byFile.entries()]
+          .filter(([, { pending }]) => pending.length > 0)
+          .sort((a, b) => b[1].pending.length - a[1].pending.length);
+
+        const approvedOnly = [...byFile.entries()]
+          .filter(([, { pending }]) => pending.length === 0)
+          .sort((a, b) => b[1].approved.length - a[1].approved.length);
+
+        for (const [filePath, { pending, approved }] of withPending) {
+          const pendingStr = `${pending.length} pending`;
+          const approvedStr = approved.length > 0 ? `${approved.length} approved` : '';
+          const parts = [pendingStr, approvedStr].filter(Boolean).join(', ');
+          console.log(`  ${filePath}: ${parts}`);
+        }
+
+        if (withPending.length > 0 && approvedOnly.length > 0) {
+          console.log('');
+        }
+
+        for (const [filePath, { approved }] of approvedOnly) {
+          console.log(`  ${filePath}: ${approved.length} approved`);
+        }
+
+        console.log(`\n  Total: ${totalPending} @skip-check (pending), ${totalApproved} @skip-check-approved`);
+        console.log(`  Completed in ${Date.now() - startTime}ms\n`);
+        return;
+      }
+
+      // Normal verification mode
+      console.log('\n🔍 Checking code examples...\n');
+
       const testFileCache = new Map();
       const errors = [];
       let checkedBlocks = 0;
       let skippedFiles = 0;
-      
+
       for (const mdxFile of mdxFiles) {
         const content = fs.readFileSync(mdxFile, 'utf-8');
-        
+
         // Skip doc-testing generated files (they're already verified)
         if (isGeneratedByDocTesting(content)) {
           skippedFiles++;
           continue;
         }
-        
+
         // Skip API documentation (generated by TypeDoc)
         if (mdxFile.includes('/api/')) {
           skippedFiles++;
           continue;
         }
-        
+
         // Extract code blocks
-        const blocks = extractCodeBlocks(content, mdxFile);
-        
+        const { blocks } = extractCodeBlocks(content, mdxFile);
+
         // Verify each block
         for (const block of blocks) {
           checkedBlocks++;
@@ -403,9 +557,9 @@ export default function pluginCheckExamples(context, options = {}) {
           }
         }
       }
-      
+
       const elapsed = Date.now() - startTime;
-      
+
       // Report results
       if (errors.length === 0) {
         console.log(`✅ All ${checkedBlocks} code examples verified successfully!`);
@@ -413,7 +567,7 @@ export default function pluginCheckExamples(context, options = {}) {
         console.log(`   Completed in ${elapsed}ms\n`);
       } else {
         console.error(`\n❌ Found ${errors.length} example verification error(s):\n`);
-        
+
         for (const error of errors) {
           const relPath = error.mdxFile.replace(context.siteDir, 'website');
           console.error(`📄 ${relPath}:${error.lineNumber}`);
@@ -426,7 +580,7 @@ export default function pluginCheckExamples(context, options = {}) {
           console.error(`   - API changed? Update example to match current implementation`);
           console.error(`   - Test file moved? Update @check-example path\n`);
         }
-        
+
         console.error(`Completed in ${elapsed}ms\n`);
         throw new Error(`${errors.length} code example(s) failed verification`);
       }

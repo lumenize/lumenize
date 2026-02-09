@@ -7,7 +7,7 @@
  */
 
 import { expect } from 'vitest';
-import type { Metrics } from '@lumenize/utils';
+import type { Metrics } from '@lumenize/testing';
 import type { RpcAccessible } from '../../src/types';
 
 /**

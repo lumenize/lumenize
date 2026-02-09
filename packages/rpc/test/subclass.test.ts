@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createHttpTransport, createWebSocketTransport, type RpcAccessible } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import { SubclassDO } from './test-worker-and-dos';
 
 type SubclassDOType = RpcAccessible<InstanceType<typeof SubclassDO>>;

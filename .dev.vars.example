@@ -39,13 +39,42 @@ CLOUDFLARE_GLOBAL_API_KEY=your-global-api-key-here
 # Leave empty to disable
 DEBUG=
 
+# @lumenize/auth configuration
+# See https://lumenize.com/docs/auth/configuration#what-mustmight-be-in-env for all options
+LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
+# Relative (/app) or absolute (https://example.com/app)
+LUMENIZE_AUTH_REDIRECT=/app
+# LUMENIZE_AUTH_ISSUER=https://lumenize.local
+# LUMENIZE_AUTH_AUDIENCE=https://lumenize.local
+# LUMENIZE_AUTH_ACCESS_TOKEN_TTL=900
+# LUMENIZE_AUTH_REFRESH_TOKEN_TTL=2592000
+# LUMENIZE_AUTH_MAGIC_LINK_TTL=1800
+# LUMENIZE_AUTH_INVITE_TTL=604800
+# LUMENIZE_AUTH_PREFIX=/auth
+
+# Cloudflare Turnstile (required for magic link endpoint)
+# Get your secret key at: https://dash.cloudflare.com/turnstile
+TURNSTILE_SECRET_KEY=your-turnstile-secret-key-here
+
 # JWT keys for @lumenize/auth (Ed25519)
 # Generate with: node -e "const c=require('crypto');const{publicKey,privateKey}=c.generateKeyPairSync('ed25519');console.log('PRIVATE:',JSON.stringify(privateKey.export({type:'pkcs8',format:'pem'})));console.log('PUBLIC:',JSON.stringify(publicKey.export({type:'spki',format:'pem'})))"
-# BLUE key pair (active signing key)
-JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
 
-# GREEN key pair (for key rotation)
-# JWT_PRIVATE_KEY_GREEN=
-# JWT_PUBLIC_KEY_GREEN=
+# | Day | Action        | Set PRIMARY_JWT_KEY to |
+# |-----|---------------|------------------------|
+# |   0 | Initial setup | BLUE                   |
+# |  90 | Replace GREEN | GREEN                  |
+# | 180 | Replace BLUE  | BLUE                   |
+# | 270 | Replace GREEN | GREEN                  |
 
+# BLUE key pair (test keys - not for production)
+JWT_PRIVATE_KEY_BLUE="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KEY-----\n"
+JWT_PUBLIC_KEY_BLUE="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
+
+# GREEN key pair (for rotation testing - test keys, not for production)
+JWT_PRIVATE_KEY_GREEN="-----BEGIN PRIVATE KEY-----\nMC4C...\n-----END PRIVATE KEY-----\n"
+JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY-----\n"
+
+PRIMARY_JWT_KEY="BLUE"
+
+# Resend account: larry@lumenize.com
+RESEND_API_KEY="re_..."

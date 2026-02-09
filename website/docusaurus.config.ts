@@ -166,60 +166,24 @@ const config: Config = {
           hideBreadcrumbs: true, // Hide the TypeDoc breadcrumbs
         },
       ],
-      [
-        'docusaurus-plugin-typedoc',
-        {
-          id: 'core',
-          entryPoints: ['../packages/core/src/index.ts'],
-          tsconfig: '../packages/core/tsconfig.build.json',
-          out: 'docs/core/api',
-          sidebar: {
-            autoConfiguration: true,
-          },
-          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
-          excludeInternal: true,
-          excludeExternals: true,
-          excludePrivate: true,
-          readme: 'none',
-          hideBreadcrumbs: true,
-        },
-      ],
-      [
-        'docusaurus-plugin-typedoc',
-        {
-          id: 'alarms',
-          entryPoints: ['../packages/alarms/src/index.ts'],
-          tsconfig: '../packages/alarms/tsconfig.build.json',
-          out: 'docs/alarms/api',
-          sidebar: {
-            autoConfiguration: true,
-          },
-          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
-          excludeInternal: true,
-          excludeExternals: true,
-          excludePrivate: true,
-          readme: 'none',
-          hideBreadcrumbs: true,
-        },
-      ],
-      [
-        'docusaurus-plugin-typedoc',
-        {
-          id: 'lumenize-base',
-          entryPoints: ['../packages/lumenize-base/src/index.ts'],
-          tsconfig: '../packages/lumenize-base/tsconfig.build.json',
-          out: 'docs/lumenize-base/api',
-          sidebar: {
-            autoConfiguration: true,
-          },
-          plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
-          excludeInternal: true,
-          excludeExternals: true,
-          excludePrivate: true,
-          readme: 'none',
-          hideBreadcrumbs: true,
-        },
-      ],
+      // Note: @lumenize/mesh docs are now hand-written in website/docs/mesh/
+      // TypeDoc auto-generation disabled in favor of curated documentation
+      // [
+      //   'docusaurus-plugin-typedoc',
+      //   {
+      //     id: 'mesh',
+      //     entryPoints: ['../packages/mesh/src/index.ts'],
+      //     tsconfig: '../packages/mesh/tsconfig.build.json',
+      //     out: 'docs/mesh/api',
+      //     sidebar: { autoConfiguration: true },
+      //     plugin: ['typedoc-plugin-markdown', 'typedoc-docusaurus-theme'],
+      //     excludeInternal: true,
+      //     excludeExternals: true,
+      //     excludePrivate: true,
+      //     readme: 'none',
+      //     hideBreadcrumbs: true,
+      //   },
+      // ],
       // Doc-test plugin - generates docs from test files
       [
         docTestPlugin,
@@ -232,7 +196,7 @@ const config: Config = {
       [
         checkExamplesPlugin,
         {
-          // Options can be added later if needed
+          exclude: ['_archived'],
         },
       ],
   ],

@@ -1,0 +1,268 @@
+---
+title: "@lumenize/lumenize-base"
+description: Base class for Durable Objects with automatic dependency injection (NADIS)
+---
+
+# @lumenize/lumenize-base
+
+A de✨light✨ful base class for Cloudflare Durable Objects featuring **NADIS** (Not A DI System) - automatic service injection with zero boilerplate.
+
+## Features
+
+- **Zero-boilerplate DI**: Services automatically injected via `this.svc`
+- **Type-safe**: Full TypeScript support via declaration merging
+- **Tree-shakeable**: Only imports services you actually use
+- **Standalone compatible**: All services work without `LumenizeBase`
+- **Minimal and flexible**: Extends `DurableObject` with just service injection
+
+## Installation
+
+```bash
+npm install @lumenize/lumenize-base
+# Also install the services you need:
+npm install @lumenize/core @lumenize/alarms
+```
+
+## Why NADIS?
+
+Traditional dependency injection (DI) systems require extensive setup, decorators, and boilerplate. **NADIS** gives you DI benefits with near-zero setup:
+
+**Without LumenizeBase:**
+```typescript @skip-check
+// ❌ Manual injection - repetitive
+class MyDO extends DurableObject {
+  #sql = sql(this);
+  #alarms = new Alarms(ctx, this, { sql: this.#sql });
+  
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Initialize each service manually...
+  }
+}
+```
+
+**With LumenizeBase:**
+```typescript @skip-check
+// ✅ Auto-injection - clean and simple
+import '@lumenize/core';
+import '@lumenize/alarms';
+
+class MyDO extends LumenizeBase<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Services are automatically available!
+  }
+  
+  addUser(id: string, email: string) {
+    this.svc.sql`INSERT INTO users VALUES (${id}, ${email})`;
+  }
+  
+  async scheduleTask() {
+    await this.svc.alarms.schedule(60, 'handleTask', {});
+  }
+}
+```
+
+## Basic Usage
+
+### 1. Import Services (Side-Effect Imports)
+
+Import services at the top of your file. These register themselves in the NADIS system:
+
+```typescript @skip-check
+// Just import - no need to explicitly use
+import '@lumenize/core';   // Registers this.svc.sql
+import '@lumenize/alarms'; // Registers this.svc.alarms
+```
+
+:::tip[Tree-Shaking Benefit]
+Only services you import are bundled. If you only use `@lumenize/core`, alarms code won't be included in your build. This keeps your bundle size minimal.
+:::
+
+### 2. Extend LumenizeBase
+
+```typescript @skip-check
+class UsersDO extends LumenizeBase<any> {
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+    // Run migrations in constructor
+    this.#initTable();
+  }
+
+  #initTable() {
+    this.svc.sql`
+```
+
+### 3. Use Auto-Injected Services
+
+Services are automatically available on `this.svc`:
+
+```typescript @skip-check
+  addUser(id: string, email: string) {
+    this.svc.sql`INSERT INTO users (id, email) VALUES (${id}, ${email})`;
+    return { id, email };
+  }
+
+  getUser(id: string) {
+    const rows = this.svc.sql`SELECT * FROM users WHERE id = ${id}`;
+    return rows[0];
+  }
+```
+
+## Using Multiple Services
+
+Services work seamlessly together:
+
+```typescript @skip-check
+class NotificationsDO extends LumenizeBase<any> {
+  executedNotifications: Array<{ userId: string; message: string }> = [];
+
+  constructor(ctx: DurableObjectState, env: any) {
+    super(ctx, env);
+    // Run migrations in constructor
+    this.svc.sql`
+```
+
+Schedule tasks and store data:
+
+```typescript @skip-check
+  async scheduleNotification(userId: string, message: string, delaySeconds: number) {
+    // Store notification in SQL
+    const id = `notif-${Date.now()}`;
+    this.svc.sql`
+      INSERT INTO notifications (id, user_id, message)
+      VALUES (${id}, ${userId}, ${message})
+    `;
+
+    // Schedule alarm to send it
+    const schedule = await this.svc.alarms.schedule(
+      delaySeconds,
+      'sendNotification',
+      { id, userId, message }
+    );
+
+    return { scheduled: true, id, scheduleId: schedule.id };
+  }
+```
+
+Handle the scheduled task:
+
+```typescript @skip-check
+  sendNotification(payload: any, schedule: Schedule) {
+    // Mark as sent in database
+    this.svc.sql`
+      UPDATE notifications 
+      SET sent_at = ${Math.floor(Date.now() / 1000)}
+      WHERE id = ${payload.id}
+    `;
+
+    // Track execution for tests
+    this.executedNotifications.push({
+      userId: payload.userId,
+      message: payload.message,
+    });
+  }
+```
+
+Don't forget to delegate the alarm handler:
+
+```typescript @skip-check
+  async alarm() {
+    await this.svc.alarms.alarm();
+  }
+```
+
+## How NADIS Works
+
+NADIS uses three simple mechanisms:
+
+1. **Service Registration**: Packages register factory functions in a global registry on import
+2. **Type Safety**: TypeScript declaration merging provides autocomplete and type checking
+3. **Lazy Resolution**: `LumenizeBase` uses a Proxy to lazily instantiate services when first accessed, then caches them
+
+See the source code in `packages/lumenize-base/src/lumenize-base.ts` for implementation details.
+
+## API Reference
+
+### `LumenizeBase<EnvType>`
+
+Base class for Durable Objects with auto-injection.
+
+**Type Parameters:**
+- `EnvType` - Your Worker environment type (usually `Env`)
+
+**Properties:**
+- `ctx: DurableObjectState` - Inherited from `DurableObject`
+- `env: EnvType` - Inherited from `DurableObject`
+- `svc: LumenizeServices` - Auto-injected services
+
+See [Basic Usage](#basic-usage) section for complete examples.
+
+### Available Services
+
+- `sql` (from `@lumenize/core`) - SQL template literal tag
+- `alarms` (from `@lumenize/alarms`) - Alarm scheduling
+
+Services are available on `this.svc` after importing their packages.
+
+## Standalone Usage
+
+All NADIS services work without `LumenizeBase` via manual instantiation. See [@lumenize/core](/docs/core) and [@lumenize/alarms](/docs/alarms) documentation for standalone usage examples.
+
+## Creating NADIS Services
+
+Want to create your own NADIS plugins? See the [Creating NADIS Plugins](/docs/lumenize-base/creating-plugins) guide for complete instructions and examples.
+
+## Design Principles
+
+### 1. Standalone Usage First
+
+Every service **must** work without `LumenizeBase`. Auto-injection is a convenience, not a requirement.
+
+### 2. Zero Runtime Magic
+
+NADIS is just:
+- A global registry object
+- A Proxy for lazy resolution
+- TypeScript declaration merging
+
+No decorators, no reflection, no complex DI containers.
+
+### 3. Explicit Imports
+
+You must explicitly import services. This enables:
+- Tree-shaking (only bundled if imported)
+- Clear dependencies
+- No hidden magic
+
+### 4. Type Safety
+
+TypeScript knows about services via declaration merging. No type casting or `any` needed.
+
+## See Also
+
+- [@lumenize/core](/docs/core) - SQL template literal service
+- [@lumenize/alarms](/docs/alarms) - Alarm scheduling service
+- [Testing](/docs/testing/usage) - How to test DO's with NADIS
+
+## FAQ
+
+### Why "Not A DI System"?
+
+Traditional DI systems (like Angular's or NestJS's) are complex with decorators, containers, and extensive configuration. NADIS gives you DI benefits (loose coupling, testability, auto-wiring) with minimal setup.
+
+### Does this work with plain DurableObject?
+
+Yes! All NADIS services work standalone. `LumenizeBase` just provides auto-injection convenience.
+
+### What about performance?
+
+NADIS has near-zero overhead:
+- Services are lazily instantiated (only when first accessed)
+- After first access, services are cached
+- No runtime reflection or complex lookups
+
+### Can I mix auto-injection and manual injection?
+
+Yes! You can use `this.svc` for some services and manual instantiation for others - both patterns work fine together.
+

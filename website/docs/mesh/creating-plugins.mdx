@@ -1,0 +1,117 @@
+---
+title: Creating Plugins (this.svc)
+description: Build your own services for automatic injection into LumenizeDO
+---
+
+# Creating NADIS Plugins
+
+NADIS (Not A DI System) provides zero-boilerplate service injection for `LumenizeDO`. This guide shows you how to create your own plugins. For a real-world example, see [@lumenize/fetch](/docs/fetch) — the only NADIS plugin currently shipped with Lumenize.
+
+## The Three Steps
+
+Creating a NADIS plugin requires three things:
+
+1. **Extend `NadisPlugin`** — Your plugin class gets access to `this.doInstance`, `this.ctx`, and `this.svc`
+2. **Register with NADIS** — Call `NadisPlugin.register()` at module scope so side-effect imports work
+3. **Declaration merging** — Augment `LumenizeServices` so `this.svc.yourPlugin` is fully typed
+
+Here's how `@lumenize/fetch` does all three (simplified):
+
+```typescript @check-example('packages/fetch/src/fetch.ts')
+// ...
+export class Fetch extends NadisPlugin {
+// ...
+    // Eager dependency validation - fails immediately if alarms not available
+    // ...
+    if (!this.svc.alarms) {
+      throw new Error('Fetch requires alarms service for timeout handling (should be built-in to @lumenize/mesh)');
+    }
+// ...
+}
+
+// TypeScript declaration merging - augments LumenizeServices interface
+// Provides type safety for this.svc.fetch
+declare global {
+  interface LumenizeServices {
+    fetch: Fetch;
+  }
+}
+
+// Register fetch service using NadisPlugin helper
+NadisPlugin.register('fetch', (doInstance) => new Fetch(doInstance));
+```
+
+And the package's `index.ts` uses a side-effect import to trigger registration:
+
+```typescript @check-example('packages/fetch/src/index.ts')
+// ...
+// Main NADIS plugin (side-effect import registers it)
+export { Fetch, type FetchMessage } from './fetch';
+// ...
+// Side-effect import to register the NADIS plugin
+import './fetch';
+```
+
+Consumers then just import the package:
+
+```typescript @skip-check-approved('conceptual')
+import '@lumenize/fetch';  // Side-effect registers this.svc.fetch
+```
+
+## What `NadisPlugin` Provides
+
+Extending `NadisPlugin` gives your plugin:
+
+- **`this.doInstance`** — Reference to the `LumenizeDO` instance
+- **`this.ctx`** — Direct access to `DurableObjectState` (storage, alarms, etc.)
+- **`this.svc`** — Access to other NADIS services (built-in and plugin)
+- **`NadisPlugin.register()`** — Static helper for registration
+
+## Declaration Merging
+
+The only required boilerplate is declaration merging for type safety:
+
+```typescript @check-example('packages/fetch/src/fetch.ts')
+// ...
+declare global {
+  interface LumenizeServices {
+    fetch: Fetch;
+  }
+}
+// ...
+```
+
+This enables full IntelliSense and compile-time type checking for `this.svc.fetch`. It's required because TypeScript can't infer what properties exist on `this.svc` from runtime registration alone.
+
+## Guidelines
+
+### Eager Dependency Validation
+
+If your plugin depends on other services, validate in the constructor so failures surface at instantiation time rather than when a method is first called. `@lumenize/fetch` demonstrates this — it checks for `this.svc.alarms` immediately and throws a clear error if missing.
+
+### Side-Effect Imports
+
+The registration pattern works via side effects: the `NadisPlugin.register()` call executes when the module is imported. Your package's `index.ts` should both export the class and import the file for its side effect (as shown in the `@lumenize/fetch` example above). Consumers then use a bare import like `import '@lumenize/my-plugin';`.
+
+### Instance Variable Rules
+
+DOs can be evicted from memory at any time. Never use instance variables for **mutable application state** — always store that in `ctx.storage`.
+
+Instance variables are only safe for:
+- Statically initialized utilities (e.g., `#log = debug('MyPlugin')`)
+- Ephemeral caches where storage is the source of truth
+- Configuration set once in constructor (e.g., `#ttl = options?.ttl ?? 3600`)
+
+## How NADIS Works
+
+NADIS uses three simple mechanisms:
+
+1. **Service Registration**: Packages register factory functions in a global registry on import
+2. **Type Safety**: TypeScript declaration merging provides autocomplete and type checking
+3. **Lazy Resolution**: `LumenizeDO` uses a Proxy to lazily instantiate services when first accessed, then caches them
+
+No decorators, no reflection, no complex DI containers.
+
+:::note Built-in Services
+`sql` and `alarms` are available on `this.svc` but are **not** NADIS plugins — they're built-in services registered directly in `LumenizeDO`, always available without any import.
+:::

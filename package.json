@@ -16,10 +16,10 @@
     "prepare": "chmod +x scripts/*.sh",
     "postinstall": "./scripts/setup-symlinks.sh",
     "types": "./scripts/generate-types.sh",
-    "test:code": "npm run test -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils -w @lumenize/proxy-fetch",
+    "test:code": "./scripts/test-code.sh",
     "test:doc": "./scripts/test-doc.sh",
     "test": "npm run test:code && npm run test:doc",
-    "type-check": "npm run type-check -w @lumenize/rpc -w @lumenize/testing -w @lumenize/utils",
+    "type-check": "./scripts/type-check.sh",
     "clean": "rm -rf packages/*/dist lumenize-monolith/dist doc-test/*/*/coverage",
     "clean:deps": "rm -rf node_modules packages/*/node_modules lumenize-monolith/node_modules website/node_modules doc-test/*/*/node_modules",
     "clean:all": "npm run clean && npm run clean:deps && npm install",
@@ -35,5 +35,9 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@esbuild/linux-arm64": "^0.27.3",
+    "@rollup/rollup-linux-arm64-gnu": "^4.57.1"
   }
 }

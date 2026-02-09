@@ -1,0 +1,160 @@
+---
+title: Lumenize Mesh
+description: Durable Objects, Workers, and browser clients as peers in an actor-model network
+---
+
+import MeshArchitectureDiagram from '../_partials/_mesh-architecture-diagram.mdx';
+
+# Lumenize Mesh
+
+While Cloudflare's Workers and Durable Objects with Workers RPC is actor-like, **Lumenize Mesh** extends the model all the way to clients running outside Cloudflare (browsers, node.js, bun, etc.) while adding critical security, functionality, and de✨light✨fulness.
+
+## Node Types
+
+Every participant in the mesh extends one of these base classes:
+
+| Node Type | Runs In | Storage | Use Case |
+|-----------|---------|---------|----------|
+| **LumenizeDO** | Cloudflare DO | SQL/KV | Stateful server-side logic |
+| **LumenizeWorker** | Cloudflare Worker | None | Stateless server-side logic |
+| **LumenizeClient** | Browser/Node.js/Bun | Local | Client access to mesh |
+
+All three mesh node types, have access to the same APIs/utilities, are coded in the same way, and act as full peers, able to both make and receive calls. Yes, even LumenizeClients can receive calls from any other mesh node.
+
+Supporting infrastructure:
+
+**[LumenizeClientGateway](./gateway)** is a zero-storage Cloudflare DO that bridges LumenizeClients into the mesh.
+
+Additionally, it's common to use `@lumenize/auth`, `@lumenize/utils` (particularly routeDORequest), `@lumenize/testing`, and `@lumenize/debug` with Lumenize Mesh.
+
+## Illustration
+
+<MeshArchitectureDiagram />
+
+## Core Concepts
+
+All mesh nodes have access to `this.lmz` — the unified API for identity and communication (see [full reference](#the-thislmz-api) below).
+
+### Automatic Identity Propagation
+
+Durable Objects don't inherently know their own binding name or instance name. However, any caller *must* know this information to make a call. Lumenize leverages this by including callee identity in every call envelope. Callees store this information on first contact, enabling them to provide return addresses for callbacks, tracing, etc.
+
+### Call Context
+
+Every mesh call carries **context** that propagates through the entire call chain:
+
+```
+Client (alice) → DocumentDO → SpellCheckWorker
+                     ↓              ↓
+            callContext has    callContext has
+            alice's auth       alice's auth (propagated!)
+```
+
+Access context in any mesh node via `this.lmz.callContext`:
+
+```typescript @skip-check-approved('conceptual')
+@mesh()
+updateDocument(changes: DocumentChange) {
+  const { origin, callChain, originAuth } = this.lmz.callContext;
+  const sub = originAuth?.sub;
+  const caller = callChain.at(-1) ?? origin;  // Immediate caller
+  // Make decisions based on who's calling
+}
+```
+
+**Hibernation-safe** (for DOs): For long-running remote calls, capture context explicitly by passing it as continuation parameters. See [Managing Context](./managing-context) for the full guide.
+
+### Continuations
+
+Continuations describe work to be done in another place or time. They enable type-safe, serializable method chains:
+
+```typescript @skip-check-approved('conceptual')
+// Describe what to call on a remote DO
+const remote = this.ctn<DocumentDO>().getContent();
+
+// Describe what to do locally when the result arrives
+const handler = this.ctn().handleContent(this.ctn().$result);
+
+// Make the call
+this.lmz.call('DOCUMENT_DO', 'draft-1', remote, handler);
+```
+
+Continuations:
+- Are **serializable** — can be stored, sent over the wire, stored/restored
+- Are **type-safe** — TypeScript checks method names and signatures
+- **Carry context** — pass what you need as parameters
+- **Reduce race condition risk** — designed to work with Durable Objects concurrency model
+
+See [Continuations](./continuations) for the full guide.
+
+### Zero Trust Security
+
+Every node is responsible for its own fine-grained access control. Lumenize provides **secure-by-default** defense-in-depth:
+
+| Layer | Mechanism | Purpose |
+|-------|-----------|---------|
+| **[Class-wide](./security#class-level-onbeforecall)** | `onBeforeCall()` hook | WHO can call (authentication) |
+| **[Entry Point](./security#access-control)** | `@mesh()` decorator | WHAT is exposed (method allowlist) |
+| **[Method-level](./security#method-level-meshguard)** | `@mesh(guard)` | Fine-grained per-method permissions |
+
+See [Security](./security) for complete documentation with examples.
+
+### Rich Type Support All the Way to the Browser
+
+Parameters and return values support all Workers RPC types (except streams): objects with cycles, aliases, `Date`, `Error` with cause chains, `Map`, `Set`, `ArrayBuffer`, `Uint8Array`, and more.
+
+Unlike Workers RPC, this capability extends **all the way to the browser** — the same rich types work seamlessly between `LumenizeDO`, `LumenizeWorker`, and `LumenizeClient`.
+
+See [@lumenize/structured-clone](/docs/structured-clone) for the complete type support table.
+
+## The `this.lmz` API
+
+Every mesh node has access to `this.lmz` — the unified API for identity and communication.
+
+### Identity
+
+```typescript @skip-check-approved('conceptual')
+this.lmz.type           // 'LumenizeDO' | 'LumenizeWorker' | 'LumenizeClient'
+this.lmz.bindingName    // e.g., 'DOCUMENT_DO' (auto-propagated)
+this.lmz.instanceName   // e.g., 'draft-1' (auto-propagated, undefined for LumenizeWorker)
+this.lmz.callContext    // Current request's context (during handler execution)
+```
+
+### Making Calls
+
+```typescript @skip-check-approved('conceptual')
+// Fire-and-forget
+this.lmz.call('DOCUMENT_DO', 'draft-1', this.ctn<DocumentDO>().update(changes));
+
+// With response handler
+this.lmz.call(
+  'SPELLCHECK_WORKER',
+  undefined,
+  this.ctn<SpellCheckWorker>().check(content),
+  this.ctn().handleResult(this.ctn().$result)
+);
+```
+
+See **[Making Calls](./calls)** for all patterns including cost optimization and error handling.
+
+See **[Mesh API](./mesh-api)** for the complete API reference including `CallContext`, `@mesh()` decorator, and continuations.
+
+## Getting Started
+
+Ready to build? See the **[Getting Started Guide](./getting-started)** for a hands-on tutorial building a collaborative document editor.
+
+## Reference Documentation
+
+- **[Mesh API](./mesh-api)** — Core APIs shared by all node types (`this.lmz`, `@mesh()`, `CallContext`)
+- **[Making Calls](./calls)** — All call patterns, cost optimization, error handling
+- **[LumenizeDO](./lumenize-do)** — Stateful server-side nodes with SQL/KV storage
+- **[LumenizeWorker](./lumenize-worker)** — Stateless server-side nodes
+- **[LumenizeClient](./lumenize-client)** — Browser/Node.js client nodes
+- **[Gateway Internals](./gateway)** — How client-mesh bridging works
+- **[Security](./security)** — Authentication and access control
+- **[Creating Plugins](./creating-plugins)** — Build your own NADIS services
+
+## Concept Deep Dives
+
+- **[Continuations](./continuations)** — How operation chains work under the hood
+- **[Managing Context](./managing-context)** — Framework vs. application context

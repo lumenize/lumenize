@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-// @ts-expect-error - cloudflare:test module types are not consistently exported
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport, type RpcAccessible } from '../src/index';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 
 import { ExampleDO } from './test-worker-and-dos';
 type ExampleDO = RpcAccessible<InstanceType<typeof ExampleDO>>;

@@ -53,26 +53,7 @@ This workflow prioritizes narrative clarity first, then validation. It maximizes
 
 **Deliverable:** All examples passing `check-examples` (output: "✅ All N code examples verified successfully!")
 
-### Phase 4: API Documentation (TypeDoc) 📚
-
-**Goal:** Generate and validate API reference documentation from JSDoc comments.
-
-1. **AI agent** makes 1st draft of JSDoc comments while writing the code. This has already happened by the time we start this documentation workflow.
-2. **Human** uses `npm run start` to review JSDoc as they render in website and either hand edits or asks AI agent to make change until Human is happy with how they read and look
-3. **Human** runs `npm run build` from `/website` to generate TypeDoc
-4. **AI agent** reviews generated API docs for issues
-5. **Human** approves final TypeDoc output before proceeding to Phase 5
-
-**Deliverable:** TypeDoc API reference generated without errors, clean API surface visible.
-
-**JSDoc Best Practices:**
-- **Link to full docs, don't duplicate examples** - Use `@see [Documentation Name](/docs/package/page)` instead of lengthy `@example` blocks
-- **Markdown links work in JSDoc** - Standard markdown syntax `[text](url)` renders correctly in TypeDoc
-- **Keep JSDoc focused** - Parameter descriptions, return types, brief explanation only
-- **Hide internal types** - Use `@internal` tag for types/interfaces users shouldn't directly use (e.g., `DebugLogOutput`, `DebugLevel`)
-- **Clean API surface** - Only export what users need; internal utilities can be imported directly from source when needed
-
-### Phase 5: Full Build & Polish 🏗️
+### Phase 4: Full Build & Polish 🏗️
 
 **Goal:** Production-ready documentation with all validations passing.
 
@@ -84,16 +65,26 @@ This workflow prioritizes narrative clarity first, then validation. It maximizes
 6. **AI agent** verifies examples still pass (should from Phase 3)
 7. **Human** reviews final documentation on local build
 
-**Deliverable:** Website builds successfully with all tests, examples, and API docs validated.
+**Deliverable:** Website builds successfully with all tests and examples validated.
 
 ## When to Move Between Phases
 
 **Phase 1 → 2:** Wait for explicit approval on narrative structure
-**Phase 2 → 3:** Confirm tests are written and passing  
-**Phase 3 → 4:** All examples passing `check-examples`, ready for API doc generation
-**Phase 4 → 5:** TypeDoc generated successfully, ready for final build
+**Phase 2 → 3:** Confirm tests are written and passing
+**Phase 3 → 4:** All examples passing `check-examples`, ready for final build
 
 **General Rule:** Don't skip ahead to validation before narrative is solid.
+
+## API Reference Pages
+
+For packages with public APIs, write a hand-written API reference page (see `website/docs/auth/api-reference.mdx` for the pattern). This replaces the former TypeDoc auto-generation approach. Include:
+
+- **Endpoint/function summary table** at the top with links to detailed sections
+- **Environment variables table** if applicable
+- **Function signatures** with options and defaults
+- **Detailed sections** for each endpoint/function with request/response examples
+
+Keep JSDoc in source code focused: parameter descriptions, return types, brief explanation, and `@see` links to the hand-written docs. Don't duplicate examples in JSDoc.
 
 ## Teaching Clarity Principles
 
@@ -114,7 +105,7 @@ Use `// ...` or `/* ... */` to skip boilerplate:
 ```typescript
 class MyDO extends DurableObject {
   /* ... */
-  
+
   async fetch(request: Request) {
     // ...
     const result = await importantCall();
@@ -125,7 +116,4 @@ class MyDO extends DurableObject {
 
 ## Reference
 
-- **Full workflow document**: `/DOCUMENTATION-WORKFLOW.md`
 - **check-examples tool**: `/tooling/check-examples/`
-- **Documentation rules**: `.cursor/rules/documentation.md`
-

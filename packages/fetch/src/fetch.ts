@@ -1,16 +1,15 @@
 /**
  * Fetch - NADIS plugin for external API calls from Durable Objects
- * 
+ *
  * Provides two strategies:
  * - proxy(): DO-Worker architecture for cost-effective external API calls
  * - direct(): Direct fetch from DO (stub for future implementation)
  */
 
-import '@lumenize/core';    // Side-effect import for NADIS registration (sql, debug)
-import '@lumenize/alarms';  // Side-effect import for NADIS registration (alarms)
-import { debug, type DebugLogger } from '@lumenize/core';
-import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeBase } from '@lumenize/lumenize-base';
+import { debug, type DebugLogger } from '@lumenize/debug';
+import { NadisPlugin, getOperationChain, replaceNestedOperationMarkers, type LumenizeDO } from '@lumenize/mesh';
 import { stringify, parse, RequestSync, type ResponseSync } from '@lumenize/structured-clone';
+import { FetchTimeoutError } from './errors';
 import type { ProxyFetchWorkerOptions } from './types';
 import type { FetchExecutorEntrypoint } from './fetch-executor-entrypoint';
 
@@ -29,22 +28,16 @@ export interface FetchMessage {
 
 /**
  * Fetch - NADIS plugin providing fetch strategies for Durable Objects
- * 
+ *
  * @example
  * ```typescript
  * import '@lumenize/fetch';  // Registers fetch in this.svc
- * import { LumenizeBase } from '@lumenize/lumenize-base';
- * 
- * class MyDO extends LumenizeBase<Env> {
- *   constructor(ctx: DurableObjectState, env: Env) {
- *     super(ctx, env);
- *     this.lmz.init({ bindingName: 'MY_DO' });
- *   }
- *   
- *   async alarm() {
- *     await this.svc.alarms.alarm();
- *   }
- *   
+ * import { LumenizeDO } from '@lumenize/mesh';
+ *
+ * class MyDO extends LumenizeDO<Env> {
+ *   // Identity is auto-initialized from headers (via routeDORequest)
+ *   // or from envelope metadata (via mesh calls)
+ *
  *   fetchData(url: string) {
  *     // Proxied fetch (DO → Worker → External API)
  *     this.svc.fetch.proxy(
@@ -52,7 +45,7 @@ export interface FetchMessage {
  *       this.ctn().handleResponse(this.ctn().$result)
  *     );
  *   }
- *   
+ *
  *   handleResponse(result: ResponseSync | Error) {
  *     // Process result
  *   }
@@ -66,35 +59,33 @@ export class Fetch extends NadisPlugin {
     super(doInstance);
     
     // Eager dependency validation - fails immediately if alarms not available
+    // (alarms is built-in to @lumenize/mesh, so this should always pass)
     if (!this.svc.alarms) {
-      throw new Error('Fetch requires @lumenize/alarms to be imported for timeout handling');
+      throw new Error('Fetch requires alarms service for timeout handling (should be built-in to @lumenize/mesh)');
     }
     
-    this.#log = debug(doInstance)('lmz.fetch.Fetch');
+    this.#log = debug('lmz.fetch.Fetch');
   }
 
   /**
    * Make an external fetch request using DO-Worker architecture.
-   * 
+   *
    * **Setup Required**:
-   * 1. Your DO must extend `LumenizeBase`
-   * 2. Call `this.lmz.init({ bindingName })` in constructor
+   * 1. Your DO must extend `LumenizeDO`
+   * 2. Identity must be initialized (via routeDORequest or mesh call)
    * 3. Import `@lumenize/fetch` (registers NADIS plugin)
    * 4. Export `FetchExecutorEntrypoint` from your worker
    * 5. Add service binding in wrangler.jsonc
-   * 6. Your DO must have `async alarm()` that calls `await this.svc.alarms.alarm()`
-   * 
+   *
    * @param request - URL string or RequestSync object
    * @param continuation - User continuation that receives ResponseSync | Error
-   * @param options - Optional configuration (timeout, executorBinding, testMode)
-   * @param reqId - Optional request ID (generated if not provided)
+   * @param options - Optional configuration (timeout, executorBinding, reqId, testMode)
    * @returns Request ID (for correlation/testing)
    */
   proxy(
     request: string | RequestSync,
     continuation: any,
-    options?: ProxyFetchWorkerOptions,
-    reqId?: string
+    options?: ProxyFetchWorkerOptions
   ): string {
     // Validate continuation
     const continuationChain = getOperationChain(continuation);
@@ -111,9 +102,8 @@ export class Fetch extends NadisPlugin {
     if (!originBinding) {
       throw new Error(
         'Cannot use proxy() from DO without bindingName. ' +
-        "Assure DO's identity is initialized via automatic identity propogation by first being " +
-        "called via routeDORequest or this.lmz.call(). Failing that, directly initialize " +
-        "by calling this.lmz.init({ bindingName }) in constructor."
+        "Ensure DO's identity is initialized via automatic identity propagation by first being " +
+        "called via routeDORequest or this.lmz.call()."
       );
     }
 
@@ -126,8 +116,8 @@ export class Fetch extends NadisPlugin {
     const now = Date.now();
     const alarmFiresAt = new Date(now + alarmTimeout);
 
-    // Generate reqId (or use provided for testing)
-    const finalReqId = reqId ?? crypto.randomUUID();
+    // Generate reqId (or use provided)
+    const finalReqId = options?.reqId ?? crypto.randomUUID();
 
     this.#log.debug('Starting proxy fetch', {
       url,
@@ -145,8 +135,9 @@ export class Fetch extends NadisPlugin {
     });
 
     // Create timeout error for alarm path
-    const timeoutError = new Error(
-      `Fetch timeout - request exceeded timeout period. URL: ${url}`
+    const timeoutError = new FetchTimeoutError(
+      `Fetch timeout - request exceeded ${timeout}ms timeout period`,
+      url
     );
 
     // Create alarm handler: calls back to this DO's Fetch plugin
@@ -192,10 +183,11 @@ export class Fetch extends NadisPlugin {
 
     // call() returns immediately, uses blockConcurrencyWhile internally
     // No handler needed - worker explicitly calls back to svc.fetch.__handleProxyFetchResult
+    const ctn = (this.doInstance as any).ctn() as any;
     (this.doInstance as any).lmz.call(
       executorBinding,
       undefined, // Workers don't have instance IDs
-      (this.doInstance as any).ctn<FetchExecutorEntrypoint>().executeFetch(message) as any
+      ctn.executeFetch(message)
     );
 
     this.#log.debug('Worker call initiated (fire-and-forget)', { reqId: finalReqId });
@@ -226,7 +218,7 @@ export class Fetch extends NadisPlugin {
 
   /**
    * Internal handler for proxy fetch results (both success and timeout paths).
-   * This replaces the monkey-patched __handleProxyFetchResult on LumenizeBase prototype.
+   * This replaces the monkey-patched __handleProxyFetchResult on LumenizeDO prototype.
    * 
    * Called by:
    * - Worker executor on success (with response)
@@ -261,9 +253,10 @@ export class Fetch extends NadisPlugin {
     }
     
     // We won the race - parse user's continuation, fill $result, and execute
+    // Skip @mesh decorator check since this is an internal framework continuation
     const userContinuation = parse(continuation);
     const filledChain = await replaceNestedOperationMarkers(userContinuation, result);
-    await (this.doInstance as any).__executeChain(filledChain);
+    await (this.doInstance as any).__localChainExecutor(filledChain, { requireMeshDecorator: false });
   }
 }
 

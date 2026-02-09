@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parse, RequestSync, ResponseSync } from '@lumenize/structured-clone';
 import { createTestEndpoints } from '@lumenize/test-endpoints';
+import { FetchTimeoutError } from '@lumenize/fetch';
 
 describe('proxyFetch - Basic Flow', () => {
   test('makes successful fetch and delivers result via worker callback', async () => {
@@ -22,19 +23,19 @@ describe('proxyFetch - Basic Flow', () => {
     // Default 30s alarm timeout is plenty for this fast request
     const reqId = await stub.fetchDataSimple(url);
     
-    // Wait for result to arrive
+    // Wait for result to arrive (external network call needs longer timeout)
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 50 });
-    
+    }, { timeout: 5000 });
+
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
     expect(result.ok).toBe(true);
     expect(result.status).toBe(200);
     expect(result.json()).toHaveProperty('uuid');
-    
+
     // Should be called exactly once (not double-executed)
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);
@@ -58,11 +59,12 @@ describe('proxyFetch - Basic Flow', () => {
       }
     );
 
+    // External network call needs longer timeout
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 50 });
+    }, { timeout: 5000 });
 
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
@@ -99,17 +101,18 @@ describe('proxyFetch - Basic Flow', () => {
     // Trigger timeout alarm and wait for result
     await stub.triggerAlarmsHelper();
     
-    // Wait for result to be stored
+    // Wait for result to be stored (local alarm trigger, default timeout is fine)
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 10 });
-    
+    });
+
     const result = parse(serialized!);
-    expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toContain('Fetch timeout');
-    
+    expect(result).toBeInstanceOf(FetchTimeoutError);
+    expect((result as FetchTimeoutError).url).toContain('/uuid');
+    expect((result as FetchTimeoutError).message).toContain('Fetch timeout');
+
     // Should be called exactly once via timeout
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);
@@ -124,13 +127,13 @@ describe('proxyFetch - Basic Flow', () => {
     // Default 30s alarm timeout is plenty for this fast request
     const reqId = await stub.fetchDataSimple(url);
     
-    // Wait for result to arrive (use vi.waitFor for reliability)
+    // Wait for result to arrive (external network call needs longer timeout)
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 50 });
-    
+    }, { timeout: 5000 });
+
     // Check result was delivered by worker
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
@@ -164,20 +167,20 @@ describe('proxyFetch - Basic Flow', () => {
     // Trigger alarm immediately (timeout wins)
     await stub.triggerAlarmsHelper();
     
-    // Wait for timeout error to be delivered
+    // Wait for timeout error to be delivered (local alarm trigger, default timeout is fine)
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 1000, interval: 10 });
-    
+    });
+
     const result = parse(serialized);
-    expect(result).toBeInstanceOf(Error);
-    
+    expect(result).toBeInstanceOf(FetchTimeoutError);
+
     // Worker callback would have been attempted (if not for simulateDeliveryFailure)
     // but alarm is already gone, so it would have been a noop
     // Since we simulated delivery failure, we can check the noop flag
-    
+
     // Should have only 1 call (timeout), not 2
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);
@@ -193,11 +196,12 @@ describe('proxyFetch - Error Handling', () => {
     
     const reqId = await stub.fetchDataSimple(url);
     
+    // External network call needs longer timeout
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 50 });
+    }, { timeout: 5000 });
 
     const result = parse(serialized);
     expect(result).toBeInstanceOf(ResponseSync);
@@ -217,16 +221,16 @@ describe('proxyFetch - Error Handling', () => {
     // Default 30s alarm timeout is plenty (error happens immediately)
     const reqId = await stub.fetchDataSimple(url);
     
-    // Wait for error to be stored
+    // Wait for error to be stored (DNS failure is fast, default timeout is fine)
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 10 });
-    
+    });
+
     const result = parse(serialized);
     expect(result).toBeInstanceOf(Error);
-    
+
     // Should be called exactly once
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);
@@ -237,21 +241,26 @@ describe('proxyFetch - Error Handling', () => {
     await stub.clearResults();
     const testEndpoints = createTestEndpoints(env.TEST_TOKEN, env.TEST_ENDPOINTS_URL, 'abort-test');
     const url = testEndpoints.buildUrl('/delay/10000');  // 10 second delay
-    
-    // 500ms timeout triggers AbortController (before alarm would fire)
-    const reqId = await stub.fetchDataSimpleWithOptions(url, { timeout: 500 });
-    
-    // Wait for abort error to be stored
+
+    // 500ms fetch timeout triggers AbortController
+    // Alarm set much higher so AbortController definitely fires first
+    const reqId = await stub.fetchDataSimpleWithOptions(url, {
+      timeout: 500,
+      testMode: { alarmTimeoutOverride: 30000 }
+    });
+
+    // Wait for abort error to be stored (500ms abort timeout, default waitFor timeout is fine)
     const serialized = await vi.waitFor(async () => {
       const r = await stub.getResult(url);
       expect(r).toBeDefined();
       return r;
-    }, { timeout: 2000, interval: 10 });
-    
+    });
+
     const result = parse(serialized);
     expect(result).toBeInstanceOf(Error);
-    expect((result as Error).message).toContain('abort');
-    
+    expect(result).not.toBeInstanceOf(FetchTimeoutError);  // AbortController error, not alarm timeout
+    expect((result as Error).message.toLowerCase()).toContain('abort');
+
     // Should be called exactly once
     const callCount = await stub.getCallCount(url);
     expect(callCount).toBe(1);

@@ -1,0 +1,162 @@
+---
+title: Auth
+description: Passwordless authentication with magic links, invites, and JWT tokens, for Cloudflare Durable Objects
+---
+
+# Auth
+
+De✨light✨ful passwordless authentication for Cloudflare Durable Objects with magic link login, JWT access tokens, refresh token rotation, and built-in admin role. Serves as the default authentication for Lumenize Mesh but designed to work with any Cloudflare Workers project.
+
+| Feature | Description |
+|---------|-------------|
+| **Passwordless** | Magic link email login (no passwords to manage) |
+| **Secure JWTs** | Ed25519 signed tokens with key rotation support |
+| **Refresh rotation** | Automatic token refresh with revocation |
+| **Two-phase access** | Requires both subject confirmation (`emailVerified`) and admin approval (`adminApproved`) |
+| **Admin role bootstrapped** | First `isAdmin` bootstrapped via environment variable |
+| **Delegation** | RFC 8693 `act` claim for delegated access (agents, services, impersonation) |
+| **Rate limiting** | Cloudflare DDoS + Turnstile (magic link) + Worker-level rate limiting binding (authenticated routes) |
+| **WebSocket auth** | Token passing via subprotocol headers |
+| **Hooks** | Drop-in `routeDORequest` hooks for protected routes |
+
+:::note Why "subject" instead of "user"?
+These docs use **subject** — the [RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519) term for the entity a JWT describes. A subject could be a person, an AI agent, a service account, or any authenticated entity. The standard `sub` claim carries this meaning, so we use "subject" everywhere rather than "user" to avoid implying the principal is always human.
+:::
+
+## Access Flows
+
+Two-phase access requires both `emailVerified` (subject clicked link) and `adminApproved` (admin granted access). These can happen in either order via two flows.
+
+### Self-Signup Flow
+
+Subject initiates signup, then waits for admin approval:
+
+```mermaid
+sequenceDiagram
+    box Browser
+        participant Subject
+        participant Admin
+    end
+    participant Worker
+    participant AuthDO
+
+    rect rgba(200, 220, 240, 0.3)
+        Note over Subject,AuthDO: 1. Subject requests magic link
+        Subject->>Worker: POST /auth/email-magic-link {email}
+        Worker->>AuthDO: Forward request
+        Note over AuthDO: Send magic link email
+        AuthDO->>Worker: { message: "Check email" }
+        Worker->>Subject: Response
+    end
+
+    rect rgba(240, 220, 200, 0.3)
+        Note over Subject,AuthDO: 2. Subject clicks link → { emailVerified: true }
+        Subject->>Worker: GET /auth/magic-link?one_time_token=...
+        Worker->>AuthDO: Validate token, set emailVerified: true
+        Note over AuthDO: Send approval request to admins
+        AuthDO->>Worker: Set-Cookie + 302 redirect
+        Worker->>Subject: Redirect (refresh_token cookie set)
+    end
+
+    rect rgba(255, 220, 220, 0.3)
+        Note over Subject,AuthDO: 3. Access blocked until approved
+        Subject->>Worker: POST /auth/refresh-token (cookie)
+        Worker->>AuthDO: Get access token
+        AuthDO->>Worker: { access_token } (emailVerified: true, adminApproved: false)
+        Note over Subject: Token valid but hooks return 403
+    end
+
+    rect rgba(220, 255, 220, 0.3)
+        Note over Admin,AuthDO: 4. Admin approves → { adminApproved: true }
+        Admin->>Worker: GET /auth/approve/:id (from admin email)
+        Worker->>AuthDO: Set adminApproved: true
+        Note over AuthDO: Send "You're approved" email to subject
+        AuthDO->>Worker: Confirmation
+        Worker->>Admin: Response
+    end
+
+    rect rgba(200, 240, 200, 0.3)
+        Note over Subject,AuthDO: 5. Subject now has access
+        Subject->>Worker: POST /auth/refresh-token (cookie)
+        Worker->>AuthDO: Get access token
+        AuthDO->>Worker: { access_token } (emailVerified: true, adminApproved: true)
+        Worker->>Subject: Full access granted
+    end
+```
+
+### Admin Invite Flow
+
+Invite from admin pre-approves subjects, then subjects confirm via email:
+
+```mermaid
+sequenceDiagram
+    box Browser
+        participant Admin
+        participant Subject
+    end
+    participant Worker
+    participant AuthDO
+
+    rect rgba(220, 220, 255, 0.3)
+        Note over Admin,AuthDO: 1. Admin invites subjects → { adminApproved: true }
+        Admin->>Worker: POST /auth/invite {emails: [...]}
+        Worker->>AuthDO: Create subjects with adminApproved: true
+        Note over AuthDO: Send invite email to each subject
+        AuthDO->>Worker: { invited: [...] }
+        Worker->>Admin: Response
+    end
+
+    rect rgba(240, 220, 200, 0.3)
+        Note over Subject,AuthDO: 2. Subject clicks invite link → { emailVerified: true }
+        Subject->>Worker: GET /auth/accept-invite?invite_token=...
+        Worker->>AuthDO: Validate token, set emailVerified: true
+        AuthDO->>Worker: Set-Cookie + 302 redirect
+        Worker->>Subject: Redirect (refresh_token cookie set)
+    end
+
+    rect rgba(200, 240, 200, 0.3)
+        Note over Subject,AuthDO: 3. Subject has immediate access
+        Note over Subject: Both flags true from the start
+    end
+```
+
+## JWT Claims
+
+Access tokens contain standard JWT claims plus status and role information:
+
+```typescript @check-example('packages/auth/src/types.ts')
+interface JwtPayload {
+  // Standard claims (RFC 7519)
+  iss: string;          // Issuer
+  aud: string;          // Audience
+  sub: string;          // Subject (UUID of the principal)
+  exp: number;          // Expiration time
+  iat: number;          // Issued at
+  jti: string;          // JWT ID
+
+  // Status flags (both required for access)
+  emailVerified: boolean;   // Subject clicked magic link
+  adminApproved: boolean;   // Admin granted access
+
+  // Role flag
+  isAdmin?: boolean;
+
+  // Delegation (RFC 8693)
+  act?: ActClaim;
+}
+```
+
+The `act` claim enables delegation — one authenticated subject acting on behalf of another. It's recursive per [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693): each layer records who delegated to whom. Guards check `sub` for authorization; the `act` chain is recorded for audit trails.
+
+Admins can delegate as any subject. Non-admin actors must be explicitly listed in the principal's `authorizedActors`. See [Delegation](/docs/auth/delegation) for the full API, requirements, and limitations.
+
+## Server-Side Token Verification
+
+Use [`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) to create hooks that validate JWTs, enforce two-phase access, rate-limit per subject, and forward the verified token to your DO. See [Worker Setup](/docs/auth/getting-started#worker-setup) for the full integration pattern.
+
+**WebSocket token delivery** (if not using LumenizeClient): Smuggle the token via the subprotocol list:
+
+```javascript @skip-check-approved('conceptual')
+// Client-side
+const ws = new WebSocket(url, ['lmz', `lmz.access-token.${accessToken}`]);
+```

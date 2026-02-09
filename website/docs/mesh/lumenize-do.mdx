@@ -1,0 +1,136 @@
+---
+title: LumenizeDO
+description: Stateful Durable Objects as mesh nodes
+---
+
+# LumenizeDO
+
+`LumenizeDO` is the base class for **stateful mesh nodes** running as Cloudflare Durable Objects. For a hands-on introduction, see the [Getting Started Guide](./getting-started).
+
+## Mesh API
+
+`LumenizeDO` shares the standard [Mesh API](./mesh-api) with all node types — `this.lmz` for identity and calls, `@mesh()` decorator for entry points, `onBeforeCall()` for access control, and `this.ctn<T>()` for continuations.
+
+## NADIS Auto-Injection
+
+NADIS (Not A DI System) provides **zero-boilerplate dependency injection** via `this.svc`.
+
+### How It Works
+
+Services are accessed via `this.svc`. Some are built-in, others require a side-effect import:
+
+```typescript @skip-check-approved('conceptual')
+class MyDO extends LumenizeDO<Env> {
+  doSomething() {
+    this.svc.sql`SELECT * FROM items`;  // ✅ Built-in
+    this.svc.alarms.schedule(60, this.ctn().handleTask({ id: 1 }));  // ✅ Built-in
+  }
+}
+```
+
+### Available Services
+
+| Package | Service | Import Required | Purpose |
+|---------|---------|-----------------|---------|
+| `@lumenize/mesh` | `sql` | No (built-in) | SQL template literal tag |
+| `@lumenize/mesh` | `alarms` | No (built-in) | Alarm scheduling |
+| `@lumenize/fetch` | `fetch` | Yes | Proxy fetch (cost optimization) |
+
+:::note Logging
+For debug logging, use the standalone `@lumenize/debug` package — see [Debug](/docs/debug). It's not a NADIS service because it works cross-platform (Workers, Node.js, browsers).
+:::
+
+### Service: `sql` Template Literal
+
+```typescript @skip-check-approved('conceptual')
+const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
+this.svc.sql`INSERT INTO users (id, email) VALUES (${id}, ${email})`;
+```
+
+Parameters are automatically bound and SQL-injection safe. See **[SQL Template Literal](./sql)** for complex queries, pagination, and standalone usage.
+
+### Service: `alarms` Scheduling
+
+```typescript @skip-check-approved('conceptual')
+class MyDO extends LumenizeDO<Env> {
+  // No alarm() override needed - LumenizeDO handles it automatically!
+
+  scheduleTask() {
+    // Schedule with continuations (type-safe!)
+    const schedule = this.svc.alarms.schedule(
+      60,  // Seconds from now
+      this.ctn().handleTask({ userId: '123' })
+    );
+
+    // Cancel if needed
+    this.svc.alarms.cancelSchedule(schedule.id);
+  }
+
+  // Handler method
+  handleTask(payload: { userId: string }) {
+    console.log('Task for user:', payload.userId);
+  }
+}
+```
+
+See [Alarms](./alarms) for cron scheduling, recurring tasks, and advanced patterns.
+
+## Storage Patterns
+
+### Synchronous Storage
+
+Always use synchronous storage APIs:
+
+```typescript @skip-check-approved('conceptual')
+// ✅ Correct - synchronous KV
+this.ctx.storage.kv.put('key', value);
+const value = this.ctx.storage.kv.get('key');
+this.ctx.storage.kv.delete('key');
+
+// ✅ Correct - this.svc.sql uses synchronous ctx.storage.sql.exec under the covers
+const users = this.svc.sql`SELECT * FROM users WHERE active = ${true}`;
+
+// ❌ Wrong - legacy async (don't use)
+await this.ctx.storage.put('key', value);
+```
+
+:::warning Compatibility Date
+Requires `compatibility_date: "2025-09-12"` or later in wrangler.jsonc.
+:::
+
+### Keep Methods Synchronous
+
+**Critical rule**: Keep mesh handler methods synchronous to take advantage of DO's consistency model (input gates).
+
+```typescript @skip-check-approved('conceptual')
+// ✅ Correct - synchronous read-modify-write
+@mesh()
+addSubscriber(userId: string) {
+  const subscribers = this.ctx.storage.kv.get('subscribers') ?? [];
+  subscribers.push(userId);
+  this.ctx.storage.kv.put('subscribers', subscribers);
+}
+
+// ❌ Wrong - async/await risks race condition
+@mesh()
+async addSubscriber(userId: string) {
+  const subscribers = this.ctx.storage.kv.get('subscribers') ?? [];  // ['alice']
+  await somePromise();  // Input gate opens! Another call adds 'bob' → ['alice', 'bob']
+  subscribers.push(userId);  // Our stale copy: ['alice', 'charlie']
+  this.ctx.storage.kv.put('subscribers', subscribers);  // Overwrites — 'bob' is lost!
+}
+```
+
+In the wrong example, the `await` opens the input gate, allowing another request to modify the array. When we `put` our stale copy, we overwrite changes made by the other request.
+
+## Testing
+
+Test DOs using `@lumenize/testing` with **tunneling** — direct access to DO internals from your test. See **[@lumenize/testing](/docs/testing/usage)** for complete patterns including browser simulation, WebSocket testing, and multi-instance scenarios.
+
+## `onStart` Lifecycle Hook
+
+Override `async onStart()` for initialization instead of writing a custom constructor. It's automatically wrapped in `blockConcurrencyWhile`, guaranteeing it completes before the DO handles any requests — perfect for creating tables, loading config with a fetch, or other things you would normally do in a constructor.
+
+## API Reference
+
+See [Mesh API](./mesh-api) for the full `LumenizeDO` class reference including `ctx`, `env`, `svc`, `lmz`, `onStart()`, `onBeforeCall()`, and `ctn<T>()`.

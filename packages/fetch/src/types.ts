@@ -10,7 +10,9 @@ export interface ProxyFetchWorkerOptions {
   timeout?: number;
   /** Binding name for FetchExecutor service (default: 'FETCH_EXECUTOR') */
   executorBinding?: string;
-  /** 
+  /** Optional request ID (generated if not provided) */
+  reqId?: string;
+  /**
    * Test mode options (for testing only)
    * @internal
    */

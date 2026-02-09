@@ -1,0 +1,56 @@
+/**
+ * Debug log levels in order of verbosity (debug is most verbose)
+ *
+ * Note: 'error' level is NEVER filtered - always outputs regardless of DEBUG environment variable
+ */
+export type DebugLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/**
+ * Options for debug logging (reserved for future use)
+ */
+export interface DebugOptions {
+  // Future: color, custom fields, etc.
+}
+
+/**
+ * Debug logger interface
+ */
+export interface DebugLogger {
+  /** Namespace for this logger */
+  readonly namespace: string;
+
+  /** Whether this logger is enabled based on current filter */
+  readonly enabled: boolean;
+
+  /** Log at debug level (most verbose) */
+  debug(message: string, data?: any, options?: DebugOptions): void;
+
+  /** Log at info level */
+  info(message: string, data?: any, options?: DebugOptions): void;
+
+  /** Log at warn level */
+  warn(message: string, data?: any, options?: DebugOptions): void;
+
+  /**
+   * Log at error level - **ALWAYS OUTPUTS, NEVER FILTERED**
+   *
+   * Error logs ignore the DEBUG environment variable and always output.
+   * Use for true system errors, bugs, and unexpected failures that should NEVER be hidden.
+   *
+   * For expected operational issues (retry exhausted, auth failed, rate limited),
+   * use `warn()` instead - those are filterable and should be.
+   */
+  error(message: string, data?: any, options?: DebugOptions): void;
+}
+
+/**
+ * Structured log output format for Cloudflare dashboard
+ */
+export interface DebugLogOutput {
+  type: 'debug';
+  level: DebugLevel;
+  namespace: string;
+  message: string;
+  timestamp: string;
+  data?: any;
+}

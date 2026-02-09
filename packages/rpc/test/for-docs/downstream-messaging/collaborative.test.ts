@@ -1,7 +1,7 @@
 import { it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport, sendDownstream } from '../../../src';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import type { DocumentDO as DocumentDOType } from '../../test-worker-and-dos';
 
 // Durable Object - Collaborative Document

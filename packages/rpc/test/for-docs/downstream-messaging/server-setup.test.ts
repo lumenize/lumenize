@@ -1,7 +1,7 @@
 import { it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { createRpcClient, createWebSocketTransport, sendDownstream } from '../../../src';
-import { getWebSocketShim } from '@lumenize/utils';
+import { getWebSocketShim } from '@lumenize/testing';
 import type { MyDO as MyDOType } from '../../test-worker-and-dos';
 
 // Documentation: This is the server-side DO class structure

@@ -1,5 +1,6 @@
-// Re-export OCAN types from core
-export type { Operation, OperationChain } from '@lumenize/core';
+// Import and re-export OCAN types from local copy (decoupled from @lumenize/mesh)
+import type { Operation, OperationChain } from './ocan.js';
+export type { Operation, OperationChain };
 
 /**
  * Core batched RPC request format used by all transports.
@@ -114,9 +115,9 @@ export function isRemoteFunctionMarker(obj: any): obj is RemoteFunctionMarker {
   return obj && typeof obj === 'object' && obj.__isRemoteFunction === true;
 }
 
-// Re-export nested operation marker from lumenize-base (OCAN)
-export type { NestedOperationMarker } from '@lumenize/lumenize-base';
-export { isNestedOperationMarker } from '@lumenize/lumenize-base';
+// Re-export nested operation marker from local OCAN copy
+export type { NestedOperationMarker } from './ocan.js';
+export { isNestedOperationMarker } from './ocan.js';
 
 /**
  * RPC-specific extension to NestedOperationMarker for batching optimization.

@@ -12,8 +12,8 @@ import { preprocess, postprocess, parse } from '@lumenize/structured-clone';
 import { createRpcPreprocessTransform } from './rpc-transforms';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug } from '@lumenize/core';
-import { executeOperationChain, validateOperationChain } from '@lumenize/lumenize-base';
+import { debug } from '@lumenize/debug';
+import { executeOperationChain, validateOperationChain } from './ocan.js';
 
 /**
  * Default RPC configuration
@@ -51,7 +51,7 @@ export async function sendDownstream(
   doInstance: any,
   payload: any
 ): Promise<void> {
-  const log = debug(doInstance)('lmz.rpc.sendDownstream');
+  const log = debug('lmz.rpc.sendDownstream');
   
   // Normalize to array
   const ids = Array.isArray(clientIds) ? clientIds : [clientIds];
@@ -144,7 +144,7 @@ async function handleCallRequest(
   doInstance: any,
   config: Required<RpcConfig>
 ): Promise<Response> {
-  const log = debug(doInstance)('lmz.rpc.handleCallRequest');
+  const log = debug('lmz.rpc.handleCallRequest');
   
   if (request.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
@@ -214,8 +214,6 @@ async function handleCallRequest(
   }
 }
 
-// validateOperationChain is now imported from @lumenize/lumenize-base
-
 /**
  * Core RPC dispatch logic - validates, executes, and processes the result.
  * Handles both success and error cases consistently.
@@ -265,8 +263,6 @@ async function dispatchCall(
     };
   }
 }
-
-// executeOperationChain is now imported from @lumenize/core
 
 /**
  * Process incoming operations to resolve pipelined operation markers.
@@ -463,7 +459,7 @@ export async function handleRpcMessage(
   doInstance: any,
   config: RpcConfig = {}
 ): Promise<boolean> {
-  const log = debug(doInstance)('lmz.rpc.handleRpcMessage');
+  const log = debug('lmz.rpc.handleRpcMessage');
   
   // Only handle string messages
   if (typeof message !== 'string') {
@@ -548,7 +544,7 @@ export function lumenizeRpcDO<T extends new (...args: any[]) => any>(DOClass: T,
 
   // Create enhanced class that extends the original
   class LumenizedDO extends (DOClass as T) {
-    #log = debug(this)('lmz.rpc.lumenizeRpcDO');
+    #log = debug('lmz.rpc.lumenizeRpcDO');
 
     async fetch(request: Request): Promise<Response> {
       this.#log.debug('RPC fetch handler', { url: request.url });

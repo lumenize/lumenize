@@ -127,6 +127,8 @@ Manage project tasks using two complementary workflows: docs-first for user-faci
 - ✅ Adding major features to packages
 - ✅ Creating new public methods/services
 - ✅ Changing existing user-facing behavior
+- ✅ Multi-component flows (browser ↔ server ↔ external services)
+- ✅ Anything involving redirects, callbacks, or multi-step handshakes
 
 **Use Implementation-First When**:
 - ✅ Refactoring internal code (no API changes)
@@ -140,7 +142,6 @@ Manage project tasks using two complementary workflows: docs-first for user-faci
 ## Reference
 
 - **Documentation workflow**: `/documentation-workflow` command
-- **Full workflow doc**: `/DOCUMENTATION-WORKFLOW.md`
 - **Task directory**: `/tasks/`
 - **Backlog**: `/tasks/backlog.md`
 - **Example docs-first**: `tasks/proxy-fetch-timeout-and-idempotency.md`

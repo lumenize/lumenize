@@ -3,7 +3,7 @@ import { defineWorkersProject } from '@cloudflare/vitest-pool-workers/config';
 export default defineWorkersProject({
   test: {
     globals: true,
-    testTimeout: 2000, // 2 second timeout
+    testTimeout: 10000, // 10 second timeout for external network calls
     include: ['test/**/*.test.ts'],
     exclude: ['test/wip/**/*.test.ts'], // WIP tests have separate config
     poolOptions: {

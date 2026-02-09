@@ -1,0 +1,110 @@
+---
+title: "SQL Tagged Template Literal"
+description: Type-safe SQL queries with automatic parameter binding
+---
+
+# SQL Tagged Template Literal
+
+The `sql` tagged template literal provides a clean, safe way to execute SQL queries against Cloudflare's embedded SQLite storage. It gives you the readable `${value}` interpolation syntax of template literals, but with automatic parameter binding that prevents SQL injection.
+
+## Basic Usage
+
+```typescript @skip-check-approved('conceptual')
+import { LumenizeDO } from '@lumenize/mesh';
+
+class ProductDO extends LumenizeDO<Env> {
+  // Initialize schema (runs once, safely wrapped in blockConcurrencyWhile)
+  async onStart() {
+    this.svc.sql`
+      CREATE TABLE IF NOT EXISTS products (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        price REAL NOT NULL,
+        stock INTEGER DEFAULT 0
+      )
+    `;
+  }
+
+  addProduct(id: string, name: string, price: number, stock: number = 0) {
+    this.svc.sql`
+      INSERT INTO products (id, name, price, stock)
+      VALUES (${id}, ${name}, ${price}, ${stock})
+    `;
+    return { id, name, price, stock };
+  }
+
+  getProduct(id: string) {
+    const rows = this.svc.sql`SELECT * FROM products WHERE id = ${id}`;
+    return rows[0];
+  }
+}
+```
+
+## Template Substitution Expressions
+
+Template Substitution Expressions (e.g. `${id}`) are automatically bound and SQL-injection safe. The template literal tag:
+1. Safely binds all interpolated values as query parameters
+2. Prevents SQL injection attacks
+3. Handles strings, numbers, and other primitive types automatically
+
+## Query Results
+
+The `sql` function returns an array of result rows. Each row is a plain JavaScript object with column names as keys:
+
+```typescript @skip-check-approved('conceptual')
+  getLowStockProducts(threshold: number = 10) {
+    return this.svc.sql`
+      SELECT id, name, stock FROM products 
+      WHERE stock < ${threshold}
+      ORDER BY stock ASC
+    `;
+  }
+```
+
+Example return value:
+```typescript @skip-check-approved('conceptual json')
+[
+  { id: 'prod-1', name: 'Widget', stock: 5 },
+  { id: 'prod-2', name: 'Gadget', stock: 8 }
+]
+```
+
+## When to Use the Native SQL API
+
+Any SQL query you can run with `this.ctx.storage.sql.exec()`, you can run with `this.svc.sql`—JOINs, aggregations, updates, deletes, etc. However, `this.svc.sql` returns a simple array, so you lose access to cursor features like streaming, `rowsRead`/`rowsWritten`, `raw()`, etc. So:
+
+**Use `this.svc.sql`** for every-day queries with relatively small return sets:
+- Readable `${value}` interpolation instead of `?` placeholders
+- Automatic parameter binding prevents SQL injection
+- Returns results as an array for easy manipulation
+
+**Use `this.ctx.storage.sql.exec()` directly** when you need:
+- **Streaming/cursors** - process rows without loading all into memory
+- **Large result sets** - pagination with LIMIT/OFFSET
+- **Metadata** - access to `rowsRead`, `rowsWritten`, etc.
+- **Raw mode** - returns arrays instead of objects (no repeated column names)
+
+```typescript @skip-check-approved('conceptual')
+const cursor = this.ctx.storage.sql.exec(
+  'SELECT * FROM logs WHERE timestamp > ? LIMIT ? OFFSET ?',
+  cutoffDate, pageSize, offset
+);
+for (const row of cursor) {
+  // Process rows one at a time
+}
+console.log(`Rows read: ${cursor.rowsRead}`);
+```
+
+## Implementation Details
+
+This utility uses a [tagged template literal](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Template_literals#tagged_templates)—a function that receives the template's string parts and interpolated values separately and can return whatever it wants:
+
+```typescript @skip-check-approved('conceptual')
+// this.svc.sql`SELECT * FROM users WHERE id = ${id}`
+// The tag function receives:
+//   strings: ['SELECT * FROM users WHERE id = ', '']
+//   values: [id]
+// And transforms them into:
+const query = strings.join('?');  // 'SELECT * FROM users WHERE id = ?'
+return [...this.ctx.storage.sql.exec(query, ...values)];
+```

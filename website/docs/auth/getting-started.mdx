@@ -1,0 +1,316 @@
+---
+title: Getting Started
+description: Installation, bootstrap admin, Worker setup, email provider, key rotation, and rate limiting
+---
+
+# Getting Started
+
+:::note Lumenize Mesh/Utils used to illustrate
+In these docs, `@lumenize/mesh` and `@lumenize/utils` are used to illustrate Lumenize Auth, but `@lumenize/auth` will work with any Cloudflare Workers/Durable Object system. The integration surface is the standard `Authorization` header: the auth hooks verify the JWT and forward it to your DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSockets. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact header contract.
+:::
+
+For a complete setup walkthrough including key generation, environment configuration, and Worker setup, see [Lumenize Mesh: Getting Started](/docs/mesh/getting-started#step-5-set-up-authentication).
+
+## Installation
+
+```bash
+npm install @lumenize/auth
+```
+
+## Bootstrap: Your First Admin
+
+Before anyone can log in with admin privileges, you need to designate a bootstrap admin. Set the `LUMENIZE_AUTH_BOOTSTRAP_EMAIL` environment variable:
+
+```bash
+# In .dev.vars or wrangler.jsonc (local development)
+LUMENIZE_AUTH_BOOTSTRAP_EMAIL=you@example.com
+
+# In production (no `wrangler variable` command exists, so use `wrangler secret` or the dashboard)
+wrangler secret put LUMENIZE_AUTH_BOOTSTRAP_EMAIL
+```
+
+When this email address logs in, LumenizeAuth automatically grants `isAdmin: true`, `emailVerified: true`, and `adminApproved: true`. This check is idempotent — it runs on every login, so the bootstrap admin is restored even after a DO reset or if the environment variable is added after the subject already exists. No database seeding required. The bootstrap admin can then approve other subjects and promote them to admin via the [subject management APIs](/docs/auth/subject-management).
+
+The bootstrap subject has special protection: it cannot be demoted or deleted via API. To change the bootstrap admin, update the environment variable and deploy.
+
+## Worker Setup
+
+Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to protect your DOs over HTTP (`onBeforeRequest`) or WebSockets (`onBeforeConnect`). Both integrate with [`routeDORequest`](/docs/utils/route-do-request). All auth configuration — including the URL prefix (default `/auth`), redirect URL, token TTLs, and issuer/audience — is read from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env):
+
+```typescript @check-example('packages/auth/test/for-docs/quick-start.test.ts')
+import { LumenizeAuth, createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
+import { routeDORequest } from '@lumenize/utils';
+
+export { LumenizeAuth };
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Auth routes - public endpoints
+    const authRoutes = createAuthRoutes(env);
+    const authResponse = await authRoutes(request);
+    if (authResponse) return authResponse;
+
+    // Protected routes - with auth hooks
+    const authHooks = await createRouteDORequestAuthHooks(env);
+
+    const response = await routeDORequest(request, env, {
+      ...authHooks,
+      cors: true
+    });
+    return response ?? new Response('Not Found', { status: 404 });
+  }
+};
+```
+
+### createAuthRoutes
+
+Creates a request handler for all auth endpoints. Call once at module level. All auth configuration (redirect, TTLs, issuer, audience, prefix) is read from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env) — only Worker-level routing options are passed here.
+
+```typescript @skip-check-approved('conceptual')
+const authRoutes = createAuthRoutes(env, { cors: true });
+// Options object is optional — createAuthRoutes(env) uses all defaults
+```
+
+The only option is `cors` — see [CORS Support](/docs/utils/cors-support) for `CorsOptions`.
+
+### createRouteDORequestAuthHooks
+
+Creates hooks for [`routeDORequest`](/docs/utils/route-do-request) that verify JWTs and enforce [two-phase access control](/docs/auth/#access-flows). Reads `issuer`, `audience`, public keys, and rate limiter binding from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env).
+
+```typescript @skip-check-approved('conceptual')
+const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);
+```
+
+Both hooks:
+- Validate JWT signature against provided public keys (tries each until one succeeds)
+- Verify `emailVerified && adminApproved` (admins pass implicitly)
+- Return 401 for invalid/missing tokens
+- Return 403 for valid tokens that fail the access check
+- Return 429 when the rate limit is exceeded
+- Forward the verified JWT to the DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSocket upgrades. Browsers don't allow custom headers on WebSocket connections, so the token arrives via the subprotocol list (see [WebSocket token delivery](/docs/auth/#server-side-token-verification)). The hooks extract and verify it at the Worker level, then set the `Authorization` header before forwarding. Your DO code sees a consistent header regardless of transport.
+
+Your DO can then decode the JWT payload and authorize however you like — role checks, ownership guards, audit logging, etc. Ed25519 verification is a local `crypto.subtle.verify()` call (no network round trip, sub-millisecond), so DOs that want defense-in-depth can cheaply re-verify. DOs that trust the Worker hooks can simply base64url-decode the payload section. For a concrete example using `@lumenize/mesh` guards, see [Security: Reusable Guards](/docs/mesh/security#reusable-guards).
+
+## Email Provider {#email-provider}
+
+LumenizeAuth sends email for magic links, admin notifications, approval confirmations, and invites. Email delivery is delegated to a `WorkerEntrypoint` that you define and export from your Worker. The Auth DO calls it via the `AUTH_EMAIL_SENDER` [service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints).
+
+If `AUTH_EMAIL_SENDER` is not configured, emails are not delivered — the Auth DO debug-logs the email type and recipient instead. This lets you develop locally without an email provider, but you must configure one before deploying.
+
+:::warning Configure email before production
+Without `AUTH_EMAIL_SENDER`, magic links and invites are silently dropped. Users will receive a "check your email" response but no email arrives. Always configure an email provider before deploying to production.
+:::
+
+### Quick Start with Resend
+
+[Resend](https://resend.com) is the recommended default — it uses standard `fetch` (no SDK), works natively on Cloudflare Workers, and has a free tier (100 emails/day).
+
+**1. Create a Resend account and verify your domain**
+
+Sign up at [resend.com](https://resend.com), then [verify your sending domain](https://resend.com/docs/dashboard/domains/introduction). You'll add DNS records (SPF, DKIM, DMARC) to your domain — Resend's dashboard walks you through it.
+
+**2. Generate an API key**
+
+Create an API key in the [Resend dashboard](https://resend.com/api-keys) and add it to your environment:
+
+```bash
+# Local development (.dev.vars)
+RESEND_API_KEY=re_...
+
+# Production
+wrangler secret put RESEND_API_KEY
+```
+
+**3. Create your AuthEmailSender class**
+
+```typescript @skip-check
+import { ResendEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';  // must match your verified Resend domain
+}
+```
+
+That's it. `ResendEmailSender` handles the Resend API call, default HTML templates, and default subject lines. Export this class from your Worker entry point alongside your other classes.
+
+**4. Add the service binding to wrangler.jsonc**
+
+The binding is self-referencing — it points back to your own Worker:
+
+```jsonc @skip-check
+{
+  "services": [
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "your-worker-name",       // must match your wrangler.jsonc "name"
+      "entrypoint": "AuthEmailSender"
+    }
+  ]
+}
+```
+
+### Customizing Templates
+
+Override one or more template methods to customize the HTML. Default templates are used for any methods you don't override:
+
+```typescript @skip-check
+import { ResendEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';
+  replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
+  appName = 'My App';              // default: 'Lumenize'
+
+  magicLinkHtml(message) {
+    return `<h1>Welcome to My App</h1><a href="${message.magicLinkUrl}">Sign in</a>`;
+  }
+  // other 4 template methods use defaults
+}
+```
+
+You can also override subject methods (e.g., `magicLinkSubject(message)`) the same way. See [Configuration: Overridable Methods](/docs/auth/configuration#overridable-methods) for the full list.
+
+To compose with the default template (wrap it rather than replace it), import the default function:
+
+```typescript @skip-check
+import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';
+
+  magicLinkHtml(message) {
+    return `<div class="my-wrapper">${defaultMagicLinkHtml(message, this.appName)}</div>`;
+  }
+}
+```
+
+### Bring Your Own Provider {#bring-your-own-provider}
+
+Extend `AuthEmailSenderBase` instead of `ResendEmailSender` and implement `sendEmail()` with your provider's API:
+
+```typescript @skip-check
+import { AuthEmailSenderBase, type ResolvedEmail } from '@lumenize/auth';
+
+export class AuthEmailSender extends AuthEmailSenderBase {
+  from = 'auth@myapp.com';
+
+  async sendEmail(email: ResolvedEmail) {
+    // email contains: to, subject, html, from, replyTo, appName
+    // Call Postmark, SES, SendGrid, or any provider
+    await fetch('https://api.your-provider.com/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${(this.env as any).EMAIL_API_KEY}` },
+      body: JSON.stringify({ to: email.to, from: email.from, subject: email.subject, html: email.html }),
+    });
+  }
+}
+```
+
+The `ResolvedEmail` object contains everything needed to send one email — the base class has already resolved the template and subject. Your `sendEmail()` just needs to deliver it.
+
+## Key Rotation
+
+The BLUE/GREEN pattern enables zero-downtime key rotation. Tokens are verified against each public key until one succeeds.
+
+### Secrets and Variables
+
+**Secrets** - Generate two key pairs with:
+```bash
+# Generate and display private key (copy for next step)
+openssl genpkey -algorithm ed25519 | tee /dev/stderr | openssl pkey -pubout
+```
+
+Set in the dashboard or via command line:
+
+```bash
+# Primary key pair (signs new tokens)
+wrangler secret put JWT_PRIVATE_KEY_BLUE
+wrangler secret put JWT_PUBLIC_KEY_BLUE
+
+# Secondary key pair (verifies old tokens during rotation)
+wrangler secret put JWT_PRIVATE_KEY_GREEN
+wrangler secret put JWT_PUBLIC_KEY_GREEN
+```
+
+Paste each key (including `-----BEGIN/END-----` lines) when prompted.
+
+**Variable** - Set `PRIMARY_JWT_KEY` to `BLUE` in the dashboard or wrangler.jsonc/wrangler.toml
+
+### Key Rotation Procedure
+
+Every 3 months for 6 month lifetime:
+1. **Generate new key pair** for the secondary slot (GREEN if BLUE is primary)
+2. **Switch primary** - change `PRIMARY_JWT_KEY` (to GREEN if BLUE is primary)
+3. **Deploy** - environment variables/secrets only become active on deploy
+
+## Rate Limiting
+
+Rate limiting runs at the Worker level, not in the LumenizeAuth DO. This keeps the singleton DO focused on business logic and leverages Worker horizontal scaling.
+
+### Cloudflare DDoS/Bot Protection
+
+Fingerprint-reputation filtering handles volumetric attacks automatically. No configuration needed.
+
+### Magic-Link Endpoint: Turnstile {#turnstile}
+
+The unauthenticated `POST {prefix}/email-magic-link` endpoint needs abuse protection. [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) proves the requester is human before the request reaches your Worker — it's free, GDPR-compliant, and requires no CAPTCHA interaction.
+
+If `TURNSTILE_SECRET_KEY` is set, `createAuthRoutes` verifies every magic-link request against Cloudflare and returns 403 on failure. If the key is **not** set, Turnstile verification is skipped and a console warning is emitted. See [Get Started with Turnstile](https://developers.cloudflare.com/turnstile/get-started/) to obtain your secret key.
+
+:::warning Deploy with Turnstile enabled
+Without Turnstile, anyone can request magic links for arbitrary email addresses, generating email traffic and potentially exhausting your email sending quota. Always configure `TURNSTILE_SECRET_KEY` before deploying to production.
+:::
+
+Your frontend embeds the [Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/) and includes the resulting token as `cf-turnstile-response` in the request body alongside `email` (see [Request Magic Link](/docs/auth/auth-flow#request-magic-link) for the full request example). `createAuthRoutes` extracts it and verifies with Cloudflare before forwarding to the DO. Returns 403 if verification fails.
+
+### Authenticated Routes: Rate Limiter {#rate-limiter}
+
+`LUMENIZE_AUTH_RATE_LIMITER` protects all authenticated routes handled by `createRouteDORequestAuthHooks`, keyed on `sub` from the decoded JWT. Uses Cloudflare's [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+
+If the binding is not configured, rate limiting is skipped and a console warning is emitted.
+
+:::warning Deploy with rate limiting enabled
+Without per-subject rate limiting, a compromised or malicious JWT can flood your Durable Objects with requests. Always add the `LUMENIZE_AUTH_RATE_LIMITER` binding before deploying to production.
+:::
+
+### Setup
+
+Add the rate limiting binding to your `wrangler.jsonc`:
+
+```jsonc
+{
+  "rate_limits": [
+    { "binding": "LUMENIZE_AUTH_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 100, "period": 60 } }
+  ]
+}
+```
+
+Add the Turnstile secret key:
+
+```bash
+# Local development (.dev.vars)
+TURNSTILE_SECRET_KEY=0x4AAAAAAA...
+
+# Use wrangler or dashboard for production
+wrangler secret put TURNSTILE_SECRET_KEY
+```
+
+Both functions read all configuration from `env` automatically — `TURNSTILE_SECRET_KEY`, `LUMENIZE_AUTH_RATE_LIMITER`, and all [auth config](/docs/auth/configuration#what-mustmight-be-in-env) variables (see [Worker Setup](#worker-setup)).
+
+### Rate Limiting Caveats
+
+The rate limiting binding is **per Cloudflare location** (not globally consistent) and **eventually consistent**. It is designed for abuse prevention, not precise accounting. This is fine for auth rate limiting — the goal is to stop floods, not enforce exact quotas.
+
+## Audit Logging
+
+All authentication and subject management operations produce structured JSON log entries via [`@lumenize/debug`](/docs/debug). These are emitted to `console.debug` and captured by Cloudflare's observability pipeline — no additional tables, endpoints, or retention logic needed.
+
+Every audit entry includes a hierarchical namespace (`auth.LumenizeAuth.{category}.{action}`), a level (`info` or `warn`), a message, and a `data` object with fields like `targetSub`, `actorSub`, and action-specific details. Security-relevant events (failed logins, access denials, token revocations, subject deletions) use `warn` level; normal operational events (subject creation, logins, invites) use `info`.
+
+Filter in the Cloudflare dashboard by namespace and level:
+
+- `auth.LumenizeAuth` — all auth audit events
+- `auth.LumenizeAuth.login` — login successes and failures
+- `auth.LumenizeAuth:warn` — security-relevant events only
+
+Audit logging is always active when `DEBUG` includes `auth` (or `*`). In production, set `DEBUG=auth` as an environment variable. In tests, inject it via `miniflare.bindings` in your `vitest.config.js`.

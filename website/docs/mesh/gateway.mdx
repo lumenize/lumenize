@@ -1,0 +1,117 @@
+---
+title: Gateway Internals
+description: How LumenizeClientGateway bridges the mesh and WebSocket clients
+---
+
+# LumenizeClientGateway
+
+LumenizeClientGateway is a **zero-storage Durable Object** that bridges mesh nodes that are running outside of Cloudflare (browser/node.js/etc.) into the Lumenize Mesh. It extends `DurableObject` directly, not `LumenizeDO`, to avoid any storage operations.
+
+## Design Principles
+
+### Zero Storage = Zero Cost When Idle
+
+LumenizeClientGateway uses **no DO storage operations**:
+- No `ctx.storage.put/get/delete`
+- No `ctx.storage.sql`
+- No `ctx.storage.kv`
+
+Instead, state is derived from:
+- `this.ctx.getWebSockets()` — Active WebSocket connections
+- `this.ctx.getAlarm()` — Pending reconnection grace period
+- `ws.deserializeAttachment()` — Per-connection context
+
+This zero-storage design is foundational. Clients can use whatever identifiers make sense for their application, and when those identifiers become stale — a tab closes, a session ends, a user logs out — there's no cleanup required. Abandoned Gateway instances incur no ongoing costs and leave no orphaned data. 
+
+### 1:1 Gateway-Client Relationship
+
+Each LumenizeClient connects to **its own** Gateway instance. Using the document editing example from the [Getting Started Guide](./getting-started):
+
+```
+Alice's browser (alice.tab1) → Gateway DO "alice.tab1"
+Bob's browser (bob.tab1)     → Gateway DO "bob.tab1"
+Bob's second tab (bob.tab2)  → Gateway DO "bob.tab2"
+```
+
+The Gateway instance name matches the client's `instanceName` configuration.
+
+### Transparent Proxying
+
+Gateway doesn't interpret the calls passing through it — it simply forwards them from the caller to the callee using Workers RPC and WebSocket messages. This keeps Gateway simple and allows clients to act as true peers by defining any methods they want just like `LumenizeDO` and `LumenizeWorker` mesh nodes.
+
+### Implications
+
+- **Cost**: 
+  - **Decreases**. Charges are only incurred when actively processing messages. 
+  - **Increases**. On the other hand, the use of a Gateway increases request count charges.
+  
+- **Ephemerality**: While the same client must reconnect with the same id to preserve subscriptions, resubscribing is expected frequently and there is no downside when a new tab/browser/nodejs instance/etc. connects with a different randomly generated tabId.
+  
+- **Latency**: This design adds one hop inside of Cloudflare, but the primary driver for latency is the cumulative physical distance of the hops from caller to callee which would only be significantly increased in rare cases. A single hop between regions can be several hundred milliseconds, but a hop in the same data center is typically less than ten milliseconds.
+  
+- **Complexity**:
+  - **More complex**. A single client connecting to a single DO over a reconnecting WebSocket connection is simpler. Once a client needs to communicate with two or more DOs, the need to maintain multiple connections erases the simplicity advantage of the single-DO use case.
+  - **Simpler**. Having a client address look exactly like the address of other nodes in the mesh enables the simpler true-peer mental-model. Clients are not only coded like other mesh nodes, they are addressed in the same way. The upstream vs downstream distinction disappears. 
+
+## Derived Connection State
+
+Gateway state is **derived**, not stored. On every message, it checks:
+
+| `getWebSockets()` | `getAlarm()` | State | Behavior |
+|-------------------|--------------|-------|----------|
+| Has connection | Any | **Connected** | Forward calls immediately |
+| Empty | Pending | **Grace Period** | Wait for reconnect (up to 5s) |
+| Empty | None | **Disconnected** | Reject calls with `ClientDisconnectedError` |
+
+## WebSocket Attachments
+
+Attachments store per-connection context **without using DO storage**. When a client connects, the Gateway decodes the verified JWT and stores the identity (`sub`, claims, expiration) in an attachment associated with the hibernatable WebSocket.
+
+This mechanism ensures:
+- **Hibernation Safety**: Attachments persist across DO hibernation. When the DO wakes up to handle a message, it can immediately access the verified identity from the active WebSocket.
+- **Zero Storage Cost**: No KV or SQL operations are needed to maintain connection state.
+
+## Why Not Extend LumenizeDO?
+
+LumenizeDO stores identity in `ctx.storage.kv`:
+- `__lmz_do_binding_name`
+- `__lmz_do_instance_name`
+
+For Gateway's zero-storage requirement, this is unacceptable. Gateway extends `DurableObject` directly and derives all state from:
+- WebSocket list
+- Alarm status
+- WebSocket attachments
+
+## Error Handling
+
+### Client Not Connected
+
+If a mesh node attempts to call a client that is disconnected and its grace period has expired, the caller receives a `ClientDisconnectedError`.
+
+### Grace Period Expires
+
+If the call arrives during the grace period, Gateway waits for the client to reconnect. If the grace period expires before reconnection, the caller receives `ClientDisconnectedError`.
+
+### Client Call Timeout
+
+While other mesh nodes can take longer to respond to a call, the Gateway enforces a 30-second timeout for client responses. If the client doesn't respond in time, the connection is closed and a `ClientDisconnectedError` is returned to the caller.
+
+### Token Expiration
+
+Gateway verifies token expiration on each incoming message using the stored `tokenExp` in the WebSocket attachment. If the token is expired, the connection is closed with a `4401` code and 'Token expired' message.
+
+### Resubscribing
+
+When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates — see [Handling Subscription Loss](./lumenize-client#handling-subscription-loss) for the client-side pattern.
+
+## Trust Demilitarized Zone (DMZ)
+
+The Gateway is the **trust DMZ** between less trusted clients and more trusted mesh. When forwarding a client's call to the mesh, the Gateway builds the call context from **verified sources only** (JWT claims and connection data). Even if a malicious client sends fake identity information in a call message, the Gateway ignores it and uses only the verified data from the WebSocket attachment.
+
+This ensures that `callContext.originAuth` always reflects the **actual authenticated user**, not whatever the client claimed.
+
+> **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
+
+## Wire Protocol
+
+The Gateway and Client communicate over WebSocket using JSON messages. For complete message type definitions and serialization format details, see the [Protocol Specification](./protocol#websocket-wire-protocol).

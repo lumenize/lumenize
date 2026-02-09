@@ -1,0 +1,803 @@
+import { DurableObject } from 'cloudflare:workers';
+import { preprocess, postprocess } from '@lumenize/structured-clone';
+import { getDOStub } from '@lumenize/utils';
+import { debug } from '@lumenize/debug';
+import type { CallEnvelope } from './lmz-api.js';
+import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js';
+
+// ============================================
+// Constants
+// ============================================
+
+/** Grace period before marking subscriptions as lost (5 seconds) */
+const GRACE_PERIOD_MS = 5000;
+
+/** Timeout for client to respond to an incoming call (30 seconds) */
+const CLIENT_CALL_TIMEOUT_MS = 30000;
+
+/** Close code for superseded connections (parallel to HTTP 409 Conflict) */
+export const WS_CLOSE_SUPERSEDED = 4409;
+
+// ============================================
+// Wire Protocol Message Types
+// ============================================
+
+/** Message types for Gateway-Client communication */
+export const GatewayMessageType = {
+  /** Client initiating a call to a mesh node */
+  CALL: 'call',
+  /** Gateway returning the result of a client-initiated call */
+  CALL_RESPONSE: 'call_response',
+  /** Mesh node calling the client (forwarded by Gateway) */
+  INCOMING_CALL: 'incoming_call',
+  /** Client's response to an incoming call */
+  INCOMING_CALL_RESPONSE: 'incoming_call_response',
+  /** Post-handshake status (sent immediately after connection) */
+  CONNECTION_STATUS: 'connection_status',
+} as const;
+
+export type GatewayMessageType = typeof GatewayMessageType[keyof typeof GatewayMessageType];
+
+// ============================================
+// Wire Protocol Message Interfaces
+// ============================================
+
+/**
+ * WebSocket Wire Protocol Serialization
+ *
+ * All messages use JSON over WebSocket. Fields that may contain extended types
+ * (Maps, Sets, Dates, custom Errors) use @lumenize/structured-clone:
+ *
+ * | Field | Preprocessing | Notes |
+ * |-------|---------------|-------|
+ * | `chain` | Always | May contain any type in method args |
+ * | `callContext.state` | Always | User-defined, may contain extended types |
+ * | `result` | Always | Method return value, any type |
+ * | `error` | Always | Custom Error subclasses with properties |
+ * | Other fields | Never | Plain strings/booleans |
+ *
+ * Note: `error` uses preprocessing to preserve custom Error properties
+ * that native structured clone would lose.
+ */
+
+/** Message from client initiating a mesh call */
+export interface CallMessage {
+  type: typeof GatewayMessageType.CALL;
+  callId: string;
+  binding: string;
+  instance?: string;
+  /** Preprocessed operation chain (contains method args which may be any type) */
+  chain: any;
+  callContext?: {
+    /** Plain strings - no preprocessing needed */
+    callChain: NodeIdentity[];
+    /** User-defined, preprocessed for WebSocket (may contain Maps, Sets, etc.) */
+    state: any;
+  };
+}
+
+/** Response to a client-initiated call */
+export interface CallResponseMessage {
+  type: typeof GatewayMessageType.CALL_RESPONSE;
+  callId: string;
+  success: boolean;
+  /** Preprocessed result (may be any type) */
+  result?: any;
+  /** Preprocessed error (preserves custom Error properties) */
+  error?: any;
+}
+
+/** Mesh node calling the client (forwarded by Gateway) */
+export interface IncomingCallMessage {
+  type: typeof GatewayMessageType.INCOMING_CALL;
+  callId: string;
+  /** Preprocessed operation chain */
+  chain: any;
+  callContext: {
+    /** Plain strings - no preprocessing needed */
+    callChain: NodeIdentity[];
+    originAuth?: OriginAuth;
+    /** User-defined, preprocessed for WebSocket */
+    state: any;
+  };
+}
+
+/** Client's response to an incoming call */
+export interface IncomingCallResponseMessage {
+  type: typeof GatewayMessageType.INCOMING_CALL_RESPONSE;
+  callId: string;
+  success: boolean;
+  /** Preprocessed result */
+  result?: any;
+  /** Preprocessed error (preserves custom Error properties) */
+  error?: any;
+}
+
+/** Post-handshake status message */
+export interface ConnectionStatusMessage {
+  type: typeof GatewayMessageType.CONNECTION_STATUS;
+  subscriptionRequired: boolean;
+}
+
+/** Union of all Gateway messages */
+export type GatewayMessage =
+  | CallMessage
+  | CallResponseMessage
+  | IncomingCallMessage
+  | IncomingCallResponseMessage
+  | ConnectionStatusMessage;
+
+// ============================================
+// Custom Errors
+// ============================================
+
+/**
+ * Error thrown when attempting to call a disconnected client
+ *
+ * This error is thrown when:
+ * - A mesh node calls a client that is not connected
+ * - The client's grace period has expired
+ * - The client doesn't respond within the timeout
+ *
+ * Register on globalThis for proper serialization across mesh nodes:
+ * ```typescript
+ * (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
+ * ```
+ */
+export class ClientDisconnectedError extends Error {
+  name = 'ClientDisconnectedError';
+
+  constructor(
+    message: string = 'Client is not connected',
+    public readonly clientInstanceName?: string
+  ) {
+    super(message);
+  }
+}
+
+// Register on globalThis for @lumenize/structured-clone serialization
+(globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
+
+// ============================================
+// WebSocket Attachment Types
+// ============================================
+
+/** Data stored in WebSocket attachment (survives hibernation) */
+interface WebSocketAttachment {
+  /** Subject ID from verified JWT (RFC 7519 `sub` claim) */
+  sub: string;
+  /** JWT claims relevant to authorization */
+  claims?: Record<string, unknown>;
+  /** Token expiration timestamp (seconds since epoch) */
+  tokenExp?: number;
+  /** When the connection was established */
+  connectedAt: number;
+  /** Instance name of this Gateway (for identity) */
+  instanceName?: string;
+}
+
+// ============================================
+// Internal Types
+// ============================================
+
+/** Pending call waiting for client response */
+interface PendingCall {
+  resolve: (result: any) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+/** Waiter for client reconnection during grace period */
+interface ReconnectWaiter {
+  resolve: () => void;
+  reject: (error: Error) => void;
+}
+
+// ============================================
+// LumenizeClientGateway
+// ============================================
+
+/**
+ * LumenizeClientGateway - Zero-storage WebSocket bridge for mesh clients
+ *
+ * This Durable Object bridges browser/Node.js clients into the Lumenize Mesh.
+ * It extends DurableObject directly (NOT LumenizeDO) to maintain zero-storage design.
+ *
+ * **Design Principles:**
+ * - Zero storage operations (no ctx.storage.kv, no ctx.storage.sql)
+ * - State derived from getWebSockets(), getAlarm(), and WebSocket attachments
+ * - 1:1 relationship with clients (each client has its own Gateway instance)
+ * - Transparent proxying (doesn't interpret calls, just forwards them)
+ * - Trust DMZ (builds callContext.callChain[0] and originAuth from verified sources)
+ *
+ * **Connection States (derived, not stored):**
+ * | getWebSockets() | getAlarm() | State | subscriptionRequired |
+ * |-----------------|------------|-------|---------------------|
+ * | Has connection | Any | Connected | n/a |
+ * | Empty | Pending (≤5s) | Grace Period | false |
+ * | Empty | None | Disconnected | true |
+ */
+export class LumenizeClientGateway extends DurableObject<any> {
+  #debugFactory = debug;
+
+  /** Pending calls waiting for client response */
+  #pendingCalls = new Map<string, PendingCall>();
+
+  /** Waiters for client reconnection during grace period */
+  #pendingReconnectWaiters: ReconnectWaiter[] = [];
+
+  /**
+   * Handle incoming HTTP requests (primarily WebSocket upgrades)
+   */
+  async fetch(request: Request): Promise<Response> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.fetch');
+
+    // Only handle WebSocket upgrades
+    const upgradeHeader = request.headers.get('Upgrade');
+    if (upgradeHeader?.toLowerCase() !== 'websocket') {
+      return new Response('Expected WebSocket upgrade', { status: 426 });
+    }
+
+    // Extract verified JWT from Authorization header (set by auth hooks)
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      log.warn('WebSocket upgrade rejected: missing Authorization Bearer header');
+      return new Response('Unauthorized: missing identity', { status: 401 });
+    }
+
+    // Decode JWT payload (no verification needed — Worker hooks already verified)
+    const jwtToken = authHeader.slice(7); // Strip 'Bearer '
+    let sub: string;
+    let claims: Record<string, unknown> | undefined;
+    let tokenExp: number | undefined;
+    try {
+      const payloadB64 = jwtToken.split('.')[1];
+      const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
+      const payload = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+      sub = payload.sub;
+      tokenExp = payload.exp;
+      // Carry relevant claims for originAuth
+      claims = {
+        emailVerified: payload.emailVerified,
+        adminApproved: payload.adminApproved,
+        ...(payload.isAdmin ? { isAdmin: payload.isAdmin } : {}),
+        ...(payload.act ? { act: payload.act } : {}),
+      };
+    } catch (e) {
+      log.warn('Failed to decode JWT from Authorization header');
+      return new Response('Unauthorized: invalid token', { status: 401 });
+    }
+
+    if (!sub) {
+      log.warn('WebSocket upgrade rejected: JWT missing sub claim');
+      return new Response('Unauthorized: missing identity', { status: 401 });
+    }
+
+    // Extract instance name from routing headers (set by routeDORequest)
+    const instanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
+
+    // Validate identity matches Gateway instance name (security check)
+    // Gateway instance name MUST follow format: {sub}.{tabId}
+    // This prevents reconnection hijacking during the 5-second grace period
+    if (!instanceName) {
+      log.warn('WebSocket upgrade rejected: missing instance name header');
+      return new Response('Forbidden: missing instance name', { status: 403 });
+    }
+
+    const dotIndex = instanceName.indexOf('.');
+    if (dotIndex === -1) {
+      log.warn('Invalid instance name format', { instanceName, expected: '{sub}.{tabId}' });
+      return new Response('Forbidden: invalid instance name format (expected sub.tabId)', { status: 403 });
+    }
+
+    const instanceSub = instanceName.substring(0, dotIndex);
+    if (instanceSub !== sub) {
+      log.warn('Identity mismatch: sub does not match instance name prefix', {
+        sub,
+        instanceSub,
+        instanceName
+      });
+      return new Response('Forbidden: identity mismatch', { status: 403 });
+    }
+
+    // Determine if client needs to (re)establish subscriptions
+    const subscriptionRequired = await this.#isSubscriptionRequired();
+
+    // Accept WebSocket with hibernation support
+    const pair = new WebSocketPair();
+    const [client, server] = [pair[0], pair[1]];
+
+    // Store verified identity in WebSocket attachment
+    const attachment: WebSocketAttachment = {
+      sub,
+      claims,
+      tokenExp,
+      connectedAt: Date.now(),
+      instanceName,
+    };
+
+    // Close any existing sockets before accepting the new one.
+    // Multiple sockets means the client reconnected — supersede the old connection.
+    const existingSockets = this.ctx.getWebSockets();
+    for (const sock of existingSockets) {
+      sock.close(WS_CLOSE_SUPERSEDED, 'Superseded by new connection');
+    }
+
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment(attachment);
+
+    // Resolve any pending reconnect waiters
+    this.#resolveReconnectWaiters();
+
+    // Clear grace period alarm if set
+    const alarm = await this.ctx.storage.getAlarm();
+    if (alarm !== null) {
+      await this.ctx.storage.deleteAlarm();
+    }
+
+    // Send connection status immediately after accepting
+    // No complex types, use JSON.stringify directly
+    const statusMessage: ConnectionStatusMessage = {
+      type: GatewayMessageType.CONNECTION_STATUS,
+      subscriptionRequired,
+    };
+    server.send(JSON.stringify(statusMessage));
+
+    log.info('WebSocket connection accepted', {
+      sub,
+      instanceName,
+      subscriptionRequired,
+    });
+
+    // Return upgrade response with 'lmz' protocol
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: {
+        'Sec-WebSocket-Protocol': 'lmz',
+      },
+    });
+  }
+
+  /**
+   * Handle incoming WebSocket messages from the client
+   */
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketMessage');
+
+    // Only handle string messages (JSON)
+    if (typeof message !== 'string') {
+      log.warn('Received non-string message, ignoring');
+      return;
+    }
+
+    // Check token expiration
+    const attachment = ws.deserializeAttachment() as WebSocketAttachment | null;
+    if (attachment?.tokenExp && attachment.tokenExp < Date.now() / 1000) {
+      log.warn('Token expired, closing connection');
+      ws.close(4401, 'Token expired');
+      return;
+    }
+
+    let parsed: GatewayMessage;
+    try {
+      // Use JSON.parse - chain is already preprocessed by client, keep it that way
+      parsed = JSON.parse(message) as GatewayMessage;
+    } catch (e) {
+      log.error('Failed to parse message', { error: e });
+      return;
+    }
+
+    switch (parsed.type) {
+      case GatewayMessageType.CALL:
+        await this.#handleClientCall(ws, parsed as CallMessage, attachment);
+        break;
+
+      case GatewayMessageType.INCOMING_CALL_RESPONSE:
+        this.#handleIncomingCallResponse(parsed as IncomingCallResponseMessage);
+        break;
+
+      default:
+        log.warn('Unknown message type', { type: (parsed as any).type });
+    }
+  }
+
+  /**
+   * Handle WebSocket close event
+   */
+  async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketClose');
+
+    log.info('WebSocket closed', { code, reason });
+
+    // Skip grace period for superseded connections — a new connection already exists
+    if (code === WS_CLOSE_SUPERSEDED) {
+      return;
+    }
+
+    // Set grace period alarm (5 seconds)
+    // If client reconnects before alarm fires, subscriptions are preserved
+    await this.ctx.storage.setAlarm(Date.now() + GRACE_PERIOD_MS);
+  }
+
+  /**
+   * Handle WebSocket error event
+   */
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.webSocketError');
+    log.error('WebSocket error', { error });
+  }
+
+  /**
+   * Handle alarm (grace period expired)
+   */
+  async alarm(): Promise<void> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.alarm');
+
+    // Grace period expired - client didn't reconnect in time
+    log.info('Grace period expired');
+
+    // Explicitly delete alarm to ensure zero storage remains
+    await this.ctx.storage.deleteAlarm();
+
+    // Reject all pending reconnect waiters
+    this.#rejectReconnectWaiters(new ClientDisconnectedError(
+      'Client did not reconnect within grace period',
+      this.#getInstanceName()
+    ));
+  }
+
+  /**
+   * Receive and execute an RPC call from a mesh node destined for the client
+   *
+   * This is called by mesh nodes via: this.lmz.call('LUMENIZE_CLIENT_GATEWAY', clientId, ...)
+   */
+  async __executeOperation(envelope: CallEnvelope): Promise<any> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.__executeOperation');
+
+    // Envelope is plain JSON with only chain preprocessed
+    // No postprocessing needed - we pass the preprocessed chain directly to the client
+
+    // Validate envelope version
+    if (!envelope.version || envelope.version !== 1) {
+      return { $error: preprocess(new Error(`Unsupported RPC envelope version: ${envelope.version}`)) };
+    }
+
+    // Get active WebSocket connection
+    let ws = this.#getActiveWebSocket();
+
+    if (!ws) {
+      // Check if we're in grace period
+      const alarm = await this.ctx.storage.getAlarm();
+
+      if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+        // In grace period - wait for reconnection
+        log.info('Client disconnected, waiting for reconnect during grace period');
+        await this.#waitForReconnect();
+        ws = this.#getActiveWebSocket();
+
+        if (!ws) {
+          return { $error: preprocess(new ClientDisconnectedError(
+            'Client did not reconnect in time',
+            this.#getInstanceName()
+          )) };
+        }
+      } else {
+        // Not in grace period - client is disconnected
+        return { $error: preprocess(new ClientDisconnectedError(
+          'Client is not connected',
+          this.#getInstanceName()
+        )) };
+      }
+    }
+
+    // Check token expiration before forwarding
+    const attachment = ws.deserializeAttachment() as WebSocketAttachment | null;
+    if (attachment?.tokenExp && attachment.tokenExp < Date.now() / 1000) {
+      log.warn('Token expired, closing connection');
+      ws.close(4401, 'Token expired');
+      return { $error: preprocess(new ClientDisconnectedError(
+        'Client token expired',
+        this.#getInstanceName()
+      )) };
+    }
+
+    // Forward call to client and wait for response
+    // Return wrapped result/error for Workers RPC compatibility
+    try {
+      const result = await this.#forwardToClient(ws, envelope);
+      return { $result: result };
+    } catch (error) {
+      return { $error: preprocess(error) };
+    }
+  }
+
+  // ============================================
+  // Private Methods - Call Handling
+  // ============================================
+
+  /**
+   * Handle a call from the client to a mesh node
+   */
+  async #handleClientCall(
+    ws: WebSocket,
+    message: CallMessage,
+    attachment: WebSocketAttachment | null
+  ): Promise<void> {
+    const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.#handleClientCall');
+    const { callId, binding, instance, chain, callContext: clientContext } = message;
+
+    try {
+      // Build origin identity from VERIFIED sources (WebSocket attachment)
+      // This replaces whatever the client sent - Gateway is the trust boundary
+      const verifiedOrigin: NodeIdentity = {
+        type: 'LumenizeClient',
+        bindingName: 'LUMENIZE_CLIENT_GATEWAY', // Clients connect through Gateway binding
+        instanceName: attachment?.instanceName,
+      };
+
+      // Build originAuth from VERIFIED sources (WebSocket attachment)
+      const originAuth: OriginAuth | undefined = attachment?.sub
+        ? {
+            sub: attachment.sub,
+            claims: attachment.claims,
+          }
+        : undefined;
+
+      // Build callContext - callChain[0] is verified origin, rest comes from client
+      // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
+      // State is preprocessed by client for WebSocket - postprocess for Workers RPC
+      const clientCallChain = clientContext?.callChain ?? [];
+      const callContext: CallContext = {
+        callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
+        originAuth,
+        state: clientContext?.state ? postprocess(clientContext.state) : {},
+      };
+
+      // Determine callee type for metadata
+      const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
+
+      // Build envelope - chain is already preprocessed by client
+      const envelope: CallEnvelope = {
+        version: 1,
+        chain, // Already preprocessed by client - pass through
+        callContext,
+        metadata: {
+          caller: {
+            type: 'LumenizeClient',
+            bindingName: 'LUMENIZE_CLIENT_GATEWAY',
+            instanceName: attachment?.instanceName,
+          },
+          callee: {
+            type: calleeType,
+            bindingName: binding,
+            instanceName: instance,
+          },
+        },
+      };
+
+      // Get stub and call
+      let stub: any;
+      if (instance) {
+        stub = getDOStub(this.env[binding], instance);
+      } else {
+        stub = this.env[binding];
+      }
+
+      // Send envelope - chain is already preprocessed
+      // executeEnvelope returns { $result: ... } or { $error: ... } wrapper
+      const wrapped = await stub.__executeOperation(envelope);
+
+      // Unwrap result/error wrapper from executeEnvelope
+      if (wrapped && '$error' in wrapped) {
+        // Error case - send error response
+        // The error is already preprocessed by executeEnvelope
+        const response: CallResponseMessage = {
+          type: GatewayMessageType.CALL_RESPONSE,
+          callId,
+          success: false,
+          error: wrapped.$error, // Already preprocessed
+        };
+        ws.send(JSON.stringify(response));
+        return;
+      }
+
+      // Success case - send success response
+      // Preprocess only the result (may contain Maps, Sets, etc.)
+      const response: CallResponseMessage = {
+        type: GatewayMessageType.CALL_RESPONSE,
+        callId,
+        success: true,
+        result: preprocess(wrapped?.$result),
+      };
+      ws.send(JSON.stringify(response));
+
+    } catch (error) {
+      log.error('Call failed', { callId, binding, instance, error });
+
+      // Send error response (transport-level error, not business logic error)
+      // Preprocess only the error (may contain Error objects)
+      const response: CallResponseMessage = {
+        type: GatewayMessageType.CALL_RESPONSE,
+        callId,
+        success: false,
+        error: preprocess(error),
+      };
+      ws.send(JSON.stringify(response));
+    }
+  }
+
+  /**
+   * Handle a response from the client to an incoming call
+   */
+  #handleIncomingCallResponse(message: IncomingCallResponseMessage): void {
+    const { callId, success, result, error } = message;
+
+    const pending = this.#pendingCalls.get(callId);
+    if (!pending) {
+      const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.#handleIncomingCallResponse');
+      log.warn('Received response for unknown call', { callId });
+      return;
+    }
+
+    // Clear timeout and remove from pending
+    clearTimeout(pending.timeout);
+    this.#pendingCalls.delete(callId);
+
+    // Resolve or reject
+    // Note: result/error are preprocessed by client, postprocess them here
+    if (success) {
+      pending.resolve(postprocess(result));
+    } else {
+      const deserializedError = postprocess(error);
+      pending.reject(deserializedError instanceof Error ? deserializedError : new Error(String(deserializedError)));
+    }
+  }
+
+  /**
+   * Forward a mesh call to the client and wait for response
+   */
+  async #forwardToClient(ws: WebSocket, envelope: CallEnvelope): Promise<any> {
+    const callId = crypto.randomUUID();
+
+    // Build incoming call message for client
+    // Chain is already preprocessed (caller's callRaw preprocesses for consistency)
+    // State is native from Workers RPC - preprocess for WebSocket
+    const message: IncomingCallMessage = {
+      type: GatewayMessageType.INCOMING_CALL,
+      callId,
+      chain: envelope.chain, // Already preprocessed by caller
+      callContext: {
+        callChain: envelope.callContext.callChain,  // Plain strings - no preprocessing
+        originAuth: envelope.callContext.originAuth,  // From JWT - no preprocessing
+        state: preprocess(envelope.callContext.state),  // Native → preprocessed for WebSocket
+      },
+    };
+
+    return new Promise<any>((resolve, reject) => {
+      // Set timeout for client response
+      const timeout = setTimeout(() => {
+        this.#pendingCalls.delete(callId);
+        reject(new ClientDisconnectedError(
+          'Client call timed out',
+          this.#getInstanceName()
+        ));
+      }, CLIENT_CALL_TIMEOUT_MS);
+
+      // Track pending call
+      this.#pendingCalls.set(callId, { resolve, reject, timeout });
+
+      // Send to client
+      ws.send(JSON.stringify(message));
+    });
+  }
+
+  // ============================================
+  // Private Methods - Connection State
+  // ============================================
+
+  /**
+   * Get the active WebSocket connection (if any)
+   */
+  #getActiveWebSocket(): WebSocket | null {
+    const sockets = this.ctx.getWebSockets();
+    return sockets.find(s => s.readyState === WebSocket.OPEN) ?? null;
+  }
+
+  /**
+   * Get the instance name of this Gateway DO from the WebSocket attachment
+   */
+  #getInstanceName(): string | undefined {
+    const ws = this.#getActiveWebSocket();
+    if (ws) {
+      const attachment = ws.deserializeAttachment() as WebSocketAttachment | null;
+      return attachment?.instanceName;
+    }
+    return undefined;
+  }
+
+  /**
+   * Determine if client needs to (re)establish subscriptions
+   *
+   * Returns false when:
+   * - Superseding an existing connection (subscriptions still active)
+   * - Reconnecting within the 5-second grace period (alarm pending)
+   *
+   * Returns true for everything else: fresh connection, reconnect after
+   * grace period expired, tab wake-up.
+   */
+  async #isSubscriptionRequired(): Promise<boolean> {
+    // Supersession: existing socket means subscriptions are still active
+    if (this.ctx.getWebSockets().length > 0) {
+      return false;
+    }
+
+    const alarm = await this.ctx.storage.getAlarm();
+
+    if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+      // Reconnected within grace period — subscriptions still active
+      return false;
+    }
+
+    // Everything else: fresh connection, post-grace-period, or no alarm
+    return true;
+  }
+
+  // ============================================
+  // Private Methods - Grace Period
+  // ============================================
+
+  /**
+   * Wait for client to reconnect during grace period
+   */
+  async #waitForReconnect(): Promise<void> {
+    const alarm = await this.ctx.storage.getAlarm();
+
+    if (alarm === null) {
+      throw new ClientDisconnectedError(
+        'Client is not connected and no grace period active',
+        this.#getInstanceName()
+      );
+    }
+
+    const remainingMs = alarm - Date.now();
+    if (remainingMs <= 0) {
+      throw new ClientDisconnectedError(
+        'Client grace period has expired',
+        this.#getInstanceName()
+      );
+    }
+
+    return new Promise((resolve, reject) => {
+      // Add to waiters list - will be resolved when client reconnects
+      this.#pendingReconnectWaiters.push({ resolve, reject });
+
+      // Note: We don't set a timeout here because the alarm() method
+      // will reject all waiters when grace period expires
+    });
+  }
+
+  /**
+   * Resolve all pending reconnect waiters (called when client reconnects)
+   */
+  #resolveReconnectWaiters(): void {
+    const waiters = this.#pendingReconnectWaiters;
+    this.#pendingReconnectWaiters = [];
+
+    for (const waiter of waiters) {
+      waiter.resolve();
+    }
+  }
+
+  /**
+   * Reject all pending reconnect waiters (called when grace period expires)
+   */
+  #rejectReconnectWaiters(error: Error): void {
+    const waiters = this.#pendingReconnectWaiters;
+    this.#pendingReconnectWaiters = [];
+
+    for (const waiter of waiters) {
+      waiter.reject(error);
+    }
+  }
+}

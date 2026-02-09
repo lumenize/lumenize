@@ -11,7 +11,6 @@ import { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 import { TestEndpointsDO, createTestEndpoints } from '@lumenize/test-endpoints';
 import { LumenizeBase } from '@lumenize/lumenize-base';
 import { routeDORequest } from '@lumenize/utils';
-import '@lumenize/alarms'; // NADIS plugin for timeout handling
 import '@lumenize/proxy-fetch'; // NADIS plugin - registers this.svc.proxyFetch
 
 /**

@@ -1,0 +1,35 @@
+{
+  "name": "mesh-security",
+  "main": "index.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "LUMENIZE_CLIENT_GATEWAY",
+        "class_name": "LumenizeClientGateway"
+      },
+      {
+        "name": "PROTECTED_DO",
+        "class_name": "UserProfileDO"
+      },
+      {
+        "name": "TEAM_DOC_DO",
+        "class_name": "TeamDocDO"
+      },
+      {
+        "name": "LUMENIZE_AUTH",
+        "class_name": "LumenizeAuth"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["LumenizeClientGateway", "UserProfileDO", "TeamDocDO", "LumenizeAuth"]
+    }
+  ],
+  "vars": {
+    "PRIMARY_JWT_KEY": "BLUE",
+    "LUMENIZE_AUTH_REDIRECT": "/app"
+  }
+}

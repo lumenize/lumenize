@@ -9,9 +9,6 @@ let typedocUtilsSidebar: any[] = [];
 let typedocTestingSidebar: any[] = [];
 let typedocFetchSidebar: any[] = [];
 let typedocStructuredCloneSidebar: any[] = [];
-let typedocCoreSidebar: any[] = [];
-let typedocAlarmsSidebar: any[] = [];
-let typedocLumenizeBaseSidebar: any[] = [];
 
 try {
   typedocRpcSidebar = require('./docs/rpc/api/typedoc-sidebar.cjs');
@@ -48,26 +45,6 @@ try {
   console.warn('⚠️  TypeDoc structured-clone sidebar not yet generated, using empty sidebar');
 }
 
-try {
-  typedocCoreSidebar = require('./docs/core/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded core sidebar, items:', typedocCoreSidebar?.length);
-} catch (e) {
-  console.warn('⚠️  TypeDoc core sidebar not yet generated, using empty sidebar');
-}
-
-try {
-  typedocAlarmsSidebar = require('./docs/alarms/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded alarms sidebar, items:', typedocAlarmsSidebar?.length);
-} catch (e) {
-  console.warn('⚠️  TypeDoc alarms sidebar not yet generated, using empty sidebar');
-}
-
-try {
-  typedocLumenizeBaseSidebar = require('./docs/lumenize-base/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded lumenize-base sidebar, items:', typedocLumenizeBaseSidebar?.length);
-} catch (e) {
-  console.warn('⚠️  TypeDoc lumenize-base sidebar not yet generated, using empty sidebar');
-}
 
 /**
  * Recursively transform TypeDoc sidebar items to customize labels.
@@ -178,12 +155,60 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     'introduction',
 
-    // Concepts
+    // Lumenize Mesh - Primary documentation for the framework
     {
       type: 'category',
-      label: 'Concepts',
+      label: 'Lumenize Mesh',
       items: [
-        'concepts/context-patterns',
+        'mesh/index',
+        'mesh/getting-started',
+        'mesh/calls',
+        {
+          type: 'category',
+          label: 'Node Types',
+          items: [
+            'mesh/lumenize-do',
+            'mesh/lumenize-worker',
+            'mesh/lumenize-client',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Services (this.svc)',
+          link: { type: 'doc', id: 'mesh/services' },
+          items: [
+            'mesh/sql',
+            'mesh/alarms',
+            'mesh/creating-plugins',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Concepts',
+          items: [
+            'mesh/continuations',
+            'mesh/managing-context',
+          ],
+        },
+        'mesh/security',
+        'mesh/gateway',
+        'mesh/protocol',
+        'mesh/testing',
+      ],
+    },
+
+    // Auth
+    {
+      type: 'category',
+      label: 'Auth',
+      items: [
+        'auth/index',
+        'auth/getting-started',
+        'auth/configuration',
+        'auth/auth-flow',
+        'auth/subject-management',
+        'auth/delegation',
+        'auth/testing',
       ],
     },
 
@@ -199,7 +224,6 @@ const sidebars: SidebarsConfig = {
             docTest: 'doc-test/testing/testing-plain-do/test/usage.test.ts'
           }
         },
-        'testing/alarm-simulation',
         {
           type: 'doc',
           id: 'testing/agents',
@@ -302,52 +326,12 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Core Lumenize Packages
+    // Debug
     {
       type: 'category',
-      label: 'LumenizeBase',
+      label: 'Debug',
       items: [
-        'lumenize-base/index',
-        'lumenize-base/creating-plugins',
-        ...(typedocLumenizeBaseSidebar && typedocLumenizeBaseSidebar.length > 0
-          ? [wrapInApiReference(typedocLumenizeBaseSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-
-    {
-      type: 'category',
-      label: 'Core',
-      items: [
-        'core/index',
-        'core/sql',
-        'core/debug',
-        ...(typedocCoreSidebar && typedocCoreSidebar.length > 0
-          ? [wrapInApiReference(typedocCoreSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-
-    {
-      type: 'category',
-      label: 'Alarms',
-      items: [
-        'alarms/index',
-        ...(typedocAlarmsSidebar && typedocAlarmsSidebar.length > 0
-          ? [wrapInApiReference(typedocAlarmsSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-
-    // Lumenize
-    {
-      type: 'category',
-      label: 'Lumenize',
-      items: [
-        'lumenize/introduction',
-        // ...(typedocLumenizeSidebar && typedocLumenizeSidebar.length > 0
-        //   ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
-        //   : []),
+        'debug/index',
       ],
     },
 

@@ -1,63 +1,55 @@
 import '@lumenize/fetch';       // Registers fetch in this.svc
-import { LumenizeBase } from '@lumenize/lumenize-base';
+import { LumenizeDO, mesh } from '@lumenize/mesh';
 import { FetchExecutorEntrypoint } from '@lumenize/fetch';
 import { RequestSync, ResponseSync, stringify, postprocess, preprocess } from '@lumenize/structured-clone';
-import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/lumenize-base';
+import { replaceNestedOperationMarkers, getOperationChain } from '@lumenize/mesh';
 
 // Export FetchExecutorEntrypoint for service binding
 export { FetchExecutorEntrypoint };
 
 /**
  * Test DO for proxyFetch
- * Uses alarms for timeout handling
+ * Uses alarms for timeout handling (built-in to LumenizeDO)
  */
-export class _TestSimpleDO extends LumenizeBase {
+export class _TestSimpleDO extends LumenizeDO {
   constructor(ctx: DurableObjectState, env: any) {
     super(ctx, env);
-    this.lmz.init({ bindingName: 'TEST_SIMPLE_DO' });
-  }
-
-  // Required: Delegate to alarms
-  async alarm() {
-    await this.svc.alarms.alarm();
+    // For tests: manually init identity (normally set via routeDORequest)
+    this.lmz.__init({ bindingName: 'TEST_SIMPLE_DO' });
   }
 
   fetchDataSimple(url: string, reqId?: string): string {
     const finalReqId = this.svc.fetch.proxy(
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
-      {},
-      reqId
+      { reqId }
     );
     return finalReqId;
   }
 
   fetchDataSimpleWithOptions(
-    url: string, 
-    options: { timeout?: number; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } },
-    reqId?: string
+    url: string,
+    options: { timeout?: number; reqId?: string; testMode?: { simulateDeliveryFailure?: boolean; alarmTimeoutOverride?: number } }
   ): string {
     // User just passes their continuation directly - no handleFetchResult() needed!
     const finalReqId = this.svc.fetch.proxy(
       url,
       this.ctn().handleFetchComplete(this.ctn().$result, url),
-      options,
-      reqId
+      options
     );
     return finalReqId;
   }
 
   fetchDataSimpleWithRequestSync(
     url: string,
-    options: { method?: string; headers?: Record<string, string>; body?: any },
-    reqId?: string
+    requestOptions: { method?: string; headers?: Record<string, string>; body?: any },
+    proxyOptions?: { reqId?: string }
   ): string {
-    const request = new RequestSync(url, options);
+    const request = new RequestSync(url, requestOptions);
     const finalReqId = this.svc.fetch.proxy(
       request,
       this.ctn().handleFetchComplete(this.ctn().$result, request.url),
-      {},
-      reqId
+      proxyOptions
     );
     return finalReqId;
   }
@@ -66,6 +58,7 @@ export class _TestSimpleDO extends LumenizeBase {
    * User's handler - receives the result directly (either from worker or timeout)
    * This is the only method the user needs to implement
    */
+  @mesh()
   async handleFetchComplete(result: ResponseSync | Error, url: string): Promise<void> {
     const resultKey = `__test_result:${url}`;
     const serialized = await stringify(result);
@@ -93,7 +86,7 @@ export class _TestSimpleDO extends LumenizeBase {
    * Test helper: Trigger alarms manually
    */
   async triggerAlarmsHelper(count?: number): Promise<string[]> {
-    return await this.svc.alarms.triggerAlarmsForTesting(count);
+    return await this.svc.alarms.triggerAlarms(count);
   }
 
   /**
@@ -161,7 +154,8 @@ export class _TestSimpleDO extends LumenizeBase {
    */
   async handleEmbedWrapper(preprocessedContinuation: any): Promise<void> {
     const userContinuation = postprocess(preprocessedContinuation);
-    await this.__executeChain(userContinuation);
+    // Skip @mesh check - internal test helper executing framework continuation
+    await this.__localChainExecutor(userContinuation, { requireMeshDecorator: false });
   }
 
   /**
@@ -186,15 +180,16 @@ export class _TestSimpleDO extends LumenizeBase {
   async testResultFilling(testValue: any): Promise<void> {
     // Create continuation with $result placeholder
     const continuation = this.ctn().handleResultTest(this.ctn().$result);
-    
+
     // Fill $result with actual value (simulates worker pattern)
     const filled = await replaceNestedOperationMarkers(
       getOperationChain(continuation)!,  // Non-null assertion - continuation is always valid
       testValue
     );
-    
+
     // Execute filled continuation
-    await this.__executeChain(filled);
+    // Skip @mesh check - internal test helper executing framework continuation
+    await this.__localChainExecutor(filled, { requireMeshDecorator: false });
   }
 
   /**

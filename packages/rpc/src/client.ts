@@ -15,7 +15,7 @@ import { WebSocketRpcTransport } from './websocket-rpc-transport';
 import { convertRemoteFunctionsToStrings } from './object-inspection';
 import { walkObject } from './walk-object';
 import { isStructuredCloneNativeType } from './structured-clone-utils';
-import { debug } from '@lumenize/core';
+import { debug } from '@lumenize/debug';
 
 /**
  * WeakMap to track proxy objects and their operation chains.
@@ -325,7 +325,7 @@ export class RpcClient<T> {
   #transport: RpcTransport;
   #connectionPromise: Promise<void> | null = null;
   #doProxy: T | null = null;
-  #log = debug({ env: process.env })('lmz.rpc.RpcClient');
+  #log = debug('lmz.rpc.RpcClient');
   
   // Operations in the same tick are batched
   #executionQueue: QueuedExecution[] = [];
