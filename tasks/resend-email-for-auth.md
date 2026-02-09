@@ -246,30 +246,31 @@ These are what _we_ need to verify the integration against lumenize.com. Users w
 
 ## Phase 2: Email Testing Infrastructure
 
-This phase absorbs the work from `tasks/never/email-testing-infrastructure.md`. The original task was blocked on wanting to use LumenizeDO (then called LumenizeBase) for the receiver DO — that blocker is resolved. The architecture is updated for Resend instead of AWS SES.
+This phase absorbs the work from `tasks/never/email-testing-infrastructure.md`. The original task envisioned using LumenizeDO + Gateway + mesh for the receiver — that was dropped in favor of a plain `DurableObject` with Hibernation WebSocket API. The mesh stack is well-exercised elsewhere; this is focused test infrastructure. The architecture is updated for Resend instead of AWS SES.
 
-**WARNING: Have a clean commit and record its hash before proceeding**: This phase feels pretty risky with many things we've never done before. If it goes off the rails, we should be willing to revert and give up on this approach. **Abort criteria**: If getting Cloudflare Email Routing to deliver to the Worker in dev takes more than 4 hours, or if the EmailTestDO → LumenizeClient WebSocket notification proves unreliable, defer to manual testing and move on to Phase 3 (docs). Phases 3 and 4 do not depend on Phase 2 and remain valuable regardless.
+**WARNING: Have a clean commit and record its hash before proceeding**: This phase feels pretty risky with many things we've never done before. If it goes off the rails, we should be willing to revert and give up on this approach. **Abort criteria**: If getting Cloudflare Email Routing to deliver to the Worker takes more than 4 hours, defer to manual testing and move on to Phase 3 (docs). Phases 3 and 4 do not depend on Phase 2 and remain valuable regardless.
+
 
 ### Architecture
 
-The EmailTestDO lives in its own separate Worker deployment with full auth hooks installed — dogfooding LumenizeDO, LumenizeClient, LumenizeClientGateway, and `createRouteDORequestAuthHooks` for the test infrastructure itself.
+The EmailTestDO is a plain `DurableObject` (not LumenizeDO) in its own Worker deployment. It uses a hard-coded instance name (`"email-inbox"`) so all emails go to one DO — avoiding orphaned storage from dynamic instance names. No Gateway, no auth hooks, no mesh — this is internal test infrastructure, not a dogfooding target. The mesh stack is already well-exercised by the mesh test suite.
 
-**Chicken-and-egg solution**: The test client authenticates to the EmailTest mesh using `createTestRefreshFunction` from `@lumenize/mesh`. This utility mints JWTs locally using `signJwt` + the private key from `.dev.vars`. Auth hooks verify them normally against the corresponding public key — the Gateway is none the wiser. No test mode, no bypass, all production code paths exercised. The client calls `refresh` eagerly on connect, so it has a valid token before the WebSocket upgrade. See [Mesh Testing docs](https://lumenize.com/docs/mesh/testing) for full details.
+The DO uses the Hibernation WebSocket API to push parsed emails to connected test clients in real time (no polling). Tests open a WebSocket before triggering the magic link, then await the push notification.
 
 ```
                           EmailTest Worker               Auth Worker
                           (separate deployment,           (system under test)
-                           full auth hooks)
+                           plain DurableObject)
 
 ┌─────────────┐                                    ┌─────────────┐
 │   Test      │─── POST /auth/email-magic-link ──▶ │ Auth DO     │
 │   Client    │                                    │             │
 │             │                                    └──────┬──────┘
-│  Lumenize-  │                                           │ Resend
-│  Client w/  │                                           ▼
-│  createTest │                                    ┌─────────────┐
-│  Refresh    │                                    │  Resend API │
-│  Function() │                                    └──────┬──────┘
+│             │                                           │ Resend
+│  WebSocket  │                                           ▼
+│  (native,   │                                    ┌─────────────┐
+│   no mesh)  │                                    │  Resend API │
+│             │                                    └──────┬──────┘
 │             │                                           │ test.email
 │             │                                           │ @lumenize.com
 │             │                                           ▼
@@ -281,66 +282,77 @@ The EmailTestDO lives in its own separate Worker deployment with full auth hooks
 │             │                                           │
 │             │   ┌──────────────┐                        │
 │             │◀──│ EmailTestDO  │◀───── email() ─────────┘
-│             │   │ (extends     │
-└─────────────┘   │ LumenizeDO)  │
-   LumenizeClient │              │
-   via Gateway    └──────────────┘
-   (auth hooks      postal-mime
-    verify JWT)      → WebSocket
-                     notification
+│             │   │ extends      │
+└─────────────┘   │ DurableObject│
+   native         │              │
+   WebSocket      └──────────────┘
+   push             postal-mime
+                    → SQLite store
+                    → WebSocket push
 ```
 
 **Test flow**:
-1. Test creates a `refresh` callback via `createTestRefreshFunction({ privateKey })` — private key from `.dev.vars`
-2. LumenizeClient connects to EmailTestDO (through Gateway, auth hooks verify the locally-minted JWT — full mesh dogfooding)
-3. Test POSTs magic link request to the auth Worker (email to `test.email@lumenize.com`)
-4. Auth DO sends email via Resend (through the `AUTH_EMAIL_SENDER` service binding)
-5. Cloudflare Email Routing delivers to EmailTest Worker's `email()` handler
-6. `EmailTestDO` parses email with `postal-mime`, extracts magic link URL
-7. `EmailTestDO` sends parsed email over WebSocket to waiting test (via LumenizeDO → Gateway → LumenizeClient)
-8. Test extracts magic link URL from the parsed email, then uses `Browser.fetch` to GET it on the auth Worker (simulating the user clicking the link in their email client — `Browser` handles cookies so the auth response's `Set-Cookie` for refresh token is captured automatically). Test verifies the full auth flow: token exchange, JWT claims, refresh token rotation.
+1. Test opens a native WebSocket to the EmailTest Worker (`/ws` on the hard-coded `"email-inbox"` instance)
+2. Test POSTs magic link request to the auth Worker (email to `test.email@lumenize.com`)
+3. Auth DO sends email via Resend (through the `AUTH_EMAIL_SENDER` service binding)
+4. Cloudflare Email Routing delivers to EmailTest Worker's `email()` handler
+5. Worker routes to `EmailTestDO("email-inbox")`, which parses with `postal-mime` and stores in SQLite
+6. `EmailTestDO` pushes parsed email JSON to all connected WebSocket clients via `getWebSockets()`
+7. Test receives the push, extracts magic link URL from parsed email HTML
+8. Test uses `Browser.fetch` to GET the magic link URL on the auth Worker (simulating the user clicking the link — `Browser` handles cookies so the `Set-Cookie` for refresh token is captured). Test verifies the full auth flow: token exchange, JWT claims, refresh token rotation.
 
-### Phase 2a: EmailTestDO + Deployment
+### Phase 2a: EmailTestDO + Local Verification
 
-**Goal**: Build a LumenizeDO that receives emails via Cloudflare Email Routing and notifies connected LumenizeClients. Deploy as a separate Worker with full auth hooks.
+**Goal**: Build the EmailTestDO, Worker entry point, and local test that exercises the `email()` handler with synthetic MIME messages. Commit when passing.
 
 **Success Criteria**:
-- [ ] `EmailTestDO` extends `LumenizeDO` — location TBD (probably `tooling/email-test/`)
+- [ ] `EmailTestDO` extends `DurableObject` — in `tooling/email-test/`, hard-coded instance name `"email-inbox"`
+- [ ] `postal-mime` installed as a dependency of `tooling/email-test/` (MIT-0 license, zero deps, ~4.5K SLOC — too large to copy, Cloudflare-recommended for Email Workers)
+- [ ] `SimpleMimeMessage` copied from monolith into `tooling/email-test/src/` with attribution (60 lines, MIME builder — opposite of postal-mime which is a parser)
 - [ ] Parses incoming emails with `postal-mime`
 - [ ] Stores recent emails in SQLite (for debugging/verification)
-- [ ] LumenizeClient subscribers receive email arrival notifications via the mesh
-- [ ] Worker `email()` handler routes inbound email to the DO
-- [ ] Worker has `createRouteDORequestAuthHooks` installed — test clients authenticate via `createTestRefreshFunction` from `@lumenize/mesh`
-- [ ] Worker deployed to Cloudflare
-- [ ] `test.email@lumenize.com` routes to the deployed worker via Cloudflare Email Routing
-- [ ] Manual verification: send email to test address → see it in DO storage
+- [ ] Hibernation WebSocket API: test clients connect to `/ws`, DO pushes parsed email JSON to all connected sockets on arrival
+- [ ] Worker `email()` handler routes inbound email to the `"email-inbox"` DO instance
+- [ ] Local test: build synthetic MIME with `SimpleMimeMessage` → feed to `email()` handler (direct call or POST to test endpoint) → verify postal-mime parsing → verify DO storage → verify WebSocket push
+- [ ] Committed before proceeding to deployment
 
 **Notes**:
-- Prior art exists in `lumenize-monolith/test/test-harness.ts` — has a working `email()` handler with `postal-mime` parsing and a `SimpleMimeMessage` builder for constructing test emails.
-- **Email worker deployment is resolved**: `wrangler deploy` deploys the Worker with an `email()` handler normally. However, **inbound email routing** (binding `test.email@lumenize.com` to the Worker) must be configured in the Cloudflare dashboard — there is no wrangler.jsonc config for inbound email routing. This is a one-time manual step. Local dev works via `wrangler dev` which exposes `/cdn-cgi/handler/email` for testing with raw MIME messages.
-- `lumenize-monolith/test/simple-mime-message.ts` provides a reusable MIME message builder. Consider extracting it to a shared test utility.
-- `lumenize-monolith/test/live-email-routing.test.ts` has a local email parsing test.
-- `createTestRefreshFunction` from `@lumenize/mesh` handles the JWT minting. In a vitest/cloudflare:test environment it auto-reads `JWT_PRIVATE_KEY_BLUE` from env; for deployed tests, pass `privateKey` explicitly from `.dev.vars`. The corresponding public key is configured in the EmailTest Worker's env for hook verification.
+- Prior art exists in `lumenize-monolith/test/test-harness.ts` — has a working `email()` handler with `postal-mime` parsing.
+- `SimpleMimeMessage` (from `lumenize-monolith/test/simple-mime-message.ts`) is a MIME *builder* for constructing test emails. `postal-mime` is a MIME *parser* for reading inbound emails. Both are needed.
+- `lumenize-monolith/test/live-email-routing.test.ts` has a local email parsing test pattern.
+- No auth hooks, no Gateway, no mesh on this Worker — it's internal test infrastructure. Auth is tested on the auth Worker side (the system under test).
+
+### Phase 2a-deploy: Deploy + Email Routing Configuration
+
+**Goal**: Deploy the EmailTest Worker to Cloudflare and configure Email Routing to deliver inbound emails to it. This is where the 4-hour abort clock starts.
+
+**Success Criteria**:
+- [ ] Worker deployed to Cloudflare via `wrangler deploy`
+- [ ] Cloudflare Email Routing configured in dashboard: `test.email@lumenize.com` → EmailTest Worker (manual step — no wrangler.jsonc config for inbound email routing)
+- [ ] Manual verification: send real email to `test.email@lumenize.com` → see it in DO storage (via logs or a debug endpoint)
+
+**Notes**:
+- **Email worker deployment**: `wrangler deploy` handles the Worker + `email()` handler. The **inbound email routing** (binding `test.email@lumenize.com` to the Worker) is a one-time manual dashboard step. The monolith hit this same issue — the comment in `test-harness.ts` says "I COULDN'T FIGURE OUT HOW TO DEPLOY AN EMAIL WORKER. I EDITED IN THE CLOUDFLARE DASHBOARD."
+- This phase involves back-and-forth: agent does code/deploy, user does dashboard configuration (DNS verification, email routing rules).
+- If this takes >4 hours, abort and proceed to Phase 3 (docs). The local infrastructure from Phase 2a is still valuable.
 
 ### Phase 2b: Test Helpers + End-to-End Auth Flow Test
+
+**Prerequisite**: Phase 2a committed, Phase 2a-deploy verified (real email delivered to DO). Commit 2a-deploy before starting 2b.
 
 **Goal**: Build test utilities and an automated end-to-end test of the full magic link auth flow with real email delivery.
 
 **Success Criteria**:
-- [ ] `waitForEmail(client, options)` helper — subscribes via LumenizeClient to EmailTestDO, waits for matching email, returns parsed content
-- [ ] `extractMagicLink(email)` helper — pulls magic link URL from parsed email body
-- [ ] End-to-end test: request magic link → email delivered via Resend → received by EmailTestDO → test extracts and clicks magic link → exchange for tokens → refresh token works → JWT contains expected claims
-- [ ] WebSocket auth flow tested: access token used in subprotocol → Gateway accepts connection
-- [ ] `createRouteDORequestAuthHooks` verifies the JWT correctly (both `onBeforeRequest` and `onBeforeConnect`)
+- [ ] `waitForEmail(ws, options)` helper — opens native WebSocket to EmailTestDO, waits for matching email push, returns parsed content
+- [ ] `extractMagicLink(email)` helper — pulls magic link URL from parsed email HTML
+- [ ] End-to-end test: request magic link → email delivered via Resend → received by EmailTestDO → WebSocket push → test extracts and clicks magic link → exchange for tokens → refresh token works → JWT contains expected claims
 - [ ] Error cases verified: expired magic link, invalid token, rate limiting
-- [ ] Re-login flow tested: refresh token expires → `onLoginRequired` fires → user goes through magic link flow again via email infrastructure → new tokens → reconnect
-- [ ] `refresh: '/auth/refresh-token'` string form tested end-to-end: client uses a real refresh token (obtained via magic link) to call the real auth endpoint for token rotation
 - [ ] Test can be run locally (with secrets in `.dev.vars`) and eventually in CI
 
 **Notes**:
 - This replaces the manual "trigger magic link, check your inbox, eyeball it" approach. Every future auth change gets regression coverage.
 - The test needs Resend credentials and Cloudflare Email Routing configured — document the required secrets for local and CI environments.
-- The test exercises two separate auth paths: (1) `createTestRefreshFunction`-minted JWTs for the EmailTestDO mesh connection, and (2) real magic-link-issued JWTs from the auth Worker. This validates both the JWT verification pipeline and the full auth issuance flow.
+- The test exercises real magic-link-issued JWTs from the auth Worker — no test mode, no bypass.
 
 ## Phase 3: Documentation
 
