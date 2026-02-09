@@ -27,7 +27,18 @@ export {
   parseJwtUnsafe
 } from './jwt';
 
-// Email service implementations
+// Email sender entrypoints (WorkerEntrypoint pattern)
+export {
+  AuthEmailSenderBase,
+  defaultMagicLinkHtml,
+  defaultAdminNotificationHtml,
+  defaultApprovalConfirmationHtml,
+  defaultInviteExistingHtml,
+  defaultInviteNewHtml,
+} from './auth-email-sender-base';
+export { ResendEmailSender } from './resend-email-sender';
+
+// Legacy email service implementations (see Phase 4 for migration path)
 export {
   ConsoleEmailService,
   HttpEmailService,
@@ -60,6 +71,7 @@ export type {
   JwtHeader,
   EmailMessage,
   EmailService,
+  ResolvedEmail,
   AuthRoutesOptions,
   ActClaim,
   LoginResponse,

@@ -1,7 +1,7 @@
 import { debug } from '@lumenize/debug';
 import { DurableObject } from 'cloudflare:workers';
 import { ALL_SCHEMAS } from './schemas';
-import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailService } from './types';
+import type { Subject, MagicLink, RefreshToken, LoginResponse, AuthError, EmailMessage } from './types';
 import {
   generateRandomString,
   generateUuid,
@@ -14,7 +14,6 @@ import {
   createJwtPayload,
   parseJwtUnsafe
 } from './jwt';
-import { ConsoleEmailService } from './email-service';
 
 /**
  * Error thrown by #authenticateRequest when authentication fails.
@@ -55,7 +54,6 @@ function sql(doInstance: any) {
 export class LumenizeAuth extends DurableObject {
   #sql = sql(this);
   #schemaInitialized = false;
-  #emailService: EmailService = new ConsoleEmailService();
 
   /**
    * Ensure database schema is created
@@ -71,13 +69,6 @@ export class LumenizeAuth extends DurableObject {
     this.ctx.storage.sql.exec('DELETE FROM MagicLinks WHERE expiresAt < ?', now);
     this.ctx.storage.sql.exec('DELETE FROM InviteTokens WHERE expiresAt < ?', now);
     this.#schemaInitialized = true;
-  }
-
-  /**
-   * Set the email service implementation
-   */
-  setEmailService(service: EmailService): void {
-    this.#emailService = service;
   }
 
   // ============================================
@@ -233,10 +224,9 @@ export class LumenizeAuth extends DurableObject {
 
     // Send email
     try {
-      await this.#emailService.send({
+      await this.#sendEmail({
         type: 'magic-link',
         to: email,
-        subject: 'Your login link',
         magicLinkUrl,
       });
     } catch (error) {
@@ -707,10 +697,9 @@ export class LumenizeAuth extends DurableObject {
 
     // Send approval confirmation email to the subject
     try {
-      await this.#emailService.send({
+      await this.#sendEmail({
         type: 'approval-confirmation',
         to: rows[0].email,
-        subject: 'Your account has been approved',
         redirectUrl: this.#redirect,
       });
     } catch (error) {
@@ -778,17 +767,16 @@ export class LumenizeAuth extends DurableObject {
           this.#sql`UPDATE Subjects SET adminApproved = 1 WHERE sub = ${existing.sub}`;
 
           if (existing.emailVerified) {
-            // Already verified — send invite email (notification), no token needed
+            // Already verified — send invite-existing email (notification), no token needed
             if (isTestMode) {
               // No invite link for already-verified subjects
               links[email] = '(already verified)';
             } else {
               try {
-                await this.#emailService.send({
-                  type: 'invite',
+                await this.#sendEmail({
+                  type: 'invite-existing',
                   to: email,
-                  subject: "You've been invited",
-                  inviteUrl: this.#redirect,
+                  redirectUrl: this.#redirect,
                 });
               } catch (error) {
                 const log = debug('auth.LumenizeAuth');
@@ -828,10 +816,9 @@ export class LumenizeAuth extends DurableObject {
           links[email] = inviteUrl;
         } else {
           try {
-            await this.#emailService.send({
-              type: 'invite',
+            await this.#sendEmail({
+              type: 'invite-new',
               to: email,
-              subject: "You've been invited",
               inviteUrl,
             });
           } catch (error) {
@@ -1154,6 +1141,21 @@ export class LumenizeAuth extends DurableObject {
   }
 
   /**
+   * Send an email via the AUTH_EMAIL_SENDER service binding.
+   * When the binding is not configured, logs the email at debug level
+   * (preserving the dev feedback from the old ConsoleEmailService default).
+   */
+  async #sendEmail(message: EmailMessage): Promise<void> {
+    const sender = (this.env as any).AUTH_EMAIL_SENDER;
+    if (sender) {
+      await sender.send(message);
+    } else {
+      const log = debug('auth.LumenizeAuth');
+      log.debug(`Email not sent (AUTH_EMAIL_SENDER not configured)`, { type: message.type, to: message.to });
+    }
+  }
+
+  /**
    * Notify all admins that a new user has signed up and needs approval.
    * Each email send is individually try/caught — failure for one admin doesn't block others.
    */
@@ -1165,10 +1167,9 @@ export class LumenizeAuth extends DurableObject {
 
     for (const admin of adminRows) {
       try {
-        await this.#emailService.send({
+        await this.#sendEmail({
           type: 'admin-notification',
           to: admin.email,
-          subject: `New signup: ${subject.email}`,
           subjectEmail: subject.email,
           approveUrl,
         });

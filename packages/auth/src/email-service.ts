@@ -19,8 +19,11 @@ export class ConsoleEmailService implements EmailService {
       case 'approval-confirmation':
         log.info(`Approval confirmation to ${message.to}`, { to: message.to, redirectUrl: message.redirectUrl });
         break;
-      case 'invite':
-        log.info(`Invite for ${message.to}`, { to: message.to, inviteUrl: message.inviteUrl });
+      case 'invite-existing':
+        log.info(`Invite (existing user) for ${message.to}`, { to: message.to, redirectUrl: message.redirectUrl });
+        break;
+      case 'invite-new':
+        log.info(`Invite (new user) for ${message.to}`, { to: message.to, inviteUrl: message.inviteUrl });
         break;
     }
   }
@@ -31,17 +34,16 @@ export class ConsoleEmailService implements EmailService {
  * Configure with your email provider's webhook/API endpoint
  *
  * @example
- * // Using with Resend
  * const emailService = new HttpEmailService({
  *   endpoint: 'https://api.resend.com/emails',
  *   headers: { 'Authorization': 'Bearer YOUR_API_KEY' },
  *   buildBody: (message) => ({
  *     from: 'auth@yourapp.com',
  *     to: message.to,
- *     subject: message.subject,
+ *     subject: 'Auth notification',
  *     html: message.type === 'magic-link'
  *       ? `<a href="${message.magicLinkUrl}">Click to login</a>`
- *       : `<p>Your account has been approved.</p>`
+ *       : `<p>Auth notification</p>`
  *   })
  * });
  */

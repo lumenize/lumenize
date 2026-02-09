@@ -39,6 +39,14 @@ export function createAuthRoutes(
     );
   }
 
+  // Warn when AUTH_EMAIL_SENDER is missing in non-test mode
+  if (!testMode && !envRecord.AUTH_EMAIL_SENDER) {
+    console.warn(
+      '[lumenize/auth] AUTH_EMAIL_SENDER is not configured — magic links and invites will not be delivered. ' +
+      'See https://lumenize.com/docs/auth/getting-started#email-provider'
+    );
+  }
+
   const prefix = (envRecord.LUMENIZE_AUTH_PREFIX as string) || '/auth';
 
   // Normalize prefix (ensure starts with /, no trailing /)

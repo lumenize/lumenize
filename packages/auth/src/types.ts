@@ -101,13 +101,33 @@ export interface JwtHeader {
 
 /**
  * Discriminated union for email messages sent by LumenizeAuth.
- * The `subject` field is the email subject line (not JWT sub).
+ *
+ * Subject lines are controlled by `AuthEmailSenderBase` via overridable methods —
+ * they are not part of this type.
+ *
+ * The `invite` type is split into `invite-existing` (notification to already-verified
+ * users, links to the app) and `invite-new` (onboarding link for new/unverified users,
+ * contains a one-time invite token).
  */
 export type EmailMessage =
-  | { type: 'magic-link'; to: string; subject: string; magicLinkUrl: string }
-  | { type: 'admin-notification'; to: string; subject: string; subjectEmail: string; approveUrl: string }
-  | { type: 'approval-confirmation'; to: string; subject: string; redirectUrl: string }
-  | { type: 'invite'; to: string; subject: string; inviteUrl: string };
+  | { type: 'magic-link'; to: string; magicLinkUrl: string }
+  | { type: 'admin-notification'; to: string; subjectEmail: string; approveUrl: string }
+  | { type: 'approval-confirmation'; to: string; redirectUrl: string }
+  | { type: 'invite-existing'; to: string; redirectUrl: string }
+  | { type: 'invite-new'; to: string; inviteUrl: string };
+
+/**
+ * Fully resolved email ready for delivery by a provider.
+ * Passed to `AuthEmailSenderBase.sendEmail()` after template/subject resolution.
+ */
+export interface ResolvedEmail {
+  to: string;
+  subject: string;
+  html: string;
+  from: string;
+  replyTo: string;
+  appName: string;
+}
 
 /**
  * Email service interface for sending auth-related emails.

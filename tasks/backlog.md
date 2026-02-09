@@ -20,6 +20,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] Add successful token refresh lifecycle test to mesh test suite
+  - **Gap**: Mesh tests cover refresh *failure* (4401 → refresh throws → `onLoginRequired`) but never test successful refresh
+  - **What to test**: Token expires (4401 close) → client refreshes → new token → reconnect → subsequent calls work
+  - **Implementation**: `createTestRefreshFunction` needs to return different tokens on successive calls (currently all calls return the same token)
+  - **Discovered during**: `tasks/resend-email-for-auth.md` Phase 4 analysis — the phase was dropped because everything except this gap was already covered by existing mesh tests
+
 - [ ] Split `getting-started/index.test.ts` so it's a clean 1:1 match with `getting-started.mdx`
   - Currently lines 81-151 add Bob multi-client collaboration, `createTestingClient` storage inspection, and spell check verification — none referenced by the `.mdx`
   - Move the multi-client/Bob scenario to a separate test file (e.g., `test/for-docs/getting-started/multi-client.test.ts` or a different for-docs folder)

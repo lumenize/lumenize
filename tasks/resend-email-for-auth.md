@@ -1,6 +1,6 @@
 # Resend Email Integration for @lumenize/auth
 
-**Status**: Prerequisites Complete — Ready for Phase 1
+**Status**: Phase 1 Complete — Ready for Phase 2
 
 ## Objective
 
@@ -10,7 +10,7 @@ Every developer deploying a Lumenize Mesh application will need their own email 
 
 ## Decision Context
 
-Shipping `@lumenize/mesh` is blocked because auth requires outgoing email and Cloudflare's email sending service is still in closed beta with no GA date. Four alternatives were evaluated:
+Shipping `@lumenize/mesh` is blocked because auth requires outgoing email and Cloudflare's email sending service is still in closed beta with no GA date. Four alternatives were evaluated and Resend was chosen:
 
 ### Resend.com as email API (CHOSEN)
 
@@ -22,7 +22,7 @@ Resend is a good default because it uses standard `fetch` (no SDK), has a genero
 
 ### Future path
 
-Ship with Resend as default now. Switch default to Cloudfare when it's GA.
+Ship with Resend as default now. Switch default to Cloudflare when it's GA.
 
 ## Architecture: WorkerEntrypoint Pattern
 
@@ -32,22 +32,25 @@ Rather than having the `LumenizeAuth` DO construct email services internally (wh
 
 ```
 WorkerEntrypoint                   (Cloudflare)
-  └─ AuthEmailSenderBase           (we provide — templates, subjects, from/appName)
+  └─ AuthEmailSenderBase           (we provide — templates, subjects, from/replyTo/appName)
        └─ ResendEmailSender        (we provide — implements sendEmail() via Resend fetch)
             └─ AuthEmailSender     (developer-user — sets vars/overrides methods)
 ```
 
+`AuthEmailSenderBase` extends `WorkerEntrypoint` directly — **not** `LumenizeWorker` — because `@lumenize/auth` must not depend on `@lumenize/mesh`. This means no `this.lmz.call()` or mesh infrastructure; the DO communicates with the entrypoint via plain Workers RPC.
+
 This gives developer-users control over:
-- **From address** — set as an instance variable
-- **App name** — used in default templates, set as an instance variable
+- **From address** — bare email address, set as an instance variable (required). `ResendEmailSender` constructs Resend's `from` field as `"${appName} <${from}>"` (e.g., `"Lumenize <auth@myapp.com>"`). For bring-your-own-provider, `sendEmail()` receives the bare `from` in the `ResolvedEmail` object and the subclass formats it however their provider expects
+- **Reply-to address** — defaults to `no-reply@{domain from 'from'}`, overridable instance variable
+- **App name** — used in default templates and Resend `From:` display name, defaults to `'Lumenize'`, overridable instance variable
 - **HTML templates** — override one, several, or all template methods
 
-Additionally, if the developer-user wants, they can extend `AuthEmailSenderBase` to use any email provider they wish
+Additionally, if the developer-user wants, they can extend `AuthEmailSenderBase` to implement support for any email provider they wish
 
 ```
 WorkerEntrypoint                (Cloudflare)
-  └─ AuthEmailSenderBase        (we provide — templates, subjects, from/appName)
-      └─ AuthEmailSender        (developer-user — sentEmail()/sets vars/overrides methods)
+  └─ AuthEmailSenderBase        (we provide — templates, subjects, from/replyTo/appName)
+      └─ AuthEmailSender        (developer-user — sendEmail()/sets vars/overrides methods)
 ```
 
 ### What the developer-user writes
@@ -70,12 +73,13 @@ That's it. `ResendEmailSender` extends `WorkerEntrypoint`, has a `send(message: 
 ```typescript
 export class AuthEmailSender extends ResendEmailSender {
   from = 'auth@myapp.com';
-  appName = 'My App';  // used in default templates
+  replyTo = 'support@myapp.com';  // default: no-reply@myapp.com
+  appName = 'My App';  // default: 'Lumenize', used in default templates
 
   magicLinkHtml(message) {
     return `<h1>Welcome to My App</h1><a href="${message.magicLinkUrl}">Sign in</a>`;
   }
-  // other 3 template methods use defaults
+  // other 4 template methods use defaults
 }
 ```
 
@@ -87,9 +91,9 @@ import { AuthEmailSenderBase } from '@lumenize/auth';
 export class AuthEmailSender extends AuthEmailSenderBase {
   from = 'auth@myapp.com';
 
-  async sendEmail(to: string, subject: string, html: string) {
-    // call Postmark, SES, whatever — templates and subjects are
-    // already resolved by AuthEmailSenderBase.send()
+  async sendEmail(email: ResolvedEmail) {
+    const { to, subject, html, from, replyTo } = email;
+    // call Postmark, SES, whatever — everything is resolved
   }
 }
 ```
@@ -110,11 +114,24 @@ export class AuthEmailSender extends AuthEmailSenderBase {
 
 ### What we export from `@lumenize/auth`
 
-1. **`AuthEmailSenderBase`** — extends `WorkerEntrypoint`. Provides default `send(message)` that dispatches to overridable template methods and a `sendEmail(to, subject, html)` method subclasses implement. Also provides default `subject` line methods that can be overridden. Has `from` and `appName` instance variables.
+1. **`AuthEmailSenderBase`** — extends `WorkerEntrypoint`. Provides default `send(message)` that dispatches to overridable template methods, assembles a `ResolvedEmail` object, and calls abstract `sendEmail(email: ResolvedEmail)`. Has `from` (required), `replyTo` (defaults to `no-reply@{domain}`), and `appName` (defaults to `'Lumenize'`) instance variables. Provides 10 overridable methods (5 template + 5 subject). **Error semantics**: `send()` does not add its own error wrapping — it lets whatever `sendEmail()` throws bubble up to the caller (the DO's try/catch). The base class's job is dispatch and template rendering, not error policy.
 
-2. **`ResendEmailSender`** — extends `AuthEmailSenderBase`. Implements `sendEmail()` using `fetch` against `https://api.resend.com/emails` with `this.env.RESEND_API_KEY`. Developer-users extend this class.
+2. **`ResendEmailSender`** — extends `AuthEmailSenderBase`. Implements `sendEmail(email)` using `fetch` against `https://api.resend.com/emails` with `this.env.RESEND_API_KEY`. Constructs `"${email.appName} <${email.from}>"` for Resend's `from` field. Throws on non-2xx response. Developer-users extend this class.
 
-3. **Default template functions** — exported for users who want to compose (call the default and wrap it).
+3. **`ResolvedEmail`** — the object passed to `sendEmail()`. Contains everything needed to send one email:
+
+    ```typescript
+    interface ResolvedEmail {
+      to: string;        // recipient
+      subject: string;   // resolved by subject method
+      html: string;      // resolved by template method
+      from: string;      // bare email address from instance variable
+      replyTo: string;   // resolved default or override
+      appName: string;   // for providers that use it (e.g., From: display name)
+    }
+    ```
+
+4. **Default template functions** — exported for users who want to compose (call the default and wrap it).
 
 ### How the DO calls it
 
@@ -131,7 +148,9 @@ try {
 } catch { /* existing error handling */ }
 ```
 
-When `AUTH_EMAIL_SENDER` isn't configured (no service binding), optional chaining returns `undefined` and the call is a no-op.
+**Why `(this.env as any)`**: The `AUTH_EMAIL_SENDER` binding lives in the *developer-user's* wrangler.jsonc (self-referencing their Worker), not in the auth *library's* wrangler.jsonc. The auth library's `Env` type won't include it, so the cast is required. The developer-user's own code gets full typing because `wrangler types` adds it to *their* `Env`.
+
+When `AUTH_EMAIL_SENDER` isn't configured (no service binding), optional chaining returns `undefined`. In that case, the DO logs the email type and recipient at debug level (matching the current `ConsoleEmailService` behavior) so developers see feedback during local development. This preserves the dev-logging experience from the old `#emailService` default.
 
 ### Missing binding warning
 
@@ -143,7 +162,38 @@ This matches the Turnstile convention: warn but don't block, so developer-users 
 
 ### What changes in `EmailMessage`
 
-The `subject` field is removed from the `EmailMessage` union type. Subject lines are now controlled by the `AuthEmailSenderBase` class via overridable methods (e.g., `magicLinkSubject(message)`), with sensible defaults hard-coded in the base class. Developer-users override subject methods the same way they override template methods.
+The `subject` field is removed from all union members. The `invite` type is split into `invite-existing` (notification to already-verified users) and `invite-new` (onboarding link for new/unverified users) because they have different semantics: `invite-existing` links to the app redirect URL (no token), while `invite-new` contains a one-time invite token that activates the account. Sending the same template for both is a footgun — new users need to understand they must click that specific link.
+
+**New `EmailMessage` type (5 members, no `subject`):**
+
+```typescript
+export type EmailMessage =
+  | { type: 'magic-link'; to: string; magicLinkUrl: string }
+  | { type: 'admin-notification'; to: string; subjectEmail: string; approveUrl: string }
+  | { type: 'approval-confirmation'; to: string; redirectUrl: string }
+  | { type: 'invite-existing'; to: string; redirectUrl: string }
+  | { type: 'invite-new'; to: string; inviteUrl: string };
+```
+
+Subject lines are now controlled by `AuthEmailSenderBase` via overridable methods, with sensible defaults. Developer-users override subject methods the same way they override template methods.
+
+### Overridable methods (10 total)
+
+All methods receive the corresponding `EmailMessage` variant as their argument.
+
+**Template methods** (return HTML string):
+1. `magicLinkHtml(message)` — login link email
+2. `adminNotificationHtml(message)` — new signup notification to admins
+3. `approvalConfirmationHtml(message)` — account approved notification
+4. `inviteExistingHtml(message)` — notification to already-verified user ("you've been added, come check it out")
+5. `inviteNewHtml(message)` — onboarding email for new/unverified user ("click to activate your account")
+
+**Subject methods** (return string):
+6. `magicLinkSubject(message)` — default: `'Your login link'`
+7. `adminNotificationSubject(message)` — default: `` `New signup: ${message.subjectEmail}` ``
+8. `approvalConfirmationSubject(message)` — default: `'Your account has been approved'`
+9. `inviteExistingSubject(message)` — default: `"You've been invited"`
+10. `inviteNewSubject(message)` — default: `"You've been invited"`
 
 ### RPC compatibility
 
@@ -151,11 +201,11 @@ The `subject` field is removed from the `EmailMessage` union type. Subject lines
 
 ### Billing
 
-The DO already `await`s email sends (lines 236, 710, 787, 831, 1168 of `lumenize-auth.ts`). Switching from `await emailService.send()` to `await env.AUTH_EMAIL_SENDER.send()` doesn't change billing. Resend responds in ~100ms. The WorkerEntrypoint itself runs under standard Workers CPU billing, not DO wall-clock billing.
+The DO already `await`s email sends (5 call sites in `lumenize-auth.ts`: magic-link, approval-confirmation, invite-existing, invite-new, admin-notification). Switching from `await emailService.send()` to `await env.AUTH_EMAIL_SENDER.send()` doesn't change billing. Resend responds in ~100ms. The WorkerEntrypoint itself runs under standard Workers CPU billing, not DO wall-clock billing.
 
 ## Prerequisites (for lumenize.com testing) — DONE
 
-These are what _we_ need to verify the integration against lumenize.com. Users will follow equivalent steps for their own domain as documented in Phase 2.
+These are what _we_ need to verify the integration against lumenize.com. Users will follow equivalent steps for their own domain as documented in Phase 3.
 
 - [x] Resend account created (larry@lumenize.com)
 - [x] `test.lumenize.com` domain verified in Resend — Cloudflare DNS configured for sending from `test.lumenize.com`
@@ -168,54 +218,37 @@ These are what _we_ need to verify the integration against lumenize.com. Users w
 **Goal**: Build the `AuthEmailSenderBase` and `ResendEmailSender` classes, wire the DO to call via service binding, and unit-test the template rendering and Resend request formatting.
 
 **Success Criteria**:
-- [ ] `AuthEmailSenderBase` exported from `@lumenize/auth` — extends `WorkerEntrypoint`, dispatches `send(message)` to overridable template/subject methods, has `from` and `appName` instance variables
-- [ ] `ResendEmailSender` exported from `@lumenize/auth` — extends `AuthEmailSenderBase`, implements `sendEmail()` via `fetch` to `https://api.resend.com/emails` with `this.env.RESEND_API_KEY`
-- [ ] Default HTML templates for all four message types (magic link, admin notification, approval confirmation, invite) — simple, functional, no external dependencies
-- [ ] Default subject line methods for all four types
-- [ ] `LumenizeAuth` DO updated: replace `#emailService` with `env.AUTH_EMAIL_SENDER` service binding call; remove `setEmailService()` method
-- [ ] `EmailMessage` type updated: `subject` field removed (now controlled by sender base class)
-- [ ] Existing tests still pass (they use `LUMENIZE_AUTH_TEST_MODE=true` which skips email sending)
-- [ ] Unit tests for template rendering and Resend request body formatting (mock `fetch`, don't call Resend)
-- [ ] Default template functions exported for composability
+- [x] `AuthEmailSenderBase` exported from `@lumenize/auth` — extends `WorkerEntrypoint` (not `LumenizeWorker`), dispatches `send(message)` to the 10 overridable template/subject methods, assembles `ResolvedEmail`, calls abstract `sendEmail(email: ResolvedEmail)`. Has `from` (required via `abstract`), `replyTo` (default: `no-reply@{domain}`), and `appName` (default: `'Lumenize'`) instance variables
+- [x] `ResolvedEmail` interface exported from `@lumenize/auth` — `{ to, subject, html, from, replyTo, appName }`
+- [x] `ResendEmailSender` exported from `@lumenize/auth` — extends `AuthEmailSenderBase`, implements `sendEmail(email)` via `fetch` to `https://api.resend.com/emails` with `this.env.RESEND_API_KEY`, throws on non-2xx
+- [x] Default HTML templates for all five message types (magic link, admin notification, approval confirmation, invite-existing, invite-new) — simple, functional, no external dependencies
+- [x] Default subject line methods for all five types
+- [x] `LumenizeAuth` DO updated: replace `#emailService` with `env.AUTH_EMAIL_SENDER` service binding call; remove `setEmailService()` method; add debug-level logging when binding is missing (preserves dev feedback from old `ConsoleEmailService` default)
+- [x] `EmailMessage` type updated: `subject` field removed; `invite` split into `invite-existing` and `invite-new` (5 union members total — see "What changes in EmailMessage" above)
+- [x] Existing tests still pass (they use `LUMENIZE_AUTH_TEST_MODE=true` which skips email sending) — 149/149 passing across 6 test files
+- [ ] Unit tests for template rendering and Resend request body formatting (mock `fetch`, don't call Resend) — **deferred to Phase 2** (the new code paths aren't exercised by existing tests since test mode returns before email sending; unit tests for templates/Resend formatting will be written alongside the email testing infrastructure)
+- [x] Default template functions exported for composability
 
 **Files to create/modify**:
 - Create `packages/auth/src/auth-email-sender-base.ts` — `AuthEmailSenderBase` class
 - Create `packages/auth/src/resend-email-sender.ts` — `ResendEmailSender` class + default templates
-- Modify `packages/auth/src/lumenize-auth.ts` — replace `#emailService` with service binding; remove `setEmailService()`; remove `subject` from `EmailMessage` send calls
-- Modify `packages/auth/src/types.ts` — remove `subject` from `EmailMessage` union members
+- Modify `packages/auth/src/lumenize-auth.ts` — replace `#emailService` with service binding; remove `setEmailService()`; remove `subject` from send calls; split invite sends into `invite-existing` and `invite-new` types; add debug logging fallback when binding is missing
+- Modify `packages/auth/src/types.ts` — remove `subject` from `EmailMessage` union members; split `invite` into `invite-existing` and `invite-new`; add `ResolvedEmail` interface
 - Modify `packages/auth/src/index.ts` — add new exports
-- Modify `packages/auth/src/email-service.ts` — remove `subject` references from `ConsoleEmailService`
+- Leave `packages/auth/src/email-service.ts` mostly untouched — the `EmailMessage` type change propagates automatically; the fate of these old classes is deferred to Phase 4
 
 **Notes**:
 - The monolith's parallel auth implementation (`lumenize-monolith/src/magic-link-requested-handler.ts`) uses AWS SES directly. That's a separate system and not part of this task.
-- Resend's API is `POST https://api.resend.com/emails` with `{ from, to, subject, html }` body and `Authorization: Bearer <key>` header. Standard `fetch`, no SDK.
+- Resend's API is `POST https://api.resend.com/emails` with `{ from, to, subject, html, reply_to }` body and `Authorization: Bearer <key>` header. Standard `fetch`, no SDK. `ResendEmailSender` constructs Resend's `from` as `"${email.appName} <${email.from}>"` from the `ResolvedEmail` object.
 - Users who prefer a different provider extend `AuthEmailSenderBase` and implement `sendEmail()` themselves.
 - The service binding is self-referencing: `"service"` in wrangler.jsonc matches the Worker's own `"name"`.
+- Test mode (`LUMENIZE_AUTH_TEST_MODE=true`) returns the magic link URL in the response *before* the email send is attempted, so none of the new service binding code is exercised by existing tests. The unit tests for template rendering are the Phase 1 coverage for the new code. End-to-end coverage comes in Phase 2 (email testing infrastructure).
 
-## Phase 2: Documentation
-
-**Goal**: Make email provider setup a documented part of the `@lumenize/auth` getting-started experience.
-
-**Success Criteria**:
-- [ ] `configuration.mdx` updated: add email provider section explaining the `AuthEmailSenderBase` / `ResendEmailSender` pattern, the `AUTH_EMAIL_SENDER` service binding, `RESEND_API_KEY` env var
-- [ ] `website/docs/auth/getting-started.mdx` updated: add an "Email Provider" step walking users through: (1) Resend signup & domain verification, (2) API key setup, (3) creating their `AuthEmailSender` class, (4) adding the service binding to wrangler.jsonc
-- [ ] Document template customization: how to override `magicLinkHtml()`, `adminNotificationHtml()`, etc.
-- [ ] Document bring-your-own-provider: extend `AuthEmailSenderBase` instead of `ResendEmailSender`
-- [ ] JSDoc on both base classes thorough enough for editor hints
-- [ ] :::warning about configuring email before production (like Turnstile/rate-limiter warnings)
-- [ ]  updated: add email provider setup step (since `@lumenize/auth` is the default auth for `@lumenize/mesh`, mesh users need this too)
-- [ ]  Mesh `website/docs/mesh/getting-started.mdx` should reference the auth email provider docs for overrides but provide potentially duplicate instructions for the bare minimum config to get started.
-- [ ] Review other mesh docs that reference auth setup for any needed email provider mentions
-
-**Notes**:
-- `configuration.mdx` is the reference; `getting-started.mdx` is the walkthrough. Both need updates.
-- Templates are developer-user-overridable from day one. Document that there are default templates so users know they can defer template customization.
-
-## Phase 3: Email Testing Infrastructure
+## Phase 2: Email Testing Infrastructure
 
 This phase absorbs the work from `tasks/never/email-testing-infrastructure.md`. The original task was blocked on wanting to use LumenizeDO (then called LumenizeBase) for the receiver DO — that blocker is resolved. The architecture is updated for Resend instead of AWS SES.
 
-**WARNING: Have a clean commit and record its hash before proceeding**: This phase 3 feels pretty risky with many things we've never done before. If it goes off the rails, we should be willing to revert and give up on this approach. Phases 4 and 5 do not depend on Phase 3 and remain valuable regardless.
+**WARNING: Have a clean commit and record its hash before proceeding**: This phase feels pretty risky with many things we've never done before. If it goes off the rails, we should be willing to revert and give up on this approach. **Abort criteria**: If getting Cloudflare Email Routing to deliver to the Worker in dev takes more than 4 hours, or if the EmailTestDO → LumenizeClient WebSocket notification proves unreliable, defer to manual testing and move on to Phase 3 (docs). Phases 3 and 4 do not depend on Phase 2 and remain valuable regardless.
 
 ### Architecture
 
@@ -267,7 +300,7 @@ The EmailTestDO lives in its own separate Worker deployment with full auth hooks
 7. `EmailTestDO` sends parsed email over WebSocket to waiting test (via LumenizeDO → Gateway → LumenizeClient)
 8. Test extracts magic link URL from the parsed email, then uses `Browser.fetch` to GET it on the auth Worker (simulating the user clicking the link in their email client — `Browser` handles cookies so the auth response's `Set-Cookie` for refresh token is captured automatically). Test verifies the full auth flow: token exchange, JWT claims, refresh token rotation.
 
-### Phase 3a: EmailTestDO + Deployment
+### Phase 2a: EmailTestDO + Deployment
 
 **Goal**: Build a LumenizeDO that receives emails via Cloudflare Email Routing and notifies connected LumenizeClients. Deploy as a separate Worker with full auth hooks.
 
@@ -289,7 +322,7 @@ The EmailTestDO lives in its own separate Worker deployment with full auth hooks
 - `lumenize-monolith/test/live-email-routing.test.ts` has a local email parsing test.
 - `createTestRefreshFunction` from `@lumenize/mesh` handles the JWT minting. In a vitest/cloudflare:test environment it auto-reads `JWT_PRIVATE_KEY_BLUE` from env; for deployed tests, pass `privateKey` explicitly from `.dev.vars`. The corresponding public key is configured in the EmailTest Worker's env for hook verification.
 
-### Phase 3b: Test Helpers + End-to-End Auth Flow Test
+### Phase 2b: Test Helpers + End-to-End Auth Flow Test
 
 **Goal**: Build test utilities and an automated end-to-end test of the full magic link auth flow with real email delivery.
 
@@ -309,23 +342,25 @@ The EmailTestDO lives in its own separate Worker deployment with full auth hooks
 - The test needs Resend credentials and Cloudflare Email Routing configured — document the required secrets for local and CI environments.
 - The test exercises two separate auth paths: (1) `createTestRefreshFunction`-minted JWTs for the EmailTestDO mesh connection, and (2) real magic-link-issued JWTs from the auth Worker. This validates both the JWT verification pipeline and the full auth issuance flow.
 
-## Phase 4: Mesh Client Token Refresh Test
+## Phase 3: Documentation
 
-**Goal**: Verify `LumenizeClient`'s token refresh mechanism works end-to-end with `@lumenize/auth`. Does not depend on Phase 3.
+**Goal**: Make email provider setup a documented part of the `@lumenize/auth` getting-started experience.
 
 **Success Criteria**:
-- [ ] `LumenizeClient` configured with `createTestRefreshFunction` connects successfully and passes auth hooks
-- [ ] Token expiry triggers automatic refresh without dropping the WebSocket connection
-- [ ] Gateway re-verifies the refreshed JWT correctly
-- [ ] A simple mesh call (Client → Gateway → DO → response) works with auth enabled
+- [ ] `configuration.mdx` updated: add email provider section explaining the `AuthEmailSenderBase` / `ResendEmailSender` pattern, the `AUTH_EMAIL_SENDER` service binding, `RESEND_API_KEY` env var
+- [ ] `website/docs/auth/getting-started.mdx` updated: add an "Email Provider" step walking users through: (1) Resend signup & domain verification, (2) API key setup, (3) creating their `AuthEmailSender` class, (4) adding the service binding to wrangler.jsonc
+- [ ] Document template customization: how to override `magicLinkHtml()`, `adminNotificationHtml()`, `inviteExistingHtml()`, `inviteNewHtml()`, etc.
+- [ ] Document bring-your-own-provider: extend `AuthEmailSenderBase` instead of `ResendEmailSender`
+- [ ] JSDoc on both base classes thorough enough for editor hints
+- [ ] :::warning about configuring email before production (like Turnstile/rate-limiter warnings)
+- [ ] Mesh `website/docs/mesh/getting-started.mdx` updated: reference auth email provider docs for overrides but provide potentially duplicate instructions for the bare minimum config to get started (since `@lumenize/auth` is the default auth for `@lumenize/mesh`, mesh users need this too)
+- [ ] Review other mesh docs that reference auth setup for any needed email provider mentions
 
 **Notes**:
-- This is the critical path test: auth + mesh working together. If this works, we're unblocked for shipping.
-- Uses `createTestRefreshFunction` to mint JWTs locally — no email infrastructure needed. The test exercises the same auth hooks and JWT verification pipeline as production.
-- The `refresh: '/auth/refresh-token'` string form (where the client calls the real auth endpoint) requires a real refresh token, which requires a real magic link flow. That end-to-end test lives in Phase 3b.
-- The `refresh` endpoint is served by the auth routes (`createAuthRoutes`), which proxies to the auth DO's refresh token rotation logic.
+- `configuration.mdx` is the reference; `getting-started.mdx` is the walkthrough. Both need updates.
+- Templates are developer-user-overridable from day one. Document that there are default templates so users know they can defer template customization.
 
-## Phase 5: Revisit Testing Utilities
+## Phase 4: Revisit Testing Utilities
 
 **Goal**: Evaluate whether `ConsoleEmailService`, `MockEmailService`, and `HttpEmailService` should be updated, replaced, or deprecated in light of the WorkerEntrypoint pattern.
 
@@ -335,28 +370,31 @@ The EmailTestDO lives in its own separate Worker deployment with full auth hooks
 - [ ] Decide fate of `ConsoleEmailService` — possibly replace with a development `AuthEmailSender` that logs
 - [ ] Decide fate of `HttpEmailService` — still useful internally for `ResendEmailSender`, but may no longer need to be a public export
 - [ ] Decide fate of `EmailService` interface and `createDefaultEmailService()` — likely deprecated in favor of the WorkerEntrypoint pattern
+- [ ] Evaluate `packages/auth/src/email-service.ts` as a whole — Phase 1 left it untouched (the `EmailMessage` type change propagates automatically), but this is where to clean up or deprecate the old classes
 - [ ] Update or remove `setEmailService()` references from backlog and docs
 - [ ] Clean up any dead code from the old pattern
 
 **Notes**:
 - This phase exists to avoid blocking Phase 1 with testing design decisions. The old utilities still work during the transition.
 - The WorkerEntrypoint pattern may provide a cleaner testing story: configure a test service binding that points to a mock `AuthEmailSender` in the test Worker.
+- **Invite split impact**: Phase 1's `invite` → `invite-existing` / `invite-new` split changes the `EmailMessage` type. Any code checking `.type === 'invite'` (e.g., `MockEmailService.getLatestFor()` consumers, `ConsoleEmailService` switch cases) will get compile errors that guide the fix. Verify all switch/case exhaustiveness checks still pass after cleanup.
 
 ## Follow-on Considerations
 
 - **Cloudflare outgoing email service**: When it reaches GA, we can create a `CloudflareEmailSender` extending `AuthEmailSenderBase`. The WorkerEntrypoint pattern makes this a clean addition — developer-users just change which class they extend. Template customization via HTMLRewriter could be layered in at that point.
 - **Provider-agnostic guidance**: Docs should make clear that Resend is a recommended default, not a requirement. Users with existing email infrastructure extend `AuthEmailSenderBase` directly.
+- **Mesh client token refresh lifecycle test**: The successful refresh → reconnect → continued calls scenario is not tested in the mesh suite. Tracked in `tasks/backlog.md` under "Lumenize Mesh". This was originally Phase 4 of this task but was dropped because it's a mesh concern, not an auth/email concern.
 
 ## Related
 
-- `tasks/never/email-testing-infrastructure.md` — Subsumed into Phase 3 of this task
+- `tasks/never/email-testing-infrastructure.md` — Subsumed into Phase 2 of this task
 - `tasks/nebula-auth.md` — Future auth evolution for multi-tenant Nebula platform
 - `tasks/todos-for-initial-mesh-release.md` — Release checklist (this task feeds into it)
 - `website/docs/auth/configuration.mdx` — Env vars reference (needs email provider section)
 - `website/docs/auth/getting-started.mdx` — Setup walkthrough (needs email provider step)
 - `website/docs/mesh/getting-started.mdx` — Mesh setup walkthrough (needs email provider reference)
-- `packages/auth/src/email-service.ts` — `HttpEmailService`, `ConsoleEmailService`, `MockEmailService` (to be revisited in Phase 5)
-- `packages/auth/src/types.ts` — `EmailMessage` union type (subject field removed in Phase 1)
+- `packages/auth/src/email-service.ts` — `HttpEmailService`, `ConsoleEmailService`, `MockEmailService` (to be revisited in Phase 4)
+- `packages/auth/src/types.ts` — `EmailMessage` union type (subject removed, invite split in Phase 1)
 - `packages/mesh/src/create-test-refresh-function.ts` — `createTestRefreshFunction` for locally-minted JWTs in tests
 - `website/docs/mesh/testing.mdx` — Testing docs covering `createTestRefreshFunction` usage
 - `packages/fetch/src/fetch-executor-entrypoint.ts` — Prior art: WorkerEntrypoint with self-referencing service binding

@@ -2598,12 +2598,13 @@ describe('@lumenize/auth - Turnstile validation', () => {
     warnSpy.mockRestore();
   });
 
-  it('createAuthRoutes does not warn with TURNSTILE_SECRET_KEY in non-test mode', () => {
+  it('createAuthRoutes does not warn with TURNSTILE_SECRET_KEY and AUTH_EMAIL_SENDER in non-test mode', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const prodEnv = {
       ...env,
       LUMENIZE_AUTH_TEST_MODE: undefined,
       TURNSTILE_SECRET_KEY: 'some-secret',
+      AUTH_EMAIL_SENDER: {}, // stub service binding
     };
     expect(() => createAuthRoutes(prodEnv as typeof env)).not.toThrow();
     expect(warnSpy).not.toHaveBeenCalled();
