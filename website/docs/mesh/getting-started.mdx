@@ -371,6 +371,7 @@ import { LumenizeClientGateway } from '@lumenize/mesh';
 export { LumenizeClientGateway, LumenizeAuth };
 export { DocumentDO } from './document-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
+export { AuthEmailSender } from './auth-email-sender.js';
 
 // Create auth routes and hooks once at module level
 const authRoutes = createAuthRoutes(env);
@@ -427,6 +428,11 @@ export default {
       "binding": "SPELLCHECK_WORKER",
       "service": "mesh-getting-started",
       "entrypoint": "SpellCheckWorker"
+    },
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "mesh-getting-started",
+      "entrypoint": "AuthEmailSender"
     }
   ],
   "migrations": [
@@ -442,10 +448,18 @@ export default {
 }
 ```
 
-:::note `SpellCheckWorker`
-The `SpellCheckWorker` is a [named entrypoint](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`.
+:::note Service bindings
+`SpellCheckWorker` and `AuthEmailSender` are [named entrypoints](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`. The `AUTH_EMAIL_SENDER` binding is how the Auth DO delivers email — see [Setting up your AuthEmailSender](/docs/auth/getting-started#email-provider) for the full walkthrough including Resend signup and domain verification.
 :::
 
-## (Recommended) Step 8: Configure Turnstile and Rate Limiting {#turnstile-and-rate-limiting}
+## (Recommended) Step 8: Configure Email, Turnstile, and Rate Limiting {#production-config}
 
-Turnstile and rate limiting are optional so you can get started quickly, but you should enable both before deploying to production. See [@lumenize/auth: Rate Limiting](/docs/auth/getting-started#rate-limiting) for setup instructions and why they matter.
+These are optional so you can get started quickly, but you should enable all three before deploying to production:
+
+- **Email provider** — Without it, magic links and invites are silently dropped. See [@lumenize/auth: Email Provider](/docs/auth/getting-started#email-provider) for Resend setup, template customization, and bring-your-own-provider.
+- **Turnstile** — Bot protection for the magic-link endpoint. See [@lumenize/auth: Turnstile](/docs/auth/getting-started#turnstile).
+- **Rate limiting** — Per-subject rate limiting for authenticated routes. See [@lumenize/auth: Rate Limiting](/docs/auth/getting-started#rate-limiter).
+
+:::warning Deploy with email, Turnstile, and rate limiting configured
+Without an email provider, users receive "check your email" but no email arrives. Without Turnstile, anyone can flood your email sending quota. Without rate limiting, compromised tokens can overwhelm your DOs. Configure all three before going to production.
+:::

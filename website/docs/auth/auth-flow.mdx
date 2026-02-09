@@ -47,7 +47,7 @@ if (response.status === 401) {
 
 `POST {prefix}/email-magic-link` — No auth required
 
-Sends a magic link email to the given address. Creates the subject record if it doesn't exist. Requires a valid [Turnstile](https://developers.cloudflare.com/turnstile/) token in the body.
+Sends a magic link email to the given address (requires [`AUTH_EMAIL_SENDER`](/docs/auth/getting-started#email-provider) to be configured). Creates the subject record if it doesn't exist. Requires a valid [Turnstile](https://developers.cloudflare.com/turnstile/) token in the body.
 
 ```typescript @check-example('packages/auth/test/for-docs/endpoints.test.ts')
 const response = await fetch('/auth/email-magic-link', {
@@ -83,7 +83,7 @@ In [test mode](/docs/auth/testing#test-mode), Turnstile validation is skipped en
 
 `GET {prefix}/magic-link?one_time_token=...` — No auth required
 
-Called when the subject clicks the magic link. Validates the one-time login token (single use — deleted after validation), sets `emailVerified: true`, creates a refresh token, and redirects. If the subject is not yet admin-approved, sends a notification email to all admins.
+Called when the subject clicks the magic link. Validates the one-time login token (single use — deleted after validation), sets `emailVerified: true`, creates a refresh token, and redirects. If the subject is not yet admin-approved, sends a notification email to all admins (via [`AUTH_EMAIL_SENDER`](/docs/auth/getting-started#email-provider)).
 
 - **Valid token**: `302 → LUMENIZE_AUTH_REDIRECT` with `Set-Cookie: refresh_token=...; HttpOnly; Secure; SameSite=Strict`
 - **Invalid/expired token**: `302 → LUMENIZE_AUTH_REDIRECT?error=invalid_token`

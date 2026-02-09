@@ -1,6 +1,6 @@
 # Resend Email Integration for @lumenize/auth
 
-**Status**: Phase 2 Complete — Ready for Phase 3
+**Status**: Phase 3 Complete — Ready for Phase 4
 
 **Revert point**: `37cc3f6b13ecb2ff164a9be588df342930a19cd5` (clean commit before Phase 2 work began)
 
@@ -384,18 +384,57 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 **Goal**: Make email provider setup a documented part of the `@lumenize/auth` getting-started experience.
 
 **Success Criteria**:
-- [ ] `configuration.mdx` updated: add email provider section explaining the `AuthEmailSenderBase` / `ResendEmailSender` pattern, the `AUTH_EMAIL_SENDER` service binding, `RESEND_API_KEY` env var
-- [ ] `website/docs/auth/getting-started.mdx` updated: add an "Email Provider" step walking users through: (1) Resend signup & domain verification, (2) API key setup, (3) creating their `AuthEmailSender` class, (4) adding the service binding to wrangler.jsonc
-- [ ] Document template customization: how to override `magicLinkHtml()`, `adminNotificationHtml()`, `inviteExistingHtml()`, `inviteNewHtml()`, etc.
-- [ ] Document bring-your-own-provider: extend `AuthEmailSenderBase` instead of `ResendEmailSender`
-- [ ] JSDoc on both base classes thorough enough for editor hints
-- [ ] :::warning about configuring email before production (like Turnstile/rate-limiter warnings)
-- [ ] Mesh `website/docs/mesh/getting-started.mdx` updated: reference auth email provider docs for overrides but provide potentially duplicate instructions for the bare minimum config to get started (since `@lumenize/auth` is the default auth for `@lumenize/mesh`, mesh users need this too)
-- [ ] Review other mesh docs that reference auth setup for any needed email provider mentions
+- [x] `configuration.mdx` updated: add email provider section — `AUTH_EMAIL_SENDER` binding in the Bindings table, `RESEND_API_KEY` in the Secrets table, and a dedicated "Email Provider" subsection explaining the `AuthEmailSenderBase` / `ResendEmailSender` class hierarchy
+- [x] `website/docs/auth/getting-started.mdx` updated: add an "Email Provider" section (between "Worker Setup" and "Key Rotation") walking users through: (1) Resend signup & domain verification, (2) API key setup, (3) creating their `AuthEmailSender` class, (4) adding the service binding to wrangler.jsonc
+- [x] Document template customization: how to override `magicLinkHtml()`, `adminNotificationHtml()`, `inviteExistingHtml()`, `inviteNewHtml()`, etc.
+- [x] Document bring-your-own-provider: extend `AuthEmailSenderBase` instead of `ResendEmailSender`
+- [x] JSDoc on both base classes thorough enough for editor hints — `@see` links to docs, no inline examples (examples live in `.mdx` only)
+- [x] :::warning about configuring email before production (like Turnstile/rate-limiter warnings)
+- [x] Mesh `website/docs/mesh/getting-started.mdx` updated: add `AuthEmailSender` class + export to Step 6 index.ts, add `AUTH_EMAIL_SENDER` service binding to Step 7 wrangler.jsonc, add brief note/warning pointing to auth docs for full email setup. Keep the existing `createTestRefreshFunction` test approach — do NOT switch to real email flow
+- [x] Mesh getting-started test harness wired up: create `auth-email-sender.ts` in test dir, add export to `index.ts`, add service binding to `wrangler.jsonc` — test won't exercise email but the files should exist so copy-paste works
+- [x] `auth-flow.mdx` updated: inline notes on "Request Magic Link" and "Validate Magic Link" sections noting that email delivery requires `AUTH_EMAIL_SENDER` to be configured (with link to email provider setup)
+- [x] Review other mesh docs that reference auth setup for any needed email provider mentions — searched all mesh docs; no other files needed email provider mentions beyond getting-started.mdx (alarms.mdx has a `sendFollowUpEmail` example but it's a user-written method, not auth email)
+
+**Decisions (from planning discussion)**:
+- **Mesh getting-started stays on `createTestRefreshFunction`**: The mesh getting-started tutorial should NOT switch to real email flows. The full email flow tests belong in a separate backlog item ("Add successful token refresh lifecycle test to mesh test suite — with real cookies" in `tasks/backlog.md`). The mesh tutorial focuses on mesh concepts, not email delivery.
+- **Mesh test harness gets real `AuthEmailSender` wiring**: Even though the test doesn't exercise email, the `auth-email-sender.ts`, the export, and the service binding should exist in the test harness so the docs show honest production-ready code that users can copy. The `.mdx` code blocks use `// ...` elision to avoid showing `createTestRefreshFunction`.
+- **`@skip-check` for illustrative code blocks**: New email provider examples (Minimal, Customized, BYOP) use `@skip-check` since they're illustrative class definitions, not runnable test extracts. These will be inspected and converted to `@check-example` or `@skip-check-approved` before publishing.
+- **`configuration.mdx` is reference, `getting-started.mdx` is walkthrough**: The configuration page gets the binding/secret tables and class hierarchy explanation. The getting-started page gets the step-by-step walkthrough with code examples.
 
 **Notes**:
-- `configuration.mdx` is the reference; `getting-started.mdx` is the walkthrough. Both need updates.
 - Templates are developer-user-overridable from day one. Document that there are default templates so users know they can defer template customization.
+- The `@see` links in `AuthEmailSenderBase` and `ResendEmailSender` JSDoc already point to `https://lumenize.com/docs/auth/getting-started#email-provider` — the anchor must exist after this phase.
+
+**Outcome**: Phase 3 completed successfully. All 116 doc examples pass, 149/149 auth tests pass, 1/1 mesh getting-started test passes. No new type errors.
+
+**Files created/modified**:
+- Created `packages/mesh/test/for-docs/getting-started/auth-email-sender.ts` — minimal `AuthEmailSender extends ResendEmailSender`
+- Modified `packages/mesh/test/for-docs/getting-started/index.ts` — added `AuthEmailSender` export
+- Modified `packages/mesh/test/for-docs/getting-started/wrangler.jsonc` — added `AUTH_EMAIL_SENDER` service binding
+- Modified `packages/mesh/test/for-docs/getting-started/test/wrangler.jsonc` — added `AUTH_EMAIL_SENDER` service binding (test project)
+- Modified `packages/mesh/test/for-docs/getting-started/test/test-harness.ts` — re-exports `AuthEmailSender`
+- Modified `website/docs/auth/configuration.mdx` — `RESEND_API_KEY` in Secrets, `AUTH_EMAIL_SENDER` in Bindings, new "Email Provider" reference section
+- Modified `website/docs/auth/getting-started.mdx` — new "Email Provider" walkthrough section (Resend quick start, template customization, BYOP)
+- Modified `website/docs/auth/auth-flow.mdx` — inline `AUTH_EMAIL_SENDER` links on "Request Magic Link" and "Validate Magic Link"
+- Modified `website/docs/mesh/getting-started.mdx` — `AuthEmailSender` in Step 6, `AUTH_EMAIL_SENDER` in Step 7, expanded Step 8 with email warning
+- Modified `packages/auth/src/auth-email-sender-base.ts` — enhanced JSDoc with `@see` links
+- Modified `packages/auth/src/resend-email-sender.ts` — replaced inline example with `@see` links
+
+**Phase 3 Retro**:
+
+1. **What did we learn?**
+   - The mesh getting-started test has a separate test wrangler (`test/wrangler.jsonc`) and test harness (`test/test-harness.ts`) that re-exports from the docs source files. Both needed the `AUTH_EMAIL_SENDER` binding and `AuthEmailSender` export — not just the docs-facing wrangler.jsonc. This two-layer pattern (docs source → test harness) is worth remembering for future doc changes that add bindings.
+   - `vitest-pool-workers` doesn't complain about service bindings that are declared but never called during tests. The `AUTH_EMAIL_SENDER` binding exists in the test wrangler but is never invoked (the test uses `createTestRefreshFunction` which bypasses email entirely). No errors.
+   - The `@check-example` system cleanly validated the wrangler.jsonc and index.ts changes — it matched the updated test harness files immediately.
+
+2. **What did we struggle with?** Nothing significant. The main thing to watch was remembering the test harness indirection layer (docs index.ts → test-harness.ts → test wrangler.jsonc).
+
+3. **Did any tests fail unexpectedly?** No. All tests passed on the first run after changes.
+
+4. **Impact on follow-on work?**
+   - Phase 4 (Revisit Testing Utilities) is unaffected — it's about the old `EmailService` classes, not docs.
+   - The 6 `@skip-check` annotations in auth docs need eventual conversion. They're tracked implicitly — running `check-examples --report` will surface them. The configuration.mdx `ResolvedEmail` block is a good candidate for `@skip-check-approved('conceptual')` since it's showing a type definition.
+   - The `approvalConfirmationHtml` template method wasn't explicitly mentioned in the "Customizing Templates" section's code example (only `magicLinkHtml` is shown). This is intentional — the config reference has the full list, and showing all 5 in the walkthrough would be noisy.
 
 ## Phase 4: Revisit Testing Utilities
 

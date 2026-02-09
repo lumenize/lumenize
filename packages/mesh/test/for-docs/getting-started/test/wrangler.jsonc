@@ -23,6 +23,11 @@
       "binding": "SPELLCHECK_WORKER",
       "service": "mesh-getting-started-test",
       "entrypoint": "SpellCheckWorker"
+    },
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "mesh-getting-started-test",
+      "entrypoint": "AuthEmailSender"
     }
   ],
   "migrations": [

@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-description: Installation, bootstrap admin, Worker setup, key rotation, and rate limiting
+description: Installation, bootstrap admin, Worker setup, email provider, key rotation, and rate limiting
 ---
 
 # Getting Started
@@ -90,6 +90,123 @@ Both hooks:
 - Forward the verified JWT to the DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSocket upgrades. Browsers don't allow custom headers on WebSocket connections, so the token arrives via the subprotocol list (see [WebSocket token delivery](/docs/auth/#server-side-token-verification)). The hooks extract and verify it at the Worker level, then set the `Authorization` header before forwarding. Your DO code sees a consistent header regardless of transport.
 
 Your DO can then decode the JWT payload and authorize however you like — role checks, ownership guards, audit logging, etc. Ed25519 verification is a local `crypto.subtle.verify()` call (no network round trip, sub-millisecond), so DOs that want defense-in-depth can cheaply re-verify. DOs that trust the Worker hooks can simply base64url-decode the payload section. For a concrete example using `@lumenize/mesh` guards, see [Security: Reusable Guards](/docs/mesh/security#reusable-guards).
+
+## Email Provider {#email-provider}
+
+LumenizeAuth sends email for magic links, admin notifications, approval confirmations, and invites. Email delivery is delegated to a `WorkerEntrypoint` that you define and export from your Worker. The Auth DO calls it via the `AUTH_EMAIL_SENDER` [service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints).
+
+If `AUTH_EMAIL_SENDER` is not configured, emails are not delivered — the Auth DO debug-logs the email type and recipient instead. This lets you develop locally without an email provider, but you must configure one before deploying.
+
+:::warning Configure email before production
+Without `AUTH_EMAIL_SENDER`, magic links and invites are silently dropped. Users will receive a "check your email" response but no email arrives. Always configure an email provider before deploying to production.
+:::
+
+### Quick Start with Resend
+
+[Resend](https://resend.com) is the recommended default — it uses standard `fetch` (no SDK), works natively on Cloudflare Workers, and has a free tier (100 emails/day).
+
+**1. Create a Resend account and verify your domain**
+
+Sign up at [resend.com](https://resend.com), then [verify your sending domain](https://resend.com/docs/dashboard/domains/introduction). You'll add DNS records (SPF, DKIM, DMARC) to your domain — Resend's dashboard walks you through it.
+
+**2. Generate an API key**
+
+Create an API key in the [Resend dashboard](https://resend.com/api-keys) and add it to your environment:
+
+```bash
+# Local development (.dev.vars)
+RESEND_API_KEY=re_...
+
+# Production
+wrangler secret put RESEND_API_KEY
+```
+
+**3. Create your AuthEmailSender class**
+
+```typescript @skip-check
+import { ResendEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';  // must match your verified Resend domain
+}
+```
+
+That's it. `ResendEmailSender` handles the Resend API call, default HTML templates, and default subject lines. Export this class from your Worker entry point alongside your other classes.
+
+**4. Add the service binding to wrangler.jsonc**
+
+The binding is self-referencing — it points back to your own Worker:
+
+```jsonc @skip-check
+{
+  "services": [
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "your-worker-name",       // must match your wrangler.jsonc "name"
+      "entrypoint": "AuthEmailSender"
+    }
+  ]
+}
+```
+
+### Customizing Templates
+
+Override one or more template methods to customize the HTML. Default templates are used for any methods you don't override:
+
+```typescript @skip-check
+import { ResendEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';
+  replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
+  appName = 'My App';              // default: 'Lumenize'
+
+  magicLinkHtml(message) {
+    return `<h1>Welcome to My App</h1><a href="${message.magicLinkUrl}">Sign in</a>`;
+  }
+  // other 4 template methods use defaults
+}
+```
+
+You can also override subject methods (e.g., `magicLinkSubject(message)`) the same way. See [Configuration: Overridable Methods](/docs/auth/configuration#overridable-methods) for the full list.
+
+To compose with the default template (wrap it rather than replace it), import the default function:
+
+```typescript @skip-check
+import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';
+
+  magicLinkHtml(message) {
+    return `<div class="my-wrapper">${defaultMagicLinkHtml(message, this.appName)}</div>`;
+  }
+}
+```
+
+### Bring Your Own Provider {#bring-your-own-provider}
+
+Extend `AuthEmailSenderBase` instead of `ResendEmailSender` and implement `sendEmail()` with your provider's API:
+
+```typescript @skip-check
+import { AuthEmailSenderBase, type ResolvedEmail } from '@lumenize/auth';
+
+export class AuthEmailSender extends AuthEmailSenderBase {
+  from = 'auth@myapp.com';
+
+  async sendEmail(email: ResolvedEmail) {
+    // email contains: to, subject, html, from, replyTo, appName
+    // Call Postmark, SES, SendGrid, or any provider
+    await fetch('https://api.your-provider.com/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${(this.env as any).EMAIL_API_KEY}` },
+      body: JSON.stringify({ to: email.to, from: email.from, subject: email.subject, html: email.html }),
+    });
+  }
+}
+```
+
+The `ResolvedEmail` object contains everything needed to send one email — the base class has already resolved the template and subject. Your `sendEmail()` just needs to deliver it.
 
 ## Key Rotation
 

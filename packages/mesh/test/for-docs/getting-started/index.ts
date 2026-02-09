@@ -17,6 +17,7 @@ import { LumenizeClientGateway } from '../../../src/index.js';
 export { LumenizeClientGateway, LumenizeAuth };
 export { DocumentDO } from './document-do.js';
 export { SpellCheckWorker, type SpellFinding } from './spell-check-worker.js';
+export { AuthEmailSender } from './auth-email-sender.js';
 
 // Create auth routes and hooks once at module level
 const authRoutes = createAuthRoutes(env);

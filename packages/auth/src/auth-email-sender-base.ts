@@ -60,7 +60,7 @@ export function defaultInviteNewHtml(message: InviteNewMessage, appName: string)
  * Abstract base class for auth email senders.
  *
  * Extends `WorkerEntrypoint` directly (not `LumenizeWorker`) so `@lumenize/auth`
- * has no dependency on `@lumenize/mesh`. The DO communicates with this entrypoint
+ * has no dependency on `@lumenize/mesh`. The Auth DO communicates with this entrypoint
  * via plain Workers RPC through the `AUTH_EMAIL_SENDER` service binding.
  *
  * Subclasses must implement:
@@ -70,7 +70,11 @@ export function defaultInviteNewHtml(message: InviteNewMessage, appName: string)
  * Optionally override `replyTo`, `appName`, any of the 5 template methods,
  * or any of the 5 subject methods.
  *
- * @see https://lumenize.com/docs/auth/getting-started#email-provider
+ * For the default Resend implementation, extend {@link ResendEmailSender} instead.
+ * For bring-your-own-provider, extend this class directly.
+ *
+ * @see https://lumenize.com/docs/auth/getting-started#email-provider — setup walkthrough
+ * @see https://lumenize.com/docs/auth/configuration#email-provider — reference (class hierarchy, overridable methods)
  */
 export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
   /** Bare sender email address (e.g., `'auth@myapp.com'`). Required. */
@@ -132,6 +136,9 @@ export abstract class AuthEmailSenderBase extends WorkerEntrypoint {
   /**
    * Deliver the resolved email. Subclasses must implement this
    * with their email provider's API call.
+   *
+   * @param email - Fully resolved email with `to`, `subject`, `html`, `from`, `replyTo`, `appName`
+   * @see https://lumenize.com/docs/auth/getting-started#bring-your-own-provider
    */
   abstract sendEmail(email: ResolvedEmail): Promise<void>;
 

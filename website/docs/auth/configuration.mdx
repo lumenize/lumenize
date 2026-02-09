@@ -43,8 +43,9 @@ The Auth DO and Worker hooks read these from environment variables. Sensible def
 | `JWT_PUBLIC_KEY_GREEN` | Secret | No² | Auth DO, hooks | Ed25519 public key (GREEN slot) |
 | `PRIMARY_JWT_KEY` | Variable | Yes | Auth DO | Active signing slot: `"BLUE"` or `"GREEN"` |
 | `TURNSTILE_SECRET_KEY` | Secret | Recommended | `createAuthRoutes` | [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) server-side secret. Without it, the magic-link endpoint has no bot protection. See [Get Started with Turnstile](https://developers.cloudflare.com/turnstile/get-started/) |
+| `RESEND_API_KEY` | Secret | Yes³ | `ResendEmailSender` | [Resend](https://resend.com) API key for email delivery. See [Email Provider](/docs/auth/getting-started#email-provider) |
 
-¹ At least one key pair (BLUE or GREEN) is required. ² Second slot needed only during [key rotation](/docs/auth/getting-started#key-rotation).
+¹ At least one key pair (BLUE or GREEN) is required. ² Second slot needed only during [key rotation](/docs/auth/getting-started#key-rotation). ³ Only when using `ResendEmailSender` (the default). Bring-your-own-provider implementations use their own credentials.
 
 **Naming convention**: `LUMENIZE_AUTH_*` for Lumenize-specific config, `JWT_*` for industry-standard key material (shared across packages), vendor prefix (e.g., `TURNSTILE_*`) for third-party services.
 
@@ -55,4 +56,73 @@ These are Lumenize conventions — define them in your `wrangler.jsonc` with the
 | Binding | Type | Required | Read By | Description |
 |---------|------|----------|---------|-------------|
 | `LUMENIZE_AUTH` | Durable Object namespace | Yes | `createAuthRoutes` | Namespace binding for the [LumenizeAuth](/docs/auth/) DO |
+| `AUTH_EMAIL_SENDER` | [Service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/) | Recommended | Auth DO | Self-referencing service binding pointing to your `AuthEmailSender` entrypoint. Without it, emails are not delivered (debug-logged instead). See [Email Provider](/docs/auth/getting-started#email-provider) |
 | `LUMENIZE_AUTH_RATE_LIMITER` | [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) | Recommended | `createRouteDORequestAuthHooks` | Per-subject rate limiting keyed on `sub` from the decoded JWT. Without it, authenticated routes have no per-user rate limiting |
+
+## Email Provider {#email-provider}
+
+LumenizeAuth requires outgoing email for magic links, admin notifications, approval confirmations, and invites. Email delivery is delegated to a [WorkerEntrypoint](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) that you define and export from your Worker. The Auth DO calls it via the `AUTH_EMAIL_SENDER` service binding.
+
+### Class Hierarchy
+
+```
+WorkerEntrypoint                   (Cloudflare)
+  └─ AuthEmailSenderBase           (@lumenize/auth — templates, subjects, from/replyTo/appName)
+       └─ ResendEmailSender        (@lumenize/auth — sendEmail() via Resend API)
+            └─ AuthEmailSender     (you — sets from, optional overrides)
+```
+
+| Class | Package | What you do |
+|-------|---------|-------------|
+| `AuthEmailSenderBase` | `@lumenize/auth` | Abstract base. Provides `send(message)` dispatch, 5 default HTML templates, 5 default subject methods, `from` (abstract), `replyTo`, `appName`. You extend this for bring-your-own-provider. |
+| `ResendEmailSender` | `@lumenize/auth` | Extends `AuthEmailSenderBase`. Implements `sendEmail()` via `fetch` to `https://api.resend.com/emails` using `RESEND_API_KEY`. You extend this for the default Resend path. |
+| `AuthEmailSender` | Your Worker | Your class. Set `from`, optionally override `replyTo`, `appName`, template methods, or subject methods. Export it from your Worker entry point. |
+
+### Overridable Methods
+
+All methods receive the corresponding `EmailMessage` variant as their argument.
+
+**Template methods** (return HTML string):
+
+| Method | Default behavior |
+|--------|-----------------|
+| `magicLinkHtml(message)` | Login link with sign-in button |
+| `adminNotificationHtml(message)` | New signup notification with approve button |
+| `approvalConfirmationHtml(message)` | Account approved with link to app |
+| `inviteExistingHtml(message)` | Notification to already-verified user |
+| `inviteNewHtml(message)` | Onboarding link for new user |
+
+**Subject methods** (return string):
+
+| Method | Default |
+|--------|---------|
+| `magicLinkSubject(message)` | `'Your login link'` |
+| `adminNotificationSubject(message)` | `` `New signup: ${message.subjectEmail}` `` |
+| `approvalConfirmationSubject(message)` | `'Your account has been approved'` |
+| `inviteExistingSubject(message)` | `"You've been invited"` |
+| `inviteNewSubject(message)` | `"You've been invited"` |
+
+### Instance Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `from` | Yes | — | Bare sender email address (e.g., `'auth@myapp.com'`). `ResendEmailSender` constructs the display name as `"${appName} <${from}>"` for the Resend API. |
+| `replyTo` | No | `no-reply@{domain}` | Reply-to address. Domain is extracted from `from`. |
+| `appName` | No | `'Lumenize'` | Used in default templates and the Resend `From:` display name. |
+
+### ResolvedEmail
+
+The object passed to `sendEmail()` after template and subject resolution:
+
+```typescript @skip-check
+interface ResolvedEmail {
+  to: string;        // recipient
+  subject: string;   // resolved by subject method
+  html: string;      // resolved by template method
+  from: string;      // bare email address from instance variable
+  replyTo: string;   // resolved default or override
+  appName: string;   // for providers that use it (e.g., From: display name)
+}
+```
+
+For setup instructions, see [Getting Started: Email Provider](/docs/auth/getting-started#email-provider).

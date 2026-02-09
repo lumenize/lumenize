@@ -2,22 +2,16 @@ import { AuthEmailSenderBase } from './auth-email-sender-base';
 import type { ResolvedEmail } from './types';
 
 /**
- * Email sender that delivers via Resend (`https://api.resend.com/emails`).
+ * Email sender that delivers via [Resend](https://resend.com) (`https://api.resend.com/emails`).
  *
- * Requires `RESEND_API_KEY` in the Worker's environment.
+ * Requires `RESEND_API_KEY` in the Worker's environment. Constructs the Resend
+ * `from` field as `"${appName} <${from}>"` (e.g., `"My App <auth@myapp.com>"`).
  *
- * Developer-users extend this class and set `from` (and optionally
- * `replyTo`, `appName`, or any template/subject methods):
+ * Extend this class, set `from`, and export from your Worker entry point.
+ * For bring-your-own-provider, extend {@link AuthEmailSenderBase} instead.
  *
- * ```typescript
- * import { ResendEmailSender } from '@lumenize/auth';
- *
- * export class AuthEmailSender extends ResendEmailSender {
- *   from = 'auth@myapp.com';
- * }
- * ```
- *
- * @see https://lumenize.com/docs/auth/getting-started#email-provider
+ * @see https://lumenize.com/docs/auth/getting-started#email-provider — setup walkthrough
+ * @see https://lumenize.com/docs/auth/configuration#email-provider — reference (class hierarchy, overridable methods)
  */
 export class ResendEmailSender extends AuthEmailSenderBase {
   // Subclass must set `from` — inherited abstract requirement
