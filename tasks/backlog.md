@@ -4,13 +4,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] **CRITICAL**: Gateway must close existing WebSocket when new connection arrives
-  - **Current bug**: `fetch()` accepts new WebSocket without closing existing one
-  - **Risk**: Multiple WebSockets could exist simultaneously; `#getActiveWebSocket()` returns `sockets[0]` which may be stale
-  - **Fix**: Before `ctx.acceptWebSocket(server)`, check `ctx.getWebSockets()` and close any existing connections with a specific close code (e.g., 4409 "Superseded by new connection")
-  - **Race condition concern**: Unknown whether `ws.close()` synchronously removes socket from `getWebSockets()` or if it enters a "closing" state first. If the latter, a call arriving during handoff could see both sockets. Safeguard: update `#getActiveWebSocket()` to filter for `readyState === WebSocket.OPEN` rather than just taking `sockets[0]`
-  - **Location**: `packages/mesh/src/lumenize-client-gateway.ts` around line 306
-
 - [ ] **Improve `instrumentDOProject` auto-detection to handle multiple DOs without manual config**
   - **Current friction**: When a source module exports multiple classes, `autoDetectDOClasses` can't distinguish Durable Objects from WorkerEntrypoints (or other class exports), so it throws and requires manual `doClassNames`. Every multi-DO project needs boilerplate like `doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'LumenizeAuth']`.
   - **Approach 1 — Prototype chain walking**: Import `DurableObject` from `cloudflare:workers` and check `OriginalClass.prototype instanceof DurableObject`. This reliably distinguishes DOs from WorkerEntrypoints, plain classes, and other exports. The import should be wrapped in try/catch for environments where `cloudflare:workers` isn't available (though `instrumentDOProject` only runs in vitest-pool-workers, so this is unlikely to matter).
