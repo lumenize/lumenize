@@ -438,7 +438,7 @@ The DO uses the Hibernation WebSocket API to push parsed emails to connected tes
 
 ## Phase 4: Revisit Testing Utilities
 
-**Goal**: Evaluate whether `ConsoleEmailService`, `MockEmailService`, and `HttpEmailService` should be updated, replaced, or deprecated in light of the WorkerEntrypoint pattern.
+**Goal**: Evaluate whether `ConsoleEmailService`, `MockEmailService`, `HttpEmailService`, etc. should be updated, replaced, or deprecated in light of the WorkerEntrypoint pattern. Also, decide if any environment variables or other config needs to be removed.
 
 **Success Criteria**:
 - [ ] Evaluate whether existing tests should use the pluggable WorkerEntrypoint system instead of `LUMENIZE_AUTH_TEST_MODE=true`

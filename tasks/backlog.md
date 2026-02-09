@@ -11,6 +11,13 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Race condition concern**: Unknown whether `ws.close()` synchronously removes socket from `getWebSockets()` or if it enters a "closing" state first. If the latter, a call arriving during handoff could see both sockets. Safeguard: update `#getActiveWebSocket()` to filter for `readyState === WebSocket.OPEN` rather than just taking `sockets[0]`
   - **Location**: `packages/mesh/src/lumenize-client-gateway.ts` around line 306
 
+- [ ] **Improve `instrumentDOProject` auto-detection to handle multiple DOs without manual config**
+  - **Current friction**: When a source module exports multiple classes, `autoDetectDOClasses` can't distinguish Durable Objects from WorkerEntrypoints (or other class exports), so it throws and requires manual `doClassNames`. Every multi-DO project needs boilerplate like `doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'LumenizeAuth']`.
+  - **Approach 1 — Prototype chain walking**: Import `DurableObject` from `cloudflare:workers` and check `OriginalClass.prototype instanceof DurableObject`. This reliably distinguishes DOs from WorkerEntrypoints, plain classes, and other exports. The import should be wrapped in try/catch for environments where `cloudflare:workers` isn't available (though `instrumentDOProject` only runs in vitest-pool-workers, so this is unlikely to matter).
+  - **Approach 2 — Auto-pass non-DO class exports**: Instead of ignoring non-DO classes, automatically re-export them on the result object. Currently test harnesses must manually `export { SpellCheckWorker } from '../spell-check-worker.js'` for each WorkerEntrypoint. If `instrumentDOProject` detected non-DO classes and passed them through (unwrapped) on the result, the entire test harness could collapse to `export default instrumentDOProject(sourceModule)` with wrangler pointing class names at `default.ClassName`.
+  - **Combined effect**: For most projects, the test harness becomes a single line — no `doClassNames`, no manual re-exports. Manual config only needed when auto-detection genuinely can't determine what to do.
+  - **Location**: `packages/testing/src/instrument-do-project.ts` — `autoDetectDOClasses()` function (lines 31-46) and result assembly (lines 192-202)
+
 ## Package Maintenance
 
 - [ ] Rename `@lumenize/utils` → `@lumenize/routing`
@@ -176,8 +183,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - RPC Methods: `configure()` and `setEmailService()` — only used in tests, not production
   - JWT Utilities: `signJwt`, `verifyJwt`, `verifyJwtWithRotation`, `importPrivateKey`, `importPublicKey`, `parseJwtUnsafe` — which are truly needed by users?
   - WebSocket Utilities: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES` — internal implementation details?
-  - Email Services: `ConsoleEmailService`, `HttpEmailService`, `MockEmailService`, `createDefaultEmailService` — verify all 4 are implemented and tested; likely some are stubs
-  - Email service implementation is incomplete — expect this to change before finalizing docs
+  - ~~Email Services~~ — ✅ Resolved by `tasks/resend-email-for-auth.md` Phase 3. Old internal services (`ConsoleEmailService`, `HttpEmailService`, `MockEmailService`, `createDefaultEmailService`) replaced by WorkerEntrypoint architecture (`AuthEmailSenderBase` → `ResendEmailSender`). Fully documented in `configuration.mdx#email-provider` and `getting-started.mdx#email-provider`.
 
 - [ ] Consider removing "Token Delivery via Subprotocol" implementation detail from security.mdx after LumenizeClient implementation is complete
 

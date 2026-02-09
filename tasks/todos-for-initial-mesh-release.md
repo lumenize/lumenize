@@ -11,6 +11,7 @@ Must have:
   - [x] Refactor Gateway
   - [x] Get test coverage up to targets
   - [x] Resolve remaining skip-checks
+  - [x] Get real email working with auth system
 - [ ] Website home page rewrite
   - [ ] Tag line
   - [ ] Hero sections
