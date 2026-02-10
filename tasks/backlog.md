@@ -32,8 +32,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Move the multi-client/Bob scenario to a separate test file (e.g., `test/for-docs/getting-started/multi-client.test.ts` or a different for-docs folder)
   - The remaining test should mirror the `.mdx` Step 4 closely
 
-- [ ] Confirm whether or not a pending alarm consumes ongoing storage. Try checking ctx.storage.sql.databaseSize. Failing that, try the Cloudflare dashboard for DOs.
-
 - [ ] Measure Gateway hop latency overhead (requires live deployment)
   - **Question**: How much latency does the 1:1 Gateway architecture add compared to connecting directly to a DO over WebSocket?
   - **What to measure**: Round-trip time for Client→Gateway→DO→Gateway→Client vs hypothetical Client→DO→Client direct

@@ -115,7 +115,7 @@ Calling a method that lacks the `@mesh` decorator behaves the same as calling a 
 **Decision (2025-01-17)**: Rate limiting in `LumenizeAuth` uses instance variables, not DO storage.
 
 **Rationale**:
-- Storage writes are 10,000x more expensive than reads — unacceptable for a rate limiter that writes on every request
+- Storage writes are 1,000x more expensive than reads — unacceptable for a rate limiter that writes on every request
 - Rate limiting is inherently ephemeral; if the DO hibernates and limits reset, that's acceptable — if traffic is low enough to hibernate, it's not hitting any reasonable rate limit
 - This is a **valid exception** to the "no instance variables for mutable state" rule because: (1) the state is intentionally ephemeral, (2) losing it on eviction is the desired behavior, and (3) the cost of persistence is prohibitive
 

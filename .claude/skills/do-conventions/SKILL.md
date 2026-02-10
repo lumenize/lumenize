@@ -115,7 +115,7 @@ Why: `await` and timers in business logic break Durable Object input/output gate
 
 ## 5. No Mutable Instance State
 
-Durable Objects can be hibernated or otherwise evicted from memory at any time. Instance variables that hold mutable state will be lost on eviction. Use `ctx.storage.kv` or `ctx.storage.sql` as the source of truth. DO storage reads are extremely cheap (~1/10,000th the cost of writes) and frequently read values are served from cache, so reading from storage on every access has no measurable performance penalty or cost versus instance variables and avoids race condition inconsistency risks.
+Durable Objects can be hibernated or otherwise evicted from memory at any time. Instance variables that hold mutable state will be lost on eviction. Use `ctx.storage.kv` or `ctx.storage.sql` as the source of truth. DO storage reads are extremely cheap (~1/1,000th the cost of writes) and frequently read values are served from cache, so reading from storage on every access has no measurable performance penalty or cost versus instance variables and avoids race condition inconsistency risks.
 
 ```typescript
 // Wrong: mutable instance state — lost on eviction
