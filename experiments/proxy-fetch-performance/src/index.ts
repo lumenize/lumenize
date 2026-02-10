@@ -10,7 +10,7 @@ import { LumenizeExperimentDO, type VariationDefinition } from '@lumenize/for-ex
 import { FetchExecutorEntrypoint } from '@lumenize/proxy-fetch';
 import { TestEndpointsDO, createTestEndpoints } from '@lumenize/test-endpoints';
 import { LumenizeBase } from '@lumenize/lumenize-base';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import '@lumenize/proxy-fetch'; // NADIS plugin - registers this.svc.proxyFetch
 
 /**

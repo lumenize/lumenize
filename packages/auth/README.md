@@ -11,7 +11,7 @@ A de✨light✨ful authentication system for Cloudflare Durable Objects with mag
 - **Refresh Token Rotation**: Secure token refresh with automatic rotation
 - **Key Rotation**: BLUE/GREEN key strategy for zero-downtime rotation
 - **WebSocket Support**: Token verification for WebSocket connections
-- **routeDORequest Integration**: Works seamlessly with `@lumenize/utils`
+- **routeDORequest Integration**: Works seamlessly with `@lumenize/routing`
 
 ## Installation
 

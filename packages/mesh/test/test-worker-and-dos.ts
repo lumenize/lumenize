@@ -1200,7 +1200,7 @@ export class EchoDO extends LumenizeDO<Env> {
 
 // Import routeDORequest for e2e testing with Browser.WebSocket
 import { env } from 'cloudflare:workers';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { createRouteDORequestAuthHooks } from '@lumenize/auth';
 
 // Create auth hooks once at module level (async — imports public keys from env)

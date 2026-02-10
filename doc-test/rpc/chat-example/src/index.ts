@@ -1,5 +1,5 @@
 import { lumenizeRpcDO, sendDownstream } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { DurableObject } from 'cloudflare:workers';
 
 // ========== Type Definitions ==========

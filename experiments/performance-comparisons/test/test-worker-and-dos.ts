@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { lumenizeRpcDO, handleRpcRequest } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { RpcTarget, newWorkersRpcResponse } from 'capnweb';
 import { CounterImpl, type Counter } from '../src/index.js';
 // import '@transformation-dev/debug'; // TEMPORARILY DISABLED to see performance timings

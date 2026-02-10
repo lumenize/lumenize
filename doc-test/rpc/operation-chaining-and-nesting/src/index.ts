@@ -1,5 +1,5 @@
 import { lumenizeRpcDO } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { DurableObject } from 'cloudflare:workers';
 
 // A simple data service that demonstrates operation chaining and nesting

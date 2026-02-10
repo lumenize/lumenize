@@ -1,11 +1,11 @@
 import { Agent, Connection, ConnectionContext, WSMessage } from "agents";
 
-// The `routeAgentRequest` from @lumenize/utils is near a drop in replacement
+// The `routeAgentRequest` from @lumenize/routing is near a drop in replacement
 // but with upgrades. We say "near" because the signature for the hooks
 // `onBeforeRequest` and `onBeforeConnect` are different. Better, but different.
 // The advantages include much better documentation, better testing, and CORS 
 // allowlist support (critical for WebSocket usage, although not shown below).
-import { routeAgentRequest } from "@lumenize/utils";
+import { routeAgentRequest } from "@lumenize/routing";
 
 // Worker
 export default {

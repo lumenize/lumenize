@@ -30,7 +30,7 @@
   ],
   "dependencies": {
     "@lumenize/testing": "^0.17.0",
-    "@lumenize/utils": "^0.17.0"
+    "@lumenize/routing": "^0.17.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "*",

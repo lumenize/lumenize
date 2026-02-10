@@ -1,4 +1,4 @@
-import { isDurableObjectId, getDOStub } from '@lumenize/utils';
+import { isDurableObjectId, getDOStub } from '@lumenize/routing';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { getOperationChain, executeOperationChain, replaceNestedOperationMarkers, type OperationChain, type Continuation, type AnyContinuation } from './ocan/index.js';
@@ -581,7 +581,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       // 7. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
-        // DO: Use getDOStub from @lumenize/utils
+        // DO: Use getDOStub from @lumenize/routing
         stub = getDOStub(env[calleeBindingName], calleeInstanceName!);
       } else {
         // Worker: Direct access to entrypoint
@@ -741,7 +741,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       // 7. Get stub based on callee type
       let stub: any;
       if (calleeType === 'LumenizeDO') {
-        // DO: Use getDOStub from @lumenize/utils
+        // DO: Use getDOStub from @lumenize/routing
         stub = getDOStub(env[calleeBindingName], calleeInstanceName!);
       } else {
         // Worker: Direct access to entrypoint

@@ -1,5 +1,5 @@
 import { lumenizeRpcDO } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 /**
  * Configuration for instrumenting a DO project

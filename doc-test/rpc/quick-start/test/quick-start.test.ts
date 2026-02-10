@@ -184,7 +184,7 @@ npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/rpc
-npm install --save-dev @lumenize/utils
+npm install --save-dev @lumenize/routing
 ```
 
 ## src/index.ts

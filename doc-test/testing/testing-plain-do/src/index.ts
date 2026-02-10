@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 const handleLogin = (request: Request): Response | undefined => {
   const url = new URL(request.url);

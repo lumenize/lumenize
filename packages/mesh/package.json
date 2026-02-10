@@ -30,7 +30,7 @@
     "@lumenize/auth": "*",
     "@lumenize/debug": "*",
     "@lumenize/structured-clone": "*",
-    "@lumenize/utils": "*",
+    "@lumenize/routing": "*",
     "cron-schedule": "^5.0.1",
     "ulid-workers": "^2.1.0"
   },

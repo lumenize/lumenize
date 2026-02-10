@@ -1,6 +1,6 @@
 import { lumenizeRpcDO, handleRpcRequest, handleRpcMessage } from '../src/lumenize-rpc-do';
 import type { RpcConfig } from '../src/types';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { DurableObject } from 'cloudflare:workers';
 // @ts-expect-error For some reason this import is not always recognized
 import { Env } from 'cloudflare:test';

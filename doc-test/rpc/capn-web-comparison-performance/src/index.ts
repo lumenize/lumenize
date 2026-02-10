@@ -1,6 +1,6 @@
 import { DurableObject, RpcTarget } from 'cloudflare:workers';
 import { lumenizeRpcDO } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { newWorkersRpcResponse } from 'capnweb';
 
 // ============================================================================

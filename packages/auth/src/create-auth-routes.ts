@@ -1,4 +1,4 @@
-import { routeDORequest, type CorsOptions } from '@lumenize/utils';
+import { routeDORequest, type CorsOptions } from '@lumenize/routing';
 import { verifyTurnstileToken } from './turnstile';
 import type { AuthRoutesOptions } from './types';
 

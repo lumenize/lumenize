@@ -15,7 +15,7 @@ Annotate code blocks to verify they exist in passing tests. Annotations go on th
 
 ```mdx
 ```typescript @check-example('packages/utils/test/route-do-request.test.ts')
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 const response = await routeDORequest(env.MY_DO, request);
 \```

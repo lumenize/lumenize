@@ -18,7 +18,7 @@
  * - ?token=<token> query parameter
  */
 
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { TestEndpointsDO } from './TestEndpointsDO';
 import { EnvTestDO } from './EnvTestDO';
 
