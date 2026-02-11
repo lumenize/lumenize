@@ -48,6 +48,8 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 - [ ] Links back to Mesh announcement for developers who want the full stack
 - [ ] Marked `draft: true` initially, published after review
 
+--- STOP HERE FOR MORE PLANNING AND FLESHING OUT THE FOLLOWING PHASES ---
+
 ## Phase 3: Working Document Editor Example
 
 **Goal**: A complete, deployable system example that developers can clone and run.
