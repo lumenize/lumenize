@@ -1,6 +1,6 @@
 {
   "name": "call-patterns",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@lumenize/core": "*",
-    "@lumenize/for-experiments": "^0.21.0",
-    "@lumenize/structured-clone": "^0.21.0"
+    "@lumenize/for-experiments": "^0.22.0",
+    "@lumenize/structured-clone": "^0.22.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",

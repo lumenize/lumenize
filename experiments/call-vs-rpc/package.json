@@ -1,6 +1,6 @@
 {
   "name": "call-vs-rpc",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@lumenize/call": "*",
-    "@lumenize/for-experiments": "^0.21.0",
+    "@lumenize/for-experiments": "^0.22.0",
     "@lumenize/lumenize-base": "*"
   }
 }

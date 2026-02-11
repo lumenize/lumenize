@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/email-test",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Email testing infrastructure — receives inbound emails via Cloudflare Email Routing and pushes to test clients via WebSocket",
   "type": "module",
   "main": "src/index.ts",

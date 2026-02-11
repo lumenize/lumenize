@@ -1,6 +1,6 @@
 {
   "name": "proxy-fetch-latency-experiment",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "description": "Production latency measurements for proxyFetchWorker",
   "type": "module",

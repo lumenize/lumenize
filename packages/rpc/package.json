@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/rpc",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "De✨light✨ful RPC system for Cloudflare Durable Objects",
   "type": "module",
   "main": "dist/index.js",
@@ -35,16 +35,16 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
-    "@lumenize/testing": "^0.21.0",
+    "@lumenize/testing": "^0.22.0",
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/debug": "^0.21.0",
-    "@lumenize/routing": "^0.21.0",
-    "@lumenize/structured-clone": "^0.21.0"
+    "@lumenize/debug": "^0.22.0",
+    "@lumenize/routing": "^0.22.0",
+    "@lumenize/structured-clone": "^0.22.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
