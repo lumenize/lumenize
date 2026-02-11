@@ -8,7 +8,6 @@
     "sourceMap": true,
     "types": ["@types/node"]
   },
-  "files": [],
   "include": [
     "src/**/*"
   ],
