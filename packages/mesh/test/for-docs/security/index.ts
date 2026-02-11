@@ -5,7 +5,7 @@
  */
 
 import { env } from 'cloudflare:workers';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import {
   LumenizeAuth,
   createAuthRoutes,

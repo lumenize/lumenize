@@ -1,7 +1,7 @@
 # Website Refactor for Initial Lumenize Mesh Release
 
 Must have:
-- [ ] Code:
+- [x] Code:
   - [x] Fix bootstrap problem for LumenizeClient
     - [x] Upgrade Browser with BroadcastChannel and sessionStorage in support of testing above
   - [x] Fix Worker call() bugs (missing __localChainExecutor, missing bindingName validation)
@@ -12,20 +12,20 @@ Must have:
   - [x] Get test coverage up to targets
   - [x] Resolve remaining skip-checks
   - [x] Get real email working with auth system
-- [ ] Website home page rewrite
-  - [ ] Tag line
-  - [ ] Hero sections
-  - [ ] Products (one paragraph each and then links to docs for each except Nebula)
-    - [ ] Mesh marked beta
-    - [ ] Auth marked beta
-    - [ ] debug marked GA
-    - [ ] Nebula marked coming soon
-- [ ] Website - what to do with older packages
-  - [ ] Move RPC under Testing and mark with "use Mesh instead"
-  - [ ] Actor Alarms - archive except keep doc-testing folder
-  - [ ] Cap'n Web comparison - archive except keep doc-testing folder
-- [ ] Blog
-  - [ ] Announcing Lumenize Mesh and Auth
+- [x] Website home page rewrite
+  - [x] Tag line
+  - [x] Hero sections
+  - [x] Products (one paragraph each and then links to docs for each except Nebula)
+    - [x] Mesh marked beta
+    - [x] Auth marked beta
+    - [x] debug marked GA
+    - [x] Nebula marked coming soon
+- [x] Website - what to do with older packages
+  - [x] Move RPC under Testing and mark with "use Mesh instead"
+  - [x] Actor Alarms - archive except keep doc-testing folder
+  - [x] Cap'n Web comparison - archive except keep doc-testing folder
+- [x] Blog
+  - [x] Announcing Lumenize Mesh and Auth
 
 Should have:
 - [ ] Working Document editor system example

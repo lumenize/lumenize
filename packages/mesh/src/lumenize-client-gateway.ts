@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { preprocess, postprocess } from '@lumenize/structured-clone';
-import { getDOStub } from '@lumenize/utils';
+import { getDOStub } from '@lumenize/routing';
 import { debug } from '@lumenize/debug';
 import type { CallEnvelope } from './lmz-api.js';
 import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js';

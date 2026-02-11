@@ -59,7 +59,7 @@ When prompted, choose:
 The following packages are published to npm:
 - `@lumenize/rpc` - RPC framework for Durable Objects
 - `@lumenize/testing` - Integration testing framework
-- `@lumenize/utils` - Utility functions
+- `@lumenize/routing` - Utility functions
 
 **Not published** (private or excluded):
 - `@lumenize/testing-outdated` - Deprecated package

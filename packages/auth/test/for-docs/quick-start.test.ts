@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { LumenizeAuth, createRouteDORequestAuthHooks, createAuthRoutes } from '@lumenize/auth';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 export { LumenizeAuth };
 

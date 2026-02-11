@@ -12,38 +12,52 @@ type FeatureItem = {
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'On the Shoulders of Giants',
-    Svg: require('@site/static/img/trophy.svg').default,
+    title: 'True Mesh Networking',
+    Svg: require('@site/static/img/network.svg').default,
     description: (
       <>
-        The best from Cloudflare (e.g., Actor, Agent) and the community
-        (e.g., PartyKit) as well as adding some of our own (e.g., in-process 
-        integration testing for WebSockets)
+        Durable Objects, Workers, and clients running anywhere with
+        JavaScript and WebSockets — browser, Node.js, Bun — are full
+        mesh nodes. Call any peer the same way. Code any peer the same way.
       </>
     ),
     color: 'var(--ifm-color-primary)',
   },
   {
-    title: 'Modular',
+    title: 'Secure by Default',
+    Svg: require('@site/static/img/shield-check.svg').default,
+    description: (
+      <>
+        Required auth and fine-grained access control at every layer.
+        Class-wide hooks, method-level <code>@mesh()</code> guards,
+        and zero-trust security out of the box.
+        Powered by <code>@lumenize/auth</code> with passwordless
+        magic-link login and JWT tokens.
+      </>
+    ),
+    color: 'var(--ifm-color-primary-light)',
+  },
+  {
+    title: 'Rich Types Everywhere',
     Svg: require('@site/static/img/puzzle.svg').default,
     description: (
       <>
-        Use a single utility.
-        Start with a bare-bones base class and plugin only what you want
-        (e.g., <code>sql`</code>, auth, etc.)
-        up to a complete MCP-first backend with access control, per-row synchronization, etc.
+        Pass <code>Date</code>, <code>Map</code>, <code>Set</code>,{' '}
+        <code>Error</code> with cause chains, objects with cycles,{' '}
+        <code>ArrayBuffer</code>, and more through calls and into storage.
+        No <code>toJSON()</code>. No <code>fromJSON()</code>. It just works.
       </>
     ),
     color: 'var(--ifm-color-primary-lighter)',
   },
   {
-    title: 'Robustly Engineered',
+    title: 'De✨light✨ful DX & Quality',
     Svg: require('@site/static/img/drafting-compass.svg').default,
     description: (
       <>
-        90%+ test coverage. Rapid bug-fix guarantee.
-        Robust docs assured in-sync with code via doc-testing.
-        Toggle logging scopes with environment vars.
+        The right way is the easy way — and we show you how to test it.
+        In-process WebSocket integration testing. Documentation validated
+        against real tests. 90%+ test coverage across the framework.
       </>
     ),
     color: 'var(--ifm-color-primary-darker)',
@@ -52,7 +66,7 @@ const FeatureList: FeatureItem[] = [
 
 function Feature({title, Svg, description, color}: FeatureItem) {
   return (
-    <div className={clsx('col col--4')}>
+    <div className={clsx('col col--3')}>
       <div className="text--center">
         <Svg className={styles.featureSvg} role="img" style={{ color }} />
       </div>

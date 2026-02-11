@@ -17,13 +17,16 @@ function HomepageHeader() {
           {siteConfig.title}
         </Heading>
         <p className="hero__subtitle">{siteConfig.tagline}</p>
-        {/* <div className={styles.buttons}>
+        <p className="hero__subtitle" style={{fontSize: '1.2rem', opacity: 0.9, marginTop: '-0.5rem'}}>
+          Durable Objects, Workers, and browser clients — all equal peers in one mesh
+        </p>
+        <div className={styles.buttons}>
           <Link
             className="button button--secondary button--lg"
-            to="/docs/intro">
-            Call to action button goes here ⏱️
+            to="/docs/mesh/getting-started">
+            Get Started with Mesh
           </Link>
-        </div> */}
+        </div>
       </div>
     </header>
   );
@@ -33,8 +36,8 @@ export default function Home(): ReactNode {
   const {siteConfig} = useDocusaurusContext();
   return (
     <Layout
-      title={`${siteConfig.title} de✨light✨ful DX`}
-      description="De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects">
+      title={`${siteConfig.title} — Mesh Networking for Cloudflare`}
+      description="A de✨light✨fully radical new way to build on Cloudflare Workers and Durable Objects">
       <HomepageHeader />
       <main>
         <HomepageFeatures />

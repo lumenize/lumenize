@@ -1,0 +1,31 @@
+{
+  "name": "lumenize-utils-integration-tests",
+  "main": "test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "TEST_DO",
+        "class_name": "TestDO"
+      },
+      {
+        "name": "MY_DO",
+        "class_name": "MyDO"
+      },
+      {
+        "name": "USER_SESSION",
+        "class_name": "UserSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "TestDO",
+        "MyDO",
+        "UserSession"
+      ]
+    }
+  ]
+}

@@ -330,7 +330,7 @@ npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/rpc
-npm install --save-dev @lumenize/utils
+npm install --save-dev @lumenize/routing
 npm install --save-dev capnweb
 ```
 
@@ -340,7 +340,7 @@ npm install --save-dev capnweb
 
 ```typescript src/index.ts
 import { lumenizeRpcDO } from '@lumenize/rpc';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import { DurableObject } from 'cloudflare:workers';
 
 // A simple data service that demonstrates operation chaining and nesting

@@ -217,7 +217,7 @@ npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/testing
-npm install --save-dev @lumenize/utils
+npm install --save-dev @lumenize/routing
 ```
 
 ## Setup files

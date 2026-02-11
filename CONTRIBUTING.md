@@ -46,7 +46,7 @@ Lumenize is designed for AI-assisted development using [Cursor](https://cursor.c
 This is an npm workspaces monorepo with three publishable packages:
 - `@lumenize/rpc` - RPC system for Durable Objects
 - `@lumenize/testing` - Testing utilities for DOs
-- `@lumenize/utils` - Utility functions
+- `@lumenize/routing` - Utility functions
 
 ### Running Tests
 

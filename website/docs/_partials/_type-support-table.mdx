@@ -5,32 +5,30 @@
 | undefined | ✅ | ✅ | ✅ | ✅ | |
 | null | ✅ | ✅ | ✅ | ✅ | |
 | **Special Numbers** | | | | | |
-| NaN | ✅ | ✅ | ❌→✅ | ✅ | Cap'n Web returns null |
-| Infinity | ✅ | ✅ | ❌→✅ | ✅ | Cap'n Web returns null |
-| -Infinity | ✅ | ✅ | ❌→✅ | ✅ | Cap'n Web returns null |
+| NaN | ✅ | ✅ | ✅ | ✅ | |
+| Infinity | ✅ | ✅ | ✅ | ✅ | |
+| -Infinity | ✅ | ✅ | ✅ | ✅ | |
 | **Built-in Types** | | | | | |
 | BigInt | ✅ | ✅ | ✅ | ✅ | |
 | Date | ✅ | ✅ | ✅ | ✅ | |
-| RegExp | ✅ | ✅ | ❌→✅ | ✅ | |
-| Map | ✅⚠️ | ✅⚠️ | ❌→✅⚠️ | ✅⚠️ | Object keys lose identity |
-| Set | ✅⚠️ | ✅⚠️ | ❌→✅⚠️ | ✅⚠️ | Object values lose identity |
-| ArrayBuffer | ✅ | ✅ | ❌→✅ | ✅ | |
+| RegExp | ✅ | ✅ | ❌ | ✅ | |
+| Map | ✅⚠️ | ✅⚠️ | ❌ | ✅⚠️ | Object keys lose identity |
+| Set | ✅⚠️ | ✅⚠️ | ❌ | ✅⚠️ | Object values lose identity |
+| ArrayBuffer | ✅ | ✅ | ❌ | ✅ | |
 | Uint8Array | ✅ | ✅ | ✅ | ✅ | |
 | **Errors** | | | | | |
 | Error (thrown) | ✅ | N/A | ⚠️ | ✅ | Cap'n Web loses name and remote stack |
-| Error (value) | ✅ | ⚠️ | ⚠️→✅ | ✅ | Cap'n Web loses name and remote stack |
+| Error (value) | ✅ | ⚠️ | ⚠️ | ✅ | Cap'n Web loses name and remote stack |
 | **Web API Types** | | | | | |
 | Request | ✅ | ❌ | ❌ | ✅ | |
 | Response | ✅ | ❌ | ❌ | ✅ | |
-| Headers | ✅ | ✅ | ❌→✅ | ✅ | Cap'n Web: type annotation only, no serialization |
-| URL | ❌ | ❌ | ❌→✅ | ✅ | |
+| Headers | ✅ | ✅ | ❌ | ✅ | Cap'n Web: type annotation only, no serialization |
+| URL | ❌ | ❌ | ❌ | ✅ | |
 | **Streams** | | | | | |
 | ReadableStream | ✅ | ❌ | ❌ | ❌ | Cap'n Web: "may be added" |
 | WritableStream | ✅ | ❌ | ❌ | ❌ | Lumenize: "just use WebSockets" |
 
 **Notes:**
-
-- We use ❌→✅ or ⚠️→✅ in the Cap'n Web column for certain rows because we have submitted a [pull request to upgrade Cap'n Web's type support](https://github.com/cloudflare/capnweb/pull/99).
 
 - **⚠️ Map/Set with Object Keys/Values:** While `Map` and `Set` are fully supported, object identity behavior depends on serialization boundaries:
   - **Identity preserved**: Within a single RPC call (Workers RPC, `@lumenize/rpc`) or single `stringify()`/`parse()` cycle

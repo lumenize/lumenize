@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@lumenize/debug": "*",
-    "@lumenize/utils": "*"
+    "@lumenize/routing": "*"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

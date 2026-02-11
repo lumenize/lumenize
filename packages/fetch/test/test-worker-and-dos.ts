@@ -228,7 +228,7 @@ export { _TestSimpleDO as TestSimpleDO };
 /**
  * Worker fetch handler that routes requests to test-endpoints-do
  */
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {

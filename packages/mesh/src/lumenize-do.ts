@@ -7,7 +7,7 @@ import {
   type AnyContinuation,
 } from './ocan/index.js';
 import { parse } from '@lumenize/structured-clone';
-import { isDurableObjectId } from '@lumenize/utils';
+import { isDurableObjectId } from '@lumenize/routing';
 import { createLmzApiForDO, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { debug } from '@lumenize/debug';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
@@ -222,7 +222,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
    *
    * Reads `x-lumenize-do-binding-name` and `x-lumenize-do-instance-name-or-id`
    * headers and calls `this.lmz.__init()` if present. These headers are automatically
-   * set by `routeDORequest` in @lumenize/utils.
+   * set by `routeDORequest` in @lumenize/routing.
    *
    * **Validation**: If the instance header contains a Durable Object ID (64-char hex string)
    * instead of a name, returns an HTTP 400 error. LumenizeDO requires instance names for

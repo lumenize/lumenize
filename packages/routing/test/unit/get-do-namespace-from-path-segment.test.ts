@@ -1,0 +1,184 @@
+import { describe, it, expect } from 'vitest';
+import { getDONamespaceFromPathSegment, MultipleBindingsFoundError } from '../../src/get-do-namespace-from-path-segment';
+
+describe('getDONamespaceFromPathSegment', () => {
+  // Mock Durable Object Namespace
+  const mockDONamespace = {
+    getByName: () => ({}),
+    idFromName: () => ({}),
+  };
+
+  it('should find exact match', () => {
+    const env = { MY_DO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('MY_DO', env);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
+  });
+
+  it('should convert kebab-case to SNAKE_CASE', () => {
+    const env = { MY_DO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
+  });
+
+  it('should handle PascalCase binding', () => {
+    const env = { MyDO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
+  });
+
+  it('should handle camelCase binding', () => {
+    const env = { myDo: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toEqual({ bindingName: 'myDo', namespace: mockDONamespace });
+  });
+
+  it('should handle complex case like my-d-o → MyDO', () => {
+    const env = { MyDO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('my-d-o', env);
+    expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
+  });
+
+  it('should handle complex case like my-do → MyDO', () => {
+    const env = { MyDO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
+  });
+
+  it('should handle userSession → USER_SESSION', () => {
+    const env = { USER_SESSION: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('user-session', env);
+    expect(result).toEqual({ bindingName: 'USER_SESSION', namespace: mockDONamespace });
+  });
+
+  it('should return undefined for empty segment', () => {
+    const env = { MY_DO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('', env);
+    expect(result).toBeUndefined();
+  });
+
+  it('should return undefined when no match found', () => {
+    const env = { OTHER_DO: mockDONamespace };
+    const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toBeUndefined();
+  });
+
+  it('should throw MultipleBindingsFoundError when multiple matches', () => {
+    const env = { 
+      MY_DO: mockDONamespace,
+      MyDo: mockDONamespace  // Different objects that would both match my-do
+    };
+    expect(() => getDONamespaceFromPathSegment('my-do', env)).toThrow(MultipleBindingsFoundError);
+  });
+
+  it('should only consider actual DO bindings', () => {
+    const env = { 
+      MY_DO: mockDONamespace,
+      NOT_A_DO: "just a string",
+      ANOTHER_STRING: 42
+    };
+    const result = getDONamespaceFromPathSegment('my-do', env);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
+  });
+
+  it('should match if it is exact', () => {
+    const env = { 
+      MY_DO: mockDONamespace,
+      MyDo: "just a string",
+    };
+    let result = getDONamespaceFromPathSegment('MY_DO', env);
+    expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
+
+    const multiEnv = { 
+      MyDo: mockDONamespace,
+      MY_DO: "just a string",
+    };
+    result = getDONamespaceFromPathSegment('MyDo', multiEnv);
+    expect(result).toEqual({ bindingName: 'MyDo', namespace: mockDONamespace });
+  });
+
+  it('should provide helpful error messages for multiple bindings', () => {
+    const multiEnv = { 
+      MY_DO: mockDONamespace,
+      MyDo: mockDONamespace
+    };
+    try {
+      getDONamespaceFromPathSegment('my-do', multiEnv);
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.code).toBe('MULTIPLE_BINDINGS_FOUND');
+      expect(error.httpErrorCode).toBe(400);
+      expect(error.matchedBindings).toEqual(['MY_DO', 'MyDo']);
+      expect(error.availableBindings).toEqual(['MY_DO', 'MyDo']);
+    }
+  });
+
+  it('should have correct HTTP error code for MultipleBindingsFoundError', () => {
+    const multiEnv = { 
+      MY_DO: mockDONamespace,
+      MyDo: mockDONamespace
+    };
+    try {
+      getDONamespaceFromPathSegment('my-do', multiEnv);
+      expect.fail('Should have thrown');
+    } catch (error: any) {
+      expect(error.httpErrorCode).toBe(400);
+    }
+  });
+
+  // New tests for exact matching (non-kebab-case)
+  describe('exact matching for non-kebab-case', () => {
+    it('should only match exact for uppercase path segment', () => {
+      const env = { 
+        MY_DO: mockDONamespace,
+        MYDO: { ...mockDONamespace, other: true },
+        mydo: { ...mockDONamespace, other: true }
+      };
+      const result = getDONamespaceFromPathSegment('MY_DO', env);
+      expect(result).toEqual({ bindingName: 'MY_DO', namespace: mockDONamespace });
+    });
+
+    it('should only match exact for PascalCase path segment', () => {
+      const env = { 
+        MyDO: mockDONamespace,
+        MYDO: { ...mockDONamespace, other: true },
+        mydo: { ...mockDONamespace, other: true }
+      };
+      const result = getDONamespaceFromPathSegment('MyDO', env);
+      expect(result).toEqual({ bindingName: 'MyDO', namespace: mockDONamespace });
+    });
+
+    it('should only match exact for snake_case path segment', () => {
+      const env = { 
+        my_do: mockDONamespace,
+        MY_DO: { ...mockDONamespace, other: true },
+        myDo: { ...mockDONamespace, other: true }
+      };
+      const result = getDONamespaceFromPathSegment('my_do', env);
+      expect(result).toEqual({ bindingName: 'my_do', namespace: mockDONamespace });
+    });
+
+    it('should use smart matching for kebab-case with digits', () => {
+      const env = { 
+        API_V2: mockDONamespace
+      };
+      const result = getDONamespaceFromPathSegment('api-v2', env);
+      expect(result).toEqual({ bindingName: 'API_V2', namespace: mockDONamespace });
+    });
+
+    it('should use smart matching for kebab-case with all digits', () => {
+      const env = { 
+        ROOM_123: mockDONamespace
+      };
+      const result = getDONamespaceFromPathSegment('room-123', env);
+      expect(result).toEqual({ bindingName: 'ROOM_123', namespace: mockDONamespace });
+    });
+
+    it('should not match wrong casing for non-kebab-case', () => {
+      const env = { 
+        MYDO: mockDONamespace
+      };
+      const result = getDONamespaceFromPathSegment('MyDO', env);
+      expect(result).toBeUndefined();
+    });
+  });
+});

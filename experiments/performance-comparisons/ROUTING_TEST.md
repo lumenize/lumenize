@@ -84,7 +84,7 @@ class CounterCapnWeb extends RpcTarget {
 
 **Worker Code**:
 ```typescript
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
@@ -138,7 +138,7 @@ Pattern: Completely flexible (you define it)
 ```
 URL: /__rpc/COUNTER/abc123/call
 Routing: routeDORequest helper parses and routes automatically  
-Helper: routeDORequest (from @lumenize/utils)
+Helper: routeDORequest (from @lumenize/routing)
 Pattern: Fixed convention (prefix + binding + id + suffix)
 ```
 

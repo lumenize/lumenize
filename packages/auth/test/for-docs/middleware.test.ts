@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createRouteDORequestAuthHooks } from '@lumenize/auth';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 describe('Auth Hooks Example', () => {
   it('shows the auth hooks pattern works', async () => {

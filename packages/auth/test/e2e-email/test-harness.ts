@@ -1,7 +1,7 @@
 import { LumenizeAuth } from '../../src/lumenize-auth.js';
 import { ResendEmailSender } from '../../src/resend-email-sender.js';
 import { createAuthRoutes } from '../../src/create-auth-routes.js';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 // Re-export the Auth DO for wrangler
 export { LumenizeAuth };

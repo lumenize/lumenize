@@ -14,7 +14,7 @@
 		"@cloudflare/vitest-pool-workers": "^0.9.3",
 		"@lumenize/rpc": "^0.17.0",
 		"@lumenize/testing": "^0.17.0",
-		"@lumenize/utils": "^0.17.0",
+		"@lumenize/routing": "^0.17.0",
 		"@vitest/coverage-istanbul": "3.2.4",
 		"capnweb": "^0.1.0",
 		"typescript": "^5.9.2",

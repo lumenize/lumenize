@@ -212,7 +212,7 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Testing
+    // Testing (with RPC as deprecated sub-section)
     {
       type: 'category',
       label: 'Testing',
@@ -234,63 +234,63 @@ const sidebars: SidebarsConfig = {
         ...(typedocTestingSidebar && typedocTestingSidebar.length > 0
           ? [wrapInApiReference(typedocTestingSidebar, 'API Reference')]
           : []),
+        // RPC - deprecated, kept as sub-section since @lumenize/testing builds on it
+        {
+          type: 'category',
+          label: 'RPC (deprecated)',
+          collapsed: true,
+          items: [
+            'rpc/introduction',
+            {
+              type: 'doc',
+              id: 'rpc/quick-start',
+              customProps: {
+                docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
+              }
+            },
+            {
+              type: 'doc',
+              id: 'rpc/operation-chaining-and-nesting',
+              customProps: {
+                docTest: 'doc-test/rpc/operation-chaining-and-nesting/test/ocan.test.ts'
+              }
+            },
+            'rpc/downstream-messaging',
+            'rpc/security-patterns',
+            'rpc/capn-web-comparison',
+            {
+              type: 'doc',
+              id: 'rpc/capn-web-comparison-just-works',
+              customProps: {
+                docTest: 'doc-test/rpc/capn-web-comparison-just-works/test/just-works.test.ts'
+              }
+            },
+            {
+              type: 'doc',
+              id: 'rpc/capn-web-comparison-basics-and-types',
+              customProps: {
+                docTest: 'doc-test/rpc/capn-web-comparison-basics-and-types/test/basics-and-types.test.ts'
+              }
+            },
+            {
+              type: 'doc',
+              id: 'rpc/capn-web-comparison-performance',
+              customProps: {
+                docTest: 'doc-test/rpc/capn-web-comparison-performance/test/performance.test.ts'
+              }
+            },
+            ...(typedocRpcSidebar && typedocRpcSidebar.length > 0
+              ? [wrapInApiReference(typedocRpcSidebar, 'API Reference')]
+              : []),
+          ],
+        },
       ],
     },
-    
-    // RPC
+
+    // Routing (was Utils — package rename in progress)
     {
       type: 'category',
-      label: 'RPC',
-      items: [
-        'rpc/introduction',
-        {
-          type: 'doc',
-          id: 'rpc/quick-start',
-          customProps: {
-            docTest: 'doc-test/rpc/quick-start/test/quick-start.test.ts'
-          }
-        },
-        {
-          type: 'doc',
-          id: 'rpc/operation-chaining-and-nesting',
-          customProps: {
-            docTest: 'doc-test/rpc/operation-chaining-and-nesting/test/ocan.test.ts'
-          }
-        },
-        'rpc/downstream-messaging',
-        'rpc/security-patterns',
-        'rpc/capn-web-comparison',
-        {
-          type: 'doc',
-          id: 'rpc/capn-web-comparison-just-works',
-          customProps: {
-            docTest: 'doc-test/rpc/capn-web-comparison-just-works/test/just-works.test.ts'
-          }
-        },
-        {
-          type: 'doc',
-          id: 'rpc/capn-web-comparison-basics-and-types',
-          customProps: {
-            docTest: 'doc-test/rpc/capn-web-comparison-basics-and-types/test/basics-and-types.test.ts'
-          }
-        },
-        {
-          type: 'doc',
-          id: 'rpc/capn-web-comparison-performance',
-          customProps: {
-            docTest: 'doc-test/rpc/capn-web-comparison-performance/test/performance.test.ts'
-          }
-        },
-        ...(typedocRpcSidebar && typedocRpcSidebar.length > 0
-          ? [wrapInApiReference(typedocRpcSidebar, 'API Reference')]
-          : []),
-      ],
-    },
-    
-    // Utils
-    {
-      type: 'category',
-      label: 'Utils',
+      label: 'Routing',
       items: [
         'utils/route-do-request',
         'utils/cors-support',

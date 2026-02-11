@@ -1,0 +1,13 @@
+{
+  // Minimal wrangler.jsonc for type generation only
+  // Tests use test/integration/wrangler.jsonc
+  "name": "lumenize-utils-types",
+  "main": "test/integration/test-worker-and-dos.ts",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "MY_DO", "class_name": "MyDO" }
+    ]
+  }
+}
+

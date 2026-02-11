@@ -6,7 +6,7 @@ description: Installation, bootstrap admin, Worker setup, email provider, key ro
 # Getting Started
 
 :::note Lumenize Mesh/Utils used to illustrate
-In these docs, `@lumenize/mesh` and `@lumenize/utils` are used to illustrate Lumenize Auth, but `@lumenize/auth` will work with any Cloudflare Workers/Durable Object system. The integration surface is the standard `Authorization` header: the auth hooks verify the JWT and forward it to your DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSockets. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact header contract.
+In these docs, `@lumenize/mesh` and `@lumenize/routing` are used to illustrate Lumenize Auth, but `@lumenize/auth` will work with any Cloudflare Workers/Durable Object system. The integration surface is the standard `Authorization` header: the auth hooks verify the JWT and forward it to your DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSockets. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact header contract.
 :::
 
 For a complete setup walkthrough including key generation, environment configuration, and Worker setup, see [Lumenize Mesh: Getting Started](/docs/mesh/getting-started#step-5-set-up-authentication).
@@ -39,7 +39,7 @@ Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHoo
 
 ```typescript @check-example('packages/auth/test/for-docs/quick-start.test.ts')
 import { LumenizeAuth, createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 export { LumenizeAuth };
 
@@ -123,7 +123,7 @@ wrangler secret put RESEND_API_KEY
 
 **3. Create your AuthEmailSender class**
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
 import { ResendEmailSender } from '@lumenize/auth';
 
 export class AuthEmailSender extends ResendEmailSender {
@@ -137,7 +137,7 @@ That's it. `ResendEmailSender` handles the Resend API call, default HTML templat
 
 The binding is self-referencing — it points back to your own Worker:
 
-```jsonc @skip-check
+```jsonc
 {
   "services": [
     {
@@ -153,7 +153,7 @@ The binding is self-referencing — it points back to your own Worker:
 
 Override one or more template methods to customize the HTML. Default templates are used for any methods you don't override:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
 import { ResendEmailSender } from '@lumenize/auth';
 
 export class AuthEmailSender extends ResendEmailSender {
@@ -172,7 +172,7 @@ You can also override subject methods (e.g., `magicLinkSubject(message)`) the sa
 
 To compose with the default template (wrap it rather than replace it), import the default function:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
 import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
 
 export class AuthEmailSender extends ResendEmailSender {
@@ -188,7 +188,7 @@ export class AuthEmailSender extends ResendEmailSender {
 
 Extend `AuthEmailSenderBase` instead of `ResendEmailSender` and implement `sendEmail()` with your provider's API:
 
-```typescript @skip-check
+```typescript @skip-check-approved('conceptual')
 import { AuthEmailSenderBase, type ResolvedEmail } from '@lumenize/auth';
 
 export class AuthEmailSender extends AuthEmailSenderBase {
@@ -199,7 +199,7 @@ export class AuthEmailSender extends AuthEmailSenderBase {
     // Call Postmark, SES, SendGrid, or any provider
     await fetch('https://api.your-provider.com/send', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${(this.env as any).EMAIL_API_KEY}` },
+      headers: { Authorization: `Bearer ${this.env.EMAIL_API_KEY}` },
       body: JSON.stringify({ to: email.to, from: email.from, subject: email.subject, html: email.html }),
     });
   }

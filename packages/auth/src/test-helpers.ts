@@ -55,7 +55,7 @@ export interface TestLoginResult {
  * - LumenizeAuth DO configured with `LUMENIZE_AUTH_TEST_MODE=true`
  * - Worker with `createAuthRoutes()` handling `{prefix}/*` routes
  *
- * @param browser - Browser instance from @lumenize/utils or @lumenize/testing
+ * @param browser - Browser instance from @lumenize/routing or @lumenize/testing
  * @param email - Email address for the magic link
  * @param options - Optional configuration (baseUrl, prefix, subjectData)
  * @returns `{ accessToken, sub }` — use `parseJwtUnsafe(accessToken)` if you need claims

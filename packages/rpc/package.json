@@ -44,7 +44,7 @@
   "dependencies": {
     "@lumenize/debug": "*",
     "@lumenize/structured-clone": "^0.17.0",
-    "@lumenize/utils": "^0.17.0"
+    "@lumenize/routing": "^0.17.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

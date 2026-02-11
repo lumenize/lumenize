@@ -1,100 +1,119 @@
 ---
 title: "Introduction"
-description: "Overview of Lumenize features and roadmap"
+description: "Overview of Lumenize — mesh networking for Cloudflare Workers and Durable Objects"
 ---
 
 # Introduction
 
 ## What is Lumenize?
 
-### Today (October 2025)
-Lumenize is a toolkit for building and testing scalable and maintainable applications on Cloudflare Durable Objects (DOs). The main features available today focus on RPC:
+Lumenize is a suite of packages for building applications on Cloudflare Workers and Durable Objects. Several packages stand on their own; together, they form the foundation on which [**Lumenize Mesh**](/docs/mesh) is built — a network where **DOs, Workers, and browser clients are all equal peers**. Secure by default. Rich types everywhere. De✨light✨ful developer experience.
 
-1. **In-process integration testing**. Provides more capability and a more de✨light✨ful DX than `cloudflare:test`'s `runInDurableObjects` particularly for testing DOs that implement WebSockets. Supports `new WebSockets()`, client libraries, auto-response pair testing, test coverage, and more.
+See the [Mesh Announcement](/blog/announcing-lumenize-mesh) for the full story, or [Package Changes](/blog/lumenize-package-changes) for migration details from earlier Lumenize versions.
 
-2. **In-production RPC from the browser**: Enables secure, production-grade RPC with a de✨light✨ful developer experience:
-  ```typescript
-  // Store a value in Durable Object storage
-  await client.ctx.storage.put('count', '10');
-  // Invoke a method on the Durable Object
-  const currentCount = await client.increment(); // returns 11
-  ```
+## Guiding Principles
 
-Lumenize also provides utilities like `routeDORequest`, a near drop-in replacement for `routeAgentRequest` and `routePartyRequest`, offering robust CORS support and a cleaner API.
+### De✨light✨ful Developer Experience
 
-### Coming soon
-
-**[@lumenize/mesh](/docs/mesh)**: A powerful mesh networking layer for Durable Objects with `LumenizeDO`, `LumenizeWorker`, and `LumenizeClient`. Features include:
-- **Type-safe RPC calls** between any mesh nodes
-- **Automatic identity propagation** through call chains
-- **Browser clients as full mesh peers** via Gateway WebSockets
-- **Security by default** with `@mesh()` decorators and guards
-
-**Lumenize Nebula**: The next-generation backend platform for vibe coding internal enterprise or B2B SaaS applications, built around Model Context Protocol (MCP). This MCP-first architecture enables seamless integration with agentic AI workflows and is designed to be secure by default.
-
-## de✨light✨ful Developer Experience
+Cloudflare's `Agent` SDK has patterns worth falling in love with — `routeAgentRequest` is elegant, and the sql and alarms code from `@cloudflare/actors` has genuinely nice DX. We borrowed liberally: our [`routeDORequest`](/docs/utils/route-do-request) is almost exactly `routeAgentRequest`, and we started with Actors' sql and alarms APIs. Then we evolved them. Actors' alarms use string method names to dispatch when an alarm fires; ours use [continuations](/docs/mesh/continuations) with full type safety, [among other upgrades](/docs/mesh/alarms#acknowledgment-to-actors-alarms). That's the pattern throughout Lumenize: find something good, understand *why* it's good, then push it further — drawing on `PartyKit` and `durable-utils` along the way.
 
 ### Opinionated Yet Flexible
 
-Lumenize is opinionated where it counts—providing clear guidance and best practices for robust, scalable DO applications—while remaining flexible. Install only the plugins you need, and extend functionality with the same modular plugin system.
+Lumenize is opinionated where it counts — secure defaults, consistent patterns, clear guidance, and [integration testing](/docs/testing/usage) for your code on day one. But every extension point has a clean contract: swap in [your own auth](/docs/auth/getting-started#bring-your-own-provider), extend the base classes with your domain logic, or use the standalone packages on their own.
 
-### Standing on the Shoulders of Giants
+### Rich Types Everywhere
 
-Lumenize builds on the best of `Agent`, `PartyKit`, `Actor`, and `durable-utils`, adding robustness and unique features. See our [blog post on the Lumenize journey](/blog/shoulders-of-giants) for more.
+Pass `Date`, `Map`, `Set`, `Error` with cause chains, objects with cycles, `ArrayBuffer`, and more through calls and into storage. No `toJSON()`. No `fromJSON()`. [It just works](/docs/structured-clone).
+
+### Secure by Default
+
+Required [auth](/docs/auth) and fine-grained access control at every layer. Class-wide hooks, method-level `@mesh()` guards, and zero-trust security out of the box — powered by `@lumenize/auth` with passwordless magic-link login and JWT tokens.
 
 ### Engineering Excellence
 
-- Over 90% test coverage with meaningful assertions beyond happy-path scenarios
-- Comprehensive documentation with runnable examples
-- Documentation kept in sync with code via doc-testing
-- Toggle logging by namespace, Durable Object instance, or other context
+The right way is the easy way — and we show you how to test it.
+
+- In-process WebSocket integration [testing](/docs/testing/usage) that goes far beyond `cloudflare:test`
+- Documentation validated against real tests via [check-examples](/docs/mesh/testing)
+- 90%+ test coverage across the framework with meaningful assertions beyond happy-path scenarios
+- Toggle [logging](/docs/debug) by namespace, Durable Object instance, or other context
 - Committed to rapid bug fixes
-- Designed so the right way for a user to do something is the easy way, particularly when 
-  it comes to security
 
-## Release Status
-
-We are now in a position to start releasing pieces under open source licenses as we clean up the documentation for external consumption. See below for the status of what is out and what's coming out next.
+## Packages
 
 <table style={{width: '100%'}}>
   <thead>
     <tr>
-      <th style={{textAlign: 'left', minWidth: '200px'}}>Name</th>
+      <th style={{textAlign: 'left', minWidth: '220px'}}>Package</th>
       <th style={{textAlign: 'left'}}>Description</th>
+      <th style={{textAlign: 'center'}}>Standalone</th>
+      <th style={{textAlign: 'center'}}>Status</th>
       <th style={{textAlign: 'center'}}>License</th>
-      <th style={{textAlign: 'center'}}>Released</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td style={{textAlign: 'left'}}>@lumenize/testing</td>
-      <td style={{textAlign: 'left'}}>In-process Integration Testing</td>
+      <td style={{textAlign: 'left'}}>[@lumenize/mesh](/docs/mesh)</td>
+      <td style={{textAlign: 'left'}}>Mesh networking for DOs, Workers, and browser clients</td>
+      <td style={{textAlign: 'center'}}>—</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'orange'}}>Beta</span></td>
       <td style={{textAlign: 'center'}}>MIT</td>
-      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
     </tr>
     <tr>
+      <td style={{textAlign: 'left'}}>[@lumenize/auth](/docs/auth)</td>
+      <td style={{textAlign: 'left'}}>Passwordless authentication with magic links and JWTs</td>
+      <td style={{textAlign: 'center'}}>✓</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'orange'}}>Beta</span></td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>[@lumenize/testing](/docs/testing/usage)</td>
+      <td style={{textAlign: 'left'}}>In-process integration testing for Durable Objects</td>
+      <td style={{textAlign: 'center'}}>✓</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>GA</span></td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>[@lumenize/debug](/docs/debug)</td>
+      <td style={{textAlign: 'left'}}>Structured debug logging for Cloudflare observability</td>
+      <td style={{textAlign: 'center'}}>✓</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>GA</span></td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>[@lumenize/structured-clone](/docs/structured-clone)</td>
+      <td style={{textAlign: 'left'}}>Rich type serialization (cycles, Date, Map, Set, etc.)</td>
+      <td style={{textAlign: 'center'}}>✓</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>GA</span></td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>[@lumenize/fetch](/docs/fetch)</td>
+      <td style={{textAlign: 'left'}}>Fetch wrapper for Worker-to-DO communication</td>
+      <td style={{textAlign: 'center'}}>—</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'orange'}}>Beta</span></td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+    </tr>
+    <tr>
+      <td style={{textAlign: 'left'}}>[@lumenize/routing](/docs/utils/route-do-request)</td>
+      <td style={{textAlign: 'left'}}>Request routing for Durable Objects (was @lumenize/utils)</td>
+      <td style={{textAlign: 'center'}}>✓</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>GA</span></td>
+      <td style={{textAlign: 'center'}}>MIT</td>
+    </tr>
+    <tr style={{opacity: 0.6}}>
       <td style={{textAlign: 'left'}}>@lumenize/rpc</td>
-      <td style={{textAlign: 'left'}}>In-production RPC w/ browser client</td>
+      <td style={{textAlign: 'left'}}>Deprecated — use @lumenize/mesh (remains as foundation for @lumenize/testing)</td>
+      <td style={{textAlign: 'center'}}>—</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'gray'}}>Deprecated</span></td>
       <td style={{textAlign: 'center'}}>MIT</td>
-      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
     </tr>
-    <tr>
-      <td style={{textAlign: 'left'}}>@lumenize/utils</td>
-      <td style={{textAlign: 'left'}}>Useful utilities for DO projects</td>
-      <td style={{textAlign: 'center'}}>MIT</td>
-      <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>✓</span></td>
-    </tr>
-    <tr>
-      <td style={{textAlign: 'left'}}>@lumenize/mesh</td>
-      <td style={{textAlign: 'left'}}>Lumenize Mesh communication framework</td>
-      <td style={{textAlign: 'center'}}>MIT</td>
-      <td style={{textAlign: 'center'}}></td>
-    </tr>
-    <tr>
-      <td style={{textAlign: 'left'}}>@lumenize/lumenize</td>
-      <td style={{textAlign: 'left'}}>Vibe code enterprise or B2B SaaS apps</td>
-      <td style={{textAlign: 'center'}}>BSI 1.1</td>
-      <td style={{textAlign: 'center'}}></td>
+    <tr style={{opacity: 0.7}}>
+      <td style={{textAlign: 'left'}}>[Lumenize Nebula](/blog/introducing-lumenize-nebula)</td>
+      <td style={{textAlign: 'left'}}>Agentic platform for enterprise apps from declarative business ontologies</td>
+      <td style={{textAlign: 'center'}}>—</td>
+      <td style={{textAlign: 'center'}}><span style={{color: 'blue'}}>Coming Soon</span></td>
+      <td style={{textAlign: 'center'}}>BSL 1.1</td>
     </tr>
   </tbody>
 </table>
