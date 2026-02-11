@@ -8,7 +8,7 @@ import checkExamplesPlugin from '@lumenize/docusaurus-plugin-check-examples';
 
 const config: Config = {
   title: 'Lumenize',
-  tagline: 'De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects',
+  tagline: 'A de✨light✨fully radical new way to build on Cloudflare Workers and Durable Objects',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
@@ -35,14 +35,14 @@ const config: Config = {
       tagName: 'meta',
       attributes: {
         name: 'description',
-        content: 'De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects. Full-featured RPC, testing utilities, and more.',
+        content: 'A de✨light✨fully radical new way to build on Cloudflare Workers and Durable Objects. Mesh networking, secure by default, rich types everywhere.',
       },
     },
     {
       tagName: 'meta',
       attributes: {
         name: 'keywords',
-        content: 'cloudflare, durable objects, workers, rpc, typescript, edge computing',
+        content: 'cloudflare, durable objects, workers, mesh networking, typescript, edge computing, authentication',
       },
     },
     {
@@ -56,7 +56,7 @@ const config: Config = {
       tagName: 'meta',
       attributes: {
         property: 'og:description',
-        content: 'De✨light✨ful Developer eXperience (DDX) on Cloudflare Durable Objects',
+        content: 'A de✨light✨fully radical new way to build on Cloudflare Workers and Durable Objects',
       },
     },
     {
@@ -97,9 +97,9 @@ const config: Config = {
       [
         'docusaurus-plugin-typedoc',
         {
-          id: 'utils',
-          entryPoints: ['../packages/utils/src/index.ts'],
-          tsconfig: '../packages/utils/tsconfig.json',
+          id: 'routing',
+          entryPoints: ['../packages/routing/src/index.ts'],
+          tsconfig: '../packages/routing/tsconfig.json',
           out: 'docs/utils/api',
           sidebar: {
             autoConfiguration: true,
@@ -282,7 +282,7 @@ const config: Config = {
           items: [
             {
               label: 'Discord',
-              href: 'https://discordapp.com/invite/lumenize',
+              href: 'https://discord.gg/tkug8FGfKR',
             },
           ],
         },

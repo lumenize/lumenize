@@ -22,4 +22,24 @@ rpc:
   label: RPC
   permalink: /rpc
   description: Remote Procedure Call (RPC)
+
+announcement:
+  label: Announcement
+  permalink: /announcement
+  description: Product launches, releases, and major updates
+
+mesh:
+  label: Mesh
+  permalink: /mesh
+  description: Lumenize Mesh networking for Cloudflare Durable Objects
+
+auth:
+  label: Auth
+  permalink: /auth
+  description: Authentication, authorization, and identity
+
+nebula:
+  label: Nebula
+  permalink: /nebula
+  description: Lumenize Nebula agentic platform
   

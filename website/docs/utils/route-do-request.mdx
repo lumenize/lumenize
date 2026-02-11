@@ -14,7 +14,7 @@ drop-in replacement for Cloudflare `agents` package `routeAgentRequest` and Part
 ## Installation
 
 ```bash npm2yarn @skip-check-approved('bash')
-npm install @lumenize/utils
+npm install @lumenize/routing
 ```
 
 ## Basic Usage
@@ -140,7 +140,7 @@ prefix.
 
 ## Lumenize's own `routeAgentRequest`
 
-`@lumenize/utils` also exports our own `routeAgentRequest`. It defaults the prefix to 
+`@lumenize/routing` also exports our own `routeAgentRequest`. It defaults the prefix to 
 '/agents' and adds the same `x-partykit-...` headers that `agents` `routeAgentRequest` 
 does. This is the only place in Lumenize, where we allowed PartyKit foo to creep in and
 we only did it so it could serve as a near drop in replacement with much better CORS
@@ -192,7 +192,7 @@ use the idiomatic pattern with `||` for clean fallthrough. Each router checks it
 and returns `undefined` if it doesn't match:
 
 ```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
-import { routeDORequest, routeAgentRequest } from '@lumenize/utils';
+import { routeDORequest, routeAgentRequest } from '@lumenize/routing';
 
 // ...
 
@@ -220,7 +220,7 @@ Each error includes an `httpErrorCode` property in addition to the standard `mes
 property for easy HTTP response handling:
 
 ```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
-import { routeDORequest, routeAgentRequest } from '@lumenize/utils';
+import { routeDORequest, routeAgentRequest } from '@lumenize/routing';
 
 // ...
 

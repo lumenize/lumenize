@@ -30,9 +30,10 @@ function extractDocTestEntries(sidebarsPath, siteDir) {
   // Read and parse the sidebars file
   const sidebarsContent = fs.readFileSync(sidebarsPath, 'utf-8');
   
-  // Match pattern: { type: 'doc', id: 'testing/usage', label: '...', customProps: { docTest: 'path/to/test.ts' } }
-  // This regex handles multi-line entries, various formatting, and optional fields
-  const docTestRegex = /{\s*type:\s*['"]doc['"]\s*,\s*id:\s*['"]([^'"]+)['"][\s\S]*?customProps:\s*{\s*docTest:\s*['"]([^'"]+)['"]\s*}\s*}/gs;
+  // Match pattern: { type: 'doc', id: 'testing/usage', customProps: { docTest: 'path/to/test.ts' } }
+  // Uses [^}]*? between id and customProps to avoid matching across object boundaries
+  // (e.g., a `link: { type: 'doc', id: '...' }` in one object spanning to a customProps in another)
+  const docTestRegex = /{\s*type:\s*['"]doc['"]\s*,\s*id:\s*['"]([^'"]+)['"][^}]*?customProps:\s*{\s*docTest:\s*['"]([^'"]+)['"]\s*}\s*}/gs;
   
   let match;
   while ((match = docTestRegex.exec(sidebarsContent)) !== null) {

@@ -6,7 +6,7 @@ description: Installation, bootstrap admin, Worker setup, email provider, key ro
 # Getting Started
 
 :::note Lumenize Mesh/Utils used to illustrate
-In these docs, `@lumenize/mesh` and `@lumenize/utils` are used to illustrate Lumenize Auth, but `@lumenize/auth` will work with any Cloudflare Workers/Durable Object system. The integration surface is the standard `Authorization` header: the auth hooks verify the JWT and forward it to your DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSockets. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact header contract.
+In these docs, `@lumenize/mesh` and `@lumenize/routing` are used to illustrate Lumenize Auth, but `@lumenize/auth` will work with any Cloudflare Workers/Durable Object system. The integration surface is the standard `Authorization` header: the auth hooks verify the JWT and forward it to your DO in the `Authorization: Bearer <jwt>` header — for both HTTP requests and WebSockets. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact header contract.
 :::
 
 For a complete setup walkthrough including key generation, environment configuration, and Worker setup, see [Lumenize Mesh: Getting Started](/docs/mesh/getting-started#step-5-set-up-authentication).
@@ -39,7 +39,7 @@ Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHoo
 
 ```typescript @check-example('packages/auth/test/for-docs/quick-start.test.ts')
 import { LumenizeAuth, createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 export { LumenizeAuth };
 

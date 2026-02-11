@@ -132,7 +132,7 @@ npm install --save-dev vitest@3.2
 npm install --save-dev @vitest/coverage-istanbul@3.2
 npm install --save-dev @cloudflare/vitest-pool-workers
 npm install --save-dev @lumenize/testing
-npm install --save-dev @lumenize/utils
+npm install --save-dev @lumenize/routing
 ```
 
 ## src/index.ts
@@ -141,7 +141,7 @@ Let's say you have this Worker and Durable Object:
 
 ```typescript src/index.ts
 import { DurableObject } from "cloudflare:workers";
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 
 const handleLogin = (request: Request): Response | undefined => {
   const url = new URL(request.url);

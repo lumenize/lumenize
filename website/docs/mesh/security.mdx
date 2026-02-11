@@ -217,7 +217,7 @@ This example shows how to create an `onBeforeConnect` hook for Auth0. It follows
 
 ```typescript @skip-check-approved('requires Auth0 account to test')
 import { jwtVerify, importSPKI } from 'jose';
-import type { RouteDORequestHooksContext } from '@lumenize/utils';
+import type { RouteDORequestHooksContext } from '@lumenize/routing';
 
 async function createAuth0WebSocketHooks(env: Env) {
   const publicKey = await importSPKI(env.AUTH0_PUBLIC_KEY, 'RS256');

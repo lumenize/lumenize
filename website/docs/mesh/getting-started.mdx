@@ -37,7 +37,7 @@ This tutorial builds a **collaborative document editor** using all mesh node typ
 ## Prerequisites
 
 ```bash
-npm install @lumenize/mesh @lumenize/utils
+npm install @lumenize/mesh @lumenize/routing
 ```
 
 ## Step 1: Define the Document DO
@@ -359,7 +359,7 @@ npm install @lumenize/auth
 
 ```typescript @check-example('packages/mesh/test/for-docs/getting-started/index.ts')
 import { env } from 'cloudflare:workers';
-import { routeDORequest } from '@lumenize/utils';
+import { routeDORequest } from '@lumenize/routing';
 import {
   LumenizeAuth,
   createAuthRoutes,
