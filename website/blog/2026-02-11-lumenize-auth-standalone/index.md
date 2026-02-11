@@ -19,7 +19,14 @@ Because the existing options for Workers are either too heavy or too light:
 - **External auth services** add latency, cost, and a dependency on infrastructure you don't control. Your Workers are at the edge; your auth shouldn't be in `us-east-1`.
 - **Rolling your own** means re-solving key rotation, refresh token revocation, admin approval flows, and WebSocket auth every time.
 
-`@lumenize/auth` sits in between. It's a single Durable Object (`LumenizeAuth`) that stores subjects (aka "users") in DO SQLite storage, signs Ed25519 JWTs, and exposes a handful of HTTP routes. You get [passwordless magic-link login](/docs/auth/getting-started), [two-phase access control](/docs/auth/#access-flows) (email verification + admin approval), [zero-downtime key rotation](/docs/auth/getting-started#key-rotation), [delegation via RFC 8693](/docs/auth/delegation), and [drop-in `routeDORequest` hooks](/docs/auth/getting-started#createroutedorequestauthhooks) that protect your DOs with one line of wiring.
+`@lumenize/auth` sits in between. It's a single Durable Object (`LumenizeAuth`) that stores subjects (aka "users") in DO SQLite storage, signs Ed25519 JWTs, and exposes a handful of HTTP routes. You get:
+
+- [Passwordless magic-link login](/docs/auth/getting-started)
+- [Two-phase access control](/docs/auth/#access-flows) (email verification + admin approval)
+- [Zero-downtime key rotation](/docs/auth/getting-started#key-rotation)
+- [Delegation via RFC 8693](/docs/auth/delegation)
+- [Drop-in `routeDORequest` hooks](/docs/auth/getting-started#createroutedorequestauthhooks) that protect your DOs with one line of wiring
+- [Hono support](/docs/auth/hono) via `honoAuthMiddleware`
 
 ## Works with any Workers project
 
@@ -29,9 +36,9 @@ Because the existing options for Workers are either too heavy or too light:
 npm install @lumenize/auth
 ```
 
-[`createAuthRoutes`](/docs/auth/getting-started#createauthroutes) handles the first piece — it returns a handler with the signature `(request: Request) => Promise<Response | undefined>`. Wire it into your `fetch` handler; it returns a `Response` for auth routes and `undefined` for everything else, so it chains naturally with whatever routing you already have. If you use [Hono](https://hono.dev), it's a [drop-in integration](/docs/auth/hono) — wrap it in `app.use()` and let unmatched requests fall through.
+[`createAuthRoutes`](/docs/auth/getting-started#createauthroutes) handles the first piece — it returns a handler with the signature `(request: Request) => Promise<Response | undefined>`. Wire it into your `fetch` handler; it returns a `Response` for auth routes and `undefined` for everything else, so it chains naturally with whatever routing you already have.
 
-[`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) handles the second piece — JWT verification, two-phase access enforcement, and per-subject rate limiting, packaged as `onBeforeRequest` and `onBeforeConnect` hooks for [`routeDORequest`](/docs/routing/route-do-request). Each hook returns `Response` (to block), `Request` (to enhance and forward), or `undefined` (to pass through) — again, the standard middleware shape that works with [Hono](/docs/auth/hono) or any fetch-based router.
+[`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) handles the second piece — JWT verification, two-phase access enforcement, and per-subject rate limiting, packaged as `onBeforeRequest` and `onBeforeConnect` hooks for [`routeDORequest`](/docs/routing/route-do-request). If you use [Hono](https://hono.dev), [`honoAuthMiddleware`](/docs/auth/hono) wraps both pieces into clean route handlers so you don't need to wire hooks manually.
 
 If you'd rather wire the contracts into your own routing, that's straightforward too — the auth header contract is just `Authorization: Bearer {jwt}` on every request to your DOs. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact requirements.
 
