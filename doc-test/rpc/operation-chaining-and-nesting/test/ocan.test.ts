@@ -81,7 +81,7 @@ should always be up to date.
 */
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 it('detects package version', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.19.0');
+  expect(lumenizeRpcPackage.version).toBe('0.20.0');
 });
 
 /*

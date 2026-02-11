@@ -50,5 +50,5 @@
     "@cloudflare/vitest-pool-workers": "^0.9.3",
     "vitest": "3.2.4"
   },
-  "gitHead": "c267b38a6dbc0b8269eb7a96f15fb1ac1e369cba"
+  "gitHead": "7ddac214df03e8830365eb61f103a3ef062b4e7a"
 }
