@@ -1,6 +1,6 @@
 {
 	"name": "capn-web-comparison-basics-and-types",
-	"version": "0.20.0",
+	"version": "0.21.0",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
@@ -12,9 +12,9 @@
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.9.3",
-		"@lumenize/routing": "^0.20.0",
-		"@lumenize/rpc": "^0.20.0",
-		"@lumenize/testing": "^0.20.0",
+		"@lumenize/routing": "^0.21.0",
+		"@lumenize/rpc": "^0.21.0",
+		"@lumenize/testing": "^0.21.0",
 		"@vitest/coverage-istanbul": "3.2.4",
 		"capnweb": "^0.1.0",
 		"typescript": "^5.9.2",

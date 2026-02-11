@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/mesh",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "Lumenize Mesh - communication framework for Cloudflare Durable Objects",
   "type": "module",
   "main": "dist/index.js",
@@ -30,10 +30,10 @@
     "access": "public"
   },
   "dependencies": {
-    "@lumenize/auth": "^0.20.0",
-    "@lumenize/debug": "^0.20.0",
-    "@lumenize/routing": "^0.20.0",
-    "@lumenize/structured-clone": "^0.20.0",
+    "@lumenize/auth": "^0.21.0",
+    "@lumenize/debug": "^0.21.0",
+    "@lumenize/routing": "^0.21.0",
+    "@lumenize/structured-clone": "^0.21.0",
     "cron-schedule": "^5.0.1",
     "ulid-workers": "^2.1.0"
   },
