@@ -1,18 +1,18 @@
 {
   "name": "@lumenize/debug",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Zero-dependency debug logging for Cloudflare Workers, Node.js, Bun, and browsers",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
     }
   },
   "files": [
-    "dist/**/*",
+    "src/**/*",
     "LICENSE",
     "README.md"
   ],

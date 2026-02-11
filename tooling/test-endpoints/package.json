@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/test-endpoints",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Test HTTP endpoints for Lumenize integration tests",
   "type": "module",
   "main": "src/index.ts",
@@ -29,8 +29,8 @@
     "src/**/*"
   ],
   "dependencies": {
-    "@lumenize/routing": "^0.18.0",
-    "@lumenize/testing": "^0.18.0"
+    "@lumenize/routing": "^0.19.0",
+    "@lumenize/testing": "^0.19.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "*",

@@ -1,18 +1,18 @@
 {
   "name": "@lumenize/rpc",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "De✨light✨ful RPC system for Cloudflare Durable Objects",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
     }
   },
   "files": [
-    "dist/**/*"
+    "src/**/*"
   ],
   "scripts": {
     "test": "vitest --run",
@@ -35,16 +35,16 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
-    "@lumenize/testing": "^0.18.0",
+    "@lumenize/testing": "^0.19.0",
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/debug": "^0.18.0",
-    "@lumenize/routing": "^0.18.0",
-    "@lumenize/structured-clone": "^0.18.0"
+    "@lumenize/debug": "^0.19.0",
+    "@lumenize/routing": "^0.19.0",
+    "@lumenize/structured-clone": "^0.19.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
