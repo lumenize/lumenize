@@ -57,7 +57,7 @@ should always be up to date.
 */
 import lumenizeTestingPackage from '../../../../packages/testing/package.json';
 it('detects package version', () => {
-  expect(lumenizeTestingPackage.version).toBe('0.21.0');
+  expect(lumenizeTestingPackage.version).toBe('0.22.0');
 });
 
 /*

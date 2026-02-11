@@ -42,7 +42,7 @@ import type { User } from '../src/index';
 */
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 it('detects package version', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.21.0');
+  expect(lumenizeRpcPackage.version).toBe('0.22.0');
 });
 
 /*
