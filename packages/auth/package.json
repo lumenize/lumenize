@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/auth",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "private": true,
   "description": "De✨light✨ful authentication for Cloudflare Durable Objects",
   "type": "module",
@@ -33,15 +33,15 @@
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
-    "@lumenize/testing": "^0.19.0",
+    "@lumenize/testing": "^0.20.0",
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/debug": "^0.19.0",
-    "@lumenize/routing": "^0.19.0"
+    "@lumenize/debug": "^0.20.0",
+    "@lumenize/routing": "^0.20.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
