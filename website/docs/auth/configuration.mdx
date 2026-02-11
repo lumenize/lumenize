@@ -114,7 +114,7 @@ All methods receive the corresponding `EmailMessage` variant as their argument.
 
 The object passed to `sendEmail()` after template and subject resolution:
 
-```typescript @skip-check
+```typescript @check-example('packages/auth/src/types.ts')
 interface ResolvedEmail {
   to: string;        // recipient
   subject: string;   // resolved by subject method
