@@ -1,6 +1,6 @@
 # Mesh Release: Website, Docs & Blog
 
-**Status**: In Progress — Phases 1–7 complete. Remaining: npm release (Phase 8) and npm deprecations (Phase 9).
+**Status**: Complete — All 9 phases done. Deferred items tracked in `tasks/mesh-post-release.md`.
 
 ## Goal
 
@@ -69,7 +69,7 @@ Reorient lumenize.com around Lumenize Mesh as the anchor product, deprecate/rena
 - [x] RPC moved as a sub-section to Testing in sidebar, labeled `'RPC (deprecated)'`
 - [x] Utils section renamed to "Routing" (doc paths still reference `utils/` files)
 - [x] No broken links in `npm run build`
-- [ ] Docs: Auto-generated-from-JSDocs need to be rewritten into .mdx files with `@check-example`d types (deferred — separate task)
+- [~] Docs: Auto-generated-from-JSDocs need to be rewritten into .mdx files with `@check-example`d types (deferred to `tasks/mesh-post-release.md`)
 
 ### Phase 4: Docs Tone Updates ✅
 
@@ -93,8 +93,8 @@ Reorient lumenize.com around Lumenize Mesh as the anchor product, deprecate/rena
 - [x] All 2,330 tests pass across 9 packages (`npm run test:code`)
 - [x] `npm run type-check` passes
 - [x] `website` builds successfully
-- [ ] `website/docs/utils/` docs directory rename to `routing/` (deferred — coordinate with sidebar path updates)
-- [ ] Docs: Auto-generated-from-JSDocs need to be rewritten into .mdx files with `@check-example`d types (deferred — separate task)
+- [x] `website/docs/utils/` docs directory rename to `routing/` (done post-release)
+- [~] Docs: Auto-generated-from-JSDocs need to be rewritten into .mdx files with `@check-example`d types (deferred to `tasks/mesh-post-release.md`)
 
 ### Phase 6: Blog Posts (three posts) ✅
 
@@ -143,7 +143,7 @@ Reorient lumenize.com around Lumenize Mesh as the anchor product, deprecate/rena
 **Goal**: Publish all packages to npm with synchronized versions.
 
 **Success Criteria**:
-- [ ] Follow `/release-workflow` process
+- [x] Follow `/release-workflow` process
 - [x] Remove `draft: true` from blog posts (done for mesh announcement, package changes, nebula; mesh-vs-agents stays draft)
 - [x] Uncomment blog post links in `introduction.mdx`
 - [x] `packages/utils/` can be removed from the monorepo after `@lumenize/routing` is published (or kept as deprecated stub)
@@ -160,9 +160,10 @@ Reorient lumenize.com around Lumenize Mesh as the anchor product, deprecate/rena
 
 ## Deferred Items
 
-These came up during execution but are separate tasks:
-- **Rename `website/docs/utils/` directory to `routing/`** — requires updating all sidebar paths and cross-references. Currently the sidebar label says "Routing" but doc paths still reference `utils/`.
-- **Rewrite auto-generated TypeDoc pages** — RPC and routing packages have auto-generated API docs from deprecated TypeDoc tooling. These should be rewritten as hand-authored `.mdx` with `@check-example` annotations.
+These came up during execution but are tracked elsewhere:
+- ~~**Rename `website/docs/utils/` directory to `routing/`**~~ — Done post-release.
+- **Rewrite auto-generated TypeDoc pages** — Deferred to `tasks/mesh-post-release.md`.
+- **Replace doc-testing generated docs** — Deferred to `tasks/mesh-post-release.md`.
 
 ## Notes
 - Blog posts `draft: true` removed for mesh announcement, package changes, and nebula. Links in `introduction.mdx` uncommented. `mesh-vs-agents` stays draft (future post)

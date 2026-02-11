@@ -100,7 +100,7 @@ const config: Config = {
           id: 'routing',
           entryPoints: ['../packages/routing/src/index.ts'],
           tsconfig: '../packages/routing/tsconfig.json',
-          out: 'docs/utils/api',
+          out: 'docs/routing/api',
           sidebar: {
             autoConfiguration: true,
           },

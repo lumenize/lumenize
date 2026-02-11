@@ -35,7 +35,7 @@ The bootstrap subject has special protection: it cannot be demoted or deleted vi
 
 ## Worker Setup
 
-Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to protect your DOs over HTTP (`onBeforeRequest`) or WebSockets (`onBeforeConnect`). Both integrate with [`routeDORequest`](/docs/utils/route-do-request). All auth configuration — including the URL prefix (default `/auth`), redirect URL, token TTLs, and issuer/audience — is read from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env):
+Use `createAuthRoutes` to expose auth endpoints and `createRouteDORequestAuthHooks` to protect your DOs over HTTP (`onBeforeRequest`) or WebSockets (`onBeforeConnect`). Both integrate with [`routeDORequest`](/docs/routing/route-do-request). All auth configuration — including the URL prefix (default `/auth`), redirect URL, token TTLs, and issuer/audience — is read from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env):
 
 ```typescript @check-example('packages/auth/test/for-docs/quick-start.test.ts')
 import { LumenizeAuth, createAuthRoutes, createRouteDORequestAuthHooks } from '@lumenize/auth';
@@ -71,11 +71,11 @@ const authRoutes = createAuthRoutes(env, { cors: true });
 // Options object is optional — createAuthRoutes(env) uses all defaults
 ```
 
-The only option is `cors` — see [CORS Support](/docs/utils/cors-support) for `CorsOptions`.
+The only option is `cors` — see [CORS Support](/docs/routing/cors-support) for `CorsOptions`.
 
 ### createRouteDORequestAuthHooks
 
-Creates hooks for [`routeDORequest`](/docs/utils/route-do-request) that verify JWTs and enforce [two-phase access control](/docs/auth/#access-flows). Reads `issuer`, `audience`, public keys, and rate limiter binding from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env).
+Creates hooks for [`routeDORequest`](/docs/routing/route-do-request) that verify JWTs and enforce [two-phase access control](/docs/auth/#access-flows). Reads `issuer`, `audience`, public keys, and rate limiter binding from [environment variables](/docs/auth/configuration#what-mustmight-be-in-env).
 
 ```typescript @skip-check-approved('conceptual')
 const { onBeforeRequest, onBeforeConnect } = await createRouteDORequestAuthHooks(env);

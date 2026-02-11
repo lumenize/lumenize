@@ -271,7 +271,7 @@ Documentation quality is ensured by custom Docusaurus tooling that guarantees al
 - Create/update `.mdx` files in `/website/docs/[package-name]/`
 - Add new files to `/website/sidebars.ts` for navigation
 - Use proper frontmatter with `title` and `description`
-- Link between pages with relative links (e.g., `[CORS Support](/docs/utils/cors-support)`)
+- Link between pages with relative links (e.g., `[CORS Support](/docs/routing/cors-support)`)
 - Large features should be separate files linked from main docs
 
 **Package README.md Files**:

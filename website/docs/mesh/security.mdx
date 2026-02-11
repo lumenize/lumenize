@@ -44,7 +44,7 @@ Unlike HTTP where each request carries its own token, WebSocket connections are 
 
 Here's how each component handles it:
 
-1. **[Auth hooks](/docs/utils/route-do-request#hooks)** verify JWT signature and expiration
+1. **[Auth hooks](/docs/routing/route-do-request#hooks)** verify JWT signature and expiration
 2. **Auth hooks** forward the verified JWT via `Authorization: Bearer {jwt}` header
 3. **Gateway** decodes the JWT payload to extract `sub`, `exp`, and claims — stores as `originAuth` in WebSocket attachment
 4. **Gateway** validates that JWT `sub` matches the Gateway instance name prefix (prevents hijacking)

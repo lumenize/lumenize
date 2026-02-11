@@ -21,7 +21,7 @@ export class MissingInstanceNameError extends Error {
 }
 
 /**
- * CORS configuration options. See [CORS Support](/docs/utils/cors-support) for details.
+ * CORS configuration options. See [CORS Support](/docs/routing/cors-support) for details.
  */
 export type CorsOptions = 
   | false  // No CORS headers
@@ -83,7 +83,7 @@ export interface RouteOptions {
    * - `{ origin: string[] }`: Whitelist of allowed origins
    * - `{ origin: (origin: string, request: Request) => boolean }`: Custom validation function
    * 
-   * For detailed examples and security considerations, see https://lumenize.com/docs/utils/cors-support
+   * For detailed examples and security considerations, see https://lumenize.com/docs/routing/cors-support
    */
   cors?: CorsOptions;
 
@@ -178,7 +178,7 @@ function addCorsHeaders(response: Response, origin: string): Response {
  * - WebSocket requests (Upgrade: websocket) → calls `onBeforeConnect` only
  * - Non-WebSocket requests → calls `onBeforeRequest` only
  * 
- * For complete documentation with examples, see https://lumenize.com/docs/utils/route-do-request
+ * For complete documentation with examples, see https://lumenize.com/docs/routing/route-do-request
  * 
  * @param request - The incoming HTTP request to route
  * @param env - Environment object containing DO bindings

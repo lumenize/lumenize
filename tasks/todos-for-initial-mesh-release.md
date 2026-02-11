@@ -1,6 +1,6 @@
 # Website Refactor for Initial Lumenize Mesh Release
 
-Must have:
+Must have (pre-release):
 - [x] Code:
   - [x] Fix bootstrap problem for LumenizeClient
     - [x] Upgrade Browser with BroadcastChannel and sessionStorage in support of testing above
@@ -27,14 +27,12 @@ Must have:
 - [x] Blog
   - [x] Announcing Lumenize Mesh and Auth
 
-Should have:
-- [ ] Duplicate 
+Should have (immediately post-release) — tracked in `tasks/mesh-post-release.md`:
+- [ ] Duplicate email setup for auth in mesh/getting-started.mdx
 - [ ] Working Document editor system example
   - [ ] Deploy to Cloudflare button
   - [ ] What to use for UI?
 - [ ] At least one example from Agent
-- [ ] Experiments
-  - [ ] When do we hit max sub-request limit
 - [ ] Blog
   - [ ] Gateway pattern
     - [ ] Experiments on Gateway latency
@@ -42,9 +40,10 @@ Should have:
       - [ ] Mesh round trip - expect +20ms or so
       - [ ] Direct to DO to Worker back to DO back to client
       - [ ] Mesh three one-way calls - expect even w/ above
-  - [ ] 
 
-Could have:
+Could have (later):
+- [ ] Experiments
+  - [ ] When do we hit max sub-request limit
 - [ ] @lumenize/resources NADIS plugin
   - [ ] ORM-like concept
     - [ ] Binary JSON

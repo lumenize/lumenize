@@ -15,7 +15,7 @@ See the [Mesh Announcement](/blog/announcing-lumenize-mesh) for the full story, 
 
 ### De✨light✨ful Developer Experience
 
-Cloudflare's `Agent` SDK has patterns worth falling in love with — `routeAgentRequest` is elegant, and the sql and alarms code from `@cloudflare/actors` has genuinely nice DX. We borrowed liberally: our [`routeDORequest`](/docs/utils/route-do-request) is almost exactly `routeAgentRequest`, and we started with Actors' sql and alarms APIs. Then we evolved them. Actors' alarms use string method names to dispatch when an alarm fires; ours use [continuations](/docs/mesh/continuations) with full type safety, [among other upgrades](/docs/mesh/alarms#acknowledgment-to-actors-alarms). That's the pattern throughout Lumenize: find something good, understand *why* it's good, then push it further — drawing on `PartyKit` and `durable-utils` along the way.
+Cloudflare's `Agent` SDK has patterns worth falling in love with — `routeAgentRequest` is elegant, and the sql and alarms code from `@cloudflare/actors` has genuinely nice DX. We borrowed liberally: our [`routeDORequest`](/docs/routing/route-do-request) is almost exactly `routeAgentRequest`, and we started with Actors' sql and alarms APIs. Then we evolved them. Actors' alarms use string method names to dispatch when an alarm fires; ours use [continuations](/docs/mesh/continuations) with full type safety, [among other upgrades](/docs/mesh/alarms#acknowledgment-to-actors-alarms). That's the pattern throughout Lumenize: find something good, understand *why* it's good, then push it further — drawing on `PartyKit` and `durable-utils` along the way.
 
 ### Opinionated Yet Flexible
 
@@ -95,7 +95,7 @@ The right way is the easy way — and we show you how to test it.
       <td style={{textAlign: 'center'}}>MIT</td>
     </tr>
     <tr>
-      <td style={{textAlign: 'left'}}>[@lumenize/routing](/docs/utils/route-do-request)</td>
+      <td style={{textAlign: 'left'}}>[@lumenize/routing](/docs/routing/route-do-request)</td>
       <td style={{textAlign: 'left'}}>Request routing for Durable Objects (was @lumenize/utils)</td>
       <td style={{textAlign: 'center'}}>✓</td>
       <td style={{textAlign: 'center'}}><span style={{color: 'green'}}>GA</span></td>

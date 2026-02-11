@@ -29,8 +29,8 @@ export default {
   async fetch(request, env, ctx) {
     // CORS-protected route with prefix /cors/
     // Array form shown; also supports cors: true for permissive mode
-    // See https://lumenize.com/docs/utils/route-do-request for routing details
-    // See https://lumenize.com/docs/utils/cors-support for CORS configuration
+    // See https://lumenize.com/docs/routing/route-do-request for routing details
+    // See https://lumenize.com/docs/routing/cors-support for CORS configuration
     const routeCORSRequest = (req: Request, e: Env) => routeDORequest(req, e, {
       prefix: '/cors/',
       cors: { origin: ['https://safe.com', 'https://app.example.com'] },

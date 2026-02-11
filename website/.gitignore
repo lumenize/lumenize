@@ -10,7 +10,7 @@
 
 # TypeDoc generated API documentation
 /docs/rpc/api
-/docs/utils/api
+/docs/routing/api
 /docs/**/api
 
 # Extracted testable code from documentation

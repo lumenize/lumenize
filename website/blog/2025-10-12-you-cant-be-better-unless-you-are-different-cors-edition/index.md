@@ -83,7 +83,7 @@ Although not all of it is in the components we have open-sourced, the commercial
 - Plan for multi‑tenant allowlists and dynamic configuration if relevant.
 - Implement correct preflight handling; use `Access-Control-Max-Age` to cache preflights when safe.
 
-[Details and configuration examples](/docs/utils/cors-support)
+[Details and configuration examples](/docs/routing/cors-support)
 
 ---
 
@@ -91,4 +91,4 @@ Although not all of it is in the components we have open-sourced, the commercial
 
 You be the judge—and if you try it, tell me where it surprises you.
 
-Want to try our approach? Start with [routeDORequest](/docs/utils/route-do-request) and [CORS configuration guide](/docs/utils/cors-support)
+Want to try our approach? Start with [routeDORequest](/docs/routing/route-do-request) and [CORS configuration guide](/docs/routing/cors-support)

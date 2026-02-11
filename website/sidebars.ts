@@ -18,10 +18,10 @@ try {
 }
 
 try {
-  typedocUtilsSidebar = require('./docs/utils/api/typedoc-sidebar.cjs');
-  console.log('✅ Loaded utils sidebar, items:', typedocUtilsSidebar?.length);
+  typedocUtilsSidebar = require('./docs/routing/api/typedoc-sidebar.cjs');
+  console.log('✅ Loaded routing sidebar, items:', typedocUtilsSidebar?.length);
 } catch (e) {
-  console.warn('⚠️  TypeDoc utils sidebar not yet generated, using empty sidebar');
+  console.warn('⚠️  TypeDoc routing sidebar not yet generated, using empty sidebar');
 }
 
 try {
@@ -287,13 +287,13 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Routing (was Utils — package rename in progress)
+    // Routing (was Utils — was Utils)
     {
       type: 'category',
       label: 'Routing',
       items: [
-        'utils/route-do-request',
-        'utils/cors-support',
+        'routing/route-do-request',
+        'routing/cors-support',
         ...(typedocUtilsSidebar && typedocUtilsSidebar.length > 0
           ? [wrapInApiReference(typedocUtilsSidebar, 'API Reference')]
           : []),
