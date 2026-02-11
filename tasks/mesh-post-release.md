@@ -6,6 +6,15 @@
 
 First round of post-release polish for Lumenize Mesh: close the getting-started gap (email setup), add real-world examples, and write the Gateway pattern blog post.
 
+## Phase 0: Small Cleanup
+
+**Goal**: Fix stale references left over from the alarms-into-mesh and utils→routing renames.
+
+**Success Criteria**:
+- [ ] `continuations.mdx` line 68: change "`@lumenize/alarms` alarm handler" → "alarm handler" or "`this.svc.alarms`"
+- [ ] `packages/mesh/src/ocan/index.ts` line 5: update JSDoc to remove `@lumenize/alarms` and `@lumenize/proxy-fetch` references
+- [ ] Scan for any other stale `@lumenize/alarms` references in non-archived docs/source
+
 ## Phase 1: Email Setup in Mesh Getting Started
 
 **Goal**: A developer following `mesh/getting-started.mdx` can actually send magic-link emails without having to discover the auth docs on their own.
@@ -22,11 +31,24 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 **Success Criteria**:
 - [ ] Email setup is a dedicated step in `mesh/getting-started.mdx`, not bundled with Turnstile/rate limiting
 - [ ] Developer can follow the mesh guide end-to-end and receive a magic-link email without referencing any other page
-- [ ] `auth/getting-started.mdx` remains the canonical reference for template customization and BYOP
+- [ ] `auth/getting-started.mdx` remains the canonical reference for template customization and BYOP — auth is a standalone package usable in any Cloudflare Workers/DO project, not just Mesh
 - [ ] `npm run build` in `/website` passes (no broken links)
 - [ ] `npm run check-examples` passes
 
-## Phase 2: Working Document Editor Example
+## Phase 2: Lumenize Auth Standalone Blog Post
+
+**Goal**: A short blog post positioning `@lumenize/auth` as a standalone offering for any Cloudflare Workers/DO project — even if you never adopt Mesh.
+
+**Context**: Auth is a hook for developers who already have a Workers system but want passwordless auth that's Cloudflare-native, not a bolted-on SaaS. A few paragraphs, link-heavy, shareable on social media. Points to the auth docs and makes the case: zero external auth services, passwordless by default, delegation model for DO access control, works with `routeDORequest` or your own routing.
+
+**Success Criteria**:
+- [ ] Blog post in `website/blog/` — short (3–5 paragraphs), links to auth docs throughout
+- [ ] Positions auth as usable without Mesh — "already have a Workers project? Drop this in"
+- [ ] Mentions key differentiators: Cloudflare-native (no external auth service), passwordless, delegation, key rotation
+- [ ] Links back to Mesh announcement for developers who want the full stack
+- [ ] Marked `draft: true` initially, published after review
+
+## Phase 3: Working Document Editor Example
 
 **Goal**: A complete, deployable system example that developers can clone and run.
 
@@ -36,7 +58,7 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 - [ ] UI framework decision made and documented
 - [ ] Example linked from mesh docs
 
-## Phase 3: Agent Example
+## Phase 4: Agent Example
 
 **Goal**: At least one example showing how to use Mesh with Cloudflare's Agent pattern.
 
@@ -45,7 +67,7 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 - [ ] Demonstrates a practical use case (not just echo)
 - [ ] Linked from mesh docs
 
-## Phase 4: Gateway Pattern Blog Post
+## Phase 5: Gateway Pattern Blog Post
 
 **Goal**: Blog post explaining the Gateway pattern with latency benchmarks.
 
@@ -68,4 +90,4 @@ Items that are important but not in scope for this task file:
 ## Notes
 
 - Sourced from `tasks/todos-for-initial-mesh-release.md` "should-have" section and `tasks/mesh-release-website-and-blog.md` deferred items
-- Max sub-request limit experiments moved to "could-have" in the scratchpad (`todos-for-initial-mesh-release.md`) — not included here
+- Max sub-request limit experiments moved to `tasks/mesh-resilience-testing.md` (Phase 7) and "could-have" in `todos-for-initial-mesh-release.md`

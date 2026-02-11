@@ -93,6 +93,17 @@ The `mesh-testing-auth-strategy` task proved that `createTestingClient` can mani
 
 **Why it matters**: Confirms the access gate works end-to-end with self-minted tokens.
 
+### Phase 7: Max sub-request limit
+
+**Goal**: Discover where Cloudflare's sub-request limit bites in a mesh topology and document the practical ceiling.
+
+**Success Criteria**:
+- [ ] Determine how many DO→DO hops a single inbound request can make before hitting the 50/1000 sub-request limit
+- [ ] Test fan-out patterns (one call triggering N parallel downstream calls)
+- [ ] Document findings: what the limits are, what error you get, and recommended patterns to stay under
+
+**Why it matters**: Mesh topologies naturally amplify sub-requests. Developers need to know the practical ceiling before they hit it in production.
+
 ## Documentation
 
 Consider one of:

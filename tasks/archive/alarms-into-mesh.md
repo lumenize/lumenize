@@ -1,5 +1,7 @@
 # Task: Move Alarms into LumenizeDO (Built-in Service)
 
+**Status**: Complete — Alarms is a built-in service in LumenizeDO. `packages/alarms/` deleted, source in `packages/mesh/src/alarms.ts`, docs at `website/docs/mesh/alarms.mdx`.
+
 ## Context
 
 This task was created after recognizing that alarms doesn't fit well as a NADIS plugin:
