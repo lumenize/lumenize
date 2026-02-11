@@ -102,7 +102,7 @@ Gateway verifies token expiration on each incoming message using the stored `tok
 
 ### Resubscribing
 
-When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates — see [Handling Subscription Loss](./lumenize-client#handling-subscription-loss) for the client-side pattern.
+When a caller receives `ClientDisconnectedError`, it is expected to clean up any subscriptions associated with that client. The client will need to restore those subscriptions to restart updates — see [Reconnection & Subscription Loss](./lumenize-client#reconnection--subscription-loss) for the client-side pattern.
 
 ## Trust Demilitarized Zone (DMZ)
 

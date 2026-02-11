@@ -52,7 +52,7 @@ The mutable `callContext.state` property can be thought of as a passive side-cha
 - **Avoid redundant work**: Compute or fetch something (like loading a user record or permissions), then access it in method guards or @mesh methods without re-computing or re-fetching
 - **Cross-cutting concerns**: Add metadata that any downstream node in the chain might need for instance state that's available in the current node's storage but not the later node's
 
-For the canonical example of using `state` to cache session data for access control, see [Security: State-Based Access](./security#state-based-access).
+For the canonical example of using `state` to cache session data for access control, see [Security: Call Context State](./security#call-context-state).
 
 :::tip Tracing
 For simple call path tracing, you might not need `state` at all — `callChain` already captures the full path (`[origin, hop1, hop2, ...]`). Use `callChain.map(n => n.bindingName).join(' → ')` for a quick trace.
