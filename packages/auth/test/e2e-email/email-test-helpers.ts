@@ -1,4 +1,4 @@
-import type { StoredEmail } from '@lumenize/email-test';
+import type { StoredEmail } from '@lumenize/email-test/types';
 
 const EMAIL_TEST_HTTP_URL = 'https://email-test.transformation.workers.dev';
 const EMAIL_TEST_WS_URL = 'wss://email-test.transformation.workers.dev';

@@ -30,7 +30,7 @@ import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
     replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
     appName = 'My App';              // default: 'Lumenize'
 
-    magicLinkHtml(message) {
+    magicLinkHtml(message: any) {
       return `<h1>Welcome to My App</h1><a href="${message.magicLinkUrl}">Sign in</a>`;
     }
     // other 4 template methods use defaults
@@ -49,7 +49,7 @@ import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
   class AuthEmailSender extends ResendEmailSender {
     from = 'auth@myapp.com';
 
-    magicLinkHtml(message) {
+    magicLinkHtml(message: any) {
       return `<div class="my-wrapper">${defaultMagicLinkHtml(message, this.appName)}</div>`;
     }
   }

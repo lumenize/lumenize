@@ -54,8 +54,8 @@ for package in "${PACKAGES[@]}"; do
   # Clean previous build
   rm -rf dist
   
-  # Build with TypeScript
-  npx tsc --project tsconfig.build.json
+  # Build with TypeScript (--noCheck skips type-checking since type-check.sh handles that separately)
+  npx tsc --project tsconfig.build.json --noCheck
   
   echo "✓ Built $package"
 done
