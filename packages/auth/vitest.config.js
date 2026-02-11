@@ -34,7 +34,7 @@ export default defineWorkersConfig({
         test: {
           name: 'main',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/e2e-email/**/*.test.ts'],
+          exclude: ['test/e2e-email/**/*.test.ts', 'test/hono/**/*.test.ts'],
           poolOptions: {
             workers: {
               wrangler: { configPath: './wrangler.jsonc' },
@@ -61,6 +61,26 @@ export default defineWorkersConfig({
               wrangler: { configPath: './test/e2e-email/wrangler.jsonc' },
               miniflare: {
                 bindings: {
+                  DEBUG: 'auth',
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        // Hono integration test (real Resend + real Email Routing — no test mode)
+        extends: true,
+        test: {
+          name: 'hono',
+          testTimeout: 30000, // 30s — real email delivery can take 10-15s
+          include: ['test/hono/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: './test/hono/wrangler.jsonc' },
+              miniflare: {
+                bindings: {
+                  LUMENIZE_AUTH_BOOTSTRAP_EMAIL: 'test@lumenize.io',
                   DEBUG: 'auth',
                 },
               },

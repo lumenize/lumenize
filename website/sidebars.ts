@@ -204,6 +204,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'auth/index',
         'auth/getting-started',
+        'auth/hono',
         'auth/configuration',
         'auth/auth-flow',
         'auth/subject-management',

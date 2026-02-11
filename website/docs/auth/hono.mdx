@@ -1,0 +1,61 @@
+---
+title: Using with Hono
+description: Wire @lumenize/auth into a Hono-based Cloudflare Worker and Durable Object project
+---
+
+# Using with Hono
+
+`@lumenize/auth` works with [Hono](https://hono.dev) out of the box. Here's a complete Worker:
+
+```typescript @check-example('packages/auth/test/for-docs/hono.test.ts')
+import { Hono } from 'hono';
+import { LumenizeAuth, createAuthRoutes, honoAuthMiddleware } from '@lumenize/auth';
+
+export { LumenizeAuth };
+
+const app = new Hono<{ Bindings: Env }>();
+
+app.all('/auth/*', async (c) => {
+  const authRoutes = createAuthRoutes(c.env);
+  return (await authRoutes(c.req.raw)) ?? c.text('Not Found', 404);
+});
+
+app.all('/api/:id/*?', honoAuthMiddleware((c) => ({
+  doNamespace: (c.env as any).MY_DO,
+  doInstanceNameOrId: c.req.param('id'),
+})));
+
+app.all('*', (c) => c.text('Not Found', 404));
+
+export default app;
+```
+
+The `wrangler.jsonc` bindings are the same as the [vanilla Worker setup](/docs/auth/getting-started#worker-setup) — `LUMENIZE_AUTH` DO binding, and `AUTH_EMAIL_SENDER` service binding. See [Configuration](/docs/auth/configuration) for all environment variables.
+
+## How it works
+
+**Auth routes** (`/auth/*`) — `createAuthRoutes` returns a `Response` for auth endpoints and `undefined` for everything else, so the `?? c.text('Not Found', 404)` fallback handles routes that start with '/auth', but aren't valid. Hono populates `c.env` automatically — no manual wiring needed.
+
+**Protected routes** (`/api/:id/*?`) — `honoAuthMiddleware` is a terminal handler that:
+
+1. Calls your callback to get the DO namespace and instance name
+2. Detects whether this is an HTTP request or a WebSocket upgrade
+3. Verifies the JWT (from `Authorization` header for HTTP, from `Sec-WebSocket-Protocol` for WebSocket)
+4. Returns 401/403/429 if verification fails
+5. Forwards the authenticated request to the DO stub
+
+The verified JWT is forwarded to the DO in the `Authorization: Bearer` header — for both HTTP and WebSocket requests. Inside your DO's `fetch` handler you can parse it to extract claims like `sub` for per-user logic, or re-verify it if your DO enforces its own access rules.
+
+The callback runs on every request so you can use route params, headers, or any other request context. Use `app.all` so both HTTP requests and WebSocket upgrades are matched.
+
+:::note WebSocket upgrades
+Don't use Hono's `upgradeWebSocket()` helper for authenticated WebSocket connections to Durable Objects. `honoAuthMiddleware` handles upgrade detection, token verification, and DO forwarding automatically. The actual WebSocket upgrade happens inside the DO's `fetch` handler — this is the [pattern recommended by Hono maintainers](https://github.com/honojs/hono/issues/3206).
+
+Browsers can't send custom headers on WebSocket connections, so the JWT is passed via the subprotocol list. Client-side code looks like:
+
+```javascript @skip-check-approved('conceptual')
+const ws = new WebSocket(url, ['choose-me', `lmz.access-token.${accessToken}`]);
+```
+
+The token entry must start with `lmz.access-token.` — the middleware extracts the JWT from it. The other entry (`choose-me`) is a plain protocol name for the server to accept. Always include one so the accepted protocol isn't the token itself, which increases the risk of exposure.
+:::

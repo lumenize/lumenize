@@ -3,7 +3,6 @@ title: "Passwordless Auth for Cloudflare Workers — No External Service Require
 slug: lumenize-auth-standalone
 authors: [larry]
 tags: [auth, announcement]
-draft: true
 description: "@lumenize/auth brings passwordless magic-link authentication to any Cloudflare Workers project — no Auth0, no Clerk, no external auth service. Just a Durable Object and Ed25519 keys."
 ---
 
@@ -30,9 +29,9 @@ Because the existing options for Workers are either too heavy or too light:
 npm install @lumenize/auth
 ```
 
-[`createAuthRoutes`](/docs/auth/getting-started#createauthroutes) handles the first piece — it returns a handler with the signature `(request: Request) => Promise<Response | undefined>`. Wire it into your `fetch` handler; it returns a `Response` for auth routes and `undefined` for everything else, so it chains naturally with whatever routing you already have. If you use [Hono](https://hono.dev), this is the same convention — drop it in and let unmatched requests fall through.
+[`createAuthRoutes`](/docs/auth/getting-started#createauthroutes) handles the first piece — it returns a handler with the signature `(request: Request) => Promise<Response | undefined>`. Wire it into your `fetch` handler; it returns a `Response` for auth routes and `undefined` for everything else, so it chains naturally with whatever routing you already have. If you use [Hono](https://hono.dev), it's a [drop-in integration](/docs/auth/hono) — wrap it in `app.use()` and let unmatched requests fall through.
 
-[`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) handles the second piece — JWT verification, two-phase access enforcement, and per-subject rate limiting, packaged as `onBeforeRequest` and `onBeforeConnect` hooks for [`routeDORequest`](/docs/routing/route-do-request). Each hook returns `Response` (to block), `Request` (to enhance and forward), or `undefined` (to pass through) — again, the standard middleware shape that works with Hono or any fetch-based router.
+[`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) handles the second piece — JWT verification, two-phase access enforcement, and per-subject rate limiting, packaged as `onBeforeRequest` and `onBeforeConnect` hooks for [`routeDORequest`](/docs/routing/route-do-request). Each hook returns `Response` (to block), `Request` (to enhance and forward), or `undefined` (to pass through) — again, the standard middleware shape that works with [Hono](/docs/auth/hono) or any fetch-based router.
 
 If you'd rather wire the contracts into your own routing, that's straightforward too — the auth header contract is just `Authorization: Bearer {jwt}` on every request to your DOs. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact requirements.
 
