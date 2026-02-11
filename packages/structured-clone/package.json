@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/structured-clone",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "De✨light✨ful serialization of complex JavaScript types including Errors, Web API objects (Request/Response/Headers/URL), special numbers, cycles, and aliases",
   "type": "module",
   "main": "dist/index.js",

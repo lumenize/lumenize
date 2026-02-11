@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/fetch",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "De✨light✨ful fetch utilities for Durable Objects - proxy and direct fetch strategies",
   "type": "module",
   "main": "dist/index.js",
@@ -42,11 +42,11 @@
     "wrangler": "^4.38.0"
   },
   "dependencies": {
-    "@lumenize/debug": "*",
-    "@lumenize/mesh": "*",
-    "@lumenize/structured-clone": "^0.17.0",
-    "@lumenize/test-endpoints": "^0.17.0",
-    "@lumenize/routing": "^0.17.0"
+    "@lumenize/debug": "^0.18.0",
+    "@lumenize/mesh": "^0.18.0",
+    "@lumenize/routing": "^0.18.0",
+    "@lumenize/structured-clone": "^0.18.0",
+    "@lumenize/test-endpoints": "^0.18.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

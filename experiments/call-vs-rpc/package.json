@@ -1,15 +1,14 @@
 {
   "name": "call-vs-rpc",
-  "version": "1.0.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node test/measurements.mjs"
   },
   "dependencies": {
-    "@lumenize/lumenize-base": "*",
     "@lumenize/call": "*",
-    "@lumenize/for-experiments": "*"
+    "@lumenize/for-experiments": "^0.18.0",
+    "@lumenize/lumenize-base": "*"
   }
 }
-

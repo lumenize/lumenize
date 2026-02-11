@@ -1,6 +1,6 @@
 {
   "name": "proxy-fetch-performance",
-  "version": "1.0.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,13 +10,12 @@
     "types": "wrangler types"
   },
   "dependencies": {
+    "@lumenize/for-experiments": "^0.18.0",
     "@lumenize/lumenize-base": "*",
     "@lumenize/proxy-fetch": "*",
-    "@lumenize/test-endpoints": "*",
-    "@lumenize/for-experiments": "*"
+    "@lumenize/test-endpoints": "^0.18.0"
   },
   "devDependencies": {
     "wrangler": "^4.38.0"
   }
 }
-

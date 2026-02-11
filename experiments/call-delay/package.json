@@ -1,6 +1,6 @@
 {
   "name": "call-delay-experiment",
-  "version": "0.1.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,11 +9,10 @@
     "test": "node test/delay-measurements.mjs"
   },
   "dependencies": {
-    "@lumenize/for-experiments": "*"
+    "@lumenize/for-experiments": "^0.18.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
     "wrangler": "^4.38.0"
   }
 }
-

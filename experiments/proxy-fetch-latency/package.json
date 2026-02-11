@@ -1,6 +1,6 @@
 {
   "name": "proxy-fetch-latency-experiment",
-  "version": "1.0.0",
+  "version": "0.18.0",
   "private": true,
   "description": "Production latency measurements for proxyFetchWorker",
   "type": "module",
@@ -13,12 +13,11 @@
     "types": "wrangler types"
   },
   "dependencies": {
+    "@lumenize/core": "*",
     "@lumenize/lumenize-base": "*",
-    "@lumenize/proxy-fetch": "*",
-    "@lumenize/core": "*"
+    "@lumenize/proxy-fetch": "*"
   },
   "devDependencies": {
     "wrangler": "^4.38.0"
   }
 }
-

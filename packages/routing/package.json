@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/routing",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Request routing for Cloudflare Durable Objects projects",
   "type": "module",
   "main": "dist/index.js",
@@ -27,7 +27,7 @@
     "types": "wrangler types --config test/integration/wrangler.jsonc test/integration/worker-configuration.d.ts"
   },
   "dependencies": {
-    "@lumenize/debug": "*"
+    "@lumenize/debug": "^0.18.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",

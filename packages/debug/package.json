@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/debug",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Zero-dependency debug logging for Cloudflare Workers, Node.js, Bun, and browsers",
   "type": "module",
   "main": "dist/index.js",

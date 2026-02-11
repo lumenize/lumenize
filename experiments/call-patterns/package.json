@@ -1,6 +1,6 @@
 {
   "name": "call-patterns",
-  "version": "0.1.0",
+  "version": "0.18.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,13 +10,12 @@
     "types": "wrangler types"
   },
   "dependencies": {
-    "@lumenize/for-experiments": "*",
     "@lumenize/core": "*",
-    "@lumenize/structured-clone": "*"
+    "@lumenize/for-experiments": "^0.18.0",
+    "@lumenize/structured-clone": "^0.18.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
     "wrangler": "^4.38.0"
   }
 }
-
