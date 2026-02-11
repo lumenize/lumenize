@@ -17,7 +17,7 @@ De✨light✨ful passwordless authentication with passwordless magic link login,
 | **Delegation** | RFC 8693 `act` claim for delegated access (agents, services, impersonation) |
 | **Rate limiting** | Cloudflare DDoS + Turnstile (magic link) + Worker-level rate limiting binding (authenticated routes) |
 | **WebSocket auth** | Token passing via subprotocol headers |
-| **Hooks** | Drop-in `routeDORequest` hooks for protected routes |
+| **Hooks** | Drop-in `routeDORequest` hooks for protected routes, or [`honoAuthMiddleware`](/docs/auth/hono) for Hono |
 
 :::note Why "subject" instead of "user"?
 These docs use **subject** — the [RFC 7519](https://datatracker.ietf.org/doc/html/rfc7519) term for the entity a JWT describes. A subject could be a person, an AI agent, a service account, or any authenticated entity. The standard `sub` claim carries this meaning, so we use "subject" everywhere rather than "user" to avoid implying the principal is always human.
@@ -152,7 +152,7 @@ Admins can delegate as any subject. Non-admin actors must be explicitly listed i
 
 ## Server-Side Token Verification
 
-Use [`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) to create hooks that validate JWTs, enforce two-phase access, rate-limit per subject, and forward the verified token to your DO. See [Worker Setup](/docs/auth/getting-started#worker-setup) for the full integration pattern.
+Use [`createRouteDORequestAuthHooks`](/docs/auth/getting-started#createroutedorequestauthhooks) to create hooks that validate JWTs, enforce two-phase access, rate-limit per subject, and forward the verified token to your DO. See [Worker Setup](/docs/auth/getting-started#worker-setup) for the full integration pattern, or [Using with Hono](/docs/auth/hono) if you're building on Hono.
 
 **WebSocket token delivery** (if not using LumenizeClient): Smuggle the token via the subprotocol list:
 

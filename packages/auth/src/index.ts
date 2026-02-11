@@ -43,6 +43,9 @@ export {
   createRouteDORequestAuthHooks,
 } from './hooks';
 
+// Hono integration
+export { honoAuthMiddleware } from './hono-middleware';
+
 // WebSocket authentication utilities (used by DOs for message-level auth)
 export {
   extractWebSocketToken,

@@ -449,17 +449,59 @@ export default {
 ```
 
 :::note Service bindings
-`SpellCheckWorker` and `AuthEmailSender` are [named entrypoints](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`. The `AUTH_EMAIL_SENDER` binding is how the Auth DO delivers email — see [Setting up your AuthEmailSender](/docs/auth/getting-started#email-provider) for the full walkthrough including Resend signup and domain verification.
+`SpellCheckWorker` and `AuthEmailSender` are [named entrypoints](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints) in the same Worker, bound via `services`. The `AUTH_EMAIL_SENDER` binding is how the Auth DO delivers email — Step 8 below walks you through creating it.
 :::
 
-## (Recommended) Step 8: Configure Email, Turnstile, and Rate Limiting {#production-config}
+## Step 8: Set Up Email Delivery {#email-setup}
 
-These are optional so you can get started quickly, but you should enable all three before deploying to production:
+Magic links are how your users log in. Without an email provider, the auth flow silently fails — users see "check your email" but nothing arrives. This step takes about 5 minutes.
 
-- **Email provider** — Without it, magic links and invites are silently dropped. See [@lumenize/auth: Email Provider](/docs/auth/getting-started#email-provider) for Resend setup, template customization, and bring-your-own-provider.
+### 8a. Sign up for Resend
+
+[Resend](https://resend.com) is the recommended default — it uses standard `fetch` (no SDK), works natively on Cloudflare Workers, and has a generous free tier (100 emails/day).
+
+1. Sign up at [resend.com](https://resend.com)
+2. [Verify your sending domain](https://resend.com/docs/dashboard/domains/introduction) — Resend's dashboard walks you through adding DNS records (SPF, DKIM, DMARC)
+3. Create an API key in the [Resend dashboard](https://resend.com/api-keys)
+4. **Test it**: Click the "Send test email" button in the Resend dashboard to confirm email arrives in your inbox
+
+### 8b. Add the API key to your environment
+
+```bash
+# Local development — add to .dev.vars
+RESEND_API_KEY=re_...
+
+# Production — set as a secret
+wrangler secret put RESEND_API_KEY
+```
+
+### 8c. Create your AuthEmailSender class
+
+Create a tiny `auth-email-sender.ts` alongside your other source files:
+
+```typescript @check-example('packages/mesh/test/for-docs/getting-started/auth-email-sender.ts')
+import { ResendEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@example.com';
+}
+```
+
+Change `auth@example.com` to an address on your verified Resend domain. That's it — `ResendEmailSender` handles the API call, default HTML templates, and subject lines.
+
+This class is already exported from your Worker entry point (Step 6) and bound via `AUTH_EMAIL_SENDER` in wrangler.jsonc (Step 7). No additional wiring needed.
+
+:::tip Customizing templates or using a different provider
+See [@lumenize/auth: Email Provider](/docs/auth/getting-started#email-provider) for template customization, composing with defaults, and bringing your own email provider (Postmark, SES, SendGrid, etc.).
+:::
+
+## (Optional) Step 9: Configure Turnstile and Rate Limiting {#production-hardening}
+
+These are genuinely optional for getting started but recommended before deploying to production:
+
 - **Turnstile** — Bot protection for the magic-link endpoint. See [@lumenize/auth: Turnstile](/docs/auth/getting-started#turnstile).
 - **Rate limiting** — Per-subject rate limiting for authenticated routes. See [@lumenize/auth: Rate Limiting](/docs/auth/getting-started#rate-limiter).
 
-:::warning Deploy with email, Turnstile, and rate limiting configured
-Without an email provider, users receive "check your email" but no email arrives. Without Turnstile, anyone can flood your email sending quota. Without rate limiting, compromised tokens can overwhelm your DOs. Configure all three before going to production.
+:::tip Production hardening
+Without Turnstile, anyone can flood your email sending quota. Without rate limiting, compromised tokens can overwhelm your DOs. Both are quick to enable when you're ready.
 :::

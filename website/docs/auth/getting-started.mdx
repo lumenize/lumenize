@@ -91,6 +91,10 @@ Both hooks:
 
 Your DO can then decode the JWT payload and authorize however you like — role checks, ownership guards, audit logging, etc. Ed25519 verification is a local `crypto.subtle.verify()` call (no network round trip, sub-millisecond), so DOs that want defense-in-depth can cheaply re-verify. DOs that trust the Worker hooks can simply base64url-decode the payload section. For a concrete example using `@lumenize/mesh` guards, see [Security: Reusable Guards](/docs/mesh/security#reusable-guards).
 
+:::tip Using Hono?
+The example above uses vanilla Workers. If you're building on [Hono](https://hono.dev), we also provide direct [Hono support](/docs/auth/hono).
+:::
+
 ## Email Provider {#email-provider}
 
 LumenizeAuth sends email for magic links, admin notifications, approval confirmations, and invites. Email delivery is delegated to a `WorkerEntrypoint` that you define and export from your Worker. The Auth DO calls it via the `AUTH_EMAIL_SENDER` [service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/#named-entrypoints).
