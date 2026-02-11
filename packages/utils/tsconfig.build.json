@@ -8,6 +8,7 @@
     "sourceMap": true,
     "types": ["@cloudflare/workers-types", "@types/node"]
   },
+  "files": [],
   "include": [
     "src/**/*"
   ],
