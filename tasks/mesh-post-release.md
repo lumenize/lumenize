@@ -44,15 +44,48 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 **Context**: Auth is a hook for developers who already have a Workers system but want passwordless auth that's Cloudflare-native, not a bolted-on SaaS. A few paragraphs, link-heavy, shareable on social media. Points to the auth docs and makes the case: zero external auth services, passwordless by default, delegation model for DO access control, works with `routeDORequest` or your own routing.
 
 **Success Criteria**:
-- [ ] Blog post in `website/blog/` — short (3–5 paragraphs), links to auth docs throughout
-- [ ] Positions auth as usable without Mesh — "already have a Workers project? Drop this in"
-- [ ] Mentions key differentiators: Cloudflare-native (no external auth service), passwordless, delegation, key rotation
-- [ ] Links back to Mesh announcement for developers who want the full stack
-- [ ] Marked `draft: true` initially, published after review
+- [x] Blog post in `website/blog/2026-02-11-lumenize-auth-standalone/` — 4 paragraphs, links to auth docs throughout
+- [x] Positions auth as usable without Mesh — "Works with any Workers project" section
+- [x] Mentions key differentiators: Cloudflare-native (no external auth service), passwordless, delegation, key rotation
+- [x] Links back to Mesh announcement for developers who want the full stack
+- [x] Mentions Hono compatibility (same `Response | undefined` convention)
+- [x] DIY escape hatch — links to auth header contract for developers who want to wire their own routing
+- [ ] Marked `draft: true` initially; publish after Phase 3 (Hono example) is complete
+
+## Phase 3: Hono Integration Example and Docs
+
+**Goal**: A tested example showing `@lumenize/auth` wired into a Hono-based Cloudflare Worker, plus a short docs page. On completion, publish the auth standalone blog post (remove `draft: true`).
+
+**Context**: Many Cloudflare Workers developers use Hono as their routing framework. `createAuthRoutes` already returns `(Request) => Promise<Response | undefined>` and the auth hooks return `Response | Request | undefined` — both follow the standard middleware shape. We should prove this with a real test, then document it.
+
+**Research findings** (confirmed by reading source):
+- `createAuthRoutes(env)` returns `(request: Request) => Promise<Response | undefined>` — returns `Response` for `/auth/*` routes, `undefined` otherwise. Source: `packages/auth/src/create-auth-routes.ts` lines 22-25, 64, 123.
+- `createRouteDORequestAuthHooks(env)` returns `Promise<{ onBeforeRequest: RouteDORequestHook; onBeforeConnect: RouteDORequestHook }>`. Source: `packages/auth/src/hooks.ts` lines 186-188.
+- Hook type: `(request: Request, context: HookContext) => Promise<Response | Request | undefined>`. Returns `Response` to block (401/403/429), `Request` to enhance and forward (adds `Authorization` header with verified JWT), never returns `undefined` in practice. Source: `packages/auth/src/hooks.ts` lines 15-16, 214-254.
+- `routeDORequest` handles hook results: `Response` → return immediately, `Request` → replace request and continue, `undefined`/`void` → continue unchanged. Source: `packages/routing/src/route-do-request.ts` lines 287-327.
+- The codebase already documents this as following "hono convention" in `website/docs/testing/usage.mdx:181` and `website/docs/mesh/services.mdx:181`.
+- The blog post at `website/blog/2026-02-11-lumenize-auth-standalone/index.md` already mentions Hono compatibility and needs `draft: true` removed as the last step of this phase.
+
+**Approach**:
+- Look at existing `packages/auth/test/for-docs/` tests (especially `quick-start.test.ts` and `email-sender.test.ts`) for patterns — these are vitest-pool-workers integration tests
+- Create a new test (e.g., `packages/auth/test/for-docs/hono-integration.test.ts`) that wires `createAuthRoutes` and auth hooks into a Hono app
+- The test needs its own DO bindings — check if the existing `packages/auth/test/for-docs/` wrangler.jsonc already has what's needed or if a new mini-app is required
+- Hono will need to be installed (`npm install hono`) — check license (MIT ✅) and Workers compatibility (excellent ✅)
+- Create `website/docs/auth/hono.mdx` with `@check-example` annotations pointing to the test
+- Update `website/sidebars.ts` to include the new page under the auth section
+- Final step: remove `draft: true` from `website/blog/2026-02-11-lumenize-auth-standalone/index.md`
+
+**Success Criteria**:
+- [ ] Integration test in `packages/auth/test/for-docs/` showing Hono + `createAuthRoutes` + auth hooks
+- [ ] New `website/docs/auth/hono.mdx` page with `@check-example` annotations pointing to the test
+- [ ] `npm run check-examples` passes
+- [ ] `npm run build` in `/website` passes
+- [ ] `sidebars.ts` updated to include the new page
+- [ ] `draft: true` removed from auth standalone blog post; website redeployed
 
 --- STOP HERE FOR MORE PLANNING AND FLESHING OUT THE FOLLOWING PHASES ---
 
-## Phase 3: Working Document Editor Example
+## Phase 4: Working Document Editor Example
 
 **Goal**: A complete, deployable system example that developers can clone and run.
 
@@ -62,7 +95,7 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 - [ ] UI framework decision made and documented
 - [ ] Example linked from mesh docs
 
-## Phase 4: Agent Example
+## Phase 5: Agent Example
 
 **Goal**: At least one example showing how to use Mesh with Cloudflare's Agent pattern.
 
@@ -71,7 +104,7 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 - [ ] Demonstrates a practical use case (not just echo)
 - [ ] Linked from mesh docs
 
-## Phase 5: Gateway Pattern Blog Post
+## Phase 6: Gateway Pattern Blog Post
 
 **Goal**: Blog post explaining the Gateway pattern with latency benchmarks.
 
