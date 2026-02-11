@@ -31,11 +31,11 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 - Keep auth/getting-started.mdx as the canonical deep reference (template customization, bring-your-own-provider) — mesh guide links there for advanced options
 
 **Success Criteria**:
-- [ ] Email setup is a dedicated step in `mesh/getting-started.mdx`, not bundled with Turnstile/rate limiting
-- [ ] Developer can follow the mesh guide end-to-end and receive a magic-link email without referencing any other page
-- [ ] `auth/getting-started.mdx` remains the canonical reference for template customization and BYOP — auth is a standalone package usable in any Cloudflare Workers/DO project, not just Mesh
-- [ ] `npm run build` in `/website` passes (no broken links)
-- [ ] `npm run check-examples` passes
+- [x] Email setup is a dedicated step in `mesh/getting-started.mdx` (new Step 8), not bundled with Turnstile/rate limiting
+- [x] Developer can follow the mesh guide end-to-end and receive a magic-link email without referencing any other page
+- [x] `auth/getting-started.mdx` remains the canonical reference for template customization and BYOP — auth is a standalone package usable in any Cloudflare Workers/DO project, not just Mesh
+- [x] `npm run build` in `/website` passes (no broken links)
+- [x] `npm run check-examples` passes (121 examples, including the new `@check-example` for `auth-email-sender.ts`)
 
 ## Phase 2: Lumenize Auth Standalone Blog Post
 
