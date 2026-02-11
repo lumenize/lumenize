@@ -95,7 +95,7 @@ With `false` or `true` modes, **all requests reach your Durable Object**, includ
 This is not recommended, but we've included it to match Cloudflare's `routeAgentRequest`
 behavior.
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 await routeDORequest(request, env, {
   cors: true
 });
@@ -106,7 +106,7 @@ await routeDORequest(request, env, {
 This is what you should do 90% of the time, especially if you are expecting WebSocket
 connections from a browser. This is not supported by Cloudflare's `routeAgentRequest`.
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 await routeDORequest(request, env, {
   cors: {
     origin: ['https://app.example.com', 'https://admin.example.com']
@@ -120,7 +120,7 @@ With a custom validation function, you can base your CORS decision on more than 
 Origin header. The validator receives both `origin` and the full `Request`, enabling 
 sophisticated policies based on headers, methods, and more.
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 await routeDORequest(request, env, {
   cors: {
     origin: (origin, request) => {
@@ -209,7 +209,7 @@ from:
 
 Headers are only added when the origin is allowed:
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 await routeDORequest(request, env, {
   cors: { origin: ['https://app.example.com'] },
   onBeforeRequest: async (request, context) => {

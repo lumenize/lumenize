@@ -3,13 +3,13 @@
   "version": "0.20.0",
   "description": "Lumenize Mesh - communication framework for Cloudflare Durable Objects",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
   "files": [
-    "dist/**/*"
+    "src/**/*"
   ],
   "scripts": {
     "test": "vitest --run",

@@ -3,16 +3,16 @@
   "version": "0.20.0",
   "description": "De✨light✨ful fetch utilities for Durable Objects - proxy and direct fetch strategies",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
     }
   },
   "files": [
-    "dist/**/*"
+    "src/**/*"
   ],
   "scripts": {
     "test": "vitest --run",

@@ -28,6 +28,7 @@ Must have:
   - [x] Announcing Lumenize Mesh and Auth
 
 Should have:
+- [ ] Duplicate 
 - [ ] Working Document editor system example
   - [ ] Deploy to Cloudflare button
   - [ ] What to use for UI?

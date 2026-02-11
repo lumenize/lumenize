@@ -21,7 +21,7 @@ npm install @lumenize/routing
 
 Use in a Worker's fetch handler:
 
-```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+```typescript @check-example('packages/routing/test/integration/test-worker-and-dos.ts')
 async fetch(request: Request, env: Env): Promise<Response> {
   // Try routing to a Durable Object
   const response = await routeDORequest(request, env);
@@ -98,7 +98,7 @@ This hook does not run for WebSocket upgrade requests.
 
 Use hooks to validate or modify requests before they reach your Durable Objects:
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 const response = await routeDORequest(request, env, {
   // Hook for WebSocket connections
   onBeforeConnect: async (request, { doNamespace, doInstanceNameOrId }) => {
@@ -130,7 +130,7 @@ const response = await routeDORequest(request, env, {
 
 Use the `prefix` option to scope routing to a specific URL path:
 
-```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+```typescript @check-example('packages/routing/test/integration/test-worker-and-dos.ts')
 const response = await routeDORequest(request, env, { prefix: '/do' });
 if (response) return response;
 ```
@@ -155,7 +155,7 @@ PartyKit foo in them.
 The most common cross-origin resource sharing (CORS) configuration and our recommendation 90% of the time is a simple allowlist. This is not supported by `agents`' 
 `routeAgentRequest`.
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 // Allowlist specific origins
 await routeDORequest(request, env, {
   cors: {
@@ -169,7 +169,7 @@ configuration but we recommend against their use particularly if your DOs use We
 with a browser because the browser does not natively provide CORS protection for 
 WebSocket use.
 
-```typescript @check-example('packages/utils/test/unit/route-do-request.test.ts')
+```typescript @check-example('packages/routing/test/unit/route-do-request.test.ts')
 await routeDORequest(request, env, { cors: true }); // Allow all origins (permissive)
 await routeDORequest(request, env ); // Default, only allow `fetch` on this origin
 // Note, the default ('false') allows WebSocket access for ALL origins
@@ -191,7 +191,7 @@ When using multiple routing functions (e.g., `routeDORequest` and `routeAgentReq
 use the idiomatic pattern with `||` for clean fallthrough. Each router checks its prefix 
 and returns `undefined` if it doesn't match:
 
-```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+```typescript @check-example('packages/routing/test/integration/test-worker-and-dos.ts')
 import { routeDORequest, routeAgentRequest } from '@lumenize/routing';
 
 // ...
@@ -219,7 +219,7 @@ Note, if the url segment for doBindingName doesn't match any DO Namespaces found
 Each error includes an `httpErrorCode` property in addition to the standard `message` 
 property for easy HTTP response handling:
 
-```typescript @check-example('packages/utils/test/integration/test-worker-and-dos.ts')
+```typescript @check-example('packages/routing/test/integration/test-worker-and-dos.ts')
 import { routeDORequest, routeAgentRequest } from '@lumenize/routing';
 
 // ...

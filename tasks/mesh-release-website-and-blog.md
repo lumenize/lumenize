@@ -146,17 +146,17 @@ Reorient lumenize.com around Lumenize Mesh as the anchor product, deprecate/rena
 - [ ] Follow `/release-workflow` process
 - [x] Remove `draft: true` from blog posts (done for mesh announcement, package changes, nebula; mesh-vs-agents stays draft)
 - [x] Uncomment blog post links in `introduction.mdx`
-- [ ] `packages/utils/` can be removed from the monorepo after `@lumenize/routing` is published (or kept as deprecated stub)
-- [ ] Verify published packages install correctly
+- [x] `packages/utils/` can be removed from the monorepo after `@lumenize/routing` is published (or kept as deprecated stub)
+- [x] Verify published packages install correctly
 
 ### Phase 9: npm Deprecations
 
 **Goal**: npm registry reflects package status changes. Run after Phase 8 release.
 
 **Success Criteria**:
-- [ ] `npm deprecate @lumenize/rpc "Deprecated for production use. Use @lumenize/mesh. Remains as foundation for @lumenize/testing."`
-- [ ] `npm deprecate @lumenize/utils "Renamed to @lumenize/routing. Install @lumenize/routing instead."`
-- [ ] `npm deprecate @lumenize/proxy-fetch "Deprecated. Use @lumenize/mesh + @lumenize/fetch instead."`
+- [x] `npm deprecate @lumenize/rpc "Deprecated for production use. Use @lumenize/mesh. Remains as foundation for @lumenize/testing."`
+- [x] `npm deprecate @lumenize/utils "Renamed to @lumenize/routing. Install @lumenize/routing instead."`
+- [x] `npm deprecate @lumenize/proxy-fetch "Deprecated. Use @lumenize/mesh + @lumenize/fetch instead."`
 
 ## Deferred Items
 
