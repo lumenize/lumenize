@@ -77,7 +77,7 @@ we'll know immediately because the tests will start failing.
 import lumenizeRpcPackage from '../../../../packages/rpc/package.json';
 import capnwebPackage from '../../../../node_modules/capnweb/package.json';
 it('detects package versions', () => {
-  expect(lumenizeRpcPackage.version).toBe('0.17.0');
+  expect(lumenizeRpcPackage.version).toBe('0.18.0');
   expect(capnwebPackage.version).toBe('0.1.0');
 });
 
