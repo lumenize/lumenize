@@ -273,7 +273,7 @@ function findParentObject(operations: OperationChain, target: any): any {
 /**
  * Replace nested operation markers in a continuation chain with an actual result value.
  * 
- * This is used by actor-model systems (this.lmz.call(), @lumenize/proxy-fetch) where
+ * This is used by actor-model systems (this.lmz.call(), @lumenize/fetch) where
  * a continuation handler needs to receive the result of an async operation.
  * 
  * Supports two patterns:

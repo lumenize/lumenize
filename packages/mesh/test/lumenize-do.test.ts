@@ -93,7 +93,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
       const stub = env.TEST_DO.getByName('alarms-inject-test');
       
       // Just verify we can access the alarms service (it auto-injects)
-      // Detailed alarm functionality is tested in @lumenize/alarms package
+      // Detailed alarm functionality is tested in alarms.test.ts
       const futureDate = new Date(Date.now() + 5000);
       const schedule = await stub.scheduleAlarm(futureDate, { task: 'test-task' });
       

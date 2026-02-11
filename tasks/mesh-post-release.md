@@ -11,9 +11,11 @@ First round of post-release polish for Lumenize Mesh: close the getting-started 
 **Goal**: Fix stale references left over from the alarms-into-mesh and utils→routing renames.
 
 **Success Criteria**:
-- [ ] `continuations.mdx` line 68: change "`@lumenize/alarms` alarm handler" → "alarm handler" or "`this.svc.alarms`"
-- [ ] `packages/mesh/src/ocan/index.ts` line 5: update JSDoc to remove `@lumenize/alarms` and `@lumenize/proxy-fetch` references
-- [ ] Scan for any other stale `@lumenize/alarms` references in non-archived docs/source
+- [x] `continuations.mdx` line 68: changed to `this.svc.alarms`
+- [x] `packages/mesh/src/ocan/index.ts` line 5: updated to `this.svc.alarms` and `@lumenize/fetch`
+- [x] `packages/mesh/src/ocan/execute.ts` line 276: updated `@lumenize/proxy-fetch` → `@lumenize/fetch`
+- [x] `packages/mesh/test/lumenize-do.test.ts` line 96: updated stale comment
+- [x] Scanned — remaining `@lumenize/alarms` refs are only in `_archived/` docs and `tasks/archive/` (fine to leave)
 
 ## Phase 1: Email Setup in Mesh Getting Started
 
