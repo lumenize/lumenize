@@ -42,7 +42,7 @@
     "@lumenize/debug": "*",
     "@vitest/coverage-istanbul": "3.2.4",
     "vitest": "3.2.4",
-    "wrangler": "^4.38.0"
+    "wrangler": "^4.66.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.9.3",
