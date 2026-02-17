@@ -50,4 +50,4 @@ Items that are important but not in scope for this task file:
 
 - Continued from `tasks/archive/mesh-post-release.md` (Phases 0–3 completed)
 - Sourced from `tasks/todos-for-initial-mesh-release.md` "should-have" section and `tasks/mesh-release-website-and-blog.md` deferred items
-- Max sub-request limit experiments moved to `tasks/mesh-resilience-testing.md` (Phase 7) and "could-have" in `todos-for-initial-mesh-release.md`
+- Max sub-request limit experiments moved to `tasks/mesh-resilience-testing.md` (was Phase 7) and "could-have" in `todos-for-initial-mesh-release.md`

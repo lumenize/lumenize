@@ -83,12 +83,17 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Fanout experiment**: Create test that fans out to N parallel calls, measure limits
   - **Outcome**: Document findings, adjust `maxDepth` default if needed, document workarounds
 
-- [ ] Implement generic pub/sub between mesh nodes. Use `using` keyword on both client instantiation `using client = new ClientExtendingLumenizeClient` and what's returned from the subscription `using sub = client.subscribe(...)` calls
+- [ ] ~~Implement generic pub/sub between mesh nodes~~ → Subsumed by `tasks/mesh-resources.md`
 
-- [ ] Refactor getting-started guide to use native pub/sub once implemented
-  - Current implementation manually manages subscribers Set in storage
-  - Replace with built-in subscription primitives
-  - Will simplify DocumentDO significantly (no more #broadcastContent, subscriber management)
+- [ ] ~~Refactor getting-started guide to use native pub/sub once implemented~~ → Covered by `tasks/mesh-resources.md` Phase 6
+
+- [ ] Experiment: make all `lmz.call()` with response handlers automatically use two one-way pattern
+  - **Idea**: Instead of awaiting under the covers (which opens input gates and incurs wall-clock billing), `lmz.call()` with a response handler (4th param) would always fire-and-forget and have the callee call back with the result + handler continuation
+  - **Key question**: Does the second hop add meaningful latency, or is it microseconds within a Cloudflare colo?
+  - **If latency is negligible**: Developers never have to choose between patterns — every call is eviction-safe by default. The two one-way pattern becomes invisible infrastructure, not a design decision.
+  - **If latency is significant**: Keep current behavior as default, maybe offer opt-in flag
+  - **Experiment design**: Same operation measured both ways — current call-with-response vs automatic-two-one-way. Measure within same colo and cross-region.
+  - **Related**: Gateway latency experiment (above) is higher priority since it adds an extra hop by design
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 

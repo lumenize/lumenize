@@ -19,14 +19,14 @@ Cloudflare's native Workers RPC is the transport layer for Lumenize's in-Cloudfl
 | Capability | Workers RPC | Lumenize Mesh |
 |------------|-------------|---------------|
 | **Non-Cloudflare nodes** | Not supported | Full peer: coded the same way, has acces to the same core capabilities, etc. |
-| **Identity propogation** | Manual with an init pattern | Automatic 
+| **Identity propogation** | DOs don't know their own name/binding so use a manual init pattern | Automatic 
 | **Call context** | None — must pass manually | Automatic `callContext` with `origin`, `originAuth`, `caller`, and mutable `state` |
 | **Consistent Robust Type Support** | Cap'n Web is subset | Date, Set, Map, cycles, aliases, etc. |
 | **Access control** | Up to you | `@mesh()` guards + `onBeforeCall` hooks |
 | **Uniform API** | Different patterns for DO, RpcTarget, Cap'n Web | Same `this.lmz.call()` everywhere |
 | **Sychronous** | Async - Higher risk of race conditions | Lower risk of race conditions |
 
-**We strongly recommend that you use Lumenize Mesh for all in-mesh calls**. Only when you are calling a non-mesh node (raw DO, Worker, or RpcTarget) should you drop down to Workers RPC.
+**We strongly recommend that you use `this.lmz.call()` for all in-mesh calls**. Only when you are calling a non-mesh node (raw DO, Worker, or RpcTarget) should you drop down to Workers RPC.
 
 ## Basic Patterns
 
