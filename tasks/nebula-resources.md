@@ -1,13 +1,17 @@
-# Mesh Resources (DWL Architecture)
+# Nebula Resources (DWL Architecture)
 
-**Status**: Phase 0 — Design (all DWL spikes complete, core API decisions made, remaining: full API shape + MDX draft)
+**Status**: Phase 0 — Design (all DWL spikes complete, core API decisions made, remaining: full API shape + schema evolution design)
+**Package**: `@lumenize/nebula` (BSL 1.1) — built on `@lumenize/mesh` (MIT)
 **Prior Art**: `tasks/icebox/mesh-resources.md` and `tasks/icebox/resources.mdx` (registration-on-DO approach — temporal storage design, snapshot shape, URI scheme, and response protocol carry forward; registration API and schema strategy are replaced by the DWL approach)
+**Depends on**: `tasks/nebula-auth.md` — Nebula auth impacts access control logic for resources. Auth is being built first.
 
 ## Goal
 
-Build a resource system for Lumenize Mesh where **user-provided code runs in a Dynamic Worker Loader (DWL) isolate** and **Lumenize provides the storage engine as a Durable Object**. The user's DWL code handles resource configuration, guards, and validation. The storage DO (LumenizeResources) handles temporal storage, subscriptions, fanout, and lifecycle — the same core responsibilities from the icebox design, but now as a service consumed by the user's code rather than configured by it.
+Build the resource system for **Lumenize Nebula** — a BSL 1.1 licensed vibe coding platform (front and back end) where user-provided code runs in Dynamic Worker Loader (DWL) isolates and Nebula provides the storage engine as a Durable Object. Users interact only through APIs and a tightly-coupled UI framework — no server-side coding. The UI framework makes local state management look exactly the same as remote state management with just slightly different config.
 
-This architecture is motivated primarily by **Lumenize Nebula** — a vibe coding platform where the user provides all code over the wire as config strings. DWL makes this possible without deploying separate Workers per user.
+The resource system handles resource configuration, guards, validation, schema evolution, and migrations via DWL. The storage DO handles temporal storage, subscriptions, fanout, and lifecycle. This is **not** a freemium/MIT stepping stone — it's Nebula's production resource system, built directly for the SaaS platform.
+
+**Package architecture**: `@lumenize/nebula` lives in the Lumenize monorepo and extends `@lumenize/mesh` classes (NebulaDO extends LumenizeDO, NebulaWorker extends LumenizeWorker, etc.). Some Mesh classes like LumenizeClientGateway are used as-is. Auth is either a fork of `@lumenize/auth` included in `@lumenize/nebula` or a separate `@lumenize/nebula-auth` package.
 
 ## Decisions Summary
 
@@ -16,7 +20,8 @@ Quick reference for all decisions made during Phase 0 design:
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | **DWL base class name** | `ResourcesWorker` | Parallels `LumenizeDO`/`LumenizeWorker`/`LumenizeClient` naming. Doesn't encode DWL deployment detail. Works for deployed Workers too. |
-| **DO-side class** | `LumenizeResources extends LumenizeDO` | Option B — specialized DO with temporal storage + DWL integration. Traditional users can extend without DWL. |
+| **Nebula-only (not MIT stepping stone)** | Build directly for Nebula SaaS, BSL 1.1 in `@lumenize/nebula` | Schema evolution is fundamental; building a freemium version without it creates impedance mismatch. Learning-stepping-stone benefit doesn't outweigh maintenance cost. |
+| **DO-side class** | TBD — either `NebulaDO` includes resources naturally, or a separate `NebulaResources` class extends `NebulaDO` | Decision deferred. Either way it extends `LumenizeDO` via `NebulaDO`. |
 | **Guard dispatch mechanism** | `lmz.call(stub, continuation)` | Uses higher-level Mesh API, not raw `__executeOperation`. CallContext propagates automatically. |
 | **`lmz.call()` DWL addressing** | New overload: `lmz.call(stub, continuation)` | DWL stubs come from `LOADER.get()`, not `env`. Overload lives in `LumenizeResources`, not base `LumenizeDO`. |
 | **Multiple entrypoints per DWL** | Supported — `stub.getEntrypoint('ClassName')` | Enables future `IntegrationsWorker`, `WorkflowsWorker` alongside `ResourcesWorker` in same DWL module. |
@@ -25,6 +30,8 @@ Quick reference for all decisions made during Phase 0 design:
 | **`transaction()` API** | `lmz.transaction([lmz.upsert(...), lmz.delete(...), ...])` | DWL call opens input gates, losing automatic transactional behavior. Single `transaction()` call with mixed ops minimizes RPC round-trips (billing) and enables manual transaction protocol. |
 | **Convenience functions** | `lmz.upsert(id, val)`, `lmz.upsert(id, val, eTag)`, `lmz.upsert(snapshot, val)` — same 3 patterns for `delete` | Pure functions returning operation descriptors. eTag resolved from local cache when not explicit. Snapshot overload extracts both resourceId and eTag. |
 | **Manual transaction protocol** | Read→eTag check→DWL guards→recheck eTags→write (in `transactionSync`) | Double eTag check: optimistic (pre-DWL, fail fast) + pessimistic (post-DWL, catch races). `transactionSync` for write phase ensures all-or-nothing. |
+| **Schema evolution** | User-provided migration functions in DWL, versioned in `ResourcesWorker` | DWL is perfect: migration code is user-provided logic needing sandboxing. TypeScript types are the schema — no DSL. |
+| **Runtime type validation** | Experiment: `tsgo`/Rust TS compiler in Cloudflare Container | TypeScript itself as runtime validator. `@lumenize/structured-clone` gains `toLiteralString()` mode. No schema DSL duplication. **[Phase 0 experiment]** |
 
 ## Core Architecture (Inverted Model)
 
@@ -98,7 +105,7 @@ The icebox design put everything on the DO — schema, guards, validation, stora
 3. **Users want to import their own validation libraries** — DWL `modules` dict supports this.
 4. **Security isolation** — `globalOutbound: null` plus controlled `env` bindings means user code can only talk to services we explicitly provide.
 
-For traditional (non-Nebula) Lumenize users who deploy their own Workers, the same architecture still works — they just write a normal Worker that calls LumenizeResources via service binding instead of using DWL. The storage DO API is the same either way.
+This is a Nebula-only system — not designed for traditional Lumenize Mesh users who deploy their own Workers. Those users continue to use `LumenizeDO` directly with `@mesh` methods and manual pub/sub patterns.
 
 ## DWL Spike Results
 
@@ -336,6 +343,61 @@ Steps 3's recheck + write are synchronous (no `await`), so input gates are close
 **Guard batching on `ResourcesWorker`**:
 `runGuards()` accepts the full batch. Each item has its own `resourceType` and the base class routes to the appropriate guard array per item. One DWL round-trip covers guards for the entire transaction.
 
+### Schema Evolution and Migrations
+
+**Problem**: Vibe coders change their resource types over time — add fields, rename them, change types. Without schema evolution, existing data breaks silently or requires manual migration.
+
+**Approach**: User-provided migration functions in DWL, versioned alongside the resource config. TypeScript types are the schema — no DSL. Migrations are just TypeScript/JavaScript functions that the LLM helps write.
+
+```typescript
+export class ProjectResources extends ResourcesWorker {
+  version = 3;
+
+  migrations = {
+    // version 1→2: added status field with default
+    2: (old) => ({ ...old, status: 'draft' }),
+    // version 2→3: renamed owner→assignee
+    3: (old) => ({ ...old, assignee: old.owner, owner: undefined }),
+  };
+
+  resources = { /* ... */ };
+}
+```
+
+**How it works**:
+- The DO stores the schema version with each snapshot
+- On read, if stored version < current version, run migration chain lazily (read-time migration, write-back)
+- DWL is the perfect sandbox for migration code — it's user-provided logic that needs isolation
+- Migrations run through the same `lmz.call()` mechanism as guards — callContext propagates
+
+**Why this is a reason to skip the MIT freemium version**: Every attempt to imagine schema evolution on top of a platform without it felt like an impedance mismatch. Building it in from the start avoids rework.
+
+**Open design questions for schema evolution**:
+- Per-resource-type versioning or global version for all resource types?
+- Lazy migration on read vs eager migration on code deploy?
+- How to handle migration failures (rollback? quarantine the row?)
+- Can migrations themselves be validated via the tsgo experiment?
+
+### Runtime Type Validation via TypeScript Compiler — EXPERIMENT
+
+**Idea**: Use the TypeScript compiler itself as the runtime validator. No Zod, no TypeBox, no schema DSL duplication. The `.d.ts` or class definition the vibe coder already wrote *is* the validation schema.
+
+**How it would work**:
+1. Run a TypeScript compiler (`tsgo` — Go-based, 10x faster than `tsc`, or a newer Rust-based alternative) on a **Cloudflare Container** exposed via JSON-RPC API
+2. Upgrade `@lumenize/structured-clone` to support a `toLiteralString()` mode — instead of building runtime objects, build a TypeScript/JavaScript string literal representation. The tree-walking code and case-statement structure already exist; this mode just outputs `new Date("2025-01-15T...")`, `new Set(["urgent"])`, etc. as strings
+3. Construct a small TypeScript file: the type definition + `const x: TaskType = <literal>` and feed it to the compiler
+4. If the compiler complains, validation failed — with real TypeScript error messages
+
+**Why this is practical now**:
+- `tsgo` (Project Corsa) compiles 1.5M lines in 8.7 seconds. A single-file type check would be single-digit milliseconds on a warm container
+- `tsgo` is a standalone Go binary — tiny container image, fast startup, low memory
+- A Rust-based TypeScript compiler may be even faster
+- The latency is acceptable as part of a `transaction()` that's already paying for a DWL round-trip
+
+**Alternative considered: pre-compile at deploy time**: Run the compiler once when code changes to extract type shape and generate a lightweight runtime checker. Rejected because it's basically reinventing TypeBox/Zod with extra steps. The purity of "TypeScript is the validator" is the whole point.
+
+**Phase 0 experiment**: Spike this in `experiments/tsgo-validation-spike/`. Success criteria: demonstrate a round-trip where a value is validated against a TypeScript type definition using `tsgo` in a container, with acceptable latency (<50ms warm).
+
 ## Carried Forward from Icebox Design
 
 The following design decisions from `tasks/icebox/mesh-resources.md` carry forward unchanged. They apply to the LumenizeResources storage DO regardless of whether the caller is a DWL isolate or a normal Worker.
@@ -418,6 +480,9 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 | **Config (debounce, history)** | Static fields on resource type classes | Properties in the `resources` object on the DWL class |
 | **Who extends what** | User extends LumenizeDO | User extends `ResourcesWorker` (which extends `LumenizeWorker`) |
 | **afterFanout** | Registration option on the DO | TBD — possibly a method on the DWL class |
+| **Schema evolution** | Not designed | Built-in: versioned migrations in DWL, lazy read-time migration |
+| **Runtime validation** | Deferred | Experiment: tsgo in Cloudflare Container as TypeScript-native validator |
+| **Licensing** | Would have been MIT (freemium) | BSL 1.1 in `@lumenize/nebula` (Nebula-only) |
 
 ## Open Questions
 
@@ -429,7 +494,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 
 3. ~~**What's the Nebula deployment model?**~~ Per-tenant DO instances. Each tenant gets their own `LumenizeResources` DO with its own SQLite.
 
-4. ~~**Can traditional (non-Nebula) users use this same API directly?**~~ Yes. The storage DO API is the same regardless of caller. Traditional users write guards inline on their DO (icebox pattern); Nebula users write guards in DWL code. The storage engine doesn't care.
+4. ~~**Should this be a freemium MIT stepping stone or Nebula-only?**~~ **Nebula-only (BSL 1.1).** Schema evolution is fundamental to Nebula and building it on top of a platform without it creates impedance mismatch. The learning benefit of a stepping stone doesn't outweigh the cost of building and maintaining the free version. Traditional Lumenize Mesh users use `LumenizeDO` directly.
 
 5. ~~**`registerType` as mesh call vs constructor config?**~~ The DO reads config from the DWL via `getResources()` and stores it persistently. Registration happens when the DWL code is first loaded (or updated).
 
@@ -447,7 +512,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 
 12. ~~**Optimized DWL bundle size?**~~ **Tested.** LumenizeWorker-only entrypoint: 102KB unminified / 40KB minified (vs 140KB/56KB full). 27-29% reduction. Acceptable for DWL. Could trim more if base class drops `call()`/`ctn()`.
 
-13. ~~**`LumenizeResources` DO: concrete class or base class?**~~ **Option B — `LumenizeResources` extends `LumenizeDO`.** It's a specialized DO that adds DWL integration, temporal storage, and the resource API on top of the base `LumenizeDO`. Traditional users can also extend it (without DWL) if they want built-in temporal storage. Nebula adds the DWL layer on top. The storage engine, subscription logic, and HTTP transport are the same regardless of whether guards come from DWL or inline code.
+13. ~~**DO-side class architecture?**~~ **Extends `LumenizeDO` via `NebulaDO`.** Whether resources live directly in `NebulaDO` or in a separate `NebulaResources extends NebulaDO` is deferred. Either way, `@lumenize/nebula` extends `@lumenize/mesh` classes — same pattern any Mesh user would follow.
 
 14. ~~**How does the DO call DWL — plain RPC or via Mesh?**~~ **Via `lmz.call()`.** Using `lmz.call(stub, continuation)` (new overload accepting a DWL stub directly). This propagates callContext through the Mesh envelope automatically — guards read `this.lmz.callContext.originAuth` naturally. Plain RPC was rejected because it would duplicate callContext propagation logic.
 
@@ -456,6 +521,11 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 ### Still Open
 
 - **Q10**: DWL in vitest — untested, deferred
+- **Q16**: Schema evolution: per-resource-type versioning or global version?
+- **Q17**: Lazy migration on read vs eager migration on code deploy?
+- **Q18**: Migration failure handling — rollback, quarantine, or error?
+- **Q19**: DO-side class shape — resources in `NebulaDO` directly or separate `NebulaResources extends NebulaDO`?
+- **Q20**: Auth package — fork `@lumenize/auth` into `@lumenize/nebula` or separate `@lumenize/nebula-auth`?
 
 ## Implementation Phases
 
@@ -479,9 +549,12 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [x] `transaction()` API decided: `lmz.transaction([lmz.upsert(...), lmz.delete(...)])` with convenience functions
 - [x] Convenience function overloads decided: `(id, val)`, `(id, val, eTag)`, `(snapshot, val)` — eTag from cache or explicit
 - [x] Manual transaction protocol decided: read→eTag check→DWL guards→recheck→transactionSync write
-- [ ] Finalize full LumenizeResources DO method surface (transaction, read, reads, subscribe, discover)
-- [ ] Finalize ResourcesWorker base class methods (runGuards batch, getResources)
-- [ ] Draft MDX documentation (after API is stable)
+- [ ] **Experiment: tsgo runtime validation** — spike in `experiments/tsgo-validation-spike/`
+- [ ] Design schema evolution and migration strategy
+- [ ] Finalize DO method surface (transaction, read, reads, subscribe, discover)
+- [ ] Finalize ResourcesWorker base class methods (runGuards batch, getResources, migrations)
+- [ ] Resolve DO-side class shape (NebulaDO vs NebulaResources)
+- [ ] Draft documentation (after API is stable — internal docs, not public MDX)
 - [ ] Maintainer sign-off on architecture
 
 ### Phase 1: LumenizeResources Storage Engine
@@ -532,8 +605,8 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [ ] `getResources()` returns serializable config (no functions)
 - [ ] `lmz.call(stub, continuation)` overload implemented in `LumenizeResources`
 - [ ] Code versioning — hash-based DWL stub management
+- [ ] Schema evolution — version tracking, migration chain execution
 - [ ] `globalOutbound: null` sandbox with controlled `env` bindings
-- [ ] Example of traditional (non-DWL) user calling LumenizeResources
 
 ### Phase 5: Documentation & Tests
 
@@ -548,7 +621,26 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 ## Notes
 
 - DWL is in closed beta — production deployment requires Cloudflare sign-up. Local dev works now with wrangler 4.66.0+.
-- The same LumenizeResources DO API serves both Nebula (DWL) and traditional (deploy-time) users.
+- `@lumenize/nebula` is BSL 1.1 licensed, lives in the Lumenize monorepo alongside MIT-licensed `@lumenize/mesh`.
+- `nebula-auth` must be built first — it impacts access control logic for resources. See `tasks/nebula-auth.md`.
 - Prior art from `lumenize-monolith/` still applies for temporal storage patterns — see icebox task file for details.
 - Phase 0.5 (remove `gateway` prefix) from the icebox design is still needed and should be tackled independently.
-- Spike experiment code lives in `experiments/dwl-spike/`.
+- DWL spike code lives in `experiments/dwl-spike/`.
+- This task file was previously `tasks/mesh-resources.md` — renamed during the pivot from MIT freemium to Nebula-only.
+
+### `@cloudflare/codemode` v0.1.0 SDK Rewrite (2026-02-20)
+
+Cloudflare released a complete rewrite of `@cloudflare/codemode` as a modular, runtime-agnostic SDK. Relevant to Nebula because it's built on the same DWL infrastructure we're using:
+
+- **`DynamicWorkerExecutor`** — pre-built executor running code in Dynamic Workers with network isolation (fetch/connect blocked by default), console capture, and configurable timeout (30s default). This is essentially a production-hardened version of the DWL sandboxing pattern we validated in our spikes.
+- **`createCodeTool()`** — exports a standard AI SDK Tool for agent integration. Enables LLMs to write and execute TypeScript that orchestrates tools, reducing token usage.
+- **`Executor` interface** — minimal contract (`execute(code, fns)`) for custom sandbox implementations.
+- **Removed direct LLM integration** — package no longer owns an LLM call or model choice; developers provide their own.
+- **Install**: `npm i @cloudflare/codemode@latest`
+- **Changelog**: https://developers.cloudflare.com/changelog/2026-02-20-codemode-sdk-rewrite/
+
+**Implications for Nebula**:
+1. Validates DWL as a production-ready pattern — Cloudflare is building official tooling around it.
+2. `DynamicWorkerExecutor`'s network isolation and console capture patterns may be reusable or inform our `globalOutbound: null` sandboxing.
+3. The `Executor` interface is worth studying — could influence how we structure our DWL executor for guards/migrations.
+4. Code Mode's "LLM writes TypeScript that orchestrates tools" pattern aligns with Nebula's vibe coding model.

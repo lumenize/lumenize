@@ -121,7 +121,7 @@ Key Point: The Intrapreneur / Solopreneur, the Evolvability Architect, the Flow 
 - **The Flow Engineer** – Owns the agentic coding process: task decomposition, agent orchestration, prompt design, guidance files, and the retrospective loop. Their goal: maximize the rate of correct output.
 - **The Verification Adversary** – Builds the "verify your own work" skills and automation: test scaffolds, coverage gates, doc-example validators, security scans. Their goal: find every flaw before it ships.
 
-Speaker Notes: Notice the first role requires zero traditional coding skill—that's the "domain experts building without technical expertise" shift. The other three are what senior engineers evolve into. Nobody's job title is "React Developer" anymore.
+Speaker Notes: Notice the first role requires zero traditional coding skill—that's the "domain experts building without technical expertise" shift. The next two are what senior engineers evolve into. The last one is what senior test automation engineers evolve into. Nobody's job title is "React Developer" anymore.
 
 ### Where Did Everyone Go?
 
