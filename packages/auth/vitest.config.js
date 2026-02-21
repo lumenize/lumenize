@@ -51,10 +51,13 @@ export default defineWorkersConfig({
       },
       {
         // E2E email test (real Resend + real Email Routing — no test mode)
+        // groupOrder 1: runs after main tests, serialized with hono to avoid
+        // race on shared EmailTestDO (both listen for emails to test@lumenize.io)
         extends: true,
         test: {
           name: 'e2e-email',
           testTimeout: 30000, // 30s — real email delivery can take 10-15s
+          sequence: { groupOrder: 1 },
           include: ['test/e2e-email/**/*.test.ts'],
           poolOptions: {
             workers: {
@@ -70,10 +73,12 @@ export default defineWorkersConfig({
       },
       {
         // Hono integration test (real Resend + real Email Routing — no test mode)
+        // groupOrder 2: runs after e2e-email to avoid shared EmailTestDO race
         extends: true,
         test: {
           name: 'hono',
           testTimeout: 30000, // 30s — real email delivery can take 10-15s
+          sequence: { groupOrder: 2 },
           include: ['test/hono/**/*.test.ts'],
           poolOptions: {
             workers: {
