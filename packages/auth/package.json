@@ -38,7 +38,7 @@
     "hono": "^4.11.9",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",
-    "wrangler": "^4.38.0"
+    "wrangler": "^4.66.0"
   },
   "dependencies": {
     "@lumenize/debug": "^0.22.0",

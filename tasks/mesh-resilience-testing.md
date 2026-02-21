@@ -95,6 +95,8 @@ The `mesh-testing-auth-strategy` task proved that `createTestingClient` can mani
 
 ### Phase 7: Max sub-request limit
 
+**This just in**: The limit is now 10,000 by default and can be configured much higher. See: https://developers.cloudflare.com/changelog/2026-02-11-subrequests-limit/
+
 **Goal**: Discover where Cloudflare's sub-request limit bites in a mesh topology and document the practical ceiling.
 
 **Success Criteria**:

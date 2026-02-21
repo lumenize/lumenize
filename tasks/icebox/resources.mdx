@@ -1,0 +1,376 @@
+---
+title: Resources
+description: Declare resources on Durable Objects. CRUD + subscribe over Mesh and HTTP with full rich-type support
+---
+
+# Resources
+
+Lumenize Mesh makes DOs, Workers, and Clients peers that can call each other. But there's a pattern that calls alone don't solve well: **keeping subscribers in sync with changing state**.
+
+The [Getting Started](./getting-started) tutorial shows this — DocumentDO manually tracks subscribers in a `Set`, loops through them to broadcast, and clients must manually resubscribe on reconnect. It works, but every system that needs resource management and real-time updates must reimplement the same boilerplate.
+
+**Mesh Resources** solves this by making resources a first-class concept. Register resources on a DO, and the framework handles everything — temporal storage, subscription tracking, delivery, reconnection, and lifecycle.
+
+**The URL is the URI is the resource address.** `https://example.com/DOCUMENT_DO/doc-123/resources/content/main` is simultaneously the HTTP URL and the Mesh subscription target. One address, two transports, no translation layer.
+
+## Two Transports, One Registration
+
+Register your resources with `this.lmz.resources()` and they become accessible through every transport the framework supports:
+
+| Transport | Read | Write | Subscribe |
+|-----------|------|-------|-----------|
+| **Lumenize Mesh** | `lmz.read(uri)` | `lmz.upsert(uri, value, meta.eTag)` | `lmz.subscribe(uri, handler)` |
+| **HTTP REST** | `GET` | `PUT / DELETE` | — |
+
+Both transports use `@lumenize/structured-clone` for full rich-type fidelity. You register resources with slug-friendly keys (e.g., `content`); the framework generates a URI template:
+
+```text @skip-check
+https://{domain}/{bindingName}/{instanceName}/resources/content/{resourceId}
+```
+
+For Mesh, `{domain}/{bindingName}/{instanceName}` is already resolved by routing — you're addressing a resource within a DO you can already reach. For HTTP, it's a real URL. No prefix stripping, no translation, no ambiguity.
+
+## Registering Resources
+
+Register all resources with a single `this.lmz.resources()` call as a class field initializer. Pass a config object mapping slug-friendly keys to per-type options — the framework generates URI templates from the slugs:
+
+```typescript @skip-check
+import { LumenizeDO } from '@lumenize/mesh';
+import { Content, Presence, Metrics } from './resource-types';
+
+export class DocumentDO extends LumenizeDO<Env> {
+
+  // Registration — tells the framework what this DO hosts
+  _ = this.lmz.resources({
+    // 'content' slug → URI template: /resources/content/{resourceId}
+    content: { class: Content, guards: [requireEditor, validateContent] },
+    // 'metrics' slug → URI template: /resources/metrics/{resourceId}
+    metrics: { class: Metrics, guards: [requireEditor] },
+    // 'presence' slug → URI template: /resources/presence/{resourceId}
+    presence: { class: Presence },
+  });
+}
+```
+
+That's it. The framework handles storage (temporal snapshots in SQL), subscription tracking, reconnection, snapshot metadata, relay to subscribers, and access control. The call registers resource types with the framework internally — remote callers use `lmz.upsert(uri, ...)` which routes through the framework.
+
+Registration happens during construction, so the framework knows about all resources before the first request arrives — enabling HTTP route dispatch and proper handling of subscribers that arrive before any data exists.
+
+Each key in the config object (e.g., `content`) is a URL-friendly slug that becomes the `{resourceType}` segment in the generated URI template: `https://{domain}/{bindingName}/{instanceName}/resources/content/{resourceId}`. You never write URI templates yourself — the framework derives them from the slugs. Keys must be valid URL path segments (lowercase alphanumeric + hyphens).
+
+The `class` property provides both compile-time type safety and runtime access to static config fields like `debounceMs` and `history`. The same resource type file serves dual purposes — `import type` for typing and direct import for class references:
+
+```typescript @skip-check
+// src/resource-types.ts
+export class Content {
+  title!: string;
+  body!: string;
+  tags!: string[];
+  createdAt!: Date;
+  metadata!: Map<string, string>;
+
+  static debounceMs = 3_600_000;  // default — 1-hour debounce
+  static history = true;          // default — keep temporal history
+}
+
+export class Presence {
+  cursor!: { x: number; y: number };
+  status!: 'active' | 'idle';
+  lastSeen!: Date;
+
+  static history = false;  // ephemeral — always one row
+}
+
+export class Metrics {
+  views!: number;
+  edits!: number;
+  lastEditor!: string;
+
+  static debounceMs = 0;  // full audit trail — every change creates a snapshot
+}
+```
+
+Static fields on the class (`debounceMs`, `history`) provide declarative config that survives TypeScript compilation. The framework reads these at registration time. If a static field isn't present, the framework uses its default. Guards and `afterFanout` live in the registration call instead — they're functions that need DO instance context (`this.lmz.callContext`) at execution time, which isn't available in a separate file.
+
+## Operations
+
+Each resource registration supports subscribe, read, upsert, delete, and discovery:
+
+| Operation | Mesh | HTTP |
+|-----------|------|------|
+| Subscribe | `lmz.subscribe()` | — |
+| Read | `lmz.read()` | GET |
+| Upsert | `lmz.upsert()` | PUT |
+| Delete | `lmz.delete()` | DELETE |
+| Discovery | `lmz.discover()` | `GET /discover` |
+
+`lmz.upsert()` creates the resource if it doesn't exist, or replaces the value if it does. This mirrors Durable Object semantics where the first access implicitly creates the instance. For "create-only" protection (reject if already exists), pass `meta.eTag` from a prior read — the optimistic concurrency check rejects the write if the current eTag doesn't match.
+
+Both transports use the same URI to identify the resource and resolve to the same unified handler internally — each transport is a thin translator that extracts the URI and operation from its native protocol (Mesh call or HTTP method) and dispatches to a shared handler that uses the URI to determine the resource type and guard array.
+
+## Resource Discovery
+
+Agents and clients can discover what resources a DO offers without reading source code. `lmz.discover()` (Mesh) and `GET /discover` (HTTP) return everything a caller needs to interact with the DO's resources:
+
+```typescript @skip-check
+const info = await lmz.discover(doUri);
+// {
+//   resources: [
+//     { slug: 'content', uriTemplate: '/resources/content/{resourceId}', className: 'Content', debounceMs: 3_600_000, history: true, title: '...', description: '...' },
+//     { slug: 'presence', uriTemplate: '/resources/presence/{resourceId}', className: 'Presence', debounceMs: 3_600_000, history: false },
+//     { slug: 'metrics', uriTemplate: '/resources/metrics/{resourceId}', className: 'Metrics', debounceMs: 0, history: true },
+//   ],
+//   protocol: { ... },  // operations, HTTP mappings, docs link
+// }
+```
+
+The `resources` field lists registered resource types with their URI templates and configuration. The `protocol` field is a static summary describing the available operations, their HTTP mappings, and a link to the full documentation. Together, they give an agent everything it needs to start making calls — `resources` tells it *where* resources live and how they're configured, and `protocol` tells it *how* to interact with them. For resource *shapes*, agents read the `.d.ts` files directly.
+
+Discovery is unguarded — it's public metadata about the DO's resource API, not the resource data itself.
+
+## Subscribing to Resources
+
+DOs and Clients can subscribe to resources — both are stateful and can hold subscriptions. Workers are stateless and cannot subscribe (they can still `read`, `upsert`, and `delete`).
+
+The handler fires immediately with the current value, then again on each subsequent update — it's a read plus an ongoing subscription in one call.
+
+**DOs must use the [continuation](./continuations) pattern** (`this.ctn()`) because DOs can be evicted at any time. The framework serializes the continuation to SQL so it survives eviction — when the DO restarts, the framework re-establishes the subscription and replays updates through the stored handler. A plain callback would be lost on eviction, silently breaking the subscription:
+
+```typescript @skip-check
+// From a DO — continuation handler survives eviction
+const handle = this.lmz.subscribe(
+  'https://example.com/DOCUMENT_DO/doc-123/resources/content/main',
+  this.ctn().onContentUpdate((snapshot) => {
+    // First fire: initial value. Subsequent: updates.
+    replaceContent(snapshot.value);
+    lastETag = snapshot.meta.eTag;
+  })
+);
+
+// Unsubscribe when done (also works with `using` + Symbol.dispose)
+handle.dispose();
+```
+
+**Clients can use `this.ctn()` or a plain callback** — either works because the framework re-establishes Client subscriptions on WebSocket reconnect using the in-memory subscription list. DOs that pass a plain callback instead of `this.ctn()` get a clear error:
+
+```typescript @skip-check
+// From a Client — plain callback (Client-only sugar)
+const handle = this.lmz.subscribe(uri, (snapshot) => {
+  replaceContent(snapshot.value);
+  lastETag = snapshot.meta.eTag;
+});
+```
+
+If the resource doesn't exist yet, you can provide a seed value:
+
+```typescript @skip-check
+const handle = this.lmz.subscribe(uri, this.ctn().onContentUpdate(handler), {
+  initialValue: defaultDoc, // seed value if resource doesn't exist yet
+});
+```
+
+`lmz.read(uri)` is a one-shot version — same semantics but returns the response without creating an ongoing subscription.
+
+Own messages are not echoed back (BroadcastChannel semantics) — if you update a resource you're subscribed to, you won't receive your own update as a notification.
+
+:::note Wildcard subscriptions (future)
+The fixed URI template scheme provides a natural wildcard mechanism — subscribing to `/resources/content/` (without a `resourceId`) would mean "subscribe to all content resources on this DO." This is deferred but the URI structure accommodates it without breaking changes.
+:::
+
+## Temporal Storage and Debounce
+
+All resources use Snodgrass-style temporal storage — every change is captured as a snapshot in SQL. By default, rapid updates from the same **sub chain** (the JWT `sub` claim plus any nested `act` delegates) are debounced: the framework overwrites the current snapshot in place rather than creating a new one.
+
+| `debounceMs` | Behavior |
+|---|---|
+| `3_600_000` (default — 1 hour) | Updates from the same sub chain within 1 hour overwrite the current snapshot |
+| `0` | Every update creates a new snapshot — full audit trail |
+| Custom (e.g., `5_000`) | 5-second debounce window per sub chain |
+
+The debounce check is simple: if the current snapshot's `changedBy` matches the incoming sub chain AND less than `debounceMs` has elapsed since `validFrom`, overwrite in place. Otherwise, create a new snapshot. This prevents rapid saves (autosave, typing, sensor updates) from flooding the snapshots table while still capturing meaningful history when a different sub makes changes or enough time passes.
+
+For resources that don't need history at all — ephemeral state like presence or cursor position — set `history: false`. This keeps exactly one row per resource, always overwriting regardless of sub chain or timing. The same table and queries are used; there's no separate code path. If you later need history, remove the flag and new changes start accumulating.
+
+## Optimistic Concurrency
+
+Every `Snapshot<T>` includes `meta.eTag` — use it for conflict detection on upsert. ETags map natively across both transports — HTTP `If-Match` headers and Mesh optimistic concurrency use them directly.
+
+```typescript @skip-check
+// Subscribe — handler receives Snapshot<T> with value and meta
+this.lmz.subscribe(uri, this.ctn().onContentUpdate((snapshot) => {
+  currentValue = snapshot.value;
+  lastETag = snapshot.meta.eTag;
+}));
+
+// Upsert without eTag — always succeeds (no concurrency check)
+this.lmz.upsert(uri, newValue);
+
+// Upsert with eTag — rejects if someone else changed it since your last read
+const result = this.lmz.upsert(uri, newValue, lastETag);
+```
+
+## Response Protocol
+
+All resource operations return a **`Snapshot<T>`** — the developer's value plus framework metadata in a clean two-level structure:
+
+```typescript @skip-check
+interface Snapshot<T> {
+  value: T;              // The developer's data
+  meta: {
+    eTag: string;        // Opaque token — pass to upsert() for optimistic concurrency
+    validFrom: string;   // When this snapshot period began
+    validTo: string;     // When superseded (or '9999-01-01T00:00:00.000Z' for current)
+    changedBy: SubChain[];
+    deleted: boolean;
+  }
+}
+```
+
+`value` is always the developer's typed data — never mixed with framework fields. `meta` contains temporal versioning and identity tracking. `meta.eTag` is an opaque token (UUID) that changes on every write — including debounced overwrites where `validFrom` stays frozen. Treat it as opaque; pass it to `upsert()` for optimistic concurrency.
+
+**Subscribe and read** always return a full `Snapshot<T>` — never a partial diff.
+
+**Upsert** responses add an `ok` field — the shape tells you what happened:
+
+| Outcome | Response | Meaning |
+|---------|----------|---------|
+| **Success** | `{ ok: true, meta }` | Write landed. `meta.eTag` is the new version. No `value` — caller already knows it. |
+| **Conflict** | `{ ok: false, value, meta }` | Someone else wrote first. Full current snapshot included. |
+| **Rejected** | `{ ok: false }` | Guard rejected the operation. No value or meta returned. |
+
+On conflict, the full current snapshot is included so the caller can decide what to do (revert, merge, prompt user) without a separate `read()` round-trip. On rejection, no data is returned — unauthorized callers shouldn't see the resource.
+
+### Upsert + Subscribe Interaction
+
+If you're subscribed to a resource and upsert to it, two things happen independently:
+
+1. **Your subscribe handler does NOT fire** for your own write (BroadcastChannel semantics — own messages are not echoed back).
+2. **The upsert response** tells you whether it succeeded or conflicted.
+
+For other people's writes, your subscribe handler fires as usual with a `Snapshot<T>`. This means the subscribe handler is your "incoming changes from others" channel, and the upsert response is your "did my write land?" channel. The two don't overlap.
+
+### UI Patterns
+
+The framework provides everything the UI needs to handle conflicts — it doesn't dictate a specific policy. Common patterns:
+
+**Optimistic UI with flash feedback:** On blur, fire `lmz.upsert(uri, newValue, snapshot.meta.eTag)`. On success, flash a green border briefly. On conflict, flash red and revert the field to `response.value`.
+
+**Merge dialog:** On conflict, show both versions (your attempted value is local, the current value is in the conflict response) and let the user choose — or merge automatically if the changes are to different fields.
+
+**Last-write-wins:** Omit the eTag parameter entirely. The upsert always succeeds and overwrites whatever is there. Suitable for non-collaborative resources or ephemeral state.
+
+## Schemas
+
+Resource schemas are **TypeScript classes** — the same language your vibe coders and AI assistants already think in. Define resource types in a `.ts` file with fields-only classes and optional static config:
+
+```typescript @skip-check
+// src/resource-types.ts
+export class Content {
+  title!: string;
+  body!: string;
+  tags!: string[];
+  createdAt!: Date;
+  metadata!: Map<string, string>;
+
+  static debounceMs = 3_600_000;  // 1-hour debounce (default)
+}
+```
+
+```typescript @skip-check
+import { Content } from './resource-types';
+
+_ = this.lmz.resources({
+  content: { class: Content, guards: [requireEditor] },
+});
+```
+
+Classes use `!` definite assignment for fields — no constructor needed, just the type shape. Static fields provide runtime config (`debounceMs`, `history`) that survives TypeScript compilation. The same file serves dual purposes: `import type { Content }` for compile-time typing elsewhere, and `import { Content }` for the class reference in the registration call.
+
+No code generation step, no CLI command, no generated files. TypeScript provides compile-time type safety. [Code Mode](https://developers.cloudflare.com/agents/model-context-protocol/code-mode/) agents read your `.d.ts` files directly — LLMs produce dramatically better results from TypeScript types than from JSON Schema.
+
+## Access Control
+
+The `guards` option on each resource type is an array of functions executed in sequence (middleware pattern). Each guard receives the same info object as the internal handler — including `resourceType`, `resourceId`, current `snapshot`, and (for upsert) the `incoming` value. Guards throw to disallow — the Error propagates back through the transport layer. Auth context comes from `this.lmz.callContext` — the same pattern used by `@mesh` guards:
+
+```typescript @skip-check
+const requireEditor = ({ operation }) => {
+  const { originAuth } = this.lmz.callContext;
+  if (originAuth?.claims?.role !== 'editor' && originAuth?.claims?.role !== 'admin') {
+    throw new ForbiddenError('Editor role required');
+  }
+};
+
+const requireAuthor = ({ operation, snapshot }) => {
+  if (operation === 'read' || operation === 'subscribe') return; // allow
+  const { originAuth } = this.lmz.callContext;
+  if (snapshot?.value.authorId !== originAuth?.sub) {
+    throw new ForbiddenError('Only the author can edit');
+  }
+};
+
+_ = this.lmz.resources({
+  content: { class: Content, guards: [requireEditor, requireAuthor] },
+});
+```
+
+Guards run in array order after the snapshot is fetched from storage but before it's returned to the caller. If any guard throws, execution stops — later guards don't run. `snapshot` is the current `Snapshot<T>` (or `undefined` if the resource doesn't exist yet — e.g., first upsert). For upsert operations, `incoming` provides the new value being written:
+
+```typescript @skip-check
+const validateContent = ({ operation, incoming }) => {
+  if (operation === 'upsert' && incoming?.status === 'published') {
+    const { originAuth } = this.lmz.callContext;
+    if (originAuth?.claims?.role !== 'admin') {
+      throw new ForbiddenError('Only admins can publish');
+    }
+  }
+};
+
+_ = this.lmz.resources({
+  content: { class: Content, guards: [requireEditor, validateContent] },
+});
+```
+
+The guard info object always includes `operation`, `resourceType`, `resourceId`, and `snapshot`. For upsert, `incoming` and `eTag` are also present. TypeScript narrows the union when you check `operation`. Because the info shape is fixed, the same guard function can be reused across different resource types — compose them in arrays per type.
+
+For subscribe, the guard array runs once at subscription time. Once subscribed, updates flow without re-checking guards. If permissions change, the subscriber must be explicitly unsubscribed.
+
+`originAuth` is preserved across both transports — Mesh `callContext` and HTTP auth middleware flow through the same guards. The framework also provides built-in guards for common patterns (e.g., "can't upsert unless subscribed").
+
+## Serialization
+
+Resource values support **rich types** — `Date`, `Map`, `Set`, cycles, and everything else [`@lumenize/structured-clone`](../structured-clone/overview) handles. Values are stored in SQLite as JSONB using the preprocessed `$lmz` format and round-trip through `postprocess()` on read with full fidelity.
+
+Both transports use `@lumenize/structured-clone`:
+
+| Transport | Format |
+|-----------|--------|
+| **Lumenize Mesh** | Structured-clone over WebSocket — automatic, nothing to configure |
+| **HTTP REST** | `application/vnd.lumenize.structured-clone+json` — preprocessed `$lmz` JSON. Client calls `postprocess()` to hydrate |
+
+One format, full fidelity, no degraded path. Use `Date` for timestamps, `Map` for dictionaries, `Set` for unique collections — they all survive storage, subscription, and HTTP round-trips.
+
+## Routing Setup
+
+For resource URIs to work as real HTTP URLs, the mesh router should be the last handler in your Worker's route chain, with no prefix:
+
+```typescript @skip-check
+import { routeDORequest } from '@lumenize/routing';
+
+export default {
+  async fetch(request: Request) {
+    // Auth routes first (has its own prefix)
+    const authResponse = await authRoutes(request);
+    if (authResponse) return authResponse;
+
+    // Mesh last, no prefix — URLs are resource URIs
+    const response = await routeDORequest(request, env, {
+      ...authHooks,
+    });
+    if (response) return response;
+
+    return new Response('Not Found', { status: 404 });
+  }
+};
+```
+
+This means `https://example.com/DOCUMENT_DO/doc-123/resources/content/main` routes directly to the DocumentDO instance `doc-123`, which dispatches to the resource matching the `content` slug with `resourceId` `main`. The URL your users see in the browser is the same URI used for Mesh subscriptions.

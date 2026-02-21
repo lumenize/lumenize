@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dwl-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // DWL binding — spawns dynamic isolates at runtime
+  "worker_loaders": [
+    { "binding": "LOADER" }
+  ],
+
+  // DO that will call out to DWL isolates
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SPIKE_DO",
+        "class_name": "SpikeDO"
+      }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_classes": ["SpikeDO"] }
+  ],
+
+  // Import .txt files as text modules (for bundled mesh source)
+  "rules": [
+    { "type": "Text", "globs": ["**/*.txt"] }
+  ]
+}

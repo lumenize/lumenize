@@ -41,7 +41,7 @@
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",
-    "wrangler": "^4.38.0"
+    "wrangler": "^4.66.0"
   },
   "dependencies": {
     "@lumenize/routing": "^0.22.0",
