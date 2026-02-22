@@ -250,13 +250,13 @@ Downstream messaging **only works with WebSocket transport**. HTTP transport doe
 // ✅ Works - WebSocket transport
 createRpcClient({
   transport: createWebSocketTransport('MY_DO', 'id'),
-  config: { onDownstream: (msg) => console.log(msg) }
+  onDownstream: (msg) => console.log(msg)
 });
 
 // ❌ Won't work - HTTP doesn't support downstream
 createRpcClient({
   transport: createHttpTransport('MY_DO', 'id'),
-  config: { onDownstream: (msg) => console.log(msg) } // Never called
+  onDownstream: (msg) => console.log(msg) // Never called
 });
 ```
 
