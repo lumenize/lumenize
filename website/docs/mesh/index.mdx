@@ -57,14 +57,15 @@ Access context in any mesh node via `this.lmz.callContext`:
 ```typescript @skip-check-approved('conceptual')
 @mesh()
 updateDocument(changes: DocumentChange) {
-  const { origin, callChain, originAuth } = this.lmz.callContext;
-  const sub = originAuth?.sub;
-  const caller = callChain.at(-1) ?? origin;  // Immediate caller
+  const { callChain, originAuth } = this.lmz.callContext;
+  const sub = originAuth?.sub;           // Who authenticated (e.g., 'alice')
+  const origin = callChain[0];           // Who started the chain
+  const caller = callChain.at(-1)!;      // Immediate caller
   // Make decisions based on who's calling
 }
 ```
 
-**Hibernation-safe** (for DOs): For long-running remote calls, capture context explicitly by passing it as continuation parameters. See [Managing Context](./managing-context) for the full guide.
+**Ejection/Hibernation-safe** (for DOs): See [Managing Context](./managing-context) for the full guide.
 
 ### Continuations
 
@@ -82,9 +83,9 @@ this.lmz.call('DOCUMENT_DO', 'draft-1', remote, handler);
 ```
 
 Continuations:
-- Are **serializable** — can be stored, sent over the wire, stored/restored
+- Are **serializable** — can be stored/restored or sent over the wire
 - Are **type-safe** — TypeScript checks method names and signatures
-- **Carry context** — pass what you need as parameters
+- **Carry context** — pass what your handlers will need as additional parameters
 - **Reduce race condition risk** — designed to work with Durable Objects concurrency model
 
 See [Continuations](./continuations) for the full guide.
@@ -137,7 +138,7 @@ this.lmz.call(
 );
 ```
 
-See **[Making Calls](./calls)** for all patterns including cost optimization and error handling.
+See **[Making Calls](./calls)** for all patterns including optimizations and error handling.
 
 See **[Mesh API](./mesh-api)** for the complete API reference including `CallContext`, `@mesh()` decorator, and continuations.
 
