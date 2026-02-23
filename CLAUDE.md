@@ -83,6 +83,7 @@ This resolves in Workers and silently fails elsewhere. No build-time flags or dy
 - **IDs**: Use `crypto.randomUUID()` for unique IDs, `ulid-workers` for ordered IDs. Never use `Date.now()` in Cloudflare (clock doesn't advance during execution)
 - **JSDoc examples**: 1-2 lines max; for longer examples, link to `/website/docs/...`
 - **SQL naming**: PascalCase table names (`Subjects`, `RefreshTokens`), camelCase column names (`emailVerified`, `tokenHash`), index names as `idx_TableName_columnName`
+- **SQL write costs**: Writes are 1,000x more expensive than reads — always use `WITHOUT ROWID` for TEXT/compound PKs, prefer compound indexes, keep hot-update columns out of indexes (see do-conventions skill section 16)
 
 ---
 

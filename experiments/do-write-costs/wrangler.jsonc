@@ -1,0 +1,14 @@
+{
+  "name": "do-write-costs",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "WRITE_COST_DO", "class_name": "WriteCostDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WriteCostDO"] }
+  ]
+}
