@@ -17,8 +17,8 @@ This task is executed in three serial phases:
 
 1. **Phase 1: Experiments** — Build test harness, run all experiments, record results ✅
 2. **Phase 2: Nebula-auth schema updates** — Apply findings to registry schema in `tasks/nebula-auth.md` ✅
-3. **Phase 3: Blog post** — Write up findings as a practical guide for DO developers
-4. **Phase 4: Codify guidance** — After the blog post is edited and published, update CLAUDE.md and/or `.claude/skills/` with schema design guidance for future DO work (new skill or extend `do-conventions`)
+3. **Phase 3: Blog post** — Write up findings as a practical guide for DO developers ✅
+4. **Phase 4: Codify guidance** — After the blog post is edited and published, update CLAUDE.md and/or `.claude/skills/` with schema design guidance for future DO work (new skill or extend `do-conventions`) ✅
 
 ## Questions to Answer
 
