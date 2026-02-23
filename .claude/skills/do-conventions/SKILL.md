@@ -350,3 +350,40 @@ async webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: bool
 ```
 
 **Testing**: vitest-pool-workers tests can open `new WebSocket()` connections to external deployed Workers. This enables e2e patterns where the code under test runs in-process but interacts with deployed infrastructure via WebSocket.
+
+---
+
+## 16. SQLite Write Cost Optimization
+
+DO SQLite storage charges $1.00/M rows written — 1,000x the cost of reads ($0.001/M). The write cost formula for INSERT is: `1 (table row) + 1 per index that needs updating`. Design schemas to minimize index writes.
+
+**Rules:**
+
+1. **Always use `WITHOUT ROWID` on tables with TEXT or compound primary keys.** Without it, SQLite maintains a hidden rowid *and* a separate index to enforce the text PK — doubling the INSERT cost. `INTEGER PRIMARY KEY` aliases the rowid and doesn't need `WITHOUT ROWID`.
+
+2. **Prefer compound indexes over multiple single-column indexes.** A compound index `(a, b)` costs 1 write per INSERT and covers lookups on `a` alone via leftmost-prefix matching. Two separate single-column indexes cost 2 writes.
+
+3. **Favor compound primary keys over single-column PK + separate indexes.** With `WITHOUT ROWID`, the compound PK doesn't need a separate index — you get multi-column uniqueness and first-column lookups for 1 write instead of 2.
+
+4. **Use partial indexes for sparse flags.** `CREATE INDEX idx ON t(data) WHERE isAdmin = 1` costs nothing for rows where the filter doesn't match.
+
+5. **Keep frequently-updated columns out of indexes.** UPDATE only rewrites indexes covering changed columns — indexes on other columns are free during updates.
+
+6. **Use `INSERT OR REPLACE` freely.** It costs 1 write even when replacing an existing row, not 2.
+
+7. **`UNIQUE` in a column definition creates a hidden index.** Each `UNIQUE` column adds 1 write per INSERT. Before adding `UNIQUE`, consider whether the column is truly independently unique or unique in combination with other columns (use a compound PK instead).
+
+**Quick reference:**
+
+| Operation | `rowsWritten` |
+|-----------|:-------------:|
+| INSERT, no extra indexes | 1 |
+| INSERT, 1 index (single or compound) | 2 |
+| INSERT, `TEXT PRIMARY KEY` without `WITHOUT ROWID` | 2 |
+| INSERT, `TEXT PRIMARY KEY` with `WITHOUT ROWID` | 1 |
+| UPDATE non-indexed column (any number of indexes) | 1 |
+| UPDATE indexed column | 1 + 1 per affected index |
+| DELETE (any number of indexes) | 1 |
+| `INSERT OR REPLACE`, existing row | 1 |
+
+**Evidence**: See [blog post](website/blog/2026-02-23-do-sqlite-write-costs/index.md) and [experiment code](experiments/do-write-costs/).
