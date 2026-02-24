@@ -63,10 +63,9 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
 
-    // Call onStart() wrapped in blockConcurrencyWhile if subclass defines it
-    // This ensures initialization completes before any other operations
-    if (this.onStart !== LumenizeDO.prototype.onStart) {
-      ctx.blockConcurrencyWhile(async () => {
+    ctx.blockConcurrencyWhile(async () => {
+      // Call onStart() if subclass defines it
+      if (this.onStart !== LumenizeDO.prototype.onStart) {
         try {
           await this.onStart();
         } catch (error) {
@@ -77,8 +76,26 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
           });
           throw error;
         }
-      });
-    }
+      }
+
+      // Recover orphaned alarms: if the __lmz_alarms table has overdue rows
+      // (e.g., native alarm lost after 6 failed retries), set a native alarm
+      // to process them. Runs on every instantiation so recovery happens
+      // regardless of what triggered the DO (fetch, alarm, RPC).
+      try {
+        const rows = ctx.storage.sql.exec(
+          `SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='__lmz_alarms'`
+        );
+        if ((rows.one() as any).c > 0) {
+          const overdue = ctx.storage.sql.exec(
+            `SELECT count(*) as c FROM __lmz_alarms WHERE time <= unixepoch()`
+          );
+          if ((overdue.one() as any).c > 0) {
+            ctx.storage.setAlarm(Date.now());
+          }
+        }
+      } catch { /* table doesn't exist yet — nothing to recover */ }
+    });
   }
 
   /**

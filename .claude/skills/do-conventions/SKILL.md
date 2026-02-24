@@ -86,7 +86,7 @@ Only these entry points should be `async`:
 
 All other methods — business logic, route handlers, helpers — should be synchronous. Never use `setTimeout`, `setInterval`, `waitUntil`, or `await` in business logic.
 
-**Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
+**Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. Assume that this will open input gates eventhough I'm uncertain if it will.
 
 ```typescript
 async fetch(request: Request): Promise<Response> {
@@ -109,13 +109,13 @@ async #verifyToken(token: string): Promise<Identity | null> {
 }
 ```
 
-Why: `await` and timers in business logic break Durable Object input/output gate concurrency model. If you need to call an external service, do it from a Worker using a two one-way calling pattern, or in rare cases, use Promise .then/.catch to make the concurrency model risk more deliberate.
+Why: `await` and timers in business logic break Durable Object input/output gate concurrency model. If you need to call an external service, take into account the race condition risk.
 
 ---
 
 ## 5. No Mutable Instance State
 
-Durable Objects can be hibernated or otherwise evicted from memory at any time. Instance variables that hold mutable state will be lost on eviction. Use `ctx.storage.kv` or `ctx.storage.sql` as the source of truth. DO storage reads are extremely cheap (~1/1,000th the cost of writes) and frequently read values are served from cache, so reading from storage on every access has no measurable performance penalty or cost versus instance variables and avoids race condition inconsistency risks.
+Durable Objects can be hibernated or otherwise evicted from memory at any time. Instance variables that hold mutable state will be lost on eviction. Use `ctx.storage.kv` or `ctx.storage.sql` as the source of truth. DO storage reads are extremely cheap (~1/1,000th the cost of writes) and frequently read values are served from cache, so reading from storage on every access has no measurable performance penalty or cost versus instance variables and avoids race condition inconsistency risks. They do incur write costs, but that's the cost of using DOs that can be evicted or hibernate at any time.
 
 ```typescript
 // Wrong: mutable instance state — lost on eviction
@@ -294,7 +294,7 @@ The synchronous storage API (`ctx.storage.kv.*`, `ctx.storage.sql.*`) requires S
 "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MyDO"] }]
 ```
 
-This cannot be changed after a class is deployed to production.
+This cannot be changed after a class is deployed to production, but you can change this config (rather than add new tags) ad-infinitum during testing.
 
 ---
 

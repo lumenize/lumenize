@@ -53,6 +53,10 @@ Run `tsgo` (or Rust-based TS compiler) in a Cloudflare Container. `@lumenize/str
 ### 5. UI Framework (Future)
 Tightly coupled to the resources implementation. Local state management mirrors remote state management with minimal config difference. Client-side LLM-generated code only.
 
+### Cloudflare Sandbox SDK (To Be Evaluated)
+
+Cloudflare announced a [Sandbox SDK](https://developers.cloudflare.com/sandbox/) for running untrusted code in isolated environments. This may be relevant as an alternative or complement to DWL for executing user-provided guards, migrations, and validation logic. Needs research to understand how it compares to DWL isolates (which we've already spiked) and Containers (used for the tsgo experiment). Key questions: Does it offer better isolation guarantees? Is it simpler to manage than DWL stubs? Does it support the inverted architecture (DO calls out to sandbox)? What are the latency and billing characteristics?
+
 ## Build Order
 
 1. **`nebula-auth`** — auth and access control foundation (starId, multi-email, role hierarchy)

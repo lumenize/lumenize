@@ -8,7 +8,7 @@ description: "Empirical measurements of how indexes, PRIMARY KEY types, WITHOUT 
 
 Cloudflare Durable Objects with SQLite storage charge $1.00 per million rows written and $0.001 per million rows read. Writes are **1,000x more expensive** than reads. The [docs](https://developers.cloudflare.com/durable-objects/platform/pricing/#sqlite-storage-backend) tell you that "every row update of an index counts as an additional row written" — but that's where the guidance ends.
 
-How much does a compound index cost? Does `WITHOUT ROWID` actually save money? If I update a column that isn't indexed, do I still pay for the indexes? Does `UNIQUE` have an impact? Questions like these come up regularly on the [#durable-objects Discord](https://discord.gg/cloudflaredev), and I've never seen an experimentally-validated publication that answers them. So I wrote 36 tests and measured everything.
+How much does a compound index cost? Does `WITHOUT ROWID` actually save money? If I update a column that isn't indexed, do I still pay for the indexes? Does `UNIQUE` have an impact? Questions like these come up regularly on the [#durable-objects Discord](https://discord.com/channels/595317990191398933/773219443911819284), and I've never seen an experimentally-validated publication that answers them. So I wrote 36 tests and measured everything.
 
 <!-- truncate -->
 
@@ -113,7 +113,7 @@ A compound index `CREATE INDEX idx ON t(a, b)` costs the same as a single-column
 | 1 compound index `(a, b)` | 2 |
 | 2 separate single-column indexes | 3 |
 
-If you're debating between a compound index and two separate ones, the compound index is half the write cost. It also covers lookups on the first column alone — a compound index `(a, b)` supports `WHERE a = ?` queries efficiently via leftmost-prefix matching, so you get two query patterns for the price of one write.
+If you're debating between a compound index and two separate ones, the compound index is half the write cost. It also covers lookups on the first column alone — a compound index `(a, b)` supports `WHERE a = ?` queries efficiently via leftmost-prefix matching. JOINs on just `a` work too. You get multiple query patterns for the price of one write.
 
 ---
 
@@ -188,6 +188,8 @@ If you use upsert patterns, this one matters. `INSERT OR REPLACE` on an existing
 
 This means you can use `INSERT OR REPLACE` as your default write pattern without worrying about double-charging on updates. It's cheaper than a SELECT-then-decide-INSERT-or-UPDATE pattern if that SELECT would hit indexes.
 
+One caveat: `INSERT OR REPLACE` is semantically a full row replacement — it rewrites all indexes on the table, not just the ones covering columns you changed. On a table with 3 indexes, that's 4 writes (1 table + 3 indexes). Compare that to `UPDATE` on a non-indexed column, which costs just 1 write regardless of index count (see [UPDATEs are smarter than you'd expect](#updates-are-smarter-than-youd-expect)). So `INSERT OR REPLACE` is ideal when you're writing the whole row — true upserts where you have all the data. For single-field changes on indexed tables, a targeted `UPDATE` is cheaper.
+
 ---
 
 ## Partial indexes: free when the filter doesn't match
@@ -211,8 +213,10 @@ This is a powerful tool for tables where you only query a subset of rows. An `is
 
 **Batch INSERTs offer no discount.** `INSERT INTO t VALUES (...), (...), (...)` with 3 rows costs exactly the same total `rowsWritten` as 3 separate INSERT statements.
 
+---
+
 The [experiment code](https://github.com/lumenize/lumenize/tree/main/experiments/do-write-costs) is open source — run it yourself or add test cases for schemas you're curious about.
 
----
+I've incorporated the insight from this research into my [Durable Objects agentic coding skill](https://github.com/lumenize/lumenize/blob/main/.claude/skills/do-conventions/SKILL.md#16-sqlite-write-cost-optimization). Feel free to use it and any other part of that file as you see fit.
 
 Have questions or want to discuss these findings? Join the conversation in the [Lumenize Discord #general channel](https://discord.gg/tkug8FGfKR).
