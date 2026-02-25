@@ -4,9 +4,13 @@
 **Package**: `@lumenize/nebula` in the Lumenize monorepo
 **Built on**: `@lumenize/mesh` (MIT) — extends its classes, doesn't fork them
 
-## What Nebula Is
+## What Nebula Is — Walled Garden, Not a Toolkit
 
-Lumenize Nebula is a SaaS vibe coding deployment platform. No server-side coding. Users interact through APIs and a tightly-coupled UI framework where local state management looks exactly the same as remote state management with just slightly different config. All user-provided server-side logic (guards, migrations, validation) runs in sandboxed Cloudflare Dynamic Worker Loader (DWL) isolates.
+Lumenize Nebula is a SaaS vibe coding deployment product built on Lumenize Mesh.
+
+Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, wire up their own routing, swap in their own auth, choose their own UI framework. Nebula is the opposite — it's a **product, not a toolkit**. The vibe coder never touches the back end. They provide an ontology (data model) and Nebula does everything else: auth, routing, storage, real-time sync, access control. On the client side, they use NebulaClient and NebulaUI (derived from JurisJS) — no React, no Svelte, no choice. User-provided server-side logic (guards, migrations, validation) runs in sandboxed Cloudflare Dynamic Worker Loader (DWL) isolates. Data extraction integrations get clear REST endpoints but nothing more.
+
+**This matters for design decisions.** When writing Nebula task files, don't offer escape hatches, configuration alternatives, or "the developer can do X instead." If there's one right way, that's the only way. Guard against footguns by removing the footgun, not by documenting it.
 
 ## Package Architecture
 
@@ -39,7 +43,7 @@ Lumenize Nebula is a SaaS vibe coding deployment platform. No server-side coding
 Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, validation, schema evolution, and migrations. User-provided code runs in DWL isolates. The DO calls OUT to DWL for guards/config/validation (inverted architecture). All DWL spikes complete and validated.
 
 ### 2. Auth (`universe.galaxy.star`)
-**Task file**: `tasks/nebula-auth.md`
+**Task file**: `tasks/nebula-auth.md` | **Client login flow**: `tasks/nebula-client.md`
 **Status**: Building first — impacts access control for resources
 
 Multi-tenant auth with `universe.galaxy.star` (starId) hierarchy. Person → EmailAddress → Organization mapping. JWT claims carry starId list. `onBeforeConnect`/`onBeforeRequest` validate starId against JWT and URL. NebulaDO/NebulaWorker/NebulaClient override `callContext` and `call()` to enforce starId boundaries.

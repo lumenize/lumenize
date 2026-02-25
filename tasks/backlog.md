@@ -55,6 +55,18 @@ Small tasks and ideas for when I have time (evening coding, etc.)
     - Local: Might be surprising when handler is never invoked
     - Consider: Document this clearly, or have void methods return `undefined` explicitly
 
+- [ ] Add retry + skip logic for alarm handler failures
+  - **Problem**: Currently, handler errors are caught and the alarm is deleted (one-time) or rescheduled (cron) — silent fire-and-forget with no retry
+  - **Design**:
+    1. Add `retryCount INTEGER DEFAULT 0` and `status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'skipped'))` columns to `__lmz_alarms` (migration needed)
+    2. On handler failure, increment `retryCount` and set `time` to `now + 2^retryCount` seconds (exponential backoff)
+    3. After 5 failures, set `status = 'skipped'` and log via `@lumenize/debug` (`lmz.alarms.Alarms` namespace)
+    4. `triggerAlarms()` and `#scheduleNextAlarm()` filter with `WHERE status = 'pending'`
+    5. Skipped alarms stay in the table as evidence — queryable via `getSchedules({ status: 'skipped' })`
+  - **Why**: Prevents the 6-retry Cloudflare native alarm deletion (our `alarm()` never throws), gives transient failures a chance to recover, and makes persistent failures visible rather than silent
+  - **Bonus**: This also closes the "dormant DO" durability hole — since we handle retries ourselves and `alarm()` never throws, Cloudflare never deletes the native alarm. Overdue alarms always get retried until they succeed or are explicitly skipped.
+  - **Location**: `packages/mesh/src/alarms.ts` — modify `triggerAlarms()` error handling, add migration in constructor, update `#scheduleNextAlarm()` WHERE clause
+
 - [ ] Code review and simplification pass for all mesh code (following alarms.ts pattern)
   - **Context**: Successfully simplified `alarms.ts` from ~570 to 363 lines (36% reduction)
   - **Patterns to look for**:

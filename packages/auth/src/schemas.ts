@@ -9,6 +9,12 @@
 
 /**
  * Subjects table — authenticated entities (people, agents, services)
+ *
+ * WITHOUT ROWID: TEXT PK avoids redundant rowid. Safe for existing DOs —
+ * CREATE TABLE IF NOT EXISTS is a no-op when the table already exists.
+ *
+ * email UNIQUE: inline constraint creates an implicit unique index (same
+ * B-tree as CREATE UNIQUE INDEX), so no separate email index is needed.
  */
 export const SUBJECTS_SCHEMA = `
 CREATE TABLE IF NOT EXISTS Subjects (
@@ -20,11 +26,17 @@ CREATE TABLE IF NOT EXISTS Subjects (
   authorizedActors TEXT NOT NULL DEFAULT '[]',
   createdAt INTEGER NOT NULL,
   lastLoginAt INTEGER
-)
+) WITHOUT ROWID
 `;
 
-export const SUBJECTS_EMAIL_INDEX = `
-CREATE INDEX IF NOT EXISTS idx_Subjects_email ON Subjects(email)
+/**
+ * Drop the redundant explicit email index that duplicates the inline UNIQUE
+ * constraint. Existing DOs created before this fix have both; this cleans
+ * them up. New DOs never create it. Safe — the UNIQUE constraint's implicit
+ * index still serves all email lookups.
+ */
+export const SUBJECTS_DROP_REDUNDANT_EMAIL_INDEX = `
+DROP INDEX IF EXISTS idx_Subjects_email
 `;
 
 /**
@@ -44,7 +56,7 @@ CREATE TABLE IF NOT EXISTS MagicLinks (
   email TEXT NOT NULL,
   expiresAt INTEGER NOT NULL,
   used INTEGER NOT NULL DEFAULT 0
-)
+) WITHOUT ROWID
 `;
 
 export const MAGIC_LINKS_EMAIL_INDEX = `
@@ -59,7 +71,7 @@ CREATE TABLE IF NOT EXISTS InviteTokens (
   token TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   expiresAt INTEGER NOT NULL
-)
+) WITHOUT ROWID
 `;
 
 export const INVITE_TOKENS_EMAIL_INDEX = `
@@ -78,7 +90,7 @@ CREATE TABLE IF NOT EXISTS RefreshTokens (
   createdAt INTEGER NOT NULL,
   revoked INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY (subjectId) REFERENCES Subjects(sub) ON DELETE CASCADE
-)
+) WITHOUT ROWID
 `;
 
 export const REFRESH_TOKENS_SUBJECT_INDEX = `
@@ -103,7 +115,7 @@ CREATE TABLE IF NOT EXISTS AuthorizedActors (
   PRIMARY KEY (principalSub, actorSub),
   FOREIGN KEY (principalSub) REFERENCES Subjects(sub) ON DELETE CASCADE,
   FOREIGN KEY (actorSub) REFERENCES Subjects(sub) ON DELETE CASCADE
-)
+) WITHOUT ROWID
 `;
 
 /**
@@ -111,7 +123,7 @@ CREATE TABLE IF NOT EXISTS AuthorizedActors (
  */
 export const ALL_SCHEMAS = [
   SUBJECTS_SCHEMA,
-  SUBJECTS_EMAIL_INDEX,
+  SUBJECTS_DROP_REDUNDANT_EMAIL_INDEX,
   SUBJECTS_IS_ADMIN_INDEX,
   MAGIC_LINKS_SCHEMA,
   MAGIC_LINKS_EMAIL_INDEX,

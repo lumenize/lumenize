@@ -64,7 +64,7 @@ https://lumenize.com/{prefix}/claim-star                          → NebulaAuth
 https://lumenize.com/{prefix}/create-galaxy                       → NebulaAuthRegistry
 ```
 
-The router checks the first path segment after `{prefix}`: reserved keywords (`discover`, `claim-universe`, `claim-star`, `create-galaxy`) go to the registry singleton; everything else is treated as a `universeGalaxyStarId` and routes to the corresponding `NebulaAuth` instance.
+The router first confirms that prefix matches, then uses `.endsWith()` on the pathname (consistent with `lumenize-auth.ts` routing): paths ending with `/discover`, `/claim-universe`, `/claim-star`, or `/create-galaxy` go to the registry singleton; everything else is treated as a `universeGalaxyStarId` and routes to the corresponding `NebulaAuth` instance.
 
 - `{prefix}` — Single public URL prefix (default: `/auth`), maps to `NEBULA_AUTH` and `NEBULA_AUTH_REGISTRY` bindings internally
 - `universeGalaxyStarId` — 1-3 dot-separated slugs; determines the DO instance
@@ -79,9 +79,9 @@ The router checks the first path segment after `{prefix}`: reserved keywords (`d
 - **NA→R** = `NebulaAuth` calls registry via RPC first, then writes locally (registry-first mutation pattern)
 - **NA (or NA→R)** = Conditional — registry call only when state change requires it (e.g., first email verification)
 - **R** = `NebulaAuthRegistry` only
-- **R→NA** = Registry validates/records, then 302 redirects client to `NebulaAuth` endpoint
+- **R→NA** = Registry validates/records, then calls `NebulaAuth` via internal RPC to complete the flow (e.g., send magic link email)
 
-### Auth Flow Endpoints
+### Auth Flow Endpoints (except /discover in [Registry Endpoints below](#registry-endpoints))
 
 | Endpoint | Method | Auth | DOs | Description |
 |----------|--------|------|-----|-------------|
@@ -115,15 +115,15 @@ The router checks the first path segment after `{prefix}`: reserved keywords (`d
 | Endpoint | Method | Auth | DOs | Description |
 |----------|--------|------|-----|-------------|
 | `{prefix}/discover` | POST | — | R | Email-based scope discovery |
-| `{prefix}/claim-universe` | POST | Turnstile | R→NA | Self-signup: claim universe slug, redirect to magic link |
-| `{prefix}/claim-star` | POST | Turnstile | R→NA | Self-signup: claim star slug, redirect to magic link |
+| `{prefix}/claim-universe` | POST | Turnstile | R→NA | Self-signup: claim universe slug, RPC to NA to send magic link |
+| `{prefix}/claim-star` | POST | Turnstile | R→NA | Self-signup: claim star slug, RPC to NA to send magic link |
 | `{prefix}/create-galaxy` | POST | Admin | R | Admin creates galaxy (records in registry only) |
 
 ---
 
 ## Sequence Diagrams
 
-In these diagrams, `{p}` = `{prefix}` (the single public URL prefix, default `/auth`).
+In these diagrams, `{p}` = `{prefix}` (the single public URL prefix, default `/auth`), and `{id}` = `{universeGalaxyStarId}`.
 
 ### Token Refresh (Hot Path)
 
@@ -149,6 +149,8 @@ sequenceDiagram
 ### Magic Link Login
 
 Registry-first mutation on first verification only: if the subject already exists with `emailVerified=1`, the email→scope mapping is already in the registry and the RPC call is skipped.
+
+**First-user-is-founder:** When a `NebulaAuth` DO instance has zero subjects during magic link completion, the first verified email becomes the founding admin (`isAdmin=1, adminApproved=1, emailVerified=1`). This applies to all tiers — universes, galaxies, and stars — regardless of how the instance was created (self-signup, admin invite, or platform admin). Galaxy authors don't need to handle first-admin bootstrapping — nebula-auth takes care of it.
 
 ```mermaid
 sequenceDiagram
@@ -180,103 +182,9 @@ sequenceDiagram
     NA-->>C: 302 redirect + Set-Cookie (path-scoped refresh token)
 ```
 
-### Universe Self-Signup
-
-Registry validates slug availability, then redirects to NebulaAuth for magic link flow.
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant W as Worker
-    participant R as Registry DO
-    participant NA as NebulaAuth DO
-
-    C->>W: POST /{p}/claim-universe { slug, email, turnstile }
-    W->>R: Route to registry singleton
-    R->>R: Check slug availability
-    R->>R: Check not reserved (nebula-platform)
-    R->>R: INSERT INTO Instances (slug)
-    R-->>C: 302 → /{p}/{slug}/email-magic-link
-
-    Note over C: Normal magic link flow follows
-    C->>W: POST /{p}/{slug}/email-magic-link { email }
-    W->>NA: Route (DO created on-demand)
-    NA->>NA: Send magic link email
-    NA-->>C: 200 "Check your email"
-
-    C->>W: GET /{p}/{slug}/magic-link?one_time_token=...
-    W->>NA: Route
-    NA->>R: RPC: register email→scope
-    R-->>NA: OK
-    NA->>NA: Zero subjects → first-user-is-founder
-    NA->>NA: Set isAdmin=1, adminApproved=1, emailVerified=1
-    NA->>NA: Create refresh token
-    NA-->>C: 302 redirect + Set-Cookie
-```
-
-### Star Self-Signup
-
-Same pattern as universe, but registry validates parent galaxy exists.
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant W as Worker
-    participant R as Registry DO
-    participant NA as NebulaAuth DO
-
-    C->>W: POST /{p}/claim-star { universeGalaxyStarId, email, turnstile }
-    W->>R: Route to registry singleton
-    R->>R: Derive parent galaxy from slug, check it exists in Instances
-    R->>R: Check star slug available
-    R->>R: INSERT INTO Instances (slug)
-    R-->>C: 302 → /{p}/{universeGalaxyStarId}/email-magic-link
-
-    Note over C: Same magic link + first-user-is-founder flow as universe
-```
-
-### Discovery Flow
-
-Registry-only. No NebulaAuth involvement.
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant W as Worker
-    participant R as Registry DO
-
-    C->>W: POST /{p}/discover { email }
-    W->>R: Route to registry singleton
-    R->>R: SELECT * FROM Emails WHERE email = ?
-    R-->>C: 200 [{ instanceName, isAdmin }, ...]
-
-    Note over C: User picks a scope
-    C->>W: POST /{p}/{chosen-id}/refresh-token [cookie]
-    Note over W: Normal token refresh (no registry)
-```
-
-### Subject Deletion (Registry-First Mutation)
-
-Shows the registry-first pattern for any subject mutation.
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant W as Worker
-    participant NA as NebulaAuth DO
-    participant R as Registry DO
-
-    C->>W: DELETE /{p}/{id}/subject/:sub [admin JWT]
-    W->>W: Verify JWT, check admin scope
-    W->>NA: Route by universeGalaxyStarId
-    NA->>R: RPC: remove email→scope mapping
-    R->>R: DELETE FROM Emails WHERE email=? AND instanceName=?
-    R-->>NA: OK
-    NA->>NA: DELETE subject + cascade (tokens, actors)
-    NA-->>C: 204 No Content
-```
-
 ### Admin Invite Flow
+
+Simpler than the magic link login for new users: the admin pre-approves the invitee (`adminApproved=1`) and registers the email→scope mapping in the registry upfront. When the invitee clicks the link, there's no conditional registry RPC (already done), no first-user-is-founder check (at least one admin already exists even if they are higher scoped), and no Turnstile (the invite token itself is the proof of legitimacy).
 
 ```mermaid
 sequenceDiagram
@@ -302,9 +210,93 @@ sequenceDiagram
     NA-->>C: 302 redirect + Set-Cookie
 ```
 
+### Universe Self-Signup
+
+Registry validates slug availability, records the instance, then calls NebulaAuth via internal RPC to send the magic link email. The client receives a single response — no redirect, no second POST. Anti-squatting is deferred — platform admin can manually revoke claims if abused.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant W as Worker
+    participant R as Registry DO
+    participant NA as NebulaAuth DO
+
+    C->>W: POST /{p}/claim-universe { slug, email, turnstile }
+    W->>R: Route to registry singleton
+    R->>R: Validate Turnstile
+    R->>R: Check slug availability
+    R->>R: Check not reserved (nebula-platform)
+    R->>R: INSERT INTO Instances (slug)
+    R->>NA: RPC: create subject + send magic link (DO created on-demand)
+    NA->>NA: Create subject (local only, no registry — caller already recorded it)
+    NA->>NA: Create magic link token, send email
+    NA-->>R: OK
+    R-->>C: 200 "Check your email"
+
+    Note over C: User clicks magic link in email
+    C->>W: GET /{p}/{slug}/magic-link?one_time_token=...
+    W->>NA: Route
+    NA->>NA: Validate one-time token
+    NA->>R: RPC: register email→scope
+    R-->>NA: OK
+    NA->>NA: Zero subjects → first-user-is-founder
+    NA->>NA: Set isAdmin=1, adminApproved=1, emailVerified=1
+    NA->>NA: Create refresh token
+    NA-->>C: 302 redirect + Set-Cookie
+```
+
+### Star Self-Signup
+
+Same pattern as universe, but registry also validates parent galaxy exists.
+
+### Discovery Flow
+
+Registry-only. No NebulaAuth involvement. After the user picks a scope, the client tries refresh first (in case a valid path-scoped cookie exists), then falls back to magic link. See `tasks/nebula-client.md` for the full login flow.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant W as Worker
+    participant R as Registry DO
+
+    C->>W: POST /{p}/discover { email }
+    W->>R: Route to registry singleton
+    R->>R: SELECT * FROM Emails WHERE email = ?
+    R-->>C: 200 [{ instanceName, isAdmin }, ...]
+
+    Note over C: User picks a scope → client tries refresh, falls back to magic link
+```
+
+### Subject Deletion
+
+The remaining endpoints not shown above follow one of two patterns:
+
+**NA→R (same pattern as this diagram)** — `NebulaAuth` calls registry first, then writes locally:
+- `PATCH subject/:sub` — update subject flags (registry notified if role changes)
+
+**NA-only (no registry involvement)** — straightforward request→DO→response:
+- `logout`, `subjects` GET, `subject/:sub` GET, `approve/:sub`, `subject/:sub/actors` POST/DELETE, `delegated-token`
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant W as Worker
+    participant NA as NebulaAuth DO
+    participant R as Registry DO
+
+    C->>W: DELETE /{p}/{id}/subject/:sub [admin JWT]
+    W->>W: Verify JWT, check admin scope
+    W->>NA: Route by universeGalaxyStarId
+    NA->>R: RPC: remove email→scope mapping
+    R->>R: DELETE FROM Emails WHERE email=? AND instanceName=?
+    R-->>NA: OK
+    NA->>NA: DELETE subject + cascade (tokens, actors)
+    NA-->>C: 204 No Content
+```
+
 ### Galaxy Creation (Admin Only)
 
-Registry-only. No NebulaAuth DO created until first request routes to it.
+Registry-only. No NebulaAuth DO created until first request routes to it. Most galaxies won't have dedicated galaxy admins — universe admins manage them directly via wildcard access.
 
 ```mermaid
 sequenceDiagram
@@ -324,7 +316,7 @@ sequenceDiagram
 
 ### Coach Carol Multi-Session
 
-Shows how cookie path scoping enables simultaneous sessions. Cookie paths use `{prefix}` so the browser sends the right cookie to the right path automatically.
+Coach Carol works with multiple clients in separate browser tabs, each with a different email address. Switching tabs must not require re-login. Each DO instance sets its refresh cookie with a `Path` scoped to its `universeGalaxyStarId`, so the browser **automatically** sends the correct cookie to the correct DO instance — no client-side cookie management required.
 
 ```mermaid
 sequenceDiagram
@@ -336,12 +328,12 @@ sequenceDiagram
     Note over C: Tab 1: Login to Star A
     C->>W: Magic link flow for carol@acme.com
     W->>S1: Route
-    S1-->>C: Set-Cookie: refresh-token=A; Path=/{p}/acme.crm.acme-corp
+    S1-->>C: Set-Cookie (refresh-token=A, Path=/{p}/acme.crm.acme-corp)
 
     Note over C: Tab 2: Login to Star B
     C->>W: Magic link flow for carol@bigco.com
     W->>S2: Route
-    S2-->>C: Set-Cookie: refresh-token=B; Path=/{p}/bigco.hr.bigco-hq
+    S2-->>C: Set-Cookie (refresh-token=B, Path=/{p}/bigco.hr.bigco-hq)
 
     Note over C: Tab 1 refreshes (only cookie A sent)
     C->>W: POST /{p}/acme.crm.acme-corp/refresh-token [cookie A]
@@ -354,13 +346,17 @@ sequenceDiagram
     S2-->>C: 200 { access_token: "...bigco-hq..." }
 ```
 
+**Access revocation is isolated.** When `bigco` revokes `carol@bigco.com`, the current access token expires within the TTL (~15 min), the next refresh fails, and the `NebulaAuth` DO notifies the registry via RPC to remove the email→scope mapping. Other tabs are completely unaffected — different DOs, different cookies, different subjects.
+
+**Admin hierarchy uses JWT wildcards, not separate cookies.** A Universe admin logs in at `{prefix}/george-solopreneur` and gets a JWT with `{ "id": "george-solopreneur.*", "admin": true }`. That JWT grants access to any Star-level endpoint beneath it via the auth hook's wildcard match — no separate Star-level login needed. The refresh cookie is scoped to `Path={prefix}/george-solopreneur`, so it won't be sent to `{prefix}/george-solopreneur.app.tenant/refresh-token` (path doesn't match), but that's fine — the admin refreshes at Universe level only.
+
 ---
 
 ### `universeGalaxyStarId` Format Constraints
 
 Slugs: lowercase letters, digits, and hyphens only (`[a-z0-9-]+`). No periods within a slug. Universe slugs are globally unique. Galaxy slugs are unique within their Universe. Star slugs are unique within their Galaxy. Convention: domain-based Universe names (e.g., `lumenize-com` for `lumenize.com`).
 
-**Reserved slugs** (cannot be used as universe names): `nebula-platform`, `discover`, `claim-universe`, `claim-star`, `create-galaxy`. These are the registry endpoint keywords that the router uses to distinguish registry requests from per-instance requests under the shared `{prefix}`.
+**Reserved slug** (cannot be used as universe name): `nebula-platform`. The registry endpoint keywords (`discover`, `claim-universe`, `claim-star`, `create-galaxy`) do not need to be reserved because `.endsWith()` routing means a universe named e.g. `discover` would have routes like `{prefix}/discover/refresh-token` — which doesn't end with `/discover`.
 
 ### Package Strategy: Fork from `@lumenize/auth`
 
@@ -380,7 +376,7 @@ Slugs: lowercase letters, digits, and hyphens only (`[a-z0-9-]+`). No periods wi
 - `createJwtPayload` → new `access` claim structure
 - SQL schemas → new schema with `access` claim assembly
 - `testLoginWithMagicLink` → new helper supporting multi-star, path-scoped cookies
-- Email HTML templates → new Nebula-branded templates
+- Email HTML templates → Nebula default templates (customizable name/logo per tier — see [Follow-On: Email Template Customization](#email-template-customization))
 - Types → new `NebulaJwtPayload`, `AccessEntry`, etc.
 
 **New:**
@@ -396,23 +392,26 @@ Slugs: lowercase letters, digits, and hyphens only (`[a-z0-9-]+`). No periods wi
 
 Each `NebulaAuth` instance has its own SQLite database. Since each instance represents exactly one `universeGalaxyStarId`, subjects in that instance are members of that tier by definition. No junction table mapping subjects to tiers is needed — DO instance isolation provides that relationship implicitly.
 
-#### `Subjects` Table
+#### Subjects Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `sub` | TEXT PK | UUID v4 |
-| `email` | TEXT UNIQUE NOT NULL | Lowercase |
-| `emailVerified` | INTEGER (0/1) | Set on magic link / invite click |
-| `adminApproved` | INTEGER (0/1) | Set by admin |
-| `isAdmin` | INTEGER (0/1) | Admin of this tier instance |
-| `createdAt` | INTEGER | Unix timestamp (ms) |
-| `lastLoginAt` | INTEGER | Unix timestamp (ms), nullable |
+```sql
+CREATE TABLE IF NOT EXISTS Subjects (
+  sub TEXT PRIMARY KEY,          -- UUID v4
+  email TEXT UNIQUE NOT NULL,    -- Lowercase; inline UNIQUE creates the index
+  emailVerified INTEGER NOT NULL DEFAULT 0,
+  adminApproved INTEGER NOT NULL DEFAULT 0,
+  isAdmin INTEGER NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL,    -- Unix timestamp (ms)
+  lastLoginAt INTEGER            -- Unix timestamp (ms), nullable
+) WITHOUT ROWID;
 
-`WITHOUT ROWID` — TEXT PK (`sub` is UUID) means SQLite would otherwise maintain both a rowid and a separate PK index, doubling INSERT cost.
+CREATE INDEX IF NOT EXISTS idx_Subjects_isAdmin
+  ON Subjects(sub) WHERE isAdmin = 1;
+```
 
-Indexes:
-- `UNIQUE` on `email` — costs same as `CREATE INDEX` or `CREATE UNIQUE INDEX` (Q3 confirmed no extra cost; use `UNIQUE` constraint since it also enforces uniqueness)
-- `idx_Subjects_isAdmin` — partial/filtered index `WHERE isAdmin = 1`. Only costs a write when `isAdmin = 1` (Q9 confirmed partial indexes skip writes when filter doesn't match)
+Notes:
+- `UNIQUE` on `email` creates an implicit unique index — same B-tree as `CREATE UNIQUE INDEX`, usable by the query planner, so **no separate email index** is needed (a redundant explicit index would double write cost for zero benefit)
+- `idx_Subjects_isAdmin` — partial index; only costs a write when `isAdmin = 1`
 
 Write costs (per operation):
 | Operation | `rowsWritten` | Notes |
@@ -423,9 +422,22 @@ Write costs (per operation):
 | UPDATE lastLoginAt | 1 | Non-indexed column, only table row rewritten |
 | DELETE | 1 | Index cleanup not counted |
 
-#### `MagicLinks`, `InviteTokens`, `RefreshTokens` Tables
+#### Token Tables
 
-Standard token tables. Each DO instance manages its own tokens independently.
+All three follow the same pattern: hashed token as TEXT PK, lookup by email/subject, check expiry, mark used or revoked. Each DO instance manages its own tokens independently.
+
+```sql
+CREATE TABLE IF NOT EXISTS MagicLinks (
+  token TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  expiresAt INTEGER NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_MagicLinks_email ON MagicLinks(email);
+```
+
+`InviteTokens` is identical but without the `used` flag (single-use by design — deleted on redemption). `RefreshTokens` is keyed by `tokenHash` (not plaintext), references `subjectId` with `ON DELETE CASCADE`, and uses a `revoked` flag instead of `used`.
 
 #### `AuthorizedActors` Table
 
@@ -435,31 +447,37 @@ Delegation actor relationships, scoped to the DO instance.
 
 The registry uses pure SQL with portable types to ease future migration to a horizontally scalable database (e.g., Postgres) if the single-DO model is outgrown.
 
-#### `Instances` Table
+#### Instances Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `instanceName` | TEXT PK | The `universeGalaxyStarId` (e.g., `acme-corp.crm.tenant-a`) |
-| `createdAt` | INTEGER | Unix timestamp (ms) |
-
-`WITHOUT ROWID` — TEXT PK means SQLite would otherwise maintain both a rowid and a separate PK index, doubling INSERT cost (2 writes → 1). See write cost research results in `tasks/do-sqlite-write-costs.md`.
+```sql
+CREATE TABLE IF NOT EXISTS Instances (
+  instanceName TEXT PRIMARY KEY,  -- universeGalaxyStarId (e.g., acme-corp.crm.tenant-a)
+  createdAt INTEGER NOT NULL      -- Unix timestamp (ms)
+) WITHOUT ROWID;
+```
 
 Tier and parent are derived from `instanceName`: segment count gives tier (1=universe, 2=galaxy, 3=star), stripping the last segment gives parent.
 
-#### `Emails` Table
+#### Emails Table
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `email` | TEXT NOT NULL | Lowercase email |
-| `instanceName` | TEXT NOT NULL | The `universeGalaxyStarId` |
-| `isAdmin` | INTEGER (0/1) | Denormalized from NebulaAuth Subjects table — avoids RPC fan-out during discovery |
-| `createdAt` | INTEGER | Unix timestamp (ms) |
+```sql
+CREATE TABLE IF NOT EXISTS Emails (
+  email TEXT NOT NULL,            -- Lowercase email
+  instanceName TEXT NOT NULL,     -- universeGalaxyStarId
+  isAdmin INTEGER NOT NULL DEFAULT 0, -- Denormalized from NebulaAuth Subjects — avoids RPC fan-out during discovery
+  createdAt INTEGER NOT NULL,     -- Unix timestamp (ms)
+  PRIMARY KEY (email, instanceName)
+) WITHOUT ROWID;
 
-`WITHOUT ROWID` with `PRIMARY KEY (email, instanceName)`. Index strategy (informed by write cost research):
-- Compound PK already covers email-first lookups (leftmost prefix) — **no separate email index** (Q4 confirmed a redundant leftmost-prefix index doubles write cost for zero query benefit)
-- One additional index: `idx_Emails_instanceName` for reverse lookups ("list all emails in this instance") — costs +1 write per INSERT (2 total)
-- UPDATE on `isAdmin` (non-indexed column) costs only 1 write — the `idx_Emails_instanceName` index is not rewritten (Q5)
-- DELETE always costs 1 write regardless of index count (Q6)
+CREATE INDEX IF NOT EXISTS idx_Emails_instanceName
+  ON Emails(instanceName);        -- Reverse lookups: "list all emails in this instance"
+```
+
+Notes:
+- Compound PK already covers email-first lookups (leftmost prefix) — **no separate email index**
+- `idx_Emails_instanceName` costs +1 write per INSERT (2 total)
+- UPDATE on `isAdmin` (non-indexed column) costs only 1 write
+- DELETE always costs 1 write regardless of index count
 
 Scope is derived at query time: `instanceName` for stars (3 segments), `instanceName + ".*"` for universe/galaxy (1-2 segments).
 
@@ -467,7 +485,7 @@ Scope is derived at query time: `instanceName` for stars (3 segments), `instance
 
 | Operation | `rowsWritten` | Notes |
 |-----------|:-------------:|-------|
-| INSERT Instances | 1 | `WITHOUT ROWID`, TEXT PK is the table |
+| INSERT Instances | 1 | `WITHOUT ROWID` — no separate rowid index |
 | INSERT Emails | 2 | 1 table + 1 `idx_Emails_instanceName` |
 | UPDATE Emails.isAdmin | 1 | `isAdmin` not indexed, only table row rewritten |
 | DELETE Emails | 1 | Index cleanup not counted in `rowsWritten` |
@@ -480,7 +498,7 @@ Scope is derived at query time: `instanceName` for stars (3 segments), `instance
 
 ```typescript
 interface AccessEntry {
-  id: string       // universeGalaxyStarId or wildcard pattern (e.g. "george-solopreneur.*")
+  id: string  // universeGalaxyStarId or wildcard pattern (e.g. "george-solopreneur.*")
   admin?: boolean  // true = admin of this scope; omit when false (keeps JWT compact)
 }
 
@@ -537,39 +555,6 @@ For future extensibility, the `AccessEntry` type can grow additional boolean or 
 
 ---
 
-## Multi-Session Architecture (Cookie Path Scoping)
-
-### Problem
-
-Coach Carol works with three clients in separate browser tabs, each with a different email address. Switching tabs must not require re-login.
-
-### Solution: HTTP Cookie `Path` Attribute
-
-Each DO instance sets its refresh cookie with a `Path` scoped to its auth URL prefix:
-
-```
-Set-Cookie: refresh-token=<token>; Path={prefix}/acme.crm-app.acme-corp; HttpOnly; Secure; SameSite=Strict
-Set-Cookie: refresh-token=<token>; Path={prefix}/bigco.hr-tool.bigco-hq; HttpOnly; Secure; SameSite=Strict
-```
-
-The browser **automatically** sends the correct cookie to the correct DO instance based on the request URL path. No client-side cookie management required.
-
-### Access Revocation
-
-When `bigco` revokes `carol@bigco-hr.com`:
-- Current access token expires within the access token TTL (~15 min)
-- Next refresh attempt fails (subject deleted/revoked in that Star DO)
-- Other tabs (`acme`, etc.) are completely unaffected — different DOs, different cookies, different subjects
-- The `NebulaAuth` DO notifies registry via RPC to remove the email→scope mapping (discovery results update)
-
-### Admin Hierarchy Access
-
-A Universe admin logs in at `{prefix}/george-solopreneur` (Universe-level DO). Their JWT carries `{ "id": "george-solopreneur.*", "admin": true }`. When they visit a Star-level URL, the auth hook matches the wildcard pattern and grants access. **No separate Star-level login needed.**
-
-The refresh cookie is scoped to `Path={prefix}/george-solopreneur`. Requests to `{prefix}/george-solopreneur.app.tenant/refresh-token` would **not** include this cookie (path doesn't match). But that's fine — the admin doesn't need to refresh at the Star level. They refresh at the Universe level and use that JWT everywhere beneath.
-
----
-
 ## Auth Hooks: `createRouteDORequestNebulaAuthHooks`
 
 The hook pipeline:
@@ -584,7 +569,7 @@ The hook pipeline:
 8. Rate limiting per subject
 9. Forward request to downstream DO with verified JWT
 
-### Wildcard Matching Algorithm
+### Wildcard Matching Examples
 
 ```
 matchAccess("*", "george-solopreneur")                                → true (platform admin)
@@ -604,13 +589,9 @@ matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.other")  �
 
 ### Access Gate
 
-The access gate is: **`admin || adminApproved`**.
+The access gate is: **`admin || adminApproved`**. Invited users pass immediately (the invite flow sets `adminApproved=true` — see [Admin Invite Flow](#admin-invite-flow)). Users who request access via magic link without an invite must be explicitly approved by an admin.
 
 `emailVerified` is not in the JWT because it is always `true` by construction — no refresh token (and therefore no JWT) is ever issued without prior email verification (magic link click or invite acceptance). This invariant holds for future auth methods too (OAuth providers verify email; passkeys require email verification at registration). `emailVerified` is retained in the `Subjects` table to track invite completion state, but it is not a gating claim.
-
-### Admin Approval
-
-A Star admin has full control over who can access their tenant. The invite flow sets `adminApproved=true` at invite time, so invited users pass the gate immediately on first login. Users who request access via magic link without an invite must be explicitly approved by an admin.
 
 ---
 
@@ -625,27 +606,7 @@ The registry is a singleton DO that maintains a global view of the Nebula auth l
 3. **Self-signup routing** — Validate and record new universe/star claims before delegating to `NebulaAuth` instances
 4. **Platform admin visibility** — List all universes, galaxies, stars without using Cloudflare's DO management APIs
 
-Discovery is unauthenticated — the user doesn't have a JWT yet and is trying to figure out where to log in. The registry reveals only which scopes an email is associated with, not any sensitive data. See the [Discovery Flow](#discovery-flow) and [Subject Deletion](#subject-deletion-registry-first-mutation) sequence diagrams for the registry-first mutation pattern in action.
-
----
-
-## Self-Signup Flows
-
-### First-User-Is-Founder (NebulaAuth Logic)
-
-When a `NebulaAuth` DO instance detects zero subjects in its `Subjects` table during a magic link completion, it treats the first verified email as the founding admin: `isAdmin=1, adminApproved=1, emailVerified=1`. This logic lives in the `NebulaAuth` DO class and applies to all tiers — universes, galaxies, and stars — regardless of how the instance was created (self-signup, admin invite, or platform admin). This means Galaxy authors (Universe admins) don't need to handle first-admin bootstrapping in their app designs — nebula-auth takes care of it.
-
-### Universe Self-Signup
-
-Anyone can claim an unclaimed universe slug and become its founding admin. The registry validates slug availability, records the instance, and redirects to the magic link flow. See the [Universe Self-Signup](#universe-self-signup-1) sequence diagram. Anti-squatting is deferred — platform admin can manually revoke claims if abused.
-
-### Star Self-Signup
-
-The first admin of an unclaimed star within an existing galaxy can self-signup. Same pattern as universe self-signup, but the registry also validates that the parent galaxy exists. See the [Star Self-Signup](#star-self-signup-1) sequence diagram.
-
-### Galaxy Creation (Admin Only)
-
-Galaxies are created by universe admins or the platform admin — no self-signup. The registry validates the JWT scope and records the galaxy. The `NebulaAuth` galaxy DO is created on-demand when the first request routes to it. Most galaxies will not have dedicated galaxy admins — universe admins will manage them directly via wildcard access. See the [Galaxy Creation](#galaxy-creation-admin-only-1) sequence diagram.
+Discovery is unauthenticated — the user doesn't have a JWT yet and is trying to figure out where to log in. The registry reveals only which scopes an email is associated with, not any sensitive data. See the [Discovery Flow](#discovery-flow) and [Subject Deletion](#subject-deletion) sequence diagrams.
 
 ---
 
@@ -702,15 +663,25 @@ Product-level decisions are hardcoded as constants since we control all deployme
 
 ### Redirect Logic
 
-Post-login redirect is handled in code (not an env var) — the redirect target will depend on the `universeGalaxyStarId` and potentially other context. Design TBD.
+Hardcode redirect to `/app` for now. The real redirect target is a NebulaClient/NebulaUI concern — auth's job is validate token → set refresh cookie → redirect *somewhere*. Tests only need to verify the redirect happens and the cookie is set correctly. Revisit when full Nebula e2e testing reveals the actual URL structure.
 
 ---
 
 ## Validation Plan
 
-### Coach Multi-Session Scenario
+### Testing Infrastructure
 
-These tests validate the core multi-session architecture using the `@lumenize/testing` `Browser` class. The Browser class already scopes cookies by name + domain + path (verified in `cookie-utils.ts` `cookieMatches()`), and follows redirects manually to capture `Set-Cookie` headers from intermediate responses — both critical for this scenario.
+Two `@lumenize/testing` capabilities are central to these tests:
+
+- **`Browser`** — Cookie-aware fetch and WebSocket. Already scopes cookies by name + domain + path (verified in `cookie-utils.ts` `cookieMatches()`), follows redirects manually to capture `Set-Cookie` headers from intermediate responses. Critical for the Coach Carol multi-session scenario. That said, for every major new use of `@lumenize/testing`, we've had to add/alter functionality, so let's be open to that if the need arises.
+
+- **`createTestingClient`** — RPC client that can read/write DO state directly: `client.ctx.storage.sql.exec(...)` to query tables, `client.ctx.storage.kv.get(...)` to inspect KV, and call any public method on the DO instance. Use this to verify internal state (e.g., confirm `isAdmin=1` in the Subjects table, check that the registry's Emails table has the right rows) instead of adding test-only methods to the DO classes. See `website/docs/testing/usage.mdx` for the full API.
+
+**Test mode vs e2e email** — Most tests should use test mode (`NEBULA_AUTH_TEST_MODE=true`), which returns magic link URLs directly in the response body instead of sending email. This avoids the SMTP round trip for the common case. A small number of e2e tests should exercise real email delivery using the internal `tooling/email-test/` infrastructure: a deployed `email-test` Worker (`EmailTestDO`, a plain `DurableObject` — not LumenizeDO) receives emails via Cloudflare Email Routing and pushes them to test clients over WebSocket (~1.5 seconds round trip). The `waitForEmail()` and `extractMagicLink()` helpers in `packages/auth/test/e2e-email/` wrap this into a simple API. The auth DO runs in-process (no deployment needed) but sends real email via Resend.
+
+**⚠️ Test mode env vars go in `vitest.config.js` only** — never in `.dev.vars` or `wrangler.jsonc`. The vitest config is not deployed, so there is zero risk of test mode leaking to production. This is the pattern `@lumenize/auth` follows (`LUMENIZE_AUTH_TEST_MODE` set at `packages/auth/vitest.config.js:43`). Nebula-auth should follow the same pattern with `NEBULA_AUTH_TEST_MODE`.
+
+### Coach Multi-Session Scenario
 
 #### Test: Single Browser, Multiple Path-Scoped Refresh Cookies
 
@@ -730,24 +701,7 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 3. **Cookie path does not match Star auth path** — Verify that `browser.getCookiesForRequest('{prefix}/acme.crm.acme-corp/refresh-token')` does NOT include the Universe cookie (path `{prefix}/acme` is not a prefix of `{prefix}/acme.crm.acme-corp`). This is correct — the admin refreshes at Universe level only.
 4. **Verify upward access is denied** — A Galaxy admin JWT for `acme.crm.*` must be rejected when accessing `{prefix}/acme/admin-panel` (galaxy admin cannot access universe).
 
-#### Test: Tab Simulation with Browser Contexts
-
-Using `browser.context(origin)` to simulate separate tabs:
-
-1. **Tab 1 context** — `browser.context('https://lumenize.com')` for Star A operations
-2. **Tab 2 context** — `browser.context('https://lumenize.com')` for Star B operations (same origin, shared cookies)
-3. Verify both tabs share the same cookie jar (path-scoped cookies coexist)
-4. Verify each tab's `fetch` sends only the path-matched cookie when refreshing
-5. Verify `sessionStorage` is independent per tab (access tokens stored per-tab)
-
-#### Test: Browser Class Cookie Path Verification
-
-Validate that `@lumenize/testing` Browser correctly implements path scoping (may need upgrade):
-
-1. Set two cookies with same name, same domain, different paths
-2. Verify `getCookiesForRequest(url)` returns only the path-matched cookie
-3. Verify cookies survive across requests (no accidental overwrite by name)
-4. If the Browser class does not properly scope `getCookiesForRequest` by path, upgrade it as prerequisite work
+**Tab simulation deferred** — The Coach Multi-Session test above already verifies cookie path isolation using a single `Browser` instance (shared cookie jar, path-scoped sends). Multi-tab testing with `browser.context(origin)` and per-tab access token storage (sessionStorage independence) is a NebulaClient concern — defer to `tasks/nebula-client.md` when that dual-scope model is implemented.
 
 ### Registry Scenarios
 
@@ -761,8 +715,8 @@ Validate that `@lumenize/testing` Browser correctly implements path scoping (may
 
 #### Test: Universe Self-Signup
 
-1. Claim universe slug `new-universe` via `POST {prefix}/claim-universe`
-2. Complete magic link flow at `{prefix}/new-universe`
+1. Claim universe slug `new-universe` via `POST {prefix}/claim-universe { slug, email, turnstile }` → 200 "Check your email" (registry records instance, RPCs to NA to send magic link)
+2. Click magic link → `GET {prefix}/new-universe/magic-link?one_time_token=...`
 3. Verify founding admin has `isAdmin=1, adminApproved=1`
 4. Verify registry `Instances` table has the universe record
 5. Verify registry `Emails` table has the email→scope mapping
@@ -771,8 +725,8 @@ Validate that `@lumenize/testing` Browser correctly implements path scoping (may
 #### Test: Star Self-Signup
 
 1. Universe admin creates galaxy `new-universe.my-app` via registry
-2. New user claims star `new-universe.my-app.tenant-a` via `POST {prefix}/claim-star`
-3. Complete magic link flow
+2. New user claims star via `POST {prefix}/claim-star { universeGalaxyStarId, email, turnstile }` → 200 "Check your email"
+3. Click magic link to complete flow
 4. Verify founding admin status
 5. Verify registry records
 6. Attempt to claim star under nonexistent galaxy → rejected
@@ -783,6 +737,10 @@ Validate that `@lumenize/testing` Browser correctly implements path scoping (may
 2. Verify registry records the galaxy
 3. Unauthenticated request to create galaxy → rejected
 4. Star admin JWT attempting to create galaxy → rejected (insufficient scope)
+
+### Inherited from `@lumenize/auth`
+
+`packages/auth/test/auth.test.ts` (~2,800 lines, ~150 test cases) covers all subject management endpoints, magic link flows, refresh token rotation, invite flows, delegation, and edge cases. Copy this test file into `packages/nebula-auth/test/` as a starting point — don't just import from `@lumenize/auth`. Nebula-auth will diverge over time (multi-tier auth, registry integration, wildcard JWTs), and we need the full suite running locally against the nebula-auth codebase on every change.
 
 ---
 
@@ -814,7 +772,7 @@ Validate that `@lumenize/testing` Browser correctly implements path scoping (may
 
 - `NebulaAuth` DO class
 - SQL schema (Subjects, MagicLinks, InviteTokens, RefreshTokens, AuthorizedActors)
-- Lazy schema init, expired token sweep
+- Lazy schema init, expired token sweep (alarm-based cleanup of expired/used tokens — same pattern as `@lumenize/auth`)
 - Magic link login flow with path-scoped `Set-Cookie`
 - Refresh token flow with path-scoped cookie
 - First-user-is-founder logic: zero subjects → first verified email becomes founding admin
@@ -839,38 +797,36 @@ Validate that `@lumenize/testing` Browser correctly implements path scoping (may
 - All coach multi-session tests from the Validation Plan
 - Single Browser, multiple path-scoped cookies
 - Universe admin wildcard access
-- Tab simulation with Browser contexts
 - Revocation isolation
 
-**Expected outcome:** Coach Carol scenario works end-to-end. All validation tests pass.
+**Expected outcome:** Coach Carol scenario works end-to-end. All validation tests pass. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
 
-### Phase 5: Admin Endpoints + Invite Flow
+### Phase 5: Admin Endpoints + Invite Flow (Local)
 
-- Subject CRUD (list, get, patch, delete) — scoped to the DO instance
-- Invite flow (admin invites users to this specific star/galaxy/universe)
+- Subject CRUD (list, get, patch, delete) — scoped to the DO instance, local-only for now
+- Invite flow (admin invites users to this specific star/galaxy/universe) — local subject creation + email, no registry call yet
 - Delegated tokens (act-on-behalf) — scoped to the DO instance
 - Bootstrap admin protection (cannot modify/delete self or bootstrap admin)
 
-**Expected outcome:** Full admin management within each DO instance. Invite flow sends emails and creates subjects in the target DO.
+**Expected outcome:** Full admin management within a single DO instance. Invite flow sends emails and creates subjects locally. Registry notification (NA→R) deferred to Phase 6.
 
-### Phase 6: NebulaAuthRegistry
+### Phase 6: NebulaAuthRegistry + NA→R Wiring
 
 - `NebulaAuthRegistry` DO class with singleton SQLite schema (`Instances`, `Emails`)
 - RPC interface for `NebulaAuth` instances to call: register/remove email→scope, update role
+- Wire up registry-first mutation pattern in `NebulaAuth`: invite, subject delete, and role change now call registry via RPC before local write
 - Slug availability check endpoints
 - Discovery endpoint (`POST {prefix}/discover`)
 - Galaxy creation endpoint (authenticated, validates parent universe exists and JWT scope)
-- Self-signup endpoints: `claim-universe`, `claim-star` (validate availability, record in registry, redirect to NebulaAuth instance)
-- Wire up registry-first mutation pattern in `NebulaAuth`: subject create/delete/role change calls registry via RPC before local write
+- Self-signup endpoints: `claim-universe`, `claim-star` (validate availability, record in registry, RPC to NebulaAuth instance to send magic link)
 
-**Expected outcome:** Registry tracks all instances and email→scope mappings. Discovery returns correct scopes. Self-signup creates instances and founding admins. Galaxy creation enforced as admin-only. Subject mutations fail cleanly if registry is unreachable.
+**Expected outcome:** Registry tracks all instances and email→scope mappings. NA→R mutation pattern wired up for invite, delete, and role change. Discovery returns correct scopes. Self-signup creates instances and founding admins. Galaxy creation enforced as admin-only. Subject mutations fail cleanly if registry is unreachable.
 
-### Phase 7: Worker Routes + Email Sender
+### Phase 7: Worker Routes + Email Templates
 
 - `createNebulaAuthRoutes` — Worker-level routing to `NebulaAuth` instances and `NebulaAuthRegistry` singleton
-- Turnstile validation on magic link endpoint
-- Email sender integration (`AuthEmailSenderBase` / `ResendEmailSender` imported from `@lumenize/auth`)
-- Email templates adapted for Nebula branding
+- Turnstile validation on public-facing endpoints (magic link, self-signup)
+- Nebula-branded email templates (the email sender itself — `ResendEmailSender` imported from `@lumenize/auth` — is already wired in Phase 2 for magic link flows)
 
 **Expected outcome:** Complete Worker + DO stack deployed and working.
 
@@ -885,12 +841,26 @@ Validate that `@lumenize/testing` Browser correctly implements path scoping (may
 
 **Expected outcome:** All self-signup, discovery, and registry notification flows working end-to-end.
 
-### Phase 9: Documentation
+### Phase 9: README
 
-- `/website/docs/nebula-auth/*.mdx` files
-- `@check-example` annotations linked to `test/for-docs/` tests
-- API reference page following the auth package pattern
-- Update `website/sidebars.ts`
+`packages/nebula-auth/README.md` is the living reference — expected to stay current with the implementation (unlike the archived task file which is a snapshot of intent).
+
+**Include in README:**
+- Two-DO architecture overview (table + registry-first mutation pattern)
+- Sequence diagrams (token refresh, magic link, invite, self-signup, discovery, subject deletion, galaxy creation, coach multi-session)
+- Endpoint reference (auth flow, subject management, registry tables)
+- JWT claims (`NebulaJwtPayload`, access claim examples, wildcard matching examples)
+- Data model (SQL DDL for both DOs)
+- Configuration (env vars + hardcoded constants tables)
+
+**Leave in task file only (design-time concerns, not maintenance reference):**
+- Business context and revenue model
+- Architecture decision rationale (why two DOs, why fork vs import, why discovery-first)
+- Write cost analysis (per-operation rowsWritten tables)
+- Implementation phases
+- Follow-on work and package strategy
+
+No website docs — this is a single-deployment BSL 1.1 package, not a public toolkit. Revisit if Nebula is ever open-sourced.
 
 ---
 
@@ -906,19 +876,22 @@ My first thought on how to accomplish this is with NebulaDO, NebulaWorker, Nebul
 
 ### NebulaClient Adaptation
 
-`NebulaClient` will need to know its `universeGalaxyStarId` so it can target the correct refresh endpoint (for path-scoped cookie matching). It stores the current access token in memory and refreshes against `POST {prefix}/{universeGalaxyStarId}/refresh-token`.
+`NebulaClient` tracks two scopes: the **auth scope** (for refresh cookie path matching) and the **active scope** (the DO it's connected to). For regular users these are the same; for admins with wildcard JWTs they can differ. See `tasks/nebula-client.md` § Two-Scope Model for details.
 
-### Email Domain Claiming
+### Email Domain Auto-Approval
 
-A Star admin can claim an email domain (e.g., `acme-corp.com`), which automatically sets `adminApproved: true` for any user who logs in with an email from that domain. This removes the manual approval step for organizations where email ownership is sufficient proof of membership.
+An admin can configure email domains (e.g., `acme-corp.com`) that are automatically approved — any user who logs in with a matching email gets `adminApproved: true` without manual admin action. This removes the approval step for organizations where email ownership is sufficient proof of membership.
 
 **Design notes:**
-- A disallow list prevents claiming common public email domains (gmail.com, yahoo.com, outlook.com, etc.)
-- No burdensome domain verification (DNS TXT record, etc.) is required. The Star admin is opening access to their own tenant — they are only potentially hurting themselves, so we can trust them until there's a problem.
-- Stored in the DO instance's SQLite: a `ClaimedDomains` table with `domain TEXT PK` and `claimedAt INTEGER`
-- The magic link login flow checks claimed domains after verifying the email, before the admin approval gate
-- The same domain can be claimed by Stars in different Galaxies — each DO instance is independent, so `acme.crm.tenant-a` and `bigco.hr.tenant-b` can both claim `example.com` without conflict
-- **Open question:** Should multiple Stars *within the same Galaxy* be allowed to claim the same email domain? If yes, the URL determines which Star the user is logging into (no ambiguity — the login page is already scoped to a specific Star). If no, a Galaxy-level uniqueness constraint would be needed, which requires cross-DO coordination that contradicts the self-contained instance model. Needs analysis before implementation.
+- A disallow list prevents adding common public email domains (gmail.com, yahoo.com, outlook.com, etc.)
+- No burdensome domain verification (DNS TXT record, etc.) is required. The admin is opening access to their own instance — they are only potentially hurting themselves, so we can trust them until there's a problem.
+- Stored in the DO instance's SQLite: an `AutoApprovedDomains` table with `domain TEXT PK` and `createdAt INTEGER`
+- The magic link login flow checks auto-approved domains after verifying the email, before the admin approval gate
+- Multiple instances can independently list the same domain — each DO is self-contained, so `acme.crm.tenant-a` and `bigco.hr.tenant-b` can both auto-approve `example.com` without conflict
+
+### Email Template Customization
+
+Universe, galaxy, and star admins will need to customize the name and logo shown in auth emails (magic link, invite). Initial implementation ships with Nebula default branding. Customization requires storing per-instance branding config (name, logo URL) in the `NebulaAuth` DO's SQLite and injecting it into email templates at render time. The branding config could cascade: star inherits from galaxy, galaxy from universe, with overrides at each level.
 
 ### Billing Infrastructure
 
