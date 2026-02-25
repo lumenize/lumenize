@@ -794,7 +794,7 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 
 **Expected outcome:** A Star-level endpoint correctly accepts JWTs from its own Star DO and from Universe/Galaxy admins. Rejects JWTs from unrelated stars or lower-tier admins trying to access higher tiers.
 
-### Phase 4: Admin Endpoints, Registry, and NA→R Wiring
+### Phase 4: Admin Endpoints, Registry, and NA→R Wiring — DONE
 
 All admin endpoints (subject CRUD, invite, approve, delegation) were already implemented in Phase 2's `NebulaAuth` fetch handler alongside the core auth flow. Phase 4 builds the registry, wires up the NA→R mutation pattern, and comprehensively tests everything together.
 
@@ -834,6 +834,12 @@ All admin endpoints (subject CRUD, invite, approve, delegation) were already imp
 
 **Note from Phase 2:** `NebulaAuth` extracts its `instanceName` from the URL path on first fetch (`#extractInstanceName`). The Worker router must ensure the URL path always contains the correct `{prefix}/{instanceName}/endpoint` structure before forwarding to the DO — the DO trusts the path it receives. If the router ever sends a request with a malformed path, the DO will derive a wrong instance name and scope cookies/JWTs incorrectly.
 
+**Notes from Phase 4:**
+- **RPC vs fetch routing split.** Registry endpoints (`discover`, `checkSlugAvailable`, `claimUniverse`, `claimStar`, `createGalaxy`) are already public RPC methods on `NebulaAuthRegistry`. The Worker parses the HTTP request, validates JWT where needed, then calls registry via RPC — it does NOT forward raw fetch requests to the registry. `NebulaAuth` instance endpoints still receive forwarded HTTP (existing fetch handler).
+- **R→NA self-signup is already wired.** `registry.claimUniverse(slug, email, origin)` internally calls `naStub.createSubjectAndSendMagicLink()` via RPC. The Worker just needs to call the registry method.
+- **Turnstile validates in the Worker, not the DOs.** DOs trust their RPC callers. Turnstile check happens before the Worker calls registry/NA.
+- **JWT verification for admin routes.** `createGalaxy` accepts a `callerAccess: AccessEntry` parameter and trusts the caller verified the JWT. The Worker extracts and verifies the JWT, then passes the verified access claim to registry RPC.
+
 **Expected outcome:** Complete Worker + DO stack deployed and working.
 
 ### Phase 6: Coach Scenario + Full Integration Tests
@@ -850,9 +856,10 @@ Now that the router exists, validate the full stack end-to-end.
 - Star self-signup end-to-end
 - Galaxy creation by universe admin
 - Discovery flow with multiple scopes
-- Subject revocation updates registry via RPC
 
-**Expected outcome:** Coach Carol scenario works end-to-end. All self-signup, discovery, and registry notification flows working. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
+**Note from Phase 4:** Subject revocation updating the registry via RPC is already tested in Phase 4's `nebula-auth-registry.test.ts` (NA→R wiring tests for delete and role change). Phase 6 tests this through the Worker router for end-to-end coverage, not to re-verify the RPC wiring itself.
+
+**Expected outcome:** Coach Carol scenario works end-to-end. All self-signup, discovery, and registry notification flows working through the Worker router. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
 
 ### Phase 7: README
 

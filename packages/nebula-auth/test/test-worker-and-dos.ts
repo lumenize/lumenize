@@ -1,21 +1,15 @@
 /**
  * Test worker that exports DO classes for wrangler bindings.
  *
- * Phase 2: NebulaAuth is real, NebulaAuthRegistry is still a stub (Phase 6).
+ * Phase 4: Both NebulaAuth and NebulaAuthRegistry are real.
  */
-import { DurableObject } from 'cloudflare:workers';
 
-// Re-export the real NebulaAuth DO
+// Re-export the real DO classes
 export { NebulaAuth } from '../src/nebula-auth';
-
-export class NebulaAuthRegistry extends DurableObject {
-  async fetch(_request: Request): Promise<Response> {
-    return new Response('NebulaAuthRegistry stub', { status: 501 });
-  }
-}
+export { NebulaAuthRegistry } from '../src/nebula-auth-registry';
 
 export default {
   async fetch(_request: Request, _env: Env): Promise<Response> {
     return new Response('Not Found', { status: 404 });
-  }
+  },
 };

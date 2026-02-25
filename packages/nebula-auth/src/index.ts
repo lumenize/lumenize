@@ -7,11 +7,12 @@
  * @see tasks/nebula-auth.md for architecture details
  */
 
-// Main DO class
+// DO classes
 export { NebulaAuth } from './nebula-auth';
+export { NebulaAuthRegistry, RegistryError } from './nebula-auth-registry';
 
 // SQL schemas
-export { ALL_SCHEMAS } from './schemas';
+export { ALL_SCHEMAS, REGISTRY_SCHEMAS } from './schemas';
 
 // universeGalaxyStarId parsing and access matching
 export {

@@ -101,6 +101,13 @@ export class NebulaAuth extends DurableObject {
   get #isTestMode(): boolean { return (this.env as any).NEBULA_AUTH_TEST_MODE === 'true'; }
 
   /**
+   * Get a stub for the singleton NebulaAuthRegistry DO.
+   */
+  get #registry() {
+    return (this.env as any).NEBULA_AUTH_REGISTRY.getByName('registry');
+  }
+
+  /**
    * Extract the instanceName from the URL path.
    * URL format: {prefix}/{instanceName}/endpoint
    * The instanceName is the segment after the prefix and before the endpoint.
@@ -301,8 +308,30 @@ export class NebulaAuth extends DurableObject {
     // Delete the token (single-use)
     this.#sql`DELETE FROM MagicLinks WHERE token = ${token}`;
 
+    // Check if subject already has emailVerified (skip registry if so)
+    const preVerifyRows = this.#sql`
+      SELECT emailVerified FROM Subjects WHERE email = ${magicLink.email}
+    ` as any[];
+    const wasAlreadyVerified = preVerifyRows.length > 0 && preVerifyRows[0].emailVerified;
+
     // Get or create subject, apply founder/bootstrap promotion
     const subject = this.#loginSubject(magicLink.email);
+
+    // NA→R: register email→scope on first verification only
+    if (!wasAlreadyVerified && this.#instanceName) {
+      try {
+        await this.#registry.registerEmail(
+          subject.email, this.#instanceName, subject.isAdmin,
+        );
+      } catch (error) {
+        const regLog = debug('nebula-auth.NebulaAuth.registry');
+        regLog.error('Failed to register email in registry', {
+          error: error instanceof Error ? error.message : String(error),
+          email: subject.email,
+          instanceName: this.#instanceName,
+        });
+      }
+    }
 
     const loginLog = debug('nebula-auth.NebulaAuth.login.succeeded');
     loginLog.info('Magic link login', { targetSub: subject.sub, actorSub: 'system', email: magicLink.email });
@@ -496,7 +525,17 @@ export class NebulaAuth extends DurableObject {
     }
 
     const auditLog = debug('nebula-auth.NebulaAuth.subject.updated');
+    let roleChanged = false;
+
     if (body.isAdmin !== undefined) {
+      // NA→R: registry-first — notify registry of role change
+      if (this.#instanceName && body.isAdmin !== Boolean(targetRows[0].isAdmin)) {
+        await this.#registry.updateEmailRole(
+          targetRows[0].email, this.#instanceName, body.isAdmin,
+        );
+        roleChanged = true;
+      }
+
       if (body.isAdmin) {
         this.#sql`UPDATE Subjects SET isAdmin = 1, adminApproved = 1 WHERE sub = ${subjectId}`;
       } else {
@@ -544,6 +583,11 @@ export class NebulaAuth extends DurableObject {
     }
 
     const targetEmail = targetRows[0].email;
+
+    // NA→R: registry-first — remove email→scope before local delete
+    if (this.#instanceName) {
+      await this.#registry.removeEmail(targetEmail, this.#instanceName);
+    }
 
     this.#revokeAllTokensForSubject(subjectId);
     this.#sql`DELETE FROM Subjects WHERE sub = ${subjectId}`;
@@ -692,6 +736,15 @@ export class NebulaAuth extends DurableObject {
       return this.#errorResponse(400, 'invalid_request', 'emails array required');
     }
 
+    // Founding admin rule: if DO has zero subjects, only one email allowed
+    const countRows = this.#sql`SELECT COUNT(*) as cnt FROM Subjects` as any[];
+    if (countRows[0].cnt === 0) {
+      if (emails.length !== 1) {
+        return this.#errorResponse(400, 'founding_admin_required',
+          'Instance has no subjects — invite exactly one founding admin first, or use claim-universe/claim-star for self-signup.');
+      }
+    }
+
     const isTestMode = this.#isTestMode && url.searchParams.get('_test') === 'true';
     const invited: string[] = [];
     const errors: Array<{ email: string; error: string }> = [];
@@ -706,6 +759,9 @@ export class NebulaAuth extends DurableObject {
       }
 
       try {
+        // Determine if this invitee should be founding admin (zero subjects before this invite)
+        const isFoundingAdmin = countRows[0].cnt === 0 && invited.length === 0;
+
         const existingRows = this.#sql`
           SELECT sub, email, emailVerified, adminApproved FROM Subjects WHERE email = ${email}
         ` as any[];
@@ -714,7 +770,21 @@ export class NebulaAuth extends DurableObject {
           const existing = existingRows[0];
           this.#sql`UPDATE Subjects SET adminApproved = 1 WHERE sub = ${existing.sub}`;
 
+          // Founding admin promotion for existing-but-unverified subject
+          if (isFoundingAdmin) {
+            this.#sql`UPDATE Subjects SET isAdmin = 1, adminApproved = 1 WHERE sub = ${existing.sub}`;
+          }
+
           if (existing.emailVerified) {
+            // NA→R: update registry (adminApproved changed, possibly isAdmin too)
+            try {
+              const freshAdmin = isFoundingAdmin || Boolean(existing.isAdmin);
+              await this.#registry.registerEmail(email, instanceName, freshAdmin);
+            } catch (error) {
+              const regLog = debug('nebula-auth.NebulaAuth.registry');
+              regLog.error('Registry registerEmail failed during invite', { error: error instanceof Error ? error.message : String(error), email });
+            }
+
             if (isTestMode) {
               links[email] = '(already verified)';
             } else {
@@ -737,12 +807,23 @@ export class NebulaAuth extends DurableObject {
         } else {
           const sub = generateUuid();
           const now = Date.now();
+          const subIsAdmin = isFoundingAdmin ? 1 : 0;
           this.#sql`
             INSERT INTO Subjects (sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt)
-            VALUES (${sub}, ${email}, 0, 1, 0, ${now}, ${null})
+            VALUES (${sub}, ${email}, 0, 1, ${subIsAdmin}, ${now}, ${null})
           `;
           const createdLog = debug('nebula-auth.NebulaAuth.subject.created');
-          createdLog.info('Subject created via invite', { targetSub: sub, actorSub: auth.sub, email });
+          createdLog.info('Subject created via invite', { targetSub: sub, actorSub: auth.sub, email, isFoundingAdmin });
+        }
+
+        // NA→R: pre-register email→scope in registry
+        try {
+          const freshRows = this.#sql`SELECT isAdmin FROM Subjects WHERE email = ${email}` as any[];
+          const freshIsAdmin = freshRows.length > 0 && Boolean(freshRows[0].isAdmin);
+          await this.#registry.registerEmail(email, instanceName, freshIsAdmin);
+        } catch (error) {
+          const regLog = debug('nebula-auth.NebulaAuth.registry');
+          regLog.error('Registry registerEmail failed during invite', { error: error instanceof Error ? error.message : String(error), email });
         }
 
         const token = generateRandomString(32);
@@ -930,6 +1011,62 @@ export class NebulaAuth extends DurableObject {
     }
 
     return new Response(null, { status: 204 });
+  }
+
+  // ============================================
+  // Public RPC method — called by Registry (R→NA)
+  // ============================================
+
+  /**
+   * Create a subject and send a magic link email. Called by NebulaAuthRegistry
+   * during self-signup (claimUniverse, claimStar).
+   *
+   * The registry has already recorded the instance — this method does NOT
+   * call back to the registry (avoids circular RPC).
+   *
+   * In test mode, returns the magic link URL directly.
+   */
+  async createSubjectAndSendMagicLink(
+    email: string,
+    instanceName: string,
+    origin: string,
+  ): Promise<{ magicLinkUrl: string }> {
+    this.#ensureSchema();
+
+    // Set instanceName if not already set (first RPC call, no prior fetch)
+    if (!this.#instanceName) {
+      this.#instanceName = instanceName;
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const token = generateRandomString(32);
+    const expiresAt = Date.now() + (MAGIC_LINK_TTL * 1000);
+
+    this.#sql`
+      INSERT INTO MagicLinks (token, email, expiresAt, used)
+      VALUES (${token}, ${normalizedEmail}, ${expiresAt}, 0)
+    `;
+
+    const magicLinkUrl = `${origin}${this.#prefix}/${instanceName}/magic-link?one_time_token=${token}`;
+
+    // Send email (skip in test mode — caller will use the returned URL)
+    if (!this.#isTestMode) {
+      try {
+        await this.#sendEmail({
+          type: 'magic-link',
+          to: normalizedEmail,
+          magicLinkUrl,
+        });
+      } catch (error) {
+        const log = debug('nebula-auth.NebulaAuth');
+        log.error('Failed to send magic link email (R→NA)', {
+          error: error instanceof Error ? error.message : String(error),
+          email: normalizedEmail,
+        });
+      }
+    }
+
+    return { magicLinkUrl };
   }
 
   // ============================================

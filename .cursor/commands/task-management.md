@@ -113,6 +113,12 @@ Manage project tasks using two complementary workflows: docs-first for user-faci
 - Update task file when plans change based on learnings
 - Archive completed tasks (don't delete)
 
+**Phase Retrospective** (answer after all tests pass, before moving on):
+1. What went wrong and how do we prevent it next time?
+2. What tests failed on the first run and how could we get them right first try?
+3. What did we learn that we should carry forward?
+4. Should we update the task file, CLAUDE.md, skills, or MEMORY.md with any guidance for future phases or future tasks?
+
 ## Task Types
 
 - **Small tasks**: Add to `tasks/backlog.md` (including small docs work)

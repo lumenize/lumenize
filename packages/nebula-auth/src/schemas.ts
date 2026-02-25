@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS AuthorizedActors (
 ) WITHOUT ROWID
 `;
 
-/** All schemas in creation order */
+/** All schemas in creation order (NebulaAuth per-instance tables) */
 export const ALL_SCHEMAS = [
   SUBJECTS_SCHEMA,
   SUBJECTS_IS_ADMIN_INDEX,
@@ -92,4 +92,36 @@ export const ALL_SCHEMAS = [
   REFRESH_TOKENS_SUBJECT_INDEX,
   REFRESH_TOKENS_EXPIRES_INDEX,
   AUTHORIZED_ACTORS_SCHEMA,
+];
+
+// ---------------------------------------------------------------------------
+// NebulaAuthRegistry schemas (singleton DO)
+// ---------------------------------------------------------------------------
+
+export const REGISTRY_INSTANCES_SCHEMA = `
+CREATE TABLE IF NOT EXISTS Instances (
+  instanceName TEXT PRIMARY KEY,
+  createdAt INTEGER NOT NULL
+) WITHOUT ROWID
+`;
+
+export const REGISTRY_EMAILS_SCHEMA = `
+CREATE TABLE IF NOT EXISTS Emails (
+  email TEXT NOT NULL,
+  instanceName TEXT NOT NULL,
+  isAdmin INTEGER NOT NULL DEFAULT 0,
+  createdAt INTEGER NOT NULL,
+  PRIMARY KEY (email, instanceName)
+) WITHOUT ROWID
+`;
+
+export const REGISTRY_EMAILS_INSTANCE_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_Emails_instanceName ON Emails(instanceName)
+`;
+
+/** All schemas for NebulaAuthRegistry */
+export const REGISTRY_SCHEMAS = [
+  REGISTRY_INSTANCES_SCHEMA,
+  REGISTRY_EMAILS_SCHEMA,
+  REGISTRY_EMAILS_INSTANCE_INDEX,
 ];
