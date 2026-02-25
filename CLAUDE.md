@@ -50,7 +50,7 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 Key scripts available from the monorepo root:
 
 - **`npm install`** - Installs dependencies and runs `postinstall` which symlinks `.dev.vars` and `cloudflare-test-env.d.ts` to all packages
-- **`npm run types`** - Generates `worker-configuration.d.ts` for all packages with wrangler.jsonc
+- **`npm run types`** - Generates `worker-configuration.d.ts` for all packages with wrangler.jsonc. **Run this before writing code that uses `Env`** to ensure the type reflects current bindings.
 - **`npm run type-check`** - Runs TypeScript checking on all packages (respects each package's tsconfig)
 - **`npm test`** - Runs both code tests and doc example validation
 - **`npm run test:code`** - Runs vitest on all packages
@@ -164,7 +164,7 @@ interface Env { MY_DO: DurableObjectNamespace; }
 type MyEnv = { MY_DO: DurableObjectNamespace; };
 ```
 
-For library code that needs to work across packages (where each package has its own `Env`), use `object` as the parameter type and cast internally when accessing dynamic properties.
+**When to use `object` instead of `Env`:** Only for code in shared packages (like `@lumenize/rpc` or `@lumenize/testing`) whose functions are called by *multiple* packages, each with a different generated `Env`. If the function lives in the same package as the `wrangler.jsonc` that defines the bindings it accesses, use `Env` — that's what `wrangler types` generated it for.
 
 ---
 
