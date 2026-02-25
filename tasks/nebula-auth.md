@@ -783,36 +783,30 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 
 **Expected outcome:** Full magic link login, refresh, logout working for a single DO instance. Path-scoped cookies verified. First-user-is-founder tested with an empty DO.
 
-### Phase 3: Auth Hooks
+### Phase 3: Auth Hooks — DONE
 
-- `createRouteDORequestNebulaAuthHooks` — the hook pipeline described above
-- Wildcard matching for `access.id` (including `"*"` for platform admin)
-- Admin check from matched `access` entry
-- Access gate enforcement: `matchedEntry.admin || adminApproved`
-- Rate limiting per subject
+- ~~`createRouteDORequestNebulaAuthHooks`~~ — DONE. Full hook pipeline with `onBeforeRequest` (HTTP) and `onBeforeConnect` (WebSocket subprotocol). Bearer token extraction, JWT verification with key rotation (BLUE/GREEN), standard claims validation (`iss`, `aud`, `sub`), URL instance name extraction, verified JWT forwarding downstream.
+- ~~Wildcard matching for `access.id`~~ — DONE. Exact match, tier-based wildcards (`acme.*`, `acme.crm.*`), and platform admin (`"*"`).
+- ~~Admin check from matched `access` entry~~ — DONE.
+- ~~Access gate enforcement: `matchedEntry.admin || adminApproved`~~ — DONE.
+- ~~Rate limiting per subject~~ — DONE. Optional, graceful degradation when `rate_limits` binding not configured.
+- 38 tests in `test/nebula-auth-hooks.test.ts` covering: basic auth failures, star/wildcard/platform access matching, access gate enforcement, key rotation, rate limiting, JWT forwarding, WebSocket subprotocol, integration with real DOs, and edge cases.
 
 **Expected outcome:** A Star-level endpoint correctly accepts JWTs from its own Star DO and from Universe/Galaxy admins. Rejects JWTs from unrelated stars or lower-tier admins trying to access higher tiers.
 
-### Phase 4: Coach Scenario Integration Tests
+### Phase 4: Admin Endpoints, Registry, and NA→R Wiring
 
-- All coach multi-session tests from the Validation Plan
-- Single Browser, multiple path-scoped cookies
-- Universe admin wildcard access
-- Revocation isolation
+All admin endpoints (subject CRUD, invite, approve, delegation) were already implemented in Phase 2's `NebulaAuth` fetch handler alongside the core auth flow. Phase 4 builds the registry, wires up the NA→R mutation pattern, and comprehensively tests everything together.
 
-**Expected outcome:** Coach Carol scenario works end-to-end. All validation tests pass. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
+**Already implemented (Phase 2):**
+- ~~Subject CRUD (list, get, patch, delete)~~ — all 4 endpoints in fetch handler
+- ~~Invite flow (POST /invite, GET /accept-invite)~~ — batch invite with test mode support
+- ~~Approve endpoint (GET /approve/:sub)~~ — one-click admin approval
+- ~~Delegated tokens (POST /delegated-token)~~ — act-on-behalf with RFC 8693 `act` claim
+- ~~Actor management (POST/DELETE /subject/:sub/actors)~~ — add/remove authorized actors
+- ~~Bootstrap admin protection~~ — rejects self-modification and bootstrap email modification
 
-### Phase 5: Admin Endpoints + Invite Flow (Local)
-
-- Subject CRUD (list, get, patch, delete) — scoped to the DO instance, local-only for now
-- Invite flow (admin invites users to this specific star/galaxy/universe) — local subject creation + email, no registry call yet
-- Delegated tokens (act-on-behalf) — scoped to the DO instance
-- Bootstrap admin protection (cannot modify/delete self or bootstrap admin)
-
-**Expected outcome:** Full admin management within a single DO instance. Invite flow sends emails and creates subjects locally. Registry notification (NA→R) deferred to Phase 6.
-
-### Phase 6: NebulaAuthRegistry + NA→R Wiring
-
+**Build in this phase:**
 - `NebulaAuthRegistry` DO class with singleton SQLite schema (`Instances`, `Emails`)
 - RPC interface for `NebulaAuth` instances to call: register/remove email→scope, update role
 - Wire up registry-first mutation pattern in `NebulaAuth`: invite, subject delete, and role change now call registry via RPC before local write
@@ -821,9 +815,18 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 - Galaxy creation endpoint (authenticated, validates parent universe exists and JWT scope)
 - Self-signup endpoints: `claim-universe`, `claim-star` (validate availability, record in registry, RPC to NebulaAuth instance to send magic link)
 
-**Expected outcome:** Registry tracks all instances and email→scope mappings. NA→R mutation pattern wired up for invite, delete, and role change. Discovery returns correct scopes. Self-signup creates instances and founding admins. Galaxy creation enforced as admin-only. Subject mutations fail cleanly if registry is unreachable.
+**Invite to empty DO — founding admin rule:** If the DO has zero subjects and the invite has exactly one email, the invitee becomes founding admin (`isAdmin=1, adminApproved=1`). If multiple emails, error: `"Instance has no subjects — invite exactly one founding admin first, or use claim-universe/claim-star for self-signup."` This is a guard rail — the normal path is higher-tier admins invite one founding admin first.
 
-### Phase 7: Worker Routes + Email Templates
+**Test file organization** (split by concern, not one monolith):
+- `nebula-auth.test.ts` — core auth flows (magic link, refresh, logout) — already exists, 45 tests
+- `nebula-auth-admin.test.ts` — subject CRUD, approve, bootstrap protection
+- `nebula-auth-invite.test.ts` — invite flow, accept-invite, tier-aware behavior, founding admin edge case
+- `nebula-auth-delegation.test.ts` — actors, delegated tokens
+- `nebula-auth-registry.test.ts` — registry DO, NA→R wiring, discovery, self-signup, galaxy creation
+
+**Expected outcome:** Registry tracks all instances and email→scope mappings. NA→R mutation pattern wired up for invite, delete, and role change. All admin endpoints comprehensively tested with multi-tier access claim verification. Discovery returns correct scopes. Self-signup creates instances and founding admins. Galaxy creation enforced as admin-only. Subject mutations fail cleanly if registry is unreachable.
+
+### Phase 5: Worker Routes + Email Templates
 
 - `createNebulaAuthRoutes` — Worker-level routing to `NebulaAuth` instances and `NebulaAuthRegistry` singleton
 - Turnstile validation on public-facing endpoints (magic link, self-signup)
@@ -833,18 +836,25 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 
 **Expected outcome:** Complete Worker + DO stack deployed and working.
 
-### Phase 8: Full Integration Tests
+### Phase 6: Coach Scenario + Full Integration Tests
 
-- All registry scenario tests from the Validation Plan
+Now that the router exists, validate the full stack end-to-end.
+
+**Coach multi-session tests** (from Validation Plan):
+- All coach multi-session tests: single Browser, multiple path-scoped cookies
+- Universe admin wildcard access
+- Revocation isolation
+
+**Registry integration tests** (from Validation Plan):
 - Universe self-signup end-to-end (registry claim → NebulaAuth magic link → registry-first subject creation)
 - Star self-signup end-to-end
 - Galaxy creation by universe admin
 - Discovery flow with multiple scopes
 - Subject revocation updates registry via RPC
 
-**Expected outcome:** All self-signup, discovery, and registry notification flows working end-to-end.
+**Expected outcome:** Coach Carol scenario works end-to-end. All self-signup, discovery, and registry notification flows working. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
 
-### Phase 9: README
+### Phase 7: README
 
 `packages/nebula-auth/README.md` is the living reference — expected to stay current with the implementation (unlike the archived task file which is a snapshot of intent).
 
