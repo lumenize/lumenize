@@ -242,6 +242,27 @@ describe('cookieMatches', () => {
       };
       expect(cookieMatches(cookie, 'example.com', '/any/path')).toBe(true);
     });
+
+    it('should enforce RFC 6265 path boundary (next char must be /)', () => {
+      const cookie: Cookie = {
+        name: 'test',
+        value: 'value',
+        path: '/auth/acme'
+      };
+      // /auth/acme/refresh-token — next char is '/' → match
+      expect(cookieMatches(cookie, 'example.com', '/auth/acme/refresh-token')).toBe(true);
+      // /auth/acme.crm.tenant — next char is '.' → no match
+      expect(cookieMatches(cookie, 'example.com', '/auth/acme.crm.tenant')).toBe(false);
+    });
+
+    it('should match when cookie path ends with /', () => {
+      const cookie: Cookie = {
+        name: 'test',
+        value: 'value',
+        path: '/auth/acme/'
+      };
+      expect(cookieMatches(cookie, 'example.com', '/auth/acme/refresh-token')).toBe(true);
+    });
   });
 
   describe('expiration', () => {

@@ -746,10 +746,10 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 
 ## Implementation Phases
 
-### Phase 0: Prerequisites
+### Phase 0: Prerequisites — DONE
 
-- **Verify `@lumenize/testing` Browser path scoping** — Write a quick test confirming that the Browser class correctly distinguishes cookies by path in `getCookiesForRequest`. If it doesn't, upgrade the Browser class first.
-- **Audit `@lumenize/auth` for importable utilities** — Confirm the exports listed in Package Strategy are stable and usable.
+- **~~Verify `@lumenize/testing` Browser path scoping~~** — DONE. Found and fixed a bug: `cookieMatches` used simple `startsWith` instead of RFC 6265 §5.1.4 path matching. `/auth/acme` was incorrectly matching `/auth/acme.crm.tenant` (next char is `.`, not `/`). Fixed in `packages/testing/src/cookie-utils.ts`. Added tests in both `cookie-utils.test.ts` and `browser.test.ts` (Coach Carol and universe admin scenarios). All 153 `@lumenize/auth` tests still pass after the fix.
+- **~~Audit `@lumenize/auth` for importable utilities~~** — DONE. All 14 listed utilities confirmed exported and stable.
 - **~~Research DO SQLite index write costs~~** — DONE. Results in `tasks/do-sqlite-write-costs.md`, experiment code in `experiments/do-write-costs/`. Key decisions applied:
   - All tables with TEXT PK or compound text PK use `WITHOUT ROWID` (saves 1 write per INSERT)
   - No redundant leftmost-prefix indexes (compound PK already covers first-column lookups)
@@ -758,13 +758,14 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
   - Schema sections above updated with per-operation write cost tables
   - Blog post: Phase 3 of `tasks/do-sqlite-write-costs.md` (separate task)
 
-### Phase 1: Package Scaffold + `universeGalaxyStarId` Parsing
+### Phase 1: Package Scaffold + `universeGalaxyStarId` Parsing — DONE
 
-- Create `packages/nebula-auth/` with standard package structure
-- `universeGalaxyStarId` validation and parsing: slug regex, segment counting, tier detection
-- TypeBox schemas for `AccessEntry`, `NebulaJwtPayload`
-- TypeScript types
-- Unit tests for parsing and validation
+- ~~Create `packages/nebula-auth/` with standard package structure~~ — DONE. BSL-1.1 license, `wrangler.jsonc` with both DO bindings (NebulaAuth + NebulaAuthRegistry), stub DOs in `test/test-worker-and-dos.ts`.
+- ~~`universeGalaxyStarId` validation and parsing~~ — DONE. `parseId()`, `isValidSlug()`, `isPlatformInstance()`, `getParentId()`, `buildAccessId()`, `matchAccess()` in `src/parse-id.ts`.
+- ~~TypeScript types and constants~~ — DONE. All types (`ParsedId`, `AccessEntry`, `NebulaJwtPayload`, `Subject`, token types, registry types) and all hardcoded constants in `src/types.ts`.
+- ~~Unit tests~~ — DONE. 52 tests in `test/parse-id.test.ts` covering all parsing, validation, parent derivation, access id building, and all 9 wildcard matching examples from this task file.
+
+**Decision: No TypeBox for now.** TypeBox schemas were originally planned for `AccessEntry` and `NebulaJwtPayload`, but we control both sides of the wire (nebula-auth issues JWTs, nebula-auth hooks verify them). Plain TypeScript types exported from this package serve both producer and consumer. TypeBox would add a dependency and runtime overhead for validation we don't need — the JWT is signed, so tampering is already caught by signature verification. If a future boundary (e.g., external API consumers) needs runtime schema validation, we can add TypeBox then.
 
 **Expected outcome:** `parseUniverseGalaxyStarId("george-solopreneur.app.tenant")` returns `{ universe: "george-solopreneur", galaxy: "app", star: "tenant", tier: "star", raw: "george-solopreneur.app.tenant" }`. Invalid formats throw.
 

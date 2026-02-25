@@ -513,8 +513,10 @@ it('shows RPC working with StructuredClone types', async () => {
 ## Cookies
 
 `Browser` allows cookies to be shared between `fetch` and `WebSocket` just
-like in a real browser. Use `setCookie()` and `getCookie()` for testing
-and debugging.
+like in a real browser. Cookie path matching is RFC 6265 compliant — a cookie
+with `Path=/auth/acme` matches `/auth/acme/refresh` but not `/auth/acme.crm`
+(the character after the cookie path must be `/`). Use `setCookie()` and
+`getCookie()` for testing and debugging.
 
 
 

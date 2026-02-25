@@ -1016,4 +1016,75 @@ describe('Browser', () => {
       }
     });
   });
+
+  describe('getCookiesForRequest path scoping', () => {
+    it('should distinguish same-name cookies by path (Coach Carol scenario)', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+
+      // Star A: refresh-token scoped to /auth/acme.crm.acme-corp
+      browser.setCookie('refresh-token', 'token-star-a', {
+        domain: 'localhost',
+        path: '/auth/acme.crm.acme-corp',
+      });
+
+      // Star B: refresh-token scoped to /auth/bigco.hr.bigco-hq
+      browser.setCookie('refresh-token', 'token-star-b', {
+        domain: 'localhost',
+        path: '/auth/bigco.hr.bigco-hq',
+      });
+
+      // Both cookies stored
+      expect(browser.getAllCookies()).toHaveLength(2);
+
+      // Star A request only gets Star A cookie
+      const starACookies = browser.getCookiesForRequest(
+        'https://localhost/auth/acme.crm.acme-corp/refresh-token'
+      );
+      expect(starACookies).toBe('refresh-token=token-star-a');
+
+      // Star B request only gets Star B cookie
+      const starBCookies = browser.getCookiesForRequest(
+        'https://localhost/auth/bigco.hr.bigco-hq/refresh-token'
+      );
+      expect(starBCookies).toBe('refresh-token=token-star-b');
+
+      // Universe-level path does NOT match star-level cookies
+      // /auth/acme is not a prefix of /auth/acme.crm.acme-corp
+      const universeCookies = browser.getCookiesForRequest(
+        'https://localhost/auth/acme/refresh-token'
+      );
+      expect(universeCookies).toBeNull();
+
+      // Unrelated path gets no cookies
+      const unrelatedCookies = browser.getCookiesForRequest(
+        'https://localhost/other/path'
+      );
+      expect(unrelatedCookies).toBeNull();
+    });
+
+    it('should send universe cookie only for universe-prefixed paths', () => {
+      const mockFetch = async (): Promise<Response> => new Response(null);
+      const browser = new Browser(mockFetch);
+
+      // Universe admin cookie scoped to /auth/george-solopreneur
+      browser.setCookie('refresh-token', 'token-universe', {
+        domain: 'localhost',
+        path: '/auth/george-solopreneur',
+      });
+
+      // Universe refresh works
+      const universeCookies = browser.getCookiesForRequest(
+        'https://localhost/auth/george-solopreneur/refresh-token'
+      );
+      expect(universeCookies).toBe('refresh-token=token-universe');
+
+      // Star-level path does NOT get universe cookie
+      // /auth/george-solopreneur is NOT a prefix of /auth/george-solopreneur.app.tenant
+      const starCookies = browser.getCookiesForRequest(
+        'https://localhost/auth/george-solopreneur.app.tenant/refresh-token'
+      );
+      expect(starCookies).toBeNull();
+    });
+  });
 });

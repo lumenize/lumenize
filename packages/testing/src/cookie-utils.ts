@@ -145,9 +145,19 @@ export function cookieMatches(cookie: Cookie, domain: string, path: string, isSe
     }
   }
 
-  // Check path
-  if (cookie.path && !path.startsWith(cookie.path)) {
-    return false;
+  // Check path per RFC 6265 §5.1.4:
+  // Cookie path matches if (1) exact match, (2) cookie path ends with '/' and is a
+  // prefix, or (3) cookie path is a prefix and the next char in the request path is '/'.
+  // Simple startsWith is insufficient — '/auth/acme' must NOT match '/auth/acme.crm.tenant'.
+  if (cookie.path) {
+    if (path !== cookie.path) {
+      if (!path.startsWith(cookie.path)) {
+        return false;
+      }
+      if (!cookie.path.endsWith('/') && path[cookie.path.length] !== '/') {
+        return false;
+      }
+    }
   }
 
   // Check expiration
