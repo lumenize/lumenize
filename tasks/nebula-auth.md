@@ -769,7 +769,7 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 
 **Expected outcome:** `parseUniverseGalaxyStarId("george-solopreneur.app.tenant")` returns `{ universe: "george-solopreneur", galaxy: "app", star: "tenant", tier: "star", raw: "george-solopreneur.app.tenant" }`. Invalid formats throw.
 
-### Phase 2: NebulaAuth Core
+### Phase 2: NebulaAuth Core — DONE
 
 - `NebulaAuth` DO class
 - SQL schema (Subjects, MagicLinks, InviteTokens, RefreshTokens, AuthorizedActors)
@@ -828,6 +828,8 @@ Using a **single `Browser` instance** (simulating one real browser), verify:
 - `createNebulaAuthRoutes` — Worker-level routing to `NebulaAuth` instances and `NebulaAuthRegistry` singleton
 - Turnstile validation on public-facing endpoints (magic link, self-signup)
 - Nebula-branded email templates (the email sender itself — `ResendEmailSender` imported from `@lumenize/auth` — is already wired in Phase 2 for magic link flows)
+
+**Note from Phase 2:** `NebulaAuth` extracts its `instanceName` from the URL path on first fetch (`#extractInstanceName`). The Worker router must ensure the URL path always contains the correct `{prefix}/{instanceName}/endpoint` structure before forwarding to the DO — the DO trusts the path it receives. If the router ever sends a request with a malformed path, the DO will derive a wrong instance name and scope cookies/JWTs incorrectly.
 
 **Expected outcome:** Complete Worker + DO stack deployed and working.
 

@@ -7,6 +7,12 @@
  * @see tasks/nebula-auth.md for architecture details
  */
 
+// Main DO class
+export { NebulaAuth } from './nebula-auth';
+
+// SQL schemas
+export { ALL_SCHEMAS } from './schemas';
+
 // universeGalaxyStarId parsing and access matching
 export {
   parseId,
