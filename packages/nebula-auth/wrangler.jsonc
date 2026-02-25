@@ -23,6 +23,13 @@
       ]
     }
   ],
+  "services": [
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "nebula-auth",
+      "entrypoint": "NebulaEmailSender"
+    }
+  ],
   "ratelimits": [
     {
       "name": "NEBULA_AUTH_RATE_LIMITER",

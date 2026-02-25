@@ -11,6 +11,12 @@
 export { NebulaAuth } from './nebula-auth';
 export { NebulaAuthRegistry, RegistryError } from './nebula-auth-registry';
 
+// Worker router
+export { default as NebulaWorker, handleRequest } from './nebula-worker';
+
+// Email sender
+export { NebulaEmailSender } from './nebula-email-sender';
+
 // SQL schemas
 export { ALL_SCHEMAS, REGISTRY_SCHEMAS } from './schemas';
 

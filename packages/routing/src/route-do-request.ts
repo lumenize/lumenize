@@ -113,7 +113,7 @@ export interface RouteOptions {
  * @param request - The full request object for validator function inspection
  * @returns true if CORS headers should be added, false otherwise
  */
-function isOriginAllowed(origin: string, corsOptions: CorsOptions, request: Request): boolean {
+export function isOriginAllowed(origin: string, corsOptions: CorsOptions, request: Request): boolean {
   if (corsOptions === false) {
     return false;
   }
@@ -138,7 +138,7 @@ function isOriginAllowed(origin: string, corsOptions: CorsOptions, request: Requ
  * @param origin - The allowed origin to reflect
  * @returns New Response with CORS headers
  */
-function addCorsHeaders(response: Response, origin: string): Response {
+export function addCorsHeaders(response: Response, origin: string): Response {
   const headers = new Headers(response.headers);
   headers.set('Access-Control-Allow-Origin', origin);
   headers.set('Vary', 'Origin');

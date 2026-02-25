@@ -12,11 +12,12 @@
  * @see tasks/nebula-auth.md § NebulaAuthRegistry
  */
 import { debug } from '@lumenize/debug';
+import { parseJwtUnsafe } from '@lumenize/auth';
 import { DurableObject } from 'cloudflare:workers';
 import { REGISTRY_SCHEMAS } from './schemas';
-import { PLATFORM_INSTANCE_NAME } from './types';
+import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
 import { parseId, isValidSlug } from './parse-id';
-import type { AccessEntry, DiscoveryEntry } from './types';
+import type { AccessEntry, DiscoveryEntry, NebulaJwtPayload } from './types';
 
 export class NebulaAuthRegistry extends DurableObject {
   #schemaInitialized = false;
@@ -287,6 +288,80 @@ export class NebulaAuthRegistry extends DurableObject {
     log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.id });
 
     return { instanceName: universeGalaxyId };
+  }
+
+  // ============================================
+  // HTTP fetch handler — 4 public endpoints
+  // ============================================
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const prefix = NEBULA_AUTH_PREFIX;
+
+    if (request.method !== 'POST') {
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+
+    const endpoint = path.slice(prefix.length + 1); // after '/auth/'
+
+    try {
+      switch (endpoint) {
+        case 'discover': {
+          const { email } = await request.json() as { email: string };
+          return Response.json(this.discover(email));
+        }
+        case 'claim-universe': {
+          const { slug, email } = await request.json() as { slug: string; email: string };
+          const origin = url.origin;
+          const result = await this.claimUniverse(slug, email, origin);
+          return Response.json(result);
+        }
+        case 'claim-star': {
+          const { universeGalaxyStarId, email } = await request.json() as { universeGalaxyStarId: string; email: string };
+          const origin = url.origin;
+          const result = await this.claimStar(universeGalaxyStarId, email, origin);
+          return Response.json(result);
+        }
+        case 'create-galaxy': {
+          // JWT already verified by Worker — parse unsafely to extract access claim
+          const authHeader = request.headers.get('Authorization');
+          if (!authHeader?.startsWith('Bearer ')) {
+            return Response.json(
+              { error: 'invalid_request', error_description: 'Missing Bearer token' },
+              { status: 401 },
+            );
+          }
+          const token = authHeader.slice(7);
+          const parsed = parseJwtUnsafe(token);
+          if (!parsed) {
+            return Response.json(
+              { error: 'invalid_token', error_description: 'Cannot parse JWT' },
+              { status: 401 },
+            );
+          }
+          const payload = parsed.payload as unknown as NebulaJwtPayload;
+          const { universeGalaxyId } = await request.json() as { universeGalaxyId: string };
+          const result = this.createGalaxy(universeGalaxyId, payload.access);
+          return Response.json(result, { status: 201 });
+        }
+        default:
+          return new Response('Not Found', { status: 404 });
+      }
+    } catch (err) {
+      if (err instanceof RegistryError) {
+        return Response.json(
+          { error: err.errorCode, error_description: err.message },
+          { status: err.status },
+        );
+      }
+      const log = debug('nebula-auth.Registry.fetch');
+      log.error('Unexpected error in registry fetch', { error: err });
+      return Response.json(
+        { error: 'internal_error', error_description: 'An unexpected error occurred' },
+        { status: 500 },
+      );
+    }
   }
 
   // ============================================

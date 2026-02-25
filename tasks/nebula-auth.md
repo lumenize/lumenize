@@ -826,13 +826,12 @@ All admin endpoints (subject CRUD, invite, approve, delegation) were already imp
 
 **Expected outcome:** Registry tracks all instances and email→scope mappings. NA→R mutation pattern wired up for invite, delete, and role change. All admin endpoints comprehensively tested with multi-tier access claim verification. Discovery returns correct scopes. Self-signup creates instances and founding admins. Galaxy creation enforced as admin-only. Subject mutations fail cleanly if registry is unreachable.
 
-### Phase 5: Worker Router + Registry Fetch Handler + Email Sender
+### Phase 5: Worker Router + Registry Fetch Handler + Email Sender — DONE
 
 **Build in this phase:**
 
-1. **Export CORS utilities from `@lumenize/routing`** — Make `addCorsHeaders` and `isOriginAllowed` public exports
-2. **Registry `fetch()` handler** in `src/nebula-auth-registry.ts` — 4 public endpoints
-3. **Hand-written Worker router** in `src/nebula-worker.ts` — Inline auth, Turnstile, rate limiting, CORS
+1. **Registry `fetch()` handler** in `src/nebula-auth-registry.ts` — 4 public endpoints
+2. **Hand-written Worker router** in `src/nebula-worker.ts` — Inline auth, Turnstile, rate limiting
 4. **`NebulaEmailSender`** in `src/nebula-email-sender.ts` — Nebula-branded email sender class
 5. **Wire up `test/test-worker-and-dos.ts`** — Replace 404 stub with real router, export email sender
 6. **Run `npm run types`** — Regenerate `worker-configuration.d.ts` after wrangler.jsonc changes to eliminate `any` casts
@@ -847,12 +846,10 @@ Nebula is a single-deployment BSL 1.1 package — there is only one Worker in th
 - **URL rewriting ceremony**: `routeDORequest` expects `{prefix}/{bindingName}/{instanceName}/{endpoint}` in the URL, but Nebula's URLs are `{prefix}/{instanceName}/{endpoint}`. Every request would need rewriting just to satisfy the convention, then the DO re-parses the rewritten URL. That's ceremony, not value.
 - **Two dispatch targets**: We route to two different DOs (NA and Registry) from one prefix. `routeDORequest` maps one binding per URL pattern, so we'd need two calls or conditional rewriting — awkward.
 - **Hook indirection**: `createRouteDORequestNebulaAuthHooks()` returns a closure over imported keys and rate limiter. With one Worker, inlining the auth logic makes the flow readable top-to-bottom and eliminates the hook context object altogether.
-- **CORS is the one thing we'd lose**: `routeDORequest` has solid CORS handling (~60 lines: preflight, origin validation, header injection, WebSocket CORS). Solution: export the CORS utilities (`addCorsHeaders`, `isOriginAllowed`, `CorsOptions`) from `@lumenize/routing` as public API, then import them in the hand-written Worker.
-
 **Both DOs get `fetch()` handlers — Worker forwards Request objects to both:**
 
 - **NebulaAuth** already has a full `fetch()` handler (Phase 2). No change needed.
-- **NebulaAuthRegistry** gains a `fetch()` handler for its 4 public endpoints (`discover`, `claim-universe`, `claim-star`, `create-galaxy`). The registry's fetch handler parses the Request and dispatches to the existing business logic methods. For `create-galaxy`, the registry verifies the JWT itself (same `verifyJwtWithRotation` + `importPublicKey` pattern) — it receives the Bearer token from the Worker, which already rate-limited the caller.
+- **NebulaAuthRegistry** gains a `fetch()` handler for its 4 public endpoints (`discover`, `claim-universe`, `claim-star`, `create-galaxy`). The registry's fetch handler parses the Request and dispatches to the existing business logic methods. For `create-galaxy`, the Worker verifies the JWT signature and rate-limits the caller; the registry just `parseJwtUnsafe()` to extract the `access` claim for authorization logic (checking the caller is admin over the parent universe). This avoids the registry needing its own key imports.
 - **NA→R calls stay RPC** — `registerEmail`, `removeEmail`, `updateEmailRole` are DO-to-DO and bypass the Worker entirely.
 
 **Worker-level gating strategy (DDoS defense):**
@@ -861,8 +858,7 @@ The Worker runs at the edge and is infinitely scalable. DOs are single-instance 
 
 - **Turnstile** on public mutation endpoints (`email-magic-link`, `claim-universe`, `claim-star`) — blocks automated abuse before it reaches any DO
 - **JWT verification + per-subject rate limiting** on authenticated endpoints — the Worker verifies the JWT, extracts `sub`, and rate-limits before forwarding. The DO trusts the Worker already gated.
-- **Public read endpoints** (`discover`, `magic-link` GET, `accept-invite` GET, `refresh-token`) — no JWT required, but IP-based rate limiting via the rate limiter binding protects against abuse
-- **Unauthenticated auth-flow endpoints** (`magic-link` GET, `accept-invite` GET, `refresh-token` POST, `logout` POST) — these use tokens/cookies, not JWTs. The Worker forwards them directly to the NA DO. The DO validates the token/cookie internally.
+- **Unauthenticated auth-flow endpoints** (`magic-link` GET, `accept-invite` GET, `refresh-token` POST, `logout` POST, `discover` POST) — these use tokens/cookies (or are read-only), not JWTs. The Worker forwards them directly to the target DO. The DO validates the token/cookie internally. No IP-based rate limiting — Cloudflare's built-in DDoS protection and IP affinity at the edge handle volumetric abuse, and IP is a poor rate-limit key due to NAT.
 
 **Inlined auth logic** (replaces `createRouteDORequestNebulaAuthHooks`):
 
@@ -905,8 +901,7 @@ The Worker `default` export with a `fetch()` handler. All routing is inline — 
 **Dispatch logic:**
 
 ```
-1. CORS preflight → respond immediately
-2. Match prefix → 404 if no match
+1. Match prefix → 404 if no match
 3. Registry paths (no instanceName segment):
    - /discover, /claim-universe, /claim-star, /create-galaxy
    - Apply gating per table above
@@ -919,7 +914,6 @@ The Worker `default` export with a `fetch()` handler. All routing is inline — 
    - If authenticated endpoint:
      - JWT verify + scope match + rate limit
      - Forward to env.NEBULA_AUTH.getByName(instanceName).fetch(request)
-5. Add CORS headers to response
 ```
 
 **How the Worker distinguishes registry vs instance paths:**
@@ -990,10 +984,6 @@ export class NebulaEmailSender extends ResendEmailSender {
 
 Exported from `src/index.ts`. Re-exported from `test/test-worker-and-dos.ts` for wrangler binding. `AUTH_EMAIL_SENDER` service binding added to `wrangler.jsonc`.
 
-#### CORS Utility Export (`@lumenize/routing`)
-
-Export `addCorsHeaders`, `isOriginAllowed`, and `CorsOptions` from `@lumenize/routing`. These are currently private to `routeDORequest` — make them standalone public utilities. No behavior change to `routeDORequest`, just exporting what was private.
-
 #### Test Strategy
 
 `test/nebula-auth-routes.test.ts` focused on routing correctness:
@@ -1016,10 +1006,6 @@ Export `addCorsHeaders`, `isOriginAllowed`, and `CorsOptions` from `@lumenize/ro
 - Rate limiting: per-subject on authenticated paths
 - Access scope: JWT with wrong scope rejected on instance paths
 
-**CORS:**
-- Preflight returns correct headers
-- Responses include CORS headers when origin matches
-
 Full e2e flows (coach multi-session, self-signup end-to-end, discovery) deferred to Phase 6.
 
 #### Changes to Existing Code
@@ -1027,8 +1013,6 @@ Full e2e flows (coach multi-session, self-signup end-to-end, discovery) deferred
 1. **`src/hooks.ts`** — Keep as-is for now (other packages may use it). The Nebula Worker inlines the logic instead.
 2. **`src/index.ts`** — Add exports: `NebulaEmailSender`, `NebulaWorker` (the default export)
 3. **`wrangler.jsonc`** — Add `AUTH_EMAIL_SENDER` service binding (entrypoint: `NebulaEmailSender`)
-4. **`@lumenize/routing`** — Export `addCorsHeaders`, `isOriginAllowed`, `CorsOptions`
-
 #### Prior Phase Notes (Still Relevant)
 
 - **Path trust (Phase 2):** `NebulaAuth` extracts its `instanceName` from the URL path on first fetch (`#extractInstanceName`). The Worker forwards the original URL unchanged — the DO sees `{prefix}/{instanceName}/endpoint` directly.
@@ -1043,11 +1027,22 @@ Full e2e flows (coach multi-session, self-signup end-to-end, discovery) deferred
 3. What did we learn that we should carry forward?
 4. Should we update the task file, CLAUDE.md, skills, or MEMORY.md with any guidance for future phases or future tasks?
 
-**Expected outcome:** Complete Worker + DO stack working. Hand-written Worker correctly dispatches registry vs instance requests with inline auth, Turnstile, and rate limiting. Registry has a fetch handler for its 4 public endpoints. CORS utilities exported from `@lumenize/routing`. Email sender bound and functional (test mode still bypasses actual email delivery). All 196 existing tests still pass.
+**Expected outcome:** Complete Worker + DO stack working. Hand-written Worker correctly dispatches registry vs instance requests with inline auth, Turnstile, and rate limiting. Registry has a fetch handler for its 4 public endpoints. Email sender bound and functional (test mode still bypasses actual email delivery). All 196 existing tests still pass.
+
+**Actual outcome:** 220 tests across 8 files (196 existing + 24 new routing tests). All pass. CORS was initially inlined in the Worker but later removed — JWT scoping is the real security boundary, and CORS adds no value when the deployment model is same-origin or when vibe-coders deploy their own domains (where edge-level CORS rules are more appropriate).
+
+**Known limitation discovered:** Cross-scope admin access (wildcard JWT → child DO) fails at the DO level because the DO's `#authenticateRequest` independently verifies the JWT against its own Subjects table. The Worker correctly matches wildcards, but the star DO doesn't find the universe admin's `sub` in its Subjects. Fix in Phase 6: add a trusted header mechanism where the Worker signals "I already verified this JWT."
 
 ### Phase 6: Coach Scenario + Full Integration Tests
 
 Now that the router exists, validate the full stack end-to-end.
+
+**Fix cross-scope admin access (from Phase 5 limitation):**
+
+The Worker correctly matches wildcard JWTs (e.g., universe admin accessing star-level endpoints), but the DO's `#authenticateRequest` independently verifies the JWT against its own Subjects table and rejects cross-scope access. Fix:
+- Add a trusted header mechanism: when the Worker pre-verifies a JWT, it sets a header (e.g., `X-Nebula-Verified-Sub`) with the verified subject's identity. The DO checks for this header before falling back to its own JWT verification.
+- Security: the trusted header must only be accepted from the Worker (same-origin DO → Worker call). If the DO receives a direct external request, the header is ignored.
+- Test: universe admin wildcard JWT accesses star-level `subjects` endpoint end-to-end.
 
 **Coach multi-session tests** (from Validation Plan):
 - All coach multi-session tests: single Browser, multiple path-scoped cookies
@@ -1062,7 +1057,7 @@ Now that the router exists, validate the full stack end-to-end.
 
 **Note from Phase 4:** Subject revocation updating the registry via RPC is already tested in Phase 4's `nebula-auth-registry.test.ts` (NA→R wiring tests for delete and role change). Phase 6 tests this through the Worker router for end-to-end coverage, not to re-verify the RPC wiring itself.
 
-**Expected outcome:** Coach Carol scenario works end-to-end. All self-signup, discovery, and registry notification flows working through the Worker router. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
+**Expected outcome:** Coach Carol scenario works end-to-end. Cross-scope admin access works through the Worker. All self-signup, discovery, and registry notification flows working through the Worker router. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
 
 ### Phase 7: README
 

@@ -6,8 +6,8 @@
 
 // Import + re-export shared types from @lumenize/auth
 // (import makes them available locally; export passes them to consumers)
-import type { ActClaim, CorsOptions, ResolvedEmail, EmailMessage } from '@lumenize/auth';
-export type { ActClaim, CorsOptions, ResolvedEmail, EmailMessage };
+import type { ActClaim, ResolvedEmail, EmailMessage } from '@lumenize/auth';
+export type { ActClaim, ResolvedEmail, EmailMessage };
 
 // ---------------------------------------------------------------------------
 // Tiers
