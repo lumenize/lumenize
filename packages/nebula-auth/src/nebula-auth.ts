@@ -24,7 +24,7 @@ import {
   NEBULA_AUTH_ISSUER,
   NEBULA_AUTH_AUDIENCE,
 } from './types';
-import { buildAccessId, isPlatformInstance } from './parse-id';
+import { buildAccessId, isPlatformInstance, matchAccess } from './parse-id';
 import {
   generateRandomString,
   generateUuid,
@@ -1120,13 +1120,30 @@ export class NebulaAuth extends DurableObject {
       SELECT email, isAdmin FROM Subjects WHERE sub = ${payload.sub}
     ` as any[];
 
-    if (rows.length === 0) return null;
+    if (rows.length > 0) {
+      return {
+        sub: payload.sub,
+        isAdmin: Boolean(rows[0].isAdmin),
+        email: rows[0].email,
+      };
+    }
 
-    return {
-      sub: payload.sub,
-      isAdmin: Boolean(rows[0].isAdmin),
-      email: rows[0].email,
-    };
+    // Wildcard fallback: cross-scope admin access (e.g., universe admin → star DO)
+    // JWT signature already verified above. If the JWT's access.id matches this
+    // instance via wildcard, trust the JWT claims directly — no local subject needed.
+    const typedPayload = payload as any;
+    if (typedPayload.access?.id && typedPayload.email && typedPayload.access.admin) {
+      const instanceName = this.#instanceName || '';
+      if (matchAccess(typedPayload.access.id, instanceName)) {
+        return {
+          sub: payload.sub,
+          isAdmin: typedPayload.access.admin,
+          email: typedPayload.email,
+        };
+      }
+    }
+
+    return null;
   }
 
   async #verifyRefreshTokenIdentity(refreshToken: string): Promise<
@@ -1313,6 +1330,7 @@ export class NebulaAuth extends DurableObject {
       exp: now + ACCESS_TOKEN_TTL,
       iat: now,
       jti: generateUuid(),
+      email: subject.email,
       adminApproved: subject.adminApproved,
       access,
       ...(actorSub ? { act: { sub: actorSub } } : {}),

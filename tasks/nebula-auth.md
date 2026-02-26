@@ -1031,33 +1031,94 @@ Full e2e flows (coach multi-session, self-signup end-to-end, discovery) deferred
 
 **Actual outcome:** 220 tests across 8 files (196 existing + 24 new routing tests). All pass. CORS was initially inlined in the Worker but later removed — JWT scoping is the real security boundary, and CORS adds no value when the deployment model is same-origin or when vibe-coders deploy their own domains (where edge-level CORS rules are more appropriate).
 
-**Known limitation discovered:** Cross-scope admin access (wildcard JWT → child DO) fails at the DO level because the DO's `#authenticateRequest` independently verifies the JWT against its own Subjects table. The Worker correctly matches wildcards, but the star DO doesn't find the universe admin's `sub` in its Subjects. Fix in Phase 6: add a trusted header mechanism where the Worker signals "I already verified this JWT."
+**Known limitation discovered:** Cross-scope admin access (wildcard JWT → child DO) fails at the DO level because the DO's `#authenticateRequest` independently verifies the JWT against its own Subjects table. The Worker correctly matches wildcards, but the star DO doesn't find the universe admin's `sub` in its Subjects. Fixed in Phase 6: add `email` to JWT payload + wildcard fallback in `#verifyBearerToken` (no trusted headers needed — DOs only reachable from same-project Workers, JWT re-verification provides the security boundary).
 
-### Phase 6: Coach Scenario + Full Integration Tests
+### Phase 6: Coach Scenario + Full Integration Tests — DONE
 
 Now that the router exists, validate the full stack end-to-end.
 
-**Fix cross-scope admin access (from Phase 5 limitation):**
+#### Fix 1: Add `email` to JWT Payload
 
-The Worker correctly matches wildcard JWTs (e.g., universe admin accessing star-level endpoints), but the DO's `#authenticateRequest` independently verifies the JWT against its own Subjects table and rejects cross-scope access. Fix:
-- Add a trusted header mechanism: when the Worker pre-verifies a JWT, it sets a header (e.g., `X-Nebula-Verified-Sub`) with the verified subject's identity. The DO checks for this header before falling back to its own JWT verification.
-- Security: the trusted header must only be accepted from the Worker (same-origin DO → Worker call). If the DO receives a direct external request, the header is ignored.
-- Test: universe admin wildcard JWT accesses star-level `subjects` endpoint end-to-end.
+Currently `NebulaJwtPayload` does not include `email`. Adding it enables the cross-scope fix below and is generally useful for downstream consumers.
 
-**Coach multi-session tests** (from Validation Plan):
-- All coach multi-session tests: single Browser, multiple path-scoped cookies
-- Universe admin wildcard access
-- Revocation isolation
+- **`types.ts`**: Add `email: string` to `NebulaJwtPayload`
+- **`nebula-auth.ts` `#generateAccessToken`**: Add `email: subject.email` to the payload object (the Subject row is already available)
+- Minimal JWT size increase (~20-50 chars for the email address). JWTs are in Authorization headers (not cookies), so no 4KB limit concern.
+- **Existing tests**: Many parse JWT payloads and check fields. Use `/refactor-efficiently` pattern — get one representative test passing with the new `email` field, then sweep the rest.
 
-**Registry integration tests** (from Validation Plan):
-- Universe self-signup end-to-end (registry claim → NebulaAuth magic link → registry-first subject creation)
-- Star self-signup end-to-end
-- Galaxy creation by universe admin
-- Discovery flow with multiple scopes
+#### Fix 2: Cross-Scope Admin Access via Wildcard Fallback in `#verifyBearerToken`
 
-**Note from Phase 4:** Subject revocation updating the registry via RPC is already tested in Phase 4's `nebula-auth-registry.test.ts` (NA→R wiring tests for delete and role change). Phase 6 tests this through the Worker router for end-to-end coverage, not to re-verify the RPC wiring itself.
+The Worker correctly matches wildcard JWTs (e.g., universe admin accessing star-level endpoints), but the DO's `#verifyBearerToken` does `SELECT email, isAdmin FROM Subjects WHERE sub = ?` — the universe admin's `sub` doesn't exist in the star DO's Subjects table → returns `null` → 401.
 
-**Expected outcome:** Coach Carol scenario works end-to-end. Cross-scope admin access works through the Worker. All self-signup, discovery, and registry notification flows working through the Worker router. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
+**Fix**: No trusted headers needed. The DO already re-verifies the JWT signature (cheap crypto op). Add a wildcard fallback after the local Subjects lookup fails:
+
+```
+1. Verify JWT signature (already done)
+2. Try local Subjects table lookup by payload.sub (already done)
+3. If local lookup succeeds → return identity from DB (current behavior, unchanged)
+4. If local lookup fails → check if payload.access.id matches
+   this.#instanceName via matchAccess()
+   - If wildcard match → return { sub: payload.sub, isAdmin: payload.access.admin, email: payload.email }
+   - If no match → return null (401)
+```
+
+**Why no trusted header**: DOs are only reachable from Workers in the same project — no cross-account or cross-project service binding is possible. The JWT re-verification at the DO level provides the security boundary. A forged JWT fails signature verification.
+
+**`adminApproved` not checked in cross-scope path**: Wildcard JWTs always have `access.admin = true` (you can't have a wildcard without being admin). The access gate is `admin || adminApproved`, so `admin = true` satisfies it — checking `adminApproved` would be dead code.
+
+**Update existing test**: The test at `nebula-auth-routes.test.ts:377` ("universe admin wildcard JWT passes Worker auth but star DO re-verifies") currently asserts 401 (known limitation). Update to assert 200 (success).
+
+#### ~~Test Infrastructure: Separate Integration Test Project~~
+
+~~Model after `@lumenize/auth`'s Pattern B (multi-environment vitest projects):~~
+
+**Actual**: No separate vitest project needed — the existing `main` project already has `SELF` + DO bindings. Integration tests live in `test/nebula-auth-integration.test.ts` alongside the other test files. `Browser` from `@lumenize/testing` auto-detects `SELF.fetch` from `cloudflare:test`, manages cookie jar with RFC 6265 path scoping. `createTestingClient` was not needed — all state verification was done via Worker endpoints (discovery, subject listing).
+
+#### Coach Multi-Session Tests (from Validation Plan)
+
+Using a **single `Browser` instance** (shared cookie jar, path-scoped sends):
+
+1. **Login to Star A** — Magic link flow for `carol@acme.com` at `acme.crm.acme-corp`. Verify `refresh-token` cookie set with `Path=/auth/acme.crm.acme-corp`.
+2. **Login to Star B** — Magic link flow for `carol@bigco.com` at `bigco.hr.bigco-hq`. Verify second `refresh-token` cookie set with `Path=/auth/bigco.hr.bigco-hq`. Star A cookie still exists.
+3. **Refresh Star A** — Browser sends only Star A cookie (path match). Access token has `access.id: "acme.crm.acme-corp"`.
+4. **Refresh Star B** — Browser sends only Star B cookie. Access token has `access.id: "bigco.hr.bigco-hq"`.
+5. **Revoke Star B** — Delete Carol's subject in `bigco.hr.bigco-hq` DO. Star B refresh fails. Star A refresh still succeeds.
+6. **Cookie isolation assertion** — Verify `browser.getCookiesForRequest()` once to confirm path isolation (functional tests in steps 3-5 already validate it implicitly, so one explicit assertion is sufficient).
+
+#### Universe Admin Wildcard Access Tests
+
+1. Login at universe level (`acme`) → get wildcard JWT with `access.id: "acme.*"`
+2. Access star-level `subjects` endpoint (`acme.crm.acme-corp`) with wildcard JWT → 200 (cross-scope fix validates this)
+3. Cookie path isolation: universe cookie (`Path=/auth/acme`) does NOT match star auth path (`/auth/acme.crm.acme-corp`) — correct behavior, admin refreshes at universe level only
+4. Upward access denied: galaxy admin JWT (`acme.crm.*`) rejected when accessing universe endpoint (`/auth/acme/subjects`)
+
+#### Registry Integration Tests (from Validation Plan)
+
+These test the full flow through the Worker router (not just RPC wiring tested in Phase 4):
+
+- **Universe self-signup e2e**: `POST /auth/claim-universe` → click magic link → verify founding admin + registry records
+- **Star self-signup e2e**: Universe admin creates galaxy → `POST /auth/claim-star` → click magic link → verify founding admin + registry records
+- **Galaxy creation by universe admin**: Login at universe → `POST /auth/create-galaxy` → verify registry records
+- **Discovery flow**: Create subjects across multiple scopes → `POST /auth/discover` → verify correct scopes returned → revoke one → re-discover → verify removed
+
+**Note from Phase 4:** NA→R RPC wiring (delete, role change updating registry) already tested in Phase 4's `nebula-auth-registry.test.ts`. Phase 6 tests this through the Worker router for e2e coverage, not to re-verify the RPC wiring itself.
+
+#### Retrospective (answer after all tests pass)
+
+1. What went wrong and how do we prevent it next time?
+2. What tests failed on the first run and how could we get them right first try?
+3. What did we learn that we should carry forward?
+4. Should we update the task file, CLAUDE.md, skills, or MEMORY.md with any guidance for future phases or future tasks?
+
+**Expected outcome:** Coach Carol scenario works end-to-end with path-scoped cookie isolation. Cross-scope admin access works via wildcard fallback in `#verifyBearerToken` (no trusted headers). All self-signup, discovery, and registry flows working through the Worker router. Email included in JWT for downstream use. (Tab simulation with Browser contexts deferred to NebulaClient — see `tasks/nebula-client.md`.)
+
+**Actual outcome:** 227 tests across 9 files (220 existing + 7 new integration tests). All pass. Changes:
+- `email: string` added to `NebulaJwtPayload` type and `#generateAccessToken` payload
+- Wildcard fallback added to `#verifyBearerToken`: ~15 lines — after local Subjects lookup fails, checks `matchAccess(payload.access.id, this.#instanceName)` and returns identity from JWT claims
+- `nebula-auth-routes.test.ts:377` updated from 401 → 200 (cross-scope now works)
+- `nebula-auth-integration.test.ts` added with 7 tests: coach multi-session (login two stars, refresh each independently, logout one without affecting other, cookie isolation), universe admin wildcard access to star endpoints, upward access denied (galaxy admin → universe), universe self-signup e2e, star self-signup e2e, discovery flow (multi-scope → revoke → re-discover), email field in JWT
+- No separate vitest project needed — existing project already has SELF + DO bindings; `Browser` from `@lumenize/testing` auto-detects `SELF.fetch`
+- `testTimeout` increased from 2s → 5s in `vitest.config.js` — delegation tests with multiple `fullLogin` calls were flaky at 2s
 
 ### Phase 7: README
 

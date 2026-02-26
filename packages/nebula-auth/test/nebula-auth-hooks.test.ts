@@ -56,6 +56,7 @@ async function createNebulaJwt(opts: {
     exp: now + (opts.expiresInSeconds ?? 900),
     iat: now,
     jti: generateUuid(),
+    email: 'test@example.com',
     adminApproved: opts.adminApproved ?? false,
     access,
   };

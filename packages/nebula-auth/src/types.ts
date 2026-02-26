@@ -62,6 +62,8 @@ export interface NebulaJwtPayload {
   jti: string;
   /** Whether the subject has been approved by an admin */
   adminApproved: boolean;
+  /** Subject's email address */
+  email: string;
   /** Scoped access (one entry per JWT, issued by one DO instance) */
   access: AccessEntry;
   /** Delegation chain per RFC 8693 (optional) */

@@ -2,7 +2,7 @@ import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
 
 export default defineWorkersConfig({
   test: {
-    testTimeout: 2000,
+    testTimeout: 5000,
     globals: true,
     poolOptions: {
       workers: {

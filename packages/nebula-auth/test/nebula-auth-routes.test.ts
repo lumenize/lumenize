@@ -35,6 +35,7 @@ async function createJwt(opts: {
   accessAdmin?: boolean;
   adminApproved?: boolean;
   sub?: string;
+  email?: string;
   expiresInSeconds?: number;
 }): Promise<string> {
   const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
@@ -49,6 +50,7 @@ async function createJwt(opts: {
     exp: now + (opts.expiresInSeconds ?? 900),
     iat: now,
     jti: generateUuid(),
+    email: opts.email ?? 'test@example.com',
     adminApproved: opts.adminApproved ?? false,
     access,
   };
@@ -374,18 +376,11 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(body.error).toBe('insufficient_scope');
     });
 
-    it('universe admin wildcard JWT passes Worker auth but star DO re-verifies (known limitation)', async () => {
-      // The Worker correctly matches the wildcard JWT against the star path,
-      // but the star DO's #authenticateRequest re-verifies the JWT against
-      // its own Subjects table. Since the universe admin's `sub` doesn't exist
-      // in the star DO, the DO returns 401.
-      //
-      // This is a known limitation: cross-scope admin access requires the DO
-      // to trust the Worker's pre-verification. Will be fixed in Phase 6 by
-      // adding a trusted header mechanism.
-      //
-      // For now, we verify the Worker DOES pass (doesn't return 401/403 from
-      // its own checks) by confirming the response comes from the DO, not the Worker.
+    it('universe admin wildcard JWT grants access to star DO endpoints', async () => {
+      // Universe admin logs in at universe level, gets wildcard JWT with
+      // access.id: "universe.*". The Worker matches the wildcard against the
+      // star path, and the DO's #verifyBearerToken falls back to wildcard
+      // matching when the sub is not found in the local Subjects table.
       const universe = `wildcard-${generateUuid().slice(0, 8)}`;
       const starId = `${universe}.app.tenant`;
       const adminEmail = 'wildcard-admin@example.com';
@@ -393,16 +388,15 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       // Login at universe → get wildcard JWT
       const { access_token } = await workerLogin(universe, adminEmail);
 
-      // Worker passes (wildcard match), but DO returns 401 (sub not in star DO)
+      // Wildcard JWT grants cross-scope access to star DO
       const resp = await SELF.fetch(new Request(workerUrl(`${starId}/subjects`), {
         headers: { 'Authorization': `Bearer ${access_token}` },
       }));
 
-      // The 401 comes from the DO (not the Worker) — the DO's response includes
-      // the error code from #authenticateRequest
-      expect(resp.status).toBe(401);
+      expect(resp.status).toBe(200);
       const body = await resp.json() as any;
-      expect(body.error).toBe('invalid_token'); // DO error, not Worker's "invalid_request"
+      expect(body.subjects).toBeDefined();
+      expect(Array.isArray(body.subjects)).toBe(true);
     });
 
     it('POST /auth/{id}/invite works with admin JWT', async () => {
