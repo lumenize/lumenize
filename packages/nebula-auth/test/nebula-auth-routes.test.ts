@@ -499,6 +499,772 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
   });
 
   // ============================================
+  // Coverage: Worker JWT validation branches
+  // ============================================
+
+  describe('Worker JWT validation branches', () => {
+    it('rejects JWT with wrong audience', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: NEBULA_AUTH_ISSUER,
+        aud: 'wrong-audience',
+        sub: generateUuid(),
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: 'some-instance.*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('audience');
+    });
+
+    it('rejects JWT with wrong issuer', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: 'wrong-issuer',
+        aud: NEBULA_AUTH_AUDIENCE,
+        sub: generateUuid(),
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: 'some-instance.*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('issuer');
+    });
+
+    it('rejects JWT with missing sub claim', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: NEBULA_AUTH_ISSUER,
+        aud: NEBULA_AUTH_AUDIENCE,
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: 'some-instance.*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('subject');
+    });
+
+    it('rejects JWT with missing access claim', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: NEBULA_AUTH_ISSUER,
+        aud: NEBULA_AUTH_AUDIENCE,
+        sub: generateUuid(),
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('access');
+    });
+
+    it('rejects unapproved user (access gate: !admin && !adminApproved)', async () => {
+      const token = await createJwt({
+        accessId: 'gate-test.*',
+        accessAdmin: false,
+        adminApproved: false,
+      });
+
+      const resp = await SELF.fetch(new Request(workerUrl('gate-test/subjects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('access_denied');
+      expect(body.error_description).toContain('not yet approved');
+    });
+
+    it('bare instance path with no endpoint gets forwarded to DO', async () => {
+      // /auth/some-instance (no trailing slash or endpoint)
+      // parsePath returns { type: 'instance', instanceName: 'some-instance', endpoint: '' }
+      // The suffix is '' which is not in AUTH_FLOW_SUFFIXES, so it goes through JWT check
+      const resp = await SELF.fetch(new Request(workerUrl('some-bare-instance')));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('invalid_request');
+    });
+  });
+
+  // ============================================
+  // Coverage: Registry JWT validation branches (create-galaxy)
+  // ============================================
+
+  describe('Registry JWT validation branches (create-galaxy)', () => {
+    it('rejects JWT with wrong audience on create-galaxy', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: NEBULA_AUTH_ISSUER,
+        aud: 'wrong-audience',
+        sub: generateUuid(),
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: '*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ universeGalaxyId: 'test.galaxy' }),
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('audience');
+    });
+
+    it('rejects JWT with wrong issuer on create-galaxy', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: 'wrong-issuer',
+        aud: NEBULA_AUTH_AUDIENCE,
+        sub: generateUuid(),
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: '*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ universeGalaxyId: 'test.galaxy' }),
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('issuer');
+    });
+
+    it('rejects JWT with missing sub on create-galaxy', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: NEBULA_AUTH_ISSUER,
+        aud: NEBULA_AUTH_AUDIENCE,
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: '*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ universeGalaxyId: 'test.galaxy' }),
+      }));
+      expect(resp.status).toBe(401);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('subject');
+    });
+
+    it('rejects expired JWT on create-galaxy', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: NEBULA_AUTH_ISSUER,
+        aud: NEBULA_AUTH_AUDIENCE,
+        sub: generateUuid(),
+        exp: now - 100, // expired
+        iat: now - 200,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { id: '*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ universeGalaxyId: 'test.galaxy' }),
+      }));
+      expect(resp.status).toBe(401);
+    });
+  });
+
+  // ============================================
+  // Coverage: NebulaAuth DO input validation branches
+  // ============================================
+
+  describe('NebulaAuth DO input validation via Worker', () => {
+    it('admin cannot self-modify via PATCH /subject/:id', async () => {
+      const instanceName = `selfmod-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instanceName, 'selfmod@example.com');
+
+      // Get own sub
+      const subjResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subjects`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      const { subjects } = await subjResp.json() as any;
+      const ownSub = subjects[0].sub;
+
+      // Try to PATCH self
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${ownSub}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ isAdmin: false }),
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('Cannot modify own');
+    });
+
+    it('admin cannot self-delete via DELETE /subject/:id', async () => {
+      const instanceName = `selfdel-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instanceName, 'selfdel@example.com');
+
+      // Get own sub
+      const subjResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subjects`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      const { subjects } = await subjResp.json() as any;
+      const ownSub = subjects[0].sub;
+
+      // Try to DELETE self
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${ownSub}`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('Cannot delete yourself');
+    });
+
+    it('founding admin rule: invite rejects 2+ emails on empty DO', async () => {
+      // Use cross-scope admin JWT to call invite on a fresh (empty) DO
+      const universe = `founding-${generateUuid().slice(0, 8)}`;
+      const emptyInstance = `${universe}.app.empty`;
+
+      // Login at universe to get admin wildcard JWT
+      const { access_token } = await workerLogin(universe, 'founding@example.com');
+
+      // Register the star instance in the registry so the DO is accessible
+      // (The Worker just forwards based on instanceName — the DO is fresh/empty)
+
+      // Invite 2 emails to the empty DO
+      const resp = await SELF.fetch(new Request(workerUrl(`${emptyInstance}/invite?_test=true`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emails: ['a@example.com', 'b@example.com'] }),
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('founding_admin_required');
+    });
+
+    it('delegated-token rejects invalid JSON body', async () => {
+      const instanceName = `deleg-json-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instanceName, 'deleg-json@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/delegated-token`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: 'not-json',
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('Invalid JSON');
+    });
+
+    it('delegated-token rejects missing actFor field', async () => {
+      const instanceName = `deleg-miss-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instanceName, 'deleg-miss@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/delegated-token`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error_description).toContain('actFor required');
+    });
+
+    it('delegated-token rejects nonexistent subject', async () => {
+      const instanceName = `deleg-noent-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instanceName, 'deleg-noent@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/delegated-token`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ actFor: 'nonexistent-sub-id' }),
+      }));
+      expect(resp.status).toBe(404);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('not_found');
+    });
+
+  });
+
+  // ============================================
+  // Coverage: non-admin approved user hits admin endpoints (DO access denied)
+  // ============================================
+
+  describe('non-admin approved user denied at DO level', () => {
+    // This test covers the isAdmin=false access denied branches inside each
+    // admin handler in nebula-auth.ts — the user passes the Worker gate
+    // (adminApproved: true) but the DO rejects because isAdmin: false.
+
+    let instanceName: string;
+    let adminToken: string;
+    let userToken: string;
+    let userSub: string;
+
+    it('setup: create instance, invite user, approve, get non-admin JWT', async () => {
+      instanceName = `nonadm-${generateUuid().slice(0, 8)}`;
+      const adminEmail = 'nonadmin-test-admin@example.com';
+      const userEmail = 'nonadmin-test-user@example.com';
+
+      // 1. Founding admin login
+      const { access_token: at } = await workerLogin(instanceName, adminEmail);
+      adminToken = at;
+
+      // 2. Admin invites non-admin user
+      const inviteResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/invite?_test=true`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emails: [userEmail] }),
+      }));
+      expect(inviteResp.status).toBe(200);
+      const { links } = await inviteResp.json() as any;
+      const acceptLink = links[userEmail];
+      expect(acceptLink).toBeDefined();
+
+      // 3. User accepts invite → gets refresh cookie
+      const acceptResp = await SELF.fetch(new Request(acceptLink, { redirect: 'manual' }));
+      expect(acceptResp.status).toBe(302);
+      const setCookie = acceptResp.headers.get('Set-Cookie')!;
+      const refreshToken = setCookie.split(';')[0]!.split('=')[1]!;
+
+      // 4. Get user's sub from subjects list
+      const subjResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subjects`), {
+        headers: { 'Authorization': `Bearer ${adminToken}` },
+      }));
+      const { subjects } = await subjResp.json() as any;
+      const userSubject = subjects.find((s: any) => s.email === userEmail);
+      expect(userSubject).toBeDefined();
+      userSub = userSubject.sub;
+
+      // 5. Admin approves user (adminApproved: true, isAdmin stays false)
+      const approveResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${userSub}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ adminApproved: true }),
+      }));
+      expect(approveResp.status).toBe(200);
+
+      // 6. User refreshes → gets JWT with adminApproved:true, access.admin:undefined
+      const refreshResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/refresh-token`), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` },
+      }));
+      expect(refreshResp.status).toBe(200);
+      const { access_token: ut } = await refreshResp.json() as any;
+      userToken = ut;
+    });
+
+    it('GET /subjects returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subjects`), {
+        headers: { 'Authorization': `Bearer ${userToken}` },
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('forbidden');
+    });
+
+    it('GET /subject/:id returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${userSub}`), {
+        headers: { 'Authorization': `Bearer ${userToken}` },
+      }));
+      expect(resp.status).toBe(403);
+    });
+
+    it('PATCH /subject/:id returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${userSub}`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${userToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ isAdmin: true }),
+      }));
+      expect(resp.status).toBe(403);
+    });
+
+    it('DELETE /subject/:id returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/some-id`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${userToken}` },
+      }));
+      expect(resp.status).toBe(403);
+    });
+
+    it('POST /invite returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/invite`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${userToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emails: ['anyone@example.com'] }),
+      }));
+      expect(resp.status).toBe(403);
+    });
+
+    it('POST /subject/:id/actors returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${userSub}/actors`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${userToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ actorSub: 'some-actor' }),
+      }));
+      expect(resp.status).toBe(403);
+    });
+
+    it('DELETE /subject/:id/actors/:actorId returns 403 for non-admin', async () => {
+      const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/subject/${userSub}/actors/some-actor`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${userToken}` },
+      }));
+      expect(resp.status).toBe(403);
+    });
+  });
+
+  // ============================================
+  // Coverage: approve endpoint and logout edge cases
+  // ============================================
+
+  describe('approve and logout coverage', () => {
+    it('GET /approve/:sub works with admin JWT', async () => {
+      const instance = `approve-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'approve-admin@example.com');
+
+      // Invite a user to approve
+      const inviteResp = await SELF.fetch(new Request(workerUrl(`${instance}/invite`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emails: ['approvee@example.com'] }),
+      }));
+      expect(inviteResp.status).toBe(200);
+
+      // Get the user's sub
+      const subjResp = await SELF.fetch(new Request(workerUrl(`${instance}/subjects`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      const { subjects } = await subjResp.json() as any;
+      const approvee = subjects.find((s: any) => s.email === 'approvee@example.com');
+      expect(approvee).toBeDefined();
+
+      // Approve via GET /approve/:sub (returns 302 redirect)
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/approve/${approvee.sub}`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+        redirect: 'manual',
+      }));
+      expect(resp.status).toBe(302);
+    });
+
+    it('GET /approve/:sub for nonexistent subject returns 404', async () => {
+      const instance = `approve2-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'approve2-admin@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/approve/nonexistent-sub`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      expect(resp.status).toBe(404);
+    });
+
+    it('POST /logout without cookie still returns 200', async () => {
+      const instance = `logout-nocookie-${generateUuid().slice(0, 8)}`;
+      // Logout with no cookie — should succeed (no-op)
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/logout`), {
+        method: 'POST',
+      }));
+      expect(resp.status).toBe(200);
+    });
+
+    it('DELETE /subject/:sub for nonexistent sub returns 404', async () => {
+      const instance = `del-noent-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'del-admin@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/subject/nonexistent-sub`), {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      expect(resp.status).toBe(404);
+    });
+
+    it('PATCH /subject/:sub for nonexistent sub returns 404', async () => {
+      const instance = `patch-noent-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'patch-admin@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/subject/nonexistent-sub`), {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ isAdmin: true }),
+      }));
+      expect(resp.status).toBe(404);
+    });
+  });
+
+  // ============================================
+  // Coverage: magic link and invite edge cases
+  // ============================================
+
+  describe('magic link edge cases', () => {
+    it('magic-link with missing token returns 400', async () => {
+      const instance = `ml-notoken-${generateUuid().slice(0, 8)}`;
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/magic-link`), {
+        redirect: 'manual',
+      }));
+      expect(resp.status).toBe(400);
+    });
+
+    it('magic-link with invalid token redirects with error', async () => {
+      const instance = `ml-bad-${generateUuid().slice(0, 8)}`;
+      const resp = await SELF.fetch(new Request(
+        workerUrl(`${instance}/magic-link?one_time_token=bogus-token`),
+        { redirect: 'manual' },
+      ));
+      expect(resp.status).toBe(302);
+      expect(resp.headers.get('Location')).toContain('error=invalid_token');
+    });
+
+    it('reusing a magic link token redirects with error', async () => {
+      const instance = `ml-reuse-${generateUuid().slice(0, 8)}`;
+
+      // Get magic link
+      const mlResp = await SELF.fetch(new Request(workerUrl(`${instance}/email-magic-link?_test=true`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'reuse@example.com' }),
+      }));
+      const { magic_link } = await mlResp.json() as any;
+
+      // First click — consumes the token
+      const resp1 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
+      expect(resp1.status).toBe(302);
+      expect(resp1.headers.get('Location')).toBe('/app');
+
+      // Second click — token already used/deleted
+      const resp2 = await SELF.fetch(new Request(magic_link, { redirect: 'manual' }));
+      expect(resp2.status).toBe(302);
+      expect(resp2.headers.get('Location')).toContain('error=');
+    });
+
+    it('accept-invite with missing invite_token returns 400', async () => {
+      const instance = `inv-miss-${generateUuid().slice(0, 8)}`;
+      const resp = await SELF.fetch(new Request(
+        workerUrl(`${instance}/accept-invite`),
+      ));
+      expect(resp.status).toBe(400);
+    });
+
+    it('accept-invite with invalid invite_token redirects with error', async () => {
+      const instance = `inv-bad-${generateUuid().slice(0, 8)}`;
+      const resp = await SELF.fetch(new Request(
+        workerUrl(`${instance}/accept-invite?invite_token=bogus-token`),
+        { redirect: 'manual' },
+      ));
+      expect(resp.status).toBe(302);
+      expect(resp.headers.get('Location')).toContain('error=invalid_token');
+    });
+
+    it('refresh-token with invalid cookie returns 401', async () => {
+      const instance = `refresh-bad-${generateUuid().slice(0, 8)}`;
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/refresh-token`), {
+        method: 'POST',
+        headers: { 'Cookie': 'refresh-token=bogus-token-value' },
+      }));
+      expect(resp.status).toBe(401);
+    });
+
+    it('refresh-token with no cookie returns 401', async () => {
+      const instance = `refresh-none-${generateUuid().slice(0, 8)}`;
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/refresh-token`), {
+        method: 'POST',
+      }));
+      expect(resp.status).toBe(401);
+    });
+  });
+
+  // ============================================
+  // Coverage: list subjects filtering
+  // ============================================
+
+  describe('list subjects filtering', () => {
+    it('GET /subjects?role=admin filters to admins', async () => {
+      const instance = `filter-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'filter-admin@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/subjects?role=admin`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      expect(resp.status).toBe(200);
+      const { subjects } = await resp.json() as any;
+      expect(subjects.every((s: any) => s.isAdmin === true)).toBe(true);
+    });
+
+    it('GET /subjects?role=none filters to non-admins', async () => {
+      const instance = `filter2-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'filter2-admin@example.com');
+
+      // Invite a non-admin so there's something to filter
+      await SELF.fetch(new Request(workerUrl(`${instance}/invite`), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emails: ['filter-nonadmin@example.com'] }),
+      }));
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/subjects?role=none`), {
+        headers: { 'Authorization': `Bearer ${access_token}` },
+      }));
+      expect(resp.status).toBe(200);
+      const { subjects } = await resp.json() as any;
+      expect(subjects.every((s: any) => s.isAdmin === false)).toBe(true);
+      expect(subjects.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ============================================
+  // Coverage: test/set-subject-data helper endpoint
+  // ============================================
+
+  describe('test/set-subject-data endpoint', () => {
+    it('POST /test/set-subject-data requires email', async () => {
+      const instance = `tsd-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'tsd@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/test/set-subject-data`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
+        body: JSON.stringify({}),
+      }));
+      expect(resp.status).toBe(400);
+    });
+
+    it('POST /test/set-subject-data returns 404 for unknown email', async () => {
+      const instance = `tsd2-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'tsd2@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/test/set-subject-data`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
+        body: JSON.stringify({ email: 'unknown@example.com' }),
+      }));
+      expect(resp.status).toBe(404);
+    });
+
+    it('POST /test/set-subject-data updates adminApproved', async () => {
+      const instance = `tsd3-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'tsd3@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/test/set-subject-data`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
+        body: JSON.stringify({ email: 'tsd3@example.com', adminApproved: false }),
+      }));
+      expect(resp.status).toBe(204);
+    });
+
+    it('POST /test/set-subject-data updates isAdmin', async () => {
+      const instance = `tsd4-${generateUuid().slice(0, 8)}`;
+      const { access_token } = await workerLogin(instance, 'tsd4@example.com');
+
+      const resp = await SELF.fetch(new Request(workerUrl(`${instance}/test/set-subject-data`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${access_token}` },
+        body: JSON.stringify({ email: 'tsd4@example.com', isAdmin: false }),
+      }));
+      expect(resp.status).toBe(204);
+    });
+  });
+
+  // ============================================
   // Full e2e: claim-universe + login + create-galaxy + claim-star
   // ============================================
 

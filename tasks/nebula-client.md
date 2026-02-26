@@ -121,5 +121,5 @@ Single tab, universe admin navigating between stars:
 
 ## Related
 
-- `tasks/nebula-auth.md` — Server-side auth architecture (endpoints, DOs, registry)
+- `tasks/archive/nebula-auth.md` — Server-side auth architecture (endpoints, DOs, registry)
 - `tasks/nebula.md` — Overall Nebula platform architecture

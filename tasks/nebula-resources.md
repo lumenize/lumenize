@@ -3,7 +3,7 @@
 **Status**: Phase 0 — Design (all DWL spikes complete, core API decisions made, remaining: full API shape + schema evolution design)
 **Package**: `@lumenize/nebula` (BSL 1.1) — built on `@lumenize/mesh` (MIT)
 **Prior Art**: `tasks/icebox/mesh-resources.md` and `tasks/icebox/resources.mdx` (registration-on-DO approach — temporal storage design, snapshot shape, URI scheme, and response protocol carry forward; registration API and schema strategy are replaced by the DWL approach)
-**Depends on**: `tasks/nebula-auth.md` — Nebula auth impacts access control logic for resources. Auth is being built first.
+**Depends on**: `tasks/archive/nebula-auth.md` — Nebula auth impacts access control logic for resources. Auth is being built first.
 
 ## Goal
 
@@ -622,7 +622,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 
 - DWL is in closed beta — production deployment requires Cloudflare sign-up. Local dev works now with wrangler 4.66.0+.
 - `@lumenize/nebula` is BSL 1.1 licensed, lives in the Lumenize monorepo alongside MIT-licensed `@lumenize/mesh`.
-- `nebula-auth` must be built first — it impacts access control logic for resources. See `tasks/nebula-auth.md`.
+- `nebula-auth` must be built first — it impacts access control logic for resources. See `tasks/archive/nebula-auth.md`.
 - Prior art from `lumenize-monolith/` still applies for temporal storage patterns — see icebox task file for details.
 - Phase 0.5 (remove `gateway` prefix) from the icebox design is still needed and should be tackled independently.
 - DWL spike code lives in `experiments/dwl-spike/`.

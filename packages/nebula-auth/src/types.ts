@@ -92,7 +92,6 @@ export interface MagicLink {
   token: string;
   email: string;
   expiresAt: number;
-  used: boolean;
 }
 
 export interface InviteToken {

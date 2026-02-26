@@ -1,4 +1,6 @@
-# Nebula Auth
+# Nebula Auth — COMPLETE
+
+> All 7 phases done. 231 tests, 80.59% branch coverage. Follow-on items moved to `tasks/nebula.md` and `tasks/nebula-client.md`.
 
 ## Overview
 
@@ -1120,7 +1122,7 @@ These test the full flow through the Worker router (not just RPC wiring tested i
 - No separate vitest project needed — existing project already has SELF + DO bindings; `Browser` from `@lumenize/testing` auto-detects `SELF.fetch`
 - `testTimeout` increased from 2s → 5s in `vitest.config.js` — delegation tests with multiple `fullLogin` calls were flaky at 2s
 
-### Phase 7: README
+### Phase 7: README — DONE
 
 `packages/nebula-auth/README.md` is the living reference — expected to stay current with the implementation (unlike the archived task file which is a snapshot of intent).
 
@@ -1143,35 +1145,11 @@ No website docs — this is a single-deployment BSL 1.1 package, not a public to
 
 ---
 
-## Follow-On Work (Out of Scope)
+## Follow-On Work
 
-The following are important notes for when we finish `@lumenize/nebula-auth` and start on `@lumenize/nebula` proper.
-
-### `callContext` Upgrade
-
-The `starId` will be in the `instanceName` property of `callContext.callChain[0]` if the call originated from a Client. However, you can create a new callChain with `{ newCallChain: true }` and calls might originate from a non-Client, like in an alarm handler, so we need another immutable property in callContext for `starId` that is available in all three node mesh types. A particular mesh DO will keep it in storage and will only ever be part of one `starId`. Same thing for Client/Gateway but it's kept in the WebSocket attachment instead of DO storage. For Workers, the `starId` will come from the caller, and outgoing calls will have to propagate that.
-
-My first thought on how to accomplish this is with NebulaDO, NebulaWorker, NebulaClient, and NebulaClientGateway classes that extend the Lumenize* equivalents and override the default onBeforeCall, callContext, and maybe even call itself so only calls within the same `starId` will be allowed. Remember, users won't be extending these and deploying them.
-
-### NebulaClient Adaptation
-
-`NebulaClient` tracks two scopes: the **auth scope** (for refresh cookie path matching) and the **active scope** (the DO it's connected to). For regular users these are the same; for admins with wildcard JWTs they can differ. See `tasks/nebula-client.md` § Two-Scope Model for details.
-
-### Email Domain Auto-Approval
-
-An admin can configure email domains (e.g., `acme-corp.com`) that are automatically approved — any user who logs in with a matching email gets `adminApproved: true` without manual admin action. This removes the approval step for organizations where email ownership is sufficient proof of membership.
-
-**Design notes:**
-- A disallow list prevents adding common public email domains (gmail.com, yahoo.com, outlook.com, etc.)
-- No burdensome domain verification (DNS TXT record, etc.) is required. The admin is opening access to their own instance — they are only potentially hurting themselves, so we can trust them until there's a problem.
-- Stored in the DO instance's SQLite: an `AutoApprovedDomains` table with `domain TEXT PK` and `createdAt INTEGER`
-- The magic link login flow checks auto-approved domains after verifying the email, before the admin approval gate
-- Multiple instances can independently list the same domain — each DO is self-contained, so `acme.crm.tenant-a` and `bigco.hr.tenant-b` can both auto-approve `example.com` without conflict
-
-### Email Template Customization
-
-Universe, galaxy, and star admins will need to customize the name and logo shown in auth emails (magic link, invite). Initial implementation ships with Nebula default branding. Customization requires storing per-instance branding config (name, logo URL) in the `NebulaAuth` DO's SQLite and injecting it into email templates at render time. The branding config could cascade: star inherits from galaxy, galaxy from universe, with overrides at each level.
-
-### Billing Infrastructure
-
-Usage tracking per `galaxy.star`, monthly report generation, Universe-level billing formulas via DWL/webhooks.
+Moved to their new homes:
+- **`callContext` Upgrade** → `tasks/nebula.md` § Follow-On from nebula-auth
+- **NebulaClient Adaptation** → Already covered in `tasks/nebula-client.md` § Two-Scope Model
+- **Email Domain Auto-Approval** → `tasks/nebula.md` § Follow-On from nebula-auth
+- **Email Template Customization** → `tasks/nebula.md` § Follow-On from nebula-auth
+- **Billing Infrastructure** → `tasks/nebula.md` § Follow-On from nebula-auth

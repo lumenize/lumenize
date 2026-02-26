@@ -56,6 +56,3 @@ export {
   NEBULA_AUTH_ISSUER,
   NEBULA_AUTH_AUDIENCE,
 } from './types';
-
-// Auth hooks for routeDORequest
-export { createRouteDORequestNebulaAuthHooks } from './hooks';

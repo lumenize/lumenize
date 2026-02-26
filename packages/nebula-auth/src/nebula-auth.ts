@@ -233,8 +233,8 @@ export class NebulaAuth extends DurableObject {
     const expiresAt = Date.now() + (MAGIC_LINK_TTL * 1000);
 
     this.#sql`
-      INSERT INTO MagicLinks (token, email, expiresAt, used)
-      VALUES (${token}, ${email}, ${expiresAt}, 0)
+      INSERT INTO MagicLinks (token, email, expiresAt)
+      VALUES (${token}, ${email}, ${expiresAt})
     `;
 
     const baseUrl = url.origin;
@@ -280,7 +280,7 @@ export class NebulaAuth extends DurableObject {
     }
 
     const rows = this.#sql`
-      SELECT token, email, expiresAt, used
+      SELECT token, email, expiresAt
       FROM MagicLinks
       WHERE token = ${token}
     ` as MagicLink[];
@@ -293,11 +293,8 @@ export class NebulaAuth extends DurableObject {
 
     const magicLink = rows[0];
 
-    if (magicLink.used) {
-      const auditLog = debug('nebula-auth.NebulaAuth.login.failed');
-      auditLog.warn('Used magic link token', { reason: 'token_used', email: magicLink.email });
-      return this.#redirectWithError('token_used');
-    }
+    // No `used` check needed — tokens are deleted on use (line below),
+    // so a reused token will hit the rows.length === 0 branch above.
 
     if (Date.now() > magicLink.expiresAt) {
       const auditLog = debug('nebula-auth.NebulaAuth.login.failed');
@@ -1043,8 +1040,8 @@ export class NebulaAuth extends DurableObject {
     const expiresAt = Date.now() + (MAGIC_LINK_TTL * 1000);
 
     this.#sql`
-      INSERT INTO MagicLinks (token, email, expiresAt, used)
-      VALUES (${token}, ${normalizedEmail}, ${expiresAt}, 0)
+      INSERT INTO MagicLinks (token, email, expiresAt)
+      VALUES (${token}, ${normalizedEmail}, ${expiresAt})
     `;
 
     const magicLinkUrl = `${origin}${this.#prefix}/${instanceName}/magic-link?one_time_token=${token}`;
