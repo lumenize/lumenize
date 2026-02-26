@@ -11,13 +11,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Combined effect**: For most projects, the test harness becomes a single line — no `doClassNames`, no manual re-exports. Manual config only needed when auto-detection genuinely can't determine what to do.
   - **Location**: `packages/testing/src/instrument-do-project.ts` — `autoDetectDOClasses()` function (lines 31-46) and result assembly (lines 192-202)
 
-## Package Maintenance
-
-- [ ] Rename `@lumenize/utils` → `@lumenize/routing`
-  - After Browser moves to `@lumenize/testing` (see `tasks/upgrade-browser-with-storage-apis.md`), only DO routing modules remain: `route-do-request`, `parse-pathname`, `get-do-namespace-from-path-segment`, `get-do-stub`, `is-durable-object-id`, plus `websocket-utils` (15 lines) and `metrics` (55 lines, types only)
-  - Mechanical change: update package name, update all imports across monorepo (`@lumenize/utils` → `@lumenize/routing`)
-  - Also update the `routeAgentRequest` convenience wrapper in index.ts
-
 ## Lumenize Mesh
 
 - [ ] Add successful token refresh lifecycle test to mesh test suite — with real cookies
@@ -95,10 +88,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Fanout experiment**: Create test that fans out to N parallel calls, measure limits
   - **Outcome**: Document findings, adjust `maxDepth` default if needed, document workarounds
 
-- [ ] ~~Implement generic pub/sub between mesh nodes~~ → Subsumed by `tasks/mesh-resources.md`
-
-- [ ] ~~Refactor getting-started guide to use native pub/sub once implemented~~ → Covered by `tasks/mesh-resources.md` Phase 6
-
 - [ ] Experiment: make all `lmz.call()` with response handlers automatically use two one-way pattern
   - **Idea**: Instead of awaiting under the covers (which opens input gates and incurs wall-clock billing), `lmz.call()` with a response handler (4th param) would always fire-and-forget and have the callee call back with the result + handler continuation
   - **Key question**: Does the second hop add meaningful latency, or is it microseconds within a Cloudflare colo?
@@ -129,22 +118,11 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Consider expanding NADIS to LumenizeClient and/or LumenizeWorker. Right now, I can't think of a compelling reason for it. Alarms, sql, and fetch.proxy are all DO specific. However, debug is not.
 
-- [ ] Consider LumenizeSubClient pattern for multiplexing multiple "resources" over a single LumenizeClient connection
-  - **Problem**: Each LumenizeClient has its own WebSocket, Gateway, token refresh — inefficient when editing multiple documents
-  - **Current approach**: User code maintains a registry and routes incoming calls by id (see getting-started guide)
-  - **Future consideration**: If pattern proves common, consider building routing/registry into LumenizeClient base class
-
 - [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
 
 ## LumenizeDO NADIS modules
 
 - [ ] mcp
-- [ ] per-resource pub/sub
-- [ ] Fanout broadcast service
-      The first "tier" should actually be instantiating the class in the originator of the fan-out. The subsequent tiers would be armies of stand-alone LumenizeWorkers. You'd pass the list of receipients and the message into the local instance, and it would figure out how to tier it. We'd have to do experiments and update the learning periodically as Cloudflare evolved things to determine the optimal number of nodes to fan out to in each tier. 
-
-      Maybe an algorithm like this. If it were between 64 and 4,096 (64^2) nodes, then take the square root, so 8 to 64 fanout in each tier. Any list shorter than 64 gets done in one shot. Between 4,096 and 262,144 (64^3), it would be three tiers of 8 to 64 each taking the cube root of the count. I doubt we want to even allow up to 262,144 so I don't think we'll ever need a fourth tier, but maybe 10,000 is possible?
-
 
 ## Testing & Quality
 
@@ -255,35 +233,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Add MCP server for docs
   
-- [ ] Consider adding this to BSL and maybe other licenses:
-        The Software, or any part of it, including its source code, may not be used
-        to create, train, or improve any artificial intelligence or machine learning
-        models or systems, or to generate any datasets, without the express written
-        permission of the copyright holder(s).
-
 ## Future bigger things
-
-- [ ] Lumenize Auth now supports delegation from one human subject to another human subject. Upgrade to support non-human subjects (agents in particular)
-- [ ] Consider adding an additional flag to Lumenize Auth for admins to opt out of getting an email when a self-signup occurs. Maybe even have a flag that supresses all admin emails. Assumes the system implements a dashboard or some other mechanism for approving.
-
-- [ ] Debounce admin notification emails on repeated self-signup logins
-  - **Problem**: If a user requests a new magic link N times and clicks each, admins get N notification emails with the same approve link
-  - **Options**: Track "notification sent" flag per subject (column or KV), or deduplicate by approve URL within a time window
-  - **Priority**: Low — admins just get duplicate emails with the same approve link, no security issue
-
-- [ ] Consider adding DPoP (RFC 9449) as opt-in sender-constrained token binding
-  - **What**: DPoP binds tokens to a client-generated key pair so stolen tokens are unusable without the private key
-  - **Why**: Complements refresh token rotation — rotation detects reuse, DPoP makes exfiltrated tokens inert. Strongest against token leaks from logs, network, or limited XSS
-  - Consider reverting refresh token rotation once this is published
-  - **Scope**: Browser generates ECDSA P-256 key pair (non-extractable), sends signed DPoP proof JWT with each request. Server stamps key thumbprint into access token `cnf.jkt` claim, validates proof on each request
-  - **Ecosystem**: RFC 9449 finalized, Okta GA, Auth0 Early Access, Keycloak 26.4 GA. `panva/dpop` and `panva/jose` libraries work in both browser and Cloudflare Workers
-  - **Limitation**: Does not protect against full XSS (attacker can use the non-extractable key to sign proofs in-page). True hardware-bound keys await Device Bound Session Credentials (DBSC, W3C proposal)
-  - **Implementation**: ~100 lines client-side (or use `dpop` package), server-side proof validation + jti replay tracking in DO SQL storage
-
-- [ ] Add configurable redirect behavior for auth error scenarios
-  - **Current state**: `LUMENIZE_AUTH_REDIRECT` is the only redirect target, used for both success (post-login) and errors (approve endpoint unauthenticated). The approve endpoint redirects to `{redirect}?error=login_required` but the frontend has no convention for handling this.
-  - **Consider**: Separate config options like `LUMENIZE_AUTH_ERROR_REDIRECT` or `LUMENIZE_AUTH_LOGIN_URL`, with a convention for query params (`?error=<code>&return_to=<url>`). Would let the approve endpoint redirect to the login page with a return URL, so after re-auth the admin lands back on the approve link.
-  - **Related**: Other browser-facing error scenarios (expired magic link redirects to `{redirect}?error=token_expired`) would also benefit from a dedicated error redirect.
 
 - [ ] Consider switching MCP subscriptions to keying off of the original request id rather than rely upon session id
 
