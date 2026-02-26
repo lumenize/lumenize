@@ -581,23 +581,22 @@ The `nebula-platform` instance goes through the normal magic link flow including
 ## Exports
 
 ```typescript
-// DO classes
+// DO classes (needed for wrangler bindings in consuming projects)
 export { NebulaAuth } from './nebula-auth';
-export { NebulaAuthRegistry, RegistryError } from './nebula-auth-registry';
+export { NebulaAuthRegistry } from './nebula-auth-registry';
 
-// Worker router
-export { default as NebulaWorker, handleRequest } from './nebula-worker';
-
-// Email sender
+// Email sender (WorkerEntrypoint for service binding)
 export { NebulaEmailSender } from './nebula-email-sender';
 
-// SQL schemas
-export { ALL_SCHEMAS, REGISTRY_SCHEMAS } from './schemas';
+// Router entry point — the primary export for composing into a parent Worker
+export { routeNebulaAuthRequest } from './router';
 
 // universeGalaxyStarId parsing and access matching
 export { parseId, isValidSlug, isPlatformInstance, getParentId, buildAccessId, matchAccess } from './parse-id';
 
-// Types and constants (see sections above for details)
+// Types: Tier, ParsedId, AccessEntry, NebulaJwtPayload, Subject, DiscoveryEntry
+// Constants: PLATFORM_INSTANCE_NAME, REGISTRY_INSTANCE_NAME, NEBULA_AUTH_PREFIX,
+//            ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER, NEBULA_AUTH_AUDIENCE
 ```
 
 ## License

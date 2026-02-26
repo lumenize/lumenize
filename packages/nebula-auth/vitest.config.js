@@ -37,7 +37,7 @@ export default defineWorkersConfig({
           exclude: ['test/e2e-email/**/*.test.ts'],
           poolOptions: {
             workers: {
-              wrangler: { configPath: './wrangler.jsonc' },
+              wrangler: { configPath: './test/wrangler.jsonc' },
               miniflare: {
                 bindings: {
                   NEBULA_AUTH_TEST_MODE: 'true',

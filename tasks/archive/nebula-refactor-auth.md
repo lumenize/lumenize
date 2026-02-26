@@ -1,7 +1,7 @@
 # Refactor Nebula Auth To Fit Within Nebula Proper
 
 **Phase**: 1
-**Status**: Pending
+**Status**: Complete
 **Package**: `@lumenize/nebula-auth`
 **Depends on**: Phase 0 (Nebula Auth — complete)
 **Master task file**: `tasks/nebula.md`
@@ -86,9 +86,9 @@ cd packages/nebula-auth && npx vitest run
 
 ## Success Criteria
 
-- [ ] `routeNebulaAuthRequest` is the primary named export (replaces `handleRequest`)
-- [ ] `wrangler.jsonc` and Worker with default export is in `test/`, not package root
-- [ ] `index.ts` exports only externally-needed items (no SQL schemas, no internal token types, no standalone Worker)
-- [ ] All 231 tests pass with no logic changes
-- [ ] `vitest.config.js` updated to find wrangler.jsonc in new location
-- [ ] `.dev.vars` symlink still works after wrangler.jsonc move
+- [x] `routeNebulaAuthRequest` is the primary named export (replaces `handleRequest`)
+- [x] `wrangler.jsonc` and Worker with default export is in `test/`, not package root
+- [x] `index.ts` exports only externally-needed items (no SQL schemas, no internal token types, no standalone Worker)
+- [x] All 231 tests pass with no logic changes
+- [x] `vitest.config.js` updated to find wrangler.jsonc in new location
+- [x] `.dev.vars` symlink still works after wrangler.jsonc move

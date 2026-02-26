@@ -50,7 +50,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | Phase | Name | Status | Task File |
 |-------|------|--------|-----------|
 | 0 | Nebula Auth | **Complete** | `tasks/archive/nebula-auth.md` |
-| 1 | Refactor Nebula Auth | Pending | `tasks/nebula-refactor-auth.md` |
+| 1 | Refactor Nebula Auth | **Complete** | `tasks/archive/nebula-refactor-auth.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | Cloudflare Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
