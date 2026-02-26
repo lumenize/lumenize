@@ -98,6 +98,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
+- [ ] Start using GitHub Releases
+
 - [ ] Consider further decoupling LumenizeClient token refresh from `@lumenize/auth`
   - Current design: `refresh: string | () => Promise<string>` (docs updated 2025-01-14)
   - String form: POST to endpoint, expects `{ access_token }` response (default: `/auth/refresh-token`)

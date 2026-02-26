@@ -30,7 +30,7 @@ After this phase:
   - Types needed by `packages/nebula/` — `NebulaJwtPayload`, `ParsedId`, `Tier`, `AccessEntry`, `Subject`, `DiscoveryEntry`, and possibly others
   - Utility functions needed externally — `parseId`, `matchAccess`, `buildAccessId`, `isValidSlug`
   - Constants needed externally — `NEBULA_AUTH_PREFIX`, `PLATFORM_INSTANCE_NAME`
-- The default Worker export (`NebulaWorker` class) is removed from `index.ts` — it was only useful for standalone deployment
+- The default Worker export (`NebulaWorker` class) is removed from `index.ts` — it was only useful for standalone deployment and moves down to next to wrangler.jsonc and is used only for testing
 - All existing tests continue to pass with no logic changes
 
 ## Specific Changes
@@ -73,7 +73,7 @@ Audit every export in `src/index.ts`. For each, decide: needed externally (keep)
 
 ### 4. Remove Standalone Default Worker Export
 
-The `export default { async fetch(request, env) { ... } }` pattern in `nebula-worker.ts` (or the `NebulaWorker` class) was for standalone deployment. Remove it from `index.ts`. The file itself can keep it for test convenience — the test harness can import it directly from the source file rather than through `index.ts`.
+The `export default { async fetch(request, env) { ... } }` pattern in `nebula-worker.ts` (or the `NebulaWorker` class) was for standalone deployment. Remove it from `index.ts`. The file itself can keep it for test convenience — the test harness can import it directly from the source file rather than through `index.ts`. The Worker with a default export is only for testing so should be on the same level as wrangler.jsonc
 
 ## Test Strategy
 
@@ -87,7 +87,7 @@ cd packages/nebula-auth && npx vitest run
 ## Success Criteria
 
 - [ ] `routeNebulaAuthRequest` is the primary named export (replaces `handleRequest`)
-- [ ] `wrangler.jsonc` is in `test/`, not package root
+- [ ] `wrangler.jsonc` and Worker with default export is in `test/`, not package root
 - [ ] `index.ts` exports only externally-needed items (no SQL schemas, no internal token types, no standalone Worker)
 - [ ] All 231 tests pass with no logic changes
 - [ ] `vitest.config.js` updated to find wrangler.jsonc in new location
