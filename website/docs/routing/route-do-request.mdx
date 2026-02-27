@@ -35,8 +35,13 @@ async fetch(request: Request, env: Env): Promise<Response> {
 ## URL Format
 
 Requests must follow this format:
+
 ```
-[/${prefix}]/${doBindingName}/${doInstanceNameOrId}[/path...]
+https://example.com[/{prefix}]/{doBindingName}/{doInstanceNameOrId}[/path...]
+                                └─┬─────────┘   └─────────┬──────┘
+                                  DO class binding name   Instance name or hex id
+                                  (kebab → smart match,   
+                                  otherwise exact)
 ```
 
 ## Instance ID Handling

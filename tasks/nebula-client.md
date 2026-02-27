@@ -1,9 +1,14 @@
 # Nebula Client
 
-**Package**: `@lumenize/nebula-client` (or part of `@lumenize/nebula`)
-**Depends on**: `@lumenize/nebula-auth`
+**Phase**: 7
+**Status**: Pending
+**App**: `apps/nebula/` (NebulaClient lives in the nebula app)
+**Depends on**: Phase 5 (Resources)
+**Master task file**: `tasks/nebula.md`
 
 > **Walled garden.** Nebula is a product, not a framework. NebulaClient is the only way to connect — there are no alternative routing setups, no "bring your own auth," no escape hatches. See `tasks/nebula.md` § Walled Garden for context.
+
+> **What moved to Phase 2**: The two-scope model (auth scope vs active scope), basic access token management (in-memory per tab), and admin scope switching are implemented in Phase 2 (`tasks/nebula-baseline-access-control.md`). This file covers what Phase 7 adds on top: discovery-first login flow, WebSocket keepalive, subscription management, and full scope switching UX.
 
 ## Login Flow (Discovery-First)
 
@@ -34,10 +39,9 @@ Every login goes through discovery. There is no scope-specific login page — th
 
 ## Access Token Management
 
-- Access tokens are stored **in memory per tab** (not localStorage, not cookies).
-- Each tab refreshes independently against its scope's refresh endpoint.
+> **Basics implemented in Phase 2**: In-memory per-tab storage and refresh against the auth scope's endpoint. This section covers what Phase 7 adds.
+
 - Access token TTL is ~15 minutes. Client refreshes proactively before expiry.
-- The `universeGalaxyStarId` determines which refresh endpoint to call: `{prefix}/{id}/refresh-token`.
 
 ---
 
@@ -55,13 +59,7 @@ NebulaClient sends pings every 25 seconds by default (not configurable). On the 
 
 ## Two-Scope Model
 
-NebulaClient tracks two distinct scopes:
-
-1. **Auth scope** — the `universeGalaxyStarId` the user authenticated against. Determines the refresh cookie path and the JWT issuer. A universe admin authenticates against `george-solopreneur` and gets a JWT with `access.id: "george-solopreneur.*"`.
-
-2. **Active scope** — the specific DO instance the client is connected to via WebSocket. That same universe admin might be interacting with `george-solopreneur.app.tenant-a` (a star-level DO).
-
-The JWT's wildcard matching lets one auth scope cover many active scopes. The client needs both: the auth scope for `POST {prefix}/{authScope}/refresh-token` (path-scoped cookie), and the active scope for the WebSocket connection URL.
+> **Implemented in Phase 2**: See `tasks/nebula-baseline-access-control.md` for the core two-scope model (auth scope vs active scope), admin scope switching, and basic tests. This section covers Phase 7 additions.
 
 ### How NebulaClient knows its scopes
 
@@ -69,13 +67,7 @@ The JWT's wildcard matching lets one auth scope cover many active scopes. The cl
 
 **Active scope** comes from the URL. Nebula's routing encodes the active scope in the URL path (e.g., `https://app.example.com/george-solopreneur/app/tenant-a/dashboard`). NebulaClient parses it automatically — the vibe coder never sets it manually.
 
-### When auth scope ≠ active scope
-
-This happens for admins. A universe admin's auth scope is `george-solopreneur` but they might navigate between stars: `george-solopreneur.app.tenant-a`, `george-solopreneur.app.tenant-b`, etc. The same JWT (with wildcard `george-solopreneur.*`) is valid for all of them. The client switches active scope without re-authenticating — it just opens a new WebSocket to a different DO.
-
-For regular users (non-admins, no wildcard), auth scope and active scope are always the same — they authenticated against the exact star they're using.
-
-### Scope switching
+### Scope switching (full UX)
 
 When the active scope changes (e.g., admin navigates to a different star):
 1. Disconnect from current DO (or keep the connection if multi-tab)
