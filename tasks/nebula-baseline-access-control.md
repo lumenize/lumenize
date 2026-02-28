@@ -8,7 +8,7 @@
 
 ## Goal
 
-Create `apps/nebula/` with three DO classes (`NebulaDO` base, `OrgDO`, `ResourceHistoryDO`), `NebulaClientGateway` (extends `LumenizeClientGateway` via Phase 1.5 hooks), `NebulaClient`, and the Worker entrypoint. Build a four-layer security model: entrypoint scope verification, Gateway star-scoping via `callContext.universeGalaxyStarId`, NebulaDO's `onBeforeCall` starId binding, and `@mesh(guard)` per-method authorization. Validate with dummy methods and abuse case testing through e2e tests using NebulaClient.
+Create `apps/nebula/` with three DO classes (`NebulaDO` base, `OrgDO`, `ResourceHistoryDO`), `NebulaClientGateway` (extends `LumenizeClientGateway` hooks), `NebulaClient`, and the Worker entrypoint. Build a four-layer security model: entrypoint scope verification, Gateway star-scoping via `callContext.universeGalaxyStarId`, NebulaDO's `onBeforeCall` starId binding, and `@mesh(guard)` per-method authorization. Validate with dummy methods and abuse case testing through e2e tests using NebulaClient.
 
 Much of what we build here will be replaced in Phase 3 (DAG tree) and Phase 5 (Resources), especially the tests and dummy methods.
 
@@ -52,7 +52,7 @@ Four layers, from outermost to innermost:
 | Layer | Where | What it checks |
 |-------|-------|----------------|
 | **Entrypoint** | `entrypoint.ts` | `matchAccess(jwt.access.id, starId)` — rejects before any DO is instantiated |
-| **NebulaClientGateway** | extends Gateway (Phase 1.5 hooks) | Bidirectional star enforcement: sets `callContext.universeGalaxyStarId` for client→DO calls; verifies starId match for DO→client calls before forwarding to client |
+| **NebulaClientGateway** | extends Gateway hooks | `onBeforeAccept`: validates `~`-delimited instanceName, extracts starId as claim. `onBeforeCallToMesh`: stamps starId onto callContext. `onBeforeCallToClient`: rejects calls whose callContext starId doesn't match the connected client's claim |
 | **NebulaDO.onBeforeCall()** | base class | Stores starId on first call, throws on mismatch — every Nebula DO gets this |
 | **`@mesh(guard)`** | subclass methods | Per-method authorization (requireAdmin, allowlist, etc.) |
 
@@ -81,30 +81,37 @@ export default {
 }
 ```
 
-`routeDORequest` handles both WebSocket upgrades and regular HTTP. Direct HTTP to NebulaDO subclasses returns 501 (LumenizeDO's default `fetch()`). This is safe because `onBeforeCall` rejects any call missing `universeGalaxyStarId` — direct HTTP never carries it. Phase 1.5 adds an `onRequest()` lifecycle hook to LumenizeDO (agents SDK pattern); Phase 5 uses it for real HTTP routing in Resources.
+`routeDORequest` handles both WebSocket upgrades and regular HTTP. Direct HTTP to NebulaDO subclasses returns 501 (LumenizeDO's default `onRequest`). This is safe because `onBeforeCall` rejects any call missing `universeGalaxyStarId` — direct HTTP never carries it. Phase 5 uses `onRequest()` for real HTTP routing in Resources.
 
 ### NebulaClientGateway (`nebula-client-gateway.ts`)
 
-Extends `LumenizeClientGateway` using the hooks added in Phase 1.5 (`tasks/mesh-extensibility.md`). ~50 lines of overrides instead of an ~800 line fork.
+Extends `LumenizeClientGateway` using the hooks from `tasks/mesh-extensibility.md`. ~50 lines of overrides instead of an ~800 line fork.
 
-**Overrides from LumenizeClientGateway:**
+**Hook overrides from LumenizeClientGateway:**
 
-1. **Instance name format**: `${sub}~${universeGalaxyStarId}~${tabId}` (using `~` delimiter instead of `.`). The `~` is URL-safe (RFC 3986 unreserved) and avoids ambiguity since starIds contain dots.
+1. **`onBeforeAccept` — instance name validation + claims**: Instance name format is `${sub}~${universeGalaxyStarId}~${tabId}` (using `~` delimiter instead of `.` because starIds contain dots). Parses on `~`, verifies three segments, checks sub matches JWT. Returns `{ universeGalaxyStarId: segments[1] }` as claims.
 
-2. **Instance name validation**: Parses on `~`, verifies three segments, checks sub matches JWT.
-
-3. **callContext enrichment (client → DO)**: When building the `CallContext` for downstream calls, adds `universeGalaxyStarId` parsed from its own instanceName:
+2. **`onBeforeCallToMesh` — callContext enrichment (client → DO)**: Adds `universeGalaxyStarId` as a top-level field on `callContext` (not in `state`, which is mutable). Like `callChain` and `originAuth`, top-level fields are immutable by convention — no DO along the call chain should modify them:
 
 ```typescript
-const callContext = {
-  callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
-  originAuth,
-  state: clientContext?.state ? postprocess(clientContext.state) : {},
-  universeGalaxyStarId: starId,  // parsed from own instanceName, immutable downstream
-};
+override onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayConnectionInfo): CallContext {
+  return {
+    ...baseContext,
+    universeGalaxyStarId: connectionInfo.claims?.universeGalaxyStarId,
+  } as NebulaCallContext;
+}
 ```
 
-4. **Star verification (DO → client)**: In Lumenize Mesh, clients are full peers — DOs can call methods on clients, not just the reverse. When a DO sends a call that the Gateway needs to forward to a client, the Gateway verifies that the incoming call's `callContext.universeGalaxyStarId` matches its own starId. Rejects on mismatch. This check must live in the Gateway (server-side trust boundary), not in NebulaClient, because the client is within the end-user's control.
+3. **`onBeforeCallToClient` — star verification (DO → client)**: In Lumenize Mesh, clients are full peers — DOs can call methods on clients, not just the reverse. When a DO sends a call that the Gateway needs to forward to a client, the hook compares the envelope's `callContext.universeGalaxyStarId` against `connectionInfo.claims.universeGalaxyStarId`. Rejects on mismatch. This check must live in the Gateway (server-side trust boundary), not in NebulaClient, because the client is within the end-user's control.
+
+```typescript
+override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+  const ctx = envelope.callContext as NebulaCallContext | undefined;
+  if (ctx?.universeGalaxyStarId !== connectionInfo.claims?.universeGalaxyStarId) {
+    throw new Error('Star scope mismatch on call to client');
+  }
+}
+```
 
 ### NebulaDO (`nebula-do.ts`)
 
@@ -130,9 +137,9 @@ export class NebulaDO extends LumenizeDO {
     }
   }
 
-  // No fetch() override — inherits LumenizeDO's 501 default.
+  // No onRequest() override — inherits LumenizeDO's 501 default.
   // Direct HTTP is safe: onBeforeCall rejects anything missing universeGalaxyStarId.
-  // Phase 1.5 adds onRequest() lifecycle hook to LumenizeDO; Phase 5 uses it.
+  // Phase 5 uses onRequest() for real HTTP routing in Resources.
 }
 ```
 
@@ -232,6 +239,7 @@ function requireAdmin(instance: NebulaDO) {
 
 import type { CallContext } from '@lumenize/mesh';
 
+/** CallContext with universeGalaxyStarId as top-level immutable field (set by NebulaClientGateway.onBeforeCallToMesh) */
 export interface NebulaCallContext extends CallContext {
   universeGalaxyStarId: string;
 }
@@ -275,7 +283,7 @@ Each test scenario:
 **DO → client star verification (Gateway bidirectional check)**:
 - Two clients connected to different stars: Client A on `acme.app.tenant-a`, Client B on `acme.app.tenant-b`
 - OrgDO on tenant-a calls a method on Client A through tenant-a's Gateway → Gateway forwards (starId matches)
-- OrgDO on tenant-a has a test method that attempts to call Client B through tenant-b's Gateway → callContext carries `universeGalaxyStarId: "acme.app.tenant-a"` but tenant-b's Gateway has starId `"acme.app.tenant-b"` → Gateway rejects before forwarding to client
+- OrgDO on tenant-a has a test method that attempts to call Client B through tenant-b's Gateway → `envelope.callContext.universeGalaxyStarId` is `"acme.app.tenant-a"` but `connectionInfo.claims.universeGalaxyStarId` is `"acme.app.tenant-b"` → `onBeforeCallToClient` rejects
 
 **Delegation**:
 - User with delegated access calls methods appropriate to their delegated role → succeeds
@@ -338,17 +346,17 @@ The test `wrangler.jsonc` needs:
 
 ## `callContext` Usage
 
-`NebulaClientGateway` sets `callContext.universeGalaxyStarId` when building the call context for downstream DOs. This field is parsed from the Gateway's own instanceName (the `~`-delimited middle segment) and carried immutably through the entire call chain.
+`NebulaClientGateway` adds `universeGalaxyStarId` as a top-level field on `callContext` via `onBeforeCallToMesh`. The value originates from `onBeforeAccept`, which parses the `~`-delimited instanceName and returns `{ universeGalaxyStarId }` as a claim. `onBeforeCallToMesh` reads it from `connectionInfo.claims` and sets it directly on the callContext (not in `state`, which is mutable and could be tampered with by any DO along the call chain). `onBeforeCallToClient` reads it from `connectionInfo.claims` when validating DO→client hops in a callChain.
 
-Guards and `onBeforeCall()` read JWT claims directly from `callContext.originAuth`. `callContext.state` is available for derived values but isn't needed in this phase.
+Guards and `onBeforeCall()` read JWT claims from `callContext.originAuth` and the starId from `callContext.universeGalaxyStarId`.
 
 ## Implementation Notes from Security Review
 
-**1. Claims mapping mismatch (NebulaClientGateway).** `LumenizeClientGateway`'s default `onBeforeAccept` maps `payload.isAdmin` and `payload.emailVerified`, but nebula-auth's JWT has `access.admin` (nested) and `email` (not `emailVerified`). `NebulaClientGateway` overrides `onBeforeAccept` (Phase 1.5 hook) to correctly map nebula-auth's JWT shape. Either include `access` in claims and have guards check `claims.access.admin`, or map `access.admin` → `isAdmin` for guard convenience.
+**1. Claims mapping mismatch (NebulaClientGateway).** `LumenizeClientGateway`'s default `onBeforeAccept` maps `payload.isAdmin` and `payload.emailVerified`, but nebula-auth's JWT has `access.admin` (nested) and `email` (not `emailVerified`). `NebulaClientGateway` overrides `onBeforeAccept` to include `access` in claims directly — Nebula guards read `claims.access.admin` rather than a re-mapped `isAdmin`.
 
 **2. Null guard on `universeGalaxyStarId` in `onBeforeCall`.** If a call reaches a NebulaDO without going through the Gateway (bug, direct RPC from a non-Nebula DO), `universeGalaxyStarId` would be `undefined`. Without a null check, the first call would silently store `undefined` and all subsequent undefined calls would pass — defeating the starId binding. Add `if (!starId) throw new Error('Missing universeGalaxyStarId')` at the top of `onBeforeCall`.
 
-**3. Direct HTTP to DO bindings bypasses entrypoint scope check.** `routeDORequest` routes to any configured binding. The entrypoint's `verifyGatewayScope()` only checks Gateway routes. A crafted HTTP request targeting `/org-do/...` would skip the scope check. `routeDORequest` already supports `onBeforeRequest`/`onBeforeConnect` hooks — use them in the entrypoint to restrict public access to only the Gateway binding. Direct HTTP is additionally safe because `onBeforeCall` rejects any call missing `universeGalaxyStarId` — the inherited 501 from LumenizeDO's default `fetch()` is sufficient for this phase. Phase 1.5 adds an `onRequest()` lifecycle hook to LumenizeDO (agents SDK pattern); Phase 5 uses it for real HTTP routing in Resources.
+**3. Direct HTTP to DO bindings bypasses entrypoint scope check.** `routeDORequest` routes to any configured binding. The entrypoint's `verifyGatewayScope()` only checks Gateway routes. A crafted HTTP request targeting `/org-do/...` would skip the scope check. `routeDORequest` already supports `onBeforeRequest`/`onBeforeConnect` hooks — use them in the entrypoint to restrict public access to only the Gateway binding. Direct HTTP is additionally safe because `onBeforeCall` rejects any call missing `universeGalaxyStarId` — the inherited 501 from LumenizeDO's default `onRequest` (returns "Not Implemented: override onRequest() to handle HTTP requests") is sufficient for this phase. Phase 5 uses `onRequest()` for real HTTP routing in Resources.
 
 **4. `~` delimiter injection in Gateway instanceName.** The client controls the `tabId` segment. If it contains `~`, parsing would produce more than 3 segments. Split on `~` and reject if segment count ≠ 3. Add an abuse case test for this.
 
@@ -365,7 +373,7 @@ Guards and `onBeforeCall()` read JWT claims directly from `callContext.originAut
 ## Success Criteria
 
 - [ ] `apps/nebula/` exists with `NebulaDO`, `OrgDO`, `ResourceHistoryDO`, `NebulaClientGateway`, `NebulaClient`, `entrypoint.ts`, and guards
-- [ ] `NebulaClientGateway` extends `LumenizeClientGateway` (via Phase 1.5 hooks) with `~`-delimited instanceName, `callContext.universeGalaxyStarId`, and bidirectional star verification
+- [ ] `NebulaClientGateway` extends `LumenizeClientGateway` hooks with `~`-delimited instanceName, `callContext.universeGalaxyStarId`, and bidirectional star verification via `connectionInfo.claims`
 - [ ] Entrypoint verifies JWT scope covers the requested star before routing to Gateway
 - [ ] `NebulaDO.onBeforeCall()` permanently binds each DO instance to its creating star (store on first call, throw on mismatch)
 - [ ] StarId binding works for both singleton DOs (OrgDO, instanceName = starId) and UUID-named DOs (ResourceHistoryDO)

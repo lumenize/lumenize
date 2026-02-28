@@ -198,7 +198,11 @@ The Gateway decodes the JWT payload (without re-verifying the signature) and ext
 
 If the `Authorization` header is missing or the JWT lacks a `sub` claim, the Gateway rejects the WebSocket upgrade with 401.
 
-**Instance name format requirement**: The Gateway instance name must follow the format `{sub}.{tabId}`, where `sub` matches the JWT subject claim. The Gateway validates this — if the instance name prefix doesn't match the JWT `sub`, the connection is rejected with 403. This helps prevent connection hijacking where an attacker with a valid token for their own `sub` tries to connect to someone else's Gateway instance.
+**Instance name format requirement**: The default Gateway validates that the instance name follows `{sub}.{tabId}` format, where `sub` matches the JWT subject claim. If the prefix doesn't match, the connection is rejected with 403. This prevents connection hijacking where an attacker with a valid token tries to connect to someone else's Gateway instance.
+
+:::tip Customizing connection validation and claims
+If your application uses a different instance name format or extracts different JWT claims, override [`onBeforeAccept`](./gateway#onbeforeacceptinstancename-sub-jwtpayload) in a Gateway subclass. You can also use [`onBeforeCallToMesh`](./gateway#onbeforecalltomeshbasecontext-connectioninfo) to enrich `CallContext` with security-critical fields — add them as top-level properties (not in `state`) so they're immutable by convention. See [Gateway: Extensibility](./gateway#extensibility) for the full API and examples.
+:::
 
 :::warning Never trust client-provided tokens
 Your `onBeforeConnect` hook must **verify** the JWT before forwarding — never pass through an unverified token. Attackers can send any token they want.

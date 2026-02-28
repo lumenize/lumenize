@@ -176,6 +176,16 @@ interface WebSocketAttachment {
   instanceName?: string;
 }
 
+/**
+ * Public-facing identity subset of the WebSocket attachment.
+ * Passed to `onBeforeCallToMesh` — excludes protocol fields (`tokenExp`, `connectedAt`).
+ */
+export interface GatewayConnectionInfo {
+  sub: string;
+  instanceName?: string;
+  claims?: Record<string, unknown>;
+}
+
 // ============================================
 // Internal Types
 // ============================================
@@ -226,6 +236,76 @@ export class LumenizeClientGateway extends DurableObject<any> {
   /** Waiters for client reconnection during grace period */
   #pendingReconnectWaiters: ReconnectWaiter[] = [];
 
+  // ============================================
+  // Extension Points (subclass overrides)
+  // ============================================
+
+  /**
+   * Binding name used in `verifiedOrigin` and caller metadata.
+   * Override in subclasses that register their Gateway under a different binding.
+   */
+  protected gatewayBindingName = 'LUMENIZE_CLIENT_GATEWAY';
+
+  /**
+   * Connection-time hook: validate instance name and extract claims.
+   *
+   * Called during WebSocket upgrade after JWT decoding. The base class has
+   * already extracted `sub` and `tokenExp` (protocol-level concerns).
+   *
+   * @returns `Response` to reject the upgrade, `Record` to store as claims,
+   *          or `undefined` to proceed with no claims.
+   */
+  onBeforeAccept(
+    instanceName: string,
+    sub: string,
+    jwtPayload: Record<string, unknown>
+  ): Response | Record<string, unknown> | undefined {
+    // Validate instance name format: {sub}.{tabId}
+    const dotIndex = instanceName.indexOf('.');
+    if (dotIndex === -1) {
+      return new Response('Forbidden: invalid instance name format (expected sub.tabId)', { status: 403 });
+    }
+    if (instanceName.substring(0, dotIndex) !== sub) {
+      return new Response('Forbidden: identity mismatch', { status: 403 });
+    }
+
+    // Extract claims
+    return {
+      emailVerified: jwtPayload.emailVerified,
+      adminApproved: jwtPayload.adminApproved,
+      ...(jwtPayload.isAdmin ? { isAdmin: jwtPayload.isAdmin } : {}),
+      ...(jwtPayload.act ? { act: jwtPayload.act } : {}),
+    };
+  }
+
+  /**
+   * Pre-dispatch hook: enrich the CallContext before a client call is routed to a DO.
+   *
+   * Called from `#handleClientCall` after building the base CallContext.
+   * Return the (possibly enriched) CallContext.
+   */
+  onBeforeCallToMesh(
+    baseContext: CallContext,
+    connectionInfo: GatewayConnectionInfo
+  ): CallContext {
+    return baseContext;
+  }
+
+  /**
+   * Pre-forward hook: validate a DO-initiated call before forwarding to the client.
+   *
+   * Called from `__executeOperation` before the call is sent over WebSocket.
+   * `connectionInfo` carries the connected client's verified identity and claims.
+   * Throw to reject the call (error is wrapped as `{ $error }` for RPC).
+   */
+  onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+    // No validation by default
+  }
+
+  // ============================================
+  // Lifecycle Methods
+  // ============================================
+
   /**
    * Handle incoming HTTP requests (primarily WebSocket upgrades)
    */
@@ -248,21 +328,14 @@ export class LumenizeClientGateway extends DurableObject<any> {
     // Decode JWT payload (no verification needed — Worker hooks already verified)
     const jwtToken = authHeader.slice(7); // Strip 'Bearer '
     let sub: string;
-    let claims: Record<string, unknown> | undefined;
+    let jwtPayload: Record<string, unknown>;
     let tokenExp: number | undefined;
     try {
       const payloadB64 = jwtToken.split('.')[1];
       const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
-      const payload = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
-      sub = payload.sub;
-      tokenExp = payload.exp;
-      // Carry relevant claims for originAuth
-      claims = {
-        emailVerified: payload.emailVerified,
-        adminApproved: payload.adminApproved,
-        ...(payload.isAdmin ? { isAdmin: payload.isAdmin } : {}),
-        ...(payload.act ? { act: payload.act } : {}),
-      };
+      jwtPayload = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
+      sub = jwtPayload.sub as string;
+      tokenExp = jwtPayload.exp as number | undefined;
     } catch (e) {
       log.warn('Failed to decode JWT from Authorization header');
       return new Response('Unauthorized: invalid token', { status: 401 });
@@ -276,29 +349,19 @@ export class LumenizeClientGateway extends DurableObject<any> {
     // Extract instance name from routing headers (set by routeDORequest)
     const instanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
 
-    // Validate identity matches Gateway instance name (security check)
-    // Gateway instance name MUST follow format: {sub}.{tabId}
-    // This prevents reconnection hijacking during the 5-second grace period
     if (!instanceName) {
       log.warn('WebSocket upgrade rejected: missing instance name header');
       return new Response('Forbidden: missing instance name', { status: 403 });
     }
 
-    const dotIndex = instanceName.indexOf('.');
-    if (dotIndex === -1) {
-      log.warn('Invalid instance name format', { instanceName, expected: '{sub}.{tabId}' });
-      return new Response('Forbidden: invalid instance name format (expected sub.tabId)', { status: 403 });
+    // Delegate instance name validation + claims extraction to hook
+    const hookResult = this.onBeforeAccept(instanceName, sub, jwtPayload);
+
+    if (hookResult instanceof Response) {
+      return hookResult;
     }
 
-    const instanceSub = instanceName.substring(0, dotIndex);
-    if (instanceSub !== sub) {
-      log.warn('Identity mismatch: sub does not match instance name prefix', {
-        sub,
-        instanceSub,
-        instanceName
-      });
-      return new Response('Forbidden: identity mismatch', { status: 403 });
-    }
+    const claims: Record<string, unknown> | undefined = hookResult ?? undefined;
 
     // Determine if client needs to (re)establish subscriptions
     const subscriptionRequired = await this.#isSubscriptionRequired();
@@ -502,6 +565,18 @@ export class LumenizeClientGateway extends DurableObject<any> {
       )) };
     }
 
+    // Let subclass validate/reject the incoming call before forwarding
+    const connectionInfo: GatewayConnectionInfo = {
+      sub: attachment?.sub ?? '',
+      instanceName: attachment?.instanceName,
+      claims: attachment?.claims,
+    };
+    try {
+      this.onBeforeCallToClient(envelope, connectionInfo);
+    } catch (error) {
+      return { $error: preprocess(error) };
+    }
+
     // Forward call to client and wait for response
     // Return wrapped result/error for Workers RPC compatibility
     try {
@@ -532,7 +607,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // This replaces whatever the client sent - Gateway is the trust boundary
       const verifiedOrigin: NodeIdentity = {
         type: 'LumenizeClient',
-        bindingName: 'LUMENIZE_CLIENT_GATEWAY', // Clients connect through Gateway binding
+        bindingName: this.gatewayBindingName,
         instanceName: attachment?.instanceName,
       };
 
@@ -548,11 +623,19 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
       // State is preprocessed by client for WebSocket - postprocess for Workers RPC
       const clientCallChain = clientContext?.callChain ?? [];
-      const callContext: CallContext = {
+      const baseContext: CallContext = {
         callChain: [verifiedOrigin, ...clientCallChain.slice(1)],
         originAuth,
         state: clientContext?.state ? postprocess(clientContext.state) : {},
       };
+
+      // Let subclass enrich context (e.g., inject claims into state)
+      const connectionInfo: GatewayConnectionInfo = {
+        sub: attachment?.sub ?? '',
+        instanceName: attachment?.instanceName,
+        claims: attachment?.claims,
+      };
+      const callContext = this.onBeforeCallToMesh(baseContext, connectionInfo);
 
       // Determine callee type for metadata
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
@@ -565,7 +648,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
         metadata: {
           caller: {
             type: 'LumenizeClient',
-            bindingName: 'LUMENIZE_CLIENT_GATEWAY',
+            bindingName: this.gatewayBindingName,
             instanceName: attachment?.instanceName,
           },
           callee: {

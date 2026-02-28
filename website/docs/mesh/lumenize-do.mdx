@@ -127,10 +127,60 @@ In the wrong example, the `await` opens the input gate, allowing another request
 
 Test DOs using `@lumenize/testing` with **tunneling** — direct access to DO internals from your test. See **[@lumenize/testing](/docs/testing/usage)** for complete patterns including browser simulation, WebSocket testing, and multi-instance scenarios.
 
-## `onStart` Lifecycle Hook
+## Lifecycle Hooks
 
-Override `async onStart()` for initialization instead of writing a custom constructor. It's automatically wrapped in `blockConcurrencyWhile`, guaranteeing it completes before the DO handles any requests — perfect for creating tables, loading config with a fetch, or other things you would normally do in a constructor.
+LumenizeDO provides lifecycle hooks so subclasses can customize behavior at specific points without overriding the constructor or `fetch()`. The base class owns the invariants (identity initialization, concurrency control, etc.) and calls your hook at the right moment.
+
+| Hook | When it runs | Sync/Async |
+|------|-------------|------------|
+| `onStart()` | During construction, before any requests | async (in `blockConcurrencyWhile`) |
+| `onRequest(request)` | On HTTP requests, after identity initialization | sync |
+
+### `onStart()`
+
+Override for initialization — creating tables, loading config, or anything you'd normally do in a constructor. Automatically wrapped in `blockConcurrencyWhile`, guaranteeing it completes before the DO handles any `fetch()`, `alarm()`, RPC calls, etc.
+
+```typescript @skip-check-approved('conceptual')
+onStart?(): Promise<void>
+```
+
+```typescript @skip-check-approved('conceptual')
+class MyDO extends LumenizeDO<Env> {
+  async onStart() {
+    const res = await fetch('https://cfg.example.com/init');
+    this.ctx.storage.kv.put('config', await res.json());
+  }
+}
+```
+
+### `onRequest(request)`
+
+Optional synchronous HTTP request handler. Called after identity initialization, so `this.lmz.instanceName` and `this.lmz.bindingName` are available. If not implemented, the DO returns 501 for HTTP requests.
+
+```typescript @skip-check-approved('conceptual')
+onRequest?(request: Request): Response
+```
+
+```typescript @skip-check
+class StatusDO extends LumenizeDO<Env> {
+  onRequest(request: Request): Response {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith('/who-is-this')) {
+      return Response.json({ name: this.lmz.instanceName, binding: this.lmz.bindingName });
+    }
+    return new Response('Not Found', { status: 404 });
+  }
+}
+```
+
+:::tip Use `onRequest` — don't override `fetch()`
+Overriding `fetch()` would skip identity initialization and not assure that `this.lmz` is ready. `onRequest` is synchronous by design. Use [calls](./calls) for dispatching work from a sync context.
+:::
+
+### `onBeforeCall()`
+
+Class-wide access control hook that runs before every incoming mesh call. See [Security: Access Control](./security#access-control) for patterns and examples.
 
 ## API Reference
 
-See [Mesh API](./mesh-api) for the full `LumenizeDO` class reference including `ctx`, `env`, `svc`, `lmz`, `onStart()`, `onBeforeCall()`, and `ctn<T>()`.
+See [Mesh API](./mesh-api) for the full `LumenizeDO` class reference including `ctx`, `env`, `svc`, `lmz`, `onStart()`, `onBeforeCall()`, `onRequest()`, and `ctn<T>()`.

@@ -65,7 +65,7 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
 
     ctx.blockConcurrencyWhile(async () => {
       // Call onStart() if subclass defines it
-      if (this.onStart !== LumenizeDO.prototype.onStart) {
+      if (this.onStart) {
         try {
           await this.onStart();
         } catch (error) {
@@ -99,34 +99,14 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Lifecycle hook for async initialization
+   * Optional async initialization hook
    *
-   * Override this method to perform initialization that needs to complete
-   * before the DO handles any requests. Common uses:
-   * - Database schema migrations (`CREATE TABLE IF NOT EXISTS`)
-   * - Loading configuration from storage
-   * - Setting up initial state
+   * Override to perform initialization before the DO handles any requests.
+   * Automatically wrapped in `blockConcurrencyWhile`.
    *
-   * This method is automatically wrapped in `blockConcurrencyWhile`, ensuring
-   * it completes before fetch(), alarm(), or any RPC calls are processed.
-   *
-   * @example
-   * ```typescript
-   * class UsersDO extends LumenizeDO<Env> {
-   *   async onStart() {
-   *     this.svc.sql`
-   *       CREATE TABLE IF NOT EXISTS users (
-   *         id TEXT PRIMARY KEY,
-   *         name TEXT NOT NULL
-   *       )
-   *     `;
-   *   }
-   * }
-   * ```
+   * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
    */
-  async onStart(): Promise<void> {
-    // Default: no-op. Subclasses override this for initialization.
-  }
+  onStart?(): Promise<void>;
 
   /**
    * Alarm lifecycle handler - delegates to built-in alarms service
@@ -197,30 +177,20 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Default fetch handler that auto-initializes DO metadata from headers
-   * 
-   * This handler automatically reads `x-lumenize-do-binding-name` and
-   * `x-lumenize-do-instance-name-or-id` headers (set by routeDORequest)
-   * and stores them for use by this.lmz.call() and other services.
-   * 
-   * Subclasses should call `super.fetch(request)` at the start of their
-   * fetch handler to enable auto-initialization:
-   * 
-   * @param request - The incoming HTTP request
-   * @returns HTTP 501 Not Implemented (subclasses should override)
-   * 
-   * @example
-   * ```typescript
-   * class MyDO extends LumenizeDO<Env> {
-   *   async fetch(request: Request) {
-   *     // Auto-initialize from headers
-   *     await super.fetch(request);
-   *     
-   *     // Handle request
-   *     return new Response('Hello');
-   *   }
-   * }
-   * ```
+   * Optional synchronous HTTP request handler
+   *
+   * Override this to handle HTTP requests routed to this DO. Called after
+   * identity initialization (`__initFromHeaders`), so `this.lmz.instanceName`
+   * and `this.lmz.bindingName` are available. Use continuations for async work.
+   *
+   * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
+   */
+  onRequest?(request: Request): Response;
+
+  /**
+   * Fetch lifecycle — initializes identity, then delegates to `onRequest`
+   *
+   * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
    */
   async fetch(request: Request): Promise<Response> {
     // Initialize from headers - returns Response on error, undefined on success
@@ -229,9 +199,12 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
       return initError;
     }
 
-    // Default: not implemented
-    // Subclasses should override fetch() and call super.fetch() for auto-init
-    return new Response('Not Implemented', { status: 501 });
+    // Delegate to onRequest if subclass implements it
+    if (this.onRequest) {
+      return this.onRequest(request);
+    }
+
+    return new Response('Not Implemented: override onRequest() to handle HTTP requests', { status: 501 });
   }
 
   /**

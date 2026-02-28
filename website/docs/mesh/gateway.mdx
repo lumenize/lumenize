@@ -112,6 +112,150 @@ This ensures that `callContext.originAuth` always reflects the **actual authenti
 
 > **The client can tell the Gateway WHAT to call, but cannot tell the Gateway WHO they are.**
 
+## Extensibility
+
+LumenizeClientGateway provides lifecycle hooks so applications can customize connection validation, call context enrichment, and call filtering.
+
+### Lifecycle Hooks
+
+| Hook | Lifecycle moment | Default behavior |
+|------|-----------------|------------------|
+| `onBeforeAccept` | WebSocket upgrade | Validates `{sub}.{tabId}` format, extracts standard claims |
+| `onBeforeCallToMesh` | Client → DO call dispatch | Returns `baseContext` unchanged |
+| `onBeforeCallToClient` | DO → client call forward | No-op (allows all calls) |
+
+All hooks are **synchronous** — this is intentional, so the base class has careful control over concurrency.
+
+### Why the Gateway needs hooks
+
+Inside the mesh, DOs trust each other — calls arrive over Workers RPC with a verified `CallContext` and every node can run [`onBeforeCall`](./mesh-api#onbeforecall) to enforce its own rules. But the client runs in the browser, which is untrusted territory. A malicious user can modify client-side code, forge call payloads, or replay stolen tokens.
+
+The Gateway sits at the boundary between untrusted and trusted. It is the **only** enforcement point, so it guards traffic in both directions:
+
+- **`onBeforeAccept`** — validates *who is connecting*. The default confirms the JWT subject matches the instance name so a stolen token can't hijack someone else's Gateway. A multi-tenant app might extend this to verify the tenant ID embedded in the instance name (e.g., `{sub}.{tenantId}.{tabId}`).
+- **`onBeforeCallToMesh`** — validates whether *this particular user* should be allowed to make *this particular call*. Every inbound call passes through here before reaching any Cloudflare-hosted mesh node.
+- **`onBeforeCallToClient`** — validates whether *this particular user* should be allowed to receive *this particular call*. For example, a multi-tenant app can reject calls whose context doesn't match the connected user's tenantcy.
+
+### `onBeforeAccept(instanceName, sub, jwtPayload)`
+
+Called during WebSocket upgrade after the base class decodes the JWT. The `instanceName` parameter is the [client's configured `instanceName`](./lumenize-client#configuration) — the same value that identifies the Gateway DO instance (see [1:1 Gateway-Client Relationship](#11-gateway-client-relationship)). The base class always extracts `sub` and `tokenExp` (protocol-level concerns) before calling this hook.
+
+```typescript @skip-check
+onBeforeAccept(
+  instanceName: string,
+  sub: string,
+  jwtPayload: Record<string, unknown>
+): Response | Record<string, unknown> | undefined
+```
+
+**Return convention:**
+- **`Response`** — reject the WebSocket upgrade (returned as the HTTP response)
+- **`Record<string, unknown>`** — proceed; these key-value pairs are stored as `claims` in the WebSocket attachment and flow into `callContext.originAuth.claims`
+- **`undefined`** — proceed with no claims
+
+The default implementation validates that `instanceName` follows `{sub}.{tabId}` format and extracts `emailVerified`, `adminApproved`, `isAdmin`, and `act` claims.
+
+### `onBeforeCallToMesh(baseContext, connectionInfo)`
+
+Called after building the base `CallContext` for a client-initiated call, before dispatch to the target DO. Return the (possibly enriched) context.
+
+```typescript @skip-check
+onBeforeCallToMesh(
+  baseContext: CallContext,
+  connectionInfo: GatewayConnectionInfo
+): CallContext
+```
+
+`GatewayConnectionInfo` exposes only the identity portion of the connection — not protocol internals:
+
+```typescript @skip-check
+interface GatewayConnectionInfo {
+  sub: string;
+  instanceName?: string;
+  claims?: Record<string, unknown>;
+}
+```
+
+### `onBeforeCallToClient(envelope, connectionInfo)`
+
+Called before forwarding a DO-initiated call to the connected client. `connectionInfo` carries the connected client's verified identity and claims — use it to compare against the envelope's `callContext`. Throw to reject — the error is wrapped as `{ $error }` for Workers RPC compatibility.
+
+```typescript @skip-check
+onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void
+```
+
+### `gatewayBindingName`
+
+The binding name used in `verifiedOrigin` and caller metadata. Override when your Gateway registers under a different binding.
+
+```typescript @skip-check
+protected gatewayBindingName = 'LUMENIZE_CLIENT_GATEWAY';  // default
+```
+
+### Example: Custom Gateway
+
+```typescript @skip-check
+import { LumenizeClientGateway } from '@lumenize/mesh';
+import type { GatewayConnectionInfo, CallContext, CallEnvelope } from '@lumenize/mesh';
+
+export class MyGateway extends LumenizeClientGateway {
+  protected override gatewayBindingName = 'MY_GATEWAY';
+
+  // Custom instance name format: {sub}.{tenantId}.{tabId}
+  override onBeforeAccept(
+    instanceName: string,
+    sub: string,
+    jwtPayload: Record<string, unknown>
+  ): Response | Record<string, unknown> | undefined {
+    const segments = instanceName.split('.');
+    if (segments.length !== 3) {
+      return new Response('Invalid format (expected sub.tenantId.tabId)', { status: 403 });
+    }
+    if (segments[0] !== sub) {
+      return new Response('Identity mismatch', { status: 403 });
+    }
+    return { tenantId: segments[1], role: jwtPayload.role };
+  }
+
+  // Stamp tenant onto every inbound call 
+  override onBeforeCallToMesh(
+    baseContext: CallContext,
+    connectionInfo: GatewayConnectionInfo
+  ): CallContext {
+    return {
+      ...baseContext,
+      tenantId: connectionInfo.claims?.tenantId,
+    };
+  }
+
+  // Reject calls originating from a different tenant
+  override onBeforeCallToClient(
+    envelope: CallEnvelope,
+    connectionInfo: GatewayConnectionInfo
+  ): void {
+    if ((envelope.callContext as any)?.tenantId !== connectionInfo.claims?.tenantId) {
+      throw new Error('Cross-tenant call rejected');
+    }
+  }
+}
+```
+
+Register the subclass in `wrangler.jsonc`. Set `gatewayBindingName` on your [LumenizeClient](./lumenize-client#configuration) to match:
+
+```jsonc @skip-check
+{
+  "durable_objects": {
+    "bindings": [
+      { "name": "MY_GATEWAY", "class_name": "MyGateway" }
+    ]
+  }
+}
+```
+
+### Relationship to Trust DMZ
+
+The [Trust DMZ](#trust-demilitarized-zone-dmz) is an **invariant** — the base class always builds `callContext.originAuth` from verified sources (JWT claims and connection data), never from client-supplied fields. Hooks customize *what* the DMZ extracts and validates, but cannot bypass the DMZ itself. The client can still tell the Gateway **what** to call, but cannot tell the Gateway **who they are**.
+
 ## Wire Protocol
 
 The Gateway and Client communicate over WebSocket using encoded messages. For complete message type definitions and serialization format details, see the [Protocol Specification](./protocol#websocket-wire-protocol).

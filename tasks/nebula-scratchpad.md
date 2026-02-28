@@ -8,14 +8,12 @@ Deferred items, early-stage ideas, and notes captured during planning. Items her
 
 ## Deferred Items
 
-### From Nebula Auth (Phase 0)
+### Auth Related
 
-- **`callContext` Upgrade**: NebulaDO/NebulaWorker/NebulaClient need an immutable `starId` property in callContext available in all mesh node types. Workers get it from the caller and propagate it. → **Phase 2**
+- **Alarm-originated calls missing `universeGalaxyStarId`**: If a NebulaDO makes an outbound `lmz.call` from an `alarm()` handler (no inbound call → no current `callContext`), the call won't carry `universeGalaxyStarId`. The DO knows its starId from `ctx.storage.kv` (stored on first call by `onBeforeCall`), so it could construct a callContext manually. No concrete use case yet — the subscribe/resource update pattern always originates from a client call. Solve when a real alarm-initiated outbound call pattern emerges, likely Phase 5.
 - **Email Domain Auto-Approval**: Admin configures email domains auto-approved for their instance. Disallow list prevents common public domains.
 - **Email Template Customization**: Per-instance branding (name, logo) in auth emails with cascading overrides (star inherits galaxy inherits universe).
 - **Billing Infrastructure**: Usage tracking per `galaxy.star`, monthly reports, Universe-level billing formulas via DWL/webhooks.
-
-### Nebula Auth Enhancements (from backlog)
 
 **OAuth 2 Social Login** (high priority):
 - Google and GitHub OAuth 2 as login alternatives to magic link email

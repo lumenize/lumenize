@@ -9,6 +9,72 @@ import { preprocess, postprocess } from '@lumenize/structured-clone';
 // Export LumenizeClientGateway for testing
 export { LumenizeClientGateway } from '../src/lumenize-client-gateway';
 
+import { LumenizeClientGateway } from '../src/lumenize-client-gateway';
+import type { GatewayConnectionInfo } from '../src/lumenize-client-gateway';
+import type { CallContext } from '../src/types';
+
+/**
+ * Custom Gateway subclass for testing hook overrides.
+ *
+ * - gatewayBindingName: 'CUSTOM_GATEWAY'
+ * - onBeforeAccept: extracts `role` from JWT as a claim; rejects if role is 'blocked'
+ * - onBeforeCallToMesh: injects claims into callContext.state under `_auth`
+ * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING'
+ */
+export class CustomGateway extends LumenizeClientGateway {
+  protected override gatewayBindingName = 'CUSTOM_GATEWAY';
+
+  override onBeforeAccept(
+    instanceName: string,
+    sub: string,
+    jwtPayload: Record<string, unknown>
+  ): Response | Record<string, unknown> | undefined {
+    // Validate format: must contain '.'
+    const dotIndex = instanceName.indexOf('.');
+    if (dotIndex === -1) {
+      return new Response('Custom: invalid format', { status: 403 });
+    }
+    if (instanceName.substring(0, dotIndex) !== sub) {
+      return new Response('Custom: identity mismatch', { status: 403 });
+    }
+
+    // Reject if role is 'blocked'
+    if (jwtPayload.role === 'blocked') {
+      return new Response('Custom: blocked role', { status: 403 });
+    }
+
+    // Extract custom claims
+    return {
+      role: jwtPayload.role,
+      org: jwtPayload.org,
+    };
+  }
+
+  override onBeforeCallToMesh(
+    baseContext: CallContext,
+    connectionInfo: GatewayConnectionInfo
+  ): CallContext {
+    // Inject claims into state under `_auth` key
+    return {
+      ...baseContext,
+      state: {
+        ...baseContext.state,
+        _auth: {
+          sub: connectionInfo.sub,
+          claims: connectionInfo.claims,
+        },
+      },
+    };
+  }
+
+  override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
+    // Reject calls from a blocked binding
+    if (envelope.metadata?.caller?.bindingName === 'BLOCKED_BINDING') {
+      throw new Error('Custom: calls from BLOCKED_BINDING are not allowed');
+    }
+  }
+}
+
 // Export documentation example DOs
 export { UsersDO, NotificationsDO } from './for-docs/lumenize-do/basic-usage.test';
 
@@ -727,6 +793,26 @@ export class TestDO extends LumenizeDO<Env> {
   clearTwoOneWayResult(): void {
     this.#twoOneWayCallbackContext = null;
     this.ctx.storage.kv.delete('two_one_way_result');
+  }
+}
+
+// Test DO that implements onRequest() lifecycle hook
+export class OnRequestTestDO extends LumenizeDO<Env> {
+  onRequest(request: Request): Response {
+    const url = new URL(request.url);
+
+    if (url.pathname.endsWith('/status')) {
+      return Response.json({
+        instanceName: this.lmz.instanceName,
+        bindingName: this.lmz.bindingName,
+      });
+    }
+
+    if (url.pathname.endsWith('/echo')) {
+      return new Response(`method=${request.method}`);
+    }
+
+    return new Response('Not Found', { status: 404 });
   }
 }
 

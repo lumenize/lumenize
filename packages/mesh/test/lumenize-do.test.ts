@@ -2,6 +2,82 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { preprocess } from '@lumenize/structured-clone';
 
+describe('@lumenize/mesh - onRequest() Lifecycle Hook', () => {
+  describe('Subclass without onRequest', () => {
+    it('returns 501 Not Implemented', async () => {
+      const stub = env.TEST_DO.getByName('onrequest-no-impl-1');
+      const response = await stub.testFetch({});
+      expect(response.status).toBe(501);
+      expect(await response.text()).toBe('Not Implemented: override onRequest() to handle HTTP requests');
+    });
+  });
+
+  describe('Subclass with onRequest', () => {
+    it('calls onRequest and returns its response', async () => {
+      const stub = env.ON_REQUEST_TEST_DO.getByName('onrequest-basic-1');
+      const request = new Request('https://example.com/echo', {
+        headers: {
+          'x-lumenize-do-binding-name': 'ON_REQUEST_TEST_DO',
+          'x-lumenize-do-instance-name-or-id': 'onrequest-basic-1',
+        },
+      });
+      const response = await stub.fetch(request);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe('method=GET');
+    });
+
+    it('has identity available inside onRequest (proves __initFromHeaders ran first)', async () => {
+      const stub = env.ON_REQUEST_TEST_DO.getByName('onrequest-identity-1');
+      const request = new Request('https://example.com/status', {
+        headers: {
+          'x-lumenize-do-binding-name': 'ON_REQUEST_TEST_DO',
+          'x-lumenize-do-instance-name-or-id': 'onrequest-identity-1',
+        },
+      });
+      const response = await stub.fetch(request);
+      expect(response.status).toBe(200);
+      const body = await response.json() as { instanceName: string; bindingName: string };
+      expect(body.instanceName).toBe('onrequest-identity-1');
+      expect(body.bindingName).toBe('ON_REQUEST_TEST_DO');
+    });
+
+    it('returns 404 for unmatched routes (subclass controls routing)', async () => {
+      const stub = env.ON_REQUEST_TEST_DO.getByName('onrequest-404-1');
+      const request = new Request('https://example.com/unknown', {
+        headers: {
+          'x-lumenize-do-binding-name': 'ON_REQUEST_TEST_DO',
+          'x-lumenize-do-instance-name-or-id': 'onrequest-404-1',
+        },
+      });
+      const response = await stub.fetch(request);
+      expect(response.status).toBe(404);
+    });
+
+    it('__initFromHeaders errors still take priority over onRequest', async () => {
+      const stub = env.ON_REQUEST_TEST_DO.getByName('onrequest-init-error-1');
+      // First request sets identity
+      const req1 = new Request('https://example.com/status', {
+        headers: {
+          'x-lumenize-do-binding-name': 'ON_REQUEST_TEST_DO',
+          'x-lumenize-do-instance-name-or-id': 'onrequest-init-error-1',
+        },
+      });
+      await stub.fetch(req1);
+
+      // Second request with mismatched binding — should get error, not onRequest
+      const req2 = new Request('https://example.com/status', {
+        headers: {
+          'x-lumenize-do-binding-name': 'WRONG_BINDING',
+          'x-lumenize-do-instance-name-or-id': 'onrequest-init-error-1',
+        },
+      });
+      const response = await stub.fetch(req2);
+      expect(response.status).toBe(500);
+      expect(await response.text()).toContain('DO binding name mismatch');
+    });
+  });
+});
+
 describe('@lumenize/mesh - onStart() Lifecycle Hook', () => {
   it('calls onStart() when DO is first instantiated', async () => {
     const stub = env.ONSTART_TEST_DO.getByName('onstart-basic-1');

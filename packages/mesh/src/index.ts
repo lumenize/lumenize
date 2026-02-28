@@ -48,6 +48,7 @@ export type { MeshGuard } from './mesh-decorator';
 // LumenizeClientGateway - WebSocket bridge for mesh clients
 export { LumenizeClientGateway, ClientDisconnectedError, GatewayMessageType } from './lumenize-client-gateway';
 export type {
+  GatewayConnectionInfo,
   GatewayMessage,
   CallMessage,
   CallResponseMessage,

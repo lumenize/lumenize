@@ -13,6 +13,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Lumenize Mesh
 
+- [ ] Investigate use of waitUntil in lmz-api.ts. Do we actually need it? If we do, does it keep the DO in wall-clock billing mode? If we switched to making call always be two one-way calls, would we need it?
+
 - [ ] Add onRequest lifecycle hook to Lumenize Mesh
 
 - [ ] (is this done already?) Add successful token refresh lifecycle test to mesh test suite — with real cookies

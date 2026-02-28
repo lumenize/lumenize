@@ -50,6 +50,14 @@
       {
         "name": "TASK_SCHEDULER_DO",
         "class_name": "TaskSchedulerDO"
+      },
+      {
+        "name": "ON_REQUEST_TEST_DO",
+        "class_name": "OnRequestTestDO"
+      },
+      {
+        "name": "CUSTOM_GATEWAY",
+        "class_name": "CustomGateway"
       }
     ]
   },
@@ -77,6 +85,10 @@
     {
       "tag": "v6",
       "new_sqlite_classes": ["AlarmTestDO", "TaskSchedulerDO"]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["OnRequestTestDO"]
     }
   ],
   "ratelimits": [

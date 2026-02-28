@@ -50,7 +50,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 |-------|------|--------|-----------|
 | 0 | Nebula Auth | **Complete** | `tasks/archive/nebula-auth.md` |
 | 1 | Refactor Nebula Auth | **Complete** | `tasks/archive/nebula-refactor-auth.md` |
-| 1.5 | Mesh Extensibility | Pending | `tasks/mesh-extensibility.md` |
+| 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | Cloudflare Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -70,9 +70,9 @@ Multi-tenant auth with `universe.galaxy.star` hierarchy. Two DO classes (NebulaA
 
 Make nebula-auth a clean library for importing into the main Nebula Worker. Trim exports, rename `handleRequest` → `routeNebulaAuthRequest`, push `wrangler.jsonc` down into `test/` so the package doesn't look deployable at first glance.
 
-### Phase 1.5: Mesh Extensibility
+### Phase 1.5: Mesh Extensibility — COMPLETE
 
-Add extension points to `@lumenize/mesh` (MIT) so Nebula can subclass rather than fork. Two features shipped as a single Mesh release: (1) LumenizeClientGateway hooks — overridable methods for instance name validation, claims extraction, callContext enrichment, inbound envelope validation, and binding name; (2) LumenizeDO `onRequest()` lifecycle hook for HTTP request handling (agents SDK pattern). Gateway hooks block Phase 2; `onRequest` blocks Phase 5.
+Added extension points to `@lumenize/mesh` (MIT) so Nebula can subclass rather than fork. Two features shipped as a single Mesh release: (1) LumenizeClientGateway hooks — overridable methods for instance name validation, claims extraction, callContext enrichment, inbound envelope validation (`onBeforeCallToClient` receives `connectionInfo`), and binding name; (2) LumenizeDO `onRequest()` lifecycle hook for HTTP request handling. Documentation across gateway.mdx, lumenize-do.mdx, mesh-api.mdx, and security.mdx. 917 tests passing.
 
 ### Phase 2: Baseline Access Control
 
