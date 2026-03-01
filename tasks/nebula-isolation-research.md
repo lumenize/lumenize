@@ -4,7 +4,7 @@
 **Status**: Pending
 **Depends on**: None (can start in parallel with phases 1-3; must complete before Phase 5)
 **Master task file**: `tasks/nebula.md`
-**Deliverable**: Blog post comparing and contrasting Cloudflare's isolation technologies
+**Deliverable**: Blog post comparing and contrasting Cloudflare's user-provided code isolation offerings
 
 ## Goal
 

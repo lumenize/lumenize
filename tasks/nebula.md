@@ -51,9 +51,10 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 0 | Nebula Auth | **Complete** | `tasks/archive/nebula-auth.md` |
 | 1 | Refactor Nebula Auth | **Complete** | `tasks/archive/nebula-refactor-auth.md` |
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
+| 1.7 | Mesh Gateway Fix | Pending | `tasks/nebula-mesh-gateway-fix.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
-| 4 | Cloudflare Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
+| 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
 | 5 | Resources — Basic Functionality | Pending | `tasks/nebula-resources.md` |
 | 6 | Resources — Schema Migration | Pending | `tasks/nebula-schema-migration.md` |
 | 7 | Nebula Client | Pending | `tasks/nebula-client.md` |
@@ -73,6 +74,10 @@ Make nebula-auth a clean library for importing into the main Nebula Worker. Trim
 ### Phase 1.5: Mesh Extensibility — COMPLETE
 
 Added extension points to `@lumenize/mesh` (MIT) so Nebula can subclass rather than fork. Two features shipped as a single Mesh release: (1) LumenizeClientGateway hooks — overridable methods for instance name validation, claims extraction, callContext enrichment, inbound envelope validation (`onBeforeCallToClient` receives `connectionInfo`), and binding name; (2) LumenizeDO `onRequest()` lifecycle hook for HTTP request handling. Documentation across gateway.mdx, lumenize-do.mdx, mesh-api.mdx, and security.mdx. 917 tests passing.
+
+### Phase 1.7: Mesh Gateway Fix
+
+Fix `LumenizeClientGateway` to read its binding name from the routing header instead of a hardcoded property, unify the private `WebSocketAttachment` into the public `GatewayConnectionInfo` type (adding `bindingName`, `tokenExp`, `connectedAt`), and auto-include all JWT claims so `onBeforeAccept` overrides only need to return additional claims. Also change `routeNebulaAuthRequest` to return `undefined` for non-matching paths (fallthrough pattern). No mesh release until Nebula deploys.
 
 ### Phase 2: Baseline Access Control
 
@@ -161,7 +166,7 @@ Tightly coupled to the resources implementation. Local state management mirrors 
 |----------|--------|-----------|
 | **App structure** | `apps/nebula/` for the deployable app, `packages/nebula-auth/` (`private: true`) for auth library | Apps aren't published; auth is a library consumed by the app |
 | **NebulaDO** | Base class extends `LumenizeDO`; `OrgDO` and `ResourceHistoryDO` extend `NebulaDO` | `onBeforeCall` reserved for base class (starId binding); subclasses use `@mesh(guard)` |
-| **NebulaClientGateway** | Extends `LumenizeClientGateway` (via Phase 1.5 hooks) | Overrides `validateInstanceName`, `extractClaims`, `buildCallContext`, `validateIncomingEnvelope`; adds `~`-delimited star-scoped instanceName and `callContext.universeGalaxyStarId` |
+| **NebulaClientGateway** | Extends `LumenizeClientGateway` (via Phase 1.5 hooks) | Overrides `onBeforeAccept`, `onBeforeCallToMesh`, `onBeforeCallToClient`; adds `~`-delimited star-scoped instanceName and `callContext.universeGalaxyStarId` |
 | **NebulaClient** | Extends `LumenizeClient` | Gets WebSocket management, token refresh, tab detection, Browser injection for testing |
 | **Access control** | Four layers: entrypoint scope check → Gateway star-scoping → `onBeforeCall` starId binding → `@mesh(guard)` | Entrypoint rejects early; Gateway sets star context; base class locks DO to star; guards handle method-level auth |
 | **DAG permissions** | Grant if any ancestor path grants | Simple model: admin > write > read. Roll-down through tree. |
