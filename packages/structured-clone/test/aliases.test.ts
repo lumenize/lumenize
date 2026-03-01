@@ -448,27 +448,112 @@ describe('Performance - Large Aliased Structures', () => {
         tags: Array.from({ length: 100 }, (_, i) => `tag-${i}`)
       }
     };
-    
+
     // Reference it many times
     const obj: any = {};
     for (let i = 0; i < 100; i++) {
       obj[`ref${i}`] = largeShared;
     }
-    
+
     const start = performance.now();
     const result = parse(stringify(obj));
     const duration = performance.now() - start;
-    
+
     // All references should point to the same object
     expect(result.ref0).toBe(result.ref99);
     expect(result.ref0).toBe(result.ref50);
-    
+
     // Verify shared data
     expect(result.ref0.data.length).toBe(1000);
     expect(result.ref0.metadata.tags.length).toBe(100);
-    
+
     // Should complete reasonably quickly (shared data stored once, not duplicated)
     expect(duration).toBeLessThan(1000); // Should be < 1 second
+  });
+});
+
+describe('Performance - Large Cyclic Structures', () => {
+  it('handles long cyclic chain (100 nodes)', async () => {
+    const nodes: any[] = Array.from({ length: 100 }, (_, i) => ({ id: i }));
+    for (let i = 0; i < nodes.length; i++) {
+      nodes[i].next = nodes[(i + 1) % nodes.length]; // Last node points back to first
+    }
+
+    const start = performance.now();
+    const result = parse(stringify(nodes[0]));
+    const duration = performance.now() - start;
+
+    // Walk the chain and verify cycle closes
+    let current = result;
+    for (let i = 0; i < 100; i++) {
+      expect(current.id).toBe(i);
+      current = current.next;
+    }
+    expect(current).toBe(result); // Full cycle
+
+    expect(duration).toBeLessThan(1000);
+  });
+
+  it('handles deeply nested cyclic tree', async () => {
+    // Binary tree where leaves point back to root
+    const root: any = { id: 'root', left: null, right: null };
+    let current = root;
+    for (let i = 0; i < 50; i++) {
+      current.left = { id: `L${i}`, left: null, right: null };
+      current.right = { id: `R${i}`, left: null, right: null };
+      current = current.left; // Extend down the left branch
+    }
+    // Close cycle: deepest left leaf points back to root
+    current.left = root;
+
+    const start = performance.now();
+    const result = parse(stringify(root));
+    const duration = performance.now() - start;
+
+    // Walk left branch to the cycle point
+    let node = result;
+    for (let i = 0; i < 51; i++) {
+      node = node.left;
+    }
+    expect(node).toBe(result); // Cycle back to root
+
+    expect(duration).toBeLessThan(1000);
+  });
+
+  it('handles cyclic graph with mixed aliases and cycles', async () => {
+    // Create a graph where nodes share children AND form cycles
+    const shared: any = { id: 'shared', value: 42 };
+    const nodes: any[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i,
+      shared, // Every node aliases the same object
+      next: null as any,
+    }));
+    // Form a cycle through next pointers
+    for (let i = 0; i < nodes.length; i++) {
+      nodes[i].next = nodes[(i + 1) % nodes.length];
+    }
+
+    const start = performance.now();
+    const result = parse(stringify(nodes[0]));
+    const duration = performance.now() - start;
+
+    // Verify cycle
+    let walk = result;
+    for (let i = 0; i < 20; i++) {
+      walk = walk.next;
+    }
+    expect(walk).toBe(result);
+
+    // Verify all shared references are the same object
+    walk = result;
+    const firstShared = walk.shared;
+    for (let i = 0; i < 20; i++) {
+      expect(walk.shared).toBe(firstShared);
+      walk = walk.next;
+    }
+    expect(firstShared.id).toBe('shared');
+
+    expect(duration).toBeLessThan(1000);
   });
 });
 
