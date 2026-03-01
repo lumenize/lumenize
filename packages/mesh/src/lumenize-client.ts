@@ -434,10 +434,7 @@ export abstract class LumenizeClient {
     }
 
     // Clear any pending reconnect
-    if (this.#reconnectTimeoutId) {
-      clearTimeout(this.#reconnectTimeoutId);
-      this.#reconnectTimeoutId = undefined;
-    }
+    this.#clearReconnectTimeout();
 
     // Start connection
     this.#connectInternal();
@@ -448,10 +445,7 @@ export abstract class LumenizeClient {
    */
   disconnect(): void {
     // Clear reconnect timer
-    if (this.#reconnectTimeoutId) {
-      clearTimeout(this.#reconnectTimeoutId);
-      this.#reconnectTimeoutId = undefined;
-    }
+    this.#clearReconnectTimeout();
 
     // Close WebSocket
     if (this.#ws) {
@@ -689,37 +683,21 @@ export abstract class LumenizeClient {
     // Visibility change (tab becomes visible)
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && this.#connectionState === 'reconnecting') {
-        // Reset backoff and try immediately
-        this.#reconnectAttempts = 0;
-        if (this.#reconnectTimeoutId) {
-          clearTimeout(this.#reconnectTimeoutId);
-          this.#reconnectTimeoutId = undefined;
-        }
-        this.#connectInternal();
+        this.#reconnectNow();
       }
     });
 
     // Window focus
     window.addEventListener('focus', () => {
       if (this.#connectionState === 'reconnecting') {
-        this.#reconnectAttempts = 0;
-        if (this.#reconnectTimeoutId) {
-          clearTimeout(this.#reconnectTimeoutId);
-          this.#reconnectTimeoutId = undefined;
-        }
-        this.#connectInternal();
+        this.#reconnectNow();
       }
     });
 
     // Online event
     window.addEventListener('online', () => {
       if (this.#connectionState === 'reconnecting' || this.#connectionState === 'disconnected') {
-        this.#reconnectAttempts = 0;
-        if (this.#reconnectTimeoutId) {
-          clearTimeout(this.#reconnectTimeoutId);
-          this.#reconnectTimeoutId = undefined;
-        }
-        this.#connectInternal();
+        this.#reconnectNow();
       }
     });
   }
@@ -729,6 +707,20 @@ export abstract class LumenizeClient {
       this.#connectionState = state;
       this.#config.onConnectionStateChange?.(state);
     }
+  }
+
+  #clearReconnectTimeout(): void {
+    if (this.#reconnectTimeoutId) {
+      clearTimeout(this.#reconnectTimeoutId);
+      this.#reconnectTimeoutId = undefined;
+    }
+  }
+
+  /** Reset backoff and reconnect immediately (used by wake-up sensing) */
+  #reconnectNow(): void {
+    this.#reconnectAttempts = 0;
+    this.#clearReconnectTimeout();
+    this.#connectInternal();
   }
 
   // ============================================

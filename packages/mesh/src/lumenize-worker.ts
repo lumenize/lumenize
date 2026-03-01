@@ -1,5 +1,4 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { preprocess, postprocess } from '@lumenize/structured-clone';
 import {
   newContinuation,
   executeOperationChain,
@@ -7,7 +6,7 @@ import {
   type Continuation,
   type AnyContinuation,
 } from './ocan/index.js';
-import { createLmzApiForWorker, runWithCallContext, type LmzApi, type CallEnvelope } from './lmz-api.js';
+import { createLmzApiForWorker, executeEnvelope, type LmzApi, type CallEnvelope } from './lmz-api.js';
 import { ClientDisconnectedError } from './lumenize-client-gateway.js';
 
 // Re-export continuation types from ocan for convenience
@@ -192,51 +191,10 @@ export class LumenizeWorker<Env = any> extends WorkerEntrypoint<Env> {
    * @see [Usage Examples](https://lumenize.com/docs/lumenize-base/call) - Complete tested examples
    */
   async __executeOperation(envelope: CallEnvelope): Promise<any> {
-    // 1. Validate envelope version
-    // Envelope is plain JSON - only chain field is preprocessed
-    if (!envelope.version || envelope.version !== 1) {
-      throw new Error(
-        `Unsupported RPC envelope version: ${envelope.version}. ` +
-        `This version of LumenizeWorker only supports v1 envelopes. ` +
-        `Old-style calls without envelopes are no longer supported.`
-      );
-    }
-
-    // 2. Validate callContext is present
-    if (!envelope.callContext) {
-      throw new Error(
-        'Missing callContext in envelope. All mesh calls must include callContext.'
-      );
-    }
-
-    // 3. Auto-initialize from callee metadata if present
-    if (envelope.metadata?.callee) {
-      this.lmz.__init({
-        bindingName: envelope.metadata.callee.bindingName,
-        // instanceName ignored for Workers (always undefined)
-      });
-    }
-
-    // 4. Postprocess only the chain (handles aliases/cycles and restores custom Error types)
-    const operationChain = postprocess(envelope.chain);
-
-    // 5. Execute chain within callContext (makes this.lmz.callContext available)
-    // Return wrapped result/error - Workers RPC loses error properties when thrown,
-    // so we return errors as { $error: preprocessedError } and unwrap in callRaw.
-    try {
-      const result = await runWithCallContext(envelope.callContext, async () => {
-        // Call onBeforeCall hook for authentication/authorization
-        this.onBeforeCall();
-
-        // Execute the operation chain
-        return await this.__executeChain(operationChain);
-      });
-      return { $result: result };
-    } catch (error) {
-      // Return error wrapped for structured clone transport
-      // Preprocessing preserves custom Error properties that Workers RPC would lose
-      return { $error: preprocess(error) };
-    }
+    return await executeEnvelope(envelope, this, {
+      nodeTypeName: 'LumenizeWorker',
+      includeInstanceName: false,
+    });
   }
 }
 
