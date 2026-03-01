@@ -17,6 +17,32 @@ The primary goals of this phase are:
 2. Prove the starId binding mechanism — permanently locking each DO instance to its creating star
 3. Establish the security layering pattern that all future phases build on
 
+## Open Questions
+
+### Move active scope into the JWT (eliminate `~`-delimited instanceName)
+
+**Idea:** Instead of encoding the active scope in the Gateway instanceName (`sub~starId~tabId`), put it in the JWT itself. The refresh endpoint would accept a `scope` query param; the server validates the requested scope is covered by the user's `access` pattern, then mints the access token with the active scope baked in.
+
+**Where to put it — two options:**
+
+1. **`aud` claim (standard)** — Per RFC 7519, `aud` identifies the intended recipient of the token. The active universeGalaxyStarId IS the intended recipient ("this token is for the `.crm` service"). This is semantically correct and enables standard JWT `aud` validation. However, `aud` is a generic string/array — its meaning as a universeGalaxyStarId is implicit, which may be unclear to developers reading the JWT.
+
+2. **Custom `scope` claim** — A custom claim like `activeScope: "george-solopreneur.crm"` is explicit and self-documenting. No ambiguity about what it represents. Trade-off: doesn't participate in standard JWT `aud` validation, so scope checking must be done manually (which we'd do anyway in `onBeforeAccept`). Could use both — `aud` for standard validation + `activeScope` for readability — but that's redundant.
+
+**Impact if adopted (same regardless of `aud` vs custom claim):**
+- **instanceName goes back to standard** `${sub}.${tabId}` (Lumenize Mesh default). No more `~`-delimited format, no custom parsing in `onBeforeAccept`, no injection surface from delimiter handling.
+- **Refresh endpoint** (`POST {prefix}/{authScope}/refresh-token`) gains a `?scope=` param. Server checks `matchAccess(jwt.access.id, requestedScope)` before minting.
+- **NebulaClientGateway simplifies** — `onBeforeAccept` reads the active scope from JWT claims (already auto-included after Phase 1.7) instead of parsing it from instanceName. `onBeforeCallToMesh` stamps it as `universeGalaxyStarId`.
+- **Entrypoint simplifies** — `onBeforeConnect` checks the JWT's active scope matches the requested scope instead of parsing `~` from the instanceName.
+- **Access token is single-scope** — switching active scope requires a new access token (refresh call with different `?scope=`). The refresh token stays multi-scope. Each tab can hold a different access token for a different scope, which is arguably more secure.
+- **Might warrant a Phase 1.8** in nebula-auth (token minting change + refresh endpoint change) before this Phase 2 work begins.
+
+**Learning opportunity:** Audit all standard JWT registered claims (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`) against current usage. Are there other fields we're hardcoding or ignoring that could carry meaning? For example: `nbf` (not before) could enforce a delay on freshly-minted tokens if needed; `iss` could distinguish which NebulaAuth DO instance minted the token (it may already do this).
+
+**Decision:** TBD — resolve before implementing the `~`-delimited instanceName logic in this phase. If adopted, several sections below change significantly. Sub-decisions: (1) adopt active-scope-in-JWT at all, (2) if yes, `aud` vs custom claim vs both.
+
+---
+
 ## Architecture
 
 ### App Layout
