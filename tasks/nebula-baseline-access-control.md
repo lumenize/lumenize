@@ -3,12 +3,12 @@
 **Phase**: 2
 **Status**: Pending
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
-**Depends on**: Phase 1.7 (Mesh Gateway Fix — complete, `tasks/archive/nebula-mesh-gateway-fix.md`)
+**Depends on**: Phase 1.8 (JWT Active Scope in `aud` — `tasks/nebula-jwt-active-scope.md`)
 **Master task file**: `tasks/nebula.md`
 
 ## Goal
 
-Create `apps/nebula/` with three DO classes (`NebulaDO` base, `OrgDO`, `ResourceHistoryDO`), `NebulaClientGateway` (extends `LumenizeClientGateway` hooks), `NebulaClient`, and the Worker entrypoint. Build a four-layer security model: entrypoint scope verification, Gateway star-scoping via `callContext.universeGalaxyStarId`, NebulaDO's `onBeforeCall` starId binding, and `@mesh(guard)` per-method authorization. Validate with dummy methods and abuse case testing through e2e tests using NebulaClient.
+Create `apps/nebula/` with three DO classes (`NebulaDO` base, `OrgDO`, `ResourceHistoryDO`), `NebulaClientGateway` (extends `LumenizeClientGateway` hooks), `NebulaClient`, and the Worker entrypoint. Build a four-layer security model: entrypoint JWT `aud` verification, Gateway star-scoping via `callContext.universeGalaxyStarId` (read from JWT `aud`), NebulaDO's `onBeforeCall` starId binding, and `@mesh(guard)` per-method authorization. Validate with dummy methods and abuse case testing through e2e tests using NebulaClient.
 
 Much of what we build here will be replaced in Phase 3 (DAG tree) and Phase 5 (Resources), especially the tests and dummy methods.
 
@@ -17,29 +17,16 @@ The primary goals of this phase are:
 2. Prove the starId binding mechanism — permanently locking each DO instance to its creating star
 3. Establish the security layering pattern that all future phases build on
 
-## Open Questions
+## Resolved: Active scope lives in JWT `aud` claim
 
-### Move active scope into the JWT (eliminate `~`-delimited instanceName)
+**Decision (Phase 1.8):** The active scope (universeGalaxyStarId) is stored in the JWT `aud` claim. The `~`-delimited instanceName format is eliminated. See `tasks/nebula-jwt-active-scope.md` for the full implementation in nebula-auth.
 
-**Idea:** Instead of encoding the active scope in the Gateway instanceName (`sub~starId~tabId`), put it in the JWT itself. The refresh endpoint would accept a `scope` query param; the server validates the requested scope is covered by the user's `access` pattern, then mints the access token with the active scope baked in.
-
-**Where to put it — two options:**
-
-1. **`aud` claim (standard)** — Per RFC 7519, `aud` identifies the intended recipient of the token. The active universeGalaxyStarId IS the intended recipient ("this token is for the `.crm` service"). This is semantically correct and enables standard JWT `aud` validation. However, `aud` is a generic string/array — its meaning as a universeGalaxyStarId is implicit, which may be unclear to developers reading the JWT.
-
-2. **Custom `scope` claim** — A custom claim like `activeScope: "george-solopreneur.crm"` is explicit and self-documenting. No ambiguity about what it represents. Trade-off: doesn't participate in standard JWT `aud` validation, so scope checking must be done manually (which we'd do anyway in `onBeforeAccept`). Could use both — `aud` for standard validation + `activeScope` for readability — but that's redundant.
-
-**Impact if adopted (same regardless of `aud` vs custom claim):**
-- **instanceName goes back to standard** `${sub}.${tabId}` (Lumenize Mesh default). No more `~`-delimited format, no custom parsing in `onBeforeAccept`, no injection surface from delimiter handling.
-- **Refresh endpoint** (`POST {prefix}/{authScope}/refresh-token`) gains a `?scope=` param. Server checks `matchAccess(jwt.access.id, requestedScope)` before minting.
-- **NebulaClientGateway simplifies** — `onBeforeAccept` reads the active scope from JWT claims (already auto-included after Phase 1.7) instead of parsing it from instanceName. `onBeforeCallToMesh` stamps it as `universeGalaxyStarId`.
-- **Entrypoint simplifies** — `onBeforeConnect` checks the JWT's active scope matches the requested scope instead of parsing `~` from the instanceName.
-- **Access token is single-scope** — switching active scope requires a new access token (refresh call with different `?scope=`). The refresh token stays multi-scope. Each tab can hold a different access token for a different scope, which is arguably more secure.
-- **Might warrant a Phase 1.8** in nebula-auth (token minting change + refresh endpoint change) before this Phase 2 work begins.
-
-**Learning opportunity:** Audit all standard JWT registered claims (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`) against current usage. Are there other fields we're hardcoding or ignoring that could carry meaning? For example: `nbf` (not before) could enforce a delay on freshly-minted tokens if needed; `iss` could distinguish which NebulaAuth DO instance minted the token (it may already do this).
-
-**Decision:** TBD — resolve before implementing the `~`-delimited instanceName logic in this phase. If adopted, several sections below change significantly. Sub-decisions: (1) adopt active-scope-in-JWT at all, (2) if yes, `aud` vs custom claim vs both.
+**Key consequences for this phase:**
+- Gateway instanceName is standard `${sub}.${tabId}` (Lumenize Mesh default)
+- `NebulaClientGateway.onBeforeAccept` reads active scope from `connectionInfo.claims.aud`
+- Entrypoint `onBeforeConnect` verifies the JWT `aud` claim (defense-in-depth)
+- Access tokens are single-scope; switching active scope = refresh with `{ "activeScope": "newScope" }` in body
+- No `~` delimiter anywhere — no parsing, no injection surface
 
 ---
 
@@ -80,8 +67,8 @@ Four layers, from outermost to innermost:
 
 | Layer | Where | What it checks |
 |-------|-------|----------------|
-| **Entrypoint** | `onBeforeConnect` hook in `routeDORequest` | `matchAccess(jwt.access.id, starId)` — fully verifies JWT, rejects before any DO is instantiated |
-| **NebulaClientGateway** | extends Gateway hooks | `onBeforeAccept`: validates `~`-delimited instanceName, extracts starId as claim. `onBeforeCallToMesh`: stamps starId onto callContext. `onBeforeCallToClient`: rejects calls whose callContext starId doesn't match the connected client's claim |
+| **Entrypoint** | `onBeforeConnect` hook in `routeDORequest` | Fully verifies JWT; defense-in-depth check that `matchAccess(jwt.access.authScopePattern, jwt.aud)` — rejects before any DO is instantiated |
+| **NebulaClientGateway** | extends Gateway hooks | `onBeforeAccept`: reads `aud` from JWT claims as `universeGalaxyStarId`. `onBeforeCallToMesh`: stamps `universeGalaxyStarId` onto callContext. `onBeforeCallToClient`: rejects calls whose callContext starId doesn't match the connected client's claim |
 | **NebulaDO.onBeforeCall()** | base class | Stores starId on first call, throws on mismatch — every Nebula DO gets this |
 | **`@mesh(guard)`** | subclass methods | Per-method authorization (requireAdmin, allowlist, etc.) |
 
@@ -93,7 +80,7 @@ The Worker `default export` — not a class, just a `{ fetch() }` router. Compos
 2. `routeDORequest` (from `@lumenize/routing`) for all DO bindings (Gateway and non-Gateway). Returns `undefined` when the path doesn't match any binding. **Scope verification** for Gateway connections uses the `onBeforeConnect` hook — this hook only fires for WebSocket upgrades, which only target the Gateway.
 
 ```typescript
-import { routeNebulaAuthRequest } from '@lumenize/nebula-auth';
+import { routeNebulaAuthRequest, matchAccess } from '@lumenize/nebula-auth';
 import { routeDORequest } from '@lumenize/routing';
 
 export default {
@@ -104,20 +91,20 @@ export default {
     if (authResponse) return authResponse;
 
     // DO routing (Gateway + all other DO bindings)
-    // onBeforeConnect: fully verifies JWT and checks scope covers the requested star
+    // onBeforeConnect: fully verifies JWT and checks aud claim (active scope)
     // Returns undefined if path doesn't match any binding
     const doResponse = await routeDORequest(request, env, {
-      async onBeforeConnect(request, { doInstanceNameOrId }) {
-        // doInstanceNameOrId = "sub~universeGalaxyStarId~tabId"
-        const segments = doInstanceNameOrId.split('~');
-        if (segments.length !== 3) {
-          return new Response('Forbidden: invalid Gateway instance name', { status: 403 });
-        }
-        const [, starId] = segments;
+      async onBeforeConnect(request) {
         // Full JWT verification (signature check, not just parse)
         const jwt = await verifyJwt(request, env.PRIMARY_JWT_KEY);
-        if (!jwt || !matchAccess(jwt.access.id, starId)) {
-          return new Response('Forbidden: JWT scope does not cover this star', { status: 403 });
+        if (!jwt) {
+          return new Response('Forbidden: invalid JWT', { status: 403 });
+        }
+        // Defense-in-depth: verify active scope (aud) is covered by access pattern.
+        // The server already validated this when minting the token (Phase 1.8),
+        // but belt-and-suspenders is cheap here.
+        if (!jwt.aud || !matchAccess(jwt.access.authScopePattern, jwt.aud)) {
+          return new Response('Forbidden: JWT scope mismatch', { status: 403 });
         }
       },
     });
@@ -136,7 +123,18 @@ Extends `LumenizeClientGateway` using the hooks from `tasks/mesh-extensibility.m
 
 **Hook overrides from LumenizeClientGateway:**
 
-1. **`onBeforeAccept` — instance name validation + additional claims**: The base `LumenizeClientGateway.onBeforeAccept` validates a `.`-delimited `{sub}.{tabId}` format. Nebula overrides this because `universeGalaxyStarId` is itself dot-segmented (e.g., `acme.app.tenant-a`), so we use `~` as the delimiter instead: `${sub}~${universeGalaxyStarId}~${tabId}`. Parses on `~`, verifies three segments, checks sub matches JWT. Returns `{ universeGalaxyStarId: segments[1] }` as additional claims — the base class auto-includes all JWT payload fields (including `access`, `email`, etc.), so the override only needs to add Nebula-specific fields.
+1. **`onBeforeAccept` — extract active scope from JWT `aud`**: The base `LumenizeClientGateway.onBeforeAccept` validates the standard `.`-delimited `{sub}.{tabId}` format and auto-includes all JWT payload fields in `connectionInfo.claims`. Nebula overrides this to extract the `aud` claim (active scope, set by Phase 1.8's `scope` field in the refresh request body) and return it as `universeGalaxyStarId` — the only Nebula-specific claim the override needs to add. The instanceName stays standard `${sub}.${tabId}` — no custom delimiter.
+
+```typescript
+override onBeforeAccept(request: Request, connectionInfo: GatewayConnectionInfo): Record<string, unknown> | undefined {
+  // Let base class validate sub.tabId format and populate claims from JWT
+  super.onBeforeAccept(request, connectionInfo);
+
+  const aud = connectionInfo.claims?.aud as string;
+  if (!aud) throw new Error('Missing active scope (aud) in JWT');
+  return { universeGalaxyStarId: aud };
+}
+```
 
 2. **`onBeforeCallToMesh` — callContext enrichment (client → DO)**: Adds `universeGalaxyStarId` as a top-level field on `callContext` (not in `state`, which is mutable). Like `callChain` and `originAuth`, top-level fields are immutable by convention — no DO along the call chain should modify them:
 
@@ -244,17 +242,17 @@ Extends `LumenizeClient`. Implements the two-scope model and basic token managem
 
 **Two-scope model.** NebulaClient tracks two distinct scopes:
 
-1. **Auth scope** — the `universeGalaxyStarId` the user authenticated against. Determines the refresh cookie path and JWT issuer. A universe admin authenticates against `george-solopreneur` and gets a JWT with `access.id: "george-solopreneur.*"`.
+1. **Auth scope** — the `universeGalaxyStarId` the user authenticated against. Determines the refresh cookie path. A universe admin authenticates against `george-solopreneur` and gets a JWT with `access.authScopePattern: "george-solopreneur.*"`.
 
-2. **Active scope** — the specific star the client is targeting. That same universe admin might be interacting with `george-solopreneur.app.tenant-a`.
+2. **Active scope** — the specific star the client is targeting. Baked into the JWT's `aud` claim (Phase 1.8). That same universe admin might be interacting with `george-solopreneur.app.tenant-a`, so they refresh with `{ "activeScope": "george-solopreneur.app.tenant-a" }` in the request body.
 
-The JWT's wildcard matching lets one auth scope cover many active scopes. The client needs both: auth scope for `POST {prefix}/{authScope}/refresh-token` (path-scoped cookie), and active scope for the Gateway instanceName.
+The JWT's wildcard matching lets one auth scope cover many active scopes. The client needs both: auth scope for `POST {prefix}/{authScope}/refresh-token` (path-scoped cookie), and active scope as the `activeScope` field in the refresh request body.
 
 For regular users (non-admins, no wildcard), auth scope and active scope are always the same. For admins, auth scope ≠ active scope — they authenticate at a higher tier but target specific stars.
 
-**Gateway instanceName composition.** NebulaClient composes the Gateway instanceName as `${sub}~${activeScope}~${tabId}`. Switching active scope means connecting to a new Gateway instance (same JWT, different instanceName).
+**Gateway instanceName composition.** NebulaClient uses the standard Lumenize Mesh format: `${sub}.${tabId}`. The active scope is NOT in the instanceName — it lives in the JWT `aud` claim. Switching active scope means getting a new access token (refresh with different `activeScope` in body) and connecting to a new Gateway instance.
 
-**Access token management.** Access tokens are stored in memory per tab (not localStorage, not cookies). Each tab refreshes independently against its auth scope's refresh endpoint: `{prefix}/{authScope}/refresh-token`.
+**Access token management.** Access tokens are stored in memory per tab (not localStorage, not cookies). Each tab refreshes independently against its auth scope's refresh endpoint: `POST {prefix}/{authScope}/refresh-token` with `{ "activeScope": "{activeScope}" }` in body. Each access token is single-scope — the `aud` claim determines which star it's valid for.
 
 **Gateway binding name.** NebulaClient passes `gatewayBindingName: 'NEBULA_CLIENT_GATEWAY'` in its `LumenizeClientConfig`. This determines the URL path segment the client uses to connect — `routeDORequest` extracts it from the URL and routes to the correct Gateway DO binding.
 
@@ -313,9 +311,9 @@ Each test scenario:
 - Admin with wildcard JWT connects to `acme.app.tenant-a`, calls ResourceHistoryDO → allowed (entrypoint verified JWT covers that star)
 
 **Scope verification at entrypoint**:
-- JWT with `access.id: "acme.app.tenant-a"` requests Gateway for `acme.app.tenant-b` → rejected at entrypoint (403, no DO instantiated)
-- JWT with `access.id: "acme.*"` requests Gateway for `acme.app.tenant-a` → allowed
-- JWT with `access.id: "acme.app.tenant-a"` requests Gateway for `acme.app.tenant-a` → allowed (exact match)
+- JWT with `aud: "acme.app.tenant-a"` but `access.authScopePattern: "acme.app.tenant-b"` (scope doesn't cover aud) → rejected at entrypoint (403, no DO instantiated)
+- JWT with `aud: "acme.app.tenant-a"` and `access.authScopePattern: "acme.*"` → allowed (wildcard covers aud)
+- JWT with `aud: "acme.app.tenant-a"` and `access.authScopePattern: "acme.app.tenant-a"` → allowed (exact match)
 
 **Admin-only methods (OrgDO)**:
 - Non-admin user calls `addToAllowlist()` → rejected by `requireAdmin` guard
@@ -334,13 +332,13 @@ Each test scenario:
 - OrgDOTest on tenant-a calls `callClientOnGateway` targeting tenant-b's Gateway → `envelope.callContext.universeGalaxyStarId` is `"acme.app.tenant-a"` but `connectionInfo.claims.universeGalaxyStarId` is `"acme.app.tenant-b"` → `onBeforeCallToClient` rejects
 
 **Admin scope switching (auth scope ≠ active scope)**:
-- Universe admin authenticates at `george-solopreneur`, connects to `george-solopreneur.app.tenant-a` via Gateway → succeeds
-- Same admin switches active scope to `george-solopreneur.app.tenant-b` (new Gateway instance, same JWT) → succeeds
-- Verify no refresh call was made during the switch
+- Universe admin authenticates at `george-solopreneur`, refreshes with `{ "activeScope": "george-solopreneur.app.tenant-a" }`, connects to Gateway → succeeds
+- Same admin switches active scope to `george-solopreneur.app.tenant-b` (refresh with `{ "activeScope": "...tenant-b" }`, new access token, new Gateway instance) → succeeds
+- Verify the switch required a refresh call (new access token with different `aud`)
 
-**Gateway instanceName injection**:
-- Client sends Gateway instanceName with `~` in the tabId segment (e.g., `sub~acme.app.tenant-a~tab~evil`) → Gateway rejects (segment count ≠ 3)
-- Client sends Gateway instanceName with missing segments (e.g., `sub~acme.app.tenant-a`) → Gateway rejects
+**Gateway instanceName format**:
+- InstanceName uses standard `${sub}.${tabId}` format — base class `onBeforeAccept` validates this
+- Active scope comes from JWT `aud` claim, not from instanceName
 
 **Missing callContext.universeGalaxyStarId**:
 - Simulate a mesh call arriving at a NebulaDO without `universeGalaxyStarId` on callContext → `onBeforeCall` throws immediately
@@ -369,9 +367,10 @@ async function createAuthenticatedClient(
   email: string,
 ): Promise<NebulaClient> {
   // 1. Login via nebula-auth test mode (skips real email)
-  // 2. Get access token
+  // 2. Refresh with { activeScope } in body to get single-scope access token (aud = activeScope)
   // 3. Create NebulaClient with auth scope + active scope
-  // 4. Client connects to Gateway with instanceName: sub~activeScope~tabId
+  // 4. Client connects to Gateway with standard instanceName: sub.tabId
+  //    (Gateway reads active scope from JWT aud claim)
   // ...
 }
 ```
@@ -400,17 +399,17 @@ The test `wrangler.jsonc` needs bindings for both nebula-auth classes (imported 
 
 ## Success Criteria
 - [ ] `apps/nebula/` exists with `NebulaDO`, `OrgDO`, `ResourceHistoryDO`, `NebulaClientGateway`, `NebulaClient`, `entrypoint.ts`, and guards
-- [ ] `NebulaClientGateway` extends `LumenizeClientGateway` hooks with `~`-delimited instanceName, `callContext.universeGalaxyStarId`, and bidirectional star verification via `connectionInfo.claims`
-- [ ] Entrypoint `onBeforeConnect` hook fully verifies JWT and checks scope covers the requested star before Gateway receives the connection
+- [ ] `NebulaClientGateway` extends `LumenizeClientGateway` hooks: reads `aud` from JWT claims as `universeGalaxyStarId`, stamps `callContext.universeGalaxyStarId`, and bidirectional star verification via `connectionInfo.claims`
+- [ ] Entrypoint `onBeforeConnect` hook fully verifies JWT and checks `matchAccess(jwt.access.authScopePattern, jwt.aud)` (defense-in-depth) before Gateway receives the connection
 - [ ] `NebulaDO.onBeforeCall()` permanently binds each DO instance to its creating star (store on first call, throw on mismatch)
 - [ ] StarId binding works for both singleton DOs (OrgDO, instanceName = starId) and UUID-named DOs (ResourceHistoryDO)
 - [ ] Cross-star access to a UUID-named DO is rejected (starId mismatch)
 - [ ] Standalone guard functions work with `@mesh(guard)` decorator
 - [ ] DO → client calls through Gateway are verified for star membership (mismatched starId rejected, using OrgDOTest subclass in test harness)
-- [ ] All abuse case scenarios pass (scope mismatch, starId binding, DO→client, admin-only, instanceName injection, token expiry)
+- [ ] All abuse case scenarios pass (scope mismatch, starId binding, DO→client, admin-only, token expiry)
 - [ ] At least one real email round-trip e2e test
 - [ ] NebulaClient connects via Browser injection (fetch + lmz.call)
 - [ ] Cross-scope admin access works (universe admin → star DO)
-- [ ] Two-scope model works: auth scope for refresh, active scope for Gateway instanceName
-- [ ] Admin scope switching: new Gateway instance, same JWT, no re-auth
+- [ ] Two-scope model works: auth scope for refresh cookie path, active scope via JWT `aud` (from `activeScope` in refresh body)
+- [ ] Admin scope switching: refresh with new `activeScope` in body, new access token (different `aud`), new Gateway instance
 - [ ] Test helpers for authenticated client creation are reusable

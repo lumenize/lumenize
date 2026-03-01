@@ -52,6 +52,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1 | Refactor Nebula Auth | **Complete** | `tasks/archive/nebula-refactor-auth.md` |
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
 | 1.7 | Mesh Gateway Fix | **Complete** | `tasks/archive/nebula-mesh-gateway-fix.md` |
+| 1.8 | JWT Active Scope in `aud` | Pending | `tasks/nebula-jwt-active-scope.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -79,9 +80,15 @@ Added extension points to `@lumenize/mesh` (MIT) so Nebula can subclass rather t
 
 Unified `WebSocketAttachment` into `GatewayConnectionInfo` (single type for attachment and hooks), added required `bindingName` (from routing header) and `instanceName`, auto-included all JWT claims, simplified default `onBeforeAccept` to validation-only, changed `routeNebulaAuthRequest` to fallthrough pattern (`undefined` for non-matching paths). 634 mesh tests, 231 nebula-auth tests passing.
 
+### Phase 1.8: JWT Active Scope in `aud` Claim
+
+Put the active scope (universeGalaxyStarId) into the JWT `aud` claim. The refresh endpoint requires an `activeScope` field in the JSON request body; the server validates the requested scope is covered by the user's `access` pattern via `matchAccess`, then mints the access token with `aud` set to that scope. Removes the static `NEBULA_AUTH_AUDIENCE` constant. Delegated token endpoint requires the same `activeScope` body field.
+
+This eliminates the `~`-delimited Gateway instanceName design from Phase 2 — NebulaClient uses standard `${sub}.${tabId}` format, and the Gateway reads the active scope from JWT claims (`aud`) instead of parsing the instanceName.
+
 ### Phase 2: Baseline Access Control
 
-Create `apps/nebula/` with three DO classes (`NebulaDO` base, `OrgDO`, `ResourceHistoryDO`), `NebulaClientGateway` (extends `LumenizeClientGateway` via Phase 1.5 hooks), and `NebulaClient`. Four-layer security model: entrypoint scope verification, Gateway star-scoping via `callContext.universeGalaxyStarId`, NebulaDO's `onBeforeCall` starId binding (permanently locks each DO instance to its creating star), and `@mesh(guard)` per-method authorization. NebulaClient implements the two-scope model (auth scope vs active scope). Dummy methods validate the security scenarios with abuse case testing via e2e tests, including cross-star rejection and admin scope switching.
+Create `apps/nebula/` with three DO classes (`NebulaDO` base, `OrgDO`, `ResourceHistoryDO`), `NebulaClientGateway` (extends `LumenizeClientGateway` via Phase 1.5 hooks), and `NebulaClient`. Four-layer security model: entrypoint scope verification (JWT `aud` claim from Phase 1.8), Gateway star-scoping via `callContext.universeGalaxyStarId` (read from JWT `aud`), NebulaDO's `onBeforeCall` starId binding (permanently locks each DO instance to its creating star), and `@mesh(guard)` per-method authorization. NebulaClient uses standard `${sub}.${tabId}` instanceName format and the two-scope model (auth scope for refresh cookies, active scope via JWT `aud`). Dummy methods validate the security scenarios with abuse case testing via e2e tests, including cross-star rejection and admin scope switching.
 
 ### Phase 3: DAG Tree Access Control
 
@@ -166,9 +173,9 @@ Tightly coupled to the resources implementation. Local state management mirrors 
 |----------|--------|-----------|
 | **App structure** | `apps/nebula/` for the deployable app, `packages/nebula-auth/` (`private: true`) for auth library | Apps aren't published; auth is a library consumed by the app |
 | **NebulaDO** | Base class extends `LumenizeDO`; `OrgDO` and `ResourceHistoryDO` extend `NebulaDO` | `onBeforeCall` reserved for base class (starId binding); subclasses use `@mesh(guard)` |
-| **NebulaClientGateway** | Extends `LumenizeClientGateway` (via Phase 1.5 hooks) | Overrides `onBeforeAccept`, `onBeforeCallToMesh`, `onBeforeCallToClient`; adds `~`-delimited star-scoped instanceName and `callContext.universeGalaxyStarId` |
+| **NebulaClientGateway** | Extends `LumenizeClientGateway` (via Phase 1.5 hooks) | Overrides `onBeforeAccept`, `onBeforeCallToMesh`, `onBeforeCallToClient`; reads active scope from JWT `aud` claim (Phase 1.8), stamps `callContext.universeGalaxyStarId` |
 | **NebulaClient** | Extends `LumenizeClient` | Gets WebSocket management, token refresh, tab detection, Browser injection for testing |
-| **Access control** | Four layers: entrypoint scope check → Gateway star-scoping → `onBeforeCall` starId binding → `@mesh(guard)` | Entrypoint rejects early; Gateway sets star context; base class locks DO to star; guards handle method-level auth |
+| **Access control** | Four layers: entrypoint JWT `aud` check → Gateway star-scoping (from `aud`) → `onBeforeCall` starId binding → `@mesh(guard)` | Entrypoint rejects early; Gateway reads active scope from JWT `aud`; base class locks DO to star; guards handle method-level auth |
 | **DAG permissions** | Grant if any ancestor path grants | Simple model: admin > write > read. Roll-down through tree. |
 | **DWL architecture** | Inverted — DO calls OUT to DWL | DWL is callback provider. DO owns storage, subscriptions, fanout. |
 | **`transaction()` API** | Mixed upserts/deletes, double eTag check, `transactionSync` write | Minimizes DWL round-trips (billing), ensures atomicity despite input gate opening |
