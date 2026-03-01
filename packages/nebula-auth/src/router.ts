@@ -116,13 +116,13 @@ function endpointSuffix(endpoint: string): string {
 export async function routeNebulaAuthRequest(
   request: Request,
   env: Env,
-): Promise<Response> {
+): Promise<Response | undefined> {
   const url = new URL(request.url);
 
-  // 1. Match prefix
+  // 1. Match prefix — return undefined for non-matching paths (fallthrough pattern)
   const parsed = parsePath(url.pathname);
   if (!parsed) {
-    return new Response('Not Found', { status: 404 });
+    return undefined;
   }
 
   try {

@@ -63,6 +63,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'alice.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -79,6 +80,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'alice.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -96,6 +98,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'fresh-conn.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -135,6 +138,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'caller.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -226,6 +230,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'auth-user.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -318,6 +323,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -435,6 +441,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': 'Bearer not-a-valid-jwt',
           'X-Lumenize-DO-Instance-Name-Or-Id': 'jwt-invalid.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -453,6 +460,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'no-sub.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -478,6 +486,24 @@ describe('LumenizeClientGateway', () => {
       expect(text).toBe('Forbidden: missing instance name');
     });
 
+    it('rejects missing binding name header', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('no-binding.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
+
+      const token = createFakeJwt({ sub: 'no-binding', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'no-binding.tab1',
+        },
+      });
+
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).toBe('Forbidden: missing binding name');
+    });
+
     it('rejects instance name without dot separator', async () => {
       const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('nodot');
       const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id);
@@ -488,6 +514,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'nodot',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -511,6 +538,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -760,6 +788,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
 
@@ -852,6 +881,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
       expect(response.status).toBe(101);
@@ -878,6 +908,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token2}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
       expect(response2.status).toBe(101);
@@ -908,6 +939,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-expired.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
       expect(response.status).toBe(101);
@@ -936,6 +968,7 @@ describe('LumenizeClientGateway', () => {
           'Upgrade': 'websocket',
           'Authorization': `Bearer ${token2}`,
           'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-expired.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
         },
       });
       expect(response2.status).toBe(101);
@@ -984,6 +1017,7 @@ describe('CustomGateway (hook overrides)', () => {
         'Upgrade': 'websocket',
         'Authorization': `Bearer ${token}`,
         'X-Lumenize-DO-Instance-Name-Or-Id': instanceName,
+        'X-Lumenize-DO-Binding-Name': 'CUSTOM_GATEWAY',
       },
     });
 
@@ -1007,8 +1041,8 @@ describe('CustomGateway (hook overrides)', () => {
     return { response, ws, gateway };
   }
 
-  describe('gatewayBindingName', () => {
-    it('uses custom binding name in verifiedOrigin and caller metadata', async () => {
+  describe('bindingName from routing header', () => {
+    it('uses binding name from X-Lumenize-DO-Binding-Name header in verifiedOrigin and caller metadata', async () => {
       const { ws } = await connectCustom('cg-bind', 'cg-bind.tab1', { role: 'user' });
 
       const chain = preprocess([
@@ -1341,7 +1375,7 @@ describe('CustomGateway (hook overrides)', () => {
         claims: { role: 'admin', org: 'composure-inc' },
       });
 
-      // 3. gatewayBindingName: custom binding name in callChain
+      // 3. bindingName: from X-Lumenize-DO-Binding-Name routing header
       expect(callResponse.result.callChain[0].bindingName).toBe('CUSTOM_GATEWAY');
 
       ws.close();

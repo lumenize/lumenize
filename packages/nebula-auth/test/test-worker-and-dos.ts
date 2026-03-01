@@ -14,6 +14,6 @@ export { NebulaEmailSender } from '../src/nebula-email-sender';
 // Default Worker export — test-only, not part of the library's public API
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    return routeNebulaAuthRequest(request, env);
+    return await routeNebulaAuthRequest(request, env) ?? new Response('Not Found', { status: 404 });
   },
 };

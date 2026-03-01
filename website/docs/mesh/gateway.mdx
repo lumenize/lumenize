@@ -98,7 +98,7 @@ While other mesh nodes can take longer to respond to a call, the Gateway enforce
 
 ### Token Expiration
 
-Gateway verifies token expiration on each incoming message using the stored `tokenExp` in the WebSocket attachment. If the token is expired, the connection is closed with a `4401` code and 'Token expired' message.
+Gateway verifies token expiration on each incoming message using `claims.exp` from the WebSocket attachment. If the token is expired, the connection is closed with a `4401` code and 'Token expired' message.
 
 ### Resubscribing
 
@@ -120,7 +120,7 @@ LumenizeClientGateway provides lifecycle hooks so applications can customize con
 
 | Hook | Lifecycle moment | Default behavior |
 |------|-----------------|------------------|
-| `onBeforeAccept` | WebSocket upgrade | Validates `{sub}.{tabId}` format, extracts standard claims |
+| `onBeforeAccept` | WebSocket upgrade | Validates `{sub}.{tabId}` format; all JWT claims auto-included |
 | `onBeforeCallToMesh` | Client → DO call dispatch | Returns `baseContext` unchanged |
 | `onBeforeCallToClient` | DO → client call forward | No-op (allows all calls) |
 
@@ -132,13 +132,13 @@ Inside the mesh, DOs trust each other — calls arrive over Workers RPC with a v
 
 The Gateway sits at the boundary between untrusted and trusted. It is the **only** enforcement point, so it guards traffic in both directions:
 
-- **`onBeforeAccept`** — validates *who is connecting*. The default confirms the JWT subject matches the instance name so a stolen token can't hijack someone else's Gateway. A multi-tenant app might extend this to verify the tenant ID embedded in the instance name (e.g., `{sub}.{tenantId}.{tabId}`).
+- **`onBeforeAccept`** — validates *who is connecting*. The default confirms the JWT subject matches the instance name so a stolen token can't hijack someone else's Gateway. All JWT payload fields are auto-included in `claims`; the hook can return a `Record` to merge additional claims on top. A multi-tenant app might extend this to verify the tenant ID embedded in the instance name (e.g., `{sub}.{tenantId}.{tabId}`).
 - **`onBeforeCallToMesh`** — validates whether *this particular user* should be allowed to make *this particular call*. Every inbound call passes through here before reaching any Cloudflare-hosted mesh node.
 - **`onBeforeCallToClient`** — validates whether *this particular user* should be allowed to receive *this particular call*. For example, a multi-tenant app can reject calls whose context doesn't match the connected user's tenantcy.
 
 ### `onBeforeAccept(instanceName, sub, jwtPayload)`
 
-Called during WebSocket upgrade after the base class decodes the JWT. The `instanceName` parameter is the [client's configured `instanceName`](./lumenize-client#configuration) — the same value that identifies the Gateway DO instance (see [1:1 Gateway-Client Relationship](#11-gateway-client-relationship)). The base class always extracts `sub` and `tokenExp` (protocol-level concerns) before calling this hook.
+Called during WebSocket upgrade after the base class decodes the JWT. The `instanceName` parameter is the [client's configured `instanceName`](./lumenize-client#configuration) — the same value that identifies the Gateway DO instance (see [1:1 Gateway-Client Relationship](#11-gateway-client-relationship)). The base class auto-includes all JWT payload fields in `claims` before calling this hook.
 
 ```typescript @skip-check
 onBeforeAccept(
@@ -150,10 +150,10 @@ onBeforeAccept(
 
 **Return convention:**
 - **`Response`** — reject the WebSocket upgrade (returned as the HTTP response)
-- **`Record<string, unknown>`** — proceed; these key-value pairs are stored as `claims` in the WebSocket attachment and flow into `callContext.originAuth.claims`
-- **`undefined`** — proceed with no claims
+- **`Record<string, unknown>`** — proceed; merged on top of JWT claims (`{ ...jwtPayload, ...hookResult }`) and stored in the WebSocket attachment, flowing into `callContext.originAuth.claims`
+- **`undefined`** — proceed with JWT claims only (no additional claims)
 
-The default implementation validates that `instanceName` follows `{sub}.{tabId}` format and extracts `emailVerified`, `adminApproved`, `isAdmin`, and `act` claims.
+The default implementation validates that `instanceName` follows `{sub}.{tabId}` format and returns `undefined` (JWT claims only).
 
 ### `onBeforeCallToMesh(baseContext, connectionInfo)`
 
@@ -166,13 +166,14 @@ onBeforeCallToMesh(
 ): CallContext
 ```
 
-`GatewayConnectionInfo` exposes only the identity portion of the connection — not protocol internals:
+`GatewayConnectionInfo` is the single type for both the WebSocket attachment (survives hibernation) and hook parameters. `sub` is a convenience field that duplicates `claims.sub`; token expiration is available as `claims.exp`.
 
 ```typescript @skip-check
 interface GatewayConnectionInfo {
   sub: string;
-  instanceName?: string;
-  claims?: Record<string, unknown>;
+  bindingName: string;
+  instanceName: string;
+  claims: Record<string, unknown>;
 }
 ```
 
@@ -184,24 +185,17 @@ Called before forwarding a DO-initiated call to the connected client. `connectio
 onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void
 ```
 
-### `gatewayBindingName`
-
-The binding name used in `verifiedOrigin` and caller metadata. Override when your Gateway registers under a different binding.
-
-```typescript @skip-check
-protected gatewayBindingName = 'LUMENIZE_CLIENT_GATEWAY';  // default
-```
-
 ### Example: Custom Gateway
+
+The Gateway reads its binding name from the `X-Lumenize-DO-Binding-Name` routing header (set by `routeDORequest`), so subclasses don't need to override it — just register the binding in `wrangler.jsonc`.
 
 ```typescript @skip-check
 import { LumenizeClientGateway } from '@lumenize/mesh';
 import type { GatewayConnectionInfo, CallContext, CallEnvelope } from '@lumenize/mesh';
 
 export class MyGateway extends LumenizeClientGateway {
-  protected override gatewayBindingName = 'MY_GATEWAY';
-
   // Custom instance name format: {sub}.{tenantId}.{tabId}
+  // JWT claims are auto-included; return additional claims to merge on top
   override onBeforeAccept(
     instanceName: string,
     sub: string,
@@ -214,10 +208,11 @@ export class MyGateway extends LumenizeClientGateway {
     if (segments[0] !== sub) {
       return new Response('Identity mismatch', { status: 403 });
     }
-    return { tenantId: segments[1], role: jwtPayload.role };
+    // Merge tenantId on top of auto-included JWT claims
+    return { tenantId: segments[1] };
   }
 
-  // Stamp tenant onto every inbound call 
+  // Stamp tenant onto every inbound call
   override onBeforeCallToMesh(
     baseContext: CallContext,
     connectionInfo: GatewayConnectionInfo

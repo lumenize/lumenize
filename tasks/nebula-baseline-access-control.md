@@ -3,7 +3,7 @@
 **Phase**: 2
 **Status**: Pending
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
-**Depends on**: Phase 1.7 (Mesh Gateway Fix)
+**Depends on**: Phase 1.7 (Mesh Gateway Fix — complete, `tasks/archive/nebula-mesh-gateway-fix.md`)
 **Master task file**: `tasks/nebula.md`
 
 ## Goal

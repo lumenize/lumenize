@@ -51,7 +51,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 0 | Nebula Auth | **Complete** | `tasks/archive/nebula-auth.md` |
 | 1 | Refactor Nebula Auth | **Complete** | `tasks/archive/nebula-refactor-auth.md` |
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
-| 1.7 | Mesh Gateway Fix | Pending | `tasks/nebula-mesh-gateway-fix.md` |
+| 1.7 | Mesh Gateway Fix | **Complete** | `tasks/archive/nebula-mesh-gateway-fix.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -75,9 +75,9 @@ Make nebula-auth a clean library for importing into the main Nebula Worker. Trim
 
 Added extension points to `@lumenize/mesh` (MIT) so Nebula can subclass rather than fork. Two features shipped as a single Mesh release: (1) LumenizeClientGateway hooks — overridable methods for instance name validation, claims extraction, callContext enrichment, inbound envelope validation (`onBeforeCallToClient` receives `connectionInfo`), and binding name; (2) LumenizeDO `onRequest()` lifecycle hook for HTTP request handling. Documentation across gateway.mdx, lumenize-do.mdx, mesh-api.mdx, and security.mdx. 917 tests passing.
 
-### Phase 1.7: Mesh Gateway Fix
+### Phase 1.7: Mesh Gateway Fix — COMPLETE
 
-Fix `LumenizeClientGateway` to read its binding name from the routing header instead of a hardcoded property, unify the private `WebSocketAttachment` into the public `GatewayConnectionInfo` type (adding `bindingName`, `tokenExp`, `connectedAt`), and auto-include all JWT claims so `onBeforeAccept` overrides only need to return additional claims. Also change `routeNebulaAuthRequest` to return `undefined` for non-matching paths (fallthrough pattern). No mesh release until Nebula deploys.
+Unified `WebSocketAttachment` into `GatewayConnectionInfo` (single type for attachment and hooks), added required `bindingName` (from routing header) and `instanceName`, auto-included all JWT claims, simplified default `onBeforeAccept` to validation-only, changed `routeNebulaAuthRequest` to fallthrough pattern (`undefined` for non-matching paths). 634 mesh tests, 231 nebula-auth tests passing.
 
 ### Phase 2: Baseline Access Control
 

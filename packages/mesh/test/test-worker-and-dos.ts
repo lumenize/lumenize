@@ -16,14 +16,11 @@ import type { CallContext } from '../src/types';
 /**
  * Custom Gateway subclass for testing hook overrides.
  *
- * - gatewayBindingName: 'CUSTOM_GATEWAY'
- * - onBeforeAccept: extracts `role` from JWT as a claim; rejects if role is 'blocked'
+ * - onBeforeAccept: rejects if role is 'blocked'; no additional claims (JWT auto-included)
  * - onBeforeCallToMesh: injects claims into callContext.state under `_auth`
  * - onBeforeCallToClient: rejects calls from binding 'BLOCKED_BINDING'
  */
 export class CustomGateway extends LumenizeClientGateway {
-  protected override gatewayBindingName = 'CUSTOM_GATEWAY';
-
   override onBeforeAccept(
     instanceName: string,
     sub: string,
@@ -43,11 +40,8 @@ export class CustomGateway extends LumenizeClientGateway {
       return new Response('Custom: blocked role', { status: 403 });
     }
 
-    // Extract custom claims
-    return {
-      role: jwtPayload.role,
-      org: jwtPayload.org,
-    };
+    // Accept with JWT claims only (role, org already included from JWT)
+    return undefined;
   }
 
   override onBeforeCallToMesh(

@@ -159,31 +159,25 @@ export class ClientDisconnectedError extends Error {
 (globalThis as any).ClientDisconnectedError = ClientDisconnectedError;
 
 // ============================================
-// WebSocket Attachment Types
+// WebSocket Attachment / Connection Info
 // ============================================
 
-/** Data stored in WebSocket attachment (survives hibernation) */
-interface WebSocketAttachment {
-  /** Subject ID from verified JWT (RFC 7519 `sub` claim) */
-  sub: string;
-  /** JWT claims relevant to authorization */
-  claims?: Record<string, unknown>;
-  /** Token expiration timestamp (seconds since epoch) */
-  tokenExp?: number;
-  /** When the connection was established */
-  connectedAt: number;
-  /** Instance name of this Gateway (for identity) */
-  instanceName?: string;
-}
-
 /**
- * Public-facing identity subset of the WebSocket attachment.
- * Passed to `onBeforeCallToMesh` — excludes protocol fields (`tokenExp`, `connectedAt`).
+ * Identity and claims stored in the WebSocket attachment (survives hibernation)
+ * and passed to lifecycle hooks (`onBeforeCallToMesh`, `onBeforeCallToClient`).
+ *
+ * `sub` is a convenience field that duplicates `claims.sub`.
+ * Token expiration is available as `claims.exp`.
  */
 export interface GatewayConnectionInfo {
+  /** Subject ID from verified JWT. Also present as `claims.sub` (convenience field). */
   sub: string;
-  instanceName?: string;
-  claims?: Record<string, unknown>;
+  /** DO binding name from `X-Lumenize-DO-Binding-Name` routing header. */
+  bindingName: string;
+  /** DO instance name from `X-Lumenize-DO-Instance-Name-Or-Id` routing header. */
+  instanceName: string;
+  /** All JWT payload fields, plus any additional claims from `onBeforeAccept`. */
+  claims: Record<string, unknown>;
 }
 
 // ============================================
@@ -241,19 +235,14 @@ export class LumenizeClientGateway extends DurableObject<any> {
   // ============================================
 
   /**
-   * Binding name used in `verifiedOrigin` and caller metadata.
-   * Override in subclasses that register their Gateway under a different binding.
-   */
-  protected gatewayBindingName = 'LUMENIZE_CLIENT_GATEWAY';
-
-  /**
-   * Connection-time hook: validate instance name and extract claims.
+   * Connection-time hook: validate instance name and optionally add claims.
    *
-   * Called during WebSocket upgrade after JWT decoding. The base class has
-   * already extracted `sub` and `tokenExp` (protocol-level concerns).
+   * Called during WebSocket upgrade after JWT decoding. The base class
+   * auto-includes all JWT payload fields in `claims`; if this hook returns
+   * a `Record`, it is merged on top (`{ ...jwtPayload, ...hookResult }`).
    *
-   * @returns `Response` to reject the upgrade, `Record` to store as claims,
-   *          or `undefined` to proceed with no claims.
+   * @returns `Response` to reject the upgrade, `Record` to merge on top of
+   *          JWT claims, or `undefined` to accept with JWT claims only.
    */
   onBeforeAccept(
     instanceName: string,
@@ -269,13 +258,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return new Response('Forbidden: identity mismatch', { status: 403 });
     }
 
-    // Extract claims
-    return {
-      emailVerified: jwtPayload.emailVerified,
-      adminApproved: jwtPayload.adminApproved,
-      ...(jwtPayload.isAdmin ? { isAdmin: jwtPayload.isAdmin } : {}),
-      ...(jwtPayload.act ? { act: jwtPayload.act } : {}),
-    };
+    // Accept with JWT claims only (no additional claims needed)
+    return undefined;
   }
 
   /**
@@ -329,13 +313,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const jwtToken = authHeader.slice(7); // Strip 'Bearer '
     let sub: string;
     let jwtPayload: Record<string, unknown>;
-    let tokenExp: number | undefined;
     try {
       const payloadB64 = jwtToken.split('.')[1];
       const padded = payloadB64 + '='.repeat((4 - payloadB64.length % 4) % 4);
       jwtPayload = JSON.parse(atob(padded.replace(/-/g, '+').replace(/_/g, '/')));
       sub = jwtPayload.sub as string;
-      tokenExp = jwtPayload.exp as number | undefined;
     } catch (e) {
       log.warn('Failed to decode JWT from Authorization header');
       return new Response('Unauthorized: invalid token', { status: 401 });
@@ -346,22 +328,29 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return new Response('Unauthorized: missing identity', { status: 401 });
     }
 
-    // Extract instance name from routing headers (set by routeDORequest)
+    // Extract routing headers (set by routeDORequest)
     const instanceName = request.headers.get('X-Lumenize-DO-Instance-Name-Or-Id') ?? undefined;
+    const bindingName = request.headers.get('X-Lumenize-DO-Binding-Name') ?? undefined;
 
     if (!instanceName) {
       log.warn('WebSocket upgrade rejected: missing instance name header');
       return new Response('Forbidden: missing instance name', { status: 403 });
     }
 
-    // Delegate instance name validation + claims extraction to hook
+    if (!bindingName) {
+      log.warn('WebSocket upgrade rejected: missing binding name header');
+      return new Response('Forbidden: missing binding name', { status: 403 });
+    }
+
+    // Delegate instance name validation + optional additional claims to hook
     const hookResult = this.onBeforeAccept(instanceName, sub, jwtPayload);
 
     if (hookResult instanceof Response) {
       return hookResult;
     }
 
-    const claims: Record<string, unknown> | undefined = hookResult ?? undefined;
+    // Auto-include all JWT payload fields; hook result (if Record) merges on top
+    const claims: Record<string, unknown> = { ...jwtPayload, ...(hookResult ?? {}) };
 
     // Determine if client needs to (re)establish subscriptions
     const subscriptionRequired = await this.#isSubscriptionRequired();
@@ -371,12 +360,11 @@ export class LumenizeClientGateway extends DurableObject<any> {
     const [client, server] = [pair[0], pair[1]];
 
     // Store verified identity in WebSocket attachment
-    const attachment: WebSocketAttachment = {
+    const attachment: GatewayConnectionInfo = {
       sub,
-      claims,
-      tokenExp,
-      connectedAt: Date.now(),
+      bindingName,
       instanceName,
+      claims,
     };
 
     // Close any existing sockets before accepting the new one.
@@ -435,8 +423,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
     }
 
     // Check token expiration
-    const attachment = ws.deserializeAttachment() as WebSocketAttachment | null;
-    if (attachment?.tokenExp && attachment.tokenExp < Date.now() / 1000) {
+    const attachment = ws.deserializeAttachment() as GatewayConnectionInfo | null;
+    const tokenExp = attachment?.claims?.exp as number | undefined;
+    if (tokenExp && tokenExp < Date.now() / 1000) {
       log.warn('Token expired, closing connection');
       ws.close(4401, 'Token expired');
       return;
@@ -555,8 +544,20 @@ export class LumenizeClientGateway extends DurableObject<any> {
     }
 
     // Check token expiration before forwarding
-    const attachment = ws.deserializeAttachment() as WebSocketAttachment | null;
-    if (attachment?.tokenExp && attachment.tokenExp < Date.now() / 1000) {
+    const attachment = ws.deserializeAttachment() as GatewayConnectionInfo | null;
+
+    // Guard: attachment must be present (set during WebSocket accept)
+    if (!attachment) {
+      log.error('Null attachment in __executeOperation — closing WebSocket');
+      ws.close(1011, 'Connection not properly initialized');
+      return { $error: preprocess(new ClientDisconnectedError(
+        'Connection not properly initialized',
+        this.#getInstanceName()
+      )) };
+    }
+
+    const tokenExp = attachment.claims?.exp as number | undefined;
+    if (tokenExp && tokenExp < Date.now() / 1000) {
       log.warn('Token expired, closing connection');
       ws.close(4401, 'Token expired');
       return { $error: preprocess(new ClientDisconnectedError(
@@ -566,13 +567,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
     }
 
     // Let subclass validate/reject the incoming call before forwarding
-    const connectionInfo: GatewayConnectionInfo = {
-      sub: attachment?.sub ?? '',
-      instanceName: attachment?.instanceName,
-      claims: attachment?.claims,
-    };
     try {
-      this.onBeforeCallToClient(envelope, connectionInfo);
+      this.onBeforeCallToClient(envelope, attachment);
     } catch (error) {
       return { $error: preprocess(error) };
     }
@@ -597,27 +593,32 @@ export class LumenizeClientGateway extends DurableObject<any> {
   async #handleClientCall(
     ws: WebSocket,
     message: CallMessage,
-    attachment: WebSocketAttachment | null
+    attachment: GatewayConnectionInfo | null
   ): Promise<void> {
     const log = this.#debugFactory('lmz.mesh.LumenizeClientGateway.#handleClientCall');
     const { callId, binding, instance, chain, callContext: clientContext } = message;
+
+    // Guard: attachment must be present (set during WebSocket accept)
+    if (!attachment) {
+      log.error('Null attachment in #handleClientCall — closing WebSocket');
+      ws.close(1011, 'Connection not properly initialized');
+      return;
+    }
 
     try {
       // Build origin identity from VERIFIED sources (WebSocket attachment)
       // This replaces whatever the client sent - Gateway is the trust boundary
       const verifiedOrigin: NodeIdentity = {
         type: 'LumenizeClient',
-        bindingName: this.gatewayBindingName,
-        instanceName: attachment?.instanceName,
+        bindingName: attachment.bindingName,
+        instanceName: attachment.instanceName,
       };
 
       // Build originAuth from VERIFIED sources (WebSocket attachment)
-      const originAuth: OriginAuth | undefined = attachment?.sub
-        ? {
-            sub: attachment.sub,
-            claims: attachment.claims,
-          }
-        : undefined;
+      const originAuth: OriginAuth = {
+        sub: attachment.sub,
+        claims: attachment.claims,
+      };
 
       // Build callContext - callChain[0] is verified origin, rest comes from client
       // Client may have added hops (unlikely but allowed), so we preserve callChain[1+]
@@ -630,12 +631,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       };
 
       // Let subclass enrich context (e.g., inject claims into state)
-      const connectionInfo: GatewayConnectionInfo = {
-        sub: attachment?.sub ?? '',
-        instanceName: attachment?.instanceName,
-        claims: attachment?.claims,
-      };
-      const callContext = this.onBeforeCallToMesh(baseContext, connectionInfo);
+      const callContext = this.onBeforeCallToMesh(baseContext, attachment);
 
       // Determine callee type for metadata
       const calleeType: NodeType = instance ? 'LumenizeDO' : 'LumenizeWorker';
@@ -648,8 +644,8 @@ export class LumenizeClientGateway extends DurableObject<any> {
         metadata: {
           caller: {
             type: 'LumenizeClient',
-            bindingName: this.gatewayBindingName,
-            instanceName: attachment?.instanceName,
+            bindingName: attachment.bindingName,
+            instanceName: attachment.instanceName,
           },
           callee: {
             type: calleeType,
@@ -793,7 +789,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
   #getInstanceName(): string | undefined {
     const ws = this.#getActiveWebSocket();
     if (ws) {
-      const attachment = ws.deserializeAttachment() as WebSocketAttachment | null;
+      const attachment = ws.deserializeAttachment() as GatewayConnectionInfo | null;
       return attachment?.instanceName;
     }
     return undefined;
