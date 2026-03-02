@@ -6,7 +6,7 @@
  */
 
 // Primary exports
-export { LumenizeDO, LumenizeBase } from './lumenize-do';  // LumenizeBase is deprecated alias
+export { LumenizeDO } from './lumenize-do';
 export type { Continuation, AnyContinuation } from './lumenize-do';
 
 export { LumenizeWorker } from './lumenize-worker';

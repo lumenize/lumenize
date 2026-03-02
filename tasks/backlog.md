@@ -4,18 +4,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Immediate work backlog
 
-- [ ] **Improve `instrumentDOProject` auto-detection to handle multiple DOs without manual config**
-  - **Current friction**: When a source module exports multiple classes, `autoDetectDOClasses` can't distinguish Durable Objects from WorkerEntrypoints (or other class exports), so it throws and requires manual `doClassNames`. Every multi-DO project needs boilerplate like `doClassNames: ['LumenizeClientGateway', 'DocumentDO', 'LumenizeAuth']`.
-  - **Approach 1 — Prototype chain walking**: Import `DurableObject` from `cloudflare:workers` and check `OriginalClass.prototype instanceof DurableObject`. This reliably distinguishes DOs from WorkerEntrypoints, plain classes, and other exports. The import should be wrapped in try/catch for environments where `cloudflare:workers` isn't available (though `instrumentDOProject` only runs in vitest-pool-workers, so this is unlikely to matter).
-  - **Approach 2 — Auto-pass non-DO class exports**: Instead of ignoring non-DO classes, automatically re-export them on the result object. Currently test harnesses must manually `export { SpellCheckWorker } from '../spell-check-worker.js'` for each WorkerEntrypoint. If `instrumentDOProject` detected non-DO classes and passed them through (unwrapped) on the result, the entire test harness could collapse to `export default instrumentDOProject(sourceModule)` with wrangler pointing class names at `default.ClassName`.
-  - **Combined effect**: For most projects, the test harness becomes a single line — no `doClassNames`, no manual re-exports. Manual config only needed when auto-detection genuinely can't determine what to do.
-  - **Location**: `packages/testing/src/instrument-do-project.ts` — `autoDetectDOClasses()` function (lines 31-46) and result assembly (lines 192-202)
 
 ## Lumenize Mesh
 
 - [ ] Investigate use of waitUntil in lmz-api.ts. Do we actually need it? If we do, does it keep the DO in wall-clock billing mode? If we switched to making call always be two one-way calls, would we need it?
-
-- [ ] Add onRequest lifecycle hook to Lumenize Mesh
 
 - [ ] (is this done already?) Add successful token refresh lifecycle test to mesh test suite — with real cookies
   - **Gap**: Mesh tests cover refresh *failure* (4401 → refresh throws → `onLoginRequired`) but never test successful refresh. All existing mesh tests use `createTestRefreshFunction` (function form) which bypasses cookie handling entirely.
@@ -64,18 +56,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Bonus**: This also closes the "dormant DO" durability hole — since we handle retries ourselves and `alarm()` never throws, Cloudflare never deletes the native alarm. Overdue alarms always get retried until they succeed or are explicitly skipped.
   - **Location**: `packages/mesh/src/alarms.ts` — modify `triggerAlarms()` error handling, add migration in constructor, update `#scheduleNextAlarm()` WHERE clause
 
-- [ ] Code review and simplification pass for all mesh code (following alarms.ts pattern)
-  - **Context**: Successfully simplified `alarms.ts` from ~570 to 363 lines (36% reduction)
-  - **Patterns to look for**:
-    1. Redundant fields (e.g., storing both `#ctx` and `#storage` when one suffices)
-    2. Dead code parameters (e.g., `extra.time` that was never used)
-    3. Defensive checks that can't trigger (e.g., `!result` when sql always returns array)
-    4. Methods that are pure indirection (e.g., `triggerAlarmsForTesting` → `triggerAlarms`)
-    5. Unnecessary async/await on synchronous operations
-    6. Redundant initialization flags/methods
-    7. Overly verbose JSDoc (shorten and link to docs)
-  - **Files to review**: `lumenize-do.ts`, `lumenize-worker.ts`, `lumenize-client.ts`, `lumenize-client-gateway.ts`, `lumenize-auth.ts`, `ocan/*.ts`
-
 - [ ] Investigate call chain depth and fanout limits
   - **Call chain depth**: We track `maxDepth: 50` in OCAN, but Cloudflare may enforce its own limit on RPC call depth
   - **Questions to answer**:
@@ -110,25 +90,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Function form: Custom refresh logic returning token string directly
   - Consider: Should we support additional response shapes for string form (configurable field name)?
 
-- [ ] Add method annotations to distinguish three types of methods in classes extending LumenizeClient, LumenizeBase, or LumenizeWorker, where appropriate:
-  - `@inbound`, `@downstream`, or `@callable` — Methods meant to be called by mesh nodes pushing to the client (server → client)
-  - `@result` — Methods that handle responses from calls this client initiated
-  - `@local` — Methods used only locally in the browser, never exposed to the mesh
-  - **Default behavior**: No annotation = unrestricted (can be used for all three)
-  - **When using one**: Disallows all other uses
-  - **Combination rules**: Can combine `@inbound` and `@result` (same logic for both). Combining `@local` with others is contradictory → ?lint error.
-  - **Implementation**:
-    1. Runtime validation in the framework
-    2. JSDoc annotations for documentation/intent (maybe?)
-    3. Custom lint rules for compile-time checks (maybe?)
-
 - [ ] Consider expanding NADIS to LumenizeClient and/or LumenizeWorker. Right now, I can't think of a compelling reason for it. Alarms, sql, and fetch.proxy are all DO specific. However, debug is not.
 
 - [ ] Build something that use the npm create functionality or Cloudflare's own deploy button or Cloudflare may have it's own create workers project plugin capability.
 
-## LumenizeDO NADIS modules
-
-- [ ] mcp
 
 ## Testing & Quality
 
@@ -142,13 +107,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Should have comprehensive logging at key points in all packages
   - Use appropriate levels: debug (everything), info (milestones), warn (expected issues)
   - All Lumenize internal namespaces should use `lmz.*` prefix
-
-- [ ] Add missing alias tests for @lumenize/structured-clone
-  - Test multiple paths to same object (true aliases - obj.a and obj.b both point to same object)
-  - Test deep cycles (A→B→C→A)
-  - Test cycles in Map keys (keys can be objects)
-  - Test shared subtree aliases (two different paths leading to same subtree)
-  - Performance tests with large cyclic structures
 
 - [ ] Refactor RequestSync/ResponseSync to not use real Request/Response objects internally
   - **Problem**: Currently uses real Request/Response objects under the covers, inheriting platform-specific quirks
@@ -172,14 +130,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Context**: `@skip-check` is meant to be temporary during Phase 1 drafting; we need enforcement to ensure examples are tested before publishing
 
 - [ ] Review `@lumenize/auth` API Reference section for what should be public vs internal
-  - ~~RPC Methods: `configure()` and `setEmailService()`~~ — ✅ Both removed. Config is via environment variables; email is via `AUTH_EMAIL_SENDER` service binding.
   - JWT Utilities: `signJwt`, `verifyJwt`, `verifyJwtWithRotation`, `importPrivateKey`, `importPublicKey`, `parseJwtUnsafe` — which are truly needed by users?
   - WebSocket Utilities: `extractWebSocketToken`, `verifyWebSocketToken`, `getTokenTtl`, `WS_CLOSE_CODES` — internal implementation details?
-  - ~~Email Services~~ — ✅ Resolved by `tasks/resend-email-for-auth.md` Phases 3-4. Old internal services (`ConsoleEmailService`, `HttpEmailService`, `MockEmailService`, `createDefaultEmailService`, `EmailService` interface) deleted. Replaced by WorkerEntrypoint architecture (`AuthEmailSenderBase` → `ResendEmailSender`). Fully documented in `configuration.mdx#email-provider` and `getting-started.mdx#email-provider`.
-
-- [ ] Consider removing "Token Delivery via Subprotocol" implementation detail from security.mdx after LumenizeClient implementation is complete
-
-- [ ] Update all references from `LumenizeBase` to `LumenizeDO` across docs (alarms/index.mdx, etc.)
 
 - [ ] Add "Why continuations help with race conditions" explanation
   - The key insight: continuations make temporal gaps **explicit** rather than hidden in awaits
@@ -217,17 +169,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - Ensure docs consistently use "callContext" when describing what users access
   - Check `lmz-api.ts`, `CallEnvelope` interface, and any JSDoc comments
 
-- [ ] MUST document headers that routeDORequest adds: https://github.com/lumenize/lumenize/blob/7d56ccf2a9b5128cb39a98610c1acee50ee34540/packages/utils/src/route-do-request.ts#L290-L294
-
 - [ ] Add this to the docs: https://discord.com/channels/595317990191398933/773219443911819284/1439941400778117292
-
-- [ ] Update the vs Cap'n Web docs to talk about RpcTarget
-
-- [ ] Add examples/docs for plucking bindingName and instanceNameOrId from headers into storage
-
-- [ ] Move promise pipelining from quirks to its own doc section and use our new name for it Operation Chaining and Nesting (OCAN)
-
-- [ ] Add comprehensive security documentation (currently just a warning)
 
 - [ ] Migrate older packages from doc-testing/TypeDoc to hand-written docs with check-examples
   - Packages still using doc-testing generated files: rpc (quick-start, capn-web comparisons, operation-chaining), testing (agents, usage), mesh (services)
@@ -237,13 +179,7 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Add llms.txt support https://github.com/din0s/docusaurus-plugin-llms-txt
 
-- [ ] Add MCP server for docs
-  
 ## Future bigger things
-
-- [ ] Consider switching MCP subscriptions to keying off of the original request id rather than rely upon session id
-
-- [ ] Consider adding same-site origin and path checks to our cookie parameter handling in Browser.
 
 - [ ] Publish our test-endpoints as part of @lumenize/testing. It's particularly useful now that it can be run in-process. Does it still need a token when used that way? Should we rename it httpbin to match? What's different about it compared to httpbin?
 
@@ -258,18 +194,6 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Add an alternative to ctn (maybe ctnTransaction) to use a transaction for execution
 
 
-## MCP
-
-- [ ] Consider switching to A2A or ACP
-- [ ] Consider using JS Proxy to for JSON RPC/MCP where JSON Schema is involved. This will allow us to have a simple method call that will still check the input schema. Look at what tRPC does with them.
-- [ ] Add TypeBox Value support for RPC runtime checking (both TypeBox and JSON Schema)
-  - Don't make TypeBox a dependency
-  - Auto-detect TypeBox spec vs JSON Schema spec
-- [ ] Implement the latest version of these interfaces:
-  - [ ] https://github.com/modelcontextprotocol/python-sdk/blob/7c639ec1a59a0f7b84776b4c1937e7654a3b6960/src/mcp/client/transport_session.py
-  - [ ] https://github.com/modelcontextprotocol/python-sdk/blob/7c639ec1a59a0f7b84776b4c1937e7654a3b6960/src/mcp/server/transport_session.py
-
-
 ## Infrastructure
 
 - [ ] See `tasks/github-actions-publishing.md` for automation plans
@@ -279,15 +203,9 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 - [ ] Cross post on Medium like this
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
-## Blocked / Maybe later
+- [ ] Get a Substack account and cross post there
 
-- [ ] Implement `createLumenizeRouter` as the primary entry point into the mesh
-  - Wraps `routeDORequest` but requires instance **names** only (no ids)
-  - `routeDORequest` keeps `doInstanceNameOrId` for low-level flexibility
-  - Will likely become the **only** way people connect into the mesh
-  - Includes auth middleware + gateway routing
-  - Some LumenizeClient/Gateway testing may be deferred until this is working
-  - Update getting-started.mdx to use it
+## Blocked / Maybe later
 
 - [ ] Consider always using a transactionSync for every continuation execution. Maybe make it a flag?
 

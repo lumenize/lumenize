@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { NadisPlugin, LumenizeBase } from '../src/index';
+import { NadisPlugin } from '../src/index';
 
 // Test plugin: Class-based stateful service
 class TestService extends NadisPlugin {

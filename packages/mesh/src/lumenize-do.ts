@@ -506,10 +506,6 @@ if (!(globalThis as any).__lumenizeResultHandlers) {
 // Expose LumenizeDO prototype for method overrides (e.g., __processCallQueue)
 (globalThis as any).__LumenizeDOPrototype = LumenizeDO.prototype;
 
-// Backwards compatibility alias (deprecated)
-/** @deprecated Use LumenizeDO instead */
-export { LumenizeDO as LumenizeBase };
-
 // Re-export the global LumenizeServices interface for convenience
 export type { LumenizeServices } from './types';
 

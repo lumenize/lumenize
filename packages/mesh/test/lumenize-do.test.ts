@@ -311,7 +311,7 @@ describe('@lumenize/mesh - NADIS Auto-injection', () => {
 
   describe('this.lmz.* - Identity Abstraction API', () => {
     describe('Type Property', () => {
-      it('returns "LumenizeBase" for type', async () => {
+      it('returns "LumenizeDO" for type', async () => {
         const stub = env.TEST_DO.getByName('lmz-type-test');
         const type = await stub.testLmzType();
         expect(type).toBe('LumenizeDO');

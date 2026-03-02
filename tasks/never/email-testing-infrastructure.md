@@ -1,6 +1,6 @@
 # Email Testing Infrastructure
 
-> **Subsumed into `tasks/resend-email-for-auth.md` Phase 3.** This task's architecture, prior art references, and success criteria have been incorporated there, updated for Resend (instead of AWS SES) and LumenizeDO (instead of LumenizeBase). Do not start this task independently.
+> **Subsumed into `tasks/resend-email-for-auth.md` Phase 3.** This task's architecture, prior art references, and success criteria have been incorporated there, updated for Resend (instead of AWS SES) and LumenizeDO. Do not start this task independently.
 
 ## Objective
 
@@ -36,7 +36,7 @@ Build tooling to enable live integration testing of email-based flows (like magi
        │                                           ┌─────────────┐
        │ ◀───────── WebSocket notification ─────── │ EmailTestDO │
        │           (email arrived!)                │ (extends    │
-       └───────────────────────────────────────────│ LumenizeBase│
+       └───────────────────────────────────────────│ LumenizeDO  │
                                                    └─────────────┘
 ```
 
@@ -78,7 +78,7 @@ Existing code in `lumenize-monolith/`:
 **Goal**: Create a DO that receives emails via Cloudflare Email Routing and notifies connected WebSocket clients.
 
 **Success Criteria**:
-- [ ] `EmailTestDO` extends `LumenizeBase` in `tooling/email-test/` (or test-endpoints)
+- [ ] `EmailTestDO` extends `LumenizeDO` in `tooling/email-test/` (or test-endpoints)
 - [ ] Parses incoming emails with `postal-mime`
 - [ ] Stores recent emails in SQLite (for debugging/verification)
 - [ ] WebSocket clients can subscribe to receive email notifications

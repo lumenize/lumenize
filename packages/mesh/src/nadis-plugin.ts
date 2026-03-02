@@ -26,7 +26,7 @@ export abstract class NadisPlugin {
 
   /**
    * Initialize plugin with DO instance
-   * @param doInstance - The LumenizeBase DO instance
+   * @param doInstance - The LumenizeDO instance
    */
   constructor(doInstance: any) {
     this.doInstance = doInstance;

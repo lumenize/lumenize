@@ -9,7 +9,7 @@ Lumenize is a collection of liberally licensed (MIT) and more restrictively lice
 - **Quality**: 
   - Code quality achieved via high test coverage: Branch >80%, Statement >90%
   - Documentation quality achieved via custom Docusaurus tooling that ensures examples always work (see Documentation section)
-- **Opinionated where it matters. Flexible where it counts**: For example, the LumenizeBase class is minimal but opinionated about best practices while also providing a flexible plugin system to extend functionality along with batteries-included plugins for common use cases.
+- **Opinionated where it matters. Flexible where it counts**: For example, the Lumenize Mesh base classes are minimal but opinionated about best practices while also providing a flexible plugin system to extend functionality along with batteries-included plugins for common use cases.
 - **No foot-guns**: Vibe coders are experts in their field, but not necessarily coding or operations. Lumenize makes it easy for both the product creator AND the LLM they are using to follow best practices. For example, Durable Objects were designed to make parallel programming safer if you follow certain patterns, but will happily allow you to violate those patterns without warning. Even when Lumenize allows you to break the rules, you are loudly warned of the risks.
 - **Security**: Authentication and access control are built-in and on by default. You have to jump through hoops to avoid them. At the same time, they are flexible and can be adapted to any context.
 

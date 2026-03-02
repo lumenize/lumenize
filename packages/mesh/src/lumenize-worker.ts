@@ -25,7 +25,7 @@ export type { Continuation, AnyContinuation };
  * - Continuation support via `this.ctn()`
  * - Automatic envelope handling via `__executeOperation()`
  * 
- * **Key differences from LumenizeBase**:
+ * **Key differences from LumenizeDO**:
  * - Workers are ephemeral (no storage, no persistence)
  * - No `instanceName` or `id` (always undefined)
  * - `call()` uses `ctx.waitUntil()` to keep the Worker alive for fire-and-forget calls

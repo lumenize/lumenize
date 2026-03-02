@@ -273,7 +273,7 @@ Before running stress tests, we need to implement **robust retry and timeout log
 ## Timeline
 
 **Phase 1: Implement Retry Logic**:
-1. Add idempotency to `__receiveResult` in LumenizeBase
+1. Add idempotency to `__receiveResult` in LumenizeDO
 2. Update Executor to report delivery status
 3. Add alarm-based monitoring to Orchestrator
 4. Write tests for race conditions
