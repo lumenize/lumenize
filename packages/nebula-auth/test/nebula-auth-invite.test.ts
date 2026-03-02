@@ -236,4 +236,37 @@ describe('Invite Flow', () => {
       expect(body.invited).toHaveLength(2);
     });
   });
+
+  // ============================================
+  // Invite Token Replay Prevention
+  // ============================================
+
+  describe('invite token replay prevention', () => {
+    it('rejects reuse of an already-accepted invite token', async () => {
+      const inst = 'invite-replay-1';
+      const stub = env.NEBULA_AUTH.getByName(inst);
+      const { access_token } = await fullLogin(stub, inst, 'admin@example.com');
+
+      // Invite a user
+      const inviteResp = await adminRequest(stub, inst, 'invite?_test=true', access_token, {
+        method: 'POST',
+        body: { emails: ['replay-target@example.com'] },
+      });
+      expect(inviteResp.status).toBe(200);
+      const inviteBody = await inviteResp.json() as any;
+      const inviteUrl = inviteBody.links['replay-target@example.com'];
+      expect(inviteUrl).toContain('accept-invite');
+
+      // Accept invite — first time succeeds
+      const acceptResp1 = await stub.fetch(new Request(inviteUrl, { redirect: 'manual' }));
+      expect(acceptResp1.status).toBe(302);
+      expect(acceptResp1.headers.get('Set-Cookie')).toContain('refresh-token=');
+
+      // Replay — second time fails (token deleted)
+      const acceptResp2 = await stub.fetch(new Request(inviteUrl, { redirect: 'manual' }));
+      expect(acceptResp2.status).toBe(302);
+      const location = acceptResp2.headers.get('Location')!;
+      expect(location).toContain('error=invalid_token');
+    });
+  });
 });

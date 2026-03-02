@@ -473,4 +473,44 @@ describe('NebulaAuthRegistry', () => {
       expect(updatedNames).not.toContain('disc.crm.star-b');
     });
   });
+
+  // ============================================
+  // Email validation on claim paths
+  // ============================================
+
+  describe('email validation', () => {
+    it('claimUniverse rejects invalid email format', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.claimUniverse('email-val-univ', 'not-an-email', 'http://localhost'),
+      ).rejects.toThrow(/invalid.*email/i);
+    });
+
+    it('claimUniverse rejects email missing local part', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.claimUniverse('email-val-univ-2', '@domain.com', 'http://localhost'),
+      ).rejects.toThrow(/invalid.*email/i);
+    });
+
+    it('claimUniverse rejects email missing domain', async () => {
+      const registry = getRegistry();
+      await expect(
+        registry.claimUniverse('email-val-univ-3', 'user@', 'http://localhost'),
+      ).rejects.toThrow(/invalid.*email/i);
+    });
+
+    it('claimStar rejects invalid email format', async () => {
+      const registry = getRegistry();
+      // Need a parent galaxy to exist
+      await registry.claimUniverse('cs-email-val', 'valid@example.com', 'http://localhost');
+      const naStub = (env as any).NEBULA_AUTH.getByName('cs-email-val');
+      await fullLogin(naStub, 'cs-email-val', 'valid@example.com');
+      await registry.createGalaxy('cs-email-val.app', { authScopePattern: 'cs-email-val.*', admin: true });
+
+      await expect(
+        registry.claimStar('cs-email-val.app.tenant', 'bad-email', 'http://localhost'),
+      ).rejects.toThrow(/invalid.*email/i);
+    });
+  });
 });

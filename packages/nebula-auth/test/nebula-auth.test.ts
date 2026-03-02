@@ -984,4 +984,43 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       expect(body.error_description).toContain('Content-Type');
     });
   });
+
+  // ============================================
+  // DO-level adminApproved check
+  // ============================================
+
+  describe('DO-level adminApproved check', () => {
+    it('rejects unapproved subject using refresh token on authenticated endpoints', async () => {
+      const inst = 'do-approve-check';
+      const stub = env.NEBULA_AUTH.getByName(inst);
+
+      // First user becomes founder admin
+      const admin = await fullLogin(stub, inst, 'admin@example.com');
+
+      // Second user signs up — emailVerified but NOT adminApproved
+      const magicLink2 = await requestMagicLink(stub, inst, 'unapproved@example.com');
+      const { refreshToken: unapprovedRefreshToken } = await clickMagicLink(stub, magicLink2);
+
+      // Unapproved user can still refresh (handled by #handleRefreshToken directly)
+      const refreshResp = await stub.fetch(new Request(url(inst, 'refresh-token'), {
+        method: 'POST',
+        headers: {
+          'Cookie': `refresh-token=${unapprovedRefreshToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ activeScope: inst }),
+      }));
+      expect(refreshResp.status).toBe(200);
+
+      // But trying to use the refresh token for authenticated endpoints
+      // (via #authenticateRequest → #verifyRefreshTokenIdentity) should fail
+      const newCookie = refreshResp.headers.get('Set-Cookie')!;
+      const newRefreshToken = newCookie.split(';')[0].split('=')[1];
+
+      const subjectsResp = await stub.fetch(new Request(url(inst, 'subjects'), {
+        headers: { 'Cookie': `refresh-token=${newRefreshToken}` },
+      }));
+      expect(subjectsResp.status).toBe(401);
+    });
+  });
 });

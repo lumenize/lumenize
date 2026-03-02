@@ -14,7 +14,7 @@ import {
   extractWebSocketToken,
   verifyTurnstileToken,
 } from '@lumenize/auth';
-import { matchAccess } from './parse-id';
+import { matchAccess, parseId } from './parse-id';
 import {
   NEBULA_AUTH_PREFIX,
   NEBULA_AUTH_ISSUER,
@@ -35,7 +35,7 @@ const AUTH_FLOW_SUFFIXES = new Set([
 ]);
 
 // Turnstile-gated endpoints
-const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'claim-star']);
+const TURNSTILE_ENDPOINTS = new Set(['email-magic-link', 'claim-universe', 'claim-star', 'discover']);
 
 // ============================================
 // Response helpers
@@ -144,16 +144,32 @@ async function handleRegistryPath(
   env: Env,
   endpoint: string,
 ): Promise<Response> {
-  // Turnstile gating for claim-universe, claim-star
+  // Turnstile gating for unauthenticated endpoints
   if (TURNSTILE_ENDPOINTS.has(endpoint)) {
     const turnstileResult = await checkTurnstile(request, env);
     if (turnstileResult) return turnstileResult;
   }
 
-  // JWT gating for create-galaxy
+  // JWT gating for create-galaxy — pass verified payload in body
   if (endpoint === 'create-galaxy') {
     const jwtResult = await checkJwtForRegistry(request, env);
-    if (jwtResult) return jwtResult;
+    if ('error' in jwtResult) return jwtResult.error;
+
+    // Read the original body, inject verifiedAccess, and forward
+    let body: Record<string, any>;
+    try {
+      body = await request.json() as Record<string, any>;
+    } catch {
+      return jsonError(400, 'invalid_request', 'Request body must be JSON');
+    }
+    body.verifiedAccess = jwtResult.payload.access;
+
+    const registryStub = env.NEBULA_AUTH_REGISTRY.getByName(REGISTRY_INSTANCE_NAME);
+    return registryStub.fetch(new Request(request.url, {
+      method: request.method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
   }
 
   // Forward to registry DO
@@ -171,6 +187,13 @@ async function handleInstancePath(
   instanceName: string,
   endpoint: string,
 ): Promise<Response> {
+  // Validate instance name format (1–3 dot-separated slugs)
+  try {
+    parseId(instanceName);
+  } catch {
+    return jsonError(400, 'invalid_instance', 'Invalid instance name format');
+  }
+
   const suffix = endpointSuffix(endpoint);
 
   // Auth-flow endpoints: Turnstile on email-magic-link, rest forwarded directly
@@ -234,11 +257,7 @@ async function checkTurnstile(
 // JWT verification for instance paths
 // ============================================
 
-let _publicKeysCache: CryptoKey[] | null = null;
-
 async function getPublicKeys(env: Env): Promise<CryptoKey[]> {
-  if (_publicKeysCache) return _publicKeysCache;
-
   const pems = [
     env.JWT_PUBLIC_KEY_BLUE,
     env.JWT_PUBLIC_KEY_GREEN,
@@ -248,8 +267,7 @@ async function getPublicKeys(env: Env): Promise<CryptoKey[]> {
     throw new Error('No JWT public keys found in env');
   }
 
-  _publicKeysCache = await Promise.all(pems.map(pem => importPublicKey(pem)));
-  return _publicKeysCache;
+  return Promise.all(pems.map(pem => importPublicKey(pem)));
 }
 
 async function verifyAndGateJwt(
@@ -347,18 +365,17 @@ async function checkJwtForInstance(
 async function checkJwtForRegistry(
   request: Request,
   env: Env,
-): Promise<Response | null> {
+): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
-    return json401('invalid_request', 'Missing Authorization header with Bearer token');
+    return { error: json401('invalid_request', 'Missing Authorization header with Bearer token') };
   }
 
   const token = authHeader.slice(7);
   const publicKeys = await getPublicKeys(env);
 
-  // Verify JWT — use a placeholder instanceName for verification since
-  // the registry will do its own authorization check on the access claim.
-  // We just need to verify the signature and standard claims here.
+  // Verify JWT — the registry will check the access claim authorization,
+  // but we verify signature and standard claims here.
   let rawPayload: Record<string, unknown> | null;
 
   if (publicKeys.length === 1) {
@@ -368,19 +385,19 @@ async function checkJwtForRegistry(
   }
 
   if (!rawPayload) {
-    return json401('invalid_token', 'Token is invalid or expired');
+    return { error: json401('invalid_token', 'Token is invalid or expired') };
   }
 
   const payload = rawPayload as unknown as NebulaJwtPayload;
 
   if (!payload.aud || typeof payload.aud !== 'string') {
-    return json401('invalid_token', 'Token missing audience claim');
+    return { error: json401('invalid_token', 'Token missing audience claim') };
   }
   if (payload.iss !== NEBULA_AUTH_ISSUER) {
-    return json401('invalid_token', 'Token issuer mismatch');
+    return { error: json401('invalid_token', 'Token issuer mismatch') };
   }
   if (!payload.sub) {
-    return json401('invalid_token', 'Token missing subject claim');
+    return { error: json401('invalid_token', 'Token missing subject claim') };
   }
 
   // Per-subject rate limiting
@@ -388,9 +405,9 @@ async function checkJwtForRegistry(
   if (rateLimiter) {
     const { success } = await rateLimiter.limit({ key: payload.sub });
     if (!success) {
-      return jsonError(429, 'rate_limited', 'Too many requests. Please try again later.');
+      return { error: jsonError(429, 'rate_limited', 'Too many requests. Please try again later.') };
     }
   }
 
-  return null; // passed — registry will check access claim authorization
+  return { payload }; // passed — verified payload returned to caller
 }

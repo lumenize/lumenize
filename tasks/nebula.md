@@ -53,7 +53,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
 | 1.7 | Mesh Gateway Fix | **Complete** | `tasks/archive/nebula-mesh-gateway-fix.md` |
 | 1.8 | JWT Active Scope in `aud` | **Complete** | `tasks/archive/nebula-jwt-active-scope.md` |
-| 1.9 | Auth Security Hardening | Pending | `tasks/nebula-auth-security-hardening.md` |
+| 1.9 | Auth Security Hardening | **Complete** | `tasks/nebula-auth-security-hardening.md` |
 | 1.95 | Enforce Synchronous Mesh Guards | Pending | `tasks/nebula-sync-guards.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
@@ -88,9 +88,9 @@ Put the active scope (universeGalaxyStarId) into the JWT `aud` claim. The refres
 
 This eliminates the `~`-delimited Gateway instanceName design from Phase 2 — NebulaClient uses standard `${sub}.${tabId}` format, and the Gateway reads the active scope from JWT claims (`aud`) instead of parsing the instanceName.
 
-### Phase 1.9: Auth Security Hardening
+### Phase 1.9: Auth Security Hardening — COMPLETE
 
-Harden `@lumenize/nebula-auth` against vulnerabilities from security review. Eight fixes ordered by severity: (1) invite token replay — delete after use like magic links, (2) `discover` endpoint missing Turnstile gating, (3) registry uses `parseJwtUnsafe` instead of receiving verified payload from router, (4) public key cache has no TTL — add 5-minute expiry, (5) DO-level `adminApproved` check as defense-in-depth for RPC bypass, (6) `createSubjectAndSendMagicLink` RPC validates `instanceName` matches `ctx.id.name`, (7) email format validation on registry claim paths, (8) instance name format validation in router. All changes in `packages/nebula-auth/`.
+Hardened `@lumenize/nebula-auth` against vulnerabilities from security review. Seven fixes: (1) invite token replay — delete after use like magic links, (2) `discover` endpoint added to Turnstile gating, (3) registry no longer uses `parseJwtUnsafe` — router passes verified access claim in request body, (4) public key cache removed — keys imported fresh each request, (5) DO-level `adminApproved` check in `#verifyRefreshTokenIdentity` as defense-in-depth for RPC bypass, (6) email format validation on registry claim paths (`claimUniverse`, `claimStar`), (7) instance name format validation in router via `parseId()`. 254 tests (12 new), all passing.
 
 ### Phase 1.95: Enforce Synchronous Guards and onBeforeCall
 

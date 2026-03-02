@@ -12,12 +12,11 @@
  * @see tasks/nebula-auth.md § NebulaAuthRegistry
  */
 import { debug } from '@lumenize/debug';
-import { parseJwtUnsafe } from '@lumenize/auth';
 import { DurableObject } from 'cloudflare:workers';
 import { REGISTRY_SCHEMAS } from './schemas';
 import { NEBULA_AUTH_PREFIX, PLATFORM_INSTANCE_NAME } from './types';
 import { parseId, isValidSlug } from './parse-id';
-import type { AccessEntry, DiscoveryEntry, NebulaJwtPayload } from './types';
+import type { AccessEntry, DiscoveryEntry } from './types';
 
 export class NebulaAuthRegistry extends DurableObject {
   #schemaInitialized = false;
@@ -142,6 +141,11 @@ export class NebulaAuthRegistry extends DurableObject {
     this.#ensureSchema();
     const log = debug('nebula-auth.Registry.claimUniverse');
 
+    // Validate email format
+    if (!isValidEmail(email)) {
+      throw new RegistryError(400, 'invalid_email', 'Invalid email format');
+    }
+
     // Validate slug format
     if (!isValidSlug(slug)) {
       throw new RegistryError(400, 'invalid_slug', 'Invalid universe slug format');
@@ -189,6 +193,11 @@ export class NebulaAuthRegistry extends DurableObject {
   ): Promise<{ message: string; magicLinkUrl?: string }> {
     this.#ensureSchema();
     const log = debug('nebula-auth.Registry.claimStar');
+
+    // Validate email format
+    if (!isValidEmail(email)) {
+      throw new RegistryError(400, 'invalid_email', 'Invalid email format');
+    }
 
     // Validate format — must be exactly 3 segments (star tier)
     let parsed;
@@ -324,25 +333,18 @@ export class NebulaAuthRegistry extends DurableObject {
           return Response.json(result);
         }
         case 'create-galaxy': {
-          // JWT already verified by Worker — parse unsafely to extract access claim
-          const authHeader = request.headers.get('Authorization');
-          if (!authHeader?.startsWith('Bearer ')) {
+          // JWT already verified by router — verified access claim passed in body
+          const { universeGalaxyId, verifiedAccess } = await request.json() as {
+            universeGalaxyId: string;
+            verifiedAccess: AccessEntry;
+          };
+          if (!verifiedAccess) {
             return Response.json(
-              { error: 'invalid_request', error_description: 'Missing Bearer token' },
-              { status: 401 },
+              { error: 'invalid_request', error_description: 'Missing verified access claim' },
+              { status: 400 },
             );
           }
-          const token = authHeader.slice(7);
-          const parsed = parseJwtUnsafe(token);
-          if (!parsed) {
-            return Response.json(
-              { error: 'invalid_token', error_description: 'Cannot parse JWT' },
-              { status: 401 },
-            );
-          }
-          const payload = parsed.payload as unknown as NebulaJwtPayload;
-          const { universeGalaxyId } = await request.json() as { universeGalaxyId: string };
-          const result = this.createGalaxy(universeGalaxyId, payload.access);
+          const result = this.createGalaxy(universeGalaxyId, verifiedAccess);
           return Response.json(result, { status: 201 });
         }
         default:
@@ -390,6 +392,15 @@ export class NebulaAuthRegistry extends DurableObject {
 
     return false;
   }
+}
+
+/**
+ * Basic email format validation: non-empty local part, @, non-empty domain.
+ */
+function isValidEmail(email: string): boolean {
+  if (!email || typeof email !== 'string') return false;
+  const atIdx = email.indexOf('@');
+  return atIdx > 0 && atIdx < email.length - 1;
 }
 
 /**

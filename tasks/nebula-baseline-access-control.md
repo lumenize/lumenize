@@ -4,6 +4,7 @@
 **Status**: Pending
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
 **Depends on**: Phase 1.95 (Enforce Synchronous Mesh Guards — `tasks/nebula-sync-guards.md`), Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
+**Precondition from Phase 1.9**: The nebula-auth router validates instance names via `parseId()` before they reach any DO. Phase 2 code can trust that instance names arriving at the DO layer are well-formed `universe.galaxy.star` IDs (1–3 dot-separated slugs). The entrypoint should adopt the same `parseId()` validation for its own routing (or rely on `routeDORequest` doing so).
 **Master task file**: `tasks/nebula.md`
 **Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
 
@@ -123,7 +124,7 @@ export default {
 }
 ```
 
-> **Note:** The `getPublicKeys` helper follows the same pattern as nebula-auth's router — caches imported `CryptoKey` objects, loads both `JWT_PUBLIC_KEY_BLUE` and `JWT_PUBLIC_KEY_GREEN` from env. This is the second copy (~10 lines, from nebula-auth's router). No attribution needed for intra-monorepo copies. If a third copy appears, extract to a shared utility.
+> **Note:** The `getPublicKeys` helper follows the same pattern as nebula-auth's router — imports keys fresh each call (no caching, per Phase 1.9 Fix 4), loads both `JWT_PUBLIC_KEY_BLUE` and `JWT_PUBLIC_KEY_GREEN` from env. This is the second copy (~10 lines, from nebula-auth's router). No attribution needed for intra-monorepo copies. If a third copy appears, extract to a shared utility.
 
 > **`Env` type.** The app-level `wrangler.jsonc` defines production bindings and generates the global `Env` type via `wrangler types` (run directly in `apps/nebula/`, not via the root npm script which only handles packages). The test `wrangler.jsonc` in `test/` adds test-specific bindings (e.g., `OrgDOTest` subclass) — run `wrangler types` there separately for test-specific types.
 

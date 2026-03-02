@@ -1,7 +1,7 @@
 # Nebula Auth Security Hardening
 
 **Phase**: 1.9
-**Status**: Pending
+**Status**: Complete
 **Package**: `packages/nebula-auth/`
 **Depends on**: Phase 1.8 (JWT Active Scope in `aud` — complete)
 **Master task file**: `tasks/nebula.md`
@@ -125,12 +125,12 @@ Fixes are ordered by severity and dependency:
 
 ## Success Criteria
 
-- [ ] Invite tokens are single-use (deleted before processing, matching `#handleMagicLink` pattern)
-- [ ] `discover` endpoint requires Turnstile verification
-- [ ] Registry never uses `parseJwtUnsafe` — verified payload passed from router
-- [ ] Public key cache removed — keys imported fresh each request
-- [ ] DO-level auth rejects unapproved subjects (return `null` from `#verifyRefreshTokenIdentity`)
-- [ ] Registry validates email format before RPC calls
-- [ ] Router rejects malformed instance names (via `parseId()`)
-- [ ] All existing tests continue to pass
-- [ ] New tests cover each fix's specific scenario
+- [x] Invite tokens are single-use (deleted before processing, matching `#handleMagicLink` pattern)
+- [x] `discover` endpoint requires Turnstile verification
+- [x] Registry never uses `parseJwtUnsafe` — verified payload passed from router
+- [x] Public key cache removed — keys imported fresh each request
+- [x] DO-level auth rejects unapproved subjects (return `null` from `#verifyRefreshTokenIdentity`)
+- [x] Registry validates email format before RPC calls
+- [x] Router rejects malformed instance names (via `parseId()`)
+- [x] All existing tests continue to pass (242 → 242 still green)
+- [x] New tests cover each fix's specific scenario (12 new tests, 254 total)

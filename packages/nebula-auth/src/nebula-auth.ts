@@ -907,6 +907,9 @@ export class NebulaAuth extends DurableObject {
       return this.#redirectWithError('token_expired');
     }
 
+    // Delete the token (single-use) — prevents replay attacks
+    this.#sql`DELETE FROM InviteTokens WHERE token = ${token}`;
+
     const subjectRows = this.#sql`
       SELECT sub, email, emailVerified, adminApproved, isAdmin, createdAt, lastLoginAt
       FROM Subjects WHERE email = ${inviteToken.email}
@@ -1197,10 +1200,14 @@ export class NebulaAuth extends DurableObject {
     if (Date.now() > rows[0].expiresAt) return null;
 
     const subjectRows = this.#sql`
-      SELECT sub, email, isAdmin FROM Subjects WHERE sub = ${rows[0].subjectId}
+      SELECT sub, email, isAdmin, adminApproved FROM Subjects WHERE sub = ${rows[0].subjectId}
     ` as any[];
 
     if (subjectRows.length === 0) return null;
+
+    // Defense-in-depth: reject unapproved non-admin subjects at DO level
+    // (router also checks, but this guards against RPC bypass)
+    if (!Boolean(subjectRows[0].isAdmin) && !Boolean(subjectRows[0].adminApproved)) return null;
 
     return {
       sub: subjectRows[0].sub,
