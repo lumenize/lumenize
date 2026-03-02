@@ -287,25 +287,16 @@ Create a test folder and drop this simple test harness into it:
 import * as sourceModule from '../src';
 import { instrumentDOProject } from '@lumenize/testing';
 
-// Simple case: Auto-detects MyDO since it's the only class export from '../src'
+// Auto-detects all DurableObject subclasses via prototype chain
+// walking — no need to list doClassNames, even with multiple DOs.
+// WorkerEntrypoints and other non-DO classes are passed through
+// unwrapped on the result object.
 const instrumented = instrumentDOProject(sourceModule);
 
+// Wrangler requires DO classes as named exports.
+// For multiple DOs: export const { MyDO, AnotherDO } = instrumented.dos;
 export const { MyDO } = instrumented.dos;
 export default instrumented;
-
-// If you had multiple DO classes in '../src', you'd get a helpful error like:
-//
-// Error: Found multiple class exports: MyDO, AnotherDO, HelperClass
-//
-// Please specify which are Durable Objects by using explicit configuration:
-//
-// const instrumented = instrumentDOProject({
-//   sourceModule,
-//   doClassNames: ['MyDO', 'AnotherDO']  // <-- Keep only the DO classes
-// });
-//
-// export const { MyDO, AnotherDO } = instrumented.dos;
-// export default instrumented;
 
 ```
 
@@ -513,10 +504,8 @@ it('shows RPC working with StructuredClone types', async () => {
 ## Cookies
 
 `Browser` allows cookies to be shared between `fetch` and `WebSocket` just
-like in a real browser. Cookie path matching is RFC 6265 compliant — a cookie
-with `Path=/auth/acme` matches `/auth/acme/refresh` but not `/auth/acme.crm`
-(the character after the cookie path must be `/`). Use `setCookie()` and
-`getCookie()` for testing and debugging.
+like in a real browser. Use `setCookie()` and `getCookie()` for testing
+and debugging.
 
 
 

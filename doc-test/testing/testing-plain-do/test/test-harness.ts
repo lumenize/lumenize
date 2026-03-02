@@ -1,22 +1,13 @@
 import * as sourceModule from '../src';
 import { instrumentDOProject } from '@lumenize/testing';
 
-// Simple case: Auto-detects MyDO since it's the only class export from '../src'
+// Auto-detects all DurableObject subclasses via prototype chain
+// walking — no need to list doClassNames, even with multiple DOs.
+// WorkerEntrypoints and other non-DO classes are passed through
+// unwrapped on the result object.
 const instrumented = instrumentDOProject(sourceModule);
 
+// Wrangler requires DO classes as named exports.
+// For multiple DOs: export const { MyDO, AnotherDO } = instrumented.dos;
 export const { MyDO } = instrumented.dos;
 export default instrumented;
-
-// If you had multiple DO classes in '../src', you'd get a helpful error like:
-//
-// Error: Found multiple class exports: MyDO, AnotherDO, HelperClass
-//
-// Please specify which are Durable Objects by using explicit configuration:
-//
-// const instrumented = instrumentDOProject({
-//   sourceModule,
-//   doClassNames: ['MyDO', 'AnotherDO']  // <-- Keep only the DO classes
-// });
-//
-// export const { MyDO, AnotherDO } = instrumented.dos;
-// export default instrumented;
