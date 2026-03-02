@@ -327,6 +327,15 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
+    // Nebula
+    {
+      type: 'category',
+      label: 'Nebula',
+      items: [
+        'nebula/auth-flows',
+      ],
+    },
+
     // Debug
     {
       type: 'category',

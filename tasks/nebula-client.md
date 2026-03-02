@@ -5,6 +5,7 @@
 **App**: `apps/nebula/` (NebulaClient lives in the nebula app)
 **Depends on**: Phase 5 (Resources)
 **Master task file**: `tasks/nebula.md`
+**Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
 
 > **Walled garden.** Nebula is a product, not a framework. NebulaClient is the only way to connect — there are no alternative routing setups, no "bring your own auth," no escape hatches. See `tasks/nebula.md` § Walled Garden for context.
 
@@ -12,7 +13,7 @@
 
 ## Login Flow (Discovery-First)
 
-Every login goes through discovery. There is no scope-specific login page — the single login entry point always starts with "enter your email."
+Every login goes through discovery. There is no scope-specific login page — the single login entry point always starts with "enter your email." See `website/docs/nebula/auth-flows.mdx` for sequence diagrams covering first-time login, returning user, scope switching, and multi-tab scenarios.
 
 ### Flow
 
@@ -69,11 +70,15 @@ NebulaClient sends pings every 25 seconds by default (not configurable). On the 
 
 ### Scope switching (full UX)
 
-When the active scope changes (e.g., admin navigates to a different star):
-1. Disconnect from current DO (or keep the connection if multi-tab)
-2. Open WebSocket to new DO using the same JWT
-3. No new refresh needed — the existing JWT's wildcard covers the new scope
-4. `onSubscriptionRequired` fires on the new connection to set up subscriptions
+Scope switching is a full re-login, not an in-place reconnect. When a user wants to switch active scope (e.g., admin navigating to a different star):
+1. User navigates to the login page in the UI
+2. Enters email → discovery returns all available scopes
+3. Selects the new scope (user can back out before this point — old client stays alive)
+4. Login flow runs for the new scope (try refresh with `{ "activeScope": "<new-star>" }` → if cookie matches, get new access token immediately; otherwise magic link)
+5. Old NebulaClient is destroyed (WebSocket closed, state discarded)
+6. New NebulaClient is created with the new token → connects to Gateway → `onSubscriptionRequired` fires
+
+This is intentionally simple — no reconnection logic, no token juggling within a single client instance. The NebulaClient is ephemeral; the refresh cookie is the durable credential.
 
 ---
 
@@ -93,13 +98,15 @@ Using `browser.context(origin)` to simulate separate tabs, each running a Nebula
 
 ### Test: Admin Scope Switching
 
-Single tab, universe admin navigating between stars:
+Single tab, universe admin switching between stars via full re-login:
 
-1. Login at universe level (`george-solopreneur`) — get wildcard JWT `george-solopreneur.*`
-2. Connect WebSocket to `george-solopreneur.app.tenant-a` — verify `onSubscriptionRequired` fires
-3. Navigate to `george-solopreneur.app.tenant-b` — NebulaClient disconnects from tenant-a, opens WebSocket to tenant-b using the same JWT
-4. Verify no refresh call was made (JWT still valid)
-5. Verify `onSubscriptionRequired` fires on the new connection
+1. Login at universe level (`george-solopreneur`) — get wildcard JWT with `aud: "george-solopreneur.app.tenant-a"`
+2. NebulaClient connects to Gateway → verify `onSubscriptionRequired` fires
+3. User navigates to login page, enters email, selects `george-solopreneur.app.tenant-b` from discovery
+4. Login flow for new scope: refresh with `{ "activeScope": "george-solopreneur.app.tenant-b" }` → new access token with `aud: "george-solopreneur.app.tenant-b"`
+5. Old NebulaClient is destroyed (WebSocket closed)
+6. New NebulaClient connects to Gateway → verify `onSubscriptionRequired` fires
+7. Verify the two clients used different access tokens (different `aud` claims)
 
 ---
 

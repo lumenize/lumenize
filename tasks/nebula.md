@@ -53,6 +53,8 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
 | 1.7 | Mesh Gateway Fix | **Complete** | `tasks/archive/nebula-mesh-gateway-fix.md` |
 | 1.8 | JWT Active Scope in `aud` | **Complete** | `tasks/archive/nebula-jwt-active-scope.md` |
+| 1.9 | Auth Security Hardening | Pending | `tasks/nebula-auth-security-hardening.md` |
+| 1.95 | Enforce Synchronous Mesh Guards | Pending | `tasks/nebula-sync-guards.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -85,6 +87,14 @@ Unified `WebSocketAttachment` into `GatewayConnectionInfo` (single type for atta
 Put the active scope (universeGalaxyStarId) into the JWT `aud` claim. The refresh endpoint requires an `activeScope` field in the JSON request body; the server validates the requested scope is covered by the user's `access` pattern via `matchAccess`, then mints the access token with `aud` set to that scope. Removed the static `NEBULA_AUTH_AUDIENCE` constant. Renamed `access.id` → `access.authScopePattern` and `buildAccessId` → `buildAuthScopePattern`. Delegated token endpoint requires the same `activeScope` body field. 242 nebula-auth tests passing.
 
 This eliminates the `~`-delimited Gateway instanceName design from Phase 2 — NebulaClient uses standard `${sub}.${tabId}` format, and the Gateway reads the active scope from JWT claims (`aud`) instead of parsing the instanceName.
+
+### Phase 1.9: Auth Security Hardening
+
+Harden `@lumenize/nebula-auth` against vulnerabilities from security review. Eight fixes ordered by severity: (1) invite token replay — delete after use like magic links, (2) `discover` endpoint missing Turnstile gating, (3) registry uses `parseJwtUnsafe` instead of receiving verified payload from router, (4) public key cache has no TTL — add 5-minute expiry, (5) DO-level `adminApproved` check as defense-in-depth for RPC bypass, (6) `createSubjectAndSendMagicLink` RPC validates `instanceName` matches `ctx.id.name`, (7) email format validation on registry claim paths, (8) instance name format validation in router. All changes in `packages/nebula-auth/`.
+
+### Phase 1.95: Enforce Synchronous Guards and onBeforeCall
+
+Enforce synchronous `MeshGuard` and `onBeforeCall` across all three base classes (LumenizeDO, LumenizeWorker, LumenizeClient). Async authorization hooks create a window between validation and method execution where state can change — input gates on DOs, external state on Workers, event loop interleaving on Clients. Changes: `MeshGuard<T>` type drops `Promise<void>`, guard invocation drops `await`, `LumenizeClient.onBeforeCall` drops `Promise<void>` and its invocation drops `await`. DO and Worker already sync (verify only). Breaking change to `@lumenize/mesh` (major semver bump). If a legitimate async need emerges later, add a separate `onBeforeCallAsync` hook with explicit interleaving documentation.
 
 ### Phase 2: Baseline Access Control
 
@@ -158,6 +168,7 @@ NebulaClient extends LumenizeClient. Two-scope model (auth scope vs active scope
 
 **Built in**: Phase 2 (foundation), Phase 7 (full experience).
 **Design**: `tasks/nebula-client.md`
+**Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
 
 ### UI Framework
 

@@ -3,8 +3,9 @@
 **Phase**: 2
 **Status**: Pending
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
-**Depends on**: Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
+**Depends on**: Phase 1.95 (Enforce Synchronous Mesh Guards — `tasks/nebula-sync-guards.md`), Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
 **Master task file**: `tasks/nebula.md`
+**Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
 
 ## Goal
 
@@ -17,17 +18,6 @@ The primary goals of this phase are:
 2. Prove the starId binding mechanism — permanently locking each DO instance to its creating star
 3. Establish the security layering pattern that all future phases build on
 
-## Resolved: Active scope lives in JWT `aud` claim
-
-**Decision (Phase 1.8):** The active scope (universeGalaxyStarId) is stored in the JWT `aud` claim. The `~`-delimited instanceName format is eliminated. See `tasks/nebula-jwt-active-scope.md` for the full implementation in nebula-auth.
-
-**Key consequences for this phase:**
-- Gateway instanceName is standard `${sub}.${tabId}` (Lumenize Mesh default)
-- `NebulaClientGateway.onBeforeAccept` reads active scope from `connectionInfo.claims.aud`
-- Entrypoint `onBeforeConnect` verifies the JWT `aud` claim (defense-in-depth)
-- Access tokens are single-scope; switching active scope = refresh with `{ "activeScope": "newScope" }` in body
-- No `~` delimiter anywhere — no parsing, no injection surface
-
 ---
 
 ## Architecture
@@ -37,6 +27,7 @@ The primary goals of this phase are:
 ```
 apps/nebula/
 ├── package.json                    # "private": true — never published
+├── wrangler.jsonc                  # Production bindings — generates Env type via `wrangler types`
 ├── src/
 │   ├── index.ts                    # Public exports (for sibling package imports)
 │   ├── entrypoint.ts               # Worker default export (scope check + routing)
@@ -49,7 +40,7 @@ apps/nebula/
 ├── test/
 │   ├── wrangler.jsonc              # DO bindings for all classes (including test subclasses)
 │   ├── vitest.config.js
-│   ├── test-worker-and-dos.ts      # Test harness with OrgDOTest subclass (adds callClientOnGateway)
+│   ├── test-worker-and-dos.ts      # Test harness with OrgDOTest subclass (adds callClient)
 │   ├── star-binding.test.ts        # StarId binding + cross-star rejection
 │   ├── scope-verification.test.ts  # Entrypoint scope check + admin scope switching
 │   ├── guards.test.ts              # Admin-only methods, guard rejection
@@ -67,21 +58,23 @@ Four layers, from outermost to innermost:
 
 | Layer | Where | What it checks |
 |-------|-------|----------------|
-| **Entrypoint** | `onBeforeConnect` hook in `routeDORequest` | Fully verifies JWT; defense-in-depth check that `matchAccess(jwt.access.authScopePattern, jwt.aud)` — rejects before any DO is instantiated |
-| **NebulaClientGateway** | extends Gateway hooks | `onBeforeAccept`: reads `aud` from JWT claims as `universeGalaxyStarId`. `onBeforeCallToMesh`: stamps `universeGalaxyStarId` onto callContext. `onBeforeCallToClient`: rejects calls whose callContext starId doesn't match the connected client's claim |
+| **Entrypoint** | `onBeforeConnect` hook in `routeDORequest` | Extracts JWT from WebSocket subprotocol, verifies signature, defense-in-depth check that `matchAccess(jwt.access.authScopePattern, jwt.aud)` — rejects before any DO is instantiated |
+| **NebulaClientGateway** | extends Gateway hooks | `onBeforeAccept`: reads `aud` from `jwtPayload` as `universeGalaxyStarId`. `onBeforeCallToMesh`: stamps `universeGalaxyStarId` onto callContext. `onBeforeCallToClient`: rejects calls whose callContext starId doesn't match the connected client's claim |
 | **NebulaDO.onBeforeCall()** | base class | Stores starId on first call, throws on mismatch — every Nebula DO gets this |
-| **`@mesh(guard)`** | subclass methods | Per-method authorization (requireAdmin, allowlist, etc.) |
+| **`@mesh(guard)`** | subclass methods | Per-method authorization (e.g., `requireAdmin`) |
 
 ### Entrypoint (`entrypoint.ts`)
 
 The Worker `default export` — not a class, just a `{ fetch() }` router. Composes two routers using the established fallthrough pattern (each returns `undefined` for non-matching paths):
 
-1. `routeNebulaAuthRequest` (from `@lumenize/nebula-auth`) for auth routes (login, refresh, invite). Returns `undefined` when the path doesn't match `/auth/` — see Sub-task 0 prerequisite.
-2. `routeDORequest` (from `@lumenize/routing`) for all DO bindings (Gateway and non-Gateway). Returns `undefined` when the path doesn't match any binding. **Scope verification** for Gateway connections uses the `onBeforeConnect` hook — this hook only fires for WebSocket upgrades, which only target the Gateway.
+1. `routeNebulaAuthRequest` (from `@lumenize/nebula-auth`) for auth routes (login, refresh, invite). Returns `undefined` when the path doesn't match `/auth/` (fallthrough pattern from Phase 1.7).
+2. `routeDORequest` (from `@lumenize/routing`) for all DO bindings (Gateway and non-Gateway). Returns `undefined` when the path doesn't match any binding. **Scope verification** for Gateway connections uses the `onBeforeConnect` hook — this hook fires for all WebSocket upgrades, but in practice only the Gateway accepts WebSocket connections.
 
 ```typescript
 import { routeNebulaAuthRequest, matchAccess } from '@lumenize/nebula-auth';
 import { routeDORequest } from '@lumenize/routing';
+import { extractWebSocketToken, verifyJwt, verifyJwtWithRotation, importPublicKey } from '@lumenize/auth';
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -94,15 +87,30 @@ export default {
     // onBeforeConnect: fully verifies JWT and checks aud claim (active scope)
     // Returns undefined if path doesn't match any binding
     const doResponse = await routeDORequest(request, env, {
-      async onBeforeConnect(request) {
-        // Full JWT verification (signature check, not just parse)
-        const jwt = await verifyJwt(request, env.PRIMARY_JWT_KEY);
-        if (!jwt) {
+      async onBeforeConnect(request, context) {
+        // Both the entrypoint (here) and the Gateway independently extract the JWT
+        // from the same WebSocket subprotocol. The entrypoint does full signature
+        // verification; the Gateway decodes for claims without re-verifying.
+        //
+        // Extract JWT from WebSocket subprotocol (lmz.access-token.{token})
+        const token = extractWebSocketToken(request);
+        if (!token) {
+          return new Response('Unauthorized: missing access token', { status: 401 });
+        }
+
+        // Full JWT verification (signature check, blue/green key rotation)
+        const publicKeys = await getPublicKeys(env); // see helper below
+        const payload = publicKeys.length === 1
+          ? await verifyJwt(token, publicKeys[0])
+          : await verifyJwtWithRotation(token, publicKeys);
+        if (!payload) {
           return new Response('Forbidden: invalid JWT', { status: 403 });
         }
+
         // Defense-in-depth: verify active scope (aud) is covered by access pattern.
         // The server already validated this when minting the token (Phase 1.8),
         // but belt-and-suspenders is cheap here.
+        const jwt = payload as unknown as NebulaJwtPayload;
         if (!jwt.aud || !matchAccess(jwt.access.authScopePattern, jwt.aud)) {
           return new Response('Forbidden: JWT scope mismatch', { status: 403 });
         }
@@ -115,35 +123,48 @@ export default {
 }
 ```
 
-`routeDORequest` handles both WebSocket upgrades and regular HTTP. Direct HTTP to NebulaDO subclasses is safe: `onRequest` is an optional method on `LumenizeDO` — when not defined, the `fetch()` handler returns 501 ("Not Implemented: override onRequest() to handle HTTP requests"). Additionally, `onBeforeCall` rejects any mesh call missing `universeGalaxyStarId`, which direct HTTP never carries. Phase 5 uses `onRequest()` for real HTTP routing in Resources.
+> **Note:** The `getPublicKeys` helper follows the same pattern as nebula-auth's router — caches imported `CryptoKey` objects, loads both `JWT_PUBLIC_KEY_BLUE` and `JWT_PUBLIC_KEY_GREEN` from env. This is the second copy (~10 lines, from nebula-auth's router). No attribution needed for intra-monorepo copies. If a third copy appears, extract to a shared utility.
+
+> **`Env` type.** The app-level `wrangler.jsonc` defines production bindings and generates the global `Env` type via `wrangler types` (run directly in `apps/nebula/`, not via the root npm script which only handles packages). The test `wrangler.jsonc` in `test/` adds test-specific bindings (e.g., `OrgDOTest` subclass) — run `wrangler types` there separately for test-specific types.
+
+**Direct HTTP safety.** `routeDORequest` handles both WebSocket upgrades and regular HTTP. Direct HTTP to NebulaDO subclasses is safe for two reasons: (1) `onRequest` is an optional method on `LumenizeDO` — when not defined, `fetch()` returns 501, and (2) `onBeforeCall` rejects any mesh call missing `universeGalaxyStarId`, which direct HTTP never carries. Phase 5 uses `onRequest()` for real HTTP routing in Resources.
 
 ### NebulaClientGateway (`nebula-client-gateway.ts`)
 
-Extends `LumenizeClientGateway` using the hooks from `tasks/mesh-extensibility.md`. ~50 lines of overrides instead of an ~800 line fork.
+Extends `LumenizeClientGateway` using the hooks from Phase 1.5 (`tasks/mesh-extensibility.md`). ~50 lines of overrides instead of an ~800 line fork.
 
 **Hook overrides from LumenizeClientGateway:**
 
-1. **`onBeforeAccept` — extract active scope from JWT `aud`**: The base `LumenizeClientGateway.onBeforeAccept` validates the standard `.`-delimited `{sub}.{tabId}` format and auto-includes all JWT payload fields in `connectionInfo.claims`. Nebula overrides this to extract the `aud` claim (active scope, set by Phase 1.8's `scope` field in the refresh request body) and return it as `universeGalaxyStarId` — the only Nebula-specific claim the override needs to add. The instanceName stays standard `${sub}.${tabId}` — no custom delimiter.
+1. **`onBeforeAccept` — extract active scope from JWT `aud`**: The base class validates the standard `.`-delimited `{sub}.{tabId}` format. Its return value (if `Record`) is merged on top of `jwtPayload` to form `GatewayConnectionInfo.claims`. Nebula overrides to extract the `aud` claim (the active scope, set by Phase 1.8) and return it as `universeGalaxyStarId`:
 
 ```typescript
-override onBeforeAccept(request: Request, connectionInfo: GatewayConnectionInfo): Record<string, unknown> | undefined {
-  // Let base class validate sub.tabId format and populate claims from JWT
-  super.onBeforeAccept(request, connectionInfo);
+override onBeforeAccept(
+  instanceName: string,
+  sub: string,
+  jwtPayload: Record<string, unknown>
+): Response | Record<string, unknown> | undefined {
+  // Let base class validate sub.tabId format
+  const baseResult = super.onBeforeAccept(instanceName, sub, jwtPayload);
+  if (baseResult instanceof Response) return baseResult; // base rejected
 
-  const aud = connectionInfo.claims?.aud as string;
+  const aud = jwtPayload.aud as string;
   if (!aud) throw new Error('Missing active scope (aud) in JWT');
-  return { universeGalaxyStarId: aud };
+  // baseResult is undefined (default) or Record — spread handles both
+  return { ...baseResult, universeGalaxyStarId: aud };
 }
 ```
+
+After this hook, `GatewayConnectionInfo.claims` contains all JWT payload fields (auto-merged by the base class) plus `universeGalaxyStarId`. The instanceName remains standard `${sub}.${tabId}` — no custom delimiter.
 
 2. **`onBeforeCallToMesh` — callContext enrichment (client → DO)**: Adds `universeGalaxyStarId` as a top-level field on `callContext` (not in `state`, which is mutable). Like `callChain` and `originAuth`, top-level fields are immutable by convention — no DO along the call chain should modify them:
 
 ```typescript
-override onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayConnectionInfo): NebulaCallContext {
+override onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayConnectionInfo): CallContext {
+  // NebulaCallContext extends CallContext with universeGalaxyStarId
   return {
     ...baseContext,
-    universeGalaxyStarId: connectionInfo.claims?.universeGalaxyStarId as string,
-  };
+    universeGalaxyStarId: connectionInfo.claims.universeGalaxyStarId as string,
+  } satisfies NebulaCallContext;
 }
 ```
 
@@ -152,7 +173,7 @@ override onBeforeCallToMesh(baseContext: CallContext, connectionInfo: GatewayCon
 ```typescript
 override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayConnectionInfo): void {
   const ctx = envelope.callContext as NebulaCallContext | undefined;
-  if (ctx?.universeGalaxyStarId !== connectionInfo.claims?.universeGalaxyStarId) {
+  if (ctx?.universeGalaxyStarId !== connectionInfo.claims.universeGalaxyStarId) {
     throw new Error('Star scope mismatch on call to client');
   }
 }
@@ -161,6 +182,8 @@ override onBeforeCallToClient(envelope: CallEnvelope, connectionInfo: GatewayCon
 ### NebulaDO (`nebula-do.ts`)
 
 Base class for all Nebula DOs. `onBeforeCall()` is reserved for this class — subclasses use `@mesh(guard)` for method-level authorization. If a subclass ever needs to extend `onBeforeCall`, it calls `super.onBeforeCall()` first.
+
+**Lifecycle ordering:** `onBeforeCall` runs first (base class starId binding), then `@mesh(guard)` (subclass method authorization). A request from the wrong star is rejected at `onBeforeCall` before the guard ever executes.
 
 ```typescript
 export class NebulaDO extends LumenizeDO {
@@ -182,10 +205,7 @@ export class NebulaDO extends LumenizeDO {
     }
   }
 
-  // Does NOT implement onRequest(). LumenizeDO.onRequest is optional — when not
-  // defined, fetch() returns 501 ("Not Implemented"). Direct HTTP is additionally
-  // safe because onBeforeCall rejects anything missing universeGalaxyStarId.
-  // Phase 5 implements onRequest() for real HTTP routing in Resources.
+  // No onRequest() — see "Direct HTTP safety" in the Entrypoint section.
 }
 ```
 
@@ -193,24 +213,22 @@ This permanently locks each DO instance to the star that first accessed it. An O
 
 ### OrgDO (`org-do.ts`)
 
-Extends NebulaDO. Singleton per star — instanceName equals the `universeGalaxyStarId`. Acts as the primary entry point for most operations within a star. Hosts the allowlist for Phase 2 testing.
+Extends NebulaDO. Singleton per star — instanceName equals the `universeGalaxyStarId`. Acts as the primary entry point for most operations within a star. Dummy methods exercise the three guard levels: admin-only, any-member, and unauthenticated-beyond-connection.
 
 ```typescript
 export class OrgDO extends NebulaDO {
   // instanceName = universeGalaxyStarId (e.g., 'acme.app.tenant-a')
 
   @mesh(requireAdmin)
-  addToAllowlist(sub: string) {
-    const allowlist = this.ctx.storage.kv.get<Set<string>>('allowlist') ?? new Set();
-    allowlist.add(sub);
-    this.ctx.storage.kv.put('allowlist', allowlist);
+  setStarConfig(key: string, value: string) {
+    const config = this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
+    config[key] = value;
+    this.ctx.storage.kv.put('config', config);
   }
 
-  @mesh(requireAdmin)
-  removeFromAllowlist(sub: string) {
-    const allowlist = this.ctx.storage.kv.get<Set<string>>('allowlist') ?? new Set();
-    allowlist.delete(sub);
-    this.ctx.storage.kv.put('allowlist', allowlist);
+  @mesh()
+  getStarConfig(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
   }
 
   @mesh()
@@ -238,7 +256,7 @@ export class ResourceHistoryDO extends NebulaDO {
 
 ### NebulaClient (`nebula-client.ts`)
 
-Extends `LumenizeClient`. Implements the two-scope model and basic token management for this phase. Discovery-first login, subscriptions, scope switching UX, and WebSocket keepalive come in Phase 7.
+Extends `LumenizeClient`. Implements the two-scope model and basic token management for this phase. See `website/docs/nebula/auth-flows.mdx` for sequence diagrams of the full login, returning user, and scope switching flows. Discovery-first login, subscriptions, scope switching UX, and WebSocket keepalive come in Phase 7.
 
 **Two-scope model.** NebulaClient tracks two distinct scopes:
 
@@ -246,15 +264,11 @@ Extends `LumenizeClient`. Implements the two-scope model and basic token managem
 
 2. **Active scope** — the specific star the client is targeting. Baked into the JWT's `aud` claim (Phase 1.8). That same universe admin might be interacting with `george-solopreneur.app.tenant-a`, so they refresh with `{ "activeScope": "george-solopreneur.app.tenant-a" }` in the request body.
 
-The JWT's wildcard matching lets one auth scope cover many active scopes. The client needs both: auth scope for `POST {prefix}/{authScope}/refresh-token` (path-scoped cookie), and active scope as the `activeScope` field in the refresh request body.
+The JWT's wildcard matching lets one auth scope cover many active scopes. The client needs both: auth scope for `POST {prefix}/{authScope}/refresh-token` (path-scoped cookie), and active scope as the `activeScope` field in the refresh request body. For regular users (non-admins, no wildcard), auth scope and active scope are always the same.
 
-For regular users (non-admins, no wildcard), auth scope and active scope are always the same. For admins, auth scope ≠ active scope — they authenticate at a higher tier but target specific stars.
+**Gateway connection.** NebulaClient uses the standard Lumenize Mesh instanceName format: `${sub}.${tabId}`. The active scope is NOT in the instanceName — it lives in the JWT `aud` claim. Switching active scope means getting a new access token (refresh with different `activeScope` in body) and connecting to a new Gateway instance. Access tokens are stored in memory per tab (not localStorage, not cookies).
 
-**Gateway instanceName composition.** NebulaClient uses the standard Lumenize Mesh format: `${sub}.${tabId}`. The active scope is NOT in the instanceName — it lives in the JWT `aud` claim. Switching active scope means getting a new access token (refresh with different `activeScope` in body) and connecting to a new Gateway instance.
-
-**Access token management.** Access tokens are stored in memory per tab (not localStorage, not cookies). Each tab refreshes independently against its auth scope's refresh endpoint: `POST {prefix}/{authScope}/refresh-token` with `{ "activeScope": "{activeScope}" }` in body. Each access token is single-scope — the `aud` claim determines which star it's valid for.
-
-**Gateway binding name.** NebulaClient passes `gatewayBindingName: 'NEBULA_CLIENT_GATEWAY'` in its `LumenizeClientConfig`. This determines the URL path segment the client uses to connect — `routeDORequest` extracts it from the URL and routes to the correct Gateway DO binding.
+**Gateway binding name.** NebulaClient sets `gatewayBindingName: 'NEBULA_CLIENT_GATEWAY'` in its config, matching the `NebulaClientGateway` binding. This determines the URL path segment the client uses to connect.
 
 **Constructor.** Accepts a `Browser` instance for testing (fetch + WebSocket injection).
 
@@ -262,7 +276,7 @@ For regular users (non-admins, no wildcard), auth scope and active scope are alw
 
 Authentication is enforced at connection time — every caller reaching a NebulaDO subclass already has a valid JWT. `NebulaDO.onBeforeCall()` enforces starId binding. Guards provide per-method authorization on subclasses.
 
-`originAuth.claims` contains the full JWT payload (auto-included by the base class) plus any additional claims from `onBeforeAccept`. Guards read JWT fields like `access.admin` directly from `originAuth.claims`:
+The `MeshGuard<T>` type is `(instance: T) => void | Promise<void>`. Guards receive the DO instance and can read `instance.lmz.callContext.originAuth.claims` for JWT fields. Typing the guard against the base class (`NebulaDO`) makes it usable on all subclasses via contravariance:
 
 ```typescript
 // In nebula-do.ts (shared by all subclasses)
@@ -274,6 +288,12 @@ function requireAdmin(instance: NebulaDO) {
   }
 }
 ```
+
+**Trust chain for claims.** The base Gateway (Phase 1.7) auto-includes all JWT payload fields in `GatewayConnectionInfo.claims`, which propagates into `originAuth.claims` on the `CallContext`. So `originAuth.claims` is a `Record<string, unknown>` that contains the full `NebulaJwtPayload` structure (`access.authScopePattern`, `access.admin`, `aud`, `sub`, etc.) plus any additional claims returned by `onBeforeAccept` (e.g., `universeGalaxyStarId`).
+
+The cast to `NebulaJwtPayload` in the guard is safe because the entrypoint already verified the JWT signature — the claims are trusted.
+
+**Guards must be synchronous.** The Mesh `MeshGuard` type allows `Promise<void>` returns, but async guards open the Cloudflare input gate — creating a race window between guard validation and method execution. Nebula guards only read from `originAuth.claims` (already in memory) and `ctx.storage.kv`/`ctx.storage.sql` (synchronous API), so they have no reason to be async. Keep all Nebula guards synchronous.
 
 ## Types
 
@@ -290,7 +310,7 @@ export interface NebulaCallContext extends CallContext {
 
 ## Test Plan — Abuse Case Testing
 
-All tests are e2e using NebulaClient with `Browser` from `@lumenize/testing`. The Browser provides cookie-aware fetch and WebSocket, enabling realistic auth flows.
+Most tests are e2e using NebulaClient with `Browser` from `@lumenize/testing`. The Browser provides cookie-aware fetch and WebSocket, enabling realistic auth flows. A few belt-and-suspenders scenarios (marked below) use lower-level unit tests for conditions that can't occur through normal e2e flows.
 
 Tests are split across four files by concern. A shared `createAuthenticatedClient` helper (see below) avoids duplicating auth setup. Where multiple assertions depend on the same state, group them in one test to avoid redundant setup.
 
@@ -315,33 +335,29 @@ Each test scenario:
 - JWT with `aud: "acme.app.tenant-a"` and `access.authScopePattern: "acme.*"` → allowed (wildcard covers aud)
 - JWT with `aud: "acme.app.tenant-a"` and `access.authScopePattern: "acme.app.tenant-a"` → allowed (exact match)
 
-**Admin-only methods (OrgDO)**:
-- Non-admin user calls `addToAllowlist()` → rejected by `requireAdmin` guard
-- Star-level admin calls `addToAllowlist()` → succeeds
-- Universe admin (wildcard) calls star-level `addToAllowlist()` → succeeds (cross-scope admin)
-
-**OrgDO allowlist lifecycle**:
-- Admin calls `addToAllowlist(sub)` → succeeds
-- Non-allowlisted user calls `whoAmI()` → succeeds (no allowlist guard on `whoAmI` in Phase 2)
-- (Allowlist is an OrgDO admin feature; access to the star itself is controlled by the entrypoint scope check and starId binding)
+**Guard enforcement (OrgDO)**:
+- Non-admin calls `setStarConfig()` → rejected by `requireAdmin` guard
+- Star-level admin calls `setStarConfig()` → succeeds, writes to KV
+- Universe admin (wildcard) calls star-level `setStarConfig()` → succeeds (cross-scope admin)
+- Non-admin calls `getStarConfig()` → succeeds (no guard beyond `@mesh()`)
+- Non-admin calls `whoAmI()` → succeeds, returns caller's `sub`
+- Wrong-star user calls `whoAmI()` → rejected by `onBeforeCall` (starId mismatch) before guard ever runs — tests lifecycle ordering
 
 **DO → client star verification (Gateway bidirectional check)**:
-- `OrgDOTest` (subclass in `test-worker-and-dos.ts`) adds `callClientOnGateway(gatewayInstanceName, method)` — a test-only `@mesh(requireAdmin)` method that calls a client via a specified Gateway instance
-- Two clients connected to different stars: Client A on `acme.app.tenant-a`, Client B on `acme.app.tenant-b`
-- OrgDOTest on tenant-a calls a method on Client A through tenant-a's Gateway → Gateway forwards (starId matches)
-- OrgDOTest on tenant-a calls `callClientOnGateway` targeting tenant-b's Gateway → `envelope.callContext.universeGalaxyStarId` is `"acme.app.tenant-a"` but `connectionInfo.claims.universeGalaxyStarId` is `"acme.app.tenant-b"` → `onBeforeCallToClient` rejects
 
-**Admin scope switching (auth scope ≠ active scope)**:
-- Universe admin authenticates at `george-solopreneur`, refreshes with `{ "activeScope": "george-solopreneur.app.tenant-a" }`, connects to Gateway → succeeds
-- Same admin switches active scope to `george-solopreneur.app.tenant-b` (refresh with `{ "activeScope": "...tenant-b" }`, new access token, new Gateway instance) → succeeds
-- Verify the switch required a refresh call (new access token with different `aud`)
+Test setup: `OrgDOTest` (subclass in `test-worker-and-dos.ts`) adds a test-only `@mesh(requireAdmin)` method `callClient(targetGatewayInstanceName, clientMethod)`. It uses `this.lmz.call()` to send a mesh call through the `NEBULA_CLIENT_GATEWAY` binding to a specific client instanceName.
 
-**Gateway instanceName format**:
-- InstanceName uses standard `${sub}.${tabId}` format — base class `onBeforeAccept` validates this
-- Active scope comes from JWT `aud` claim, not from instanceName
+- **Happy path**: Client A connected on `acme.app.tenant-a` (Gateway instance `subA.tab1`). OrgDOTest on tenant-a calls `callClient('subA.tab1', 'someMethod')` → envelope's `callContext.universeGalaxyStarId` matches Client A's `connectionInfo.claims.universeGalaxyStarId` → `onBeforeCallToClient` passes.
+- **Attack path**: Client B connected on `acme.app.tenant-b` (Gateway instance `subB.tab1`). OrgDOTest on tenant-a calls `callClient('subB.tab1', 'someMethod')` → envelope starId is `"acme.app.tenant-a"` but Client B's is `"acme.app.tenant-b"` → `onBeforeCallToClient` rejects.
+- In production this attack is unlikely (DOs don't normally address arbitrary Gateway instances), but the hook provides defense-in-depth.
 
-**Missing callContext.universeGalaxyStarId**:
-- Simulate a mesh call arriving at a NebulaDO without `universeGalaxyStarId` on callContext → `onBeforeCall` throws immediately
+**Admin scope switching**:
+- Universe admin authenticates at `george-solopreneur`, refreshes with `{ "activeScope": "george-solopreneur.app.tenant-a" }`, creates NebulaClient, connects to Gateway → succeeds
+- Admin destroys first client, refreshes with `{ "activeScope": "george-solopreneur.app.tenant-b" }`, creates new NebulaClient, connects to new Gateway instance → succeeds
+- Verify the two clients used different access tokens (different `aud` claims)
+
+**Missing callContext.universeGalaxyStarId (unit test, not e2e)**:
+- This scenario can't happen through normal e2e flows (NebulaClientGateway always stamps `universeGalaxyStarId`), but `onBeforeCall` is a belt-and-suspenders defense. Test by calling `onBeforeCall()` directly on a NebulaDO instance with a callContext that lacks `universeGalaxyStarId` → throws immediately.
 
 **Direct HTTP to NebulaDO**:
 - HTTP request targeting OrgDO or ResourceHistoryDO binding directly (bypassing Gateway) → returns 501 (LumenizeDO default), and any mesh call path would fail at `onBeforeCall` (missing `universeGalaxyStarId`)
@@ -385,28 +401,30 @@ The test `wrangler.jsonc` needs bindings for both nebula-auth classes (imported 
 - `RESOURCE_HISTORY_DO` → ResourceHistoryDO class (from apps/nebula)
 - `AUTH_EMAIL_SENDER` → NebulaEmailSender service (from nebula-auth)
 - `NEBULA_AUTH_RATE_LIMITER` → rate limiting binding
-- Environment variables: `PRIMARY_JWT_KEY`, `NEBULA_AUTH_REDIRECT`, `NEBULA_AUTH_TEST_MODE`
+- Environment variables: `PRIMARY_JWT_KEY`, `JWT_PUBLIC_KEY_BLUE`, `JWT_PUBLIC_KEY_GREEN`, `NEBULA_AUTH_REDIRECT`, `NEBULA_AUTH_TEST_MODE`
+- Secrets (in `.dev.vars`): `JWT_PRIVATE_KEY_BLUE`, `JWT_PRIVATE_KEY_GREEN`
 
 ## What Gets Replaced Later
 
-- **Dummy methods** (`addToAllowlist`, `removeFromAllowlist`, `whoAmI`, `getHistory`): Replaced by real resource operations in Phase 5
+- **Dummy methods** (`setStarConfig`, `getStarConfig`, `whoAmI`, `getHistory`): Replaced by real resource operations in Phase 5
 - **Most tests**: Replaced by integration tests that exercise real Resources + DAG access control in Phase 3/5
 - **Guards**: Augmented with DAG-aware permission checks in Phase 3
 - **NebulaClient**: Gains subscription management, scope switching UX, full login flow in Phase 7
 - **ResourceHistoryDO**: Gains real temporal storage in Phase 5
 
-**What survives**: `NebulaDO.onBeforeCall()` starId binding, security layer pattern, `NebulaCallContext` type, `NebulaClientGateway`, wrangler binding setup, and test helpers.
+**What survives**: `NebulaDO.onBeforeCall()` starId binding, security layer pattern, `NebulaCallContext` type, `NebulaClientGateway` (with all hook overrides), wrangler binding setup, and test helpers.
 
 ## Success Criteria
 - [ ] `apps/nebula/` exists with `NebulaDO`, `OrgDO`, `ResourceHistoryDO`, `NebulaClientGateway`, `NebulaClient`, `entrypoint.ts`, and guards
-- [ ] `NebulaClientGateway` extends `LumenizeClientGateway` hooks: reads `aud` from JWT claims as `universeGalaxyStarId`, stamps `callContext.universeGalaxyStarId`, and bidirectional star verification via `connectionInfo.claims`
-- [ ] Entrypoint `onBeforeConnect` hook fully verifies JWT and checks `matchAccess(jwt.access.authScopePattern, jwt.aud)` (defense-in-depth) before Gateway receives the connection
+- [ ] `NebulaClientGateway` overrides `onBeforeAccept(instanceName, sub, jwtPayload)` to extract `aud` as `universeGalaxyStarId`, overrides `onBeforeCallToMesh` to stamp it onto callContext, and overrides `onBeforeCallToClient` for bidirectional star verification
+- [ ] Entrypoint `onBeforeConnect` hook extracts JWT from WebSocket subprotocol, verifies signature, and checks `matchAccess(jwt.access.authScopePattern, jwt.aud)` (defense-in-depth)
 - [ ] `NebulaDO.onBeforeCall()` permanently binds each DO instance to its creating star (store on first call, throw on mismatch)
 - [ ] StarId binding works for both singleton DOs (OrgDO, instanceName = starId) and UUID-named DOs (ResourceHistoryDO)
 - [ ] Cross-star access to a UUID-named DO is rejected (starId mismatch)
-- [ ] Standalone guard functions work with `@mesh(guard)` decorator
+- [ ] Standalone guard functions work with `@mesh(guard)` decorator (all Nebula guards are synchronous — no async)
+- [ ] Guard lifecycle ordering verified: `onBeforeCall` rejects wrong-star before guard runs
 - [ ] DO → client calls through Gateway are verified for star membership (mismatched starId rejected, using OrgDOTest subclass in test harness)
-- [ ] All abuse case scenarios pass (scope mismatch, starId binding, DO→client, admin-only, token expiry)
+- [ ] All abuse case scenarios pass (scope mismatch, starId binding, DO→client, guard rejection, direct HTTP, token expiry)
 - [ ] At least one real email round-trip e2e test
 - [ ] NebulaClient connects via Browser injection (fetch + lmz.call)
 - [ ] Cross-scope admin access works (universe admin → star DO)

@@ -16,6 +16,8 @@ Research, benchmark, and write a blog post comparing Cloudflare's four isolation
 
 Low-level primitive. `LOADER.get(id, callback)` spawns lightweight V8 isolates from code strings at runtime. Already spiked in `experiments/dwl-spike/` — confirmed: full RPC, `LumenizeWorker` extension, callContext propagation, `globalOutbound: null` sandboxing. Closed beta for production; local dev works with wrangler 4.66.0+.
 
+Be sure to look at this example of using DOs from DWL: https://github.com/cloudflare/cloudflare-docs/pull/27603/changes
+
 ### `@cloudflare/codemode` SDK
 
 Higher-level wrapper around DWL. v0.1.0 rewrite (2026-02-20) provides `DynamicWorkerExecutor` with network isolation, console capture, configurable timeout (30s default). Also provides `createCodeTool()` for AI SDK integration and a minimal `Executor` interface for custom implementations. Runtime-agnostic — no longer owns LLM integration.
