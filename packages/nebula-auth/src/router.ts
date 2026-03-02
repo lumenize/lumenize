@@ -18,7 +18,6 @@ import { matchAccess } from './parse-id';
 import {
   NEBULA_AUTH_PREFIX,
   NEBULA_AUTH_ISSUER,
-  NEBULA_AUTH_AUDIENCE,
   REGISTRY_INSTANCE_NAME,
 } from './types';
 import type { NebulaJwtPayload } from './types';
@@ -272,8 +271,8 @@ async function verifyAndGateJwt(
 
   const payload = rawPayload as unknown as NebulaJwtPayload;
 
-  if (payload.aud !== NEBULA_AUTH_AUDIENCE) {
-    return { error: json401('invalid_token', 'Token audience mismatch') };
+  if (!payload.aud || typeof payload.aud !== 'string') {
+    return { error: json401('invalid_token', 'Token missing audience claim') };
   }
   if (payload.iss !== NEBULA_AUTH_ISSUER) {
     return { error: json401('invalid_token', 'Token issuer mismatch') };
@@ -281,15 +280,15 @@ async function verifyAndGateJwt(
   if (!payload.sub) {
     return { error: json401('invalid_token', 'Token missing subject claim') };
   }
-  if (!payload.access?.id) {
+  if (!payload.access?.authScopePattern) {
     return { error: json401('invalid_token', 'Token missing access claim') };
   }
 
-  // Match access.id against the target instanceName
-  if (!matchAccess(payload.access.id, targetInstanceName)) {
+  // Match access.authScopePattern against the target instanceName
+  if (!matchAccess(payload.access.authScopePattern, targetInstanceName)) {
     return {
       error: jsonError(403, 'insufficient_scope',
-        `Token access "${payload.access.id}" does not grant access to "${targetInstanceName}"`),
+        `Token access "${payload.access.authScopePattern}" does not grant access to "${targetInstanceName}"`),
     };
   }
 
@@ -374,8 +373,8 @@ async function checkJwtForRegistry(
 
   const payload = rawPayload as unknown as NebulaJwtPayload;
 
-  if (payload.aud !== NEBULA_AUTH_AUDIENCE) {
-    return json401('invalid_token', 'Token audience mismatch');
+  if (!payload.aud || typeof payload.aud !== 'string') {
+    return json401('invalid_token', 'Token missing audience claim');
   }
   if (payload.iss !== NEBULA_AUTH_ISSUER) {
     return json401('invalid_token', 'Token issuer mismatch');

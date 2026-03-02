@@ -1,7 +1,7 @@
 # JWT Active Scope in `aud` Claim
 
 **Phase**: 1.8
-**Status**: Pending
+**Status**: Complete
 **Package**: `@lumenize/nebula-auth`
 **Depends on**: Phase 1.7 (Mesh Gateway Fix — complete)
 **Master task file**: `tasks/nebula.md`
@@ -37,7 +37,7 @@ The field and function names are updated to reflect their purpose — they repre
 - **`buildAccessId()` → `buildAuthScopePattern()`** in `parse-id.ts` and its export in `index.ts`
 - **All references in `nebula-auth.ts`**: `#generateAccessToken` (builds the access claim), `#verifyBearerToken` (wildcard fallback check)
 - **All references in `router.ts`**: `verifyAndGateJwt` (checks `payload.access.authScopePattern`), error messages
-- **All references in `nebula-auth-registry.ts`**: `#isUniverseAdmin` checks `access.authScopePattern` against `'*'`, `${universe}.*`, and exact universe match
+- **All references in `nebula-auth-registry.ts`**: `#hasAdminOverUniverse` checks `access.authScopePattern` against `'*'`, `${universe}.*`, and exact universe match
 - **All test files**: manually-constructed JWTs and assertions that reference `access.id`
 
 ```typescript
@@ -94,7 +94,12 @@ async #handleRefreshToken(request: Request): Promise<Response> {
     return this.#errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
   }
 
-  const body = await request.json() as { activeScope?: string };
+  let body: { activeScope?: string };
+  try {
+    body = await request.json() as typeof body;
+  } catch {
+    return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+  }
   if (!body.activeScope) {
     return this.#errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
   }
@@ -125,9 +130,16 @@ Cookie: refresh-token=...
 
 Same pattern as refresh. The delegating user specifies which scope the delegated token targets. The server validates the principal's access pattern covers the requested scope.
 
+Add a `Content-Type` check for consistency with the refresh endpoint (the existing try/catch on `request.json()` stays):
+
 ```typescript
-// In #handleDelegatedToken — body already parsed for actFor
-// activeScope is now also required:
+// In #handleDelegatedToken — add Content-Type check before existing json parse:
+const contentType = request.headers.get('Content-Type');
+if (!contentType?.includes('application/json')) {
+  return this.#errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
+}
+
+// Existing body parse now destructures activeScope too:
 const { actFor, activeScope } = body as { actFor: string; activeScope: string };
 
 if (!activeScope) {
@@ -183,7 +195,7 @@ if (!payload.aud || typeof payload.aud !== 'string') {
 }
 ```
 
-Also update `#isUniverseAdmin` in `nebula-auth-registry.ts` — it checks `access.authScopePattern` (was `access.id`) against `'*'`, `${universe}.*`, and exact universe match.
+Also update `#hasAdminOverUniverse` in `nebula-auth-registry.ts` — it checks `access.authScopePattern` (was `access.id`) against `'*'`, `${universe}.*`, and exact universe match.
 
 ### 6. Remove `NEBULA_AUTH_AUDIENCE` constant
 
@@ -240,6 +252,22 @@ All existing tests that call `POST /refresh-token` must now send `Content-Type: 
 - Delegated token with explicit activeScope → `aud = activeScope`, `act.sub` present
 - Delegated token without activeScope → 400
 
+## Implementation Order
+
+Two passes to keep the rename as a pure refactor, separate from the behavioral change:
+
+**Pass 1 — Pure rename (all tests should stay green):**
+- Change 0: `access.id` → `access.authScopePattern`, `buildAccessId` → `buildAuthScopePattern`
+- Update all source files, test files, and exports
+
+**Pass 2 — Behavioral changes:**
+- Changes 1-3: `activeScope` in `#generateAccessToken`, `#handleRefreshToken`, `#handleDelegatedToken`
+- Changes 4-5: `verifyAndGateJwt` and `checkJwtForRegistry` audience checks
+- Change 6: Remove `NEBULA_AUTH_AUDIENCE`
+- Change 7-8: JSDoc and exports
+- Update all existing tests to send `activeScope` in refresh/delegation bodies
+- Add new validation tests
+
 ## Non-Goals
 
 - **`iss` claim change**: Currently static `NEBULA_AUTH_ISSUER`. Could be changed to identify the minting NebulaAuth DO instance (e.g., `"https://nebula.lumenize.com/auth/acme.crm.tenant-a"`). Deferred — `iss` should align with the signing key strategy, and all NebulaAuth DOs currently share the same key rotation scheme. Revisit if we ever need per-instance signing keys.
@@ -248,16 +276,16 @@ All existing tests that call `POST /refresh-token` must now send `Content-Type: 
 
 ## Success Criteria
 
-- [ ] `#generateAccessToken` requires `activeScope` via options object; `aud = opts.activeScope`; validates with `matchAccess`
-- [ ] `#handleRefreshToken` requires `activeScope` in JSON request body; 400 if missing, 403 if not covered
-- [ ] Delegated token endpoint requires `activeScope` in request body with same validation
-- [ ] `verifyAndGateJwt` no longer checks `aud` against static constant; checks `aud` is non-empty string
-- [ ] `checkJwtForRegistry` updated similarly
-- [ ] `NEBULA_AUTH_AUDIENCE` constant removed
-- [ ] `NebulaJwtPayload.aud` JSDoc updated
-- [ ] All existing tests updated to send `activeScope` in refresh body
-- [ ] New tests for missing/invalid activeScope (400, 403)
-- [ ] New tests for `activeScope` in delegated token body
-- [ ] `AccessEntry.id` renamed to `AccessEntry.authScopePattern`; `buildAccessId` renamed to `buildAuthScopePattern`
-- [ ] Registry's `#isUniverseAdmin` updated to use `access.authScopePattern`
-- [ ] All existing nebula-auth tests pass
+- [x] `#generateAccessToken` requires `activeScope` via options object; `aud = opts.activeScope`; validates with `matchAccess`
+- [x] `#handleRefreshToken` requires `activeScope` in JSON request body; 400 if missing, 403 if not covered
+- [x] Delegated token endpoint requires `activeScope` in request body with same validation
+- [x] `verifyAndGateJwt` no longer checks `aud` against static constant; checks `aud` is non-empty string
+- [x] `checkJwtForRegistry` updated similarly
+- [x] `NEBULA_AUTH_AUDIENCE` constant removed
+- [x] `NebulaJwtPayload.aud` JSDoc updated
+- [x] All existing tests updated to send `activeScope` in refresh body
+- [x] New tests for missing/invalid activeScope (400, 403)
+- [x] New tests for `activeScope` in delegated token body
+- [x] `AccessEntry.id` renamed to `AccessEntry.authScopePattern`; `buildAccessId` renamed to `buildAuthScopePattern`
+- [x] Registry's `#hasAdminOverUniverse` updated to use `access.authScopePattern`
+- [x] All existing nebula-auth tests pass

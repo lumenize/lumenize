@@ -285,7 +285,7 @@ export class NebulaAuthRegistry extends DurableObject {
       universeGalaxyId, now,
     );
 
-    log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.id });
+    log.info('Galaxy created', { universeGalaxyId, callerAccessId: callerAccess.authScopePattern });
 
     return { instanceName: universeGalaxyId };
   }
@@ -380,13 +380,13 @@ export class NebulaAuthRegistry extends DurableObject {
     if (!access.admin) return false;
 
     // Platform admin
-    if (access.id === '*') return true;
+    if (access.authScopePattern === '*') return true;
 
     // Universe wildcard: "universe.*"
-    if (access.id === `${universe}.*`) return true;
+    if (access.authScopePattern === `${universe}.*`) return true;
 
     // Exact universe match (non-wildcard, but still admin)
-    if (access.id === universe) return true;
+    if (access.authScopePattern === universe) return true;
 
     return false;
   }

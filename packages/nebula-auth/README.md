@@ -40,9 +40,9 @@ The Worker runs at the edge and gates requests before they reach DOs:
 
 1. Extract JWT from `Authorization: Bearer` header (or WebSocket subprotocol)
 2. Verify JWT signature with key rotation support (BLUE/GREEN)
-3. Validate standard claims: `iss`, `aud`, `sub`
+3. Validate standard claims: `iss`, `sub`, `aud` (non-empty string — scope enforcement is via `access.authScopePattern`)
 4. Validate `access` claim exists
-5. Match `access.id` against the target `instanceName` — exact match or wildcard
+5. Match `access.authScopePattern` against the target `instanceName` — exact match or wildcard
 6. Enforce access gate: `access.admin || adminApproved`
 7. Per-subject rate limiting (when `NEBULA_AUTH_RATE_LIMITER` binding configured)
 8. Forward request to target DO
@@ -54,7 +54,7 @@ When a higher-tier admin (e.g., universe admin) accesses a lower-tier DO (e.g., 
 1. Verify JWT signature (always)
 2. Look up `payload.sub` in local Subjects table
 3. If found, use the local record (normal path)
-4. If not found, check `matchAccess(payload.access.id, instanceName)` — if the JWT's wildcard scope covers this instance, return identity from JWT claims (`sub`, `email`, `access.admin`)
+4. If not found, check `matchAccess(payload.access.authScopePattern, instanceName)` — if the JWT's wildcard scope covers this instance, return identity from JWT claims (`sub`, `email`, `access.admin`)
 
 This works because DOs are only reachable from Workers in the same project — the JWT re-verification at the DO level provides the security boundary.
 
@@ -93,7 +93,7 @@ Registry paths are identified by exact match against the 4 known endpoints. Ever
 | `/auth/{id}/email-magic-link` | POST | Turnstile | NA | Request magic link email |
 | `/auth/{id}/magic-link?one_time_token=...` | GET | none | NA (or NA->R) | Validate magic link, issue refresh token; registry RPC only on first email verification |
 | `/auth/{id}/accept-invite?invite_token=...` | GET | none | NA | Accept invite, set emailVerified, issue refresh token |
-| `/auth/{id}/refresh-token` | POST | none (cookie) | NA | Exchange refresh token for access token (hot path) |
+| `/auth/{id}/refresh-token` | POST | none (cookie) | NA | Exchange refresh token for access token; requires `{ activeScope }` JSON body (hot path) |
 | `/auth/{id}/logout` | POST | none (cookie) | NA | Revoke refresh token, clear cookie |
 
 ### Subject Management Endpoints
@@ -113,7 +113,7 @@ Registry paths are identified by exact match against the 4 known endpoints. Ever
 |----------|--------|--------|-----|-------------|
 | `/auth/{id}/subject/{sub}/actors` | POST | JWT + rate limit | NA | Add authorized actor |
 | `/auth/{id}/subject/{sub}/actors/{actorId}` | DELETE | JWT + rate limit | NA | Remove authorized actor |
-| `/auth/{id}/delegated-token` | POST | JWT + rate limit | NA | Request token to act on behalf of another subject |
+| `/auth/{id}/delegated-token` | POST | JWT + rate limit | NA | Request token to act on behalf of another subject; requires `{ actFor, activeScope }` JSON body |
 
 ### Registry Endpoints
 
@@ -138,13 +138,14 @@ sequenceDiagram
     participant W as Worker
     participant NA as NebulaAuth DO
 
-    C->>W: POST /auth/{id}/refresh-token [cookie]
+    C->>W: POST /auth/{id}/refresh-token [cookie + { activeScope }]
     W->>NA: Route by instanceName
     NA->>NA: Verify refresh token hash
     NA->>NA: Delete old refresh token
     NA->>NA: Insert rotated refresh token
     NA->>NA: Read subject (role, adminApproved)
-    NA->>NA: Sign access token JWT
+    NA->>NA: Validate activeScope against access pattern
+    NA->>NA: Sign access token JWT (aud = activeScope)
     NA-->>W: 200 { access_token } + Set-Cookie (rotated refresh)
     W-->>C: Response
 ```
@@ -265,7 +266,7 @@ sequenceDiagram
     C->>W: POST /auth/create-galaxy { universeGalaxyId } [admin JWT]
     W->>W: Verify JWT
     W->>R: Route to registry singleton
-    R->>R: Verify access.id grants admin over parent universe
+    R->>R: Verify access.authScopePattern grants admin over parent universe
     R->>R: Derive parent universe from slug, check it exists in Instances
     R->>R: Check galaxy slug available
     R->>R: INSERT INTO Instances (universeGalaxyId)
@@ -331,17 +332,17 @@ sequenceDiagram
     S2-->>C: Set-Cookie (refresh-token=B, Path=/auth/bigco.hr.bigco-hq)
 
     Note over C: Tab 1 refreshes (only cookie A sent)
-    C->>W: POST /auth/acme.crm.acme-corp/refresh-token [cookie A]
+    C->>W: POST /auth/acme.crm.acme-corp/refresh-token [cookie A + { activeScope }]
     W->>S1: Route
-    S1-->>C: 200 { access_token: "...acme-corp..." }
+    S1-->>C: 200 { access_token: "...aud=activeScope..." }
 
     Note over C: Tab 2 refreshes (only cookie B sent)
-    C->>W: POST /auth/bigco.hr.bigco-hq/refresh-token [cookie B]
+    C->>W: POST /auth/bigco.hr.bigco-hq/refresh-token [cookie B + { activeScope }]
     W->>S2: Route
-    S2-->>C: 200 { access_token: "...bigco-hq..." }
+    S2-->>C: 200 { access_token: "...aud=activeScope..." }
 ```
 
-Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs in at `/auth/george-solopreneur` and gets a JWT with `{ "id": "george-solopreneur.*", "admin": true }`. That JWT grants access to any star-level endpoint beneath it via wildcard matching. The refresh cookie is scoped to `Path=/auth/george-solopreneur`, so the admin refreshes at universe level only.
+Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs in at `/auth/george-solopreneur` and gets a JWT with `{ "authScopePattern": "george-solopreneur.*", "admin": true }`. That JWT grants access to any star-level endpoint beneath it via wildcard matching. The refresh cookie is scoped to `Path=/auth/george-solopreneur`, so the admin refreshes at universe level only. The `activeScope` in the refresh body determines the JWT's `aud` claim — the admin can target any child scope (e.g., `"george-solopreneur.app.tenant"`).
 
 ---
 
@@ -351,13 +352,13 @@ Admin hierarchy uses JWT wildcards, not separate cookies. A universe admin logs 
 
 ```typescript
 interface AccessEntry {
-  id: string      // universeGalaxyStarId or wildcard (e.g. "george-solopreneur.*")
-  admin?: boolean // true = admin of this scope; omitted when false
+  authScopePattern: string  // universeGalaxyStarId or wildcard (e.g. "george-solopreneur.*")
+  admin?: boolean           // true = admin of this scope; omitted when false
 }
 
 interface NebulaJwtPayload {
   iss: string            // Issuer (https://nebula.lumenize.com)
-  aud: string            // Audience (https://nebula.lumenize.com)
+  aud: string            // Audience — the active universeGalaxyStarId this token is scoped to
   sub: string            // Subject UUID (within the issuing DO instance)
   exp: number            // Expiration (Unix seconds)
   iat: number            // Issued at (Unix seconds)
@@ -373,27 +374,27 @@ interface NebulaJwtPayload {
 
 **Star-level regular user:**
 ```json
-{ "access": { "id": "george-solopreneur.georges-first-app.acme-corp" } }
+{ "access": { "authScopePattern": "george-solopreneur.georges-first-app.acme-corp" } }
 ```
 
 **Star-level admin:**
 ```json
-{ "access": { "id": "george-solopreneur.georges-first-app.acme-corp", "admin": true } }
+{ "access": { "authScopePattern": "george-solopreneur.georges-first-app.acme-corp", "admin": true } }
 ```
 
 **Galaxy admin (access to all stars beneath):**
 ```json
-{ "access": { "id": "george-solopreneur.georges-first-app.*", "admin": true } }
+{ "access": { "authScopePattern": "george-solopreneur.georges-first-app.*", "admin": true } }
 ```
 
 **Universe admin (access to all galaxies and stars beneath):**
 ```json
-{ "access": { "id": "george-solopreneur.*", "admin": true } }
+{ "access": { "authScopePattern": "george-solopreneur.*", "admin": true } }
 ```
 
 **Platform admin (access to everything):**
 ```json
-{ "access": { "id": "*", "admin": true } }
+{ "access": { "authScopePattern": "*", "admin": true } }
 ```
 
 ### Wildcard Matching (`matchAccess`)
@@ -534,7 +535,7 @@ The compound PK covers email-first lookups (leftmost prefix). `idx_Emails_instan
 
 ### Reserved Instance: `nebula-platform`
 
-`NEBULA_AUTH_BOOTSTRAP_EMAIL` env var designates the platform super-admin. This email authenticates at the reserved `nebula-platform` DO instance via standard magic link flow at `/auth/nebula-platform`. The one conditional behavior: when the DO recognizes the bootstrap email, it issues a JWT with `{ "access": { "id": "*", "admin": true } }` instead of the normal scope.
+`NEBULA_AUTH_BOOTSTRAP_EMAIL` env var designates the platform super-admin. This email authenticates at the reserved `nebula-platform` DO instance via standard magic link flow at `/auth/nebula-platform`. The one conditional behavior: when the DO recognizes the bootstrap email, it issues a JWT with `{ "access": { "authScopePattern": "*", "admin": true } }` instead of the normal scope.
 
 The `nebula-platform` instance goes through the normal magic link flow including the registry RPC on first verification, so it appears in the `Emails` table and discovery correctly returns it as a scope for the bootstrap email.
 
@@ -570,7 +571,6 @@ The `nebula-platform` instance goes through the normal magic link flow including
 | `REGISTRY_INSTANCE_NAME` | `'registry'` | Singleton instance name for `NebulaAuthRegistry` |
 | `NEBULA_AUTH_PREFIX` | `'/auth'` | URL prefix for all auth routes |
 | `NEBULA_AUTH_ISSUER` | `'https://nebula.lumenize.com'` | JWT `iss` claim |
-| `NEBULA_AUTH_AUDIENCE` | `'https://nebula.lumenize.com'` | JWT `aud` claim |
 | `ACCESS_TOKEN_TTL` | `900` (15 min) | Access token lifetime (seconds) |
 | `REFRESH_TOKEN_TTL` | `2592000` (30 days) | Refresh token lifetime (seconds) |
 | `MAGIC_LINK_TTL` | `1800` (30 min) | Magic link lifetime (seconds) |
@@ -592,11 +592,11 @@ export { NebulaEmailSender } from './nebula-email-sender';
 export { routeNebulaAuthRequest } from './router';
 
 // universeGalaxyStarId parsing and access matching
-export { parseId, isValidSlug, isPlatformInstance, getParentId, buildAccessId, matchAccess } from './parse-id';
+export { parseId, isValidSlug, isPlatformInstance, getParentId, buildAuthScopePattern, matchAccess } from './parse-id';
 
 // Types: Tier, ParsedId, AccessEntry, NebulaJwtPayload, Subject, DiscoveryEntry
 // Constants: PLATFORM_INSTANCE_NAME, REGISTRY_INSTANCE_NAME, NEBULA_AUTH_PREFIX,
-//            ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER, NEBULA_AUTH_AUDIENCE
+//            ACCESS_TOKEN_TTL, NEBULA_AUTH_ISSUER
 ```
 
 ## License

@@ -52,6 +52,8 @@ async function browserLogin(
   // 3. Refresh to get JWT — Browser auto-sends matching refresh cookie
   const refreshResp = await browser.fetch(authUrl(`${instanceName}/refresh-token`), {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeScope: instanceName }),
   });
   expect(refreshResp.status).toBe(200);
   const { access_token } = await refreshResp.json() as any;
@@ -77,7 +79,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
 
       // --- Step 1: Login to Star A ---
       const loginA = await browserLogin(browser, starA, carolEmailA);
-      expect(loginA.payload.access.id).toBe(starA);
+      expect(loginA.payload.access.authScopePattern).toBe(starA);
       expect(loginA.payload.email).toBe(carolEmailA);
 
       // Verify refresh cookie is set with correct path
@@ -89,7 +91,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
 
       // --- Step 2: Login to Star B (same browser) ---
       const loginB = await browserLogin(browser, starB, carolEmailB);
-      expect(loginB.payload.access.id).toBe(starB);
+      expect(loginB.payload.access.authScopePattern).toBe(starB);
       expect(loginB.payload.email).toBe(carolEmailB);
 
       // Verify second refresh cookie with different path — Star A cookie still exists
@@ -100,18 +102,26 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       expect(refreshCookies.some(c => c.path === `${PREFIX}/${starB}`)).toBe(true);
 
       // --- Step 3: Refresh Star A --- (only Star A cookie sent)
-      const refreshA = await browser.fetch(authUrl(`${starA}/refresh-token`), { method: 'POST' });
+      const refreshA = await browser.fetch(authUrl(`${starA}/refresh-token`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: starA }),
+      });
       expect(refreshA.status).toBe(200);
       const bodyA = await refreshA.json() as any;
       const payloadA = (parseJwtUnsafe(bodyA.access_token)!.payload as NebulaJwtPayload);
-      expect(payloadA.access.id).toBe(starA);
+      expect(payloadA.access.authScopePattern).toBe(starA);
 
       // --- Step 4: Refresh Star B --- (only Star B cookie sent)
-      const refreshB = await browser.fetch(authUrl(`${starB}/refresh-token`), { method: 'POST' });
+      const refreshB = await browser.fetch(authUrl(`${starB}/refresh-token`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: starB }),
+      });
       expect(refreshB.status).toBe(200);
       const bodyB = await refreshB.json() as any;
       const payloadB = (parseJwtUnsafe(bodyB.access_token)!.payload as NebulaJwtPayload);
-      expect(payloadB.access.id).toBe(starB);
+      expect(payloadB.access.authScopePattern).toBe(starB);
 
       // --- Step 5: Logout from Star B ---
       // Carol logs out from Star B. The logout endpoint revokes the refresh token.
@@ -119,11 +129,19 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       expect(logoutResp.status).toBe(200);
 
       // Star B refresh now fails (token revoked)
-      const refreshB2 = await browser.fetch(authUrl(`${starB}/refresh-token`), { method: 'POST' });
+      const refreshB2 = await browser.fetch(authUrl(`${starB}/refresh-token`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: starB }),
+      });
       expect(refreshB2.status).toBe(401);
 
       // Star A refresh still works
-      const refreshA2 = await browser.fetch(authUrl(`${starA}/refresh-token`), { method: 'POST' });
+      const refreshA2 = await browser.fetch(authUrl(`${starA}/refresh-token`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: starA }),
+      });
       expect(refreshA2.status).toBe(200);
 
       // --- Step 6: Cookie isolation assertion ---
@@ -164,14 +182,16 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       // 2. Click magic link (founding admin)
       await browser.fetch(magicLinkUrl);
 
-      // 3. Refresh to get wildcard JWT
+      // 3. Refresh to get wildcard JWT — activeScope = universe for universe-admin
       const refreshResp = await browser.fetch(authUrl(`${universe}/refresh-token`), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: universe }),
       });
       expect(refreshResp.status).toBe(200);
       const { access_token } = await refreshResp.json() as any;
       const adminPayload = (parseJwtUnsafe(access_token)!.payload as NebulaJwtPayload);
-      expect(adminPayload.access.id).toBe(`${universe}.*`);
+      expect(adminPayload.access.authScopePattern).toBe(`${universe}.*`);
       expect(adminPayload.access.admin).toBe(true);
       expect(adminPayload.email).toBe(adminEmail);
 
@@ -225,6 +245,8 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
 
       const refreshResp = await browser.fetch(authUrl(`${universe}/refresh-token`), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: universe }),
       });
       const { access_token: universeToken } = await refreshResp.json() as any;
 
@@ -242,7 +264,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       const galaxyBrowser = new Browser();
       const { accessToken: galaxyToken } = await browserLogin(galaxyBrowser, galaxyId, galaxyAdminEmail);
       const galaxyPayload = (parseJwtUnsafe(galaxyToken)!.payload as NebulaJwtPayload);
-      expect(galaxyPayload.access.id).toBe(`${galaxyId}.*`);
+      expect(galaxyPayload.access.authScopePattern).toBe(`${galaxyId}.*`);
 
       // Galaxy admin tries to access universe-level endpoint → rejected by Worker
       const resp = await galaxyBrowser.fetch(authUrl(`${universe}/subjects`), {
@@ -279,6 +301,8 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       // 3. Refresh to get JWT
       const refreshResp = await browser.fetch(authUrl(`${slug}/refresh-token`), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: slug }),
       });
       expect(refreshResp.status).toBe(200);
       const { access_token } = await refreshResp.json() as any;
@@ -288,7 +312,7 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       expect(payload.access.admin).toBe(true);
       expect(payload.adminApproved).toBe(true);
       expect(payload.email).toBe(email);
-      expect(payload.access.id).toBe(`${slug}.*`);
+      expect(payload.access.authScopePattern).toBe(`${slug}.*`);
 
       // 5. Verify registry records via discovery
       const discoverResp = await browser.fetch(authUrl('discover'), {
@@ -328,6 +352,8 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
 
       const refreshResp = await browser.fetch(authUrl(`${universe}/refresh-token`), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: universe }),
       });
       const { access_token } = await refreshResp.json() as any;
 
@@ -357,13 +383,15 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
       // Refresh to get JWT
       const starRefresh = await starBrowser.fetch(authUrl(`${starId}/refresh-token`), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: starId }),
       });
       expect(starRefresh.status).toBe(200);
       const starBody = await starRefresh.json() as any;
       const starPayload = (parseJwtUnsafe(starBody.access_token)!.payload as NebulaJwtPayload);
 
       // Verify founding admin
-      expect(starPayload.access.id).toBe(starId);
+      expect(starPayload.access.authScopePattern).toBe(starId);
       expect(starPayload.access.admin).toBe(true);
       expect(starPayload.adminApproved).toBe(true);
       expect(starPayload.email).toBe(starEmail);
@@ -399,6 +427,8 @@ describe('@lumenize/nebula-auth — Integration Tests', () => {
 
       const refreshResp = await browser.fetch(authUrl(`${universe}/refresh-token`), {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: universe }),
       });
       const { access_token: adminToken } = await refreshResp.json() as any;
 

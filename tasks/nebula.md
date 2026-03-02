@@ -52,7 +52,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1 | Refactor Nebula Auth | **Complete** | `tasks/archive/nebula-refactor-auth.md` |
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
 | 1.7 | Mesh Gateway Fix | **Complete** | `tasks/archive/nebula-mesh-gateway-fix.md` |
-| 1.8 | JWT Active Scope in `aud` | Pending | `tasks/nebula-jwt-active-scope.md` |
+| 1.8 | JWT Active Scope in `aud` | **Complete** | `tasks/archive/nebula-jwt-active-scope.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -64,7 +64,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 
 ### Phase 0: Nebula Auth — COMPLETE
 
-Multi-tenant auth with `universe.galaxy.star` hierarchy. Two DO classes (NebulaAuth + NebulaAuthRegistry), magic link login, JWT access tokens, admin roles, delegation, self-signup, email-based discovery. 231 tests, 80.59% branch coverage.
+Multi-tenant auth with `universe.galaxy.star` hierarchy. Two DO classes (NebulaAuth + NebulaAuthRegistry), magic link login, JWT access tokens, admin roles, delegation, self-signup, email-based discovery. 242 tests (after Phase 1.8 additions), 80.59% branch coverage.
 
 **Deliverables**: `@lumenize/nebula-auth` package with NebulaAuth DO, NebulaAuthRegistry DO, NebulaEmailSender, Worker router, and comprehensive test suite.
 
@@ -80,9 +80,9 @@ Added extension points to `@lumenize/mesh` (MIT) so Nebula can subclass rather t
 
 Unified `WebSocketAttachment` into `GatewayConnectionInfo` (single type for attachment and hooks), added required `bindingName` (from routing header) and `instanceName`, auto-included all JWT claims, simplified default `onBeforeAccept` to validation-only, changed `routeNebulaAuthRequest` to fallthrough pattern (`undefined` for non-matching paths). 634 mesh tests, 231 nebula-auth tests passing.
 
-### Phase 1.8: JWT Active Scope in `aud` Claim
+### Phase 1.8: JWT Active Scope in `aud` Claim — COMPLETE
 
-Put the active scope (universeGalaxyStarId) into the JWT `aud` claim. The refresh endpoint requires an `activeScope` field in the JSON request body; the server validates the requested scope is covered by the user's `access` pattern via `matchAccess`, then mints the access token with `aud` set to that scope. Removes the static `NEBULA_AUTH_AUDIENCE` constant. Delegated token endpoint requires the same `activeScope` body field.
+Put the active scope (universeGalaxyStarId) into the JWT `aud` claim. The refresh endpoint requires an `activeScope` field in the JSON request body; the server validates the requested scope is covered by the user's `access` pattern via `matchAccess`, then mints the access token with `aud` set to that scope. Removed the static `NEBULA_AUTH_AUDIENCE` constant. Renamed `access.id` → `access.authScopePattern` and `buildAccessId` → `buildAuthScopePattern`. Delegated token endpoint requires the same `activeScope` body field. 242 nebula-auth tests passing.
 
 This eliminates the `~`-delimited Gateway instanceName design from Phase 2 — NebulaClient uses standard `${sub}.${tabId}` format, and the Gateway reads the active scope from JWT claims (`aud`) instead of parsing the instanceName.
 

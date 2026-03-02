@@ -4,7 +4,7 @@
  * Forked from @lumenize/auth LumenizeAuth. Key differences:
  * - Path-scoped cookies: Path={prefix}/{instanceName}
  * - JWT access claim: { id, admin? } instead of flat isAdmin/emailVerified
- * - buildAccessId() for tier-aware wildcard patterns
+ * - buildAuthScopePattern() for tier-aware wildcard patterns
  * - First-user-is-founder: zero subjects → first verified email becomes admin
  * - Platform admin: nebula-platform instance + bootstrap email → { id: "*", admin: true }
  * - Constants are hardcoded, not env vars (except secrets)
@@ -22,9 +22,8 @@ import {
   MAGIC_LINK_TTL,
   INVITE_TTL,
   NEBULA_AUTH_ISSUER,
-  NEBULA_AUTH_AUDIENCE,
 } from './types';
-import { buildAccessId, isPlatformInstance, matchAccess } from './parse-id';
+import { buildAuthScopePattern, isPlatformInstance, matchAccess } from './parse-id';
 import {
   generateRandomString,
   generateUuid,
@@ -393,7 +392,30 @@ export class NebulaAuth extends DurableObject {
 
     const subject = this.#rowToSubject(subjectRows[0]);
 
-    const newAccessToken = await this.#generateAccessToken(subject);
+    // Parse activeScope from JSON body (required)
+    const contentType = request.headers.get('Content-Type');
+    if (!contentType?.includes('application/json')) {
+      return this.#errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
+    }
+
+    let body: { activeScope?: string };
+    try {
+      body = await request.json() as typeof body;
+    } catch {
+      return this.#errorResponse(400, 'invalid_request', 'Invalid JSON body');
+    }
+    if (!body.activeScope) {
+      return this.#errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
+    }
+
+    // Validate activeScope against access pattern
+    const authScopePattern = buildAuthScopePattern(this.#instanceName || '');
+    if (!matchAccess(authScopePattern, body.activeScope)) {
+      return this.#errorResponse(403, 'insufficient_scope',
+        `Requested scope "${body.activeScope}" not covered by access pattern "${authScopePattern}"`);
+    }
+
+    const newAccessToken = await this.#generateAccessToken(subject, { activeScope: body.activeScope });
     const newRefreshToken = await this.#generateRefreshToken(storedToken.subjectId);
 
     return new Response(JSON.stringify({
@@ -923,7 +945,12 @@ export class NebulaAuth extends DurableObject {
   async #handleDelegatedToken(request: Request): Promise<Response> {
     const auth = await this.#authenticateRequest(request);
 
-    let body: { actFor?: string };
+    const contentType = request.headers.get('Content-Type');
+    if (!contentType?.includes('application/json')) {
+      return this.#errorResponse(400, 'invalid_request', 'Content-Type must be application/json');
+    }
+
+    let body: { actFor?: string; activeScope?: string };
     try {
       body = await request.json() as typeof body;
     } catch {
@@ -933,6 +960,17 @@ export class NebulaAuth extends DurableObject {
     const actFor = body.actFor;
     if (!actFor) {
       return this.#errorResponse(400, 'invalid_request', 'actFor required');
+    }
+
+    if (!body.activeScope) {
+      return this.#errorResponse(400, 'invalid_request', 'Missing required "activeScope" field');
+    }
+
+    // Validate activeScope against access pattern
+    const authScopePattern = buildAuthScopePattern(this.#instanceName || '');
+    if (!matchAccess(authScopePattern, body.activeScope)) {
+      return this.#errorResponse(403, 'insufficient_scope',
+        `Requested scope "${body.activeScope}" not covered by access pattern "${authScopePattern}"`);
     }
 
     const principalRows = this.#sql`
@@ -957,7 +995,7 @@ export class NebulaAuth extends DurableObject {
       }
     }
 
-    const accessToken = await this.#generateAccessToken(principal, auth.sub);
+    const accessToken = await this.#generateAccessToken(principal, { activeScope: body.activeScope, actorSub: auth.sub });
 
     const auditLog = debug('nebula-auth.NebulaAuth.token.delegated');
     auditLog.info('Delegated token issued', { targetSub: actFor, actorSub: auth.sub, principalSub: actFor });
@@ -1126,12 +1164,12 @@ export class NebulaAuth extends DurableObject {
     }
 
     // Wildcard fallback: cross-scope admin access (e.g., universe admin → star DO)
-    // JWT signature already verified above. If the JWT's access.id matches this
+    // JWT signature already verified above. If the JWT's access.authScopePattern matches this
     // instance via wildcard, trust the JWT claims directly — no local subject needed.
     const typedPayload = payload as any;
-    if (typedPayload.access?.id && typedPayload.email && typedPayload.access.admin) {
+    if (typedPayload.access?.authScopePattern && typedPayload.email && typedPayload.access.admin) {
       const instanceName = this.#instanceName || '';
-      if (matchAccess(typedPayload.access.id, instanceName)) {
+      if (matchAccess(typedPayload.access.authScopePattern, instanceName)) {
         return {
           sub: payload.sub,
           isAdmin: typedPayload.access.admin,
@@ -1299,7 +1337,10 @@ export class NebulaAuth extends DurableObject {
    * KEY DIFFERENCE from @lumenize/auth: uses `access: AccessEntry` instead of
    * flat emailVerified/isAdmin/adminApproved claims.
    */
-  async #generateAccessToken(subject: Subject, actorSub?: string): Promise<string> {
+  async #generateAccessToken(
+    subject: Subject,
+    opts: { activeScope: string; actorSub?: string },
+  ): Promise<string> {
     const activeKey = (this.env as any).PRIMARY_JWT_KEY || 'BLUE';
     const privateKeyPem = activeKey === 'GREEN'
       ? (this.env as any).JWT_PRIVATE_KEY_GREEN
@@ -1312,9 +1353,14 @@ export class NebulaAuth extends DurableObject {
     const privateKey = await importPrivateKey(privateKeyPem);
     const instanceName = this.#instanceName || '';
 
-    // Build access claim using buildAccessId
-    const accessId = buildAccessId(instanceName);
-    const access: AccessEntry = { id: accessId };
+    // Defense-in-depth: callers (#handleRefreshToken, #handleDelegatedToken) already
+    // validate this, but the private method re-checks so future callers can't skip it.
+    const authScopePattern = buildAuthScopePattern(instanceName);
+    if (!matchAccess(authScopePattern, opts.activeScope)) {
+      throw new Error(`Requested scope "${opts.activeScope}" not covered by access pattern "${authScopePattern}"`);
+    }
+
+    const access: AccessEntry = { authScopePattern };
     if (subject.isAdmin) {
       access.admin = true;
     }
@@ -1322,7 +1368,7 @@ export class NebulaAuth extends DurableObject {
     const now = Math.floor(Date.now() / 1000);
     const payload: NebulaJwtPayload = {
       iss: NEBULA_AUTH_ISSUER,
-      aud: NEBULA_AUTH_AUDIENCE,
+      aud: opts.activeScope,
       sub: subject.sub,
       exp: now + ACCESS_TOKEN_TTL,
       iat: now,
@@ -1330,7 +1376,7 @@ export class NebulaAuth extends DurableObject {
       email: subject.email,
       adminApproved: subject.adminApproved,
       access,
-      ...(actorSub ? { act: { sub: actorSub } } : {}),
+      ...(opts.actorSub ? { act: { sub: opts.actorSub } } : {}),
     };
 
     return signJwt(payload as any, privateKey, activeKey);

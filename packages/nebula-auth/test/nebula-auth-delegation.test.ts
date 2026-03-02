@@ -92,7 +92,7 @@ describe('Delegation', () => {
 
       const resp = await adminRequest(stub, inst, 'delegated-token', admin.access_token, {
         method: 'POST',
-        body: { actFor: user.parsed.sub },
+        body: { actFor: user.parsed.sub, activeScope: inst },
       });
       expect(resp.status).toBe(200);
       const body = await resp.json() as any;
@@ -128,7 +128,7 @@ describe('Delegation', () => {
 
       const resp = await adminRequest(stub, inst, 'delegated-token', actorRefresh.access_token, {
         method: 'POST',
-        body: { actFor: user.parsed.sub },
+        body: { actFor: user.parsed.sub, activeScope: inst },
       });
       expect(resp.status).toBe(200);
       const body = await resp.json() as any;
@@ -153,7 +153,7 @@ describe('Delegation', () => {
 
       const resp = await adminRequest(stub, inst, 'delegated-token', otherRefresh.access_token, {
         method: 'POST',
-        body: { actFor: user.parsed.sub },
+        body: { actFor: user.parsed.sub, activeScope: inst },
       });
       expect(resp.status).toBe(403);
     });

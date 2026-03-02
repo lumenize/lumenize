@@ -23,7 +23,7 @@ export {
   isValidSlug,
   isPlatformInstance,
   getParentId,
-  buildAccessId,
+  buildAuthScopePattern,
   matchAccess,
 } from './parse-id';
 
@@ -44,5 +44,4 @@ export {
   NEBULA_AUTH_PREFIX,
   ACCESS_TOKEN_TTL,
   NEBULA_AUTH_ISSUER,
-  NEBULA_AUTH_AUDIENCE,
 } from './types';

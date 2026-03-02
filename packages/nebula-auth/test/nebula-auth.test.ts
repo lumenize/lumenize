@@ -45,10 +45,14 @@ async function clickMagicLink(stub: any, magicLinkUrl: string): Promise<{ setCoo
 }
 
 /** Helper: exchange refresh token for access token, return parsed JWT payload */
-async function refreshAndParse(stub: any, instanceName: string, refreshToken: string): Promise<any> {
+async function refreshAndParse(stub: any, instanceName: string, refreshToken: string, activeScope?: string): Promise<any> {
   const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
     method: 'POST',
-    headers: { 'Cookie': `refresh-token=${refreshToken}` },
+    headers: {
+      'Cookie': `refresh-token=${refreshToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ activeScope: activeScope ?? instanceName }),
   }));
   expect(resp.status).toBe(200);
   const body = await resp.json() as any;
@@ -184,7 +188,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
 
       // Verify nebula-specific JWT structure
       expect(parsed.access).toBeDefined();
-      expect(parsed.access.id).toBe('acme.*'); // universe tier → wildcard
+      expect(parsed.access.authScopePattern).toBe('acme.*'); // universe tier → wildcard
       expect(parsed.adminApproved).toBeDefined();
       expect(parsed.sub).toBeDefined();
     });
@@ -255,19 +259,19 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       const uStub = env.NEBULA_AUTH.getByName('u-founder');
       const { parsed: uParsed } = await fullLogin(uStub, 'u-founder', 'u@example.com');
       expect(uParsed.access.admin).toBe(true);
-      expect(uParsed.access.id).toBe('u-founder.*');
+      expect(uParsed.access.authScopePattern).toBe('u-founder.*');
 
       // Galaxy tier
       const gStub = env.NEBULA_AUTH.getByName('acme.crm');
       const { parsed: gParsed } = await fullLogin(gStub, 'acme.crm', 'g@example.com');
       expect(gParsed.access.admin).toBe(true);
-      expect(gParsed.access.id).toBe('acme.crm.*');
+      expect(gParsed.access.authScopePattern).toBe('acme.crm.*');
 
       // Star tier
       const sStub = env.NEBULA_AUTH.getByName('acme.crm.tenant');
       const { parsed: sParsed } = await fullLogin(sStub, 'acme.crm.tenant', 's@example.com');
       expect(sParsed.access.admin).toBe(true);
-      expect(sParsed.access.id).toBe('acme.crm.tenant'); // star = exact, no wildcard
+      expect(sParsed.access.authScopePattern).toBe('acme.crm.tenant'); // star = exact, no wildcard
     });
   });
 
@@ -282,7 +286,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       const bootstrapEmail = 'bootstrap-admin@example.com'; // from vitest config
 
       const { parsed } = await fullLogin(stub, instanceName, bootstrapEmail);
-      expect(parsed.access.id).toBe('*'); // platform admin wildcard
+      expect(parsed.access.authScopePattern).toBe('*'); // platform admin wildcard
       expect(parsed.access.admin).toBe(true);
       expect(parsed.adminApproved).toBe(true);
     });
@@ -323,19 +327,19 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
     it('universe-tier JWT has wildcard access id', async () => {
       const stub = env.NEBULA_AUTH.getByName('jwt-universe');
       const { parsed } = await fullLogin(stub, 'jwt-universe', 'u@example.com');
-      expect(parsed.access.id).toBe('jwt-universe.*');
+      expect(parsed.access.authScopePattern).toBe('jwt-universe.*');
     });
 
     it('galaxy-tier JWT has wildcard access id', async () => {
       const stub = env.NEBULA_AUTH.getByName('jwt-u.gal');
       const { parsed } = await fullLogin(stub, 'jwt-u.gal', 'g@example.com');
-      expect(parsed.access.id).toBe('jwt-u.gal.*');
+      expect(parsed.access.authScopePattern).toBe('jwt-u.gal.*');
     });
 
     it('star-tier JWT has exact access id', async () => {
       const stub = env.NEBULA_AUTH.getByName('jwt-u.gal.star');
       const { parsed } = await fullLogin(stub, 'jwt-u.gal.star', 's@example.com');
-      expect(parsed.access.id).toBe('jwt-u.gal.star');
+      expect(parsed.access.authScopePattern).toBe('jwt-u.gal.star');
     });
 
     it('admin flag present only when isAdmin', async () => {
@@ -356,7 +360,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       const { parsed } = await fullLogin(stub, 'jwt-claims', 'claims@example.com');
 
       expect(parsed.iss).toBe('https://nebula.lumenize.com');
-      expect(parsed.aud).toBe('https://nebula.lumenize.com');
+      expect(parsed.aud).toBe('jwt-claims');
       expect(parsed.sub).toBeDefined();
       expect(parsed.exp).toBeGreaterThan(Date.now() / 1000);
       expect(parsed.iat).toBeLessThanOrEqual(Date.now() / 1000);
@@ -450,14 +454,16 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       // First refresh — succeeds (and rotates)
       const resp1 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${oldToken}` },
+        headers: { 'Cookie': `refresh-token=${oldToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(resp1.status).toBe(200);
 
       // Second use of old token — fails (revoked by rotation)
       const resp2 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${oldToken}` },
+        headers: { 'Cookie': `refresh-token=${oldToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(resp2.status).toBe(401);
       const body = await resp2.json() as any;
@@ -475,7 +481,8 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       // Refresh once to get new token
       const resp1 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${oldToken}` },
+        headers: { 'Cookie': `refresh-token=${oldToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(resp1.status).toBe(200);
       const newCookie = resp1.headers.get('Set-Cookie')!;
@@ -485,9 +492,122 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       // Use new token — succeeds
       const resp2 = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${newToken}` },
+        headers: { 'Cookie': `refresh-token=${newToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(resp2.status).toBe(200);
+    });
+  });
+
+  // ============================================
+  // activeScope validation (refresh)
+  // ============================================
+
+  describe('activeScope Validation (refresh)', () => {
+    it('rejects refresh without Content-Type header', async () => {
+      const instanceName = 'scope-no-ct';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const magicLink = await requestMagicLink(stub, instanceName, 'ct@example.com');
+      const { refreshToken } = await clickMagicLink(stub, magicLink);
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}` },
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('Content-Type');
+    });
+
+    it('rejects refresh with empty body (no activeScope)', async () => {
+      const instanceName = 'scope-empty';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const magicLink = await requestMagicLink(stub, instanceName, 'empty@example.com');
+      const { refreshToken } = await clickMagicLink(stub, magicLink);
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('activeScope');
+    });
+
+    it('rejects refresh with activeScope not covered by access pattern', async () => {
+      const instanceName = 'scope-mismatch';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const magicLink = await requestMagicLink(stub, instanceName, 'mismatch@example.com');
+      const { refreshToken } = await clickMagicLink(stub, magicLink);
+
+      // This DO has authScopePattern "scope-mismatch.*" (universe tier).
+      // Requesting an unrelated scope should be rejected.
+      const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: 'other-universe.galaxy.star' }),
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('insufficient_scope');
+    });
+
+    it('universe admin can refresh with specific star activeScope', async () => {
+      const instanceName = 'scope-uni-admin';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const { parsed: adminParsed } = await fullLogin(stub, instanceName, 'admin@example.com');
+
+      // Universe tier → authScopePattern is "scope-uni-admin.*"
+      // Admin can target any child scope
+      const magicLink = await requestMagicLink(stub, instanceName, 'admin@example.com');
+      const { refreshToken } = await clickMagicLink(stub, magicLink);
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: 'scope-uni-admin.crm.tenant-a' }),
+      }));
+      expect(resp.status).toBe(200);
+      const body = await resp.json() as any;
+      const jwt = parseJwtUnsafe(body.access_token)!.payload;
+      expect(jwt.aud).toBe('scope-uni-admin.crm.tenant-a');
+    });
+
+    it('star-level instance refresh with activeScope = instanceName succeeds', async () => {
+      const instanceName = 'acme.crm.tenant-b';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const magicLink = await requestMagicLink(stub, instanceName, 'star@example.com');
+      const { refreshToken } = await clickMagicLink(stub, magicLink);
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeScope: instanceName }),
+      }));
+      expect(resp.status).toBe(200);
+      const body = await resp.json() as any;
+      const jwt = parseJwtUnsafe(body.access_token)!.payload;
+      expect(jwt.aud).toBe(instanceName);
+      expect(jwt.access.authScopePattern).toBe(instanceName);
+    });
+
+    it('rejects refresh with invalid JSON body', async () => {
+      const instanceName = 'scope-badjson';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const magicLink = await requestMagicLink(stub, instanceName, 'bad@example.com');
+      const { refreshToken } = await clickMagicLink(stub, magicLink);
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
+        method: 'POST',
+        headers: { 'Cookie': `refresh-token=${refreshToken}`, 'Content-Type': 'application/json' },
+        body: 'not json',
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('invalid_request');
     });
   });
 
@@ -751,7 +871,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
           'Authorization': `Bearer ${admin.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ actFor: user.parsed.sub }),
+        body: JSON.stringify({ actFor: user.parsed.sub, activeScope: instanceName }),
       }));
       expect(resp.status).toBe(200);
       const body = await resp.json() as any;
@@ -774,9 +894,94 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
           'Authorization': `Bearer ${user1.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ actFor: user2.parsed.sub }),
+        body: JSON.stringify({ actFor: user2.parsed.sub, activeScope: instanceName }),
       }));
       expect(resp.status).toBe(403);
+    });
+  });
+
+  // ============================================
+  // activeScope validation (delegated tokens)
+  // ============================================
+
+  describe('activeScope Validation (delegated tokens)', () => {
+    it('rejects delegation without activeScope', async () => {
+      const instanceName = 'deleg-no-scope';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const admin = await fullLogin(stub, instanceName, 'admin@example.com');
+      const user = await fullLogin(stub, instanceName, 'user@example.com');
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'delegated-token'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${admin.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ actFor: user.parsed.sub }),
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('activeScope');
+    });
+
+    it('rejects delegation with activeScope not covered by access pattern', async () => {
+      const instanceName = 'deleg-bad-scope';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const admin = await fullLogin(stub, instanceName, 'admin@example.com');
+      const user = await fullLogin(stub, instanceName, 'user@example.com');
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'delegated-token'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${admin.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ actFor: user.parsed.sub, activeScope: 'other-universe.galaxy' }),
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('insufficient_scope');
+    });
+
+    it('delegated token with explicit activeScope sets correct aud and act', async () => {
+      const instanceName = 'deleg-scope-aud';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const admin = await fullLogin(stub, instanceName, 'admin@example.com');
+      const user = await fullLogin(stub, instanceName, 'user@example.com');
+
+      // Universe tier — can target a specific child scope
+      const targetScope = 'deleg-scope-aud.crm.tenant-x';
+      const resp = await stub.fetch(new Request(url(instanceName, 'delegated-token'), {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${admin.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ actFor: user.parsed.sub, activeScope: targetScope }),
+      }));
+      expect(resp.status).toBe(200);
+      const body = await resp.json() as any;
+      const jwt = parseJwtUnsafe(body.access_token)!.payload;
+      expect(jwt.aud).toBe(targetScope);
+      expect(jwt.sub).toBe(user.parsed.sub);
+      expect(jwt.act.sub).toBe(admin.parsed.sub);
+    });
+
+    it('rejects delegation without Content-Type header', async () => {
+      const instanceName = 'deleg-no-ct';
+      const stub = env.NEBULA_AUTH.getByName(instanceName);
+      const admin = await fullLogin(stub, instanceName, 'admin@example.com');
+
+      const resp = await stub.fetch(new Request(url(instanceName, 'delegated-token'), {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${admin.access_token}` },
+        body: 'not json',
+      }));
+      expect(resp.status).toBe(400);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('invalid_request');
+      expect(body.error_description).toContain('Content-Type');
     });
   });
 });

@@ -9,7 +9,7 @@ import {
   isValidSlug,
   isPlatformInstance,
   getParentId,
-  buildAccessId,
+  buildAuthScopePattern,
   matchAccess,
   PLATFORM_INSTANCE_NAME,
 } from '../src/index';
@@ -186,24 +186,24 @@ describe('getParentId', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildAccessId
+// buildAuthScopePattern
 // ---------------------------------------------------------------------------
 
-describe('buildAccessId', () => {
+describe('buildAuthScopePattern', () => {
   it('returns "*" for platform instance', () => {
-    expect(buildAccessId('nebula-platform')).toBe('*');
+    expect(buildAuthScopePattern('nebula-platform')).toBe('*');
   });
 
   it('returns wildcard for universe tier', () => {
-    expect(buildAccessId('george-solopreneur')).toBe('george-solopreneur.*');
+    expect(buildAuthScopePattern('george-solopreneur')).toBe('george-solopreneur.*');
   });
 
   it('returns wildcard for galaxy tier', () => {
-    expect(buildAccessId('george-solopreneur.app')).toBe('george-solopreneur.app.*');
+    expect(buildAuthScopePattern('george-solopreneur.app')).toBe('george-solopreneur.app.*');
   });
 
   it('returns exact id for star tier', () => {
-    expect(buildAccessId('george-solopreneur.app.tenant')).toBe('george-solopreneur.app.tenant');
+    expect(buildAuthScopePattern('george-solopreneur.app.tenant')).toBe('george-solopreneur.app.tenant');
   });
 });
 

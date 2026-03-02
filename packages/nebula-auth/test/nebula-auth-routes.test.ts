@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import { SELF, env } from 'cloudflare:test';
 import { signJwt, importPrivateKey, generateUuid } from '@lumenize/auth';
-import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER, NEBULA_AUTH_AUDIENCE } from '../src/types';
+import { NEBULA_AUTH_PREFIX, NEBULA_AUTH_ISSUER } from '../src/types';
 import type { NebulaJwtPayload, AccessEntry } from '../src/types';
 import { fullLogin, requestMagicLink, clickMagicLink } from './test-helpers';
 
@@ -32,6 +32,7 @@ function registryUrl(endpoint: string): string {
  */
 async function createJwt(opts: {
   accessId: string;
+  aud?: string;
   accessAdmin?: boolean;
   adminApproved?: boolean;
   sub?: string;
@@ -40,12 +41,12 @@ async function createJwt(opts: {
 }): Promise<string> {
   const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
   const now = Math.floor(Date.now() / 1000);
-  const access: AccessEntry = { id: opts.accessId };
+  const access: AccessEntry = { authScopePattern: opts.accessId };
   if (opts.accessAdmin) access.admin = true;
 
   const payload: NebulaJwtPayload = {
     iss: NEBULA_AUTH_ISSUER,
-    aud: NEBULA_AUTH_AUDIENCE,
+    aud: opts.aud ?? opts.accessId.replace(/\.\*$/, ''),
     sub: opts.sub ?? generateUuid(),
     exp: now + (opts.expiresInSeconds ?? 900),
     iat: now,
@@ -82,7 +83,11 @@ async function workerLogin(instanceName: string, email: string) {
   // Refresh to get JWT through Worker
   const refreshResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/refresh-token`), {
     method: 'POST',
-    headers: { 'Cookie': `refresh-token=${refreshToken}` },
+    headers: {
+      'Cookie': `refresh-token=${refreshToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ activeScope: instanceName }),
   }));
   expect(refreshResp.status).toBe(200);
   const refreshBody = await refreshResp.json() as any;
@@ -296,7 +301,11 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
 
       const resp = await SELF.fetch(new Request(workerUrl(`${instanceName}/refresh-token`), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${refreshToken}` },
+        headers: {
+          'Cookie': `refresh-token=${refreshToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ activeScope: instanceName }),
       }));
 
       expect(resp.status).toBe(200);
@@ -378,7 +387,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
 
     it('universe admin wildcard JWT grants access to star DO endpoints', async () => {
       // Universe admin logs in at universe level, gets wildcard JWT with
-      // access.id: "universe.*". The Worker matches the wildcard against the
+      // access.authScopePattern: "universe.*". The Worker matches the wildcard against the
       // star path, and the DO's #verifyBearerToken falls back to wildcard
       // matching when the sub is not found in the local Subjects table.
       const universe = `wildcard-${generateUuid().slice(0, 8)}`;
@@ -503,19 +512,18 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
   // ============================================
 
   describe('Worker JWT validation branches', () => {
-    it('rejects JWT with wrong audience', async () => {
+    it('rejects JWT with missing audience claim', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        aud: 'wrong-audience',
         sub: generateUuid(),
         exp: now + 900,
         iat: now,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: 'some-instance.*', admin: true },
+        access: { authScopePattern: 'some-instance.*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
@@ -526,19 +534,45 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       expect(body.error_description).toContain('audience');
     });
 
-    it('rejects JWT with wrong issuer', async () => {
+    it('JWT with unrelated aud passes audience check but is rejected by access pattern', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
+      // JWT has aud = 'wrong-universe' but authScopePattern = 'wrong-universe.*'
+      // The audience check passes (aud is a non-empty string), but
+      // matchAccess('wrong-universe.*', 'target-instance') fails.
       const token = await signJwt({
-        iss: 'wrong-issuer',
-        aud: NEBULA_AUTH_AUDIENCE,
+        iss: NEBULA_AUTH_ISSUER,
+        aud: 'wrong-universe',
         sub: generateUuid(),
         exp: now + 900,
         iat: now,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: 'some-instance.*', admin: true },
+        access: { authScopePattern: 'wrong-universe.*', admin: true },
+      } as any, privateKey, 'BLUE');
+
+      const resp = await SELF.fetch(new Request(workerUrl('target-instance/subjects'), {
+        headers: { 'Authorization': `Bearer ${token}` },
+      }));
+      expect(resp.status).toBe(403);
+      const body = await resp.json() as any;
+      expect(body.error).toBe('insufficient_scope');
+    });
+
+    it('rejects JWT with wrong issuer', async () => {
+      const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
+      const now = Math.floor(Date.now() / 1000);
+      const token = await signJwt({
+        iss: 'wrong-issuer',
+        aud: 'some-instance',
+        sub: generateUuid(),
+        exp: now + 900,
+        iat: now,
+        jti: generateUuid(),
+        email: 'test@example.com',
+        adminApproved: true,
+        access: { authScopePattern: 'some-instance.*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
@@ -554,13 +588,13 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        aud: NEBULA_AUTH_AUDIENCE,
+        aud: 'some-instance',
         exp: now + 900,
         iat: now,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: 'some-instance.*', admin: true },
+        access: { authScopePattern: 'some-instance.*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(workerUrl('some-instance/subjects'), {
@@ -576,7 +610,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        aud: NEBULA_AUTH_AUDIENCE,
+        aud: 'some-instance',
         sub: generateUuid(),
         exp: now + 900,
         iat: now,
@@ -625,19 +659,18 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
   // ============================================
 
   describe('Registry JWT validation branches (create-galaxy)', () => {
-    it('rejects JWT with wrong audience on create-galaxy', async () => {
+    it('rejects JWT with missing audience on create-galaxy', async () => {
       const privateKey = await importPrivateKey(env.JWT_PRIVATE_KEY_BLUE);
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        aud: 'wrong-audience',
         sub: generateUuid(),
         exp: now + 900,
         iat: now,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: '*', admin: true },
+        access: { authScopePattern: '*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
@@ -658,14 +691,14 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: 'wrong-issuer',
-        aud: NEBULA_AUTH_AUDIENCE,
+        aud: 'some-instance',
         sub: generateUuid(),
         exp: now + 900,
         iat: now,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: '*', admin: true },
+        access: { authScopePattern: '*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
@@ -686,13 +719,13 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        aud: NEBULA_AUTH_AUDIENCE,
+        aud: 'some-instance',
         exp: now + 900,
         iat: now,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: '*', admin: true },
+        access: { authScopePattern: '*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
@@ -713,14 +746,14 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       const now = Math.floor(Date.now() / 1000);
       const token = await signJwt({
         iss: NEBULA_AUTH_ISSUER,
-        aud: NEBULA_AUTH_AUDIENCE,
+        aud: 'some-instance',
         sub: generateUuid(),
         exp: now - 100, // expired
         iat: now - 200,
         jti: generateUuid(),
         email: 'test@example.com',
         adminApproved: true,
-        access: { id: '*', admin: true },
+        access: { authScopePattern: '*', admin: true },
       } as any, privateKey, 'BLUE');
 
       const resp = await SELF.fetch(new Request(registryUrl('create-galaxy'), {
@@ -855,7 +888,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
           'Authorization': `Bearer ${access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ actFor: 'nonexistent-sub-id' }),
+        body: JSON.stringify({ actFor: 'nonexistent-sub-id', activeScope: instanceName }),
       }));
       expect(resp.status).toBe(404);
       const body = await resp.json() as any;
@@ -930,7 +963,11 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       // 6. User refreshes → gets JWT with adminApproved:true, access.admin:undefined
       const refreshResp = await SELF.fetch(new Request(workerUrl(`${instanceName}/refresh-token`), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${refreshToken}` },
+        headers: {
+          'Cookie': `refresh-token=${refreshToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ activeScope: instanceName }),
       }));
       expect(refreshResp.status).toBe(200);
       const { access_token: ut } = await refreshResp.json() as any;
@@ -1291,7 +1328,11 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       // 3. Refresh to get JWT
       const refreshResp = await SELF.fetch(new Request(workerUrl(`${universe}/refresh-token`), {
         method: 'POST',
-        headers: { 'Cookie': `refresh-token=${refreshToken}` },
+        headers: {
+          'Cookie': `refresh-token=${refreshToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ activeScope: universe }),
       }));
       expect(refreshResp.status).toBe(200);
       const { access_token } = await refreshResp.json() as any;

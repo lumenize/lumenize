@@ -3,7 +3,7 @@
 **Phase**: 2
 **Status**: Pending
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
-**Depends on**: Phase 1.8 (JWT Active Scope in `aud` — `tasks/nebula-jwt-active-scope.md`)
+**Depends on**: Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
 **Master task file**: `tasks/nebula.md`
 
 ## Goal

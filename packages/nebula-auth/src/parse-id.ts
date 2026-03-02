@@ -104,14 +104,14 @@ export function getParentId(parsed: ParsedId): string | undefined {
 }
 
 /**
- * Build the access claim `id` for a JWT issued by a given instance.
+ * Build the auth scope pattern for a JWT issued by a given instance.
  *
  * - Star-level → exact id (e.g. `"acme.crm.tenant"`)
  * - Galaxy-level → wildcard (e.g. `"acme.crm.*"`)
  * - Universe-level → wildcard (e.g. `"acme.*"`)
  * - Platform admin → `"*"`
  */
-export function buildAccessId(instanceName: string): string {
+export function buildAuthScopePattern(instanceName: string): string {
   if (isPlatformInstance(instanceName)) return '*';
   const parsed = parseId(instanceName);
   if (parsed.tier === 'star') return parsed.raw;
@@ -119,12 +119,12 @@ export function buildAccessId(instanceName: string): string {
 }
 
 /**
- * Match an access claim `id` against a target `universeGalaxyStarId`.
+ * Match an auth scope pattern against a target `universeGalaxyStarId`.
  *
  * Rules:
  * - `"*"` matches everything (platform admin)
  * - `"foo.*"` matches `"foo"`, `"foo.bar"`, `"foo.bar.baz"` (and anything beneath)
- * - Exact string match for non-wildcard ids
+ * - Exact string match for non-wildcard patterns
  *
  * @example
  * ```typescript
@@ -134,13 +134,13 @@ export function buildAccessId(instanceName: string): string {
  * matchAccess("george-solopreneur.app.tenant", "george-solopreneur.app.tenant") // true
  * ```
  */
-export function matchAccess(accessId: string, targetId: string): boolean {
+export function matchAccess(authScopePattern: string, targetId: string): boolean {
   // Platform admin — matches everything
-  if (accessId === '*') return true;
+  if (authScopePattern === '*') return true;
 
   // Wildcard pattern — "prefix.*"
-  if (accessId.endsWith('.*')) {
-    const prefix = accessId.slice(0, -2); // strip ".*"
+  if (authScopePattern.endsWith('.*')) {
+    const prefix = authScopePattern.slice(0, -2); // strip ".*"
     // Exact match on the prefix itself (universe-level access to own scope)
     if (targetId === prefix) return true;
     // Target is beneath the prefix (e.g. "acme.crm" under "acme")
@@ -149,5 +149,5 @@ export function matchAccess(accessId: string, targetId: string): boolean {
   }
 
   // Exact match
-  return accessId === targetId;
+  return authScopePattern === targetId;
 }

@@ -39,10 +39,14 @@ export async function clickMagicLink(stub: any, magicLinkUrl: string): Promise<{
 }
 
 /** Exchange refresh token for access token, return parsed JWT payload */
-export async function refreshAndParse(stub: any, instanceName: string, refreshToken: string): Promise<any> {
+export async function refreshAndParse(stub: any, instanceName: string, refreshToken: string, activeScope?: string): Promise<any> {
   const resp = await stub.fetch(new Request(url(instanceName, 'refresh-token'), {
     method: 'POST',
-    headers: { 'Cookie': `refresh-token=${refreshToken}` },
+    headers: {
+      'Cookie': `refresh-token=${refreshToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ activeScope: activeScope ?? instanceName }),
   }));
   expect(resp.status).toBe(200);
   const body = await resp.json() as any;

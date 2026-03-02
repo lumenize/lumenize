@@ -40,17 +40,18 @@ export interface ParsedId {
 
 /** Scoped access entry in the JWT `access` claim */
 export interface AccessEntry {
-  /** universeGalaxyStarId or wildcard pattern (e.g. "george-solopreneur.*") */
-  id: string;
+  /** Auth scope pattern — universeGalaxyStarId or wildcard (e.g. "george-solopreneur.*") */
+  authScopePattern: string;
   /** true = admin of this scope; omitted when false (keeps JWT compact) */
   admin?: boolean;
 }
 
 /** Nebula JWT payload — extends standard JWT claims with nebula-specific access */
 export interface NebulaJwtPayload {
-  /** Issuer */
+  /** Issuer — always NEBULA_AUTH_ISSUER */
   iss: string;
-  /** Audience */
+  /** Audience — the active universeGalaxyStarId this token is scoped to.
+   *  Set from the required `activeScope` field in the refresh/delegation request body. */
   aud: string;
   /** Subject UUID (within the issuing DO instance) */
   sub: string;
@@ -157,6 +158,3 @@ export const INVITE_TTL = 604800;
 
 /** JWT issuer */
 export const NEBULA_AUTH_ISSUER = 'https://nebula.lumenize.com';
-
-/** JWT audience */
-export const NEBULA_AUTH_AUDIENCE = 'https://nebula.lumenize.com';

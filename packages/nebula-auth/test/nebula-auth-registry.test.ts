@@ -183,7 +183,7 @@ describe('NebulaAuthRegistry', () => {
 
       // Set up parent universe and galaxy
       await registry.claimUniverse('star-univ', 'admin@example.com', 'http://localhost');
-      await registry.createGalaxy('star-univ.my-app', { id: 'star-univ.*', admin: true });
+      await registry.createGalaxy('star-univ.my-app', { authScopePattern: 'star-univ.*', admin: true });
 
       // Claim star
       const result = await registry.claimStar(
@@ -211,7 +211,7 @@ describe('NebulaAuthRegistry', () => {
     it('rejects duplicate star slug', async () => {
       const registry = getRegistry();
       await registry.claimUniverse('dup-star-univ', 'admin@example.com', 'http://localhost');
-      await registry.createGalaxy('dup-star-univ.app', { id: 'dup-star-univ.*', admin: true });
+      await registry.createGalaxy('dup-star-univ.app', { authScopePattern: 'dup-star-univ.*', admin: true });
       await registry.claimStar('dup-star-univ.app.tenant', 'first@example.com', 'http://localhost');
 
       await expect(
@@ -231,7 +231,7 @@ describe('NebulaAuthRegistry', () => {
 
       const result = await registry.createGalaxy(
         'gal-univ.my-galaxy',
-        { id: 'gal-univ.*', admin: true },
+        { authScopePattern: 'gal-univ.*', admin: true },
       );
       expect(result.instanceName).toBe('gal-univ.my-galaxy');
 
@@ -245,7 +245,7 @@ describe('NebulaAuthRegistry', () => {
 
       const result = await registry.createGalaxy(
         'plat-gal-univ.galaxy',
-        { id: '*', admin: true },
+        { authScopePattern: '*', admin: true },
       );
       expect(result.instanceName).toBe('plat-gal-univ.galaxy');
     });
@@ -257,7 +257,7 @@ describe('NebulaAuthRegistry', () => {
       await expect(
         registry.createGalaxy(
           'nonadmin-gal-univ.galaxy',
-          { id: 'nonadmin-gal-univ.*', admin: false },
+          { authScopePattern: 'nonadmin-gal-univ.*', admin: false },
         ),
       ).rejects.toThrow(/admin access/);
     });
@@ -267,7 +267,7 @@ describe('NebulaAuthRegistry', () => {
       await expect(
         registry.createGalaxy(
           'nonexistent.galaxy',
-          { id: 'nonexistent.*', admin: true },
+          { authScopePattern: 'nonexistent.*', admin: true },
         ),
       ).rejects.toThrow(/does not exist/);
     });
@@ -277,7 +277,7 @@ describe('NebulaAuthRegistry', () => {
       await expect(
         registry.createGalaxy(
           'just-a-universe',
-          { id: '*', admin: true },
+          { authScopePattern: '*', admin: true },
         ),
       ).rejects.toThrow(/2-segment/);
     });
@@ -289,7 +289,7 @@ describe('NebulaAuthRegistry', () => {
       await expect(
         registry.createGalaxy(
           'scope-gal-univ.galaxy',
-          { id: 'other-univ.*', admin: true },
+          { authScopePattern: 'other-univ.*', admin: true },
         ),
       ).rejects.toThrow(/admin access/);
     });
@@ -297,12 +297,12 @@ describe('NebulaAuthRegistry', () => {
     it('rejects duplicate galaxy', async () => {
       const registry = getRegistry();
       await registry.claimUniverse('dup-gal-univ', 'x@example.com', 'http://localhost');
-      await registry.createGalaxy('dup-gal-univ.galaxy', { id: 'dup-gal-univ.*', admin: true });
+      await registry.createGalaxy('dup-gal-univ.galaxy', { authScopePattern: 'dup-gal-univ.*', admin: true });
 
       await expect(
         registry.createGalaxy(
           'dup-gal-univ.galaxy',
-          { id: 'dup-gal-univ.*', admin: true },
+          { authScopePattern: 'dup-gal-univ.*', admin: true },
         ),
       ).rejects.toThrow(/already claimed/);
     });
