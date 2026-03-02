@@ -584,17 +584,15 @@ export class TestDO extends LumenizeDO<Env> {
     return 'authenticated-result';
   }
 
-  // Method with async guard (to test Promise support)
-  @mesh(async (instance: TestDO) => {
-    // Simulate async check
-    await Promise.resolve();
+  // Method with synchronous guard
+  @mesh((instance: TestDO) => {
     const token = instance.lmz.callContext?.state?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Guard: valid token required');
     }
   })
-  guardedAsyncMethod(): string {
-    return 'async-guard-passed';
+  guardedMethod(): string {
+    return 'guard-passed';
   }
 
   // Method that sets state before calling a guarded method
@@ -1174,17 +1172,15 @@ export class TestWorker extends LumenizeWorker<Env> {
     return 'worker-authenticated-result';
   }
 
-  // Method with async guard (to test Promise support)
-  @mesh(async (instance: TestWorker) => {
-    // Simulate async check
-    await Promise.resolve();
+  // Method with synchronous guard
+  @mesh((instance: TestWorker) => {
     const token = instance.lmz.callContext?.state?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Worker Guard: valid token required');
     }
   })
-  guardedWorkerAsyncMethod(): string {
-    return 'worker-async-guard-passed';
+  guardedWorkerMethod(): string {
+    return 'worker-guard-passed';
   }
 }
 

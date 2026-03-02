@@ -3,7 +3,7 @@
 **Phase**: 2
 **Status**: Pending
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
-**Depends on**: Phase 1.95 (Enforce Synchronous Mesh Guards — `tasks/nebula-sync-guards.md`), Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
+**Depends on**: Phase 1.95 (Enforce Synchronous Guards — complete, `tasks/archive/nebula-sync-guards-in-lumenize-mesh.md`), Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
 **Precondition from Phase 1.9**: The nebula-auth router validates instance names via `parseId()` before they reach any DO. Phase 2 code can trust that instance names arriving at the DO layer are well-formed `universe.galaxy.star` IDs (1–3 dot-separated slugs). The entrypoint should adopt the same `parseId()` validation for its own routing (or rely on `routeDORequest` doing so).
 **Master task file**: `tasks/nebula.md`
 **Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`

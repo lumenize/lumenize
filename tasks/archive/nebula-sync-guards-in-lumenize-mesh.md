@@ -1,7 +1,7 @@
-# Nebula Phase 1.95: Enforce Synchronous Guards and onBeforeCall
+# Nebula Phase 1.95: Enforce Synchronous Guards (in `@lumenize/mesh`)
 
 **Phase**: 1.95
-**Status**: Pending
+**Status**: Complete
 **Package**: `@lumenize/mesh`
 **Depends on**: Phase 1.5 (Mesh Extensibility — complete)
 **Master task file**: `tasks/nebula.md`
@@ -82,6 +82,8 @@ this.onBeforeCall();
 
 Convert existing async guard test methods to synchronous:
 
+All three follow the same pattern (DO shown; Worker and Client are identical):
+
 ```typescript
 // Before
 @mesh(async (instance: TestDO) => {
@@ -102,17 +104,19 @@ guardedAsyncMethod(): string {
     throw new Error('Guard: valid token required');
   }
 })
-guardedAsyncMethod(): string {
-  return 'async-guard-passed';
+guardedMethod(): string {
+  return 'guard-passed';
 }
 ```
 
-Affected test methods:
-- `TestDO.guardedAsyncMethod` in `test/test-worker-and-dos.ts`
-- `TestWorker.guardedWorkerAsyncMethod` in `test/test-worker-and-dos.ts`
-- `TestClient.guardedClientAsyncMethod` in `test/lumenize-client.test.ts`
+Affected test methods (convert guard to sync and rename):
+- `TestDO.guardedAsyncMethod` → `guardedMethod` in `test/test-worker-and-dos.ts`
+- `TestWorker.guardedWorkerAsyncMethod` → `guardedWorkerMethod` in `test/test-worker-and-dos.ts`
+- `TestClient.guardedClientAsyncMethod` → `guardedClientMethod` in `test/lumenize-client.test.ts`
 
-Corresponding test cases in `test/call-context.test.ts` should still pass — the tests verify guard rejection/acceptance behavior, which is unchanged.
+Also rename string references in `test/call-context.test.ts` (`guardedAsyncMethod` → `guardedMethod`, `guardedWorkerAsyncMethod` → `guardedWorkerMethod`).
+
+Corresponding test cases should still pass — the tests verify guard rejection/acceptance behavior, which is unchanged.
 
 ### 5. Documentation
 
@@ -126,6 +130,5 @@ Update guard signature and `onBeforeCall` signature in `website/docs/mesh/mesh-a
 - [ ] `LumenizeClient` invocation does not `await` `onBeforeCall()`
 - [ ] `LumenizeDO.onBeforeCall()` and `LumenizeWorker.onBeforeCall()` confirmed already sync (no change needed)
 - [ ] All existing mesh tests pass (sync guard behavior unchanged)
-- [ ] Former async guard tests converted to synchronous equivalents
+- [ ] Former async guard tests converted to synchronous equivalents and renamed (`guardedAsyncMethod` → `guardedMethod`, etc.)
 - [ ] Documentation updated if guard or onBeforeCall signatures are shown
-- [ ] Bump `@lumenize/mesh` with breaking change (major semver)

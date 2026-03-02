@@ -53,8 +53,8 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.5 | Mesh Extensibility | **Complete** | `tasks/mesh-extensibility.md` |
 | 1.7 | Mesh Gateway Fix | **Complete** | `tasks/archive/nebula-mesh-gateway-fix.md` |
 | 1.8 | JWT Active Scope in `aud` | **Complete** | `tasks/archive/nebula-jwt-active-scope.md` |
-| 1.9 | Auth Security Hardening | **Complete** | `tasks/nebula-auth-security-hardening.md` |
-| 1.95 | Enforce Synchronous Mesh Guards | Pending | `tasks/nebula-sync-guards.md` |
+| 1.9 | Auth Security Hardening | **Complete** | `tasks/archive/nebula-auth-security-hardening.md` |
+| 1.95 | Enforce Synchronous Guards (in `@lumenize/mesh`) | **Complete** | `tasks/archive/nebula-sync-guards-in-lumenize-mesh.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -92,9 +92,9 @@ This eliminates the `~`-delimited Gateway instanceName design from Phase 2 — N
 
 Hardened `@lumenize/nebula-auth` against vulnerabilities from security review. Seven fixes: (1) invite token replay — delete after use like magic links, (2) `discover` endpoint added to Turnstile gating, (3) registry no longer uses `parseJwtUnsafe` — router passes verified access claim in request body, (4) public key cache removed — keys imported fresh each request, (5) DO-level `adminApproved` check in `#verifyRefreshTokenIdentity` as defense-in-depth for RPC bypass, (6) email format validation on registry claim paths (`claimUniverse`, `claimStar`), (7) instance name format validation in router via `parseId()`. 254 tests (12 new), all passing.
 
-### Phase 1.95: Enforce Synchronous Guards and onBeforeCall
+### Phase 1.95: Enforce Synchronous Guards (in `@lumenize/mesh`) — COMPLETE
 
-Enforce synchronous `MeshGuard` and `onBeforeCall` across all three base classes (LumenizeDO, LumenizeWorker, LumenizeClient). Async authorization hooks create a window between validation and method execution where state can change — input gates on DOs, external state on Workers, event loop interleaving on Clients. Changes: `MeshGuard<T>` type drops `Promise<void>`, guard invocation drops `await`, `LumenizeClient.onBeforeCall` drops `Promise<void>` and its invocation drops `await`. DO and Worker already sync (verify only). Breaking change to `@lumenize/mesh` (major semver bump). If a legitimate async need emerges later, add a separate `onBeforeCallAsync` hook with explicit interleaving documentation.
+Enforced synchronous `MeshGuard` and `onBeforeCall` across all three base classes. `MeshGuard<T>` type drops `Promise<void>`, guard invocation drops `await`, `LumenizeClient.onBeforeCall` drops `Promise<void>` and its invocation drops `await`. DO and Worker confirmed already sync. Test guard methods renamed from `guardedAsyncMethod` → `guardedMethod` etc. Doc updated (`mesh-api.mdx`). 758 mesh tests passing. Breaking change to `@lumenize/mesh` (deferred to Nebula release).
 
 ### Phase 2: Baseline Access Control
 

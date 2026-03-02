@@ -163,17 +163,15 @@ class TestClient extends LumenizeClient {
     return 'client-authenticated-result';
   }
 
-  // Method with async guard (to test Promise support)
-  @mesh(async (instance: TestClient) => {
-    // Simulate async check
-    await Promise.resolve();
+  // Method with synchronous guard
+  @mesh((instance: TestClient) => {
     const token = instance.lmz.callContext?.state?.['token'];
     if (token !== 'valid-token') {
       throw new Error('Client Guard: valid token required');
     }
   })
-  guardedClientAsyncMethod(): string {
-    return 'client-async-guard-passed';
+  guardedClientMethod(): string {
+    return 'client-guard-passed';
   }
 }
 
@@ -704,7 +702,7 @@ describe('@mesh(guard) on LumenizeClient', () => {
     // The guard methods should exist and be mesh-callable
     expect(typeof client.guardedClientAdminMethod).toBe('function');
     expect(typeof client.guardedClientAuthMethod).toBe('function');
-    expect(typeof client.guardedClientAsyncMethod).toBe('function');
+    expect(typeof client.guardedClientMethod).toBe('function');
 
     client.disconnect();
   });

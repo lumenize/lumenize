@@ -30,7 +30,7 @@ export const MESH_GUARD = Symbol.for('lumenize.mesh.guard');
  *
  * Access `this.lmz.callContext` in the guard to check authentication/authorization.
  */
-export type MeshGuard<T = any> = (instance: T) => void | Promise<void>;
+export type MeshGuard<T = any> = (instance: T) => void;
 
 /**
  * Check if a method is mesh-callable

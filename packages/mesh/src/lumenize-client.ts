@@ -501,7 +501,7 @@ export abstract class LumenizeClient {
    *
    * Access context via `this.lmz.callContext`.
    */
-  onBeforeCall(): void | Promise<void> {
+  onBeforeCall(): void {
     // Default: reject peer-to-peer client calls, but allow self-originated calls
     const origin = this.#currentCallContext?.callChain[0];
     if (origin?.type === 'LumenizeClient') {
@@ -863,7 +863,7 @@ export abstract class LumenizeClient {
       // Execute within call context (for nested calls)
       const result = await runWithCallContext(callContext, async () => {
         // Run onBeforeCall hook
-        await this.onBeforeCall();
+        this.onBeforeCall();
 
         // Execute the operation chain
         return await executeOperationChain(chain, this);

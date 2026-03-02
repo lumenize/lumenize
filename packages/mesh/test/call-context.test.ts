@@ -362,7 +362,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         caller.testCallRawWithOperationChain(
           'TEST_DO',
           'guard-async-callee',
-          [{ type: 'get', key: 'guardedAsyncMethod' }, { type: 'apply', args: [] }]
+          [{ type: 'get', key: 'guardedMethod' }, { type: 'apply', args: [] }]
         )
       ).rejects.toThrow('Guard: valid token required');
     });
@@ -408,7 +408,7 @@ describe('@lumenize/mesh - CallContext Propagation', () => {
         caller.testCallRawWithOperationChain(
           'TEST_WORKER',
           undefined,
-          [{ type: 'get', key: 'guardedWorkerAsyncMethod' }, { type: 'apply', args: [] }]
+          [{ type: 'get', key: 'guardedWorkerMethod' }, { type: 'apply', args: [] }]
         )
       ).rejects.toThrow('Worker Guard: valid token required');
     });

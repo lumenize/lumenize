@@ -119,7 +119,7 @@ export async function executeOperationChain(
           // Execute guard if present
           const guard = getMeshGuard(method);
           if (guard) {
-            await guard(target);
+            guard(target);
           }
         }
       }
