@@ -170,10 +170,103 @@ describe('Circular References', () => {
     const set: any = new Set();
     set.add(1);
     set.add(set);
-    
+
     const result = parse(stringify(set));
     expect(result.has(1)).toBe(true);
     expect(result.has(result)).toBe(true);
+  });
+
+  it('handles deep cycles (A→B→C→A)', async () => {
+    const a: any = { name: 'a' };
+    const b: any = { name: 'b' };
+    const c: any = { name: 'c' };
+    a.next = b;
+    b.next = c;
+    c.next = a; // Closes the 3-node cycle
+
+    const result = parse(stringify(a));
+    expect(result.name).toBe('a');
+    expect(result.next.name).toBe('b');
+    expect(result.next.next.name).toBe('c');
+    expect(result.next.next.next).toBe(result); // Cycle back to a
+  });
+
+  it('handles deep cycles (A→B→C→D→E→A)', async () => {
+    const nodes: any[] = Array.from({ length: 5 }, (_, i) => ({ name: String.fromCharCode(65 + i) }));
+    for (let i = 0; i < nodes.length; i++) {
+      nodes[i].next = nodes[(i + 1) % nodes.length];
+    }
+
+    const result = parse(stringify(nodes[0]));
+
+    // Walk the entire cycle and verify
+    let current = result;
+    for (let i = 0; i < 5; i++) {
+      expect(current.name).toBe(String.fromCharCode(65 + i));
+      current = current.next;
+    }
+    // After 5 hops we should be back to the start
+    expect(current).toBe(result);
+  });
+
+  it('handles cycles through arrays', async () => {
+    const obj: any = { name: 'root' };
+    const arr: any[] = [obj, 'middle'];
+    obj.children = arr; // obj → arr → obj (cycle through array)
+
+    const result = parse(stringify(obj));
+    expect(result.name).toBe('root');
+    expect(result.children[0]).toBe(result);
+    expect(result.children[1]).toBe('middle');
+  });
+
+  it('handles cycles through Maps', async () => {
+    const obj: any = { name: 'root' };
+    const map = new Map<string, any>([['owner', obj]]);
+    obj.map = map; // obj → map → obj (cycle through Map value)
+
+    const result = parse(stringify(obj));
+    expect(result.name).toBe('root');
+    expect(result.map.get('owner')).toBe(result);
+  });
+
+  it('handles cycles through Map keys', async () => {
+    const map: any = new Map();
+    const keyObj: any = { type: 'cyclic-key', backref: map };
+    map.set(keyObj, 'value-for-cyclic-key');
+
+    const result = parse(stringify(map));
+    const keys = Array.from(result.keys()) as any[];
+    expect(keys.length).toBe(1);
+    expect(keys[0].type).toBe('cyclic-key');
+    expect(keys[0].backref).toBe(result); // Key object points back to the Map
+  });
+
+  it('handles cycles through Sets', async () => {
+    const obj: any = { name: 'root' };
+    const set = new Set<any>([obj]);
+    obj.set = set; // obj → set → obj (cycle through Set)
+
+    const result = parse(stringify(obj));
+    expect(result.name).toBe('root');
+    expect(result.set.has(result)).toBe(true);
+  });
+
+  it('handles diamond cycle (A→B, A→C, B→D, C→D, D→A)', async () => {
+    const a: any = { name: 'a' };
+    const b: any = { name: 'b' };
+    const c: any = { name: 'c' };
+    const d: any = { name: 'd' };
+    a.left = b;
+    a.right = c;
+    b.next = d;
+    c.next = d; // b and c both point to d (alias + cycle)
+    d.back = a;
+
+    const result = parse(stringify(a));
+    expect(result.name).toBe('a');
+    expect(result.left.next).toBe(result.right.next); // d is aliased
+    expect(result.left.next.back).toBe(result); // d→a cycle
   });
 });
 

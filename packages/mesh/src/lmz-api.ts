@@ -156,12 +156,7 @@ export async function executeHandlerWithResult(
 ): Promise<void> {
   if (!handlerChain) return;
 
-  // Normalize errors
-  const value = resultOrError instanceof Error
-    ? resultOrError
-    : resultOrError;
-
-  const finalChain = replaceNestedOperationMarkers(handlerChain, value);
+  const finalChain = replaceNestedOperationMarkers(handlerChain, resultOrError);
   await executeHandler(finalChain);
 }
 
@@ -235,6 +230,63 @@ export function buildOutgoingCallContext(
     originAuth: currentContext.originAuth,
     state: newState
   };
+}
+
+/**
+ * Shared implementation for callRaw() used by both DO and Worker LmzApi
+ *
+ * Builds envelope, gets stub, sends via Workers RPC, and unwraps response.
+ * Callers provide their LmzApi `self` (for identity) and `env` (for bindings).
+ *
+ * @internal
+ */
+async function callRawImpl(
+  self: LmzApi,
+  env: any,
+  calleeBindingName: string,
+  calleeInstanceName: string | undefined,
+  chainOrContinuation: OperationChain | AnyContinuation,
+  options?: CallOptions
+): Promise<any> {
+  const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
+
+  const callerIdentity: NodeIdentity = {
+    type: self.type,
+    bindingName: self.bindingName!,
+    instanceName: self.instanceName
+  };
+
+  const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
+  const callContext = buildOutgoingCallContext(callerIdentity, options);
+
+  const envelope: CallEnvelope = {
+    version: 1,
+    chain: preprocess(chain),
+    callContext,
+    metadata: {
+      caller: {
+        type: self.type,
+        bindingName: self.bindingName,
+        instanceName: self.instanceName
+      },
+      callee: {
+        type: calleeType,
+        bindingName: calleeBindingName,
+        instanceName: calleeInstanceName
+      }
+    }
+  };
+
+  const stub = calleeType === 'LumenizeDO'
+    ? getDOStub(env[calleeBindingName], calleeInstanceName!)
+    : env[calleeBindingName];
+
+  const response = await stub.__executeOperation(envelope);
+
+  if (response && '$error' in response) {
+    throw postprocess(response.$error);
+  }
+  return response?.$result;
 }
 
 /**
@@ -539,65 +591,7 @@ export function createLmzApiForDO(ctx: DurableObjectState, env: any, doInstance:
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
-      // 1. Extract chain from Continuation if needed
-      const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
-
-      // 2. Build caller identity for callContext
-      const callerIdentity: NodeIdentity = {
-        type: this.type,
-        bindingName: this.bindingName!,
-        instanceName: this.instanceName
-      };
-
-      // 3. Determine callee type
-      const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
-
-      // 4. Build callContext for outgoing call
-      const callContext = buildOutgoingCallContext(callerIdentity, options);
-
-      // 5. Gather metadata for auto-init of uninitialized nodes
-      const metadata = {
-        caller: {
-          type: this.type,
-          bindingName: this.bindingName,
-          instanceName: this.instanceName
-        },
-        callee: {
-          type: calleeType,
-          bindingName: calleeBindingName,
-          instanceName: calleeInstanceName
-        }
-      };
-
-      // 6. Create versioned envelope with callContext
-      // Only chain is preprocessed - rest of envelope is plain JSON
-      const envelope: CallEnvelope = {
-        version: 1,
-        chain: preprocess(chain),
-        callContext,
-        metadata
-      };
-
-      // 7. Get stub based on callee type
-      let stub: any;
-      if (calleeType === 'LumenizeDO') {
-        // DO: Use getDOStub from @lumenize/routing
-        stub = getDOStub(env[calleeBindingName], calleeInstanceName!);
-      } else {
-        // Worker: Direct access to entrypoint
-        stub = env[calleeBindingName];
-      }
-
-      // 8. Send envelope via Workers RPC
-      // Chain is already preprocessed, envelope wrapper is plain JSON
-      const response = await stub.__executeOperation(envelope);
-
-      // Unwrap result/error wrapper from executeEnvelope
-      // Errors are returned (not thrown) because Workers RPC loses error properties on throw
-      if (response && '$error' in response) {
-        throw postprocess(response.$error);
-      }
-      return response?.$result;
+      return callRawImpl(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
     },
 
     call<T = any>(
@@ -699,65 +693,7 @@ export function createLmzApiForWorker(env: any, workerInstance: any): LmzApi {
       chainOrContinuation: OperationChain | AnyContinuation,
       options?: CallOptions
     ): Promise<any> {
-      // 1. Extract chain from Continuation if needed
-      const chain = getOperationChain(chainOrContinuation) ?? chainOrContinuation;
-
-      // 2. Build caller identity for callContext
-      const callerIdentity: NodeIdentity = {
-        type: this.type,
-        bindingName: this.bindingName!,
-        instanceName: undefined // Workers don't have instance names
-      };
-
-      // 3. Determine callee type
-      const calleeType: NodeType = calleeInstanceName ? 'LumenizeDO' : 'LumenizeWorker';
-
-      // 4. Build callContext for outgoing call
-      const callContext = buildOutgoingCallContext(callerIdentity, options);
-
-      // 5. Gather metadata for auto-init of uninitialized nodes
-      const metadata = {
-        caller: {
-          type: this.type,
-          bindingName: this.bindingName,
-          instanceName: this.instanceName
-        },
-        callee: {
-          type: calleeType,
-          bindingName: calleeBindingName,
-          instanceName: calleeInstanceName
-        }
-      };
-
-      // 6. Create versioned envelope with callContext
-      // Only chain is preprocessed - rest of envelope is plain JSON
-      const envelope: CallEnvelope = {
-        version: 1,
-        chain: preprocess(chain),
-        callContext,
-        metadata
-      };
-
-      // 7. Get stub based on callee type
-      let stub: any;
-      if (calleeType === 'LumenizeDO') {
-        // DO: Use getDOStub from @lumenize/routing
-        stub = getDOStub(env[calleeBindingName], calleeInstanceName!);
-      } else {
-        // Worker: Direct access to entrypoint
-        stub = env[calleeBindingName];
-      }
-
-      // 8. Send envelope via Workers RPC
-      // Chain is already preprocessed, envelope wrapper is plain JSON
-      const response = await stub.__executeOperation(envelope);
-
-      // Unwrap result/error wrapper from executeEnvelope
-      // Errors are returned (not thrown) because Workers RPC loses error properties on throw
-      if (response && '$error' in response) {
-        throw postprocess(response.$error);
-      }
-      return response?.$result;
+      return callRawImpl(this, env, calleeBindingName, calleeInstanceName, chainOrContinuation, options);
     },
 
     call<T = any>(
