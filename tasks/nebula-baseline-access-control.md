@@ -1,11 +1,11 @@
 # Nebula Baseline Access Control
 
 **Phase**: 2
-**Status**: Pending
+**Status**: Complete
 **App**: `apps/nebula/` (new app workspace created in this phase — not published to npm)
-**Depends on**: Phase 1.96 (`verifyNebulaAccessToken` — pending, `tasks/nebula-verify-access-token.md`)
+**Depends on**: Phase 1.96 (`verifyNebulaAccessToken` — complete, `tasks/archive/nebula-verify-access-token.md`)
 
-**Phase 1.96 — `verifyNebulaAccessToken`**: See `tasks/nebula-verify-access-token.md`. New export from `@lumenize/nebula-auth` — takes `(token, env)`, returns `NebulaJwtPayload | null`. Encapsulates key loading, signature verification, standard claims validation, and `matchAccess(authScopePattern, aud)`. Phase 2 imports this for the entrypoint's `onBeforeConnect` hook.
+**Phase 1.96 — `verifyNebulaAccessToken`**: See `tasks/archive/nebula-verify-access-token.md`. New export from `@lumenize/nebula-auth` — takes `(token, env)`, returns `NebulaJwtPayload | null`. Encapsulates key loading, signature verification, standard claims validation, and `matchAccess(authScopePattern, aud)`. Phase 2 imports this for the entrypoint's `onBeforeConnect` hook.
 
 **Master task file**: `tasks/nebula.md`
 **Sequence diagrams**: `website/docs/nebula/auth-flows.mdx`
@@ -184,6 +184,8 @@ export class NebulaDO extends LumenizeDO {
   // No onRequest() for now — see "Direct HTTP safety" in the Entrypoint section.
 }
 ```
+
+**Edge case: calls without `originAuth`.** `onBeforeCall` rejects any call where `originAuth.claims.aud` is missing — this includes alarm-originated calls and `newChain: true` calls that start a fresh chain without originAuth. This is intentional for Phase 2 (all Nebula calls must originate from a Gateway). See `tasks/nebula-scratchpad.md` ("Alarm-originated calls missing `universeGalaxyStarId`") for the deferred design to handle alarm-initiated outbound calls in Phase 5.
 
 This permanently locks each DO instance to the active scope (universe, galaxy, or star) that first accessed it (which is when the instance was created). A Star at `acme.app.tenant-a`, a Galaxy at `acme.app`, a Universe at `acme`, and a ResourceHistory with UUID `abc-123` all get locked because `originAuth.claims.aud` carried the active scope from the Gateway.
 
@@ -399,6 +401,8 @@ Tests are split across four files by concern. A shared `createAuthenticatedClien
 
 ### Test Setup
 
+**`isolatedStorage: false`** is required in `vitest.config.js` (same as nebula-auth) because tests use WebSocket connections through the Gateway, which span multiple storage operations across test steps.
+
 Each test scenario:
 1. Creates a NebulaAuth instance at the appropriate level (universe, galaxy, or star) with subjects at various permission levels
 2. Authenticates via nebula-auth (test mode for most tests, one real email test)
@@ -441,7 +445,7 @@ These test the belt-and-suspenders `matchAccess(authScopePattern, aud)` check in
 
 **Mesh → client active-scope verification (Gateway bidirectional check)**:
 
-Test setup: `StarTest` (subclass in `test-worker-and-dos.ts`) adds a test-only `@mesh(requireAdmin)` method `callClient(targetGatewayInstanceName, clientMethod)`. It uses `this.lmz.call()` to send a mesh call through the `NEBULA_CLIENT_GATEWAY` binding to a specific client instanceName.
+Test setup: `StarTest` (subclass in `test-worker-and-dos.ts`) adds a test-only `@mesh(requireAdmin)` method `callClient(targetGatewayInstanceName, clientMethod, ...args)`. It calls `this.lmz.call('NEBULA_CLIENT_GATEWAY', targetGatewayInstanceName, clientMethod, ...args)` — the Gateway instance name is the client's `${sub}.${tabId}`, so this routes through that client's Gateway and forwards to the connected client.
 
 - **Happy path**: Client A connected on `acme.app.tenant-a` (Gateway instance `subA.tab1`). StarTest on tenant-a calls `callClient('subA.tab1', 'echo', 'hello')` → envelope's `originAuth.claims.aud` matches Client A's `connectionInfo.claims.aud` → `onBeforeCallToClient` passes → returns `"Client echoed: hello"`.
 - **Attack path**: Client B connected on `acme.app.tenant-b` (Gateway instance `subB.tab1`). StarTest on tenant-a calls `callClient('subB.tab1', 'echo', 'hello')` → envelope's `aud` is `"acme.app.tenant-a"` but Client B's is `"acme.app.tenant-b"` → `onBeforeCallToClient` rejects.
@@ -494,11 +498,14 @@ The test `wrangler.jsonc` needs bindings for both nebula-auth classes (imported 
 - `UNIVERSE` → Universe class (from apps/nebula)
 - `GALAXY` → Galaxy class (from apps/nebula)
 - `STAR` → StarTest class (test subclass in test-worker-and-dos.ts — extends Star, adds callClient)
-- `RESOURCE_HISTORY_DO` → ResourceHistory class (from apps/nebula)
+- `RESOURCE_HISTORY` → ResourceHistory class (from apps/nebula)
 - `AUTH_EMAIL_SENDER` → NebulaEmailSender service (from nebula-auth)
 - `NEBULA_AUTH_RATE_LIMITER` → rate limiting binding
-- Environment variables: `PRIMARY_JWT_KEY`, `JWT_PUBLIC_KEY_BLUE`, `JWT_PUBLIC_KEY_GREEN`, `NEBULA_AUTH_REDIRECT`, `NEBULA_AUTH_TEST_MODE`
-- Secrets (in `.dev.vars`): `JWT_PRIVATE_KEY_BLUE`, `JWT_PRIVATE_KEY_GREEN`
+- Vars (in `wrangler.jsonc`): `PRIMARY_JWT_KEY`, `NEBULA_AUTH_REDIRECT`
+- Secrets (in `.dev.vars`): `JWT_PUBLIC_KEY_BLUE`, `JWT_PUBLIC_KEY_GREEN`, `JWT_PRIVATE_KEY_BLUE`, `JWT_PRIVATE_KEY_GREEN`
+- Test-only bindings (in `vitest.config.js` miniflare bindings, not wrangler.jsonc): `NEBULA_AUTH_TEST_MODE`, `NEBULA_AUTH_BOOTSTRAP_EMAIL`, `DEBUG`
+
+**No migrations needed.** Nebula has never been deployed to production. Every test run acts like a first-time deploy — `wrangler.jsonc` needs DO class bindings but no `migrations` entries.
 
 ## What Gets Replaced Later
 

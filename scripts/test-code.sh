@@ -11,7 +11,7 @@ cd "$ROOT_DIR"
 
 # Find all packages with test scripts
 PACKAGES=()
-for pkg_json in packages/*/package.json; do
+for pkg_json in packages/*/package.json apps/*/package.json; do
   if [ -f "$pkg_json" ]; then
     # Check if package has a test script
     if node -e "const pkg = require('./$pkg_json'); process.exit(pkg.scripts?.test ? 0 : 1);" 2>/dev/null; then

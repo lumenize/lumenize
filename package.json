@@ -6,6 +6,7 @@
   "type": "module",
   "workspaces": [
     "packages/*",
+    "apps/*",
     "examples/*",
     "tooling/*",
     "website",

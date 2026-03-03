@@ -1,0 +1,19 @@
+{
+  "name": "nebula",
+  "compatibility_date": "2025-09-12",
+  "durable_objects": {
+    "bindings": [
+      { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },
+      { "name": "UNIVERSE", "class_name": "Universe" },
+      { "name": "GALAXY", "class_name": "Galaxy" },
+      { "name": "STAR", "class_name": "Star" },
+      { "name": "RESOURCE_HISTORY", "class_name": "ResourceHistory" },
+      { "name": "NEBULA_AUTH", "class_name": "NebulaAuth" },
+      { "name": "NEBULA_AUTH_REGISTRY", "class_name": "NebulaAuthRegistry" }
+    ]
+  },
+  "vars": {
+    "PRIMARY_JWT_KEY": "BLUE",
+    "NEBULA_AUTH_REDIRECT": "/app"
+  }
+}

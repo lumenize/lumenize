@@ -34,7 +34,7 @@ while IFS= read -r wrangler_file; do
   
   cd "$PROJECT_ROOT"
   echo ""
-done < <(find packages tooling -name "wrangler.jsonc" -not -path "*/node_modules/*" -not -path "*/dist/*")
+done < <(find packages tooling apps -name "wrangler.jsonc" -not -path "*/node_modules/*" -not -path "*/dist/*")
 
 echo "✅ Type generation complete"
 
