@@ -3,7 +3,7 @@
  */
 
 import { mesh } from '@lumenize/mesh';
-import { NebulaDO, requireAdmin } from './nebula-do.js';
+import { NebulaDO, requireAdmin } from './nebula-do';
 
 export class Star extends NebulaDO {
   @mesh(requireAdmin)

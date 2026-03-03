@@ -3,18 +3,18 @@
  */
 
 // DO classes
-export { NebulaDO, requireAdmin } from './nebula-do.js';
-export { Universe } from './universe.js';
-export { Galaxy } from './galaxy.js';
-export { Star } from './star.js';
-export { ResourceHistory } from './resource-history.js';
+export { NebulaDO, requireAdmin } from './nebula-do';
+export { Universe } from './universe';
+export { Galaxy } from './galaxy';
+export { Star } from './star';
+export { ResourceHistory } from './resource-history';
 
 // Gateway
-export { NebulaClientGateway } from './nebula-client-gateway.js';
+export { NebulaClientGateway } from './nebula-client-gateway';
 
 // Client
-export { NebulaClient } from './nebula-client.js';
-export type { NebulaClientConfig } from './nebula-client.js';
+export { NebulaClient } from './nebula-client';
+export type { NebulaClientConfig } from './nebula-client';
 
 // Entrypoint
-export { default as entrypoint } from './entrypoint.js';
+export { default as entrypoint } from './entrypoint';

@@ -3,7 +3,7 @@
  */
 
 import { mesh } from '@lumenize/mesh';
-import { NebulaDO } from './nebula-do.js';
+import { NebulaDO } from './nebula-do';
 
 export class ResourceHistory extends NebulaDO {
   @mesh()
