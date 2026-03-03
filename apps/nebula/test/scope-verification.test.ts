@@ -5,12 +5,11 @@
  * inside verifyNebulaAccessToken, plus admin active-scope switching.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { env } from 'cloudflare:test';
-import { SELF } from 'cloudflare:test';
+import { env, SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
-import { generateUuid, signJwt, importPrivateKey, createJwtPayload } from '@lumenize/auth';
+import { generateUuid, signJwt, importPrivateKey } from '@lumenize/auth';
 import { NEBULA_AUTH_ISSUER } from '@lumenize/nebula-auth';
-import { createAuthenticatedClient, browserLogin, refreshToken } from './test-helpers.js';
+import { browserLogin, refreshToken } from './test-helpers.js';
 import { NebulaClientTest } from './test-worker-and-dos.js';
 
 /**

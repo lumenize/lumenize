@@ -8,8 +8,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, browserLogin, createSubject, refreshToken } from './test-helpers.js';
-import { NebulaClientTest } from './test-worker-and-dos.js';
+import { createAuthenticatedClient, browserLogin, createSubject } from './test-helpers.js';
 
 describe('guard enforcement', () => {
 

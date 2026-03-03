@@ -8,8 +8,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, browserLogin, createSubject, refreshToken } from './test-helpers.js';
-import { NebulaClientTest, StarTest } from './test-worker-and-dos.js';
+import { createAuthenticatedClient } from './test-helpers.js';
+import { StarTest } from './test-worker-and-dos.js';
 
 describe('gateway abuse cases', () => {
 
@@ -111,7 +111,7 @@ describe('gateway abuse cases', () => {
       adminClient.lmz.call(
         'STAR',
         star,
-        adminClient.ctn<StarTest>().callClient(gwInstanceName!, 'echo', 'hello'),
+        adminClient.ctn<StarTest>().callClient(gwInstanceName, 'echo', 'hello'),
       );
 
       // Verify echo was called on the client
@@ -142,7 +142,7 @@ describe('gateway abuse cases', () => {
       adminClient.lmz.call(
         'STAR',
         star,
-        adminClient.ctn<StarTest>().callClient(gwInstanceName!, 'adminEcho', 'hello'),
+        adminClient.ctn<StarTest>().callClient(gwInstanceName, 'adminEcho', 'hello'),
       );
 
       // Verify adminEcho was called on the client

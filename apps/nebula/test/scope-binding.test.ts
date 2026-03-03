@@ -7,7 +7,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, browserLogin, refreshToken } from './test-helpers.js';
+import { createAuthenticatedClient } from './test-helpers.js';
 
 describe('universeGalaxyStarId binding', () => {
 

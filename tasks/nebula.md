@@ -57,7 +57,8 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.9 | Auth Security Hardening | **Complete** | `tasks/archive/nebula-auth-security-hardening.md` |
 | 1.95 | Enforce Synchronous Guards (in `@lumenize/mesh`) | **Complete** | `tasks/archive/nebula-sync-guards-in-lumenize-mesh.md` |
 | 1.96 | `verifyNebulaAccessToken` | **Complete** | `tasks/nebula-verify-access-token.md` |
-| 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
+| 2 | Baseline Access Control | **Complete** | `tasks/nebula-baseline-access-control.md` |
+| 2.1 | Test Structure Refactor | Pending | `tasks/nebula-test-refactor.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
 | 5 | Resources — Basic Functionality | Pending | `tasks/nebula-resources.md` |
@@ -106,6 +107,10 @@ New export from `@lumenize/nebula-auth` that consolidates JWT verification logic
 ### Phase 2: Baseline Access Control
 
 Create `apps/nebula/` with five DO classes (`NebulaDO` base, `Universe`, `Galaxy`, `Star`, `ResourceHistory`), `NebulaClientGateway` (extends `LumenizeClientGateway` via Phase 1.5 hooks), `NebulaClient`, and the Worker entrypoint. Four-layer security model: entrypoint JWT verification via `verifyNebulaAccessToken` (Phase 1.96), Gateway active-scope verification (`onBeforeCallToClient`), NebulaDO's `onBeforeCall` universeGalaxyStarId binding (permanently locks each DO instance to the active scope that first accessed it), and `@mesh(guard)` per-method authorization. NebulaClient uses standard `${sub}.${tabId}` instanceName format and the two-scope model (auth scope for refresh cookies, active scope via JWT `aud`). Dummy methods validate the security scenarios with abuse case testing via e2e tests, including cross-active-scope rejection and admin scope switching at all three levels (universe, galaxy, star).
+
+### Phase 2.1: Test Structure Refactor
+
+Refactor the Phase 2 test suite from a flat `test/` directory into a split structure matching `@lumenize/mesh`'s pattern: root `test/` for unit-style tests (import directly from `src/`), `test/test-apps/baseline/` for the e2e integration test-app (Browser, WebSocket, full DO mesh). Adopts the simplified `instrumentDOProject(sourceModule)` API (auto-detects DOs via prototype chain walking). Removes `.js` extensions from all imports. Sets up the pattern for phases 3–9 to add test-apps incrementally.
 
 ### Phase 3: DAG Tree Access Control
 
