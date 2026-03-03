@@ -531,7 +531,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('audience');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('JWT with unrelated aud passes audience check but is rejected by access pattern', async () => {
@@ -580,7 +580,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('issuer');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('rejects JWT with missing sub claim', async () => {
@@ -602,7 +602,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('subject');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('rejects JWT with missing access claim', async () => {
@@ -624,7 +624,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('access');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('rejects unapproved user (access gate: !admin && !adminApproved)', async () => {
@@ -683,7 +683,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('audience');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('rejects JWT with wrong issuer on create-galaxy', async () => {
@@ -711,7 +711,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('issuer');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('rejects JWT with missing sub on create-galaxy', async () => {
@@ -738,7 +738,7 @@ describe('@lumenize/nebula-auth - Worker Router', () => {
       }));
       expect(resp.status).toBe(401);
       const body = await resp.json() as any;
-      expect(body.error_description).toContain('subject');
+      expect(body.error).toBe('invalid_token');
     });
 
     it('rejects expired JWT on create-galaxy', async () => {

@@ -10,6 +10,8 @@ Deferred items, early-stage ideas, and notes captured during planning. Items her
 
 ### Auth Related
 
+- **Logging**: Add logging for @lumenize/nebula-auth
+
 - **Alarm-originated calls missing `universeGalaxyStarId`**: If a NebulaDO makes an outbound `lmz.call` from an `alarm()` handler (no inbound call → no current `callContext`), the call won't carry originAuth.claims.aud which is the `universeGalaxyStarId`. The DO knows its universeGalaxyStarId (stored on first call by `onBeforeCall` and retrievable with `this.ctx.storage.kv.get<string>('__nebula_universeGalaxyStarId'`), so it could construct a callContext manually. No concrete use case yet — the subscribe/resource update pattern always originates from a client call. Solve when a real alarm-initiated outbound call pattern emerges, likely Phase 5.
 - **Email Domain Auto-Approval**: Admin configures email domains auto-approved for their instance. Disallow list prevents common public domains.
 - **Email Template Customization**: Per-instance branding (name, logo) in auth emails with cascading overrides (star inherits galaxy inherits universe).

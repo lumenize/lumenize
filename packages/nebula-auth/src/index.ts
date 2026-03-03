@@ -17,6 +17,9 @@ export { NebulaEmailSender } from './nebula-email-sender';
 // Router entry point — the primary export for composing into a parent Worker
 export { routeNebulaAuthRequest } from './router';
 
+// JWT verification — primary export for consuming packages (Phase 2 entrypoint)
+export { verifyNebulaAccessToken } from './router';
+
 // universeGalaxyStarId parsing and access matching
 export {
   parseId,

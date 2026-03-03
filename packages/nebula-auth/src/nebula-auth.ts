@@ -29,12 +29,10 @@ import {
   generateUuid,
   hashString,
   signJwt,
-  verifyJwt,
-  verifyJwtWithRotation,
   importPrivateKey,
-  importPublicKey,
   parseJwtUnsafe,
 } from '@lumenize/auth';
+import { verifyNebulaAccessToken } from './router';
 
 /**
  * Error thrown by #authenticateRequest when authentication fails.
@@ -1142,18 +1140,10 @@ export class NebulaAuth extends DurableObject {
   async #verifyBearerToken(token: string): Promise<
     { sub: string; isAdmin: boolean; email: string } | null
   > {
-    const envAny = this.env as any;
-    const publicKeysPem = [envAny.JWT_PUBLIC_KEY_BLUE, envAny.JWT_PUBLIC_KEY_GREEN].filter(Boolean);
-    if (publicKeysPem.length === 0) return null;
+    const payload = await verifyNebulaAccessToken(token, this.env);
+    if (!payload) return null;
 
-    const publicKeys = await Promise.all(publicKeysPem.map((pem: string) => importPublicKey(pem)));
-
-    const payload = publicKeys.length === 1
-      ? await verifyJwt(token, publicKeys[0])
-      : await verifyJwtWithRotation(token, publicKeys);
-
-    if (!payload || !payload.sub) return null;
-
+    // Local subject lookup — does this subject exist in THIS NebulaAuth instance?
     const rows = this.#sql`
       SELECT email, isAdmin FROM Subjects WHERE sub = ${payload.sub}
     ` as any[];
@@ -1167,16 +1157,14 @@ export class NebulaAuth extends DurableObject {
     }
 
     // Wildcard fallback: cross-scope admin access (e.g., universe admin → star DO)
-    // JWT signature already verified above. If the JWT's access.authScopePattern matches this
-    // instance via wildcard, trust the JWT claims directly — no local subject needed.
-    const typedPayload = payload as any;
-    if (typedPayload.access?.authScopePattern && typedPayload.email && typedPayload.access.admin) {
-      const instanceName = this.#instanceName || '';
-      if (matchAccess(typedPayload.access.authScopePattern, instanceName)) {
+    // verifyNebulaAccessToken already validated matchAccess(authScopePattern, aud).
+    // Here we check if the auth scope pattern also covers THIS instance specifically.
+    if (payload.email && payload.access.admin) {
+      if (matchAccess(payload.access.authScopePattern, this.#instanceName || '')) {
         return {
           sub: payload.sub,
-          isAdmin: typedPayload.access.admin,
-          email: typedPayload.email,
+          isAdmin: payload.access.admin,
+          email: payload.email,
         };
       }
     }

@@ -56,7 +56,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.8 | JWT Active Scope in `aud` | **Complete** | `tasks/archive/nebula-jwt-active-scope.md` |
 | 1.9 | Auth Security Hardening | **Complete** | `tasks/archive/nebula-auth-security-hardening.md` |
 | 1.95 | Enforce Synchronous Guards (in `@lumenize/mesh`) | **Complete** | `tasks/archive/nebula-sync-guards-in-lumenize-mesh.md` |
-| 1.96 | `verifyNebulaAccessToken` | Pending | `tasks/nebula-verify-access-token.md` |
+| 1.96 | `verifyNebulaAccessToken` | **Complete** | `tasks/nebula-verify-access-token.md` |
 | 2 | Baseline Access Control | Pending | `tasks/nebula-baseline-access-control.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
@@ -99,9 +99,9 @@ Hardened `@lumenize/nebula-auth` against vulnerabilities from security review. S
 
 Enforced synchronous `MeshGuard` and `onBeforeCall` across all three base classes. `MeshGuard<T>` type drops `Promise<void>`, guard invocation drops `await`, `LumenizeClient.onBeforeCall` drops `Promise<void>` and its invocation drops `await`. DO and Worker confirmed already sync. Test guard methods renamed from `guardedAsyncMethod` → `guardedMethod` etc. Doc updated (`mesh-api.mdx`). 758 mesh tests passing. Breaking change to `@lumenize/mesh` (deferred to Nebula release).
 
-### Phase 1.96: `verifyNebulaAccessToken`
+### Phase 1.96: `verifyNebulaAccessToken` — COMPLETE
 
-New export from `@lumenize/nebula-auth` that consolidates JWT verification logic currently spread across three sites (`verifyAndGateJwt`, `checkJwtForRegistry`, `#verifyBearerToken`). Encapsulates key loading (blue/green rotation), signature verification, standard claims validation, and `matchAccess(authScopePattern, aud)` internal-consistency check. Returns `NebulaJwtPayload | null`. All three existing verification sites refactored to call it as their foundation, layering site-specific checks (admin gate, target matchAccess, local subject lookup) on top. Eliminates ~40 lines of duplication and closes a gap where `#verifyBearerToken` skipped `aud`/`iss` validation.
+New export from `@lumenize/nebula-auth` that consolidates JWT verification logic previously spread across three sites (`verifyAndGateJwt`, `checkJwtForRegistry`, `#verifyBearerToken`). Encapsulates key loading (blue/green rotation), signature verification, standard claims validation (`aud`, `iss`, `sub`, `access.authScopePattern`), and `matchAccess(authScopePattern, aud)` internal-consistency check. Returns `NebulaJwtPayload | null`. All three existing verification sites refactored to call it as their foundation, layering site-specific checks (admin gate, target matchAccess, local subject lookup) on top. Closes a gap where `#verifyBearerToken` skipped `aud`/`iss`/`authScopePattern` validation and `checkJwtForRegistry` lacked `authScopePattern` presence + internal-consistency checks. 272 nebula-auth tests passing (18 new).
 
 ### Phase 2: Baseline Access Control
 

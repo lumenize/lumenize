@@ -1,7 +1,7 @@
 # Nebula Phase 1.96: `verifyNebulaAccessToken`
 
 **Phase**: 1.96
-**Status**: Pending
+**Status**: Complete
 **Package**: `@lumenize/nebula-auth`
 **Depends on**: Phase 1.8 (JWT Active Scope in `aud` — complete, `tasks/archive/nebula-jwt-active-scope.md`)
 **Master task file**: `tasks/nebula.md`

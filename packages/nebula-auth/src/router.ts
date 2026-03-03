@@ -254,7 +254,7 @@ async function checkTurnstile(
 }
 
 // ============================================
-// JWT verification for instance paths
+// JWT verification — shared foundation
 // ============================================
 
 async function getPublicKeys(env: Env): Promise<CryptoKey[]> {
@@ -270,39 +270,58 @@ async function getPublicKeys(env: Env): Promise<CryptoKey[]> {
   return Promise.all(pems.map(pem => importPublicKey(pem)));
 }
 
-async function verifyAndGateJwt(
+/**
+ * Verify a Nebula access token: signature, standard claims, and
+ * matchAccess(authScopePattern, aud) internal-consistency check.
+ *
+ * Returns the decoded payload if valid, null if invalid/expired.
+ */
+export async function verifyNebulaAccessToken(
   token: string,
-  publicKeys: CryptoKey[],
-  targetInstanceName: string,
-): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
-  let rawPayload: Record<string, unknown> | null;
+  env: object,
+): Promise<NebulaJwtPayload | null> {
+  const publicKeys = await getPublicKeys(env as Env);
 
-  if (publicKeys.length === 1) {
-    rawPayload = await verifyJwt(token, publicKeys[0]!) as Record<string, unknown> | null;
-  } else {
-    rawPayload = await verifyJwtWithRotation(token, publicKeys) as Record<string, unknown> | null;
-  }
+  const rawPayload = publicKeys.length === 1
+    ? await verifyJwt(token, publicKeys[0]!)
+    : await verifyJwtWithRotation(token, publicKeys);
 
-  if (!rawPayload) {
-    return { error: json401('invalid_token', 'Token is invalid or expired') };
-  }
+  if (!rawPayload) return null;
 
   const payload = rawPayload as unknown as NebulaJwtPayload;
 
-  if (!payload.aud || typeof payload.aud !== 'string') {
-    return { error: json401('invalid_token', 'Token missing audience claim') };
-  }
-  if (payload.iss !== NEBULA_AUTH_ISSUER) {
-    return { error: json401('invalid_token', 'Token issuer mismatch') };
-  }
-  if (!payload.sub) {
-    return { error: json401('invalid_token', 'Token missing subject claim') };
-  }
-  if (!payload.access?.authScopePattern) {
-    return { error: json401('invalid_token', 'Token missing access claim') };
+  // Standard claims validation
+  if (!payload.aud || typeof payload.aud !== 'string') return null;
+  if (payload.iss !== NEBULA_AUTH_ISSUER) return null;
+  if (!payload.sub) return null;
+  if (!payload.access?.authScopePattern) return null;
+
+  // Internal consistency: the active scope (aud) must be covered by the auth scope pattern.
+  // Phase 1.8's refresh handler already prevents minting tokens that violate this, but
+  // belt-and-suspenders at verification time catches tampered or stale tokens.
+  if (!matchAccess(payload.access.authScopePattern, payload.aud)) return null;
+
+  return payload;
+}
+
+// ============================================
+// JWT verification for instance paths
+// ============================================
+
+async function verifyAndGateJwt(
+  token: string,
+  env: Env,
+  targetInstanceName: string,
+): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
+  const payload = await verifyNebulaAccessToken(token, env);
+  if (!payload) {
+    return { error: json401('invalid_token', 'Token is invalid or expired') };
   }
 
-  // Match access.authScopePattern against the target instanceName
+  // Target-specific check: does the auth scope pattern cover this specific instance?
+  // This is a DIFFERENT check from verifyNebulaAccessToken's matchAccess(authScopePattern, aud).
+  // That check validates internal consistency (aud within auth scope).
+  // This check validates the token grants access to the target instance.
   if (!matchAccess(payload.access.authScopePattern, targetInstanceName)) {
     return {
       error: jsonError(403, 'insufficient_scope',
@@ -342,8 +361,7 @@ async function checkJwtForInstance(
     return json401('invalid_request', 'Missing Authorization header with Bearer token');
   }
 
-  const publicKeys = await getPublicKeys(env);
-  const result = await verifyAndGateJwt(token, publicKeys, instanceName);
+  const result = await verifyAndGateJwt(token, env, instanceName);
   if ('error' in result) return result.error;
 
   // Per-subject rate limiting
@@ -372,32 +390,9 @@ async function checkJwtForRegistry(
   }
 
   const token = authHeader.slice(7);
-  const publicKeys = await getPublicKeys(env);
-
-  // Verify JWT — the registry will check the access claim authorization,
-  // but we verify signature and standard claims here.
-  let rawPayload: Record<string, unknown> | null;
-
-  if (publicKeys.length === 1) {
-    rawPayload = await verifyJwt(token, publicKeys[0]!) as Record<string, unknown> | null;
-  } else {
-    rawPayload = await verifyJwtWithRotation(token, publicKeys) as Record<string, unknown> | null;
-  }
-
-  if (!rawPayload) {
+  const payload = await verifyNebulaAccessToken(token, env);
+  if (!payload) {
     return { error: json401('invalid_token', 'Token is invalid or expired') };
-  }
-
-  const payload = rawPayload as unknown as NebulaJwtPayload;
-
-  if (!payload.aud || typeof payload.aud !== 'string') {
-    return { error: json401('invalid_token', 'Token missing audience claim') };
-  }
-  if (payload.iss !== NEBULA_AUTH_ISSUER) {
-    return { error: json401('invalid_token', 'Token issuer mismatch') };
-  }
-  if (!payload.sub) {
-    return { error: json401('invalid_token', 'Token missing subject claim') };
   }
 
   // Per-subject rate limiting
@@ -409,5 +404,5 @@ async function checkJwtForRegistry(
     }
   }
 
-  return { payload }; // passed — verified payload returned to caller
+  return { payload };
 }
