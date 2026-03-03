@@ -1,0 +1,27 @@
+---
+title: NebulaClient
+description: Client-side class for connecting to Nebula
+---
+
+# NebulaClient
+
+`NebulaClient` extends [`LumenizeClient`](/docs/mesh/lumenize-client) with Nebula's **two-scope model**:
+
+- **Auth scope** — the NebulaAuth instance name the user authenticated against (e.g., `acme.app.tenant-a` for a regular user, `acme` for a universe admin). Determines the refresh cookie path.
+- **Active scope** — the specific universe, galaxy, or star the client is targeting. Baked into the JWT `aud` claim. For regular users, same as auth scope; for admins with wildcard access, can differ.
+
+```typescript @skip-check
+const client = new NebulaClient({
+  baseUrl: 'https://my-app.example.com',
+  authScope: 'acme.app.tenant-a',
+  activeScope: 'acme.app.tenant-a',
+});
+```
+
+Switching active scope means creating a new `NebulaClient` with a different `activeScope`. The refresh cookie (scoped to the auth scope path) carries over automatically.
+
+## Calling `@mesh()` methods locally
+
+`NebulaClient` subclasses can have `@mesh()` methods that DOs call through the Gateway. The `@mesh()` decorator is pure metadata — it marks the method as remotely callable but does not wrap it. Calling a `@mesh()` method directly from surrounding JavaScript (e.g., `client.echo('hello')`) executes the method normally with no interception and no guard check. Guards only run when the call arrives via the mesh.
+
+See [Auth Flows](./auth-flows.mdx) for the full login, returning user, and scope-switching sequences.

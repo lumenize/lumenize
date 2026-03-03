@@ -333,6 +333,7 @@ const sidebars: SidebarsConfig = {
       label: 'Nebula',
       items: [
         'nebula/auth-flows',
+        'nebula/nebula-client',
       ],
     },
 
