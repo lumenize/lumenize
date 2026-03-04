@@ -56,9 +56,9 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.8 | JWT Active Scope in `aud` | **Complete** | `tasks/archive/nebula-jwt-active-scope.md` |
 | 1.9 | Auth Security Hardening | **Complete** | `tasks/archive/nebula-auth-security-hardening.md` |
 | 1.95 | Enforce Synchronous Guards (in `@lumenize/mesh`) | **Complete** | `tasks/archive/nebula-sync-guards-in-lumenize-mesh.md` |
-| 1.96 | `verifyNebulaAccessToken` | **Complete** | `tasks/nebula-verify-access-token.md` |
-| 2 | Baseline Access Control | **Complete** | `tasks/nebula-baseline-access-control.md` |
-| 2.1 | Test Structure Refactor | Pending | `tasks/nebula-test-refactor.md` |
+| 1.96 | `verifyNebulaAccessToken` | **Complete** | `tasks/archive/nebula-verify-access-token.md` |
+| 2 | Baseline Access Control | **Complete** | `tasks/archive/nebula-baseline-access-control.md` |
+| 2.1 | Test Structure Refactor | **Complete** | `tasks/archive/nebula-test-refactor.md` |
 | 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
 | 5 | Resources — Basic Functionality | Pending | `tasks/nebula-resources.md` |

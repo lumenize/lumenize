@@ -8,7 +8,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient, browserLogin, createSubject } from './test-helpers.js';
+import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
+import { NebulaClientTest } from './index';
 
 describe('guard enforcement', () => {
 
@@ -24,7 +25,7 @@ describe('guard enforcement', () => {
       const userBrowser = new Browser();
       await createSubject(browser, star, adminToken, 'user@example.com');
       const { client: userClient } = await createAuthenticatedClient(
-        userBrowser, star, star, 'user@example.com',
+        NebulaClientTest, userBrowser, star, star, 'user@example.com',
       );
 
       // Non-admin calls setStarConfig → rejected by requireAdmin guard
@@ -54,7 +55,7 @@ describe('guard enforcement', () => {
 
       // Bootstrap admin and create client
       const { client: adminClient } = await createAuthenticatedClient(
-        browser, star, star, 'admin@example.com',
+        NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
       // Admin calls setStarConfig → succeeds
@@ -80,7 +81,7 @@ describe('guard enforcement', () => {
       // First, bootstrap a star-level admin so the Star DO gets created
       const starBrowser = new Browser();
       const { client: starClient } = await createAuthenticatedClient(
-        starBrowser, star, star, 'star-admin@example.com',
+        NebulaClientTest, starBrowser, star, star, 'star-admin@example.com',
       );
       starClient.callStarSetConfig(star, 'initial', 'value');
       await vi.waitFor(() => {
@@ -90,7 +91,7 @@ describe('guard enforcement', () => {
 
       // Universe admin authenticates and connects to the star
       const { client: universeAdmin } = await createAuthenticatedClient(
-        browser, universe, star, 'universe-admin@example.com',
+        NebulaClientTest, browser, universe, star, 'universe-admin@example.com',
       );
 
       // Universe admin calls star-level setStarConfig → succeeds (cross-admin access)
@@ -117,7 +118,7 @@ describe('guard enforcement', () => {
 
       // Create Star A with admin
       const { client: clientA } = await createAuthenticatedClient(
-        browser, starA, starA, 'admin@example.com',
+        NebulaClientTest, browser, starA, starA, 'admin@example.com',
       );
       clientA.callStarWhoAmI(starA); // Initialize Star A binding
       await vi.waitFor(() => {
@@ -128,7 +129,7 @@ describe('guard enforcement', () => {
       // Create client B with different active scope
       const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
-        browserB, starB, starB, 'bob@example.com',
+        NebulaClientTest, browserB, starB, starB, 'bob@example.com',
       );
 
       // Client B calls whoAmI on Star A → rejected by onBeforeCall (scope mismatch)
@@ -147,7 +148,7 @@ describe('guard enforcement', () => {
       // This is a unit test — directly test NebulaDO.onBeforeCall behavior
       // by importing the class and setting up a mock callContext.
       // This scenario can't happen through normal e2e flows.
-      const { NebulaDO } = await import('../src/nebula-do.js');
+      const { NebulaDO } = await import('@lumenize/nebula');
 
       // We can't easily instantiate a DO directly in pool workers tests
       // without a binding, but we can verify the error message pattern

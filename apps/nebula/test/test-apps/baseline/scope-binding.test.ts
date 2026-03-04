@@ -7,7 +7,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient } from './test-helpers.js';
+import { createAuthenticatedClient } from '../../test-helpers';
+import { NebulaClientTest } from './index';
 
 describe('universeGalaxyStarId binding', () => {
 
@@ -24,7 +25,7 @@ describe('universeGalaxyStarId binding', () => {
 
       // Create admin + subject for star A
       const { client: clientA } = await createAuthenticatedClient(
-        browser, starA, starA, 'alice@example.com',
+        NebulaClientTest, browser, starA, starA, 'alice@example.com',
       );
 
       // Call Star method → universeGalaxyStarId stored
@@ -42,7 +43,7 @@ describe('universeGalaxyStarId binding', () => {
       // Create client for star B (different active scope)
       const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
-        browserB, starB, starB, 'bob@example.com',
+        NebulaClientTest, browserB, starB, starB, 'bob@example.com',
       );
 
       // Client B tries to call the SAME ResourceHistory UUID → active-scope mismatch
@@ -64,7 +65,7 @@ describe('universeGalaxyStarId binding', () => {
 
       // Create star-level subject and access ResourceHistory
       const { client: starClient } = await createAuthenticatedClient(
-        browser, star, star, 'alice@example.com',
+        NebulaClientTest, browser, star, star, 'alice@example.com',
       );
       starClient.callResourceHistoryGetHistory(resourceId);
       await vi.waitFor(() => {
@@ -75,7 +76,7 @@ describe('universeGalaxyStarId binding', () => {
       // Now universe admin accesses same ResourceHistory with matching active scope
       const adminBrowser = new Browser();
       const { client: adminClient } = await createAuthenticatedClient(
-        adminBrowser, universe, star, 'admin@example.com',
+        NebulaClientTest, adminBrowser, universe, star, 'admin@example.com',
       );
       adminClient.callResourceHistoryGetHistory(resourceId);
       await vi.waitFor(() => {
@@ -97,7 +98,7 @@ describe('universeGalaxyStarId binding', () => {
 
       // Client with aud = galaxy connects, calls Galaxy method
       const { client: clientA } = await createAuthenticatedClient(
-        browser, galaxy, galaxy, 'alice@example.com',
+        NebulaClientTest, browser, galaxy, galaxy, 'alice@example.com',
       );
       clientA.callGalaxyGetConfig(galaxy);
       await vi.waitFor(() => {
@@ -108,7 +109,7 @@ describe('universeGalaxyStarId binding', () => {
       // Different client with different galaxy aud tries same Galaxy instance → rejected
       const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
-        browserB, otherGalaxy, otherGalaxy, 'bob@example.com',
+        NebulaClientTest, browserB, otherGalaxy, otherGalaxy, 'bob@example.com',
       );
       clientB.callGalaxyGetConfig(galaxy);
       await vi.waitFor(() => {
@@ -130,7 +131,7 @@ describe('universeGalaxyStarId binding', () => {
 
       // Client with aud = universe connects, calls Universe method
       const { client: clientA } = await createAuthenticatedClient(
-        browser, universe, universe, 'alice@example.com',
+        NebulaClientTest, browser, universe, universe, 'alice@example.com',
       );
       clientA.callUniverseGetConfig(universe);
       await vi.waitFor(() => {
@@ -141,7 +142,7 @@ describe('universeGalaxyStarId binding', () => {
       // Different client with different universe aud tries same Universe instance → rejected
       const browserB = new Browser();
       const { client: clientB } = await createAuthenticatedClient(
-        browserB, otherUniverse, otherUniverse, 'bob@example.com',
+        NebulaClientTest, browserB, otherUniverse, otherUniverse, 'bob@example.com',
       );
       clientB.callUniverseGetConfig(universe);
       await vi.waitFor(() => {

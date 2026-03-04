@@ -8,8 +8,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { SELF } from 'cloudflare:test';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
-import { createAuthenticatedClient } from './test-helpers.js';
-import { StarTest } from './test-worker-and-dos.js';
+import { createAuthenticatedClient } from '../../test-helpers';
+import { StarTest, NebulaClientTest } from './index';
 
 describe('gateway abuse cases', () => {
 
@@ -94,7 +94,7 @@ describe('gateway abuse cases', () => {
 
       // Create admin client
       const { client: adminClient } = await createAuthenticatedClient(
-        browser, star, star, 'admin@example.com',
+        NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
       // Get the client's gateway instance name (sub.tabId)
@@ -127,7 +127,7 @@ describe('gateway abuse cases', () => {
       const star = `acme-${generateUuid().slice(0, 8)}.app.tenant-a`;
 
       const { client: adminClient } = await createAuthenticatedClient(
-        browser, star, star, 'admin@example.com',
+        NebulaClientTest, browser, star, star, 'admin@example.com',
       );
 
       const gwInstanceName = adminClient.lmz.instanceName;

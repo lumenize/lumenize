@@ -41,7 +41,7 @@ export default {
     // LumenizeClient builds URLs with the /gateway/ prefix
     const gatewayResponse = await routeDORequest(request, env, {
       prefix: 'gateway',
-      onBeforeRequest() {
+      onBeforeRequest() {  // No plans to ever implement
         return new Response('Not Implemented', { status: 501 });
       },
       onBeforeConnect,
@@ -50,10 +50,10 @@ export default {
 
     // 3. Direct DO access (no /gateway/ prefix) — fully blocked for now
     const directResponse = await routeDORequest(request, env, {
-      onBeforeRequest() {
+      onBeforeRequest() {  // Will be implemented when we add resources support
         return new Response('Not Implemented', { status: 501 });
       },
-      onBeforeConnect() {
+      onBeforeConnect() {  // No plans to ever implement
         return new Response('Not Implemented', { status: 501 });
       },
     });

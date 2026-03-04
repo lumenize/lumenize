@@ -8,7 +8,7 @@ import { Browser } from '@lumenize/testing';
 import { parseJwtUnsafe } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '@lumenize/nebula-auth';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
-import { NebulaClientTest } from './test-worker-and-dos.js';
+import type { NebulaClient, NebulaClientConfig } from '@lumenize/nebula';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 const ORIGIN = 'http://localhost';
@@ -123,22 +123,24 @@ export async function browserLogin(
 }
 
 /**
- * Create an authenticated NebulaClientTest and wait for it to connect.
+ * Create an authenticated NebulaClient subclass and wait for it to connect.
+ * Each test-app passes its own client class (e.g., NebulaClientTest).
  */
-export async function createAuthenticatedClient(
+export async function createAuthenticatedClient<T extends NebulaClient>(
+  ClientClass: new (config: NebulaClientConfig) => T,
   browser: Browser,
   authScope: string,
   activeScope: string,
   email: string,
-): Promise<{ client: NebulaClientTest; payload: NebulaJwtPayload; accessToken: string }> {
+): Promise<{ client: T; payload: NebulaJwtPayload; accessToken: string }> {
   // Login and get access token
   const { accessToken, payload } = await browserLogin(browser, authScope, email, activeScope);
 
   // Create a browser context for this client
   const ctx = browser.context(ORIGIN);
 
-  // Create the NebulaClientTest
-  const client = new NebulaClientTest({
+  // Create the client
+  const client = new ClientClass({
     baseUrl: ORIGIN,
     authScope,
     activeScope,

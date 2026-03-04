@@ -1,6 +1,6 @@
 # Phase 2.1: Nebula Test Structure Refactor
 
-**Status**: Pending
+**Status**: Complete
 **Depends on**: Phase 2 (Baseline Access Control) — Complete
 **Package**: `apps/nebula/`
 

@@ -26,12 +26,31 @@ export default defineWorkersConfig({
       {
         extends: true,
         test: {
-          name: 'main',
+          name: 'unit',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/e2e-email/**/*.test.ts'],
+          exclude: ['test/test-apps/**'],
           poolOptions: {
             workers: {
               wrangler: { configPath: './test/wrangler.jsonc' },
+              miniflare: {
+                bindings: {
+                  NEBULA_AUTH_TEST_MODE: 'true',
+                  NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+                  DEBUG: 'nebula',
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'baseline',
+          include: ['test/test-apps/baseline/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: './test/test-apps/baseline/test/wrangler.jsonc' },
               miniflare: {
                 bindings: {
                   NEBULA_AUTH_TEST_MODE: 'true',

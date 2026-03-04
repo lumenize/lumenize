@@ -1,5 +1,5 @@
 /**
- * Test harness for Nebula e2e tests
+ * Baseline test-app for Nebula e2e tests
  *
  * Re-exports all DO classes for wrangler bindings, defines test subclasses
  * (StarTest, NebulaClientTest), and provides the Worker entrypoint.
@@ -9,17 +9,26 @@ import { mesh } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 
 // Re-export DO classes and entrypoint for wrangler bindings
-export { NebulaClientGateway, Universe, Galaxy, ResourceHistory } from '../src/index.js';
-export { entrypoint as default } from '../src/index.js';
+export {
+  NebulaClientGateway,
+  Universe,
+  Galaxy,
+  ResourceHistory,
+  entrypoint as default,
+} from '@lumenize/nebula';
+
+// Re-export auth classes (defined in nebula-auth, but wrangler needs them here)
 export { NebulaAuth, NebulaAuthRegistry, NebulaEmailSender } from '@lumenize/nebula-auth';
 
 // Import classes needed for test subclasses
-import { Star } from '../src/star.js';
-import { Universe } from '../src/universe.js';
-import { Galaxy } from '../src/galaxy.js';
-import { ResourceHistory } from '../src/resource-history.js';
-import { NebulaClient } from '../src/nebula-client.js';
-import { requireAdmin } from '../src/nebula-do.js';
+import {
+  Star,
+  Universe,
+  Galaxy,
+  ResourceHistory,
+  NebulaClient,
+  requireAdmin,
+} from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -140,4 +149,3 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 }
-
