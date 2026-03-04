@@ -24,10 +24,10 @@ Lumenize Mesh is a flexible open-source toolkit: developers extend LumenizeDO, w
 ┌──────────────────────┐            ┌──────────────────────────────┐
 │ LumenizeDO           │───extends─▶│ NebulaDO (base class)        │
 │ LumenizeClient       │───extends─▶│ NebulaClient                 │
-│ LumenizeClientGateway│───extends─▶│ NebulaClientGateway           │
+│ LumenizeClientGateway│───extends─▶│ NebulaClientGateway          │
 └──────────────────────┘            │ Universe, Galaxy, Star,      │
-│   ResourceHistory          │
-                                    │ entrypoint.ts (Worker router) │
+                                    │   ResourceHistory            │
+                                    │ entrypoint.ts (Worker router)│
 @lumenize/nebula-auth (BSL 1.1)     │ Access Control (DAG tree)    │
 ┌───────────────────────┐           │ Resources engine (DWL)       │
 │ NebulaAuth DO         │─ import ─▶│ Schema evolution             │
