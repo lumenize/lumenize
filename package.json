@@ -10,7 +10,6 @@
     "examples/*",
     "tooling/*",
     "website",
-    "experiments/*",
     "doc-test/*/*"
   ],
   "scripts": {

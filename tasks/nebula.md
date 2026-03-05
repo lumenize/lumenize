@@ -114,7 +114,7 @@ Refactor the Phase 2 test suite from a flat `test/` directory into a split struc
 
 ### Phase 3: DAG Tree Access Control
 
-Port the DAG tree from `lumenize-monolith` into `apps/nebula/`. Every resource attaches to one place in the tree (but may be accessible via multiple DAG paths). Permissions (admin, write, read) roll down — if any ancestor branch grants access, the node is accessible. Greatly refactors the Phase 2 test suite to use real DAG-based access control instead of dummy methods.
+Add a DAG tree inside each Star DO. The nebula-auth hierarchy (`universe.galaxy.star`) goes up from Star; the DAG tree goes down to organize resources. Prior art ported from `transformation-dev/blueprint` (cycle detection, tree operations) with new permission model on top. Every resource attaches to one node (but may be accessible via multiple DAG paths). Permissions (admin, write, read) roll down — if any ancestor branch grants access, the node is accessible. Greatly refactors the Phase 2 test suite. Resource paths: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`. Sub-phases: 3.0 (SQL performance experiment — decision gate for approach), 3.1 (implementation), 3.x (follow-on).
 
 ### Phase 4: Cloudflare Isolation Research
 
@@ -122,7 +122,7 @@ Research and benchmark Cloudflare's four isolation technologies: DWL (raw), `@cl
 
 ### Phase 5: Resources — Basic Functionality
 
-The heart of Nebula. Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, and validation. User-provided code runs in DWL isolates (informed by Phase 4 research). Integrates the DAG access control model. Includes abuse case testing for the combined Resources + DAG access control. Extensive existing design in `tasks/nebula-resources.md`.
+The heart of Nebula. Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, and validation. User-provided code runs in DWL isolates (informed by Phase 4 research). Integrates the DAG access control model. Includes abuse case testing for the combined Resources + DAG access control. Extensive existing design in `tasks/nebula-resources.md`. **Primary prior art**: Blueprint repo's `temporal-entity.js` — the exact Snodgrass temporal storage implementation for Cloudflare DOs (saved at `tasks/reference/blueprint/temporal-entity.js`). Resources = Temporal Entities.
 
 ### Phase 5.5: Resource Capability Tickets
 

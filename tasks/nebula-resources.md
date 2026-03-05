@@ -2,7 +2,7 @@
 
 **Status**: Phase 0 — Design (all DWL spikes complete, core API decisions made, remaining: full API shape + schema evolution design)
 **Package**: `@lumenize/nebula` (BSL 1.1) — built on `@lumenize/mesh` (MIT)
-**Prior Art**: `tasks/icebox/mesh-resources.md` and `tasks/icebox/resources.mdx` (registration-on-DO approach — temporal storage design, snapshot shape, URI scheme, and response protocol carry forward; registration API and schema strategy are replaced by the DWL approach)
+**Prior Art**: `tasks/icebox/mesh-resources.md` and `tasks/icebox/resources.mdx` (registration-on-DO approach — temporal storage design, snapshot shape, URI scheme, and response protocol carry forward; registration API and schema strategy are replaced by the DWL approach). Blueprint repo's `temporal-entity.js` is the exact prior implementation of Snodgrass temporal storage for Cloudflare DOs — saved locally at `tasks/reference/blueprint/temporal-entity.js`. Resources = Temporal Entities.
 **Depends on**: `tasks/archive/nebula-auth.md` — Nebula auth impacts access control logic for resources. Auth is being built first.
 
 ## Goal
@@ -416,7 +416,9 @@ Every resource uses snapshot-based temporal storage. Each change creates a snaps
 
 **`history: false`** — single-row mode, always overwrites. Same table/queries, no separate code path.
 
-**`changedBy`** — stored as `SubChain[]` from the start. Single-element array for normal writes. Ready for future granularity-based compaction.
+**`changedBy`** — stored as `SubChain[]` from the start. Single-element array for normal writes.
+
+**No granularity compression** — Blueprint's `temporal-entity.js` implemented granularity compression (merging snapshots within a time window by rewriting old snapshots and splicing timeline entries). This was a premature optimization that never panned out. 90% of the benefit comes from debouncing alone — entities go through short bursts of edits followed by long quiet periods. A generous debounce window (e.g., 60 minutes) covers this. Debouncing only ever modifies the current snapshot in place; no old snapshot rewriting needed.
 
 ### Snapshot Response Shape
 

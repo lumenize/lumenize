@@ -84,6 +84,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Consider adding explicit guidance that while async/await is discouraged, using Promise then/catch is fine. In that case, you are explicitly aknowledging that you know the input gates may open... or do they? We should answer that before deciding what to say.
 
+- [ ] Consider adding these properties (.remote, .retryable, .overloaded, etc.) to lmz.call() errors: https://developers.cloudflare.com/durable-objects/best-practices/error-handling/. Maybe even consider using .idempotent, .safeToRetry or something to indicate that the error was thrown before any state change occured.
+
 - [ ] Start using GitHub Releases
 
 - [ ] Consider further decoupling LumenizeClient token refresh from `@lumenize/auth`

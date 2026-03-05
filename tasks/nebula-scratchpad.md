@@ -38,6 +38,27 @@ Deferred items, early-stage ideas, and notes captured during planning. Items her
 **Configurable Auth Redirects**:
 - Currently `NEBULA_AUTH_REDIRECT` is the only redirect target for both success and error. Consider separate `NEBULA_AUTH_ERROR_REDIRECT` or `NEBULA_AUTH_LOGIN_URL`, with a convention for query params (`?error=<code>&return_to=<url>`). Would let the approve endpoint redirect to login with a return URL, so after re-auth the admin lands back on the approve link.
 
+### Star Subscription Design (Phase 5)
+
+Captured during Phase 3.1 review. The `#onTreeChanged` callback is a placeholder in Phase 3.1. Full subscription fan-out happens in Phase 5.
+
+**Subscription method**: `Star.subscribe()` — called by clients via mesh. Returns an object shaped for extensibility:
+```
+{ dagTree: { nodeId, slug, children[] }, /* more properties later */ }
+```
+
+**Subscriber tracking**: Star maintains a subscriber list (outside DagTree — subscriptions are to the Star, not just the tree). Each subscriber entry captures:
+- `sub` from `callContext.originAuth.sub` — **required**, throw if missing (only user-initiated subscriptions, not mesh-to-mesh)
+- `bindingName` and `instanceName` from `callContext.callChain.at(-1)` — the immediate caller (NebulaClientGateway instance) for routing notifications back
+
+**Notification delivery**: On tree mutation, Star iterates subscribers and calls each client's gateway via `this.lmz.call('NEBULA_CLIENT_GATEWAY', gwInstanceName, ...)`. Every online user is a subscriber (at minimum every 15 minutes due to access token TTL refresh).
+
+**Open questions for Phase 5**:
+- Subscriber cleanup on disconnect (gateway notifies Star when client disconnects?)
+- Does `getEffectivePermission` get called per-subscriber on notification, or is tree structure enough?
+- Subscription to specific subtrees vs. full tree
+- See scratchpad "Fanout Broadcast Tiering" for high subscriber counts
+
 ### Nebula Resources Enhancements (from backlog)
 
 **Fanout Broadcast Tiering**:
