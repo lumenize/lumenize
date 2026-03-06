@@ -29,6 +29,7 @@ import {
   NebulaClient,
   requireAdmin,
 } from '@lumenize/nebula';
+import type { PermissionTier } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -147,5 +148,101 @@ export class NebulaClientTest extends NebulaClient {
     this.resetResults();
     const remote = this.ctn<Galaxy>().setGalaxyConfig(key, value);
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
+  }
+
+  // --- DagTree test initiators ---
+
+  callStarDagTreeGetState(starName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().getState();
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarCreateNode(starName: string, parentId: number, slug: string, label: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().createNode(parentId, slug, label);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarAddEdge(starName: string, parentId: number, childId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().addEdge(parentId, childId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarRemoveEdge(starName: string, parentId: number, childId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().removeEdge(parentId, childId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarReparentNode(starName: string, childId: number, oldParentId: number, newParentId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().reparentNode(childId, oldParentId, newParentId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarDeleteNode(starName: string, nodeId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().deleteNode(nodeId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarUndeleteNode(starName: string, nodeId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().undeleteNode(nodeId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarRenameNode(starName: string, nodeId: number, newSlug: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().renameNode(nodeId, newSlug);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarRelabelNode(starName: string, nodeId: number, newLabel: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().relabelNode(nodeId, newLabel);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarSetPermission(starName: string, nodeId: number, targetSub: string, level: PermissionTier): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().setPermission(nodeId, targetSub, level);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarRevokePermission(starName: string, nodeId: number, targetSub: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().revokePermission(nodeId, targetSub);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarCheckPermission(starName: string, nodeId: number, tier: PermissionTier, targetSub?: string): void {
+    this.resetResults();
+    const remote = targetSub
+      ? this.ctn<Star>().dagTree().checkPermission(nodeId, tier, targetSub)
+      : this.ctn<Star>().dagTree().checkPermission(nodeId, tier);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarGetEffectivePermission(starName: string, nodeId: number, targetSub?: string): void {
+    this.resetResults();
+    const remote = targetSub
+      ? this.ctn<Star>().dagTree().getEffectivePermission(nodeId, targetSub)
+      : this.ctn<Star>().dagTree().getEffectivePermission(nodeId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarGetNodeAncestors(starName: string, nodeId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().getNodeAncestors(nodeId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarGetNodeDescendants(starName: string, nodeId: number): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().dagTree().getNodeDescendants(nodeId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 }

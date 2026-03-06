@@ -1,7 +1,7 @@
 # DAG Tree Access Control
 
-**Phases**: 3.0 (experiment), 3.1 (implementation), 3.x (follow-on)
-**Status**: Phase 3.0 complete (PASS) — ready for Phase 3.1
+**Phases**: 3.1 (implementation — COMPLETE), 3.x (follow-on). Phase 3.0 (experiment) archived at `tasks/archive/nebula-dag-tree-experiment.md`.
+**Status**: Phase 3.1 Complete
 **Location**: `apps/nebula/` (Star DO)
 **Depends on**: Phase 2.1 (Test Structure Refactor)
 **Master task file**: `tasks/nebula.md`
@@ -132,131 +132,18 @@ Accessing D:
 
 ---
 
-## Phase 3.0: SQL Performance Experiment
+## Phase 3.0: SQL Performance Experiment — COMPLETE
 
-**Goal**: Measure real-world latency of DAG operations using SQLite inside a Durable Object. If all operations complete in a few ms, use the simple SQL approach (Nodes + Edges tables with N+1 iterative queries) and skip CTE and in-memory alternatives.
+**Full details**: `tasks/archive/nebula-dag-tree-experiment.md`
 
-**Why N+1 first**: For the hot path (permission resolution via ancestor climbing), N+1 has a nice property — the caller passes the required tier (`read`, `write`, or `admin`), and the BFS can early-exit as soon as it finds that tier or higher on any ancestor. With CTE you compute the full ancestor set first, then join. N+1 may be faster for the common case where a sufficient grant is found near the target node. Cloudflare's own SQLite docs say N+1 is efficient in DOs — same thread, no network hop. Additionally, DO SQLite has an in-memory write-through cache, so recently accessed rows (which Edges and Permissions will be on the hot path) won't even hit disk. And when they do, it's local SSD.
-
-### Experiment Design
-
-**Tree shape**: ~500 nodes, depth 0–7, handful of DAG edges (diamonds). Realistic for a mid-size organization. Branching factor ~3-4 at upper levels, tapering to 1-2. 3-5 diamond edges between mid-tree nodes (a child with 2+ parents) to exercise DAG ancestor climbing.
-
-**Schema** (tentative — same tables we'd use in production):
-
-```sql
--- INTEGER PRIMARY KEY = rowid alias. SQLite's most optimized storage path.
--- No WITHOUT ROWID needed — the integer PK *is* the rowid.
--- SQLite auto-assigns nodeId on INSERT (no counter needed).
-CREATE TABLE Nodes (
-  nodeId INTEGER PRIMARY KEY,
-  slug TEXT NOT NULL,
-  deleted BOOLEAN NOT NULL DEFAULT 0
-);
-
--- Edges is the single source of truth for all parent-child relationships.
--- No "primary parent" concept — in a DAG, there is no canonical path.
--- The client determines the normalized path based on navigation context.
-CREATE TABLE Edges (
-  parentNodeId INTEGER NOT NULL,
-  childNodeId INTEGER NOT NULL,
-  PRIMARY KEY (parentNodeId, childNodeId),
-  FOREIGN KEY (parentNodeId) REFERENCES Nodes(nodeId),
-  FOREIGN KEY (childNodeId) REFERENCES Nodes(nodeId)
-) WITHOUT ROWID;
-
--- Reverse lookups: "who are my parents?" for ancestor climbing
-CREATE INDEX idx_Edges_child ON Edges(childNodeId);
-
-CREATE TABLE Permissions (
-  nodeId INTEGER NOT NULL,
-  sub TEXT NOT NULL,
-  permission TEXT NOT NULL CHECK(permission IN ('admin', 'write', 'read')),
-  PRIMARY KEY (nodeId, sub),
-  FOREIGN KEY (nodeId) REFERENCES Nodes(nodeId)
-) WITHOUT ROWID;
-
--- "What nodes does this subject have permissions on?"
-CREATE INDEX idx_Permissions_sub ON Permissions(sub);
-```
-
-**Foreign key enforcement**: D1 enables `PRAGMA foreign_keys = ON` by default. DO SQLite may or may not — the experiment should verify this. If not on by default, run `PRAGMA foreign_keys = ON` at schema creation time. Note: FK constraints have cascade implications (e.g., `ON DELETE CASCADE` for Edges/Permissions when a Node is deleted) that Phase 3.1 will need to resolve. For the Phase 3.0 experiment, the FK declarations above are sufficient — no deletes are measured.
-
-**Operations to measure** (all via N+1 iterative JS loops with simple SQL queries):
-
-| Operation | Description | Expected hot/cold |
-|-----------|-------------|-------------------|
-| `resolvePermission(sub, nodeId, requiredTier)` | Climb ancestors, check Permissions at each level, early-exit when required tier (or higher) is found | **Hot path** — every guarded call |
-| `findAncestors(nodeId)` | Full ancestor set (BFS up via Edges) | Warm — used by cycle detection |
-| `findDescendants(nodeId)` | Full descendant set (BFS down via Edges) | Warm — aggregations |
-| `detectCycle(parentId, childId)` | Would adding this edge create a cycle? (climb from parent checking for child) | Cold — write path only |
-| No-op baseline | WebSocket round-trip with no SQL | Baseline to subtract |
-
-**Measurement methodology** (adapted from `experiments/call-delay/`):
-
-1. Standalone experiment in `experiments/dag-sql-perf/`
-2. Worker + DO that seeds the tree on setup, then accepts WebSocket commands for each measured operation
-3. Run locally: `wrangler dev` in one terminal (starts local workerd/miniflare runtime with DO SQLite), Node.js test script in another terminal connects via WebSocket and measures wall-clock round-trip time (DO clock doesn't advance during synchronous execution)
-4. Run each operation N times (e.g., 100) with interleaved noop pairing — each measured op is immediately preceded by a noop, and the paired difference isolates SQL processing time from moment-to-moment WebSocket variance. Report avg/p50/p95/max of the paired-adjusted timings.
-5. Test against nodes at various depths (leaf at depth 7, mid-tree at depth 4)
-
-**Decision gate**: If `resolvePermission` p95 < 5ms (after baseline subtraction), ship with N+1 SQL. Otherwise, consider CTE or in-memory alternatives.
-
-**Why not measure CTE for comparison?** N+1 with early-exit reads fewer rows on average for the hot-path permission check — it stops as soon as a sufficient grant is found on any ancestor. A CTE computes the full ancestor set first, then joins against Permissions. Cloudflare bills per rows read and written, so N+1 is likely cheaper even if CTE is faster in wall-clock time. If N+1 is fast enough, we ship it. CTE remains available as an optimization if performance degrades at scale.
-
-### Deliverables
-
-- [x] `experiments/dag-sql-perf/` with working experiment
-- [x] Results table in this file (fill in after running)
-- [x] Go/no-go decision on SQL approach
-
-### Results
-
-**Decision gate: PASS** — ship with N+1 SQL.
-
-Worst-case `resolvePermission` p95 is **0.19ms** (adjusted), **26x under** the 5ms threshold. Run locally with miniflare, 500 nodes, 100 iterations per operation, interleaved noop baseline subtraction.
-
-| Operation | Adjusted p95 | Adjusted avg | Notes |
-|-----------|-------------|-------------|-------|
-| resolvePermission (direct grant) | 0.19ms | 0.05ms | 0 hops — grant on target node |
-| resolvePermission (diamond DAG) | 0.08ms | 0.04ms | Grant at depth 3 via DAG edge |
-| resolvePermission (depth 7→2) | 0.18ms | 0.05ms | Full climb (no requiredTier early-exit) |
-| resolvePermission (depth 7→root) | 0.17ms | 0.05ms | Admin on root, climb all 7 levels |
-| resolvePermission (no access) | 0.08ms | 0.05ms | No grant anywhere, full climb |
-| findAncestors (depth 4) | 0.06ms | 0.02ms | |
-| findAncestors (depth 7) | 0.10ms | 0.03ms | |
-| findDescendants (depth 2 subtree) | 0.27ms | 0.15ms | |
-| findDescendants (root, all 499) | 2.15ms | 1.20ms | Full tree walk — see caching note below |
-| detectCycle (safe edge) | 0.08ms | 0.01ms | |
-| detectCycle (would create cycle) | 0.11ms | 0.03ms | Full ancestor climb |
-| noop (baseline) | — | 0.18ms | WebSocket round-trip, no SQL |
-
-**FK pragma**: DO SQLite defaults to `PRAGMA foreign_keys = ON`. Enforcement verified — invalid FK INSERT is rejected.
-
-**Note on the experiment implementation**: The experiment's `resolvePermission` uses a 2-argument signature (no `requiredTier` parameter) that only early-exits on `admin`. For `write` or `read` grants it walks the full ancestor set. This makes the measured latencies an upper bound — production code with `requiredTier` early-exit will be equal or faster.
-
-**In-memory tree+permissions cache**: `findDescendants(root)` at ~2ms p95 is the slowest operation, and it's not just for aggregations — every user connection triggers a full-tree subscription (at least every 15 minutes due to access token TTL). Additionally, Cloudflare bills per row read, so avoiding repeated full-table scans is worth doing when it's easy. Solution: cache the full tree structure **with permissions** in a **lazily-populated instance variable**. This is a safe exception to the "no mutable instance variables" rule because:
-- On heavily loaded systems, the DO stays warm and the cache survives across requests — the common case is a cache hit.
-- On lightly loaded systems that hibernate frequently, recalculating on wake is infrequent and ~2ms is acceptable.
-- When the DAG tree is modified (node/edge add/remove), invalidate the cache, recalculate, and notify all subscribers (active WebSocket connections) of the updated tree structure.
-- Permission lookups can use the in-memory cache instead of N+1 SQL queries, eliminating row-read billing on the hot path entirely.
-- When sending the tree to subscribers, strip permissions via an in-memory recursive pass with visited-set detection (fast for DAGs).
-
-**Cache memory cost** (measured with `--expose-gc`, 500 nodes, 5 permission grants):
-
-| Metric | Value |
-|--------|-------|
-| JSON wire size | 20.7 KB |
-| V8 heap delta | 44.4 KB |
-| % of 128 MB DO limit | 0.034% |
-
-At this scale, the cache is negligible. Even a 50,000-node tree (100x) would use ~4.4 MB (~3.4% of the 128 MB limit), leaving ample room for other DO state. The cache structure holds the nested tree (`{ nodeId, slug, children[] }`) plus per-node permission maps (`nodeId → { sub → tier }`).
+**Conclusions** (used by Phase 3.1):
+- **Schema confirmed**: Nodes (INTEGER PK), Edges (compound PK, WITHOUT ROWID), Permissions (compound PK, WITHOUT ROWID) with indexes on `Edges(childNodeId)` and `Permissions(sub)`. FK enforcement is ON by default in DO SQLite.
+- **In-memory cache justified**: The primary motivation is subscription fan-out — every connected user subscribes to `DagTreeState`. The cache avoids per-subscriber SQL (3 queries per `getState()` call). N+1 query performance was measured and is fine (p95 < 0.2ms for 500 nodes), but moot in practice since the cache serves all reads. Cache cost: 44 KB heap for 500 nodes (0.034% of 128 MB DO limit).
+- **Cache is a safe exception to "no mutable instance variables"**: Lazily populated, subscription fan-out is the hot path, lightly loaded DOs rebuild infrequently on wake. Permission checks and traversal also use it as a secondary benefit.
 
 ---
 
 ## Phase 3.1: Implementation
-
-**Depends on**: Phase 3.0 results (confirming SQL approach)
 
 ### `DagTree` Class
 
@@ -266,85 +153,181 @@ Encapsulates all DAG tree operations in a standalone class at `apps/nebula/src/d
 
 ```typescript
 class DagTree {
-  #sql: SqlStorage
-  #cache: TreeCache | null = null
+  #ctx: DurableObjectState
+  #_cached: DagTreeState | null = null
   #getCallContext: () => CallContext
-  #onTreeChanged: () => void
+  #onChanged: () => void
 
-  constructor(sql: SqlStorage, getCallContext: () => CallContext, onTreeChanged: () => void) {
-    this.#sql = sql
+  constructor(ctx: DurableObjectState, getCallContext: () => CallContext, onChanged: () => void) {
+    this.#ctx = ctx
     this.#getCallContext = getCallContext
-    this.#onTreeChanged = onTreeChanged
+    this.#onChanged = onChanged
     this.#createSchema()   // CREATE TABLE IF NOT EXISTS
     this.#ensureRoot()     // INSERT OR IGNORE root node
   }
 }
 ```
 
-- `SqlStorage` is the real `ctx.storage.sql` — no mocks, no abstractions
+- `ctx` is `DurableObjectState` (i.e., `this.ctx` from the DO) — DagTree accesses `ctx.storage.sql` internally
 - Constructor creates tables and ensures root node exists (all synchronous SQL)
 - `getCallContext` is a getter function that returns the current `CallContext` — Star passes `() => this.lmz.callContext`. Evaluated lazily at call time (not construction time), so the ALS-backed context is always fresh. Also makes unit testing trivial — pass a mock getter instead.
-- `onTreeChanged` callback lets Star manage subscriber notification (placeholder in Phase 3.1, full fan-out in Phase 5)
+- `onChanged` callback lets Star manage subscriber notification (placeholder in Phase 3.1, full fan-out in Phase 5)
 
-**Caller identity via `getCallContext`**: DagTree calls the injected getter to read `sub` and `claims.access.admin` (Star-level admin flag). No direct dependency on mesh internals — the getter is the only coupling point.
+**`PermissionTier` type**: Exported from `dag-tree.ts` for use by Star and tests:
 
 ```typescript
-#callerInfo(): { sub: string; isStarAdmin: boolean } {
-  const ctx = this.#getCallContext();
-  const claims = ctx.originAuth?.claims as NebulaJwtPayload;
-  return {
-    sub: ctx.originAuth!.sub,
-    isStarAdmin: !!claims?.access?.admin,
-  };
-}
+export type PermissionTier = 'admin' | 'write' | 'read'
 ```
 
-**Lazy cache**: A private getter builds the cache on first access. All reads go through the cache. All mutations write to SQL, then set `#cache = null`, then call `#onTreeChanged()`.
+**Authorization helper — `#requirePermission`**: Combines identity extraction, Star admin bypass, DAG permission check, and throw into a single call. Returns `sub` for methods that need it beyond the guard. No direct dependency on mesh internals — `getCallContext` is the only coupling point.
 
 ```typescript
-get #tree(): TreeCache {
-  if (!this.#cache) {
-    this.#cache = this.#buildCache()  // 3 SQL queries: all Nodes, all Edges, all Permissions
+import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
+
+#requirePermission(nodeId: number, tier: PermissionTier): string {
+  const cc = this.#getCallContext();
+  const sub = cc.originAuth?.sub;
+  if (!sub) throw new Error('Authentication required');
+  const claims = cc.originAuth?.claims as NebulaJwtPayload | undefined;
+  if (claims?.access?.admin) return sub;  // Star admin bypass
+  if (!resolvePermission(this.#cached, sub, nodeId, tier)) {
+    throw new Error(`${tier} permission required on node ${nodeId}`);
   }
-  return this.#cache
+  return sub;
 }
 ```
 
-**Cache structure** (from Phase 3.0 experiment — 44 KB for 500 nodes, 0.034% of 128 MB limit):
-- Nested tree: `{ nodeId, slug, children[] }` with `separateTreeAndDeleted` applied — deleted nodes in a phantom "Deleted" branch, orphaned nodes in a phantom "Orphaned" branch (following blueprint's pattern)
-- Flat node map: `Map<nodeId, { slug, deleted, parentIds[], childIds[] }>` — for ancestor/descendant traversal
-- Per-node permissions: `Map<nodeId, Map<sub, tier>>` — for `resolvePermission` lookups
+Mutations become one-liner guards: `this.#requirePermission(parentNodeId, 'write')`.
 
-**Read path**: `resolvePermission`, `getTree`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants` all operate on the in-memory cache. Zero SQL queries, zero row-read billing.
+**`DagTreeState` — unified cache and wire format**: A single `DagTreeState` structure serves both as the in-memory cache for internal lookups and as the wire format returned by `getState()`. Uses Maps for O(1) lookups both server-side and client-side. Mesh's `@lumenize/structured-clone` handles Map serialization over WebSocket; Workers RPC supports Maps natively.
 
-**Write path**: `createNode`, `addEdge`, `removeEdge`, `reparentNode`, `grantPermission`, `revokePermission`, etc. write to SQL (source of truth), then invalidate cache + call `onTreeChanged`. Cycle detection runs against the cache (fast in-memory BFS).
+```typescript
+export interface DagTreeState {
+  nodes: Map<number, {
+    slug: string;
+    label: string;
+    deleted: boolean;
+    parentIds: number[];
+    childIds: number[];
+  }>;
+  permissions: Map<number, Map<string, PermissionTier>>;  // nodeId → { sub → tier }
+}
+```
+
+No separate `edges` concept — parent/child relationships are embedded on each node entry. The client gets O(1) lookups for node details, traversal, and permission checks (e.g., `state.permissions.get(nodeId)?.get(sub)` to pre-check if an action is possible before attempting it).
+
+(Phase 3.0 experiment measured 44 KB for 500 nodes without labels. Changes since then increases this modestly — well within the 128 MB DO limit even at pessimistic estimates.)
+
+**Lazy init**: A private getter builds the state on first access from 3 SQL queries (all Nodes, all Edges, all Permissions). `getState()` returns `this.#cached` — over the wire, serialization creates a fresh copy; internally, cache invalidation makes old references stale.
+
+```typescript
+get #cached(): DagTreeState {
+  if (!this.#_cached) {
+    this.#_cached = this.#buildState()
+  }
+  return this.#_cached
+}
+```
+
+**Read path**: `checkPermission`, `getEffectivePermission`, `getState`, `getNodeAncestors`, `getNodeDescendants` all operate on the in-memory `DagTreeState`. Zero SQL queries, zero row-read billing. The cache exists primarily for subscription fan-out (`getState()` serves every subscriber from a shared reference) — permission checks and traversal benefit as a secondary effect.
+
+**Write path**: Cycle detection and slug validation run against the cached state (fast in-memory lookups). Then each write method wraps its SQL + cache invalidation in `ctx.storage.transactionSync(() => { ... SQL ...; this.#_cached = null })`. Cache invalidation is inside the transaction so that any throw (SQL failure or application bug) rolls back SQL to match the still-valid (or rebuild-safe) cache — no stale-cache risk. `#onChanged()` is called after the transaction — it's a notification side effect, not state, and a notification failure should not roll back a valid mutation. Mutations on deleted nodes are allowed (see Soft Delete section).
+
+**Node-not-found rule**: All public methods that accept a `nodeId` parameter throw `Error('Node {nodeId} not found')` if the node does not exist in the Nodes table (never created, not just deleted). The check uses `this.#cached.nodes.has(nodeId)` — O(1) from the Map, no SQL query. This runs before permission checks or any other logic.
+
+Tree nesting, phantom "Deleted"/"Orphaned" branches, parent stitching, and effective permission computation are all client-side concerns.
+
+### `dag-ops.ts` — Shared Pure Functions
+
+Exported from `apps/nebula/src/dag-ops.ts`. Pure functions on `DagTreeState` — no storage or `CallContext` dependency. Clients import them to pre-validate, check permissions, and traverse the tree locally (zero round trips). DagTree delegates to them internally; the auth layer (`#requirePermission`) stays in DagTree since it combines the pure check with `CallContext` extraction and Star admin bypass.
+
+```typescript
+// Constants
+export const ROOT_NODE_ID = 1
+
+// Validation
+export function validateSlug(slug: string): void
+export function checkSlugUniqueness(state: DagTreeState, parentNodeId: number, slug: string): void
+export function detectCycle(state: DagTreeState, parentNodeId: number, childNodeId: number): void
+
+// Permission resolution
+export function resolvePermission(state: DagTreeState, sub: string, nodeId: number, requiredTier: PermissionTier): boolean
+export function getEffectivePermission(state: DagTreeState, sub: string, nodeId: number): PermissionTier | null
+
+// Traversal
+export function getNodeAncestors(state: DagTreeState, nodeId: number): Set<number>
+export function getNodeDescendants(state: DagTreeState, nodeId: number): Set<number>
+```
 
 ### SQL Schema
 
-Owned by `DagTree` — tables are created in the constructor via `CREATE TABLE IF NOT EXISTS`. Same schema validated in Phase 3.0 experiment. Confirmed: FK enforcement is ON by default in DO SQLite.
+Owned by `DagTree` — tables are created in the constructor via `CREATE TABLE IF NOT EXISTS`. Based on the schema validated in Phase 3.0 experiment, with one addition: the `label` column on Nodes (the experiment only had `slug`; `label` was added for human-readable display names). Confirmed: FK enforcement is ON by default in DO SQLite. No wrangler.jsonc migration entries are needed — the project has never been released to production, and local testing starts fresh each run.
 
-**Root node**: Inserted via `INSERT OR IGNORE` after schema creation. Gets `nodeId = 1` (first INSERT into empty table), `slug = 'root'`. The root slug is never shown in URLs or UI — resource paths start at root's children: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`.
+```sql
+-- INTEGER PRIMARY KEY = rowid alias. SQLite's most optimized storage path.
+-- No WITHOUT ROWID needed — the integer PK *is* the rowid.
+-- SQLite auto-assigns nodeId on INSERT (no counter needed).
+CREATE TABLE IF NOT EXISTS Nodes (
+  nodeId INTEGER PRIMARY KEY,
+  slug TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  deleted BOOLEAN NOT NULL DEFAULT 0
+);
 
-### Slug Uniqueness
+-- Edges is the single source of truth for all parent-child relationships.
+-- No "primary parent" concept — in a DAG, there is no canonical path.
+-- The client determines the normalized path based on navigation context.
+CREATE TABLE IF NOT EXISTS Edges (
+  parentNodeId INTEGER NOT NULL,
+  childNodeId INTEGER NOT NULL,
+  PRIMARY KEY (parentNodeId, childNodeId),
+  FOREIGN KEY (parentNodeId) REFERENCES Nodes(nodeId),
+  FOREIGN KEY (childNodeId) REFERENCES Nodes(nodeId)
+) WITHOUT ROWID;
 
-Slugs are properties of nodes. Uniqueness is enforced **per-parent** — no two children of the same parent may share a slug. In a DAG, a node can appear under multiple parents, so slug uniqueness must be checked in all relevant parent contexts.
+-- Reverse lookups: "who are my parents?" for ancestor climbing
+CREATE INDEX IF NOT EXISTS idx_Edges_child ON Edges(childNodeId);
+
+CREATE TABLE IF NOT EXISTS Permissions (
+  nodeId INTEGER NOT NULL,
+  sub TEXT NOT NULL,
+  permission TEXT NOT NULL CHECK(permission IN ('admin', 'write', 'read')),
+  PRIMARY KEY (nodeId, sub),
+  FOREIGN KEY (nodeId) REFERENCES Nodes(nodeId)
+) WITHOUT ROWID;
+
+-- "What nodes does this subject have permissions on?"
+CREATE INDEX IF NOT EXISTS idx_Permissions_sub ON Permissions(sub);
+```
+
+**Note**: SQLite stores `BOOLEAN` as `INTEGER` (0/1). `DagTree.#buildState()` must coerce to TypeScript `boolean` when populating `DagTreeState.nodes[].deleted`.
+
+**Root node**: Inserted via `INSERT OR IGNORE` after schema creation. Gets `nodeId = 1` (first INSERT into empty table), `slug = 'root'`, `label = 'Root'`. The root slug is never shown in URLs or UI — resource paths start at root's children: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`. The root node constant (`ROOT_NODE_ID = 1`) is used for guards — see Soft Delete below.
+
+### Slug Validation and Uniqueness
+
+**Format**: Slugs must match `^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$` — lowercase alphanumeric and hyphens, 1–100 characters, no leading/trailing hyphens. Empty strings and slugs exceeding 100 characters are rejected. Validation runs in `validateSlug()` (in `dag-ops.ts`) before any SQL write.
+
+**Uniqueness** is enforced **per-parent** — no two children of the same parent may share a slug. In a DAG, a node can appear under multiple parents, so slug uniqueness must be checked in all relevant parent contexts.
 
 Enforcement points (all in DagTree code, not SQL constraints, since the check spans Nodes + Edges):
 
 | Operation | Check |
 |-----------|-------|
-| `createNode(parentNodeId, slug)` | No existing child of `parentNodeId` has this slug |
+| `createNode(parentNodeId, slug, label)` | No existing child of `parentNodeId` has this slug |
 | `addEdge(parentNodeId, childNodeId)` | No existing child of `parentNodeId` has the same slug as `childNodeId` |
 | `reparentNode(childNodeId, oldParentId, newParentId)` | No existing child of `newParentId` has the same slug as `childNodeId` |
 | `renameNode(nodeId, newSlug)` | For *every* parent of `nodeId`, no other child of that parent has `newSlug` |
 
 ### Soft Delete
 
-Following blueprint's `separateTreeAndDeleted` pattern:
-
+- **Root node cannot be deleted or renamed**: `deleteNode` and `renameNode` throw if `nodeId === ROOT_NODE_ID`. The root is the anchor of the entire tree. The root slug is an internal constant never shown in URLs.
 - `deleteNode(nodeId)` sets `deleted = 1` — does NOT remove edges or permissions
-- Deleted nodes are excluded from permission resolution (ancestor climbing skips deleted nodes)
-- `getTree()` places deleted nodes in a phantom "Deleted" branch under root, orphaned nodes (unreachable from root via non-deleted ancestors) in a phantom "Orphaned" branch
+- **`deleteNode` is idempotent**: If the node is already deleted (`deleted === 1`), return early as a no-op.
+- **`undeleteNode` is idempotent**: If the node is not deleted (`deleted === 0`), return early as a no-op.
+- **Deleted nodes in permission resolution**: Ancestor climbing **continues through** deleted nodes and **considers their permission grants normally**. Soft delete controls node/resource visibility, not permissions — to revoke access, use `revokePermission` explicitly. This avoids a footgun where a DAG admin who deletes a node they administer would lose the ability to `undeleteNode` it (since their only grant was on the deleted node). It also keeps `reparentNode` simple — no edge case when `oldParentId` is deleted.
+- **Mutations on deleted nodes are allowed**: All operations (`createNode`, `addEdge`, `setPermission`, `revokePermission`, `renameNode`, `relabelNode`, etc.) work normally on deleted nodes. The `deleted` flag is purely a client-side display hint — the permission system is the only access control boundary. This is consistent with grants being considered normally during ancestor climbing, and enables cleanup operations like revoking an unintentional grant on a deleted node without the `undeleteNode` → `revokePermission` → `deleteNode` dance.
+- `getState()` includes deleted nodes with `deleted: true` in the nodes Map — the client decides how to display them (e.g., phantom "Deleted" branch, greyed out, hidden)
 - `undeleteNode(nodeId)` sets `deleted = 0` — node reappears with edges and permissions intact
 
 ### Cycle Detection
@@ -356,93 +339,109 @@ Port from blueprint's `tree.js` (lines 128–146). The algorithm:
 3. If `child` is found in the ancestry, throw — adding this edge would create a cycle
 4. Write-time check only — reads don't need it
 
-Blueprint's implementation is ~20 lines of recursive JS. Our version uses the in-memory cache instead of querying SQL, making it even faster.
+Blueprint's implementation is ~20 lines of recursive JS.
 
 ### Authorization Model
 
-**Two independent layers** — Phase 2's `requireAdmin` and Phase 3.1's DAG permissions operate at different scopes:
+**Two independent layers** — scope binding and per-operation authorization:
 
 | Layer | Question | Mechanism | Scope |
 |-------|----------|-----------|-------|
 | Scope binding | Is this call for the right Star? | `NebulaDO.onBeforeCall()` (Phase 2) | DO instance |
-| Star admin | Is this person a Star-level admin? | `@mesh(requireAdmin)` via JWT `claims.access.admin` (Phase 2) | Entire Star |
-| DAG permissions | Can this person do X on this node? | DagTree checks + throws (Phase 3.1) | Per-node |
+| Star admin | Is this person a Star-level admin? | `#requirePermission` checks `claims.access.admin` — bypasses DAG checks | Entire Star |
+| DAG permissions | Can this person do X on this node? | `#requirePermission` checks inherited grants + throws (Phase 3.1) | Per-node |
 
 **Star admin bypasses DAG checks**: If the caller's JWT has `claims.access.admin = true` (Star-level admin, possibly via `authScopePattern` rolldown from universe/galaxy), all DAG permission checks are skipped. This is the bootstrap mechanism — Star admins can build the tree and delegate without needing explicit DAG grants.
 
-**DagTree checks and throws**: No `@mesh(guard)` decorators for DAG authorization. Star methods are thin `@mesh()` wrappers that delegate to DagTree. DagTree reads caller identity via the injected `getCallContext` getter, checks permissions internally, and throws if denied. Errors propagate back to the caller via mesh's error transport (`{ $error: ... }` envelope).
+**Capability trust model**: Star exposes a single `@mesh()` entry point — `dagTree()` — that returns the `DagTree` instance. Clients chain through it via OCAN: `ctn<Star>().dagTree().createNode(parentId, slug, label)`. The OCAN executor checks `@mesh()` only on the first `apply` in the chain (the entry point); subsequent operations in the chain traverse freely on the returned object. DagTree handles per-operation auth internally via `#requirePermission` — no `@mesh(guard)` decorators needed on individual methods. Errors propagate back to the caller via mesh's error transport (`{ $error: ... }` envelope).
 
 ### `DagTree` Public API
 
-DagTree reads caller identity via the injected `getCallContext` getter — Star methods are thin `@mesh()` wrappers that delegate to DagTree without passing caller info.
+DagTree reads caller identity via the injected `getCallContext` getter. Clients access DagTree methods via OCAN chain: `ctn<Star>().dagTree().someMethod(args)`. No thin `@mesh()` wrappers needed — Star exposes a single `dagTree()` entry point and DagTree handles its own auth.
 
-**Tree structure mutations** (require `write` on the relevant node, or Star admin):
+**Tree structure mutations** (require `write` on the relevant node(s), or Star admin). Note: `write` allows structural changes including `deleteNode` but does NOT allow granting access to others — that requires `admin`. This asymmetry is intentional: the three tiers (`admin` > `write` > `read`) form a strict hierarchy where only `admin` controls the permission map.
 
-| Method | Signature | Permission check |
-|--------|-----------|-----------------|
-| `createNode` | `(parentNodeId, slug)` | write on `parentNodeId` |
-| `addEdge` | `(parentNodeId, childNodeId)` | write on `parentNodeId` |
-| `removeEdge` | `(parentNodeId, childNodeId)` | write on `parentNodeId` |
-| `reparentNode` | `(childNodeId, oldParentId, newParentId)` | write on `childNodeId`, `oldParentId`, AND `newParentId` |
-| `deleteNode` | `(nodeId)` | write on `nodeId` |
-| `undeleteNode` | `(nodeId)` | write on `nodeId` |
-| `renameNode` | `(nodeId, newSlug)` | write on `nodeId` |
+| Method | Signature | Returns | Permission check |
+|--------|-----------|---------|-----------------|
+| `createNode` | `(parentNodeId, slug, label)` | `number` (new nodeId) | write on `parentNodeId` |
+| `addEdge` | `(parentNodeId, childNodeId)` | `void` | write on `parentNodeId`. **Idempotent**: if the edge already exists, return as a no-op (skip permission check, cycle detection, slug uniqueness checks, and SQL write). Uses `INSERT OR IGNORE` for the SQL write — the PK `(parentNodeId, childNodeId)` naturally deduplicates. |
+| `removeEdge` | `(parentNodeId, childNodeId)` | `void` | write on `parentNodeId`. **Idempotent**: if the edge doesn't exist, return as a no-op (no permission check needed). Orphans are allowed — removing the last edge to a non-root node leaves it orphaned (unreachable from root). The client handles display via phantom "Orphaned" branch (see blueprint's `separateTreeAndDeleted` pattern). **Mutations on orphaned nodes are intentionally allowed** — orphaning is more likely accidental and soon reverted; only direct grants apply (no ancestors to roll down from). |
+| `reparentNode` | `(childNodeId, oldParentId, newParentId)` | `void` | write on `oldParentId` AND `newParentId` (write on `childNodeId` is redundant — the child is a descendant of `oldParentId`, so write on the parent implies write on the child via rolldown). **Throws if `oldParentId→childNodeId` edge does not exist** — the caller has a stale view of the tree. |
+| `deleteNode` | `(nodeId)` | `void` | write on `nodeId`. **Throws if `nodeId === ROOT_NODE_ID`** — the root is the anchor of the entire tree. **Idempotent**: if already deleted, return as a no-op (skip permission check). |
+| `undeleteNode` | `(nodeId)` | `void` | write on `nodeId`. **Throws if `nodeId === ROOT_NODE_ID`** — the root is never deleted. **Idempotent**: if not deleted, return as a no-op (skip permission check). |
+| `renameNode` | `(nodeId, newSlug)` | `void` | write on `nodeId`. **Throws if `nodeId === ROOT_NODE_ID`** — the root slug is an internal constant, never shown in URLs, and renaming it could cause subtle downstream issues. Validates `newSlug` via `validateSlug()` before slug uniqueness checks. |
+| `relabelNode` | `(nodeId, newLabel)` | `void` | write on `nodeId`. Updates the human-readable display label. No uniqueness constraint — multiple nodes may share the same label. **Allowed on root** (unlike `renameNode`). Validates non-empty and max 500 characters. |
 
 **Permission management** (require `admin` on the target node, or Star admin):
 
-| Method | Signature | Permission check |
-|--------|-----------|-----------------|
-| `grantPermission` | `(nodeId, targetSub, level)` | admin on `nodeId` |
-| `revokePermission` | `(nodeId, targetSub)` | admin on `nodeId` |
+| Method | Signature | Returns | Permission check |
+|--------|-----------|---------|-----------------|
+| `setPermission` | `(nodeId, targetSub, level)` | `void` | admin on `nodeId` |
+| `revokePermission` | `(nodeId, targetSub)` | `void` | admin on `nodeId`. **Idempotent**: if no grant exists for this subject on this node, return as a no-op (skip permission check). |
 
-**Read-only queries** (from in-memory cache, no authorization):
+`setPermission` uses `INSERT ... ON CONFLICT(nodeId, sub) DO UPDATE SET permission = excluded.permission` — a single SQL upsert with no prior SELECT. If the subject already has a grant on this node, the tier is replaced (upgrade or downgrade). The admin is making an intentional choice; there is no "only allow escalation" guard.
 
-| Method | Signature | Notes |
-|--------|-----------|-------|
-| `resolvePermission` | `(sub, nodeId, requiredTier)` → `boolean` | Hot path — used by Star to guard resource operations in Phase 5 |
-| `getEffectivePermission` | `(sub, nodeId)` → `tier \| null` | For UI — called when user expands a node to show their permission level |
-| `getTree` | `()` → nested structure | Same for all callers — no permissions included |
-| `getNodeAncestors` | `(nodeId)` → `Set<number>` | |
-| `getNodeDescendants` | `(nodeId)` → `Set<number>` | |
+**Permission queries** (from in-memory cache, any authenticated user — permissions are not sensitive since `getState()` already sends the full permissions map to all subscribers):
+
+| Method | Signature | Returns | Auth |
+|--------|-----------|---------|------|
+| `checkPermission` | `(nodeId, requiredTier, targetSub?)` | `boolean` | Any authenticated user |
+| `getEffectivePermission` | `(nodeId, targetSub?)` | `PermissionTier \| null` | Any authenticated user |
+
+- Without `targetSub`: defaults to caller's own sub
+- Both methods delegate directly to the pure `dag-ops.ts` functions (`resolvePermission`, `getEffectivePermission`) passing `this.#cached` — no private wrapper methods needed
+- `#requirePermission(nodeId, tier)` handles all mutation guards (extracts sub, checks Star admin, delegates to `resolvePermission()`, throws if denied)
+- `checkPermission` is the hot path for Phase 5 resource guards (Star calls it internally with the caller's own sub)
+
+**State and traversal queries** (from in-memory cache, any authenticated user):
+
+| Method | Signature | Returns | Notes |
+|--------|-----------|---------|-------|
+| `getState` | `()` | `DagTreeState` | Returns cached state directly (see `DagTreeState` interface above) |
+| `getNodeAncestors` | `(nodeId)` | `Set<number>` | |
+| `getNodeDescendants` | `(nodeId)` | `Set<number>` | |
+
+- All three methods require only authentication (throws if `sub` is falsy) — no DAG permission check. Any user who can reach this Star (passed `onBeforeCall` scope binding) can read the full tree state.
+- `getState()` returns the cached `DagTreeState` — **identical for every caller**. No per-subscriber computation. Serialization over mesh creates a fresh copy for each client.
+- `permissions` contains all direct grants. The client computes effective (rolled-down) permissions locally — a single topological-order pass propagating `max(direct grant, any parent's effective)` per node.
+- **All authenticated users see all direct grants for all subjects within the Star.** The Star is already a trust boundary (same nebula-auth scope). Permission metadata visibility enables collaborative UX (see who has access) and eliminates per-subscriber recomputation for subscription fan-out. The security boundary is data access enforcement (DAG permission checks on every operation), not permission metadata hiding.
 
 ### Star DO Integration
+
+NebulaDO does not define `onStart` — it handles scope binding in `onBeforeCall`. Star defines `onStart` directly (no super call needed).
 
 ```typescript
 export class Star extends NebulaDO {
   #dagTree!: DagTree
 
-  async onStart() {
+  // Synchronous — DagTree constructor is all synchronous SQL (DDL + INSERT OR IGNORE).
+  // LumenizeDO.onStart returns `Promise<void> | void`, so sync overrides are fine.
+  onStart() {
     this.#dagTree = new DagTree(
-      this.ctx.storage.sql,
-      () => this.lmz.callContext,   // lazy — evaluated at call time, not construction time
-      () => this.#onTreeChanged()
+      this.ctx,                      // DurableObjectState
+      () => this.lmz.callContext,    // lazy — evaluated at call time, not construction time
+      () => this.#onChanged()
     )
   }
 
-  get dagTree(): DagTree { return this.#dagTree }
-
-  // Thin @mesh() wrappers — DagTree reads callContext directly
+  // Capability trust model: single @mesh() entry point for the entire DagTree API.
+  // OCAN executor checks @mesh() only on the first apply in the chain (this method);
+  // subsequent operations (e.g., .createNode(), .getState()) traverse freely.
+  // DagTree handles per-operation auth internally via #requirePermission.
+  //
+  // Client usage:
+  //   this.ctn<Star>().dagTree().createNode(parentId, slug, label)
+  //   this.ctn<Star>().dagTree().getState()
+  //   this.ctn<Star>().dagTree().checkPermission(nodeId, tier, targetSub)
   @mesh()
-  createNode(parentNodeId: number, slug: string) {
-    return this.#dagTree.createNode(parentNodeId, slug)
+  dagTree(): DagTree {
+    return this.#dagTree
   }
 
-  @mesh()
-  grantPermission(nodeId: number, targetSub: string, level: 'admin' | 'write' | 'read') {
-    return this.#dagTree.grantPermission(nodeId, targetSub, level)
-  }
+  // Phase 5: resource guards call this.#dagTree.checkPermission(...) internally —
+  // #dagTree stays private for internal use, dagTree() is the remote entry point.
 
-  @mesh()
-  getTree() {
-    return this.#dagTree.getTree()
-  }
-
-  // ... other thin wrappers for addEdge, removeEdge, reparentNode,
-  //     deleteNode, undeleteNode, renameNode, revokePermission,
-  //     resolvePermission, getEffectivePermission,
-  //     getNodeAncestors, getNodeDescendants
-
-  #onTreeChanged() {
+  #onChanged() {
     // Phase 3.1: placeholder — tests verify this callback fires on mutations
     // Phase 5: subscription fan-out via lmz.call() through NebulaClientGateway
     // See tasks/nebula-scratchpad.md for subscription design notes
@@ -455,7 +454,7 @@ export class Star extends NebulaDO {
 1. Star's `onStart` creates schema + root node (nodeId 1, slug 'root')
 2. First authenticated call comes from a Star admin (JWT `claims.access.admin = true`)
 3. Star admin creates nodes, grants permissions — all pass because Star admin bypasses DAG checks
-4. Star admin grants `admin` on specific subtrees to delegation subjects via `grantPermission`
+4. Star admin grants `admin` on specific subtrees to delegation subjects via `setPermission`
 5. Delegated admins can grant/revoke permissions within their subtrees
 6. Users with `write` can create/modify nodes within their authorized subtrees
 
@@ -465,30 +464,70 @@ No auto-grant on root needed. The JWT Star admin flag *is* the bootstrap mechani
 
 Tests live in the existing `test/test-apps/baseline/` test-app. A new `dag-tree.test.ts` file tests DagTree through `StarTest`, getting real DO SQLite storage via the existing `instrumentDOProject` setup.
 
-**`NebulaClientTest` additions**: New helper methods following the existing pattern (e.g., `callStarCreateNode`, `callStarGrantPermission`, `callStarGetTree`).
+**`NebulaClientTest` additions**: New helper methods following the existing fire-and-forget pattern, chaining through `dagTree()`:
+
+```typescript
+callStarCreateNode(starName: string, parentId: number, slug: string, label: string) {
+  this.resetResults();
+  const remote = this.ctn<Star>().dagTree().createNode(parentId, slug, label);
+  this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+}
+
+callStarGetState(starName: string) {
+  this.resetResults();
+  const remote = this.ctn<Star>().dagTree().getState();
+  this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+}
+// ... same pattern for all DagTree methods:
+// callStarGrantPermission, callStarCheckPermission, callStarGetEffectivePermission,
+// callStarAddEdge, callStarRemoveEdge, callStarReparentNode,
+// callStarDeleteNode, callStarUndeleteNode, callStarRenameNode, callStarRelabelNode,
+// callStarRevokePermission, callStarGetNodeAncestors, callStarGetNodeDescendants
+```
 
 **DagTree tests** (`dag-tree.test.ts`):
 - Schema creation: tables exist after `onStart`, FK enforcement on
-- Root node: exists with nodeId 1, slug 'root'
-- Tree construction: create nodes, add edges, verify structure via `getTree()`
+- Root node: exists with nodeId 1, slug 'root', label 'Root'
+- Root node protection: `deleteNode` and `renameNode` on root throw
+- Tree construction: create nodes, add edges, verify structure via `getState()` (`DagTreeState` Maps format)
+- `createNode` returns new nodeId, stores slug and label
+- `relabelNode`: updates label, allowed on root (unlike `renameNode`), validates non-empty and max 500 chars
 - Cycle detection: reject cycles, allow diamonds
+- Node-not-found: operations on non-existent nodeId throw `'Node {nodeId} not found'`
+- Slug validation: reject empty, too long, uppercase, underscores, leading/trailing hyphens; accept valid slugs
 - Slug uniqueness: reject duplicate slugs under same parent, allow same slug under different parents
-- Soft delete: `deleteNode` sets flag, `undeleteNode` restores, `getTree()` shows deleted/orphaned branches
-- Permission CRUD: `grantPermission`, `revokePermission`, verify via `resolvePermission` and `getEffectivePermission`
+- `addEdge` idempotency: adding an already-existing edge is a no-op (no permission check, no error)
+- `removeEdge` idempotency: removing a non-existent edge is a no-op (no permission check, no error)
+- `reparentNode` with missing old edge: throws if `oldParent→child` edge doesn't exist
+- Soft delete: `deleteNode` sets flag, `undeleteNode` restores, deleted nodes in `getState()` have `deleted: true`
+- `deleteNode` idempotency: deleting an already-deleted node is a no-op (no permission check, no error)
+- `undeleteNode` idempotency: undeleting a non-deleted node is a no-op (no permission check, no error)
+- Deleted node permission climbing: ancestor climbing continues through deleted nodes and considers their grants normally — soft delete controls visibility, not permissions
+- Mutations on deleted nodes succeed: `createNode` under deleted parent, `setPermission`/`revokePermission` on deleted node, `renameNode`/`relabelNode` on deleted node — `deleted` flag is purely a display hint
+- Permission CRUD: `setPermission`, `revokePermission`, verify via `checkPermission` and `getEffectivePermission`
+- Permission upsert: `setPermission` replaces existing tier (e.g., upgrade read→write, downgrade admin→read)
+- `revokePermission` idempotency: revoking a non-existent grant is a no-op (no permission check, no error)
 - Permission rolldown: grant on root → all descendants, grant on middle → descendants only, multiple paths → highest wins
 - Permission boundaries: no grant on any ancestor → denied, grant on one path → granted (any-path rule), revoke → descendants lose access
+- Permission query auth: self-check succeeds for any user, cross-check (`targetSub`) requires admin on node or Star admin, cross-check without admin throws
+- `getState` includes `permissions` with all direct grants for all subjects (client computes rolldown)
 - Authorization enforcement: write on parent → can create child, no write → throws, Star admin → bypasses DAG checks
 - Permission management auth: admin on node → can grant/revoke, write on node → cannot grant (throws)
-- Cache behavior: mutations invalidate cache, next read rebuilds from SQL, `onTreeChanged` callback fires on mutations
+- Cache behavior: mutations invalidate cache, next read rebuilds from SQL, `onChanged` callback fires on mutations
 
 **Star DO integration tests** (in existing `dag-tree.test.ts` or separate `star-dag-integration.test.ts`):
 - Layer coexistence: `@mesh(requireAdmin)` (JWT Star admin) and DagTree authorization (DAG write/admin) operate independently
 - Auth identity flow: universe admin (wildcard JWT) → Star admin → full DAG access, regular user → only DAG-granted access
-- Abuse cases: permission escalation attempt → throws, deleted node mutation → throws
+- Abuse cases: permission escalation attempt → throws, cross-sub permission query without admin → throws
 
 ---
 
 ## Phase 3.x: Follow-On Work
+
+### Cleanup
+
+- **Remove dummy config methods from Star**: `setStarConfig` and `getStarConfig` are Phase 2 placeholders. Move them to `StarTest` (test subclass) so existing Phase 2 tests don't break, then remove from `Star`.
+- **Remove `whoAmI()` from Star**: Returns the caller's `sub`, but the caller already knows their own identity (it's in the JWT they used to authenticate). Useful as a Phase 2 smoke test but has no real utility. Move to `StarTest` if any tests depend on it.
 
 ### Additional Operations
 
@@ -496,13 +535,22 @@ Tests live in the existing `test/test-apps/baseline/` test-app. A new `dag-tree.
 - `getSubtreePermissions(nodeId, sub)` — summary of what a subject can access in a subtree
 - Bulk operations for tree setup (import/export)
 
-### UI Support (Server-Side)
+### UI Support (Client-Side)
 
-The server needs to support these client-side patterns (see blueprint UI reference in `tasks/reference/blueprint/ui/`):
+The server sends `DagTreeState` (Phase 3.1) — Maps with nodes (including embedded parentIds/childIds) and permissions. The client imports `dag-ops` functions from `@lumenize/nebula` to operate on its local `DagTreeState` copy — pre-validation, permission-aware UI, and traversal all run client-side with zero round trips. See `dag-ops.ts` in Phase 3.1 for the full function list.
 
-- **Normalized paths**: The client determines the normalized path based on which visual position the user clicked in the tree (the breadcrumbs array). A DAG node appears in multiple positions; each click yields a different path. The server doesn't need to choose a canonical path — the client handles this.
-- **Peer comparisons**: Given a breadcrumbs path, the client goes up one level (`path.slice(0, -1)`) and uses `parent.children` to find siblings. This is the comparison set for analysis/aggregations. The server's `getTree()` response already provides the structure needed.
-- **`stitchParents`**: The client adds `node.parents` arrays (plural, DAG-aware) for upward traversal during search highlighting. The server sends only `children` pointers — parent stitching is client-side.
+**Client-side `dag-ops` usage**:
+- **Pre-validation**: `validateSlug(slug)`, `checkSlugUniqueness(localState, parentId, slug)`, `detectCycle(localState, parentId, childId)` before calling `star.createNode()` / `star.addEdge()` — fail fast without a mesh call
+- **Permission-aware UI**: `resolvePermission(localState, mySub, nodeId, 'write')` to enable/disable action buttons, grey out inaccessible nodes, pre-check before mutations
+- **Traversal**: `getNodeAncestors(localState, nodeId)` / `getNodeDescendants(localState, nodeId)` for breadcrumbs, subtree views, search highlighting
+
+**Client-side display patterns** (see blueprint UI reference in `tasks/reference/blueprint/ui/`):
+
+- **Tree nesting**: Build nested `{ nodeId, slug, children[] }` from `DagTreeState.nodes` (using each node's `childIds`). In a DAG, a node with multiple parents appears in multiple positions.
+- **Phantom branches**: Separate deleted and orphaned nodes into virtual "Deleted"/"Orphaned" branches (blueprint's `separateTreeAndDeleted` pattern).
+- **`stitchParents`**: Add `node.parents` arrays (plural, DAG-aware) for upward traversal during search highlighting.
+- **Normalized paths**: The client determines the normalized path based on which visual position the user clicked in the tree (the breadcrumbs array). A DAG node appears in multiple positions; each click yields a different path. The server doesn't need to choose a canonical path.
+- **Peer comparisons**: Given a breadcrumbs path, the client goes up one level (`path.slice(0, -1)`) and uses `parent.children` to find siblings. This is the comparison set for analysis/aggregations.
 
 ### Subscription Fan-Out (Phase 5)
 
@@ -523,29 +571,32 @@ Tree mutation notifications delivered to subscribers via `lmz.call()` through `N
 
 ## What Gets Replaced Later
 
-- **Dummy methods from Phase 2**: Fully removed, replaced by real resource methods in Phase 5
-- **`#onTreeChanged` placeholder**: Replaced by subscription fan-out in Phase 5
+- **Any remaining dummy methods from Phase 2**: Fully removed, replaced by real resource methods in Phase 5
+- **`#onChanged` placeholder**: Replaced by subscription fan-out in Phase 5
 - **Some tests**: Replaced by integrated Resources + DAG tests in Phase 5
 
-**What survives**: The `DagTree` class (schema, cycle detection, permission resolution, in-memory cache), Star DO integration (`onStart`, thin `@mesh()` wrappers), and the core test scenarios for tree construction and permission rolldown.
+**What survives**: The `dag-ops` pure functions (shared with clients), the `DagTree` class (schema, SQL persistence, in-memory cache), Star DO integration (`onStart`, thin `@mesh()` wrappers), and the core test scenarios for tree construction and permission rolldown.
 
 ## Success Criteria
 
-### Phase 3.0
-- [x] `experiments/dag-sql-perf/` with working experiment
-- [x] Latency results for all operations at various tree depths
-- [x] Go/no-go decision documented
+### Phase 3.0 — COMPLETE (archived at `tasks/archive/nebula-dag-tree-experiment.md`)
 
-### Phase 3.1
-- [ ] `DagTree` class at `apps/nebula/src/dag-tree.ts` with lazy in-memory cache
-- [ ] DAG tree schema in Star's SQLite (Nodes, Edges, Permissions tables) with root node auto-created
-- [ ] Tree mutations: `createNode`, `addEdge`, `removeEdge`, `reparentNode`, `deleteNode`, `undeleteNode`, `renameNode`
-- [ ] Cycle detection on `addEdge` and `reparentNode`
-- [ ] Slug uniqueness enforced per-parent on all relevant operations
-- [ ] Soft delete with phantom Deleted/Orphaned branches in `getTree()`
-- [ ] Permission grant/revoke (admin-only on target node via DAG or Star admin)
-- [ ] Permission resolution: ancestor rolldown with any-path-grants semantics (from cache)
-- [ ] Authorization: DagTree reads caller identity via injected `getCallContext` getter, checks permissions, throws if denied; Star admin bypasses DAG checks
-- [ ] Star DO integration: `DagTree` in `onStart`, thin `@mesh()` wrappers, `onTreeChanged` placeholder callback
-- [ ] Tests in existing `test/test-apps/baseline/`: DagTree operations, authorization enforcement, abuse cases
-- [ ] Bootstrap flow verified: Star admin (JWT) → build tree → delegate via `grantPermission`
+### Phase 3.1 — COMPLETE
+- [x] `dag-ops.ts` at `apps/nebula/src/dag-ops.ts` — exported `ROOT_NODE_ID` constant and pure functions (`validateSlug`, `checkSlugUniqueness`, `detectCycle`, `resolvePermission`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants`) operating on `DagTreeState`, usable on both server and client
+- [x] `DagTree` class at `apps/nebula/src/dag-tree.ts` with lazy in-memory cache, exported `PermissionTier` type, takes `DurableObjectState`. Internal methods delegate to `dag-ops` functions
+- [x] DAG tree schema in Star's SQLite (Nodes, Edges, Permissions tables) with root node auto-created. All write methods wrapped in `ctx.storage.transactionSync()`
+- [x] Tree mutations: `createNode` (returns nodeId, accepts slug + label), `addEdge` (idempotent), `removeEdge` (idempotent), `reparentNode` (throws if old edge missing), `deleteNode`, `undeleteNode`, `renameNode`, `relabelNode`
+- [x] Root node protection: `deleteNode` and `renameNode` throw on root (nodeId 1)
+- [x] Idempotent operations: `deleteNode` on already-deleted is a no-op (skip permission check), `undeleteNode` on non-deleted is a no-op (skip permission check), `addEdge` on existing edge is a no-op (skip permission check), `removeEdge` on non-existent edge is a no-op (skip permission check), `revokePermission` on non-existent grant is a no-op (skip permission check)
+- [x] Cycle detection on `addEdge` and `reparentNode`
+- [x] Slug validation: `[a-z0-9-]`, max 100, no leading/trailing hyphen, non-empty
+- [x] Slug uniqueness enforced per-parent on all relevant operations
+- [x] Soft delete: `deleted` flag is a display hint only — mutations on deleted nodes are allowed, `getState()` includes `deleted: true` (client handles phantom branches)
+- [x] Permission grant/revoke (admin-only on target node via DAG or Star admin)
+- [x] Permission queries: `checkPermission` and `getEffectivePermission` with optional `targetSub` — self-check for any user, cross-check requires admin
+- [x] Permission resolution: ancestor rolldown with any-path-grants semantics (from cache)
+- [x] `getState()` returns `DagTreeState` (Maps) — nodes with embedded parentIds/childIds, permissions as nested Maps, identical for every caller
+- [x] Authorization: DagTree reads caller identity via injected `getCallContext` getter (undefined-safe for future DO-to-DO calls), checks permissions, throws if denied; Star admin bypasses DAG checks
+- [x] Star DO integration: `DagTree` in `onStart` (synchronous — no async needed), single `@mesh() dagTree()` entry point (capability trust model — OCAN chains traverse DagTree methods freely after the entry point), `onChanged` placeholder callback
+- [x] Tests in existing `test/test-apps/baseline/`: DagTree operations, authorization enforcement, permission query auth, abuse cases
+- [x] Bootstrap flow verified: Star admin (JWT) → build tree → delegate via `setPermission`

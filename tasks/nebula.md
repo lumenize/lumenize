@@ -114,7 +114,7 @@ Refactor the Phase 2 test suite from a flat `test/` directory into a split struc
 
 ### Phase 3: DAG Tree Access Control
 
-Add a DAG tree inside each Star DO. The nebula-auth hierarchy (`universe.galaxy.star`) goes up from Star; the DAG tree goes down to organize resources. Prior art ported from `transformation-dev/blueprint` (cycle detection, tree operations) with new permission model on top. Every resource attaches to one node (but may be accessible via multiple DAG paths). Permissions (admin, write, read) roll down — if any ancestor branch grants access, the node is accessible. Greatly refactors the Phase 2 test suite. Resource paths: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`. Sub-phases: 3.0 (SQL performance experiment — decision gate for approach), 3.1 (implementation), 3.x (follow-on).
+Add a DAG tree inside each Star DO. The nebula-auth hierarchy (`universe.galaxy.star`) goes up from Star; the DAG tree goes down to organize resources. Prior art ported from `transformation-dev/blueprint` (cycle detection, tree operations) with new permission model on top. Every resource attaches to one node (but may be accessible via multiple DAG paths). Permissions (admin, write, read) roll down — if any ancestor branch grants access, the node is accessible. Greatly refactors the Phase 2 test suite. Resource paths: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`. Phase 3.0 (SQL performance experiment) archived at `tasks/archive/nebula-dag-tree-experiment.md`. Remaining sub-phases: 3.1 (implementation), 3.x (follow-on).
 
 ### Phase 4: Cloudflare Isolation Research
 

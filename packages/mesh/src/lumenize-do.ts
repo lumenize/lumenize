@@ -99,14 +99,14 @@ export abstract class LumenizeDO<Env = any> extends DurableObject<Env> {
   }
 
   /**
-   * Optional async initialization hook
+   * Optional initialization hook (sync or async)
    *
    * Override to perform initialization before the DO handles any requests.
    * Automatically wrapped in `blockConcurrencyWhile`.
    *
    * @see https://lumenize.com/docs/mesh/lumenize-do — Lifecycle hooks
    */
-  onStart?(): Promise<void>;
+  onStart?(): Promise<void> | void;
 
   /**
    * Alarm lifecycle handler - delegates to built-in alarms service

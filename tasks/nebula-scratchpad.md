@@ -40,11 +40,11 @@ Deferred items, early-stage ideas, and notes captured during planning. Items her
 
 ### Star Subscription Design (Phase 5)
 
-Captured during Phase 3.1 review. The `#onTreeChanged` callback is a placeholder in Phase 3.1. Full subscription fan-out happens in Phase 5.
+Captured during Phase 3.1 review. The `#onChanged` callback is a placeholder in Phase 3.1. Full subscription fan-out happens in Phase 5.
 
 **Subscription method**: `Star.subscribe()` — called by clients via mesh. Returns an object shaped for extensibility:
 ```
-{ dagTree: { nodeId, slug, children[] }, /* more properties later */ }
+{ dagTreeState: DagTreeState, /* more properties later */ }
 ```
 
 **Subscriber tracking**: Star maintains a subscriber list (outside DagTree — subscriptions are to the Star, not just the tree). Each subscriber entry captures:
@@ -52,6 +52,8 @@ Captured during Phase 3.1 review. The `#onTreeChanged` callback is a placeholder
 - `bindingName` and `instanceName` from `callContext.callChain.at(-1)` — the immediate caller (NebulaClientGateway instance) for routing notifications back
 
 **Notification delivery**: On tree mutation, Star iterates subscribers and calls each client's gateway via `this.lmz.call('NEBULA_CLIENT_GATEWAY', gwInstanceName, ...)`. Every online user is a subscriber (at minimum every 15 minutes due to access token TTL refresh).
+
+**Client-side `dag-ops` functions**: The client imports pure functions from `@lumenize/nebula` (`resolvePermission`, `getEffectivePermission`, `getNodeAncestors`, `getNodeDescendants`, `validateSlug`, `checkSlugUniqueness`, `detectCycle`) that operate on its local `DagTreeState` copy. These enable pre-validation before mesh calls, permission-aware UI (enable/disable buttons, grey out inaccessible nodes), and local traversal — all with zero round trips. When the subscription pushes an updated `DagTreeState`, the client replaces its local copy and re-runs any needed computations. See `dag-ops.ts` in Phase 3.1 of `tasks/nebula-dag-tree.md`.
 
 **Open questions for Phase 5**:
 - Subscriber cleanup on disconnect (gateway notifies Star when client disconnects?)

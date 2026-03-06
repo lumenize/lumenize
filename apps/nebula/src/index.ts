@@ -9,6 +9,20 @@ export { Galaxy } from './galaxy';
 export { Star } from './star';
 export { ResourceHistory } from './resource-history';
 
+// DAG tree
+export { DagTree } from './dag-tree';
+export type { PermissionTier, DagTreeState } from './dag-ops';
+export {
+  ROOT_NODE_ID,
+  validateSlug,
+  checkSlugUniqueness,
+  detectCycle,
+  resolvePermission,
+  getEffectivePermission,
+  getNodeAncestors,
+  getNodeDescendants,
+} from './dag-ops';
+
 // Gateway
 export { NebulaClientGateway } from './nebula-client-gateway';
 
