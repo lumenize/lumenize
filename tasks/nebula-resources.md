@@ -3,7 +3,12 @@
 **Status**: Phase 0 — Design (all DWL spikes complete, core API decisions made, remaining: full API shape + schema evolution design)
 **Package**: `@lumenize/nebula` (BSL 1.1) — built on `@lumenize/mesh` (MIT)
 **Prior Art**: `tasks/icebox/mesh-resources.md` and `tasks/icebox/resources.mdx` (registration-on-DO approach — temporal storage design, snapshot shape, URI scheme, and response protocol carry forward; registration API and schema strategy are replaced by the DWL approach). Blueprint repo's `temporal-entity.js` is the exact prior implementation of Snodgrass temporal storage for Cloudflare DOs — saved locally at `tasks/reference/blueprint/temporal-entity.js`. Resources = Temporal Entities.
-**Depends on**: `tasks/archive/nebula-auth.md` — Nebula auth impacts access control logic for resources. Auth is being built first.
+**Depends on**: `tasks/archive/nebula-auth.md` (auth), `tasks/nebula-dag-tree.md` (DAG access control — Phase 3.1 complete)
+
+### DAG Tree Prerequisites (from Phase 3.x)
+
+- **`getNodeByPath(slugPath)`**: Resolve `level-1-slug/.../level-n-slug` to a nodeId by walking the cached node map from root, matching slugs at each level. Needed for resource path → nodeId → permission check. Add to `DagTree` and `dag-ops.ts`.
+- **Resource + DAG integration tests**: Real resource CRUD gated by DAG permissions. Verifies the full chain: JWT identity → DAG permission check → resource operation.
 
 ## Goal
 

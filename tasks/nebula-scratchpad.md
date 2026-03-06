@@ -61,6 +61,23 @@ Captured during Phase 3.1 review. The `#onChanged` callback is a placeholder in 
 - Subscription to specific subtrees vs. full tree
 - See scratchpad "Fanout Broadcast Tiering" for high subscriber counts
 
+### DAG Tree Enhancements (from Phase 3.x)
+
+- **`getSubtreePermissions(nodeId, sub)`**: Summary of what a subject can access in a subtree. Convenience method — no phase depends on it.
+- **Bulk operations for tree setup (import/export)**: Needed for Phase 9 (Vibe Coding IDE) to load ontology definitions. Not needed before then.
+- **Materialized closure table**: Alternative to in-memory ancestor walks if cache proves insufficient at scale. Phase 3.0 experiment showed in-memory is fast (p95 < 0.2ms for 500 nodes), so this is unlikely to be needed.
+- **Performance regression tests**: Very deep trees (depth 10), wide trees (100+ children), dense DAGs (many diamonds). Pull in if performance becomes a concern.
+
+### Client-Side DAG Display Patterns (from Phase 3.x — for Phase 8)
+
+See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Server-side work is done (`DagTreeState` wire format + `dag-ops.ts` pure functions exported from `@lumenize/nebula`). These are Phase 8 (Nebula UI) implementation concerns:
+
+- **Tree nesting**: Build nested `{ nodeId, slug, children[] }` from `DagTreeState.nodes` (using each node's `childIds`). In a DAG, a node with multiple parents appears in multiple positions.
+- **Phantom branches**: Separate deleted and orphaned nodes into virtual "Deleted"/"Orphaned" branches (blueprint's `separateTreeAndDeleted` pattern).
+- **`stitchParents`**: Add `node.parents` arrays (plural, DAG-aware) for upward traversal during search highlighting.
+- **Normalized paths**: The client determines the normalized path based on which visual position the user clicked in the tree (the breadcrumbs array). A DAG node appears in multiple positions; each click yields a different path. The server doesn't need to choose a canonical path.
+- **Peer comparisons**: Given a breadcrumbs path, the client goes up one level (`path.slice(0, -1)`) and uses `parent.children` to find siblings. This is the comparison set for analysis/aggregations.
+
 ### Nebula Resources Enhancements (from backlog)
 
 **Fanout Broadcast Tiering**:

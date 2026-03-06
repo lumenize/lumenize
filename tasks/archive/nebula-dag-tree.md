@@ -1,7 +1,7 @@
 # DAG Tree Access Control
 
-**Phases**: 3.1 (implementation — COMPLETE), 3.x (follow-on). Phase 3.0 (experiment) archived at `tasks/archive/nebula-dag-tree-experiment.md`.
-**Status**: Phase 3.1 Complete
+**Phases**: 3.1 (implementation — COMPLETE), 3.2 (cleanup — COMPLETE). Phase 3.0 (experiment) archived at `tasks/archive/nebula-dag-tree-experiment.md`.
+**Status**: Phase 3.2 Complete
 **Location**: `apps/nebula/` (Star DO)
 **Depends on**: Phase 2.1 (Test Structure Refactor)
 **Master task file**: `tasks/nebula.md`
@@ -522,60 +522,55 @@ callStarGetState(starName: string) {
 
 ---
 
-## Phase 3.x: Follow-On Work
+## Phase 3.2: Remove Phase 2 Placeholders from Star
 
-### Cleanup
+**Status**: Complete
+**Goal**: Remove dummy methods from `Star` that were Phase 2 smoke tests, now superseded by the real `dagTree()` entry point.
 
-- **Remove dummy config methods from Star**: `setStarConfig` and `getStarConfig` are Phase 2 placeholders. Move them to `StarTest` (test subclass) so existing Phase 2 tests don't break, then remove from `Star`.
-- **Remove `whoAmI()` from Star**: Returns the caller's `sub`, but the caller already knows their own identity (it's in the JWT they used to authenticate). Useful as a Phase 2 smoke test but has no real utility. Move to `StarTest` if any tests depend on it.
+### Changes
 
-### Additional Operations
+**Move to `StarTest`** (test subclass in `test/test-apps/baseline/index.ts`):
+- `setStarConfig(key, value)` — move the method with its `@mesh(requireAdmin)` decorator
+- `getStarConfig()` — move with its `@mesh()` decorator
+- `whoAmI()` — move with its `@mesh()` decorator
 
-- `getNodeByPath(slugPath)` — resolve `level-1-slug/.../level-n-slug` to a nodeId by walking Edges from root, matching slugs at each level
-- `getSubtreePermissions(nodeId, sub)` — summary of what a subject can access in a subtree
-- Bulk operations for tree setup (import/export)
+**Remove from `Star`** (`apps/nebula/src/star.ts`): All three methods above.
 
-### UI Support (Client-Side)
+**Update existing tests**: `guards.test.ts` and `scope-binding.test.ts` call these methods via `NebulaClientTest` helpers (`callStarSetConfig`, `callStarGetConfig`, `callStarWhoAmI`). These tests exercise the guard/scope-binding infrastructure, not Star's business logic — they still pass because `StarTest` inherits from `Star` and the test wrangler binds `StarTest` as `STAR`.
 
-The server sends `DagTreeState` (Phase 3.1) — Maps with nodes (including embedded parentIds/childIds) and permissions. The client imports `dag-ops` functions from `@lumenize/nebula` to operate on its local `DagTreeState` copy — pre-validation, permission-aware UI, and traversal all run client-side with zero round trips. See `dag-ops.ts` in Phase 3.1 for the full function list.
+**Verify**: All 57 existing tests pass unchanged.
 
-**Client-side `dag-ops` usage**:
-- **Pre-validation**: `validateSlug(slug)`, `checkSlugUniqueness(localState, parentId, slug)`, `detectCycle(localState, parentId, childId)` before calling `star.createNode()` / `star.addEdge()` — fail fast without a mesh call
-- **Permission-aware UI**: `resolvePermission(localState, mySub, nodeId, 'write')` to enable/disable action buttons, grey out inaccessible nodes, pre-check before mutations
-- **Traversal**: `getNodeAncestors(localState, nodeId)` / `getNodeDescendants(localState, nodeId)` for breadcrumbs, subtree views, search highlighting
+### Success Criteria
 
-**Client-side display patterns** (see blueprint UI reference in `tasks/reference/blueprint/ui/`):
+- [x] `Star` class has only `onStart()`, `dagTree()`, and `#onChanged()` — no leftover placeholder methods
+- [x] `StarTest` provides `setStarConfig`, `getStarConfig`, `whoAmI` for tests that need them
+- [x] All 57 tests pass unchanged
 
-- **Tree nesting**: Build nested `{ nodeId, slug, children[] }` from `DagTreeState.nodes` (using each node's `childIds`). In a DAG, a node with multiple parents appears in multiple positions.
-- **Phantom branches**: Separate deleted and orphaned nodes into virtual "Deleted"/"Orphaned" branches (blueprint's `separateTreeAndDeleted` pattern).
-- **`stitchParents`**: Add `node.parents` arrays (plural, DAG-aware) for upward traversal during search highlighting.
-- **Normalized paths**: The client determines the normalized path based on which visual position the user clicked in the tree (the breadcrumbs array). A DAG node appears in multiple positions; each click yields a different path. The server doesn't need to choose a canonical path.
-- **Peer comparisons**: Given a breadcrumbs path, the client goes up one level (`path.slice(0, -1)`) and uses `parent.children` to find siblings. This is the comparison set for analysis/aggregations.
+---
 
-### Subscription Fan-Out (Phase 5)
+## Follow-On Items (Relocated)
 
-Tree mutation notifications delivered to subscribers via `lmz.call()` through `NebulaClientGateway`. See `tasks/nebula-scratchpad.md` for design notes on subscription shape and subscriber tracking.
+Items from the original Phase 3.x section have been relocated:
 
-### Additional Tests
-
-- Integration with Resources (Phase 5) — real resource CRUD gated by DAG permissions
-- Performance regression tests — ensure permission resolution stays fast as tree grows
-- Edge cases: very deep trees (depth 10), wide trees (100+ children), dense DAGs (many diamonds)
-
-### Optimization (if needed)
-
-- **HMAC capability ticket short-circuit** (Phase 5.5): When a user presents a valid HMAC ticket for a resource, skip the DAG walk entirely — the ticket is proof that Star already authorized this sub + resource + tier. First check in the guard chain, zero SQL. Especially valuable for repeated access to the same resource and for subscribe (ticket validates once, WebSocket stays open). See `tasks/nebula.md` Phase 5.5.
-- Materialized closure table for ancestor queries (only if in-memory cache proves insufficient at scale)
+| Item | New Location | Rationale |
+|------|-------------|-----------|
+| `getNodeByPath(slugPath)` | `tasks/nebula-resources.md` (DAG prerequisites) | Needed for resource path resolution in Phase 5 |
+| Resource + DAG integration tests | `tasks/nebula-resources.md` (DAG prerequisites) | Phase 5 scope |
+| `getSubtreePermissions`, bulk ops | `tasks/nebula-scratchpad.md` (DAG Tree Enhancements) | No phase depends on them yet |
+| Client-side display patterns | `tasks/nebula-scratchpad.md` (Client-Side DAG Display Patterns) | Phase 8 (Nebula UI) concern |
+| Subscription fan-out | `tasks/nebula-scratchpad.md` (Star Subscription Design) | Already there from Phase 3.1 review |
+| Performance/edge-case tests | `tasks/nebula-scratchpad.md` (DAG Tree Enhancements) | Pull in if performance becomes a concern |
+| HMAC capability tickets | `tasks/nebula.md` Phase 5.5 | Already has its own task file entry |
+| Materialized closure table | `tasks/nebula-scratchpad.md` (DAG Tree Enhancements) | Contingent optimization |
 
 ---
 
 ## What Gets Replaced Later
 
-- **Any remaining dummy methods from Phase 2**: Fully removed, replaced by real resource methods in Phase 5
 - **`#onChanged` placeholder**: Replaced by subscription fan-out in Phase 5
 - **Some tests**: Replaced by integrated Resources + DAG tests in Phase 5
 
-**What survives**: The `dag-ops` pure functions (shared with clients), the `DagTree` class (schema, SQL persistence, in-memory cache), Star DO integration (`onStart`, thin `@mesh()` wrappers), and the core test scenarios for tree construction and permission rolldown.
+**What survives**: The `dag-ops` pure functions (shared with clients), the `DagTree` class (schema, SQL persistence, in-memory cache), Star DO integration (`onStart`, `dagTree()` entry point), and the core test scenarios for tree construction and permission rolldown.
 
 ## Success Criteria
 

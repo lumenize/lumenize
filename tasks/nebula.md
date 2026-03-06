@@ -59,7 +59,7 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 1.96 | `verifyNebulaAccessToken` | **Complete** | `tasks/archive/nebula-verify-access-token.md` |
 | 2 | Baseline Access Control | **Complete** | `tasks/archive/nebula-baseline-access-control.md` |
 | 2.1 | Test Structure Refactor | **Complete** | `tasks/archive/nebula-test-refactor.md` |
-| 3 | DAG Tree Access Control | Pending | `tasks/nebula-dag-tree.md` |
+| 3 | DAG Tree Access Control | **Phase 3.1 Complete** | `tasks/nebula-dag-tree.md` |
 | 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
 | 5 | Resources — Basic Functionality | Pending | `tasks/nebula-resources.md` |
 | 5.5 | Resource Capability Tickets | Pending | `tasks/nebula-resource-capability-tickets.md` |

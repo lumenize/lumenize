@@ -37,6 +37,23 @@ import type { PermissionTier } from '@lumenize/nebula';
 
 export class StarTest extends Star {
   @mesh(requireAdmin)
+  setStarConfig(key: string, value: string) {
+    const config = this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
+    config[key] = value;
+    this.ctx.storage.kv.put('config', config);
+  }
+
+  @mesh()
+  getStarConfig(): Record<string, string> {
+    return this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
+  }
+
+  @mesh()
+  whoAmI(): string {
+    return `You are ${this.lmz.callContext.originAuth!.sub}`;
+  }
+
+  @mesh(requireAdmin)
   callClient(targetGatewayInstanceName: string, clientMethod: string, ...args: any[]): void {
     const ctn = this.ctn() as any;
     this.lmz.call(
