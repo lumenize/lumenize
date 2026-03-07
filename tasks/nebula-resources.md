@@ -73,7 +73,7 @@ Request arrives (Mesh or HTTP)
 │  - Resource config (slugs, debounce, history)   │
 │  - Guard methods (access control)               │
 │  - Validation methods                           │
-│  - Has this.lmz.callContext for auth             │
+│  - Has this.lmz.callContext for auth            │
 │  - Never touches storage or subscriptions       │
 │  - Can export multiple WorkerEntrypoints        │
 │    (e.g., ResourcesWorker + IntegrationsWorker) │

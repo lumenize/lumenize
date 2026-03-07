@@ -60,7 +60,8 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 2 | Baseline Access Control | **Complete** | `tasks/archive/nebula-baseline-access-control.md` |
 | 2.1 | Test Structure Refactor | **Complete** | `tasks/archive/nebula-test-refactor.md` |
 | 3 | DAG Tree Access Control | **Phase 3.1 Complete** | `tasks/nebula-dag-tree.md` |
-| 4 | User-provided Code Isolation Research | Pending | `tasks/nebula-isolation-research.md` |
+| 4.0 | Isolation Technologies Blog Post | Pending | `tasks/nebula-isolation-blog.md` |
+| 4.1 | TypeScript as Schema Research | Pending | `tasks/nebula-ts-as-schema-research.md` |
 | 5 | Resources — Basic Functionality | Pending | `tasks/nebula-resources.md` |
 | 5.5 | Resource Capability Tickets | Pending | `tasks/nebula-resource-capability-tickets.md` |
 | 6 | Resources — Schema Migration | Pending | `tasks/nebula-schema-migration.md` |
@@ -116,9 +117,13 @@ Refactor the Phase 2 test suite from a flat `test/` directory into a split struc
 
 Add a DAG tree inside each Star DO. The nebula-auth hierarchy (`universe.galaxy.star`) goes up from Star; the DAG tree goes down to organize resources. Prior art ported from `transformation-dev/blueprint` (cycle detection, tree operations) with new permission model on top. Every resource attaches to one node (but may be accessible via multiple DAG paths). Permissions (admin, write, read) roll down — if any ancestor branch grants access, the node is accessible. Greatly refactors the Phase 2 test suite. Resource paths: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`. Phase 3.0 (SQL performance experiment) archived at `tasks/archive/nebula-dag-tree-experiment.md`. Remaining sub-phases: 3.1 (implementation), 3.x (follow-on).
 
-### Phase 4: Cloudflare Isolation Research
+### Phase 4.0: Isolation Technologies Blog Post
 
-Research and benchmark Cloudflare's four isolation technologies: DWL (raw), `@cloudflare/codemode` SDK (DWL wrapper), Containers (raw), and Sandbox SDK (Containers wrapper). Cold start times, DX comparison (direct vs wrapper), use case distinctions, cost analysis (could be just a hand wave). Deliverable is a blog post. Must complete before Phase 5 (Resources needs DWL) and Phase 6 (schema validation needs Containers). Can start in parallel with earlier phases.
+Research, benchmark, and write a blog post comparing Cloudflare's four isolation technologies: DWL (raw), `@cloudflare/codemode` SDK (DWL wrapper), Containers (raw), and Sandbox SDK (Containers wrapper). Two tiers: V8 Isolates (ms cold start, JS only, 128MB) vs Linux VMs (2-3s cold start, any binary, up to 12GB). Audience is the DWL private beta channel. Primary goal is hands-on learning; the blog post is a forcing function. Can start in parallel with earlier phases.
+
+### Phase 4.1: TypeScript as Schema Research
+
+Research spike for using real TypeScript types as the schema input for runtime validation, LLM prompts, and IDE type-checking. Three candidate architectures: A1 (bundle `tsc` into DWL — the dream), A2 (`tsgo` in Container — fallback), B (compile once, validate many — last resort). Key enablers: `toLiteralString()` mode for `@lumenize/structured-clone`, `tsgo --api` JSON-RPC. Depends on Phase 4.0 for hands-on DWL/Container experience. Must complete before Phase 5 (Resources) and Phase 6 (Schema Migration).
 
 ### Phase 5: Resources — Basic Functionality
 
@@ -213,21 +218,7 @@ Tightly coupled to the resources implementation. Local state management mirrors 
 
 ## Research Notes
 
-### Cloudflare Sandbox SDK (To Be Evaluated)
-
-Cloudflare announced a [Sandbox SDK](https://developers.cloudflare.com/sandbox/) for running untrusted code in isolated environments. May be relevant as an alternative or complement to DWL for executing user-provided guards, migrations, and validation logic. Key questions: Does it offer better isolation guarantees? Is it simpler to manage than DWL stubs? Does it support the inverted architecture? What are the latency and billing characteristics?
-
-### `@cloudflare/codemode` v0.1.0 SDK Rewrite (2026-02-20)
-
-Cloudflare released a complete rewrite of `@cloudflare/codemode` as a modular, runtime-agnostic SDK built on DWL infrastructure:
-
-- **`DynamicWorkerExecutor`** — pre-built executor with network isolation, console capture, and configurable timeout. Production-hardened version of our DWL sandboxing pattern.
-- **`Executor` interface** — minimal contract (`execute(code, fns)`) for custom sandbox implementations. Worth studying for our DWL executor structure.
-- Validates DWL as a production-ready pattern — Cloudflare is building official tooling around it.
-
-### Runtime Type Validation (Experiment)
-
-Run `tsgo` (or Rust-based TS compiler) in a Cloudflare Container. `@lumenize/structured-clone` gains `toLiteralString()` mode. TypeScript itself validates values against type definitions — no schema DSL duplication. Spike planned in `experiments/tsgo-validation-spike/`.
+See Phase 4.0 (`tasks/nebula-isolation-blog.md`) for detailed notes on DWL, codemode, Containers, and Sandbox SDK. See Phase 4.1 (`tasks/nebula-ts-as-schema-research.md`) for the TypeScript-as-schema vision, `toLiteralString()`, and the A1/A2/B architecture decision.
 
 ---
 
