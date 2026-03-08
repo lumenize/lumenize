@@ -391,16 +391,16 @@ export class ProjectResources extends ResourcesWorker {
 
 **How it works**:
 1. Developer writes TypeScript types — these ARE the schema
-2. Runtime data arrives via `lmz.call()`. A `toTypeScript()` function (building on `@lumenize/structured-clone`) generates a small TypeScript program that constructs the value
-3. tsc type-checks the program in a DWL isolate via `ts.createProgram()` + `getPreEmitDiagnostics()`
+2. Runtime data arrives via `lmz.call()` in the existing `$lmz` wire format
+3. A generated TypeScript program (type definition + data literal) is type-checked in a DWL isolate via `ts.createProgram()` + `getPreEmitDiagnostics()`
 4. If diagnostics are non-empty, validation failed — with real TypeScript error messages
-
-**Cycle support**: Nebula transmits rich types including cycles via `@lumenize/structured-clone`. For cyclic data, `toTypeScript()` emits multi-statement programs with `const __refN = {} as T` declarations followed by property assignments that wire up back-references. tsc checks every assignment.
 
 **What this replaces**: The original plan was tsgo in a Container. The spike showed tsc-in-DWL is fast enough (1ms vs the 50ms threshold), eliminating the need for Container infrastructure entirely.
 
+**Note**: We explored using TypeScript programs as the wire format (replacing `$lmz` tuples) but dropped it — reconstruction from the AST would require writing a second deserializer with no real advantage over the existing format. The wire format stays as `$lmz`; TypeScript is used purely for validation.
+
 **Operationalization** (Phase 5 work):
-- Implement `toTypeScript()` in `@lumenize/structured-clone` — acyclic (single literal) and cyclic (multi-statement) paths
+- Build a function that generates TypeScript program text from runtime data + type definitions for tsc validation
 - Bundle tsc as a DWL module, loaded by `LumenizeResources` for schema validation
 - Integrate into the transaction protocol — validate before write
 - Input size limits on type definitions as a guard against adversarial schemas

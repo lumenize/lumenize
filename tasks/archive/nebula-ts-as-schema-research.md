@@ -1,7 +1,7 @@
 # TypeScript as Schema — Research
 
 **Phase**: 4.1
-**Status**: **SPIKE A1 COMPLETE — tsc in DWL confirmed viable. Decision: A1 wins.**
+**Status**: **COMPLETE** — Spike A1 confirmed tsc in DWL at 1ms/call. Decision captured in `docs/adr/001-typescript-as-schema.md`. Wire format idea explored and dropped (AST reconstruction = second deserializer with no advantage).
 **Depends on**: Phase 4.0 (complete — DWL benchmarks, tsgo benchmarks, codemode evaluation)
 **Master task file**: `tasks/nebula.md`
 **Deliverable**: Spike results and architecture decision for TypeScript-as-schema validation in Phase 5/6

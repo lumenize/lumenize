@@ -1,7 +1,7 @@
 # Cloudflare Isolation Technologies — Blog Post
 
 **Phase**: 4.0
-**Status**: Near-complete — benchmarks done, blog updated, website builds. Container deployment benchmarks deferred.
+**Status**: **COMPLETE** — benchmarks done, blog updated, website builds. Container deployment benchmarks skipped (not needed after tsc-in-DWL validated).
 **Depends on**: None (can start in parallel with phases 1-3)
 **Master task file**: `tasks/nebula.md`
 **Deliverable**: Blog post comparing and contrasting Cloudflare's user-provided code isolation offerings
