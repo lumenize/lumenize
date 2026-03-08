@@ -32,6 +32,9 @@ dist-ssr
 # node-localstorage
 .scratch
 
+# Experiments (throwaway spikes, not for source control)
+experiments/
+
 # vitest
 .vitest-cache
 coverage

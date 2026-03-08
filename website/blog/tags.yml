@@ -42,4 +42,9 @@ nebula:
   label: Nebula
   permalink: /nebula
   description: Lumenize Nebula agentic platform
+
+cloudflare:
+  label: Cloudflare
+  permalink: /cloudflare
+  description: Cloudflare Workers, Durable Objects, and platform features
   

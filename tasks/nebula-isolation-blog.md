@@ -1,12 +1,34 @@
 # Cloudflare Isolation Technologies — Blog Post
 
 **Phase**: 4.0
-**Status**: Pending
+**Status**: Near-complete — benchmarks done, blog updated, website builds. Container deployment benchmarks deferred.
 **Depends on**: None (can start in parallel with phases 1-3)
 **Master task file**: `tasks/nebula.md`
 **Deliverable**: Blog post comparing and contrasting Cloudflare's user-provided code isolation offerings
 **Audience**: Developers in the DWL private beta channel asking for compare-and-contrast + use-case guidance. Primary goal is our own learning; the blog post is a forcing function.
 **Related**: Phase 4.1 (`tasks/nebula-ts-as-schema-research.md`) — deeper research that feeds Phase 5
+
+## Current Status (2026-03-08)
+
+### Completed
+- ✅ **Research**: All four technologies researched (DWL, codemode, Containers, Sandbox SDK) via docs, source code, Cloudflare MCP, and web searches
+- ✅ **Blog post draft**: `website/blog/2026-03-07-cloudflare-code-isolation-guide/index.md` (~420 lines). Includes: comparison table, DWL deep dive with code samples, codemode pipeline, Container pricing, Sandbox features, crossover framework, WfP context, security models, billing worked examples, spike results, benchmark data, 12 gotchas
+- ✅ **Gotchas validated**: All 12 checked against latest docs/releases
+- ✅ **codemode patterns evaluated**: `Executor` interface, `ToolDispatcher`, `acorn` normalization documented
+- ✅ **DWL spike results incorporated**: All 6 experiments from `experiments/dwl-spike/` summarized in blog post
+- ✅ **Phase 4.1 task file updated**: Ezno-WASM approach (A1.5) added to `tasks/nebula-ts-as-schema-research.md`
+- ✅ **tsgo-WASM assessed**: 45 MB binary, GC pauses — ruled out vs Ezno-WASM (~2-5 MB, no GC)
+- ✅ **Blog tag added**: `cloudflare` tag in `website/blog/tags.yml`
+- ✅ **DWL benchmarks**: `experiments/dwl-benchmarks/` — 5 benchmark categories (isolate creation, RPC latency, module loading, globalOutbound, codemode-equivalent). Results: cold creation ~1ms, warm ~0ms, 100KB module ~2ms, 500KB ~8ms, globalOutbound null = zero overhead, codemode wrapping = zero overhead
+- ✅ **codemode import gotcha discovered**: `@cloudflare/codemode` v0.1.2 can't be imported in Workers — `zod-to-ts` pulls in TypeScript compiler which uses `__filename` (CJS). Documented in blog post.
+- ✅ **tsgo benchmarks**: `experiments/tsgo-benchmarks/` — `@typescript/native-preview` 7.0.0-dev: 10 types = 82ms, 100 types = 91ms, 1000 types = 283ms. Startup-dominated (~80ms overhead), per-type cost ~0.2ms
+- ✅ **Blog updated with benchmark data**: DWL benchmark table, tsgo benchmark table, codemode import gotcha, container cold-start estimates
+- ✅ **Website builds**: `npm run build` passes (one pre-existing broken anchor warning unrelated to blog)
+
+### Remaining
+- [ ] **Container deployment benchmarks** (deferred): Deploy to Cloudflare to measure actual cold start times for `lite` vs `basic` vs `standard-1`. Current blog uses Cloudflare's published 2-3s spec + estimate.
+- [ ] **Sandbox SDK benchmarks** (deferred): Same underlying Container, SDK overhead is thin HTTP/WS wrapper. Low value vs effort.
+- [ ] **Publish**: Blog is ready for review and publishing
 
 ## Goal
 
@@ -232,9 +254,9 @@ Collected from spike, research, and docs:
 ## Success Criteria
 
 - [ ] Cold start benchmarks for both tiers (DWL local-only, Containers deployable)
-- [ ] DX comparison with code samples (raw vs wrapper for each pair)
+- [x] DX comparison with code samples (raw vs wrapper for each pair) — in blog post
 - [ ] `tsgo` benchmarked in Container for representative schema sizes
-- [ ] codemode's `Executor`, `ToolDispatcher`, and `acorn` normalization patterns evaluated for reuse
-- [ ] Gotchas section validated against latest docs/releases
-- [ ] Clear use case guidance (not prescriptive "best for" — let readers decide)
+- [x] codemode's `Executor`, `ToolDispatcher`, and `acorn` normalization patterns evaluated for reuse
+- [x] Gotchas section validated against latest docs/releases
+- [x] Clear use case guidance (not prescriptive "best for" — let readers decide) — decision framework in blog post
 - [ ] Published blog post

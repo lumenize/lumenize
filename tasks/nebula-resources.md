@@ -383,25 +383,27 @@ export class ProjectResources extends ResourcesWorker {
 - How to handle migration failures (rollback? quarantine the row?)
 - Can migrations themselves be validated via the tsgo experiment?
 
-### Runtime Type Validation via TypeScript Compiler — EXPERIMENT
+### Runtime Type Validation via TypeScript Compiler — VALIDATED
 
-**Idea**: Use the TypeScript compiler itself as the runtime validator. No Zod, no TypeBox, no schema DSL duplication. The `.d.ts` or class definition the vibe coder already wrote *is* the validation schema.
+> **Architecture decision**: See `docs/adr/001-typescript-as-schema.md` for the full rationale, spike results, and implementation notes.
 
-**How it would work**:
-1. Run a TypeScript compiler (`tsgo` — Go-based, 10x faster than `tsc`, or a newer Rust-based alternative) on a **Cloudflare Container** exposed via JSON-RPC API
-2. Upgrade `@lumenize/structured-clone` to support a `toLiteralString()` mode — instead of building runtime objects, build a TypeScript/JavaScript string literal representation. The tree-walking code and case-statement structure already exist; this mode just outputs `new Date("2025-01-15T...")`, `new Set(["urgent"])`, etc. as strings
-3. Construct a small TypeScript file: the type definition + `const x: TaskType = <literal>` and feed it to the compiler
-4. If the compiler complains, validation failed — with real TypeScript error messages
+**Result**: The TypeScript compiler (`tsc` v5.9.3) runs directly in a DWL isolate — no Container needed. Bundled with `esbuild --platform=browser --format=esm --minify` at 3.4 MB, it achieves **1 ms median per-call validation** on a warm isolate (n=100). Cold start is ~123 ms, amortized over the isolate's lifetime.
 
-**Why this is practical now**:
-- `tsgo` (Project Corsa) compiles 1.5M lines in 8.7 seconds. A single-file type check would be single-digit milliseconds on a warm container
-- `tsgo` is a standalone Go binary — tiny container image, fast startup, low memory
-- A Rust-based TypeScript compiler may be even faster
-- The latency is acceptable as part of a `transaction()` that's already paying for a DWL round-trip
+**How it works**:
+1. Developer writes TypeScript types — these ARE the schema
+2. Runtime data arrives via `lmz.call()`. A `toTypeScript()` function (building on `@lumenize/structured-clone`) generates a small TypeScript program that constructs the value
+3. tsc type-checks the program in a DWL isolate via `ts.createProgram()` + `getPreEmitDiagnostics()`
+4. If diagnostics are non-empty, validation failed — with real TypeScript error messages
 
-**Alternative considered: pre-compile at deploy time**: Run the compiler once when code changes to extract type shape and generate a lightweight runtime checker. Rejected because it's basically reinventing TypeBox/Zod with extra steps. The purity of "TypeScript is the validator" is the whole point.
+**Cycle support**: Nebula transmits rich types including cycles via `@lumenize/structured-clone`. For cyclic data, `toTypeScript()` emits multi-statement programs with `const __refN = {} as T` declarations followed by property assignments that wire up back-references. tsc checks every assignment.
 
-**Phase 0 experiment**: Spike this in `experiments/tsgo-validation-spike/`. Success criteria: demonstrate a round-trip where a value is validated against a TypeScript type definition using `tsgo` in a container, with acceptable latency (<50ms warm).
+**What this replaces**: The original plan was tsgo in a Container. The spike showed tsc-in-DWL is fast enough (1ms vs the 50ms threshold), eliminating the need for Container infrastructure entirely.
+
+**Operationalization** (Phase 5 work):
+- Implement `toTypeScript()` in `@lumenize/structured-clone` — acyclic (single literal) and cyclic (multi-statement) paths
+- Bundle tsc as a DWL module, loaded by `LumenizeResources` for schema validation
+- Integrate into the transaction protocol — validate before write
+- Input size limits on type definitions as a guard against adversarial schemas
 
 ## Carried Forward from Icebox Design
 
@@ -556,7 +558,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [x] `transaction()` API decided: `lmz.transaction([lmz.upsert(...), lmz.delete(...)])` with convenience functions
 - [x] Convenience function overloads decided: `(id, val)`, `(id, val, eTag)`, `(snapshot, val)` — eTag from cache or explicit
 - [x] Manual transaction protocol decided: read→eTag check→DWL guards→recheck→transactionSync write
-- [ ] **Experiment: tsgo runtime validation** — spike in `experiments/tsgo-validation-spike/`
+- [x] **Runtime type validation** — tsc in DWL spike complete. 1ms median per-call. See `docs/adr/001-typescript-as-schema.md`
 - [ ] Design schema evolution and migration strategy
 - [ ] Finalize DO method surface (transaction, read, reads, subscribe, discover)
 - [ ] Finalize ResourcesWorker base class methods (runGuards batch, getResources, migrations)
@@ -612,7 +614,6 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [ ] `getResources()` returns serializable config (no functions)
 - [ ] `lmz.call(stub, continuation)` overload implemented in `LumenizeResources`
 - [ ] Code versioning — hash-based DWL stub management
-- [ ] Schema evolution — version tracking, migration chain execution
 - [ ] `globalOutbound: null` sandbox with controlled `env` bindings
 
 ### Phase 5: Documentation & Tests
@@ -624,6 +625,7 @@ Every resource test must use an object that includes a Map, a Date, and a Cycle 
 - [ ] `website/sidebars.ts` updated
 - [ ] All `@skip-check` converted to `@check-example`
 - [ ] Branch coverage >80%, statement coverage >90%
+- [ ] Schema evolution — version tracking, migration chain execution (late sub-phase, needs production usage patterns to inform design)
 
 ## Notes
 
