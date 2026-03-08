@@ -1,9 +1,9 @@
 # Nebula Resource Capability Tickets
 
-**Phase**: 5.5
+**Phase**: 5.4
 **Status**: Pending
 **App**: `apps/nebula/`
-**Depends on**: Phase 5 (Resources — Basic Functionality), Phase 3 (DAG Tree Access Control)
+**Depends on**: Phase 5.1 (Storage Engine), Phase 3 (DAG Tree Access Control)
 
 **Master task file**: `tasks/nebula.md`
 

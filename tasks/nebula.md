@@ -60,11 +60,15 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 2 | Baseline Access Control | **Complete** | `tasks/archive/nebula-baseline-access-control.md` |
 | 2.1 | Test Structure Refactor | **Complete** | `tasks/archive/nebula-test-refactor.md` |
 | 3 | DAG Tree Access Control | **Phase 3.1 Complete** | `tasks/nebula-dag-tree.md` |
-| 4.0 | Isolation Technologies Blog Post | Pending | `tasks/nebula-isolation-blog.md` |
-| 4.1 | TypeScript as Schema Research | Pending | `tasks/nebula-ts-as-schema-research.md` |
-| 5 | Resources — Basic Functionality | Pending | `tasks/nebula-resources.md` |
-| 5.5 | Resource Capability Tickets | Pending | `tasks/nebula-resource-capability-tickets.md` |
-| 6 | Resources — Schema Migration | Pending | `tasks/nebula-schema-migration.md` |
+| 4.0 | Isolation Technologies Blog Post | **Complete** | `tasks/archive/nebula-isolation-blog.md` |
+| 4.1 | TypeScript as Schema Research | **Complete** | `tasks/archive/nebula-ts-as-schema-research.md` |
+| 5.1 | Storage Engine | Pending | `tasks/nebula-5.1-storage-engine.md` |
+| 5.2 | tsc Validation in DWL | Pending | `tasks/nebula-5.2-tsc-validation.md` |
+| 5.3 | Subscriptions & Fanout | Pending | `tasks/nebula-5.3-subscriptions.md` |
+| 5.4 | Resource Capability Tickets | Pending | `tasks/nebula-resource-capability-tickets.md` |
+| 5.5 | Schema Evolution | Pending | `tasks/nebula-5.5-schema-evolution.md` |
+| 5.6 | HTTP Transport | Pending | `tasks/nebula-5.6-http-transport.md` |
+| 5.7 | Documentation & Coverage | Pending | `tasks/nebula-5.7-docs-coverage.md` |
 | 7 | Nebula Client | Pending | `tasks/nebula-client.md` |
 | 8 | Nebula UI | Pending | TBD |
 | 9 | Nebula Vibe Coding IDE | Pending | `tasks/nebula-vibe-coding-ide.md` |
@@ -117,25 +121,41 @@ Refactor the Phase 2 test suite from a flat `test/` directory into a split struc
 
 Add a DAG tree inside each Star DO. The nebula-auth hierarchy (`universe.galaxy.star`) goes up from Star; the DAG tree goes down to organize resources. Prior art ported from `transformation-dev/blueprint` (cycle detection, tree operations) with new permission model on top. Every resource attaches to one node (but may be accessible via multiple DAG paths). Permissions (admin, write, read) roll down — if any ancestor branch grants access, the node is accessible. Greatly refactors the Phase 2 test suite. Resource paths: `universe.galaxy.star/resources/level-1-slug/.../level-n-slug`. Phase 3.0 (SQL performance experiment) archived at `tasks/archive/nebula-dag-tree-experiment.md`. Remaining sub-phases: 3.1 (implementation), 3.x (follow-on).
 
-### Phase 4.0: Isolation Technologies Blog Post
+### Phase 4.0: Isolation Technologies Blog Post — COMPLETE
 
-Research, benchmark, and write a blog post comparing Cloudflare's four isolation technologies: DWL (raw), `@cloudflare/codemode` SDK (DWL wrapper), Containers (raw), and Sandbox SDK (Containers wrapper). Two tiers: V8 Isolates (ms cold start, JS only, 128MB) vs Linux VMs (2-3s cold start, any binary, up to 12GB). Audience is the DWL private beta channel. Primary goal is hands-on learning; the blog post is a forcing function. Can start in parallel with earlier phases.
+Research, benchmark, and write a blog post comparing Cloudflare's four isolation technologies. Primary goal was hands-on learning; the blog post was a forcing function. Container deployment benchmarks skipped after tsc-in-DWL validated.
 
-### Phase 4.1: TypeScript as Schema Research
+### Phase 4.1: TypeScript as Schema Research — COMPLETE
 
-Research spike for using real TypeScript types as the schema input for runtime validation, LLM prompts, and IDE type-checking. Three candidate architectures: A1 (bundle `tsc` into DWL — the dream), A2 (`tsgo` in Container — fallback), B (compile once, validate many — last resort). Key enablers: `toLiteralString()` mode for `@lumenize/structured-clone`, `tsgo --api` JSON-RPC. Depends on Phase 4.0 for hands-on DWL/Container experience. Must complete before Phase 5 (Resources) and Phase 6 (Schema Migration).
+Spike A1 confirmed tsc runs in DWL at 1ms/call. Decision captured in `docs/adr/001-typescript-as-schema.md`. Wire format idea (TypeScript as the serialization format) explored and dropped — AST reconstruction would be a second deserializer with no advantage over `$lmz`. Ezno, tsgo Container, and compile-once approaches all eliminated.
 
-### Phase 5: Resources — Basic Functionality
+### Phase 5.1: Storage Engine
 
-The heart of Nebula. Temporal storage (Snodgrass-style) with subscriptions, fanout, guards, and validation. User-provided code runs in DWL isolates (informed by Phase 4 research). Integrates the DAG access control model. Includes abuse case testing for the combined Resources + DAG access control. Extensive existing design in `tasks/nebula-resources.md`. **Primary prior art**: Blueprint repo's `temporal-entity.js` — the exact Snodgrass temporal storage implementation for Cloudflare DOs (saved at `tasks/reference/blueprint/temporal-entity.js`). Resources = Temporal Entities.
+Temporal storage (Snodgrass-style) in ResourceHistory DO. CRUD with optimistic concurrency (eTag), debounce, history modes. DAG tree gates access. Prior art: Blueprint's `temporal-entity.js`. Design reference: `tasks/nebula-resources.md`.
 
-### Phase 5.5: Resource Capability Tickets
+### Phase 5.2: tsc Validation in DWL
 
-Per-resource, per-user HMAC capability tickets so clients can talk directly to ResourceHistory DOs without routing every access through the Star singleton. Star mints short-lived tickets (after checking the DAG) using the existing JWT private key (BLUE/GREEN rotation) — no new secrets. ResourceHistory independently verifies by recomputing the HMAC with the same key from `env`. Stateless on both sides: Star mints and forgets, ResourceHistory just verifies. Tickets are per-user and per-resource (unforgeable, unshareable). Short TTL means revocation takes effect naturally when the client asks Star for a fresh ticket.
+Bundle tsc in a DWL isolate. Validate data against TypeScript type definitions before write. Simple service call — no base class, no guard dispatch. Operationalizes ADR-001.
 
-### Phase 6: Resources — Schema Migration
+### Phase 5.3: Subscriptions & Fanout
 
-Schema evolution and migration layer on top of the basic Resources engine. User-provided migration functions in DWL, versioned alongside resource config. TypeScript types are the schema — no DSL. Runtime type validation via `tsc`/`tsgo` in Containers (informed by Phase 4 research). Lazy read-time migration with write-back.
+`subscribe()` with initial value + ongoing updates, BroadcastChannel semantics, cleanup, continuation pattern, auto-resubscribe.
+
+### Phase 5.4: Resource Capability Tickets
+
+Per-resource, per-user HMAC capability tickets so clients can talk directly to ResourceHistory DOs without routing through Star. Stateless minting and verification using existing JWT private keys.
+
+### Phase 5.5: Schema Evolution
+
+User-provided migration functions in DWL sandbox. Version tracking, migration chain, lazy read-time migration. Builds on 5.2 (tsc validation) but separate concern.
+
+### Phase 5.6: HTTP Transport
+
+`GET`/`PUT`/`DELETE`, `If-Match` for optimistic concurrency, `GET /discover`, content type `application/vnd.lumenize.structured-clone+json`.
+
+### Phase 5.7: Documentation & Coverage
+
+Docs, sidebar updates, `@check-example` conversion, coverage targets.
 
 ### Phase 7: Nebula Client
 
@@ -218,7 +238,7 @@ Tightly coupled to the resources implementation. Local state management mirrors 
 
 ## Research Notes
 
-See Phase 4.0 (`tasks/nebula-isolation-blog.md`) for detailed notes on DWL, codemode, Containers, and Sandbox SDK. See Phase 4.1 (`tasks/nebula-ts-as-schema-research.md`) for the TypeScript-as-schema vision, `toLiteralString()`, and the A1/A2/B architecture decision.
+See Phase 4.0 (`tasks/archive/nebula-isolation-blog.md`) for detailed notes on DWL, codemode, Containers, and Sandbox SDK. See Phase 4.1 (`tasks/archive/nebula-ts-as-schema-research.md`) for the TypeScript-as-schema research. Clean decision: `docs/adr/001-typescript-as-schema.md`.
 
 ---
 
