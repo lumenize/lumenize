@@ -9,6 +9,10 @@ export { Galaxy } from './galaxy';
 export { Star } from './star';
 export { ResourceHistory } from './resource-history';
 
+// Resources
+export { Resources, END_OF_TIME } from './resources';
+export type { SnapshotMeta, Snapshot, OperationDescriptor, TransactionResult } from './resources';
+
 // DAG tree
 export { DagTree } from './dag-tree';
 export type { PermissionTier, DagTreeState } from './dag-ops';

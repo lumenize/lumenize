@@ -7,3 +7,7 @@
 ## Scope
 
 Bundle tsc in a DWL isolate. Validate data against TypeScript type definitions before write. Simple service call — no base class, no guard dispatch. Operationalizes ADR-001.
+
+## Scratchpad
+
+- In order to validate, we're going to need to know the type and version.

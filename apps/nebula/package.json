@@ -42,6 +42,7 @@
     "@lumenize/auth": "^0.22.0",
     "@lumenize/debug": "^0.22.0",
     "@lumenize/mesh": "^0.22.0",
+    "@lumenize/structured-clone": "^0.22.0",
     "@lumenize/nebula-auth": "^0.22.0",
     "@lumenize/routing": "^0.22.0"
   },

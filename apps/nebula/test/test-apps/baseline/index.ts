@@ -29,25 +29,13 @@ import {
   NebulaClient,
   requireAdmin,
 } from '@lumenize/nebula';
-import type { PermissionTier } from '@lumenize/nebula';
+import type { PermissionTier, OperationDescriptor } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
 // ============================================
 
 export class StarTest extends Star {
-  @mesh(requireAdmin)
-  setStarConfig(key: string, value: string) {
-    const config = this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
-    config[key] = value;
-    this.ctx.storage.kv.put('config', config);
-  }
-
-  @mesh()
-  getStarConfig(): Record<string, string> {
-    return this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
-  }
-
   @mesh()
   whoAmI(): string {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
@@ -131,7 +119,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarSetConfig(starInstanceName: string, key: string, value: string): void {
+  callStarSetConfig(starInstanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Star>().setStarConfig(key, value);
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
@@ -149,7 +137,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('UNIVERSE', instanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callUniverseSetConfig(instanceName: string, key: string, value: string): void {
+  callUniverseSetConfig(instanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Universe>().setUniverseConfig(key, value);
     this.lmz.call('UNIVERSE', instanceName, remote, this.ctn().handleResult(remote));
@@ -161,7 +149,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callGalaxySetConfig(instanceName: string, key: string, value: string): void {
+  callGalaxySetConfig(instanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Galaxy>().setGalaxyConfig(key, value);
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
@@ -260,6 +248,20 @@ export class NebulaClientTest extends NebulaClient {
   callStarGetNodeDescendants(starName: string, nodeId: number): void {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().getNodeDescendants(nodeId);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  // --- Resources test initiators ---
+
+  callStarResourcesTransaction(starName: string, ops: Record<string, OperationDescriptor>): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().resources().transaction(ops);
+    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  callStarResourcesRead(starName: string, resourceId: string): void {
+    this.resetResults();
+    const remote = this.ctn<Star>().resources().read(resourceId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 }

@@ -136,7 +136,8 @@ export class DagTree {
     return sub
   }
 
-  #requirePermission(nodeId: number, tier: PermissionTier): string {
+  requirePermission(nodeId: number, tier: PermissionTier): string {
+    this.#requireNodeExists(nodeId)
     const cc = this.#getCallContext()
     const sub = cc.originAuth?.sub
     if (!sub) throw new Error('Authentication required')
@@ -158,7 +159,7 @@ export class DagTree {
 
   createNode(parentNodeId: number, slug: string, label: string): number {
     this.#requireNodeExists(parentNodeId)
-    this.#requirePermission(parentNodeId, 'write')
+    this.requirePermission(parentNodeId, 'write')
     validateSlug(slug)
     checkSlugUniqueness(this.#cached, parentNodeId, slug)
 
@@ -189,7 +190,7 @@ export class DagTree {
     const parent = this.#cached.nodes.get(parentNodeId)!
     if (parent.childIds.includes(childNodeId)) return
 
-    this.#requirePermission(parentNodeId, 'write')
+    this.requirePermission(parentNodeId, 'write')
     detectCycle(this.#cached, parentNodeId, childNodeId)
     const child = this.#cached.nodes.get(childNodeId)!
     checkSlugUniqueness(this.#cached, parentNodeId, child.slug)
@@ -212,7 +213,7 @@ export class DagTree {
     const parent = this.#cached.nodes.get(parentNodeId)!
     if (!parent.childIds.includes(childNodeId)) return
 
-    this.#requirePermission(parentNodeId, 'write')
+    this.requirePermission(parentNodeId, 'write')
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(
@@ -235,8 +236,8 @@ export class DagTree {
       throw new Error(`Edge from ${oldParentId} to ${childNodeId} does not exist`)
     }
 
-    this.#requirePermission(oldParentId, 'write')
-    this.#requirePermission(newParentId, 'write')
+    this.requirePermission(oldParentId, 'write')
+    this.requirePermission(newParentId, 'write')
 
     // Cycle detection: would newParent→child create a cycle?
     detectCycle(this.#cached, newParentId, childNodeId)
@@ -267,7 +268,7 @@ export class DagTree {
     const node = this.#cached.nodes.get(nodeId)!
     if (node.deleted) return
 
-    this.#requirePermission(nodeId, 'write')
+    this.requirePermission(nodeId, 'write')
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec('UPDATE Nodes SET deleted = 1 WHERE nodeId = ?', nodeId)
@@ -284,7 +285,7 @@ export class DagTree {
     const node = this.#cached.nodes.get(nodeId)!
     if (!node.deleted) return
 
-    this.#requirePermission(nodeId, 'write')
+    this.requirePermission(nodeId, 'write')
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec('UPDATE Nodes SET deleted = 0 WHERE nodeId = ?', nodeId)
@@ -296,7 +297,7 @@ export class DagTree {
   renameNode(nodeId: number, newSlug: string): void {
     this.#requireNodeExists(nodeId)
     if (nodeId === ROOT_NODE_ID) throw new Error('Cannot rename root node')
-    this.#requirePermission(nodeId, 'write')
+    this.requirePermission(nodeId, 'write')
     validateSlug(newSlug)
 
     // Check uniqueness under every parent of this node
@@ -314,7 +315,7 @@ export class DagTree {
 
   relabelNode(nodeId: number, newLabel: string): void {
     this.#requireNodeExists(nodeId)
-    this.#requirePermission(nodeId, 'write')
+    this.requirePermission(nodeId, 'write')
     if (!newLabel) throw new Error('Label must not be empty')
     if (newLabel.length > 500) throw new Error('Label must be 500 characters or fewer')
 
@@ -329,7 +330,7 @@ export class DagTree {
 
   setPermission(nodeId: number, targetSub: string, level: PermissionTier): void {
     this.#requireNodeExists(nodeId)
-    this.#requirePermission(nodeId, 'admin')
+    this.requirePermission(nodeId, 'admin')
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(
@@ -348,7 +349,7 @@ export class DagTree {
     const nodePerms = this.#cached.permissions.get(nodeId)
     if (!nodePerms || !nodePerms.has(targetSub)) return
 
-    this.#requirePermission(nodeId, 'admin')
+    this.requirePermission(nodeId, 'admin')
 
     this.#ctx.storage.transactionSync(() => {
       this.#ctx.storage.sql.exec(
