@@ -1,6 +1,6 @@
 # Phase 5.2.1.1: Wrangler & Toolchain Upgrade
 
-**Status**: In Progress — Steps 1–5 complete, awaiting user commit (Step 6)
+**Status**: In Progress — Steps 1–7 complete, awaiting user commit (Step 8)
 **Package**: Monorepo-wide (`packages/`, `apps/`, and `doc-test/` — `experiments/` excluded)
 **Depends on**: None
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
@@ -141,7 +141,7 @@ Do NOT commit automatically. Ask the user to review and commit separately from S
 - [x] CLAUDE.md reflects updated `compatibility_date`
 
 ### Commit 2: All other dependencies
-- [ ] All non-wrangler/vitest dependencies bumped to latest
-- [ ] `npm run types` succeeds
-- [ ] `npm run type-check` passes with no new errors vs. baseline
-- [ ] `npm test` passes with no new regressions
+- [x] All non-wrangler/vitest dependencies bumped to latest (`cron-schedule` 5→6, `@types/node` 24→25)
+- [x] `npm run types` succeeds
+- [x] `npm run type-check` passes with no new errors vs. baseline
+- [x] `npm test` passes with no new regressions (126 test files, 0 failures)

@@ -34,7 +34,7 @@
     "@lumenize/debug": "^0.22.0",
     "@lumenize/routing": "^0.22.0",
     "@lumenize/structured-clone": "^0.22.0",
-    "cron-schedule": "^5.0.1",
+    "cron-schedule": "^6.0.0",
     "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
