@@ -102,12 +102,32 @@ Update the `compatibility_date` reference in CLAUDE.md to reflect the new minimu
 
 Run `npm test` from the monorepo root. Any failures are upgrade regressions — fix them before proceeding. As in baseline, re-run `npm test` in full if external-service tests (e2e email, deployed test endpoints) fail on cold start.
 
-### Step 6: Commit
+### Step 6: Commit (wrangler/vitest/compatibility_date)
 
 Do NOT commit automatically. Ask the user to review and commit as a standalone change so it's reviewable independent of subsequent work.
 
+### Step 7: Bump all other dependencies
+
+Separate commit from Step 6 for bisectability.
+
+```bash
+npx npm-check-updates -u --reject 'wrangler,@cloudflare/vitest-pool-workers,vitest,@vitest/*' --deep
+```
+
+Scope to `packages/` and `apps/` only. Then:
+
+1. `npm install` to regenerate lockfile
+2. `npm run types` to regenerate types
+3. `npm run type-check` — compare against baseline
+4. `npm test` — full run, re-run if flaky external-service tests
+
+### Step 8: Commit (all other dependencies)
+
+Do NOT commit automatically. Ask the user to review and commit separately from Step 6.
+
 ## Success Criteria
 
+### Commit 1: Wrangler & vitest upgrade
 - [x] `scripts/generate-types.sh` processes all wrangler.jsonc (including test directories)
 - [x] Baseline: all tests green, pre-existing type errors documented
 - [ ] All `wrangler.jsonc` files in `packages/` and `apps/` use the same updated `compatibility_date`
@@ -117,4 +137,9 @@ Do NOT commit automatically. Ask the user to review and commit as a standalone c
 - [ ] `npm run type-check` passes with no new errors vs. baseline
 - [ ] `npm test` passes with no new regressions vs. baseline
 - [ ] CLAUDE.md reflects updated `compatibility_date`
-- [ ] Single clean commit with only upgrade changes
+
+### Commit 2: All other dependencies
+- [ ] All non-wrangler/vitest dependencies bumped to latest
+- [ ] `npm run types` succeeds
+- [ ] `npm run type-check` passes with no new errors vs. baseline
+- [ ] `npm test` passes with no new regressions

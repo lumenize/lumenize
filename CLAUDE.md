@@ -10,7 +10,7 @@ Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain expert
 - **`#` prefix for private members** - never use TypeScript `private` keyword
 - **Synchronous storage only** - use `ctx.storage.kv.*` or `ctx.storage.sql.*`, never legacy async API (`ctx.storage.put/get`)
 - **Auto-generate Env interface** - run `wrangler types`, never manually define it
-- **`compatibility_date: "2025-09-12"`** or later in wrangler.jsonc
+- **`compatibility_date: "2026-03-12"`** or later in wrangler.jsonc
 - **Secrets in root `.dev.vars`** - gitignored, auto-symlinked via postinstall; never commit secrets or put them in source code
 - **Docs in `/website/docs/`** - only `.mdx` files, never create temp docs elsewhere
 
@@ -142,7 +142,7 @@ subscribe(id: string) {
 ### Cloudflare Worker Packages
 - `tsconfig.json` - Extends root, includes `"types": ["vitest/globals"]`
 - `vitest.config.js` - Workers project config
-- `wrangler.jsonc` - DO bindings and migrations (compatibility_date: "2025-09-12" or later)
+- `wrangler.jsonc` - DO bindings and migrations (compatibility_date: "2026-03-12" or later)
 - `worker-configuration.d.ts` - Auto-generated via `npm run types`
 
 ### Using the Global `Env` Type

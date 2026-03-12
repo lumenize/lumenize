@@ -35,11 +35,11 @@
     "access": "public"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@cloudflare/vitest-pool-workers": "0.12.21",
     "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
     "vitest": "3.2.4",
-    "wrangler": "^4.66.0"
+    "wrangler": "^4.72.0"
   },
   "dependencies": {
     "@lumenize/debug": "^0.22.0",
@@ -49,7 +49,7 @@
     "@lumenize/test-endpoints": "^0.22.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@cloudflare/vitest-pool-workers": "0.12.21",
     "vitest": "3.2.4"
   },
   "gitHead": "59bf07ef73368b771a8fe9446bd8aa91ba96fd5c"

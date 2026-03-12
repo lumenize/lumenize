@@ -22,8 +22,8 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@vitest/coverage-istanbul": "^3.2.4",
-    "vitest": "^3.2.4"
+    "@vitest/coverage-istanbul": "3.2.4",
+    "vitest": "3.2.4"
   },
   "keywords": [
     "debug",
