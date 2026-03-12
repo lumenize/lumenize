@@ -128,7 +128,26 @@ The key reframe: we're not generating "object literal strings" — we're generat
 const __validate: Todo = { title: "Fix bug", done: false };
 ```
 
-**Cyclic** — multi-statement with mutation:
+**Cyclic** — a tree where parent references a child array of the same type:
+```typescript
+interface TreeNode {
+  value: string;
+  children: TreeNode[];
+}
+```
+```
+root = {
+  value: "root",
+  children: [
+    {
+      value: "child",
+      children: [ → root ]   // circular reference back to root
+    }
+  ]
+}
+```
+
+Multi-statement program with declaration + mutation:
 ```typescript
 const __ref0 = {} as TreeNode;
 const __ref1 = {} as TreeNode;
@@ -138,6 +157,32 @@ __ref1.value = "child";
 __ref1.children = [__ref0];  // cycle — tsc checks this assignment
 ```
 
+**Aliased** — shipping and billing point to the same `Address` object:
+```typescript
+interface Address {
+  city: string;
+}
+interface Company {
+  shipping: Address;
+  billing: Address;
+}
+```
+```
+shared = { city: "Portland" }
+
+company = {
+  shipping: → shared,
+  billing:  → shared    // same object, not a copy
+}
+```
+
+Shared references use the same `__refN` variable:
+```typescript
+const __ref0 = {} as Address;
+__ref0.city = "Portland";
+const __validate: Company = {"shipping": __ref0, "billing": __ref0};
+```
+
 The `as T` on the empty object is safe because every field is immediately assigned — and tsc checks each property assignment against the type. This maps directly to `@lumenize/structured-clone`'s existing `preprocess()` infrastructure, which already tracks reference IDs and identifies back-reference edges. The serialization format just changes from tagged tuples to TypeScript statements:
 
 1. **First pass**: Emit `const __refN = {} as T;` for every aliased/cycled node
@@ -145,6 +190,6 @@ The `as T` on the empty object is safe because every field is immediately assign
 
 ## Open Questions for Phase 5
 
-- `toTypeScript()` scope — how much of `structured-clone`'s `preprocess()` is reusable for generating TypeScript programs?
+- ~~`toTypeScript()` scope — how much of `structured-clone`'s `preprocess()` is reusable for generating TypeScript programs?~~ Resolved: custom walk in `@lumenize/ts-runtime-validator`, same `WeakMap` pattern but own traversal. See Phase 5.2.1 task.
 - Input size limits and timeout guards for adversarial schemas
 - Deployed Workers performance vs local wrangler dev

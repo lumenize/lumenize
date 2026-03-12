@@ -567,31 +567,31 @@ callStarResourcesRead(starName: string, resourceId: string): void {
 
 ## Success Criteria
 
-- [ ] `requirePermission` made public on DagTree (remove `#` prefix)
-- [ ] `Resources` class created in `apps/nebula/src/resources.ts` — constructor injection of `(ctx, getCallContext, dagTree, onChanged)`
-- [ ] Star instantiates Resources in `onStart()`, exposes via `@mesh() resources()`
-- [ ] `getStarConfig/setStarConfig` moved from StarTest to Star (matching Universe/Galaxy pattern), value type changed to `unknown`
-- [ ] Universe and Galaxy config methods updated from `value: string` to `value: unknown` (with `Record<string, unknown>` KV types)
-- [ ] Resources creates Snapshots table and partial index in `#createSchema()`
-- [ ] Resources bootstraps `debounceMs` config default (native number) in `#bootstrapConfig()`
-- [ ] `END_OF_TIME` constant defined and used consistently
-- [ ] `transaction()` accepts `Record<string, OperationDescriptor>` — one op per resourceId, enforced by data structure
-- [ ] Success returns `{ ok: true, eTags: Record<string, string> }` — resourceId → new eTag
-- [ ] Conflict returns `{ ok: false, conflicts }` with current snapshots — entire transaction rolled back
-- [ ] Permission/validation errors throw (not `ok: false`) — follows Mesh error pattern
-- [ ] `read()` returns current snapshot with rich types preserved (including deleted resources with `meta.deleted: true`)
-- [ ] `read()` returns null only for never-created resourceIds (intentional — see design note)
-- [ ] `changedBy` constructed from JWT claims — raw RFC 8693 actor chain (`ActClaim` from `@lumenize/nebula-auth`)
-- [ ] Debounce: same sub chain within window overwrites in place
-- [ ] `nodeId` in Snapshots table — temporal (move ops create new snapshots with value copied from current)
-- [ ] Move to same node is an idempotent no-op
-- [ ] DAG tree gates access (write permission required for transaction, read for read)
-- [ ] Move requires `write` on both source and destination nodes
-- [ ] Deleted resources allow update, move, and re-delete (deleted is informational)
-- [ ] Create on existing resourceId throws (even if deleted)
-- [ ] Re-read inside `transactionSync` for authoritative eTag checking
-- [ ] Test values include Map, Date, and Cycle
-- [ ] All tests pass in `test/test-apps/baseline/`
+- [x] `requirePermission` made public on DagTree (remove `#` prefix)
+- [x] `Resources` class created in `apps/nebula/src/resources.ts` — constructor injection of `(ctx, getCallContext, dagTree, onChanged)`
+- [x] Star instantiates Resources in `onStart()`, exposes via `@mesh() resources()`
+- [x] `getStarConfig/setStarConfig` moved from StarTest to Star (matching Universe/Galaxy pattern), value type changed to `unknown`
+- [x] Universe and Galaxy config methods updated from `value: string` to `value: unknown` (with `Record<string, unknown>` KV types)
+- [x] Resources creates Snapshots table and partial index in `#createSchema()`
+- [x] Resources bootstraps `debounceMs` config default (native number) in `#bootstrapConfig()`
+- [x] `END_OF_TIME` constant defined and used consistently
+- [x] `transaction()` accepts `Record<string, OperationDescriptor>` — one op per resourceId, enforced by data structure
+- [x] Success returns `{ ok: true, eTags: Record<string, string> }` — resourceId → new eTag
+- [x] Conflict returns `{ ok: false, conflicts }` with current snapshots — entire transaction rolled back
+- [x] Permission/validation errors throw (not `ok: false`) — follows Mesh error pattern
+- [x] `read()` returns current snapshot with rich types preserved (including deleted resources with `meta.deleted: true`)
+- [x] `read()` returns null only for never-created resourceIds (intentional — see design note)
+- [x] `changedBy` constructed from JWT claims — raw RFC 8693 actor chain (`ActClaim` from `@lumenize/nebula-auth`)
+- [x] Debounce: same sub chain within window overwrites in place
+- [x] `nodeId` in Snapshots table — temporal (move ops create new snapshots with value copied from current)
+- [x] Move to same node is an idempotent no-op
+- [x] DAG tree gates access (write permission required for transaction, read for read)
+- [x] Move requires `write` on both source and destination nodes
+- [x] Deleted resources allow update, move, and re-delete (deleted is informational)
+- [x] Create on existing resourceId throws (even if deleted)
+- [x] Re-read inside `transactionSync` for authoritative eTag checking
+- [x] Test values include Map, Date, and Cycle
+- [x] All tests pass in `test/test-apps/baseline/`
 
 ---
 

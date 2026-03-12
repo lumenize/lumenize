@@ -62,8 +62,12 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 3 | DAG Tree Access Control | **Phase 3.1 Complete** | `tasks/nebula-dag-tree.md` |
 | 4.0 | Isolation Technologies Blog Post | **Complete** | `tasks/archive/nebula-isolation-blog.md` |
 | 4.1 | TypeScript as Schema Research | **Complete** | `tasks/archive/nebula-ts-as-schema-research.md` |
-| 5.1 | Storage Engine | Pending | `tasks/nebula-5.1-storage-engine.md` |
-| 5.2 | tsc Validation in DWL | Pending | `tasks/nebula-5.2-tsc-validation.md` |
+| 5.1 | Storage Engine | **Complete** | `tasks/archive/nebula-5.1-storage-engine.md` |
+| 5.2 | TypeScript Validation & Ontology | Pending | `tasks/nebula-5.2-tsc-validation.md` (overview) |
+| 5.2.1 | Structured-Clone `toTypeScript()` | Pending | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` |
+| 5.2.2 | `validate()` Function | Pending | `tasks/nebula-5.2.2-validate.md` |
+| 5.2.3 | Ontology & Resources Integration | Pending | `tasks/nebula-5.2.3-resources-validation-integration.md` |
+| 5.2.5 | Multi-Resource Queries | Pending | `tasks/nebula-5.2.5-multi-resource-queries.md` |
 | 5.3 | Subscriptions & Fanout | Pending | `tasks/nebula-5.3-subscriptions.md` |
 | 5.4 | Resource Capability Tickets | Pending | `tasks/nebula-resource-capability-tickets.md` |
 | 5.5 | Schema Evolution | Pending | `tasks/nebula-5.5-schema-evolution.md` |
@@ -129,13 +133,13 @@ Research, benchmark, and write a blog post comparing Cloudflare's four isolation
 
 Spike A1 confirmed tsc runs in DWL at 1ms/call. Decision captured in `docs/adr/001-typescript-as-schema.md`. Wire format idea (TypeScript as the serialization format) explored and dropped — AST reconstruction would be a second deserializer with no advantage over `$lmz`. Ezno, tsgo Container, and compile-once approaches all eliminated.
 
-### Phase 5.1: Storage Engine
+### Phase 5.1: Storage Engine — COMPLETE
 
-Temporal storage (Snodgrass-style) in ResourceHistory DO. CRUD with optimistic concurrency (eTag), debounce, history modes. DAG tree gates access. Prior art: Blueprint's `temporal-entity.js`. Design reference: `tasks/nebula-resources.md`.
+Temporal storage (Snodgrass-style) in Star's SQLite via the `Resources` class (constructor-injection pattern matching `DagTree`). CRUD via `transaction()` with optimistic concurrency (eTag), debounce (same sub chain within configurable window overwrites in place), and `read()` with DAG-gated permissions. 33 tests covering basic CRUD, batch transactions, debounce modes, temporal timeline, DAG integration, resource moves, lifecycle edge cases, eTag abuse, and input validation. 95.43% statement coverage, 82.15% branch coverage. Made `requirePermission` public on DagTree (checks node existence before admin bypass). Moved `get/setStarConfig` from test subclass to Star. Updated all config value types to `unknown`.
 
-### Phase 5.2: tsc Validation in DWL
+### Phase 5.2: TypeScript Validation & Ontology
 
-Bundle tsc in a DWL isolate. Validate data against TypeScript type definitions before write. Simple service call — no base class, no guard dispatch. Operationalizes ADR-001.
+"TypeScript IS the schema" — four sub-phases. 5.2.1: Add `toTypeScript()` to `@lumenize/structured-clone` (converts JS values to mini TS programs for type-checking). 5.2.2: Pure `validate()` function (tsc engine, value in / result out). 5.2.3: Ontology class (versioned type registry, AST relationship extraction, defaults) + wire into Resources `transaction()` — in-process, synchronous (~1ms), no DWL needed. 5.2.5: Multi-resource queries using ontology relationships for server-side traversal. Operationalizes ADR-001.
 
 ### Phase 5.3: Subscriptions & Fanout
 

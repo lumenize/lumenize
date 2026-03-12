@@ -85,6 +85,16 @@ If nebula-auth is later split into a **separate Workers project** (cross-project
 
 ---
 
+## Prerequisites from Phase 5.1
+
+These items were deferred from Phase 5.1 and are prerequisites or companions to capability tickets:
+
+- **`readHistory(resourceId)`** — Returns the full temporal timeline for a resource (all snapshots, not just current). Deferred from Phase 5.1 because writing it now would require rewriting later when ResourceHistory DO is implemented. The capability ticket flow (client talks directly to ResourceHistory) determines how history reads are routed.
+
+- **Moving old snapshots to ResourceHistory** — Future out-of-band operation that migrates historical (non-current) snapshots from Star's SQLite to per-resource ResourceHistory DOs. Reduces Star storage while preserving full audit trails. The migration strategy depends on whether clients access ResourceHistory directly (via capability tickets) or always through Star.
+
+---
+
 ## What This Phase Adds
 
 - **Ticket minting** on Star (after DAG permission check)
