@@ -2,7 +2,7 @@
 
 **Status**: Pending
 **Package**: `packages/ts-runtime-validator/` (`@lumenize/ts-runtime-validator`)
-**Depends on**: Phase 5.2.1.1 (Wrangler Upgrade), Phase 5.2.1.2 (DWL Spike)
+**Depends on**: Phase 5.2.1.1 (Wrangler Upgrade)
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
 
 ## Goal
@@ -179,15 +179,18 @@ Note: `preprocess()` converts functions to marker objects for RPC method discove
 
 ## Testing Strategy
 
-### Round-Trip Echo Tests via Dynamic Worker Loader
+### Round-Trip Echo Tests in Node.js
 
 Rather than only checking that `toTypeScript()` output compiles, we verify semantic fidelity with full round-trip echo tests:
 
 1. **Serialize**: Call `toTypeScript(value, typeName)` to produce a TypeScript program
-2. **Execute**: Use DWL to run the generated program in an isolate, returning the constructed value
-3. **Compare**: Assert the returned value deeply equals the original using Vitest's strictest comparison (`toStrictEqual` or equivalent)
+2. **Compile**: Use `ts.createProgram()` to compile the TypeScript to JavaScript
+3. **Evaluate**: Execute the compiled JS and extract the constructed value
+4. **Compare**: Assert the returned value deeply equals the original
 
 This catches subtle bugs where the TypeScript output compiles but doesn't reconstruct the value faithfully (e.g., wrong Date format, lost Map entries, mangled binary data).
+
+**Why Node.js, not DWL**: `toTypeScript()` is a pure function with no Cloudflare dependencies. Testing in Node.js gives direct value comparison without HTTP serialization (which would lose fidelity on Date, Map, etc.). DWL is already proven for production use (Phase 4.1 spike); the testing environment doesn't need it. Phase 5.2.1.2 (DWL-in-vitest spike) was superseded by this decision.
 
 **Test progression**:
 - **Single-type tests**: One property per supported type (string, number, bigint, Date, RegExp, URL, Map, Set, ArrayBuffer, typed arrays, Error subtypes, wrapper objects, Headers, RequestSync, ResponseSync)
@@ -196,8 +199,6 @@ This catches subtle bugs where the TypeScript output compiles but doesn't recons
 - **Cycles**: Parent→child→parent circular references
 - **Aliases**: Multiple paths referencing the same object
 - **Cycles + aliases combined**: Real-world-like object graphs
-
-Phase 5.2.1.2 validates that DWL works inside vitest-pool-workers tests. Assuming it does: configure `"worker_loaders"` in the package's `wrangler.jsonc` and access `env.LOADER` in tests like any other binding. The generated code runs in the DWL isolate; we extract the `__validate` (or `__ref0` etc.) value and send it back for comparison. If DWL module loading only supports `.js` (not `.ts`), strip type annotations before loading — annotations don't affect runtime behavior, so the round-trip test still validates semantic fidelity. See the spike's results for the exact pattern and any gotchas.
 
 ## Implementation Strategy
 
