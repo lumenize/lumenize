@@ -6,11 +6,13 @@ export default defineWorkersProject({
       optimizer: {
         ssr: {
           include: [
-            // vitest can't seem to properly import
-            // `require('./path/to/anything.json')` files,
-            // which ajv uses (by way of @modelcontextprotocol/sdk)
-            // the workaround is to add the package to the include list
-            "ajv"
+            // ajv is CJS-only; @modelcontextprotocol/sdk does
+            // `import { Ajv } from 'ajv'` (named ESM import).
+            // Pre-bundling ajv is necessary but not sufficient — the
+            // import originates from @modelcontextprotocol/sdk inside
+            // workerd. export_commonjs_namespace compat flag tells
+            // workerd to synthesize named exports from CJS modules.
+            "ajv",
           ]
         }
       }
