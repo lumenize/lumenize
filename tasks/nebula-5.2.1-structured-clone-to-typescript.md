@@ -2,9 +2,8 @@
 
 **Status**: Pending
 **Package**: `packages/ts-runtime-validator/` (`@lumenize/ts-runtime-validator`)
-**Depends on**: Phase 5.1 (Storage Engine)
+**Depends on**: Phase 5.2.1.1 (Wrangler Upgrade), Phase 5.2.1.2 (DWL Spike)
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
-**ADR**: `docs/adr/001-typescript-as-schema.md`
 
 ## Goal
 
@@ -12,9 +11,9 @@ Add a `toTypeScript()` export to `@lumenize/ts-runtime-validator` that converts 
 
 ## Why a Separate Package
 
-Originally we considered extending `@lumenize/structured-clone`, since `toTypeScript()` follows the same `WeakMap` cycle/alias detection pattern as `preprocess()`. However, the shared code is just the *pattern* (~100 lines of straightforward recursion), not actual code reuse — `toTypeScript()` does its own walk with fundamentally different output. More importantly, Phase 5.2.2's `validate()` bundles tsc (3.4 MB). Putting both in structured-clone would force every consumer of `stringify()`/`parse()` to pay for tsc even when they only need wire transport.
+`toTypeScript()` reuses `preprocess()` from `@lumenize/structured-clone` to get the tagged-tuple intermediate representation with cycles/aliases already resolved, then walks those tuples to emit TypeScript. This avoids reimplementing the tree walk (which was hard to get right). However, Phase 5.2.2's `validate()` bundles tsc (3.4 MB). Putting both in structured-clone would force every consumer of `stringify()`/`parse()` to pay for tsc even when they only need wire transport.
 
-`@lumenize/ts-runtime-validator` keeps structured-clone lean and pairs the two functions that are always used together: `toTypeScript()` produces the program, `validate()` runs tsc on it. The package depends on `@lumenize/structured-clone` for `RequestSync`/`ResponseSync` types.
+`@lumenize/ts-runtime-validator` keeps structured-clone lean and pairs the two functions that are always used together: `toTypeScript()` produces the program, `validate()` runs tsc on it. The package depends on `@lumenize/structured-clone` for `preprocess()`, `LmzIntermediate`, `RequestSync`/`ResponseSync` types, and the `TRANSFORM_SKIP` sentinel.
 
 ## Design
 
@@ -178,20 +177,62 @@ This is the same set of types supported by `@lumenize/structured-clone`'s `prepr
 
 Note: `preprocess()` converts functions to marker objects for RPC method discovery, but `toTypeScript()` throws instead because a marker object would produce misleading tsc errors against function-typed properties.
 
+## Testing Strategy
+
+### Round-Trip Echo Tests via Dynamic Worker Loader
+
+Rather than only checking that `toTypeScript()` output compiles, we verify semantic fidelity with full round-trip echo tests:
+
+1. **Serialize**: Call `toTypeScript(value, typeName)` to produce a TypeScript program
+2. **Execute**: Use DWL to run the generated program in an isolate, returning the constructed value
+3. **Compare**: Assert the returned value deeply equals the original using Vitest's strictest comparison (`toStrictEqual` or equivalent)
+
+This catches subtle bugs where the TypeScript output compiles but doesn't reconstruct the value faithfully (e.g., wrong Date format, lost Map entries, mangled binary data).
+
+**Test progression**:
+- **Single-type tests**: One property per supported type (string, number, bigint, Date, RegExp, URL, Map, Set, ArrayBuffer, typed arrays, Error subtypes, wrapper objects, Headers, RequestSync, ResponseSync)
+- **Special values**: `NaN`, `Infinity`, `-Infinity`, `null`, `undefined`, `0`, `-0`, `""`, empty collections
+- **Mixed objects**: Objects with multiple property types at varying depths
+- **Cycles**: Parent→child→parent circular references
+- **Aliases**: Multiple paths referencing the same object
+- **Cycles + aliases combined**: Real-world-like object graphs
+
+Phase 5.2.1.2 validates that DWL works inside vitest-pool-workers tests. Assuming it does: configure `"worker_loaders"` in the package's `wrangler.jsonc` and access `env.LOADER` in tests like any other binding. The generated code runs in the DWL isolate; we extract the `__validate` (or `__ref0` etc.) value and send it back for comparison. If DWL module loading only supports `.js` (not `.ts`), strip type annotations before loading — annotations don't affect runtime behavior, so the round-trip test still validates semantic fidelity. See the spike's results for the exact pattern and any gotchas.
+
 ## Implementation Strategy
 
-### Custom Walk (Same Pattern, Different Output)
+### Reuse `preprocess()`, Don't Reimplement the Walk
 
-`toTypeScript()` uses the same `WeakMap` cycle/alias detection pattern as `@lumenize/structured-clone`'s `preprocess()`, but does its own traversal and emits TypeScript strings directly. The output format is fundamentally different from `preprocess()`'s tagged tuples, so sharing code would mean fighting the tuple format. The traversal logic is ~100 lines of straightforward recursion.
+`@lumenize/ts-runtime-validator` depends on `@lumenize/structured-clone` and calls `preprocess()` to get the tagged-tuple intermediate representation (`LmzIntermediate`). This gives us battle-tested cycle/alias detection for free — the WeakMap bookkeeping, ID assignment, and reference tracking are all handled by `preprocess()`.
+
+`toTypeScript()` then walks the tagged tuples to emit TypeScript strings. Each tag maps directly to a TS construct:
+
+| Tagged Tuple | TypeScript Output |
+|---|---|
+| `["string", "hello"]` | `"hello"` |
+| `["number", "NaN"]` | `NaN` |
+| `["date", iso]` | `new Date("...")` |
+| `["map", entries]` | `new Map([...])` |
+| `["set", values]` | `new Set([...])` |
+| `["regexp", {source, flags}]` | `new RegExp("...", "...")` |
+| `["$lmz", id]` | `__refN` (variable reference) |
+| etc. | etc. |
+
+**2-pass architecture (hard maximum — no additional passes):**
+
+1. **Pass 1**: `preprocess(value, { transform })` → `LmzIntermediate`. The transform hook throws on functions, symbols, native Request/Response (where `preprocess()` would otherwise create marker objects).
+2. **Pass 2**: Walk the `LmzIntermediate` tuples. Count `["$lmz", id]` references to decide inline vs. variable. Emit TypeScript strings. Objects referenced once → inline literal. Objects referenced 2+ times or involved in cycles → `const __refN` variable declarations.
 
 ### Output Structure
 
 ```typescript
 function toTypeScript(value: unknown, typeName: string): string {
-  // Phase 1: Walk the value graph, identify cycles and aliases
-  // Phase 2: Emit TypeScript
-  //   - If no cycles/aliases: single `const __validate: T = literal;`
-  //   - If cycles/aliases: multi-statement program with __refN declarations
+  // Pass 1: Reuse structured-clone's preprocess()
+  const intermediate = preprocess(value, { transform: throwOnNonSerializable });
+  // Pass 2: Walk tagged tuples, emit TypeScript
+  //   - Count references to decide inline vs. __refN variables
+  //   - If no shared refs: single `const __validate: T = literal;`
+  //   - If shared refs/cycles: multi-statement program with __refN declarations
   return programText;
 }
 ```
@@ -212,7 +253,7 @@ The caller (Phase 5.2.2's validator) prepends the type definition and feeds the 
 - [ ] Cyclic objects produce multi-statement programs with `__refN` declarations
 - [ ] Aliased objects reuse the same `__refN` variable
 - [ ] Acyclic objects produce single `const __validate: T = literal;`
-- [ ] Round-trip test: `toTypeScript(value)` → prepend type definition → tsc compiles without errors for conforming values
-- [ ] Round-trip test: `toTypeScript(badValue)` → prepend type definition → tsc produces expected diagnostic for non-conforming values
+- [ ] Round-trip test: `toTypeScript(value, typeName)` → prepend type definition → tsc compiles without errors for conforming values
+- [ ] Round-trip test: `toTypeScript(badValue, typeName)` → prepend type definition → tsc produces expected diagnostic for non-conforming values
 - [ ] `@lumenize/structured-clone` unmodified — `stringify()`/`parse()` tests unaffected
 - [ ] Test coverage: >80% branch, >90% statement
