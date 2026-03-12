@@ -1,6 +1,6 @@
 # Phase 5.2.1.1: Wrangler & Toolchain Upgrade
 
-**Status**: Pending
+**Status**: In Progress
 **Package**: Monorepo-wide (`packages/` and `apps/` only — `experiments/` excluded)
 **Depends on**: None
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
@@ -21,13 +21,21 @@ Upgrade `wrangler`, `@cloudflare/vitest-pool-workers`, and `compatibility_date` 
 **Included**: `packages/`, `apps/`
 **Excluded**: `experiments/` — these are throwaway spikes with potentially broken dependencies. Not worth the churn.
 
+## Completed Pre-Work
+
+### Fix `generate-types.sh` to process all wrangler.jsonc files (DONE)
+
+The original `scripts/generate-types.sh` skipped `test/` directories. This was a latent bug — packages like `nebula-auth`, `fetch`, and `testing` only have `wrangler.jsonc` inside `test/` and were never getting types regenerated. The mesh for-docs test apps also have their own wrangler configs.
+
+**Fix applied**: Removed the test-directory skip. The script now processes every `wrangler.jsonc` under `packages/` and `apps/` (excluding `node_modules/` and `dist/`). Also removed `tooling` from the find path (only `packages` and `apps` are in scope).
+
+**Result**: 22 wrangler.jsonc files processed (up from ~9). All tests still pass. Type-check errors in `nebula` app dropped from 7 to 3 (the newly generated types for `apps/nebula` now include JWT key bindings that were previously missing).
+
+### Baseline test suite (DONE)
+
+All tests green. Type-check has 3 packages with pre-existing errors (mesh: 8, nebula-auth: 10, nebula: 3) — all pre-existing, not blockers.
+
 ## Steps
-
-### Step 0: Baseline the existing test suite
-
-Run `npm test` from the monorepo root (which runs `scripts/test-code.sh` then `scripts/test-doc.sh`, auto-discovering all `packages/*/` and `apps/*/` with test scripts). If any tests fail, re-run `npm test` in full — a few tests that hit external services (deployed test endpoints, e2e email tests via the email worker) can be flaky on cold start but reliably pass on the second run. A full re-run (not just the failing files) also catches test-ordering issues.
-
-**HARD STOP**: If any tests are still failing after the re-run, fix them before proceeding. The baseline must be green — otherwise you can't distinguish pre-existing failures from upgrade regressions in Step 5.
 
 ### Step 1: Bump dependency versions
 
@@ -80,11 +88,11 @@ All lines should show the new date.
 
 ### Step 3: Regenerate types
 
-Run `npm run types` from the monorepo root to regenerate `worker-configuration.d.ts`. Note: `scripts/generate-types.sh` only processes **package-root** wrangler.jsonc files (it skips `test/` directories). This is correct — test wrangler configs don't need generated types since tests use the package's root `Env` type.
+Run `npm run types` from the monorepo root to regenerate `worker-configuration.d.ts` for all 22 wrangler.jsonc files under `packages/` and `apps/`.
 
 ### Step 3.5: Type-check
 
-Run `npm run type-check` to catch type errors early before the full test suite.
+Run `npm run type-check` to catch type errors early before the full test suite. Compare against baseline (mesh: 8, nebula-auth: 10, nebula: 3 pre-existing errors). Any new errors are regressions.
 
 ### Step 4: Update CLAUDE.md
 
@@ -92,7 +100,7 @@ Update the `compatibility_date` reference in CLAUDE.md to reflect the new minimu
 
 ### Step 5: Run the full test suite
 
-Run `npm test` from the monorepo root. Any failures are upgrade regressions — fix them before proceeding. As in Step 0, re-run `npm test` in full if external-service tests (e2e email, deployed test endpoints) fail on cold start.
+Run `npm test` from the monorepo root. Any failures are upgrade regressions — fix them before proceeding. As in baseline, re-run `npm test` in full if external-service tests (e2e email, deployed test endpoints) fail on cold start.
 
 ### Step 6: Commit
 
@@ -100,11 +108,13 @@ Do NOT commit automatically. Ask the user to review and commit as a standalone c
 
 ## Success Criteria
 
+- [x] `scripts/generate-types.sh` processes all wrangler.jsonc (including test directories)
+- [x] Baseline: all tests green, pre-existing type errors documented
 - [ ] All `wrangler.jsonc` files in `packages/` and `apps/` use the same updated `compatibility_date`
 - [ ] `wrangler` and `@cloudflare/vitest-pool-workers` are at latest versions in lockfile
 - [ ] `vitest` version is pinned consistently (no `^`) across all packages
 - [ ] `npm run types` succeeds across all packages
-- [ ] `npm run type-check` passes with no new errors
-- [ ] `npm test` passes with no new regressions vs. Step 0 baseline
+- [ ] `npm run type-check` passes with no new errors vs. baseline
+- [ ] `npm test` passes with no new regressions vs. baseline
 - [ ] CLAUDE.md reflects updated `compatibility_date`
 - [ ] Single clean commit with only upgrade changes
