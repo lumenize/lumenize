@@ -16,10 +16,9 @@ import type { ResponseSync } from './response-sync';
 
 /**
  * Intermediate format structure returned by preprocess() and consumed by postprocess()
- * 
+ *
  * @property root - The preprocessed root value or reference
  * @property objects - Array of encoded complex objects
- * @internal
  */
 export interface LmzIntermediate {
   root: any;

@@ -15,7 +15,7 @@ Add a `toTypeScript()` export to `@lumenize/ts-runtime-validator` that converts 
 
 `@lumenize/ts-runtime-validator` keeps structured-clone lean and pairs the two functions that are always used together: `toTypeScript()` produces the program, `validate()` runs tsc on it. The package depends on `@lumenize/structured-clone` for `preprocess()`, `LmzIntermediate`, and the `RequestSync`/`ResponseSync` classes (used in echo tests to construct values and injected into the `vm` sandbox for evaluation).
 
-**Prerequisite**: `LmzIntermediate` is currently exported from `preprocess.ts` but not re-exported from `@lumenize/structured-clone`'s `index.ts`. Add it to the type exports and remove the `@internal` JSDoc tag (it becomes a public type once `ts-runtime-validator` depends on it) as part of this phase's implementation.
+**Prerequisite** ✅: `LmzIntermediate` is now exported from `@lumenize/structured-clone`'s `index.ts` as a public type (the `@internal` JSDoc tag was removed — it should never have been `@internal` since it's the return type of the public `preprocess()` function).
 
 ## Design
 
@@ -99,7 +99,7 @@ __validate["myMap"].set("key", __validate);
 __validate["mySet"].add(__validate);
 ```
 
-Map *keys* that are themselves cyclic references are not supported (pathological, no real-world use case).
+**Map cycle fixups require primitive keys.** The fixup `.set(key, target)` must reference the Map key as a TypeScript literal expression (e.g., `.set("key", target)` or `.set(42, target)`). Object keys cannot be used in fixups because `.set({...newObj...}, target)` creates a new reference — Map uses reference equality, so this adds a new entry instead of updating the existing one. If a cycle back-edge passes through a Map value with a non-primitive key, `toTypeScript()` throws `TypeError`. Acyclic Maps with object keys work fine (the key is inlined in the `new Map([...])` literal). This aligns with `@lumenize/structured-clone`'s guidance to [use primitive keys for Maps](/docs/structured-clone/maps-and-sets). Map *keys* that are themselves cyclic references are also not supported (pathological, no real-world use case).
 
 ### Alias Case
 
@@ -178,7 +178,8 @@ This is the same set of types supported by `@lumenize/structured-clone`'s `prepr
 
 | JS Value | TypeScript Output |
 |----------|-------------------|
-| `Error` (simple) | `new TypeError("message")` (constructor matches `errorData.name`) |
+| `Error` (simple, standard name) | `new TypeError("message")` (constructor matches `errorData.name`) |
+| `Error` (simple, custom name) | `Object.assign(new Error("message"), {"name": "AppError"})` (fallback to `Error`, name preserved) |
 | `Error` (with custom props) | `Object.assign(new TypeError("message"), {"code": 42, "cause": ...})` |
 
 **Wrapper objects** (rare but supported):
@@ -213,16 +214,22 @@ This is the same set of types supported by `@lumenize/structured-clone`'s `prepr
 
 **Error handling strategy**: `preprocess()` preserves error `name`, `message`, `stack`, `cause`, and custom properties (via `Object.getOwnPropertyNames`). `toTypeScript()` uses this data selectively:
 
-- **`name`** → Correct constructor: `new TypeError(...)`, `new RangeError(...)`, etc. Standard subtypes are structurally identical to `Error` in tsc, but we emit the right constructor for fidelity.
+- **`name`** → Constructor selection, mirroring `@lumenize/structured-clone`'s `globalThis[error.name] || Error` fallback pattern:
+  - **Standard names** (`Error`, `TypeError`, `RangeError`, `ReferenceError`, `SyntaxError`, `URIError`, `EvalError`) → emit the matching constructor: `new TypeError(...)`. These are always available in tsc's scope.
+  - **Non-standard names** (e.g., `"AppError"`, `"ValidationError"`) → fall back to `new Error(...)` and preserve the `name` as a custom property via `Object.assign`: `Object.assign(new Error("msg"), {"name": "AppError", ...})`. This ensures the output always compiles regardless of what type definitions the user provides. If the user types the property as just `Error`, it works. If they type it as `interface AppError extends Error { name: "AppError"; code: number }`, tsc checks the structural shape including the preserved `name`. Compatible with Phase 5.2.2's guidance that "tsc checks structural shape, not class identity" (see `tasks/nebula-5.2.2-validate.md` Error Type Behavior section).
 - **`message`** → Always emitted as the constructor argument.
 - **`cause`** → Emitted recursively via `Object.assign`. Users may type `{ cause: SpecificError }` and tsc should check it.
 - **Custom properties** (`code`, `statusCode`, etc.) → Emitted via `Object.assign`. This is the key value — without custom properties, type checking against `interface ApiError extends Error { code: number }` would incorrectly fail.
 - **`stack`** → Skipped. Runtime-specific string, typed as `string | undefined` on `Error`. Never meaningful for schema validation.
 
-For errors with no custom properties or cause, the output is a simple constructor call: `new TypeError("message")`. When custom properties or cause exist, the output uses `Object.assign`:
+For standard errors with no custom properties or cause, the output is a simple constructor call: `new TypeError("message")`. When custom properties, cause, or non-standard name exist, the output uses `Object.assign`:
 
 ```typescript
+// Standard name + custom properties
 Object.assign(new TypeError("network failure"), {"code": 500, "cause": new Error("timeout")})
+
+// Non-standard name (fallback to Error, name preserved)
+Object.assign(new Error("validation failed"), {"name": "AppError", "code": 422})
 ```
 
 **Excess property checking note**: `Object.assign` does not trigger tsc's excess property checking — the result type is the intersection of the target and source types. This means extra properties on errors won't be caught. This is acceptable because: (1) the main value is verifying required custom properties exist with correct types, and (2) error objects rarely have typo-prone hand-constructed properties in the way plain data objects do.
@@ -299,7 +306,7 @@ For types where `toTypeScript()` intentionally discards content (only the type m
 | `["regexp", {source, flags}]` | `new RegExp("...", "...")` — both `source` and `flags` escaped via `JSON.stringify()` (handles backslashes, e.g., `/test\d+/` → `new RegExp("test\\d+", "")`) |
 | `["url", {href}]` | `new URL("href")` — `href` is inside a wrapper object |
 | `["headers", entries]` | `new Headers([...])` — `entries` is array of `[string, string]` pairs |
-| `["error", errorData]` | `new ErrorSubtype("message")` or `Object.assign(new ErrorSubtype("message"), {...})` — switch on `errorData.name`; emit `message` + `cause` + custom properties, skip `stack` (see Error handling strategy) |
+| `["error", errorData]` | Standard names → `new TypeError("message")` or `Object.assign(new TypeError("message"), {...})`. Non-standard names → `Object.assign(new Error("message"), {"name": "CustomName", ...})` — mirrors structured-clone's `globalThis[name] \|\| Error` fallback. See Error handling strategy for details. |
 | `["arraybuffer", {type, data, ...}]` | Shared tag for all binary types — switch on `type` field (see note below) |
 | `["request-sync", data]` | `new RequestSync(data.url, {method: data.method, headers: ..., body: data.body})` — `data.headers` is a `["$lmz", id]` reference to a `["headers", ...]` tuple |
 | `["response-sync", data]` | `new ResponseSync(data.body, {status: data.status, statusText: data.statusText, headers: ...})` — `data.headers` is a `["$lmz", id]` reference to a `["headers", ...]` tuple |
@@ -331,17 +338,25 @@ Two recursive tree walks — no more:
 
 1. **Pass 1**: `preprocess(value)` → `LmzIntermediate`. Called without options — no transform hook, no `TRANSFORM_SKIP`. Symbols already throw in `preprocess()`, and functions are handled in Pass 2.
 2. **Pass 2**: Single recursive walk of `intermediate.root`, dereferencing `["$lmz", id]` via `intermediate.objects[id]`. Maintains two pieces of state:
-   - **`visiting: Set<number>`** — IDs currently being walked (for O(1) cycle detection)
+   - **`visiting: Set<number>`** — IDs currently being walked (for O(1) cycle detection). This is stack-like: IDs are added on entry and removed on exit. This removal is what enables alias duplication — after walking an aliased object and removing its ID, subsequent encounters re-walk (and duplicate) it rather than treating it as a cycle.
    - **`path: PathSegment[]`** — current traversal path from root, used to construct fixup statements
 
    `PathSegment` captures both the key and the container type:
    ```typescript
    type PathSegment =
-     | { container: 'object'; key: string }    // obj["key"]
-     | { container: 'array'; index: number }    // arr[0]
-     | { container: 'map-value'; key: string }  // map.set("key", ...)
-     | { container: 'set'; }                    // set.add(...)
+     | { container: 'object'; key: string }         // obj["key"]
+     | { container: 'array'; index: number }         // arr[0]
+     | { container: 'map-value'; keyExpr: string | null }  // map.set(<keyExpr>, ...) — TS literal for primitive keys, null for object keys
+     | { container: 'set'; }                         // set.add(...)
    ```
+
+   The `keyExpr` field stores the TypeScript literal expression for the Map key, or `null` for non-primitive keys:
+   - String key `"foo"` → `keyExpr: '"foo"'`
+   - Number key `42` → `keyExpr: '42'`
+   - Boolean key `true` → `keyExpr: 'true'`
+   - Object key `{id: 1}` → `keyExpr: null` (acyclic case works fine — key is inlined in `new Map([...])` literal; only matters if a fixup is needed)
+
+   When recording a cycle fixup, if the back-edge path includes a `map-value` segment with `keyExpr: null`, throw `TypeError('cycle fixup not supported for Map entries with non-primitive keys — use primitive Map keys')`. This defers the error to the actual problematic case: acyclic Maps with object keys work perfectly since the key is part of the inline `new Map([...])` literal and no fixup is needed. See Map/Set cycle fixups section for context.
 
    The walk recurses as follows:
    - **`["$lmz", id]` where `id` is in `visiting`** → **cycle back-edge** → emit `null as any` placeholder, record `{ targetPath, backEdgePath }` for fixup (both are snapshots of `path` at the target and current positions)
@@ -352,18 +367,20 @@ Two recursive tree walks — no more:
    When walking into container children, the walk pushes a `PathSegment` before recursing and pops it after:
    - **Object** property `"foo"`: push `{ container: 'object', key: 'foo' }`, recurse, pop
    - **Array** index `2`: push `{ container: 'array', index: 2 }`, recurse, pop
-   - **Map** value for key `"k"`: push `{ container: 'map-value', key: 'k' }`, recurse, pop
+   - **Map** value for key `"k"`: push `{ container: 'map-value', keyExpr: '"k"' }`, recurse, pop (keyExpr is the TS literal; for number key `42`: `keyExpr: '42'`)
    - **Set** element: push `{ container: 'set' }`, recurse, pop
 
    After the walk, assemble: `const __validate: T = {literal};` followed by one fixup statement per recorded back-edge. Each fixup is built from its recorded `targetPath` and `backEdgePath`:
 
    - **Object/Array back-edge**: `backEdgePath` renders as bracket notation. Example: `__validate["children"][0]["children"][0] = __validate;` (where `targetPath` is empty = root).
-   - **Map value back-edge**: The last segment is `{ container: 'map-value', key }`. Everything up to the last segment renders as bracket notation, then `.set(key, target)`. Example: `__validate["myMap"].set("key", __validate);`
+   - **Map value back-edge**: The last segment is `{ container: 'map-value', keyExpr }`. Everything up to the last segment renders as bracket notation, then `.set(keyExpr, target)`. Example: `__validate["myMap"].set("key", __validate);`
    - **Set back-edge**: The last segment is `{ container: 'set' }`. Everything up to the last segment renders as bracket notation, then `.add(target)`. Example: `__validate["mySet"].add(__validate);`
 
    When the back-edge target is not root, the target path also renders as bracket notation: `__validate["child"]["child"]["child"] = __validate["child"];`
 
 ### Output Structure
+
+**File**: `src/to-typescript.ts`
 
 ```typescript
 function toTypeScript(value: unknown, typeName: string): string {
@@ -389,7 +406,7 @@ The caller (Phase 5.2.2's validator) prepends the type definition and feeds the 
 - **`undefined` vs missing**: `toTypeScript()` preserves `undefined` properties explicitly (e.g., `{"a": undefined}`). Users define their types accordingly: `{a?: string}` for optional, `{a: string | undefined}` for required-but-nullable. This matches how `preprocess()` preserves `undefined` in the intermediate format.
 - **`-0` (negative zero)**: Not supported — dropped by structured-clone's JSON round-trip. See note in Type Mapping section.
 - **Excess property checking**: The inline-first strategy (see Design section) gives full excess property checking for all cases — acyclic, aliased, and cyclic. Aliases are duplicated within the literal; cycle back-edges use `null as any` placeholders with typed fixup mutations. The only unchecked slots are placeholders, which are immediately overwritten with correctly-typed values. Exception: errors use `Object.assign` which does not trigger excess property checking (see Known Limitations).
-- **Error fidelity**: Emit custom properties and `cause` via `Object.assign`, skip `stack`. This enables type checking against custom error classes (`ApiError extends Error { code: number }`). Simple errors with no custom properties emit as plain constructor calls.
+- **Error fidelity**: Standard error names (Error, TypeError, etc.) emit the matching constructor; non-standard names fall back to `new Error(...)` with `name` preserved as a custom property — mirroring `@lumenize/structured-clone`'s `globalThis[name] || Error` pattern. Custom properties and `cause` emitted via `Object.assign`, `stack` skipped. This ensures the output always compiles and enables type checking against custom error interfaces (`ApiError extends Error { code: number }`).
 - **Nested type names / multi-resource validation**: No API change needed. Call `validate()` separately for each value-type pair: `validate(invoice, "Invoice", types)` then `validate(lineItems, "LineItem[]", types)`. The second call validates the entire array — tsc checks every element against `LineItem`. Typically 2-5 calls even for complex requests.
 
 ## Known Limitations
@@ -408,9 +425,15 @@ Alias duplication means echo round-trip tests cannot verify reference identity (
 
 Binary data (ArrayBuffer, DataView) uses type-only tests — content is not preserved because `toTypeScript()` emits size-only constructors (`new ArrayBuffer(n)`), which is sufficient for type checking.
 
-### Cyclic Map Keys
+### Cyclic Map Keys and Object-Keyed Map Cycle Fixups
 
-Map keys that are themselves cyclic references (e.g., a Map that uses itself as a key) are not supported. This is pathological with no real-world use case. Map *values* that are cyclic are fully supported via `.set()` fixups.
+Map keys that are themselves cyclic references (e.g., a Map that uses itself as a key) are not supported. This is pathological with no real-world use case.
+
+Map cycle fixups (`.set(key, target)`) require the key to be expressible as a TypeScript literal — i.e., **primitive keys only** (string, number, boolean). Maps with object keys work fine for acyclic data (the key is inlined in the `new Map([...])` literal), but if a cycle back-edge passes through a Map *value* whose *key* is an object, the fixup `.set({...}, target)` would create a *new* object — Map uses reference equality, so this adds a new entry instead of updating the existing one. There is no workaround short of introducing `__mapKey` helper variables (which would break the inline-first strategy).
+
+`toTypeScript()` throws `TypeError` only in the actual problematic case: when recording a cycle fixup whose path includes a `map-value` segment with a non-primitive key. Acyclic Maps with object keys are not affected. This aligns with `@lumenize/structured-clone`'s recommendation to [use primitive keys for Maps](/docs/structured-clone/maps-and-sets) — object keys have identity challenges across serialization boundaries, and cycle fixups are another such boundary.
+
+**In practice**: data entering `toTypeScript()` in a Nebula/Mesh pipeline has already been through a `preprocess()` → wire → `postprocess()` cycle. Object Map keys survive this round-trip (reconstructed with preserved identity), but Maps with object keys whose values also form cycles are pathological — no known real-world use case.
 
 ### Error Excess Property Checking
 
@@ -418,12 +441,12 @@ Errors with custom properties use `Object.assign(new ErrorSubtype("msg"), {...})
 
 ## Success Criteria
 
-- [x] `@lumenize/structured-clone` bug fixes (prerequisite — done during review):
+- [x] `@lumenize/structured-clone` bug fixes (prerequisite — committed):
   - [x] Date, RegExp, and wrapper objects now store in `objects[]` and return `$lmz` references (alias support fixed)
   - [x] Plain objects use `Object.keys()` instead of `for...in` (inherited properties excluded, matches `structuredClone()`)
   - [x] Binary types no longer double-assign IDs (no sparse gaps in `objects[]`)
 - [ ] `packages/ts-runtime-validator/` scaffolded (`package.json`, `tsconfig.json`, `vitest.config.js`, `src/index.ts`)
-- [ ] `LmzIntermediate` added to `@lumenize/structured-clone`'s `index.ts` type exports (`@internal` tag removed)
+- [x] `LmzIntermediate` added to `@lumenize/structured-clone`'s `index.ts` type exports (`@internal` tag removed)
 - [ ] `toTypeScript(value, typeName)` produces valid TypeScript for all types supported by `@lumenize/structured-clone`
 - [ ] Acyclic objects produce single `const __validate: T = literal;`
 - [ ] Aliased objects are inlined (duplicated) within the literal — no `__refN` variables
