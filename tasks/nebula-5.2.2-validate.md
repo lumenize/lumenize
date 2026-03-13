@@ -104,6 +104,18 @@ packages/ts-runtime-validator/
 └── LICENSE
 ```
 
+## Error Type Behavior (for docs)
+
+`toTypeScript()` emits errors with full structural fidelity (Phase 5.2.1 design). Key behaviors for documentation:
+
+- **Base `Error` type**: If the user's type says `{ error: Error }`, validation passes for any error instance. `new TypeError("message")` is structurally assignable to `Error`. This is the common case.
+- **Standard subtypes**: `TypeError`, `RangeError`, etc. are structurally identical to `Error` in tsc (all have `name`, `message`, `stack`). Typing a property as `TypeError` vs `Error` makes no difference for validation.
+- **Custom error classes**: `toTypeScript()` emits custom properties and `cause` via `Object.assign`: `Object.assign(new TypeError("msg"), {"code": 42})`. This enables type checking against interfaces like `interface ApiError extends Error { code: number }`. The custom class definition itself isn't needed — tsc checks structural shape, not class identity.
+- **Excess property limitation**: `Object.assign` does not trigger tsc's excess property checking on errors. Extra properties won't be caught, but required properties with wrong types will be.
+- **`stack` is skipped**: Runtime-specific, never meaningful for schema validation. Typed as `string | undefined` on `Error`.
+
+Document in "Type Support" section. Key user guidance: **define error shapes as interfaces** (e.g., `interface ApiError extends Error { code: number }`), not classes — tsc checks structural assignability either way, and `toTypeScript()` emits the structural shape.
+
 ## Open Questions
 
 ### Engine

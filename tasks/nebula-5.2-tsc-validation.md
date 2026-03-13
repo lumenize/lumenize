@@ -12,7 +12,7 @@ This phase is broken into sub-phases that build on each other:
 | Sub-Phase | Name | Task File | Deliverable |
 |-----------|------|-----------|-------------|
 | 5.2.1.1 | Wrangler & Toolchain Upgrade | `tasks/nebula-5.2.1.1-wrangler-upgrade.md` | Updated wrangler, vitest-pool-workers, compatibility_date across monorepo |
-| 5.2.1.2 | DWL-in-vitest-pool-workers Spike | `tasks/nebula-5.2.1.2-dwl-vitest-spike.md` | Validated (or fallback) testing strategy for round-trip echo tests |
+| ~~5.2.1.2~~ | ~~DWL-in-vitest-pool-workers Spike~~ | ~~`tasks/nebula-5.2.1.2-dwl-vitest-spike.md`~~ | Superseded — tests run in Node.js (see 5.2.1 Testing Strategy) |
 | 5.2.1 | Structured-Clone `toTypeScript()` | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` | `toTypeScript()` in `@lumenize/ts-runtime-validator` |
 | 5.2.2 | `validate()` Function | `tasks/nebula-5.2.2-validate.md` | Pure function in `apps/nebula/src/validate.ts` |
 | 5.2.3 | Ontology & Resources Integration | `tasks/nebula-5.2.3-resources-validation-integration.md` | Ontology class, relationship extraction, in-process validation in `transaction()` |
@@ -22,11 +22,10 @@ This phase is broken into sub-phases that build on each other:
 
 ```
 5.2.1.1 (wrangler upgrade)
-  └─▶ 5.2.1.2 (DWL spike — validates testing strategy)
-        └─▶ 5.2.1 (toTypeScript)
-              └─▶ 5.2.2 (pure validate function)
-                    └─▶ 5.2.3 (Ontology class + Resources integration)
-                          └─▶ 5.2.5 (multi-resource queries)
+  └─▶ 5.2.1 (toTypeScript — tested in Node.js, 5.2.1.2 DWL spike superseded)
+        └─▶ 5.2.2 (pure validate function)
+              └─▶ 5.2.3 (Ontology class + Resources integration)
+                    └─▶ 5.2.5 (multi-resource queries)
 ```
 
 ## Scratchpad

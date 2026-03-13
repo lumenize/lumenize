@@ -199,11 +199,13 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
         objects[id] = tuple;
         return ["$lmz", id];
       } else if (value instanceof Date) {
-        // Date encodes inline (no references needed)
-        return ["date", value.toISOString()];
+        const tuple: any = ["date", value.toISOString()];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (value instanceof RegExp) {
-        // RegExp encodes inline (no references needed)
-        return ["regexp", { source: value.source, flags: value.flags }];
+        const tuple: any = ["regexp", { source: value.source, flags: value.flags }];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (value instanceof Error) {
         // Error object - preserve name, message, stack, cause, custom properties
         const errorData: any = {
@@ -266,36 +268,35 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
         // Throw on native Response - user must convert to ResponseSync first
         throw new Error('Cannot serialize native Response object. Use ResponseSync instead.');
       } else if (value instanceof Boolean) {
-        // Boolean wrapper object
-        return ["boolean-object", value.valueOf()];
+        const tuple: any = ["boolean-object", value.valueOf()];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (value instanceof Number) {
-        // Number wrapper object
         const num = value.valueOf();
-        if (Number.isNaN(num)) return ["number-object", "NaN"];
-        if (num === Infinity) return ["number-object", "Infinity"];
-        if (num === -Infinity) return ["number-object", "-Infinity"];
-        return ["number-object", num];
+        let data: any = num;
+        if (Number.isNaN(num)) data = "NaN";
+        else if (num === Infinity) data = "Infinity";
+        else if (num === -Infinity) data = "-Infinity";
+        const tuple: any = ["number-object", data];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (value instanceof String) {
-        // String wrapper object
-        return ["string-object", value.valueOf()];
+        const tuple: any = ["string-object", value.valueOf()];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (typeof BigInt !== 'undefined' && value instanceof Object && value.constructor.name === 'BigInt') {
-        // BigInt wrapper object (created via Object(BigInt(n)))
-        return ["bigint-object", value.valueOf().toString()];
+        const tuple: any = ["bigint-object", value.valueOf().toString()];
+        objects[id] = tuple;
+        return ["$lmz", id];
       } else if (typeof (value as any).constructor === 'function') {
         // Check for TypedArrays and ArrayBuffer/DataView
         const constructorName = value.constructor.name;
         if (constructorName === 'ArrayBuffer') {
-          // ArrayBuffer - store in objects array so it can be referenced
-          const id = nextId++;
-          seen.set(value, id);
           const arr = Array.from(new Uint8Array(value));
           const tuple: any = ["arraybuffer", { type: 'ArrayBuffer', data: arr }];
           objects[id] = tuple;
           return ["$lmz", id];
         } else if (constructorName === 'DataView') {
-          // DataView - store in objects array so it can be referenced
-          const id = nextId++;
-          seen.set(value, id);
           const buffer = Array.from(new Uint8Array(value.buffer));
           const tuple: any = ["arraybuffer", {
             type: 'DataView',
@@ -306,9 +307,6 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
           objects[id] = tuple;
           return ["$lmz", id];
         } else if (constructorName.includes('Array') && value.buffer) {
-          // TypedArray - store in objects array so it can be referenced
-          const id = nextId++;
-          seen.set(value, id);
           const arr = Array.from(value as any);
           const tuple: any = ["arraybuffer", { type: constructorName, data: arr }];
           objects[id] = tuple;
@@ -316,9 +314,9 @@ export function preprocess(data: any, options?: PreprocessOptions): LmzIntermedi
         }
       }
       
-      // Plain object
+      // Plain object — own enumerable properties only (matches structuredClone behavior)
       const obj: any = {};
-      for (const key in value) {
+      for (const key of Object.keys(value)) {
         obj[key] = preprocessValue(value[key], [...path, { type: 'get', key }]);
       }
       const tuple: any = ["object", obj];
