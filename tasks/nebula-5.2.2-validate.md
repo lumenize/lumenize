@@ -116,6 +116,23 @@ packages/ts-runtime-validator/
 
 Document in "Type Support" section. Key user guidance: **define error shapes as interfaces** (e.g., `interface ApiError extends Error { code: number }`), not classes — tsc checks structural assignability either way, and `toTypeScript()` emits the structural shape.
 
+The broader validation boundaries (structural-only, no `instanceof`, no generics inference, no conditional/mapped types) are documented in Phase 5.2.1's Non-Goals section (`tasks/nebula-5.2.1-structured-clone-to-typescript.md` § Non-Goals). The docs for this package should reference those boundaries in a "What's Checked / What's Not" section.
+
+### Set `null` Collision with Cycle Placeholders
+
+`toTypeScript()` uses `null as any` as cycle back-edge placeholders. For Sets, the fixup is `.delete(null)` then `.add(target)`. If a Set legitimately contains `null` AND has a cycle back-edge, both are `null` at runtime (SameValueZero). The Set deduplicates to one element, and the fixup replaces it with the cycle reference — the legitimate `null` is lost. This only affects structural fidelity in echo tests; for type-checking purposes the output is valid TypeScript and tsc checks the element type correctly. Pathological edge case with no known real-world occurrence.
+
+## Type-Checking Negative Tests
+
+These tests verify that `validate()` returns `{ valid: false, errors: [...] }` with appropriate tsc diagnostics when values don't conform to types. Moved here from Phase 5.2.1 because they exercise the full `validate()` pipeline (type definitions + tsc diagnostics), not just `toTypeScript()` serialization.
+
+- **Wrong primitive type**: `{ title: 42 }` against `interface Todo { title: string }` — tsc error on type mismatch
+- **Extra properties**: `{ title: "x", typo: true }` against `interface Todo { title: string }` — tsc excess property error
+- **Missing required properties**: `{}` against `interface Todo { title: string }` — tsc missing property error
+- **Wrong nested type**: `{ items: ["not a number"] }` against `interface List { items: number[] }` — tsc error in array element
+- **Wrong Map value type**: `new Map([["k", 42]])` against type `Map<string, string>` — tsc assignability error
+- **Wrong Error custom property**: `Object.assign(new Error("x"), { code: "str" })` against `interface ApiError extends Error { code: number }` — tsc error on code type
+
 ## Open Questions
 
 ### Engine
@@ -141,4 +158,5 @@ Document in "Type Support" section. Key user guidance: **define error shapes as 
 - [ ] Works in Node.js and Cloudflare Workers
 - [ ] `@lumenize/ts-runtime-validator` published to npm
 - [ ] Documentation at `website/docs/ts-runtime-validator/`
+- [ ] Negative type-checking tests: wrong primitive type, extra properties, missing properties, wrong nested type, wrong Map value type, wrong Error custom property — all produce tsc diagnostics with `{ valid: false }`
 - [ ] Test coverage: >80% branch, >90% statement

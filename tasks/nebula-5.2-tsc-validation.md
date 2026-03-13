@@ -32,4 +32,3 @@ This phase is broken into sub-phases that build on each other:
 
 - In order to validate, we're going to need to know the type and version.
 - The tsc capability also enables TypeScript API schema definitions for the IDE/LLM — documenting the Nebula API surface as TypeScript types that the vibe coding IDE's language model can use to generate correct code. See Phase 9 (`tasks/nebula-vibe-coding-ide.md`).
-- Future: extract `validate()` into a standalone MIT-licensed `@lumenize/ts-runtime-validate` package. See `tasks/nebula-scratchpad.md`.
