@@ -1,0 +1,45 @@
+{
+  "name": "@lumenize/ts-runtime-validator",
+  "version": "0.22.0",
+  "description": "TypeScript-as-schema runtime validation — toTypeScript() serializes values to TS programs, validate() type-checks them with tsc",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/**/*",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "vitest --run",
+    "coverage": "vitest --run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@lumenize/structured-clone": "0.22.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-istanbul": "3.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "3.2.4"
+  },
+  "keywords": [
+    "typescript",
+    "validation",
+    "schema",
+    "runtime",
+    "type-checking",
+    "cloudflare-workers"
+  ],
+  "author": "Larry Maccherone",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

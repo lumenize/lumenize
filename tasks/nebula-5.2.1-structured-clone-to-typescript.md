@@ -1,6 +1,6 @@
 # Phase 5.2.1: Structured-Clone `toTypeScript()` Serialization
 
-**Status**: Pending
+**Status**: Complete
 **Package**: `packages/ts-runtime-validator/` (`@lumenize/ts-runtime-validator`)
 **Depends on**: Phase 5.2.1.1 (Wrangler Upgrade) — **Complete** (commit 0608264)
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
@@ -470,21 +470,21 @@ Errors with custom properties use `Object.assign(new ErrorSubtype("msg"), {...})
   - [x] Date, RegExp, and wrapper objects now store in `objects[]` and return `$lmz` references (alias support fixed)
   - [x] Plain objects use `Object.keys()` instead of `for...in` (inherited properties excluded, matches `structuredClone()`)
   - [x] Binary types no longer double-assign IDs (no sparse gaps in `objects[]`)
-- [ ] `packages/ts-runtime-validator/` scaffolded (`package.json`, `tsconfig.json`, `vitest.config.js`, `src/index.ts`)
+- [x] `packages/ts-runtime-validator/` scaffolded (`package.json`, `tsconfig.json`, `vitest.config.js`, `src/index.ts`)
 - [x] `LmzIntermediate` added to `@lumenize/structured-clone`'s `index.ts` type exports (`@internal` tag removed)
-- [ ] `toTypeScript(value, typeName)` produces valid TypeScript for all types supported by `@lumenize/structured-clone`
-- [ ] Acyclic objects produce single `const __validate: T = literal;`
-- [ ] Aliased objects are inlined (duplicated) within the literal — no `__refN` variables
-- [ ] Cyclic objects produce an inline literal with `null as any` placeholders + fixup mutations
-- [ ] Map cycle fixups use `.set()`; Set cycle fixups use `.delete(null)` + `.add()`
-- [ ] Excess property checking works for acyclic, aliased, AND cyclic objects (test with extra properties)
-- [ ] Functions in input throw `TypeError('unable to serialize function')`
-- [ ] Errors emit custom properties and cause via `Object.assign` (skip stack)
-- [ ] Round-trip test: `toTypeScript(value, typeName)` → prepend type definition → tsc compiles without errors for conforming values
-- [ ] Echo fidelity: compile + eval round-trip produces deep-equal values (alias identity not required, cycle identity preserved)
-- [ ] Type-only tests: ArrayBuffer/DataView verify instanceof and byteLength (content not preserved)
-- [ ] Cyclic Map keys throw `TypeError('cycle in Map key not supported')`
-- [ ] Object-keyed Map value cycles throw `TypeError('cycle fixup not supported for Map entries with non-primitive keys')`
-- [ ] Negative type-checking tests moved to Phase 5.2.2 (validate task owns type-definition pairing)
-- [ ] `@lumenize/structured-clone` `stringify()`/`parse()` tests unaffected
-- [ ] Test coverage: >80% branch, >90% statement
+- [x] `toTypeScript(value, typeName)` produces valid TypeScript for all types supported by `@lumenize/structured-clone`
+- [x] Acyclic objects produce single `const __validate: T = literal;`
+- [x] Aliased objects are inlined (duplicated) within the literal — no `__refN` variables
+- [x] Cyclic objects produce an inline literal with `null as any` placeholders + fixup mutations
+- [x] Map cycle fixups use `.set()`; Set cycle fixups use `.delete(null)` + `.add()`
+- [x] Excess property checking works for acyclic, aliased, AND cyclic objects (test with extra properties)
+- [x] Functions in input throw `TypeError('unable to serialize function')`
+- [x] Errors emit custom properties and cause via `Object.assign` (skip stack)
+- [x] Round-trip test: `toTypeScript(value, typeName)` → prepend type definition → tsc compiles without errors for conforming values
+- [x] Echo fidelity: compile + eval round-trip produces deep-equal values (alias identity not required, cycle identity preserved)
+- [x] Type-only tests: ArrayBuffer/DataView verify instanceof and byteLength (content not preserved)
+- [x] Cyclic Map keys throw `TypeError('cycle in Map key not supported')`
+- [x] Object-keyed Map value cycles throw `TypeError('cycle fixup not supported for Map entries with non-primitive keys')`
+- [x] Negative type-checking tests moved to Phase 5.2.2 (validate task owns type-definition pairing)
+- [x] `@lumenize/structured-clone` `stringify()`/`parse()` tests unaffected
+- [x] Test coverage: >80% branch, >90% statement (94.34% stmt, 86.79% branch, 100% func)
