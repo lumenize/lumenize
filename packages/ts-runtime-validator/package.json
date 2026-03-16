@@ -22,11 +22,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lumenize/structured-clone": "0.22.0"
+    "@lumenize/structured-clone": "0.22.0",
+    "typescript": "^5.9.2"
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "3.2.4",
-    "typescript": "^5.9.2",
     "vitest": "3.2.4"
   },
   "keywords": [

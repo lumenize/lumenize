@@ -2,8 +2,10 @@
  * @lumenize/ts-runtime-validator
  *
  * TypeScript-as-schema runtime validation.
- * - `toTypeScript()` serializes values to TS programs (this phase)
- * - `validate()` type-checks them with tsc (Phase 5.2.2)
+ * - `toTypeScript()` serializes values to TS programs
+ * - `validate()` type-checks them with tsc
  */
 
 export { toTypeScript } from './to-typescript';
+export { validate, stripExportsAndImports } from './validate';
+export type { ValidationResult, ValidationError } from './validate';

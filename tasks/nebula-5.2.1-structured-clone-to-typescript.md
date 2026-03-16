@@ -488,3 +488,32 @@ Errors with custom properties use `Object.assign(new ErrorSubtype("msg"), {...})
 - [x] Negative type-checking tests moved to Phase 5.2.2 (validate task owns type-definition pairing)
 - [x] `@lumenize/structured-clone` `stringify()`/`parse()` tests unaffected
 - [x] Test coverage: >80% branch, >90% statement (94.34% stmt, 86.79% branch, 100% func)
+
+## Retrospective
+
+### What worked well?
+
+- **Docs-first task design paid off massively.** The detailed task doc — especially the type mapping table and the inline-first strategy — meant implementation was mostly mechanical translation. The 2-pass architecture, `PathSegment` types, and fixup generation were all specified before writing code, so there were very few design decisions during implementation.
+- **Prerequisite bug fixes as a separate commit.** Fixing `preprocess()` (Date/RegExp/wrapper `$lmz` references, `Object.keys()`, binary ID gaps) in commit bd0407a before starting `toTypeScript()` kept the implementation clean. The structured-clone test suite served as the regression gate.
+- **Echo round-trip testing via `ts.createProgram()` + `vm.runInNewContext()`.** Compiling the TypeScript output to JS and evaluating it caught fidelity bugs that string-matching tests would have missed (e.g., RegExp escaping, Map entry ordering). 80 tests in 82ms.
+- **Decision to test in Node.js instead of DWL.** Superseding the DWL-in-vitest spike (5.2.1.2) saved significant complexity. `toTypeScript()` is a pure function — no Cloudflare APIs needed. This kept the test setup trivial (single vitest config, no wrangler).
+- **Reusing `preprocess()` from structured-clone.** Avoided reimplementing cycle/alias detection. The intermediate format (`LmzIntermediate`) was well-suited for the walk — tagged tuples map cleanly to TypeScript constructs.
+
+### What was harder than expected?
+
+- **Map/Set cycle fixups.** The design doc covered the fixup strategy, but the edge cases around non-primitive Map keys and Set placeholder cleanup (`.delete(null)` + `.add()`) required careful thought during implementation. The `keyExpr` tracking in `PathSegment` was the right call but added complexity to the walk.
+- **structured-clone bugs were only discovered during task doc review.** Three bugs in `preprocess()` (Date/RegExp not stored in `objects[]`, `for...in` including inherited properties, binary double-ID assignment) weren't caught by existing tests because `stringify()`/`parse()` round-trips masked them. Only the new consumer (`toTypeScript()` reading intermediate format directly) exposed them. Lesson: new consumers of internal formats are a forcing function for correctness.
+- **Export wiring.** `@lumenize/structured-clone` needed `LmzIntermediate` exported as a public type, and `RequestSync`/`ResponseSync` classes needed to be available for the vm sandbox. Getting the cross-package exports right required a separate commit (e426bc0).
+
+### What would you do differently next time?
+
+- **Write a small spike before the full task doc.** The task doc was thorough but some details (like whether `vm.runInNewContext()` has all needed constructors, or whether `ts.createProgram()` output needs special module handling) were discovered during implementation. A 30-minute spike would have validated assumptions earlier.
+- **Split the task doc review and bug-fix phase more explicitly.** The structured-clone bugs were found mid-review and fixed in a single commit. If the review had been its own checklist item, the scope would have been clearer.
+
+### What should carry forward to Phase 5.2.2?
+
+- **`toTypeScript()` output format is stable.** `validate()` prepends a type definition string and feeds the combined program to `ts.createProgram()`. The output always starts with `const __validate: T = ...;` followed by zero or more fixup statements.
+- **The `ts.createProgram()` pattern from echo tests is directly reusable.** The test helper that compiles TypeScript and extracts diagnostics is essentially the core of `validate()`. Main difference: `validate()` only checks for errors (no eval), and it needs the user's type definitions as a virtual `.d.ts` file.
+- **Negative type-checking tests belong to 5.2.2.** Tests like "extra property on object → tsc error" and "wrong type → tsc error" were explicitly deferred. They require pairing `toTypeScript()` output with type definitions, which is `validate()`'s job.
+- **The minimal lib.d.ts from the DWL spike (4 KB) may be useful** if `validate()` runs in a constrained environment, but for Node.js testing the full lib is fine.
+- **Error `Object.assign` does not trigger excess property checking** — this is a known limitation documented in the task. `validate()` tests should verify that required error properties are checked but not expect extra-property detection on errors.

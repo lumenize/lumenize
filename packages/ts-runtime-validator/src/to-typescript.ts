@@ -9,6 +9,14 @@
 
 import { preprocess, type LmzIntermediate } from '@lumenize/structured-clone';
 
+/** Valid JS identifier pattern — keys matching this can be unquoted in object literals */
+const IDENTIFIER_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+
+/** Emit a property key for an object literal — unquoted if a valid identifier, quoted otherwise */
+function emitKey(key: string): string {
+  return IDENTIFIER_RE.test(key) ? key : JSON.stringify(key);
+}
+
 /** Standard Error constructor names available in tsc's global scope */
 const STANDARD_ERROR_NAMES = new Set([
   'Error', 'TypeError', 'RangeError', 'ReferenceError',
@@ -238,7 +246,7 @@ export function toTypeScript(value: unknown, typeName: string): string {
         path.push({ container: 'object', key });
         const val = walk(obj[key], inMapKey);
         path.pop();
-        return `${JSON.stringify(key)}: ${val}`;
+        return `${emitKey(key)}: ${val}`;
       });
       return `{${props.join(', ')}}`;
     }
@@ -337,16 +345,16 @@ export function toTypeScript(value: unknown, typeName: string): string {
     // Collect assign props
     const assignProps: string[] = [];
     if (!isStandard) {
-      assignProps.push(`${JSON.stringify('name')}: ${JSON.stringify(name)}`);
+      assignProps.push(`name: ${JSON.stringify(name)}`);
     }
     if (cause !== undefined) {
       path.push({ container: 'object', key: 'cause' });
-      assignProps.push(`${JSON.stringify('cause')}: ${walk(cause, inMapKey)}`);
+      assignProps.push(`cause: ${walk(cause, inMapKey)}`);
       path.pop();
     }
     for (const key of Object.keys(customProps)) {
       path.push({ container: 'object', key });
-      assignProps.push(`${JSON.stringify(key)}: ${walk(customProps[key], inMapKey)}`);
+      assignProps.push(`${emitKey(key)}: ${walk(customProps[key], inMapKey)}`);
       path.pop();
     }
 
@@ -411,7 +419,7 @@ export function toTypeScript(value: unknown, typeName: string): string {
   /** Emit a plain JS object as a TS object literal (for RequestSync/ResponseSync body) */
   function emitInlineObject(obj: Record<string, any>): string {
     const pairs = Object.keys(obj).map(
-      key => `${JSON.stringify(key)}: ${JSON.stringify(obj[key])}`
+      key => `${emitKey(key)}: ${JSON.stringify(obj[key])}`
     );
     return `{${pairs.join(', ')}}`;
   }

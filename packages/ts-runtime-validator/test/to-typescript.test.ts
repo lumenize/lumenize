@@ -632,13 +632,19 @@ describe('toTypeScript — output format', () => {
   it('acyclic produces single const assignment', () => {
     const tsCode = toTypeScript({ title: 'Fix bug', done: false }, 'Todo');
     expect(tsCode).toBe(
-      'const __validate: Todo = {"title": "Fix bug", "done": false};'
+      'const __validate: Todo = {title: "Fix bug", done: false};'
     );
   });
 
-  it('uses JSON-style quoted keys', () => {
+  it('quotes keys that are not valid identifiers', () => {
     const tsCode = toTypeScript({ 'foo-bar': 1 }, 'T');
     expect(tsCode).toContain('"foo-bar"');
+  });
+
+  it('does not quote keys that are valid identifiers', () => {
+    const tsCode = toTypeScript({ title: 'x' }, 'T');
+    expect(tsCode).toContain('title: "x"');
+    expect(tsCode).not.toContain('"title"');
   });
 
   it('cyclic produces fixup mutation with bracket notation', () => {
