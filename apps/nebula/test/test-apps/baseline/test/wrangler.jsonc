@@ -2,6 +2,7 @@
   "name": "nebula-baseline-test",
   "main": "./test-harness.ts",
   "compatibility_date": "2026-03-12",
+  "compatibility_flags": ["nodejs_compat_v2"],
   "durable_objects": {
     "bindings": [
       { "name": "NEBULA_CLIENT_GATEWAY", "class_name": "NebulaClientGateway" },

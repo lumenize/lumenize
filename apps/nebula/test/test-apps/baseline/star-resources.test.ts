@@ -9,9 +9,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { Browser } from '@lumenize/testing';
 import { generateUuid } from '@lumenize/auth';
 import { ROOT_NODE_ID, END_OF_TIME } from '@lumenize/nebula';
-import type { Snapshot, TransactionResult } from '@lumenize/nebula';
+import type { Snapshot, TransactionResult, TransactionError } from '@lumenize/nebula';
 import { createAuthenticatedClient, browserLogin, createSubject } from '../../test-helpers';
 import { NebulaClientTest } from './index';
+
+const ONTOLOGY_VERSION = 'v1';
+const TEST_TYPES = `interface TestResource { title: string; tags: any; metadata: any; createdAt: any; self: any; }`;
 
 // Helper: unique star scope per test
 function uniqueStar(): string {
@@ -21,7 +24,17 @@ function uniqueStar(): string {
 // Helper: admin client
 async function adminClient(star: string) {
   const browser = new Browser();
-  return createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+  const result = await createAuthenticatedClient(NebulaClientTest, browser, star, star, 'admin@example.com');
+
+  // Register ontology on the Galaxy
+  const galaxyName = star.split('.').slice(0, 2).join('.');
+  result.client.callGalaxyAppendOntologyVersion(galaxyName, {
+    version: ONTOLOGY_VERSION,
+    types: TEST_TYPES,
+  });
+  await waitForResult(result.client);
+
+  return result;
 }
 
 // Helper: non-admin user client
@@ -91,8 +104,8 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const txnResult = await waitForSuccess(client) as TransactionResult;
       expect(txnResult.ok).toBe(true);
@@ -100,7 +113,7 @@ describe('star-resources', () => {
       expect(txnResult.eTags[resourceId]).toBeDefined();
 
       // Read back
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snapshot = await waitForSuccess(client) as Snapshot;
       assertTestValue(snapshot.value);
       expect(snapshot.meta.nodeId).toBe(ROOT_NODE_ID);
@@ -112,22 +125,22 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('update with correct eTag succeeds', async () => {
+    it('put with correct eTag succeeds', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
       const eTag = createResult.eTags[resourceId];
 
-      // Update
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag, value: makeTestValue('Updated Task') },
+      // Put (full replacement)
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag, value: makeTestValue('Updated Task') },
       });
       const updateResult = await waitForSuccess(client) as TransactionResult;
       expect(updateResult.ok).toBe(true);
@@ -136,33 +149,37 @@ describe('star-resources', () => {
       expect(updateResult.eTags[resourceId]).not.toBe(eTag);
 
       // Read back
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snapshot = await waitForSuccess(client) as Snapshot;
       assertTestValue(snapshot.value, 'Updated Task');
 
       client[Symbol.dispose]();
     });
 
-    it('update with wrong eTag returns conflict', async () => {
+    it('put with wrong eTag returns conflict', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       await waitForSuccess(client);
 
       // Update with fabricated eTag
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: generateUuid(), value: makeTestValue('Bad Update') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: generateUuid(), value: makeTestValue('Bad Update') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
       if (result.ok) throw new Error('Expected conflict');
-      expect(result.conflicts[resourceId]).toBeDefined();
-      assertTestValue(result.conflicts[resourceId].value); // original value
+      expect(result.errors[resourceId]).toBeDefined();
+      const error = result.errors[resourceId] as TransactionError;
+      expect(error.type).toBe('conflict');
+      if (error.type === 'conflict') {
+        assertTestValue(error.currentSnapshot.value); // original value
+      }
 
       client[Symbol.dispose]();
     });
@@ -173,22 +190,22 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
       const eTag = createResult.eTags[resourceId];
 
       // Delete
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'delete', eTag },
       });
       const deleteResult = await waitForSuccess(client) as TransactionResult;
       expect(deleteResult.ok).toBe(true);
 
       // Read — returns snapshot with deleted: true (not null)
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snapshot = await waitForSuccess(client) as Snapshot;
       expect(snapshot).not.toBeNull();
       expect(snapshot.meta.deleted).toBe(true);
@@ -201,7 +218,7 @@ describe('star-resources', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarResourcesRead(star, generateUuid());
+      client.callStarRead(star, ONTOLOGY_VERSION, generateUuid());
       const result = await waitForSuccess(client);
       expect(result).toBeNull();
 
@@ -212,7 +229,7 @@ describe('star-resources', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarResourcesTransaction(star, {});
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {});
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result).toEqual({ ok: true, eTags: {} });
 
@@ -224,7 +241,7 @@ describe('star-resources', () => {
 
   describe('batch transactions', () => {
 
-    it('mixed create/update/move/delete in one transaction', async () => {
+    it('mixed create/put/move/delete in one transaction', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
@@ -236,19 +253,19 @@ describe('star-resources', () => {
       // Create two resources
       const r1 = generateUuid();
       const r2 = generateUuid();
-      client.callStarResourcesTransaction(star, {
-        [r1]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
-        [r2]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [r1]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
+        [r2]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
       // Mixed batch: update r1, move r2 to child
       const r3 = generateUuid();
-      client.callStarResourcesTransaction(star, {
-        [r1]: { op: 'update', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [r1]: { op: 'put', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
         [r2]: { op: 'move', eTag: createResult.eTags[r2], nodeId: childNodeId },
-        [r3]: { op: 'create', nodeId: childNodeId, value: makeTestValue('R3') },
+        [r3]: { op: 'create', typeName: 'TestResource', nodeId: childNodeId, value: makeTestValue('R3') },
       });
       const batchResult = await waitForSuccess(client) as TransactionResult;
       expect(batchResult.ok).toBe(true);
@@ -256,7 +273,7 @@ describe('star-resources', () => {
       expect(Object.keys(batchResult.eTags)).toHaveLength(3);
 
       // Verify r2 moved
-      client.callStarResourcesRead(star, r2);
+      client.callStarRead(star, ONTOLOGY_VERSION, r2);
       const r2Snap = await waitForSuccess(client) as Snapshot;
       expect(r2Snap.meta.nodeId).toBe(childNodeId);
 
@@ -270,23 +287,23 @@ describe('star-resources', () => {
       const r2 = generateUuid();
 
       // Create two resources
-      client.callStarResourcesTransaction(star, {
-        [r1]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
-        [r2]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [r1]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
+        [r2]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
       // Batch with one bad eTag
-      client.callStarResourcesTransaction(star, {
-        [r1]: { op: 'update', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
-        [r2]: { op: 'update', eTag: generateUuid(), value: makeTestValue('R2 Updated') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [r1]: { op: 'put', eTag: createResult.eTags[r1], value: makeTestValue('R1 Updated') },
+        [r2]: { op: 'put', eTag: generateUuid(), value: makeTestValue('R2 Updated') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
 
       // r1 should NOT have been updated (rollback)
-      client.callStarResourcesRead(star, r1);
+      client.callStarRead(star, ONTOLOGY_VERSION, r1);
       const r1Snap = await waitForSuccess(client) as Snapshot;
       expect(r1Snap.value.title).toBe('R1');
 
@@ -300,9 +317,9 @@ describe('star-resources', () => {
 
       const ops: Record<string, any> = {};
       for (const id of ids) {
-        ops[id] = { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue(`Task ${id.slice(0, 4)}`) };
+        ops[id] = { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue(`Task ${id.slice(0, 4)}`) };
       }
-      client.callStarResourcesTransaction(star, ops);
+      client.callStarTransaction(star, ONTOLOGY_VERSION, ops);
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(true);
       if (!result.ok) throw new Error('Expected ok');
@@ -328,21 +345,21 @@ describe('star-resources', () => {
       // Default debounceMs is 1 hour — all writes within this test are within the window
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
       // Update (same sub, within debounce window — should overwrite in place)
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
       });
       const updateResult = await waitForSuccess(client) as TransactionResult;
       if (!updateResult.ok) throw new Error('Expected ok');
 
       // Read — should see v2
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(client) as Snapshot;
       expect(snap.value.title).toBe('v2');
 
@@ -363,26 +380,26 @@ describe('star-resources', () => {
       await waitForSuccess(client);
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
       // Read to get validFrom
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap1 = await waitForSuccess(client) as Snapshot;
       const validFrom1 = snap1.meta.validFrom;
 
       // Update
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
       });
       const updateResult = await waitForSuccess(client) as TransactionResult;
       if (!updateResult.ok) throw new Error('Expected ok');
 
       // Read — validFrom should be different (new snapshot created)
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap2 = await waitForSuccess(client) as Snapshot;
       expect(snap2.value.title).toBe('v2');
       expect(snap2.meta.validFrom).not.toBe(validFrom1);
@@ -403,8 +420,8 @@ describe('star-resources', () => {
       const nodeId = admin.lastResult as number;
 
       // Create resource as admin
-      admin.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId, value: makeTestValue('v1') },
+      admin.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue('v1') },
       });
       const createResult = await waitForSuccess(admin) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
@@ -422,15 +439,15 @@ describe('star-resources', () => {
       await waitForSuccess(admin);
 
       // Update resource as user (different sub chain — should create new snapshot)
-      user.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
+      user.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('v2') },
       });
       const updateResult = await waitForSuccess(user) as TransactionResult;
       expect(updateResult.ok).toBe(true);
       if (!updateResult.ok) throw new Error('Expected ok');
 
       // Read — changedBy should be the user
-      user.callStarResourcesRead(star, resourceId);
+      user.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(user) as Snapshot;
       expect(snap.value.title).toBe('v2');
       expect(snap.meta.changedBy.sub).toBe(userSub);
@@ -454,26 +471,26 @@ describe('star-resources', () => {
       await waitForSuccess(client);
 
       // Create then update twice
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('v1') },
       });
       const r1 = await waitForSuccess(client) as TransactionResult;
       if (!r1.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: r1.eTags[resourceId], value: makeTestValue('v2') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: r1.eTags[resourceId], value: makeTestValue('v2') },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: r2.eTags[resourceId], value: makeTestValue('v3') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: r2.eTags[resourceId], value: makeTestValue('v3') },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       if (!r3.ok) throw new Error('Expected ok');
 
       // Current snapshot should be v3
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const current = await waitForSuccess(client) as Snapshot;
       expect(current.value.title).toBe('v3');
       expect(current.meta.validTo).toBe(END_OF_TIME);
@@ -506,8 +523,8 @@ describe('star-resources', () => {
 
       // User creates resource
       const resourceId = generateUuid();
-      user.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId, value: makeTestValue() },
+      user.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
       const result = await waitForSuccess(user) as TransactionResult;
       expect(result.ok).toBe(true);
@@ -526,8 +543,8 @@ describe('star-resources', () => {
       const nodeId = admin.lastResult as number;
 
       const resourceId = generateUuid();
-      admin.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId, value: makeTestValue() },
+      admin.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(admin) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
@@ -542,13 +559,13 @@ describe('star-resources', () => {
       await waitForSuccess(admin);
 
       // User can read
-      user.callStarResourcesRead(star, resourceId);
+      user.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snapshot = await waitForSuccess(user) as Snapshot;
       assertTestValue(snapshot.value);
 
       // User cannot write
-      user.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: createResult.eTags[resourceId], value: makeTestValue('Hacked') },
+      user.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: createResult.eTags[resourceId], value: makeTestValue('Hacked') },
       });
       const error = await waitForError(user);
       expect(error).toContain('write permission required');
@@ -567,8 +584,8 @@ describe('star-resources', () => {
       const nodeId = admin.lastResult as number;
 
       const resourceId = generateUuid();
-      admin.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId, value: makeTestValue() },
+      admin.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
       await waitForSuccess(admin);
 
@@ -576,13 +593,13 @@ describe('star-resources', () => {
       const { client: user } = await userClient(star, accessToken);
 
       // User cannot read
-      user.callStarResourcesRead(star, resourceId);
+      user.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const readError = await waitForError(user);
       expect(readError).toContain('read permission required');
 
       // User cannot write
-      user.callStarResourcesTransaction(star, {
-        [generateUuid()]: { op: 'create', nodeId, value: makeTestValue() },
+      user.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId, value: makeTestValue() },
       });
       const writeError = await waitForError(user);
       expect(writeError).toContain('write permission required');
@@ -611,21 +628,21 @@ describe('star-resources', () => {
 
       // Create resource on node A
       const resourceId = generateUuid();
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: nodeA, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: nodeA, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
 
       // Move to node B
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: nodeB },
       });
       const moveResult = await waitForSuccess(client) as TransactionResult;
       expect(moveResult.ok).toBe(true);
 
       // Verify
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(client) as Snapshot;
       expect(snap.meta.nodeId).toBe(nodeB);
       assertTestValue(snap.value); // value preserved
@@ -639,15 +656,15 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
       const originalETag = createResult.eTags[resourceId];
 
       // Move to same node
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'move', eTag: originalETag, nodeId: ROOT_NODE_ID },
       });
       const moveResult = await waitForSuccess(client) as TransactionResult;
@@ -675,8 +692,8 @@ describe('star-resources', () => {
 
       // Create resource on source
       const resourceId = generateUuid();
-      admin.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: srcNode, value: makeTestValue() },
+      admin.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: srcNode, value: makeTestValue() },
       });
       const createResult = await waitForSuccess(admin) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
@@ -691,7 +708,7 @@ describe('star-resources', () => {
       await waitForSuccess(admin);
 
       // User tries to move — should fail (no write on dst)
-      user.callStarResourcesTransaction(star, {
+      user.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'move', eTag: createResult.eTags[resourceId], nodeId: dstNode },
       });
       const error = await waitForError(user);
@@ -712,14 +729,14 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       await waitForSuccess(client);
 
       // Create again — should throw
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('Dupe') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('Dupe') },
       });
       const error = await waitForError(client);
       expect(error).toContain('already exists');
@@ -733,20 +750,20 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create and delete
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const r1 = await waitForSuccess(client) as TransactionResult;
       if (!r1.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
       });
       await waitForSuccess(client);
 
-      // Create again — should throw (use update instead)
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('Recreate') },
+      // Create again — should throw (use put instead)
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('Recreate') },
       });
       const error = await waitForError(client);
       expect(error).toContain('already exists');
@@ -754,33 +771,33 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('update a deleted resource succeeds (deleted is informational)', async () => {
+    it('put a deleted resource succeeds (deleted is informational)', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
       // Create and delete
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const r1 = await waitForSuccess(client) as TransactionResult;
       if (!r1.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       // Update the deleted resource
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: r2.eTags[resourceId], value: makeTestValue('Resurrected') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: r2.eTags[resourceId], value: makeTestValue('Resurrected') },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       expect(r3.ok).toBe(true);
 
       // Deleted flag should still be true (update doesn't clear it)
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(client) as Snapshot;
       expect(snap.meta.deleted).toBe(true);
       expect(snap.value.title).toBe('Resurrected');
@@ -800,26 +817,26 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create and delete
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const r1 = await waitForSuccess(client) as TransactionResult;
       if (!r1.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       // Move the deleted resource
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'move', eTag: r2.eTags[resourceId], nodeId: targetNode },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
       expect(r3.ok).toBe(true);
 
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(client) as Snapshot;
       expect(snap.meta.nodeId).toBe(targetNode);
       expect(snap.meta.deleted).toBe(true);
@@ -833,20 +850,20 @@ describe('star-resources', () => {
       const resourceId = generateUuid();
 
       // Create and delete
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const r1 = await waitForSuccess(client) as TransactionResult;
       if (!r1.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'delete', eTag: r1.eTags[resourceId] },
       });
       const r2 = await waitForSuccess(client) as TransactionResult;
       if (!r2.ok) throw new Error('Expected ok');
 
       // Delete again
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [resourceId]: { op: 'delete', eTag: r2.eTags[resourceId] },
       });
       const r3 = await waitForSuccess(client) as TransactionResult;
@@ -867,14 +884,14 @@ describe('star-resources', () => {
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       await waitForSuccess(client);
 
       // Update with random UUID that never existed
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: generateUuid(), value: makeTestValue('Bad') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: generateUuid(), value: makeTestValue('Bad') },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -888,9 +905,9 @@ describe('star-resources', () => {
       const r1 = generateUuid();
       const r2 = generateUuid();
 
-      client.callStarResourcesTransaction(star, {
-        [r1]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
-        [r2]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [r1]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R1') },
+        [r2]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('R2') },
       });
       const createResult = await waitForSuccess(client) as TransactionResult;
       if (!createResult.ok) throw new Error('Expected ok');
@@ -907,21 +924,21 @@ describe('star-resources', () => {
       const ra = generateUuid();
       const rb = generateUuid();
 
-      c2.callStarResourcesTransaction(star, {
-        [ra]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('RA') },
+      c2.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [ra]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('RA') },
       });
       const raResult = await waitForSuccess(c2) as TransactionResult;
       if (!raResult.ok) throw new Error('Expected ok');
 
-      c2.callStarResourcesTransaction(star, {
-        [rb]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue('RB') },
+      c2.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [rb]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue('RB') },
       });
       const rbResult = await waitForSuccess(c2) as TransactionResult;
       if (!rbResult.ok) throw new Error('Expected ok');
 
       // Use ra's eTag on rb
-      c2.callStarResourcesTransaction(star, {
-        [rb]: { op: 'update', eTag: raResult.eTags[ra], value: makeTestValue('Bad') },
+      c2.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [rb]: { op: 'put', eTag: raResult.eTags[ra], value: makeTestValue('Bad') },
       });
       const result = await waitForSuccess(c2) as TransactionResult;
       expect(result.ok).toBe(false);
@@ -938,8 +955,8 @@ describe('star-resources', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarResourcesTransaction(star, {
-        '': { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        '': { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const error = await waitForError(client);
       expect(error).toContain('resourceId must not be empty');
@@ -951,8 +968,8 @@ describe('star-resources', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarResourcesTransaction(star, {
-        [generateUuid()]: { op: 'create', nodeId: ROOT_NODE_ID, value: null },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: null },
       });
       const error = await waitForError(client);
       expect(error).toContain('must not be null or undefined');
@@ -960,19 +977,19 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('update with null value throws', async () => {
+    it('put with null value throws', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value: makeTestValue() },
       });
       const r1 = await waitForSuccess(client) as TransactionResult;
       if (!r1.ok) throw new Error('Expected ok');
 
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'update', eTag: r1.eTags[resourceId], value: null },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'put', eTag: r1.eTags[resourceId], value: null },
       });
       const error = await waitForError(client);
       expect(error).toContain('must not be null or undefined');
@@ -980,12 +997,12 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('update on non-existent resourceId throws', async () => {
+    it('put on non-existent resourceId throws', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarResourcesTransaction(star, {
-        [generateUuid()]: { op: 'update', eTag: generateUuid(), value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [generateUuid()]: { op: 'put', eTag: generateUuid(), value: makeTestValue() },
       });
       const error = await waitForError(client);
       expect(error).toContain('not found');
@@ -997,7 +1014,7 @@ describe('star-resources', () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
 
-      client.callStarResourcesTransaction(star, {
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
         [generateUuid()]: { op: 'delete', eTag: generateUuid() },
       });
       const error = await waitForError(client);
@@ -1012,8 +1029,8 @@ describe('star-resources', () => {
 
       // requirePermission checks node existence before admin bypass,
       // so even admins get a clear "Node not found" error
-      client.callStarResourcesTransaction(star, {
-        [generateUuid()]: { op: 'create', nodeId: 99999, value: makeTestValue() },
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [generateUuid()]: { op: 'create', typeName: 'TestResource', nodeId: 99999, value: makeTestValue() },
       });
       const error = await waitForError(client);
       expect(error).toContain('Node 99999 not found');
@@ -1021,23 +1038,22 @@ describe('star-resources', () => {
       client[Symbol.dispose]();
     });
 
-    it('value containing only rich types (Map as root)', async () => {
+    it('value containing rich types in nested positions', async () => {
       const star = uniqueStar();
       const { client } = await adminClient(star);
       const resourceId = generateUuid();
 
-      const value = new Map<string, any>([['a', 1], ['b', new Date('2026-01-01T00:00:00Z')]]);
-      client.callStarResourcesTransaction(star, {
-        [resourceId]: { op: 'create', nodeId: ROOT_NODE_ID, value },
+      // Rich types (Map, Date) inside a TestResource object — verifies structured clone round-trip
+      const value = makeTestValue('Rich Nested');
+      client.callStarTransaction(star, ONTOLOGY_VERSION, {
+        [resourceId]: { op: 'create', typeName: 'TestResource', nodeId: ROOT_NODE_ID, value },
       });
       const result = await waitForSuccess(client) as TransactionResult;
       expect(result.ok).toBe(true);
 
-      client.callStarResourcesRead(star, resourceId);
+      client.callStarRead(star, ONTOLOGY_VERSION, resourceId);
       const snap = await waitForSuccess(client) as Snapshot;
-      expect(snap.value).toBeInstanceOf(Map);
-      expect(snap.value.get('a')).toBe(1);
-      expect(snap.value.get('b')).toBeInstanceOf(Date);
+      assertTestValue(snap.value, 'Rich Nested');
 
       client[Symbol.dispose]();
     });

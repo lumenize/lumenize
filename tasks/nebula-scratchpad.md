@@ -90,6 +90,20 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 - For large subscriber counts, tier the fanout through armies of stand-alone LumenizeWorkers. First tier instantiates in the originator, subsequent tiers fan out to Workers.
 - Algorithm sketch: <64 recipients = single shot. 64–4,096 = two tiers (√n fanout each). 4,096–262,144 = three tiers (∛n fanout each). Optimal fanout per tier needs experimentation as Cloudflare evolves.
 
+### Heterogeneous Map Validation (from Phase 5.2.3)
+
+`Map<string, string | number>` with mixed value types fails validation because tsc infers `V` from the first constructor entry. This is a real TypeScript limitation — it fails with `lib.es5.d.ts` too, not just our minimal lib.
+
+**Fix**: Have `validate()` extract Map type parameters from the target type's AST and pass them to `toTypeScript()`, which would then emit `new Map<string, string | number>([...])` instead of untyped `new Map([...])`. The type-parameter extraction could reuse the AST walk from `extractTypeMetadata()`.
+
+**Scope**: ~1 day. Add a type-walking helper that follows the value's path into the target type to extract generic parameters at each position. Thread this through `toTypeScript()`'s recursive `walk()`. Handle nested Maps, Maps inside arrays, optional fields. The same infrastructure could improve Set validation and other generic types.
+
+**Workaround until then**: Vibe coders use `Map<string, any>` for mixed-type maps. Homogeneous maps (`Map<string, number>`) validate correctly including wrong-type rejection.
+
+**Skipped test**: `packages/ts-runtime-validator/test/map-heterogeneous.test.ts` — "heterogeneous Map<string, string | number> with mixed values"
+
+**Docs**: When this fix lands, update the "What's Checked / What's Not" page in `tasks/nebula-5.2.4-docs.md` to remove the heterogeneous Map limitation.
+
 ### `@lumenize/ts-runtime-validate` Package Extraction
 
 The pure `validate()` function in `apps/nebula/src/validate.ts` (Phase 5.2.2) is deliberately self-contained — no Nebula imports, no class, no state. This makes future extraction into a standalone MIT-licensed npm package trivial: copy `validate.ts`, `engine.ts`, and the minimal `lib.d.ts`, add a `package.json`, publish. The community pitch: "validate any JS value against any TypeScript type at runtime — no Zod, no JSON Schema." The tsc engine (3.4 MB bundled) is the only meaningful dependency. Nebula's Ontology class, versioning, defaults, relationships, and migrations stay BSL-1.1 in `apps/nebula/`. Teases the capability while keeping the secret sauce proprietary.

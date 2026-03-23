@@ -7,7 +7,9 @@
  * @see tasks/nebula-5.2.2-validate.md for full design
  */
 
-import ts from 'typescript';
+// Use the esbuild-bundled typescript (--platform=browser strips node:os etc.)
+// so this module works in Node.js, Workers, and vitest-pool-workers.
+import ts from '../dist/typescript.bundled.mjs';
 
 // ---------------------------------------------------------------------------
 // Embedded minimal lib.d.ts
@@ -203,25 +205,28 @@ declare var Infinity: number;
 `;
 
 // ---------------------------------------------------------------------------
-// Compiler options
+// Cached singletons (lazy — initialized on first checkFiles() call)
 // ---------------------------------------------------------------------------
 
-const COMPILER_OPTIONS: ts.CompilerOptions = {
-  strict: true,
-  noEmit: true,
-  target: ts.ScriptTarget.ESNext,
-  module: ts.ModuleKind.None,
-  skipLibCheck: true,
-};
+let cachedCompilerOptions: any;
+let cachedLibSourceFile: any;
+let cachedHost: any;
+let hostFiles: Map<string, string> | undefined;
 
-// ---------------------------------------------------------------------------
-// Cached singletons
-// ---------------------------------------------------------------------------
+function getCompilerOptions() {
+  if (!cachedCompilerOptions) {
+    cachedCompilerOptions = {
+      strict: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.None,
+      skipLibCheck: true,
+    };
+  }
+  return cachedCompilerOptions;
+}
 
-/** Cached lib.d.ts SourceFile — immutable, created once */
-let cachedLibSourceFile: ts.SourceFile | undefined;
-
-function getLibSourceFile(): ts.SourceFile {
+function getLibSourceFile() {
   if (!cachedLibSourceFile) {
     cachedLibSourceFile = ts.createSourceFile(
       'lib.d.ts',
@@ -233,15 +238,11 @@ function getLibSourceFile(): ts.SourceFile {
   return cachedLibSourceFile;
 }
 
-/** Cached base CompilerHost — immutable methods, files map swapped per call */
-let cachedHost: ts.CompilerHost | undefined;
-let hostFiles: Map<string, string> | undefined;
-
-function createHost(files: Map<string, string>): ts.CompilerHost {
+function createHost(files: Map<string, string>) {
   hostFiles = files;
   if (!cachedHost) {
     cachedHost = {
-      getSourceFile(fileName: string, languageVersion: ts.ScriptTarget): ts.SourceFile | undefined {
+      getSourceFile(fileName: string, languageVersion: any) {
         if (fileName === 'lib.d.ts') {
           return getLibSourceFile();
         }
@@ -293,10 +294,10 @@ export function checkFiles(
   rootNames: string[],
 ): DiagnosticInfo[] {
   const host = createHost(files);
-  const program = ts.createProgram(rootNames, COMPILER_OPTIONS, host);
+  const program = ts.createProgram(rootNames, getCompilerOptions(), host);
   const diagnostics = ts.getPreEmitDiagnostics(program);
 
-  return diagnostics.map((d) => {
+  return diagnostics.map((d: any) => {
     const message = ts.flattenDiagnosticMessageText(d.messageText, '\n');
     const info: DiagnosticInfo = { message, code: d.code };
 

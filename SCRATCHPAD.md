@@ -12,6 +12,10 @@
 - The DurableObject base class is defined here: 
   https://developers.cloudflare.com/durable-objects/api/base
 
+### What COLO Is This DO In?
+
+- Hit [https://1.1.1.1/cdn-cgi/trace] and check the colo line.
+
 ### Multiple Wrangler Configs
 
 You can pass multiple wrangler.jsonc configs to wrangler dev w/ multiple Worker projects talking to each other in local dev:
@@ -62,59 +66,6 @@ let size = ctx.storage.sql.databaseSize;
 ## JSON Merge Patch
 
 Use "application/merge-patch+json" as the media type for patched content... if we even both with Accept headers.
-
-### Always Use Objects Rather Than Arrays for Trees/DAGs
-
-List them as flat nodes:
-
-```javascript
-// Instead of this
-const tree = {
-  id: "root"
-  children: [
-    {id: "a", parents: ["root"]},
-    {id: "b", parents: ["root"]}
-  ]
-}
-
-// Do this
-const DAGRootId = "root"
-DAGNodes = {
-  root: {
-    children: {
-      a: {}, // Use `a: {relationship: "owned"}` if you need to label the edge
-      b: {}
-    }
-  },
-  a: {parents: {root: {}}},
-  b: {parents: {root: {}}}
-}
-```
-
-The key of the children or parents object is the id for the "to" edge
-
-The body is always another object even if it's an empty one
-
-**Why?**
-
-- Because JSON merge patch must replace the entire array. It can't update one field
-- Because this allows you to find any node without an additional lookup
-- It makes adding to the "set" of children or parents possible without a search.
-
-This will work even if there is already an "a" child and is fewer steps:
-
-```javascript
-DAGNodes.root.children.a = {}
-DAGNodes.a.parents = {root: {}}
-```
-
-As opposed to:
-
-1. do a lookup to find root
-2. confirm that "a" isn't already a child
-3. `children.push({id: "a", parents: ["root"]})`.
-
-This is also good for when we want the graph edge to have some additional information. For instance, we can indicate a dependency between two parts of the system is an "owned" vs "used" dependency.
 
 ## Access Control
 

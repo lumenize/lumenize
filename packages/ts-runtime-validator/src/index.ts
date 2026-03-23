@@ -9,3 +9,5 @@
 export { toTypeScript } from './to-typescript';
 export { validate, stripExportsAndImports } from './validate';
 export type { ValidationResult, ValidationError } from './validate';
+export { extractTypeMetadata } from './extract-type-metadata';
+export type { TypeMetadata, Relationship } from './extract-type-metadata';

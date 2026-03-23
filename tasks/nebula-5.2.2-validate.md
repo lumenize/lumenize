@@ -1,6 +1,6 @@
 # Phase 5.2.2: `validate()` — TypeScript Runtime Validation
 
-**Status**: Pending
+**Status**: Complete (commit 817e8a8)
 **Package**: `packages/ts-runtime-validator/` (`@lumenize/ts-runtime-validator`) — same package created in Phase 5.2.1
 **Depends on**: Phase 5.2.1 (`toTypeScript()` in the same package)
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`

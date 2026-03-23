@@ -9,8 +9,10 @@
 import type { CallContext } from '@lumenize/mesh';
 import type { NebulaJwtPayload } from '@lumenize/nebula-auth';
 import type { ActClaim } from '@lumenize/auth';
+import type { ValidationError } from '@lumenize/ts-runtime-validator';
 import { stringify, parse } from '@lumenize/structured-clone';
 import type { DagTree } from './dag-tree';
+import type { Ontology } from './ontology';
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -20,6 +22,8 @@ export const END_OF_TIME = '9999-01-01T00:00:00.000Z';
 
 export interface SnapshotMeta {
   nodeId: number;
+  typeName: string;
+  ontologyVersion: string;
   eTag: string;
   validFrom: string;
   validTo: string;
@@ -33,14 +37,18 @@ export interface Snapshot {
 }
 
 export type OperationDescriptor =
-  | { op: 'create'; nodeId: number; value: any }
-  | { op: 'update'; eTag: string; value: any }
+  | { op: 'create'; nodeId: number; typeName: string; value: any }
+  | { op: 'put';    eTag: string; value: any }
   | { op: 'move';   eTag: string; nodeId: number }
   | { op: 'delete'; eTag: string };
 
+export type TransactionError =
+  | { type: 'conflict'; currentSnapshot: Snapshot }
+  | { type: 'validation'; errors: ValidationError[] };
+
 export type TransactionResult =
   | { ok: true;  eTags: Record<string, string> }
-  | { ok: false; conflicts: Record<string, Snapshot> };
+  | { ok: false; errors: Record<string, TransactionError> };
 
 // ─── Resources Class ───────────────────────────────────────────────
 
@@ -71,6 +79,8 @@ export class Resources {
       CREATE TABLE IF NOT EXISTS Snapshots (
         resourceId TEXT NOT NULL,
         nodeId INTEGER NOT NULL,
+        typeName TEXT NOT NULL,
+        ontologyVersion TEXT NOT NULL,
         validFrom TEXT NOT NULL,
         validTo TEXT NOT NULL DEFAULT '${END_OF_TIME}',
         eTag TEXT NOT NULL,
@@ -98,7 +108,7 @@ export class Resources {
 
   #getCurrentSnapshot(resourceId: string): Snapshot | null {
     const rows = this.#ctx.storage.sql.exec(
-      `SELECT resourceId, nodeId, validFrom, validTo, eTag, changedBy, deleted, value
+      `SELECT resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, changedBy, deleted, value
        FROM Snapshots
        WHERE resourceId = ? AND validTo = ?`,
       resourceId, END_OF_TIME,
@@ -111,6 +121,8 @@ export class Resources {
       value: parse(row.value as string),
       meta: {
         nodeId: row.nodeId as number,
+        typeName: row.typeName as string,
+        ontologyVersion: row.ontologyVersion as string,
         eTag: row.eTag as string,
         validFrom: row.validFrom as string,
         validTo: row.validTo as string,
@@ -120,6 +132,16 @@ export class Resources {
     };
   }
 
+  /**
+   * Calculate validFrom for a transaction batch.
+   *
+   * Uses Date.now() as the starting timestamp, then checks all resources in the
+   * batch — if Date.now() is <= any existing snapshot's validFrom, it advances
+   * to prev + 1. This is intentional and correct for Cloudflare Workers where
+   * the clock doesn't advance during synchronous execution: for a multi-resource
+   * transaction, the result is always at least 1ms above the highest existing
+   * validFrom across all resources.
+   */
   #calculateValidFrom(currentSnapshots: Map<string, Snapshot | null>): string {
     let ts = Date.now();
 
@@ -148,6 +170,8 @@ export class Resources {
     validFrom: string,
     eTag: string,
     changedBy: ActClaim,
+    typeName: string,
+    ontologyVersion: string,
   ): void {
     const config = this.#ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     const debounceMs = (config.debounceMs as number) ?? 3_600_000;
@@ -163,7 +187,7 @@ export class Resources {
         value = stringify(op.value);
         deleted = false;
         break;
-      case 'update':
+      case 'put':
         nodeId = current!.meta.nodeId;
         value = stringify(op.value);
         deleted = current!.meta.deleted;
@@ -192,9 +216,9 @@ export class Resources {
         // Overwrite in place — same PK (resourceId, validFrom), new value/eTag
         this.#ctx.storage.sql.exec(
           `UPDATE Snapshots
-           SET nodeId = ?, eTag = ?, changedBy = ?, deleted = ?, value = ?
+           SET nodeId = ?, typeName = ?, ontologyVersion = ?, eTag = ?, changedBy = ?, deleted = ?, value = ?
            WHERE resourceId = ? AND validFrom = ?`,
-          nodeId, eTag, changedByJson, deleted ? 1 : 0, value,
+          nodeId, typeName, ontologyVersion, eTag, changedByJson, deleted ? 1 : 0, value,
           resourceId, current.meta.validFrom,
         );
         return;
@@ -209,9 +233,9 @@ export class Resources {
 
     // Insert new snapshot
     this.#ctx.storage.sql.exec(
-      `INSERT INTO Snapshots (resourceId, nodeId, validFrom, validTo, eTag, changedBy, deleted, value)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      resourceId, nodeId, validFrom, END_OF_TIME, eTag, changedByJson, deleted ? 1 : 0, value,
+      `INSERT INTO Snapshots (resourceId, nodeId, typeName, ontologyVersion, validFrom, validTo, eTag, changedBy, deleted, value)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      resourceId, nodeId, typeName, ontologyVersion, validFrom, END_OF_TIME, eTag, changedByJson, deleted ? 1 : 0, value,
     );
   }
 
@@ -226,7 +250,7 @@ export class Resources {
     return snapshot;
   }
 
-  transaction(ops: Record<string, OperationDescriptor>): TransactionResult {
+  transaction(ops: Record<string, OperationDescriptor>, ontology: Ontology): TransactionResult {
     // Empty ops — no-op
     const entries = Object.entries(ops);
     if (entries.length === 0) return { ok: true, eTags: {} };
@@ -251,7 +275,39 @@ export class Resources {
     // Step 4: Build changedBy from callContext
     const changedBy = this.#buildChangedBy();
 
-    // Step 5–11: Atomic transaction
+    // Step 5: Apply defaults (create only) + validate ALL values against ontology.
+    // Return early if any fail.
+    const ontologyVersion = ontology.latestVersion;
+    const validationErrors: Record<string, TransactionError> = {};
+    for (const [resourceId, op] of entries) {
+      if (op.op === 'create') {
+        if (op.value == null) continue; // Step 7 inside transactionSync will catch null/undefined
+        const typeName = op.typeName;
+        const defaults = ontology.getDefaults(typeName);
+        if (defaults) {
+          op.value = { ...defaults, ...op.value };
+        }
+        const result = ontology.validate(op.value, typeName);
+        if (!result.valid) {
+          validationErrors[resourceId] = { type: 'validation', errors: result.errors };
+        }
+      } else if (op.op === 'put') {
+        if (op.value == null) continue; // Step 7 inside transactionSync will catch null/undefined
+        const current = currentSnapshots.get(resourceId);
+        if (!current) continue; // Step 7 inside transactionSync will catch "not found"
+        const typeName = current.meta.typeName;
+        const result = ontology.validate(op.value, typeName);
+        if (!result.valid) {
+          validationErrors[resourceId] = { type: 'validation', errors: result.errors };
+        }
+      }
+      // delete and move — no validation needed
+    }
+    if (Object.keys(validationErrors).length > 0) {
+      return { ok: false, errors: validationErrors };
+    }
+
+    // Steps 6–10: Atomic transaction
     let result: TransactionResult = { ok: true, eTags: {} };
 
     this.#ctx.storage.transactionSync(() => {
@@ -267,18 +323,18 @@ export class Resources {
 
         if (op.op === 'create') {
           if (current) {
-            throw new Error(`Resource '${resourceId}' already exists — use update instead`);
+            throw new Error(`Resource '${resourceId}' already exists — use put instead`);
           }
           if (op.value == null) {
             throw new Error(`Value must not be null or undefined for create on '${resourceId}'`);
           }
         } else {
-          // update, move, delete — resource must exist
+          // put, move, delete — resource must exist
           if (!current) {
             throw new Error(`Resource '${resourceId}' not found`);
           }
-          if (op.op === 'update' && op.value == null) {
-            throw new Error(`Value must not be null or undefined for update on '${resourceId}'`);
+          if (op.op === 'put' && op.value == null) {
+            throw new Error(`Value must not be null or undefined for put on '${resourceId}'`);
           }
         }
       }
@@ -290,7 +346,7 @@ export class Resources {
           case 'create':
             this.#dagTree.requirePermission(op.nodeId, 'write');
             break;
-          case 'update':
+          case 'put':
           case 'delete':
             this.#dagTree.requirePermission(current!.meta.nodeId, 'write');
             break;
@@ -302,17 +358,17 @@ export class Resources {
       }
 
       // Step 9: Check eTags — conflicts produce { ok: false }
-      const conflicts: Record<string, Snapshot> = {};
+      const errors: Record<string, TransactionError> = {};
       for (const [resourceId, op] of entries) {
         if (op.op === 'create') continue;
         const current = authoritative.get(resourceId)!;
         if (current.meta.eTag !== (op as any).eTag) {
-          conflicts[resourceId] = current;
+          errors[resourceId] = { type: 'conflict', currentSnapshot: current };
         }
       }
 
-      if (Object.keys(conflicts).length > 0) {
-        result = { ok: false, conflicts };
+      if (Object.keys(errors).length > 0) {
+        result = { ok: false, errors };
         return; // Exit transactionSync — nothing written, automatic rollback
       }
 
@@ -327,7 +383,10 @@ export class Resources {
           continue;
         }
 
-        this.#writeSnapshot(resourceId, current, op, validFrom, eTag, changedBy);
+        const typeName = op.op === 'create'
+          ? op.typeName
+          : authoritative.get(resourceId)!.meta.typeName;
+        this.#writeSnapshot(resourceId, current, op, validFrom, eTag, changedBy, typeName, ontologyVersion);
         eTags[resourceId] = eTag;
       }
 

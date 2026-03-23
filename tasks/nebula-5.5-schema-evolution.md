@@ -70,6 +70,10 @@ The ontology config is JSON-serializable when all `migrate` functions are string
 - Migration functions run vibe-coder-provided transform code → DWL isolation required.
 - The `query` parameter for cross-resource migrations: how does this cross the DWL boundary? The consumer (Nebula) would need to inject a query proxy that the DWL isolate can call.
 
+### Per-Version Metadata in Ontology Constructor
+
+- Phase 5.2.3's `Ontology` constructor calls `extractTypeMetadata()` for each version in the array. Currently only the latest version's metadata is used (for validation, defaults, and relationship queries). Should per-version metadata be stored for migration use (e.g., knowing which fields were relationships at a given version to inform data transforms)? Or should `extractTypeMetadata()` only be called for the latest version in 5.2.3, deferring per-version processing until 5.5 when the migration requirements are concrete?
+
 ## Success Criteria
 
 - [ ] `migrate` is per-type (object in, object out); each entry accepts function or string; `ontology.getMigration(version, typeName)` retrieves either form

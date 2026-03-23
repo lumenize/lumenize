@@ -9,9 +9,13 @@ export { Galaxy } from './galaxy';
 export { Star } from './star';
 export { ResourceHistory } from './resource-history';
 
+// Ontology
+export { Ontology } from './ontology';
+export type { OntologyVersionConfig } from './ontology';
+
 // Resources
 export { Resources, END_OF_TIME } from './resources';
-export type { SnapshotMeta, Snapshot, OperationDescriptor, TransactionResult } from './resources';
+export type { SnapshotMeta, Snapshot, OperationDescriptor, TransactionResult, TransactionError } from './resources';
 
 // DAG tree
 export { DagTree } from './dag-tree';

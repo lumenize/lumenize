@@ -23,6 +23,7 @@ The `validate()` and `toTypeScript()` APIs are intentionally kept unstable throu
    - Phase 5.2.1 Non-Goals (no `instanceof`, no generics inference, no conditional/mapped types)
    - Phase 5.2.2 Error Type Behavior (structural-only for errors, `Object.assign` excess property limitation)
    - Cycle back-edge placeholder limitation
+   - Heterogeneous Map limitation: `Map<string, string | number>` with mixed value types fails because tsc infers V from the first constructor entry. Workaround: use `Map<string, any>`. Homogeneous maps validate correctly. See scratchpad "Heterogeneous Map Validation" for the planned fix — when that lands, update the docs to remove this limitation.
 4. **Error Messages** (`error-messages.mdx`) — How to read `ValidationError` objects, property extraction, common tsc error codes and what they mean
 5. **API Reference** (`api-reference.mdx`) — `validate()` and `toTypeScript()` signatures, `ValidationResult`/`ValidationError` types, examples
 

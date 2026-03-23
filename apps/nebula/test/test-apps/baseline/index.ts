@@ -29,7 +29,7 @@ import {
   NebulaClient,
   requireAdmin,
 } from '@lumenize/nebula';
-import type { PermissionTier, OperationDescriptor } from '@lumenize/nebula';
+import type { PermissionTier, OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
@@ -251,17 +251,57 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
   }
 
-  // --- Resources test initiators ---
+  // --- Resources test initiators (fire-and-forget — Star delivers result via callback) ---
 
-  callStarResourcesTransaction(starName: string, ops: Record<string, OperationDescriptor>): void {
+  callStarTransaction(starName: string, ontologyVersion: string, ops: Record<string, OperationDescriptor>): void {
     this.resetResults();
-    const remote = this.ctn<Star>().resources().transaction(ops);
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+    this.lmz.call('STAR', starName,
+      this.ctn<Star>().transaction(ontologyVersion, ops));
   }
 
-  callStarResourcesRead(starName: string, resourceId: string): void {
+  callStarRead(starName: string, ontologyVersion: string, resourceId: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().resources().read(resourceId);
-    this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+    this.lmz.call('STAR', starName,
+      this.ctn<Star>().read(ontologyVersion, resourceId));
+  }
+
+  // --- Resource result handlers (override base class) ---
+
+  @mesh()
+  override handleTransactionResult(result: TransactionResult | Error): void {
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastResult = undefined;
+    } else {
+      this.lastResult = result;
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
+  @mesh()
+  override handleReadResult(result: Snapshot | null | Error): void {
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastResult = undefined;
+    } else {
+      this.lastResult = result;
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
+  // --- Galaxy test initiators ---
+
+  callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: OntologyVersionConfig): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().appendOntologyVersion(versionConfig);
+    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  }
+
+  callGalaxyGetOntology(galaxyName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().getOntology();
+    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 }
