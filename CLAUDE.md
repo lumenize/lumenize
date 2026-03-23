@@ -89,6 +89,11 @@ This resolves in Workers and silently fails elsewhere. No build-time flags or dy
 
 ## Cloudflare Durable Objects
 
+### Workers RPC Gotchas
+- Synchronous DO methods become async over RPC — use `await expect(...).rejects.toThrow()` not `expect(() => ...).toThrow()`
+- Private (`#`) methods silently return `undefined` over RPC stubs — always use public methods or HTTP endpoints for cross-DO communication
+- `wrangler.jsonc` migrations only matter when deployed to Cloudflare's cloud; during local testing every run is a fresh deploy — no migration entries needed
+
 ### Wall-Clock Billing
 DO is billed for elapsed time when: `await`ing I/O, using `setTimeout`/`setInterval`, or holding Workers RPC stubs (use `using` keyword). Avoid these to minimize costs.
 
@@ -99,6 +104,9 @@ Always use synchronous storage (`ctx.storage.kv.*` or `ctx.storage.sql.*`), neve
 Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async`. Never use `setTimeout`, `setInterval`, `waitUntil`, or `await` in business logic—breaks input/output gates and triggers wall-clock billing.
 
 **Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
+
+### Fire-and-Forget Error Delivery
+When a mesh handler delivers results via explicit callback (e.g., `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), wrap the entire handler body in try/catch. Uncaught exceptions are silently lost — the client never receives a response and `callCompleted` never becomes true.
 
 ### Instance Variables
 **Never use instance variables for mutable state**—DOs can be evicted anytime. Always use `ctx.storage.kv` or `ctx.storage.sql`.
@@ -188,6 +196,9 @@ await vi.waitFor(async () => {
   expect(status).toBe('complete');
 });
 ```
+
+### App Test Pattern
+For apps in `apps/`, use `test/test-apps/{name}/` with `instrumentDOProject`. See `apps/nebula/test/test-apps/README.md` for the checklist.
 
 ### E2E Tests with External Services
 vitest-pool-workers tests can make real external `fetch()` calls and `new WebSocket()` connections to deployed Workers. This enables e2e tests where the code under test runs in-process (no deployment needed) but interacts with real external infrastructure. See `packages/auth/test/e2e-email/` for the canonical example: auth DO runs in vitest, sends real email via Resend, and a deployed `email-test` Worker receives it via Email Routing and pushes back over WebSocket.
