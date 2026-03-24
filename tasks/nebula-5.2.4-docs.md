@@ -21,7 +21,7 @@ Two deliverables:
    - **How It Works**: Your JS value is serialized to a TypeScript program via `toTypeScript()`, then the real TypeScript compiler type-checks it against your interface definitions, and you get back actual tsc diagnostics. This explains why error messages are high quality and sets expectations about what's supported (real tsc, not a reimplementation).
    - **Why TypeScript as Schema**: A short teaser — you already write TypeScript interfaces, why maintain parallel Zod/TypeBox/JSON Schema definitions? Mention that Cloudflare's code mode proved LLMs work better with TypeScript than JSON Schema, just enough to intrigue, then link to the blog post for the full story. Make them want to read it, don't summarize it.
    - **Tradeoffs**: Be honest. This runs the real tsc compiler at runtime — that means a 3.4 MB bundle (vs ~50 KB for Zod/TypeBox), ~40-50 MB memory per call in a 128 MB Workers isolate, and a minimal lib.d.ts that doesn't cover every TypeScript feature. The tradeoff is worth it when you value zero-DSL DX and tsc-quality diagnostics over minimal bundle size. For size-constrained environments, Zod/TypeBox remain good choices.
-   - **Ontology Integration** (brief paragraph): Explain that `@lumenize/nebula`'s `Ontology` class uses `validate()` for per-transaction type checking and `extractTypeMetadata()` for relationship discovery and write-shape generation. Link to Nebula docs for the full ontology story. This keeps the context without a separate page that would couple nebula-specific concerns into a pure-function library's docs.
+   - **No Nebula/framework references in package docs.** The package is standalone — pure functions, no framework imports. Mentioning Nebula in the docs signals "extracted from a monolith" rather than "standalone tool you can adopt." Nebula is great origin-story material for the blog post, but the docs should present `ts-runtime-validator` as a general-purpose library that anyone can use with their own TypeScript interfaces.
 
 2. **Type Support & Validation Boundaries** (`type-support.mdx`) — Comprehensive table of supported types and how each maps from JS values to TypeScript programs, merged with what's checked, what's not, and known limitations. These belong together because a user reading about Map support immediately needs to know the heterogeneous Map limitation. Consolidates:
    - Type mapping tables from Phase 5.2.1
@@ -42,13 +42,13 @@ Two deliverables:
 - **Use primitive keys for Maps** — object-keyed Maps work for acyclic data but cannot have cycle fixups. `@lumenize/structured-clone` only supports string/number/boolean keys well.
 - **Homogeneous Maps validate correctly** — `Map<string, number>` works including wrong-type rejection. Heterogeneous Maps (`Map<string, string | number>`) are a known limitation (see type-support page).
 - **Generics must be fully resolved** in type definitions — `interface TodoList { items: Todo[] }` not `interface TodoList<T> { items: T[] }`
-- **Lumenize-specific types** (`RequestSync`, `ResponseSync`) must be declared in the `typeDefinitions` string — they're not in the built-in lib
-- **Rich types (Map, Set, Date) work in `any` fields** — for ontology types like `interface Todo { metadata: any; }`, values containing Maps, Sets, Dates, and cycles all validate and round-trip through storage correctly via structured-clone serialization
+- **Custom types must be declared in `typeDefinitions`** — only types in the built-in minimal lib.d.ts are available by default. Any application-specific types (e.g., `RequestSync`, `ResponseSync`) must be included in the `typeDefinitions` string you pass to `validate()`.
+- **Rich types (Map, Set, Date) work in `any` fields** — for interfaces like `interface Todo { metadata: any; }`, values containing Maps, Sets, Dates, and cycles all validate correctly via structured-clone serialization
 
 ### Notes for Docs Author
 
-- **`validate()` and `extractTypeMetadata()` are two separate functions** — `validate()` runs full tsc type-checking (~1ms per call), `extractTypeMetadata()` does AST-only parsing (~0ms, called once at ontology construction). The `Ontology` class in `apps/nebula/` coordinates both.
-- **Minimal lib.d.ts** — the engine embeds a ~4 KB custom lib with primitives, Array, Map, Set, Date, Error types, etc. Not the full lib.es5.d.ts. If a type isn't in our lib, tsc won't recognize it. The type-support page should document what's available.
+- **`validate()` and `extractTypeMetadata()` are two separate functions** — `validate()` runs full tsc type-checking (~1ms per call), `extractTypeMetadata()` does AST-only parsing (~0ms, typically called once at startup). They serve different purposes and can be used independently.
+- **Minimal lib.d.ts** — the engine embeds a ~4 KB custom lib with primitives, Array, Map, Set, Date, Error types, etc. Not the full lib.es5.d.ts. If a type isn't in our lib, this package won't recognize it. The type-support page should document what's available.
 
 ### Reference Links to Include in Docs
 
@@ -60,6 +60,7 @@ Two deliverables:
 All code examples must be grounded in real artifacts — no invented snippets. Specifically:
 
 - **Every executable code block** in `.mdx` files uses `@check-example` annotations pointing to tests in `packages/ts-runtime-validator/test/for-docs/`. No `@skip-check` in published docs.
+- **Write pedagogical tests** if needed to make the narrative clean. There may not be an existing test that is clear. We often use a test/for-docs sub-folder to write tests that run and pass but whose goal is pedagogical.
 - **Type signatures and interface definitions** shown in docs must be copied from the actual source code in `packages/ts-runtime-validator/src/` (e.g., `validate.ts`, `to-typescript.ts`, `extract-type-metadata.ts`). If the source API changes, the docs must be updated to match.
 - **Type mapping tables** must reflect the actual behavior in `to-typescript.ts` — the serialization logic is the source of truth for what types are supported and how they map.
 - **Error message examples** must come from actual tsc output captured in tests, not hand-crafted approximations.
