@@ -1,6 +1,6 @@
 # Phase 5.2: TypeScript Validation & Ontology
 
-**Status**: Pending
+**Status**: In Progress (5.2.1–5.2.3 complete, 5.2.4 docs + 5.2.5 queries pending)
 **Depends on**: Phase 5.1 (Storage Engine)
 
 ## Overview
@@ -9,15 +9,15 @@
 
 This phase is broken into sub-phases that build on each other:
 
-| Sub-Phase | Name | Task File | Deliverable |
-|-----------|------|-----------|-------------|
-| 5.2.1.1 | Wrangler & Toolchain Upgrade | `tasks/nebula-5.2.1.1-wrangler-upgrade.md` | Updated wrangler, vitest-pool-workers, compatibility_date across monorepo |
-| ~~5.2.1.2~~ | ~~DWL-in-vitest-pool-workers Spike~~ | ~~`tasks/nebula-5.2.1.2-dwl-vitest-spike.md`~~ | Superseded — tests run in Node.js (see 5.2.1 Testing Strategy) |
-| 5.2.1 | Structured-Clone `toTypeScript()` | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` | `toTypeScript()` in `@lumenize/ts-runtime-validator` |
-| 5.2.2 | `validate()` Function | `tasks/nebula-5.2.2-validate.md` | `validate()` in `@lumenize/ts-runtime-validator` |
-| 5.2.3 | Ontology & Resources Integration | `tasks/nebula-5.2.3-resources-validation-integration.md` | Ontology class, relationship extraction, in-process validation in `transaction()` |
-| 5.2.4 | Documentation | `tasks/nebula-5.2.4-docs.md` | User-facing docs for `@lumenize/ts-runtime-validator` in `/website/docs/` |
-| 5.2.5 | Multi-Resource Queries | `tasks/nebula-5.2.5-multi-resource-queries.md` | `query()` with ontology-driven relationship resolution |
+| Sub-Phase | Name | Status | Task File | Deliverable |
+|-----------|------|--------|-----------|-------------|
+| 5.2.1.1 | Wrangler & Toolchain Upgrade | **Complete** | `tasks/archive/nebula-5.2.1.1-wrangler-upgrade.md` | Updated wrangler, vitest-pool-workers, compatibility_date across monorepo |
+| ~~5.2.1.2~~ | ~~DWL-in-vitest-pool-workers Spike~~ | Superseded | ~~`tasks/nebula-5.2.1.2-dwl-vitest-spike.md`~~ | Superseded — tests run in Node.js (see 5.2.1 Testing Strategy) |
+| 5.2.1 | Structured-Clone `toTypeScript()` | **Complete** | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` | `toTypeScript()` in `@lumenize/ts-runtime-validator` |
+| 5.2.2 | `validate()` Function | **Complete** | `tasks/nebula-5.2.2-validate.md` | `validate()` in `@lumenize/ts-runtime-validator` |
+| 5.2.3 | Ontology & Resources Integration | **Complete** | `tasks/nebula-5.2.3-resources-validation-integration.md` | Ontology class, relationship extraction, Galaxy/Star wiring, in-process validation in `transaction()` |
+| 5.2.4 | Documentation | Pending | `tasks/nebula-5.2.4-docs.md` | User-facing docs for `@lumenize/ts-runtime-validator` in `/website/docs/` |
+| 5.2.5 | Multi-Resource Queries | Pending | `tasks/nebula-5.2.5-multi-resource-queries.md` | `query()` with ontology-driven relationship resolution |
 
 ## Dependency Chain
 

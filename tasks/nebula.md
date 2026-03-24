@@ -63,10 +63,10 @@ Each phase produces testable, working code that only depends on prior phases. Pl
 | 4.0 | Isolation Technologies Blog Post | **Complete** | `tasks/archive/nebula-isolation-blog.md` |
 | 4.1 | TypeScript as Schema Research | **Complete** | `tasks/archive/nebula-ts-as-schema-research.md` |
 | 5.1 | Storage Engine | **Complete** | `tasks/archive/nebula-5.1-storage-engine.md` |
-| 5.2 | TypeScript Validation & Ontology | Pending | `tasks/nebula-5.2-tsc-validation.md` (overview) |
-| 5.2.1 | Structured-Clone `toTypeScript()` | Pending | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` |
-| 5.2.2 | `validate()` Function | Pending | `tasks/nebula-5.2.2-validate.md` |
-| 5.2.3 | Ontology & Resources Integration | Pending | `tasks/nebula-5.2.3-resources-validation-integration.md` |
+| 5.2 | TypeScript Validation & Ontology | In Progress | `tasks/nebula-5.2-tsc-validation.md` (overview) |
+| 5.2.1 | Structured-Clone `toTypeScript()` | **Complete** | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` |
+| 5.2.2 | `validate()` Function | **Complete** | `tasks/nebula-5.2.2-validate.md` |
+| 5.2.3 | Ontology & Resources Integration | **Complete** | `tasks/nebula-5.2.3-resources-validation-integration.md` |
 | 5.2.5 | Multi-Resource Queries | Pending | `tasks/nebula-5.2.5-multi-resource-queries.md` |
 | 5.3 | Subscriptions & Fanout | Pending | `tasks/nebula-5.3-subscriptions.md` |
 | 5.4 | Resource Capability Tickets | Pending | `tasks/nebula-resource-capability-tickets.md` |
