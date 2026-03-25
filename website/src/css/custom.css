@@ -28,3 +28,11 @@
   --ifm-color-primary-lightest: #F8D49B;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+/* Top-align table cells and remove pre margins for comparison tables */
+article table td {
+  vertical-align: top;
+}
+article table pre {
+  margin: 0;
+}

@@ -96,26 +96,7 @@ Fixed. `validate()` now extracts Map/Set generic type parameters from the type d
 
 ### Value Constraints via JSDoc Annotations
 
-Zod and JSON Schema support value constraints (ranges, string formats, patterns) that pure TypeScript types can't express. We could close this gap using JSDoc annotations in the `.d.ts` file:
-
-```typescript
-interface User {
-  /** @format email */
-  email: string;
-  /** @min 1 @max 150 */
-  age: number;
-  /** @pattern ^[A-Z]{2,3}$ */
-  countryCode: string;
-}
-```
-
-**Approach**: After tsc type-checking passes, do a second validation pass that reads JSDoc tags from the type definitions AST and checks actual values against them. The AST infrastructure from `extractGenericParams()` and `extractTypeMetadata()` is already there — JSDoc comments are preserved in the AST via `ts.getJSDocTags()`.
-
-**Possible tags**: `@format` (email, url, uuid, date-time), `@min`/`@max` (numeric range), `@minLength`/`@maxLength`, `@pattern` (regex), `@integer`.
-
-**Alternative**: A separate constraints field (like we did for defaults instead of JSDoc). JSDoc is more ergonomic since it lives right next to the type, but a separate field is more explicit and avoids overloading the `.d.ts` file.
-
-**Consider moving defaults to JSDoc** — if we adopt JSDoc for constraints, having `@default` there too keeps everything about a property in one place.
+Moved to `tasks/nebula-5.2.4.5-annotation-experiments.md`. Includes JSDoc constraints (`@min`, `@max`, `@format`, `@default`) and M:N relationship design with join tables. Query-time filtering (bounded hydration) belongs in `tasks/nebula-5.2.5-multi-resource-queries.md`.
 
 ### `@lumenize/ts-runtime-validate` Package Extraction
 
