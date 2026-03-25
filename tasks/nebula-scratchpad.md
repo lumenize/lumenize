@@ -90,19 +90,32 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 - For large subscriber counts, tier the fanout through armies of stand-alone LumenizeWorkers. First tier instantiates in the originator, subsequent tiers fan out to Workers.
 - Algorithm sketch: <64 recipients = single shot. 64–4,096 = two tiers (√n fanout each). 4,096–262,144 = three tiers (∛n fanout each). Optimal fanout per tier needs experimentation as Cloudflare evolves.
 
-### Heterogeneous Map Validation (from Phase 5.2.3)
+### ~~Heterogeneous Map Validation~~ (DONE — Phase 5.2.3.6)
 
-`Map<string, string | number>` with mixed value types fails validation because tsc infers `V` from the first constructor entry. This is a real TypeScript limitation — it fails with `lib.es5.d.ts` too, not just our minimal lib.
+Fixed. `validate()` now extracts Map/Set generic type parameters from the type definitions AST and passes them to `toTypeScript()`, which emits explicit type params (e.g., `new Map<string, string | number>([...])`). See `tasks/nebula-5.2.3.6-map-set-generics-support.md`.
 
-**Fix**: Have `validate()` extract Map type parameters from the target type's AST and pass them to `toTypeScript()`, which would then emit `new Map<string, string | number>([...])` instead of untyped `new Map([...])`. The type-parameter extraction could reuse the AST walk from `extractTypeMetadata()`.
+### Value Constraints via JSDoc Annotations
 
-**Scope**: ~1 day. Add a type-walking helper that follows the value's path into the target type to extract generic parameters at each position. Thread this through `toTypeScript()`'s recursive `walk()`. Handle nested Maps, Maps inside arrays, optional fields. The same infrastructure could improve Set validation and other generic types.
+Zod and JSON Schema support value constraints (ranges, string formats, patterns) that pure TypeScript types can't express. We could close this gap using JSDoc annotations in the `.d.ts` file:
 
-**Workaround until then**: Vibe coders use `Map<string, any>` for mixed-type maps. Homogeneous maps (`Map<string, number>`) validate correctly including wrong-type rejection.
+```typescript
+interface User {
+  /** @format email */
+  email: string;
+  /** @min 1 @max 150 */
+  age: number;
+  /** @pattern ^[A-Z]{2,3}$ */
+  countryCode: string;
+}
+```
 
-**Skipped test**: `packages/ts-runtime-validator/test/map-heterogeneous.test.ts` — "heterogeneous Map<string, string | number> with mixed values"
+**Approach**: After tsc type-checking passes, do a second validation pass that reads JSDoc tags from the type definitions AST and checks actual values against them. The AST infrastructure from `extractGenericParams()` and `extractTypeMetadata()` is already there — JSDoc comments are preserved in the AST via `ts.getJSDocTags()`.
 
-**Docs**: When this fix lands, update the "What's Checked / What's Not" page in `tasks/nebula-5.2.4-docs.md` to remove the heterogeneous Map limitation.
+**Possible tags**: `@format` (email, url, uuid, date-time), `@min`/`@max` (numeric range), `@minLength`/`@maxLength`, `@pattern` (regex), `@integer`.
+
+**Alternative**: A separate constraints field (like we did for defaults instead of JSDoc). JSDoc is more ergonomic since it lives right next to the type, but a separate field is more explicit and avoids overloading the `.d.ts` file.
+
+**Consider moving defaults to JSDoc** — if we adopt JSDoc for constraints, having `@default` there too keeps everything about a property in one place.
 
 ### `@lumenize/ts-runtime-validate` Package Extraction
 

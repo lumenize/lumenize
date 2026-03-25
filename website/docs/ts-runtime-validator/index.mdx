@@ -1,0 +1,101 @@
+---
+title: TypeScript Runtime Validator
+description: "TypeScript IS the schema — validate JavaScript values against TypeScript interfaces at runtime using the real tsc compiler."
+---
+
+# TypeScript Runtime Validator
+
+You already write TypeScript interfaces. Why maintain a parallel schema in Zod, TypeBox, or JSON Schema?
+
+Cloudflare discovered that LLMs [perform dramatically better](https://blog.cloudflare.com/code-mode/) with TypeScript than with JSON Schema — converting MCP tool definitions to TypeScript reduced token usage by [32-81%](https://blog.cloudflare.com/code-mode-mcp/) while improving accuracy. Their [Dynamic Workers](https://blog.cloudflare.com/dynamic-workers/) platform doubles down on this: "Agents know TypeScript... with very few tokens, you can give your agent a precise understanding of your API." This isn't surprising: LLMs have been trained on billions of lines of TypeScript, far more than any schema DSL. TypeScript is simply a more natural language for describing types — for humans and LLMs alike.
+
+`@lumenize/ts-runtime-validator` takes the next step: your TypeScript interfaces _are_ the runtime validation schema. Your JavaScript value is serialized to a TypeScript program, the real TypeScript compiler type-checks it against your interface definitions, and you get back actual tsc diagnostics — the same error messages you see in your editor. No intermediate format, no DSL, just the interfaces you already write.
+
+## Quick Example
+
+Your type definitions live in a regular `.d.ts` or `.ts` file — `validate()` automatically strips `export` and `import` keywords, so you can use your existing source files directly:
+
+```typescript @check-example('packages/ts-runtime-validator/test/for-docs/todo.d.ts')
+interface Todo {
+  title: string;
+  done: boolean;
+}
+```
+
+Import it as a raw string and validate against it:
+
+```typescript @check-example('packages/ts-runtime-validator/test/for-docs/overview.test.ts')
+import todoTypes from './todo.d.ts?raw';
+// ...
+const todo = { title: 'Ship it', done: false };
+const result = validate(todo, 'Todo', todoTypes);
+expect(result.valid).toBe(true);
+```
+
+When validation fails, you get real tsc diagnostics with a pointer to the failing input location:
+
+```typescript @check-example('packages/ts-runtime-validator/test/for-docs/overview.test.ts')
+// ...
+const bad = { title: 42, done: 'not a boolean' };
+const result = validate(bad, 'Todo', todoTypes);
+// ...
+expect(result.errors[0].message)
+  .toBe("Type 'number' is not assignable to type 'string'. → title: 42");
+expect(result.errors[1].message)
+  .toBe("Type 'string' is not assignable to type 'boolean'. → done: \"not a boolean\"");
+```
+
+## How It Works
+
+`toTypeScript()` serializes your JavaScript value into a TypeScript program, and `validate()` runs that program through the real TypeScript compiler against your interface definitions.
+
+```typescript @check-example('packages/ts-runtime-validator/test/for-docs/overview.test.ts')
+const todo = { title: 'Ship it', done: false };
+const program = toTypeScript(todo, 'Todo');
+expect(program).toBe(
+  'const __validate: Todo = {\n  title: "Ship it",\n  done: false,\n};'
+);
+```
+
+The tsc compiler sees this program alongside your `interface Todo` — the same check your editor performs, but at runtime.
+
+## Rich Type Support
+
+Maps, Sets, Dates, and other built-in types work out of the box:
+
+```typescript @check-example('packages/ts-runtime-validator/test/for-docs/overview.test.ts')
+// ...
+const profile = {
+  name: 'Alice',
+  tags: new Set(['admin', 'active']),
+  preferences: new Map([['theme', 'dark'], ['lang', 'en']]),
+  createdAt: new Date('2025-01-01'),
+};
+
+const result = validate(profile, 'UserProfile', types);
+expect(result.valid).toBe(true);
+```
+
+See the [Type Support & Validation Boundaries](./type-support) page for the full list of supported types and known limitations.
+
+## Tradeoffs
+
+This package runs the real tsc compiler at runtime. That comes with costs you should understand:
+
+| | ts-runtime-validator | Zod | Ajv (JSON Schema) |
+|---|---|---|---|
+| **Bundle size** | ~3.4 MB (bundled tsc) | ~50 KB | ~100 KB |
+| **Memory** | ~40-50 MB in a 128 MB Workers/DO isolate | Minimal | Minimal |
+| **Schema format** | Your existing TypeScript interfaces | Dedicated DSL | JSON Schema |
+| **Drift risk** | None — interfaces are the schema | Interface and schema can diverge silently | Low with codegen, but requires a build step |
+| **Error messages** | Real tsc diagnostics | Library-specific messages | Cryptic nested paths |
+| **Type coverage** | [Full tsc type system](./type-support) — generics, conditional types, template literals, mapped types | Wide, via Zod API | JSON-representable types only |
+| **Value constraints** | Types only (no range/format checks) | Rich (`.email()`, `.min()`, `.regex()`, ...) | Rich (`format`, `minimum`, `pattern`, ...) |
+
+The tradeoff is worth it when you value zero-DSL developer experience, zero drift risk, and tsc-quality diagnostics over minimal bundle size and built-in value constraints. For severly memory-constrained environments or heavy use of format/range validation, Zod and Ajv remain good choices.
+
+## Installation
+
+```bash
+npm install @lumenize/ts-runtime-validator
+```

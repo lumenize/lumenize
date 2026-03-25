@@ -59,6 +59,12 @@ type Extract<T, U> = T extends U ? T : never;
 type Omit<T, K extends keyof any> = Pick<T, Exclude<keyof T, K>>;
 type NonNullable<T> = T & {};
 
+// --- Intrinsic string manipulation types ---
+type Uppercase<S extends string> = intrinsic;
+type Lowercase<S extends string> = intrinsic;
+type Capitalize<S extends string> = intrinsic;
+type Uncapitalize<S extends string> = intrinsic;
+
 // --- Iterator protocol ---
 interface IteratorYieldResult<TYield> { done?: false; value: TYield; }
 interface IteratorReturnResult<TReturn> { done: true; value: TReturn; }

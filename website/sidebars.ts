@@ -327,6 +327,17 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
+    // TypeScript Runtime Validator
+    {
+      type: 'category',
+      label: 'TS Runtime Validator',
+      items: [
+        'ts-runtime-validator/index',
+        'ts-runtime-validator/type-support',
+        'ts-runtime-validator/api-reference',
+      ],
+    },
+
     // Nebula
     {
       type: 'category',

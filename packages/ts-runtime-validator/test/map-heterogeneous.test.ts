@@ -76,14 +76,7 @@ describe('Map validation', () => {
     expect(r.valid).toBe(true);
   });
 
-  // Skipped: heterogeneous Maps require toTypeScript() to emit typed entries
-  // (e.g., new Map<string, string | number>([...])) which means passing the
-  // target type from validate() into toTypeScript(). Without explicit type
-  // params, tsc infers V from the first entry and rejects the rest.
-  // This is a real tsc limitation (fails with lib.es5.d.ts too).
-  // Fix: have validate() extract Map type params from the type definitions
-  // and pass them to toTypeScript() for emission. See nebula-scratchpad.md.
-  it.skip('heterogeneous Map<string, string | number> with mixed values', () => {
+  it('heterogeneous Map<string, string | number> with mixed values', () => {
     const r = validate(
       { data: new Map([['count', 42], ['label', 'hello']]) },
       'C', 'interface C { data: Map<string, string | number>; }'

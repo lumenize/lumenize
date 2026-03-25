@@ -140,7 +140,9 @@ function getWriteShapeType(rel: Relationship): string {
  * @returns TypeMetadata with relationships and writeShapeTypeDefinitions
  * @throws SyntaxError if the type definitions cannot be parsed (missing braces, invalid syntax)
  */
-export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
+export function extractTypeMetadata(
+  typeDefinitions: string,
+): TypeMetadata {
 
   const sourceFile = ts.createSourceFile(
     'types.ts',

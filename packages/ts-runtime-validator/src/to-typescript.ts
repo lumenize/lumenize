@@ -38,6 +38,7 @@ type PathSegment =
   | { container: 'object'; key: string }
   | { container: 'array'; index: number }
   | { container: 'map-value'; keyExpr: string | null }
+  | { container: 'map-key'; varName: string }
   | { container: 'set' };
 
 /** Recorded cycle back-edge for fixup statements */
@@ -53,7 +54,8 @@ interface CycleFixup {
  */
 function renderPath(path: PathSegment[]): string {
   let result = '__validate';
-  for (const seg of path) {
+  for (let i = 0; i < path.length; i++) {
+    const seg = path[i];
     if (seg.container === 'object') {
       result += `[${JSON.stringify(seg.key)}]`;
     } else if (seg.container === 'array') {
@@ -62,6 +64,9 @@ function renderPath(path: PathSegment[]): string {
       // Should not appear in the middle of a path — only as last segment
       // for Map value fixups. If it does appear mid-path, render as generic access.
       result += `.get(${seg.keyExpr})`;
+    } else if (seg.container === 'map-key') {
+      // Restart the path from the extracted key variable
+      result = seg.varName;
     }
     // 'set' segments don't have addressable paths in bracket notation
   }
@@ -90,6 +95,11 @@ function buildFixup(fixup: CycleFixup): string {
   }
   if (lastSeg.container === 'map-value') {
     return `${parentExpr}.set(${lastSeg.keyExpr}, ${targetExpr});`;
+  }
+  if (lastSeg.container === 'map-key') {
+    // The extracted key variable itself is the back-edge — emit Object.assign
+    // to patch it in place (can't reassign a const).
+    return `Object.assign(${lastSeg.varName}, ${targetExpr});`;
   }
   if (lastSeg.container === 'set') {
     return `${parentExpr}.delete(null);\n${parentExpr}.add(${targetExpr});`;
@@ -125,11 +135,16 @@ function primitiveKeyExpr(keyTuple: any[]): string | null {
  *
  * @param value - The value to serialize
  * @param typeName - The TypeScript type name to check against
+ * @param typeParams - Optional map of property paths → generic type param strings
+ *   (e.g., `{ "data": "<string, string | number>" }`) for Map/Set emission
  * @returns A valid TypeScript program string
- * @throws TypeError if the value contains functions, cyclic Map keys, or
- *         object-keyed Map value cycles
+ * @throws TypeError if the value contains functions or object-keyed Map value cycles
  */
-export function toTypeScript(value: unknown, typeName: string): string {
+export function toTypeScript(
+  value: unknown,
+  typeName: string,
+  typeParams?: Record<string, string>,
+): string {
   // Pass 1: preprocess() → LmzIntermediate
   const intermediate: LmzIntermediate = preprocess(value);
 
@@ -137,9 +152,19 @@ export function toTypeScript(value: unknown, typeName: string): string {
   const visiting = new Set<number>();
   const path: PathSegment[] = [];
   const fixups: CycleFixup[] = [];
+  const extractedKeys: { varName: string; expr: string }[] = [];
+  let extractedKeyCounter = 0;
 
   // Map from object ID to the path snapshot when first visited (for cycle fixup targets)
   const idToPath = new Map<number, PathSegment[]>();
+
+  /** Compute dot-joined property path for typeParams lookup */
+  function currentPropertyPath(): string {
+    return path
+      .filter(seg => seg.container === 'object')
+      .map(seg => (seg as { container: 'object'; key: string }).key)
+      .join('.');
+  }
 
   function walk(node: any, inMapKey: boolean): string {
     // Dispatch on tuple tag
@@ -151,12 +176,13 @@ export function toTypeScript(value: unknown, typeName: string): string {
 
       // Cycle back-edge?
       if (visiting.has(id)) {
-        if (inMapKey) {
+        const lastSeg = path[path.length - 1];
+        // Degenerate: the Map key IS the cycle target (e.g., m.set(m, 'self'))
+        if (inMapKey && lastSeg && lastSeg.container === 'map-key') {
           throw new TypeError('cycle in Map key not supported');
         }
         // Check if the path contains a map-value segment with null keyExpr
-        const lastSeg = path[path.length - 1];
-        if (lastSeg && lastSeg.container === 'map-value' && lastSeg.keyExpr === null) {
+        if (!inMapKey && lastSeg && lastSeg.container === 'map-value' && lastSeg.keyExpr === null) {
           throw new TypeError(
             'cycle fixup not supported for Map entries with non-primitive keys'
           );
@@ -237,7 +263,7 @@ export function toTypeScript(value: unknown, typeName: string): string {
     if (tag === 'string-object') return `new String(${JSON.stringify(tuple[1])})`;
     if (tag === 'bigint-object') return `Object(BigInt(${JSON.stringify(tuple[1])}))`;
 
-    // Object
+    // Object — one property per line for better tsc diagnostic context
     if (tag === 'object') {
       const obj = tuple[1];
       const keys = Object.keys(obj);
@@ -248,7 +274,7 @@ export function toTypeScript(value: unknown, typeName: string): string {
         path.pop();
         return `${emitKey(key)}: ${val}`;
       });
-      return `{${props.join(', ')}}`;
+      return '{\n' + props.map(p => `  ${p},`).join('\n') + '\n}';
     }
 
     // Array
@@ -263,35 +289,54 @@ export function toTypeScript(value: unknown, typeName: string): string {
       return `[${elements.join(', ')}]`;
     }
 
-    // Map
+    // Map — emit explicit type params when available to avoid tsc inference issues
     if (tag === 'map') {
       const entries = tuple[1] as [any, any][];
-      if (entries.length === 0) return 'new Map()';
+      const tp = typeParams?.[currentPropertyPath()] ?? '';
+      if (entries.length === 0) return `new Map${tp}()`;
+      const fixupCountBefore = fixups.length;
       const pairs = entries.map(([keyTuple, valTuple]) => {
-        // Walk the key — detect cyclic Map keys
+        // Walk the key — track path for potential cycle fixups
+        const varName = `__key_${extractedKeyCounter}`;
+        path.push({ container: 'map-key', varName });
         const keyStr = walk(keyTuple, true);
-        // Determine keyExpr for potential fixup
+        path.pop();
+        // Determine keyExpr for potential value fixup
         const keyExpr = primitiveKeyExpr(keyTuple);
+        // Check if walking this key produced any new fixups (cycle detected)
+        const hasCycleInKey = fixups.length > fixupCountBefore &&
+          fixups.slice(fixupCountBefore).some(f =>
+            f.backEdgePath.some(s => s.container === 'map-key' && s.varName === varName));
+        let keyRef: string;
+        if (hasCycleInKey) {
+          // Extract cyclic key to a separate variable
+          extractedKeys.push({ varName, expr: keyStr });
+          extractedKeyCounter++;
+          keyRef = varName;
+        } else {
+          keyRef = keyStr;
+        }
         // Walk the value
-        path.push({ container: 'map-value', keyExpr });
+        path.push({ container: 'map-value', keyExpr: keyExpr ?? (hasCycleInKey ? varName : null) });
         const valStr = walk(valTuple, inMapKey);
         path.pop();
-        return `[${keyStr}, ${valStr}]`;
+        return `[${keyRef}, ${valStr}]`;
       });
-      return `new Map([${pairs.join(', ')}])`;
+      return `new Map${tp}([${pairs.join(', ')}])`;
     }
 
-    // Set
+    // Set — emit explicit type params when available
     if (tag === 'set') {
       const items = tuple[1] as any[];
-      if (items.length === 0) return 'new Set()';
+      const tp = typeParams?.[currentPropertyPath()] ?? '';
+      if (items.length === 0) return `new Set${tp}()`;
       const elements = items.map(item => {
         path.push({ container: 'set' });
         const val = walk(item, inMapKey);
         path.pop();
         return val;
       });
-      return `new Set([${elements.join(', ')}])`;
+      return `new Set${tp}([${elements.join(', ')}])`;
     }
 
     // Binary types (ArrayBuffer, DataView, TypedArrays)
@@ -429,6 +474,9 @@ export function toTypeScript(value: unknown, typeName: string): string {
 
   // Assemble output
   const lines: string[] = [];
+  for (const ek of extractedKeys) {
+    lines.push(`const ${ek.varName} = ${ek.expr};`);
+  }
   lines.push(`const __validate: ${typeName} = ${literal};`);
   for (const fixup of fixups) {
     lines.push(buildFixup(fixup));

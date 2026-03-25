@@ -464,11 +464,27 @@ describe('validate — property extraction', () => {
     }
   });
 
+  it('extracts property from line context for type mismatch errors', () => {
+    const result = validate(
+      { title: 42 },
+      'Todo',
+      'interface Todo { title: string; }',
+    );
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      // tsc says "Type 'number' is not assignable to type 'string'" — no property in message
+      // but we extract it from the generated program line: "  title: 42,"
+      expect(result.errors[0].property).toBe('title');
+      expect(result.errors[0].message).toContain('→ title: 42');
+    }
+  });
+
   it('property is undefined for generic type mismatch', () => {
     const result = validate(42, 'T', 'type T = string;');
     expect(result.valid).toBe(false);
     if (!result.valid) {
-      // "Type 'number' is not assignable to type 'string'" — no property named
+      // "Type 'number' is not assignable to type 'string'" — no property named,
+      // and the generated line is "const __validate: T = 42;" — no property key
       expect(result.errors[0].property).toBeUndefined();
     }
   });

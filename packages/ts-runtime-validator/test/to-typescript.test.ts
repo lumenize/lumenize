@@ -629,10 +629,10 @@ describe('toTypeScript — cycles', () => {
 // ============================================================================
 
 describe('toTypeScript — output format', () => {
-  it('acyclic produces single const assignment', () => {
+  it('acyclic produces multi-line const assignment', () => {
     const tsCode = toTypeScript({ title: 'Fix bug', done: false }, 'Todo');
     expect(tsCode).toBe(
-      'const __validate: Todo = {title: "Fix bug", done: false};'
+      'const __validate: Todo = {\n  title: "Fix bug",\n  done: false,\n};'
     );
   });
 
@@ -681,11 +681,21 @@ describe('toTypeScript — negative tests', () => {
     );
   });
 
-  it('cyclic Map key throws TypeError', () => {
+  it('cyclic object Map key with back-reference extracts key to variable', () => {
+    // Parent → Map<Child, string> where Child.parent → Parent
+    const parent: any = { children: new Map() };
+    const child: any = { name: 'Alice', parent };
+    parent.children.set(child, 'first');
+    const result = toTypeScript(parent, 'Parent');
+    expect(result).toContain('const __key_0 =');
+    expect(result).toContain('null as any');
+    expect(result).toContain('__key_0["parent"] = __validate');
+  });
+
+  it('degenerate self-referencing Map key still throws TypeError', () => {
     const m = new Map<any, string>();
     m.set(m, 'self');
     expect(() => toTypeScript({ m }, 'T')).toThrow(TypeError);
-    expect(() => toTypeScript({ m }, 'T')).toThrow('cycle in Map key not supported');
   });
 
   it('object-keyed Map value cycle throws TypeError', () => {
