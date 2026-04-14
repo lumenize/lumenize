@@ -10,7 +10,7 @@
 This phase is broken into sub-phases that build on each other:
 
 | Sub-Phase | Name | Status | Task File | Deliverable |
-|-----------|------|--------|-----------|-------------|
+| --- | --- | --- | --- | --- |
 | 5.2.1.1 | Wrangler & Toolchain Upgrade | **Complete** | `tasks/archive/nebula-5.2.1.1-wrangler-upgrade.md` | Updated wrangler, vitest-pool-workers, compatibility_date across monorepo |
 | ~~5.2.1.2~~ | ~~DWL-in-vitest-pool-workers Spike~~ | Superseded | ~~`tasks/nebula-5.2.1.2-dwl-vitest-spike.md`~~ | Superseded — tests run in Node.js (see 5.2.1 Testing Strategy) |
 | 5.2.1 | Structured-Clone `toTypeScript()` | **Complete** | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` | `toTypeScript()` in `@lumenize/ts-runtime-validator` |

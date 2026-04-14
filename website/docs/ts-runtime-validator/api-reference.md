@@ -1,15 +1,15 @@
 ---
 title: API Reference
-description: "Function signatures, types, and error message guidance for @lumenize/ts-runtime-validator."
+description: Function signatures, types, and error message guidance for @lumenize/ts-runtime-validator.
 ---
-
 # API Reference
 
 ## `validate()`
 
 Validates a JavaScript value against TypeScript type definitions at runtime by running the real TypeScript compiler.
 
-```typescript @check-example('packages/ts-runtime-validator/src/validate.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/validate.ts')
 export function validate(
   value: unknown,  // Any JavaScript value to validate
   typeName: string,  // Name of the interface/type to validate against
@@ -17,13 +17,15 @@ export function validate(
 ): ValidationResult {
 ```
 
-```typescript @check-example('packages/ts-runtime-validator/src/validate.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/validate.ts')
 export type ValidationResult =
   | { valid: true }
   | { valid: false; errors: ValidationError[] };
 ```
 
-```typescript @check-example('packages/ts-runtime-validator/src/validate.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/validate.ts')
 export interface ValidationError {
   message: string;
   code: number;
@@ -34,19 +36,21 @@ export interface ValidationError {
 ```
 
 **Throws:**
-- `TypeError` if `typeDefinitions` is empty or whitespace-only
+- `TypeError` if `typeDefinitions` is empty or whitespace-only, or if a function type is specified
 - `RangeError` if combined program size exceeds 256 KB
 
 Internally, `validate()` calls [`toTypeScript()`](#totypescript-to-debug-failures) to generate a program, strips `export`/`import` keywords from the type definitions, then runs both through the tsc compiler:
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/todo.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/todo.ts')
 export interface Todo {
   title: string;
   done: boolean;
 }
 ```
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 import todoTypes from './todo.ts?raw';
 ```
 
@@ -55,7 +59,8 @@ You can import from either `.ts` or `.d.ts` files — `validate()` strips `expor
 :::
 
 **Valid:**
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const result: ValidationResult = validate(
   { title: 'Ship it', done: false },
   'Todo',
@@ -65,7 +70,8 @@ expect(result).toEqual({ valid: true });
 ```
 
 **Wrong type:**
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const result = validate({ title: 42, done: false }, 'Todo', todoTypes);
 expect(result.valid).toBe(false);
 expect(result.errors[0].message)
@@ -73,7 +79,8 @@ expect(result.errors[0].message)
 ```
 
 **Missing property:**
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const result = validate({ title: 'Ship it' }, 'Todo', todoTypes);
 expect(result.valid).toBe(false);
 expect(result.errors[0].message)
@@ -81,7 +88,8 @@ expect(result.errors[0].message)
 ```
 
 **Excess property:**
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const result = validate({ title: 'Ship it', done: false, extra: true }, 'Todo', todoTypes);
 expect(result.valid).toBe(false);
 expect(result.errors[0].message)
@@ -90,7 +98,8 @@ expect(result.errors[0].message)
 
 **Bad type definitions** — the `source` field distinguishes between errors in your value (`'value'`) and errors in the type definitions themselves (`'type-definitions'`):
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const badTypes = `interfce Todo { title: string; }`;
 const result = validate({ title: 'hi' }, 'Todo', badTypes);
 
@@ -106,7 +115,8 @@ You typically don't need to call this directly — `validate()` calls it interna
 
 It converts a JavaScript value to a TypeScript program string suitable for type-checking with tsc.
 
-```typescript @check-example('packages/ts-runtime-validator/src/to-typescript.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/to-typescript.ts')
 export function toTypeScript(
   value: unknown,  // The value to serialize
   typeName: string,  // The TypeScript type name to assign to
@@ -118,16 +128,19 @@ export function toTypeScript(
 
 **Throws:** `TypeError` if the value contains functions, cyclic Map keys, or object-keyed Map value cycles.
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const program = toTypeScript({ title: 'Ship it', done: false }, 'Todo');
-expect(program).toBe(
-  'const __validate: Todo = {\n  title: "Ship it",\n  done: false,\n};'
-);
+expect(program).toBe(`const __validate: Todo = {
+  title: "Ship it",
+  done: false,
+};`);
 ```
 
 Rich types like Maps and Dates are emitted as constructor calls:
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 const program = toTypeScript(
   new Map([['key', 'value']]),
   'Map<string, string>',
@@ -139,7 +152,8 @@ expect(program).toContain('new Map(');
 
 Extracts relationship metadata from TypeScript interfaces — used internally by [Nebula](/blog/introducing-lumenize-nebula)'s data layer. You may find it useful if you're building your own ORM or data-modeling layer on top of type definitions. This is a fast, compile-free operation (~0ms) — it parses the AST but does not run tsc type-checking.
 
-```typescript @check-example('packages/ts-runtime-validator/src/extract-type-metadata.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/extract-type-metadata.ts')
 export function extractTypeMetadata(
   // TypeScript interface definitions as a string
   typeDefinitions: string,
@@ -148,7 +162,8 @@ export function extractTypeMetadata(
 
 **Returns:** `TypeMetadata` — contains `relationships` and `writeShapeTypeDefinitions`:
 
-```typescript @check-example('packages/ts-runtime-validator/src/extract-type-metadata.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/extract-type-metadata.ts')
 export interface TypeMetadata {
   // ...
   relationships: Record<string, Record<string, Relationship>>;
@@ -160,7 +175,8 @@ export interface TypeMetadata {
 - `relationships` — nested map: `relationships[InterfaceName][propertyName]` gives a `Relationship`
 - `writeShapeTypeDefinitions` — modified type definitions where relationship references are replaced with `string` or `string[]`
 
-```typescript @check-example('packages/ts-runtime-validator/src/extract-type-metadata.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/src/extract-type-metadata.ts')
 export interface Relationship {
   target: string;
   cardinality: 'one' | 'many';
@@ -170,7 +186,8 @@ export interface Relationship {
 
 **Throws:** `SyntaxError` if the type definitions cannot be parsed.
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 // ...
 const meta = extractTypeMetadata(types);
 
@@ -191,7 +208,8 @@ expect(meta.relationships['Book']['author']).toEqual({
 
 Write-shape type definitions replace relationship references with string IDs, useful for validating write payloads where related entities are referenced by ID:
 
-```typescript @check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
+```typescript
+@check-example('packages/ts-runtime-validator/test/for-docs/api-reference.test.ts')
 // ...
 const meta = extractTypeMetadata(types);
 

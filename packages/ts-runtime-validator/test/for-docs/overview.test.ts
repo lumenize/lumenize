@@ -59,9 +59,10 @@ describe('How It Works', () => {
 
     const program = toTypeScript(todo, 'Todo');
 
-    expect(program).toBe(
-      'const __validate: Todo = {\n  title: "Ship it",\n  done: false,\n};'
-    );
+    expect(program).toBe(`const __validate: Todo = {
+  title: "Ship it",
+  done: false,
+};`);
   });
 
   it('validate runs that program through the real tsc compiler', () => {

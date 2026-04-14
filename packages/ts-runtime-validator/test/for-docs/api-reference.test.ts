@@ -75,9 +75,10 @@ describe('toTypeScript()', () => {
 
   it('serializes objects with typed properties', () => {
     const program = toTypeScript({ title: 'Ship it', done: false }, 'Todo');
-    expect(program).toBe(
-      'const __validate: Todo = {\n  title: "Ship it",\n  done: false,\n};'
-    );
+    expect(program).toBe(`const __validate: Todo = {
+  title: "Ship it",
+  done: false,
+};`);
   });
 
   it('serializes Maps as constructor calls', () => {

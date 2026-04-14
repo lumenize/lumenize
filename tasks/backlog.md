@@ -101,6 +101,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 ## Testing & Quality
 
+- [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
+
 - [ ] Add vitest-workers-pool tests for `@lumenize/debug`
   - Current tests run in Node.js only (plain vitest)
   - Need Workers pool tests to verify `cloudflare:workers` env auto-detection works end-to-end

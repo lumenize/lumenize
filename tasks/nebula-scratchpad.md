@@ -90,6 +90,17 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 - For large subscriber counts, tier the fanout through armies of stand-alone LumenizeWorkers. First tier instantiates in the originator, subsequent tiers fan out to Workers.
 - Algorithm sketch: <64 recipients = single shot. 64–4,096 = two tiers (√n fanout each). 4,096–262,144 = three tiers (∛n fanout each). Optimal fanout per tier needs experimentation as Cloudflare evolves.
 
+### NebulaWorker for Dynamic Workers
+
+The initial DW validator wrapper (task 5.2.3.7) uses raw Workers RPC — the `ValidatorWorker` extends `WorkerEntrypoint` and the caller uses `using worker = loader.load(...)` directly. This is fine for riding the coattails of Cloudflare's DW announcement, but for Nebula's own use we want DW communication to go through `this.lmz.call()` like everything else in the mesh.
+
+**Plan**: Create a `NebulaWorker` base class (analogous to `LumenizeWorker` for regular Workers) that:
+- Wraps DW loading/disposal behind the mesh abstraction
+- Supports `this.lmz.call('VALIDATOR', instanceName, ctn().validate(...))` syntax
+- Handles stub lifecycle (`using`) automatically to avoid wall-clock billing
+
+**Blocked on**: Discord memory-sharing answer. If DWs get their own memory budget, this becomes the recommended default for Nebula's tsc validation (memory tradeoff row in docs disappears). If shared budget, it's still useful for code organization but doesn't solve the memory constraint. Either way, the NebulaWorker wrapper is worth building — the question is how prominently to recommend it.
+
 ### ~~Heterogeneous Map Validation~~ (DONE — Phase 5.2.3.6)
 
 Fixed. `validate()` now extracts Map/Set generic type parameters from the type definitions AST and passes them to `toTypeScript()`, which emits explicit type params (e.g., `new Map<string, string | number>([...])`). See `tasks/nebula-5.2.3.6-map-set-generics-support.md`.

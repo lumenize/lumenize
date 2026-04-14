@@ -23,6 +23,18 @@ Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain expert
 
 ---
 
+## Semantic Code Search
+
+For conceptual searches ("find code that handles rate limiting", "where do we validate JWTs"), use Probe via npx:
+
+    npx -y @probelabs/probe search "<query>" [path]
+
+Probe is AST-aware (ripgrep speed + tree-sitter parsing), runs fully local, no API keys, no hosted service. Returns whole functions/classes rather than text chunks.
+
+`Grep` remains the default for literal strings and symbols — Probe is a step up when you need structural/semantic matching.
+
+---
+
 ## Development Workflow
 
 Task files live in `tasks/`. Use `/task-management` to choose docs-first or implementation-first workflow.

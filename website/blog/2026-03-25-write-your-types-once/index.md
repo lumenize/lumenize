@@ -1,15 +1,16 @@
 ---
-title: "Write Your Types Once"
+title: Write Your Types Once
 slug: write-your-types-once
-authors: [larry]
-tags: [architecture]
-description: "You've been writing the same types four times — as TypeScript interfaces, Zod schemas, Prisma models, and SQL DDL. What if you just wrote them once?"
+authors:
+  - larry
+tags:
+  - architecture
+description: You've been writing the same types four times — as TypeScript interfaces, Zod schemas, Prisma models, and SQL DDL. What if you just wrote them once?
 draft: false
 ---
-
 You've been writing the same types four times.
 
-Once as a TypeScript interface. Once as a Zod schema for validation. Once as a Prisma model for your ORM. Once as SQL for your database. Four representations of the same thing, maintained separately, drifting silently.
+Once as a TypeScript interface. Once as a Zod schema for validation (or the other way around — Zod's `z.infer` can derive the type, but you're still writing Zod's DSL). Once as a Prisma model for your ORM. Once as SQL for your database. Multiple representations of the same thing, each in a different language.
 
 Here's what that looks like for a simple `Todo` with an `assignedTo` relationship:
 
@@ -147,9 +148,9 @@ With [Nebula](/blog/introducing-lumenize-nebula), the TypeScript interface drive
 
 The problem isn't just verbosity. It's **drift**.
 
-When you change the TypeScript interface, do you remember to update the Zod schema? The Prisma model? The SQL migration? In practice, they diverge. A field gets added to the interface but not the schema. A column gets renamed in Prisma but not in the type. The bugs are silent until they're not.
+When you change your data shape, how many files do you touch? Zod handles the type/validation split elegantly with `z.infer`, but you still maintain Zod schemas separately from your Prisma models and SQL migrations. A field gets added to the schema but not the migration. A column gets renamed in Prisma but not in the Zod validator. The bugs are silent until they're not.
 
-Every additional representation is a place where your system's understanding of its own data can fracture. The fix isn't better tooling to keep them in sync. The fix is to stop duplicating them.
+Every additional representation — every separate DSL that describes the same data — is a place where your system's understanding of itself can fracture. The fix isn't better tooling to keep them in sync. The fix is fewer representations.
 
 ## One Type, Multiple Uses
 
@@ -195,16 +196,18 @@ Three things made this possible:
 
 1. **Cloudflare's tsc findings** — Code Mode [proved](https://blog.cloudflare.com/code-mode/) LLMs work better with TypeScript than JSON Schema. [32-81% fewer tokens](https://blog.cloudflare.com/code-mode-mcp/) with better accuracy. If TypeScript is the best schema language for LLMs, why translate it into something else?
 
-2. **Bundled tsc in Workers** — The TypeScript compiler runs in Cloudflare Workers. A [1ms spike](https://blog.cloudflare.com/dynamic-workers/) proved it's fast enough for runtime validation.
+2. **Bundled tsc in Workers** — The TypeScript compiler runs in Cloudflare Workers. Our benchmarks show ~15-25ms per validation call — fast enough for runtime validation on write paths.
 
 3. **Durable Objects with SQL storage** — Cloudflare's DO platform gives each object its own SQLite database. The storage layer is simple enough that TypeScript interfaces can drive it directly — no need for the abstraction layers that traditional ORMs provide.
 
 ## The Tradeoff
 
-This approach costs ~3.4 MB of bundle size and ~40-50 MB of memory per validation call. That's real. For size-constrained environments or heavy format/range validation, Zod remains excellent.
+This approach costs ~3.4 MB of bundle size and ~40-50 MB of memory per validation call. In Node.js or other server environments that's trivial; on Cloudflare Workers (128 MB per isolate) it's worth noting. For heavy format/range validation, Zod remains excellent... at least until we add format/range support via annotations.
 
-But for the solopreneur or intrapreneur building with AI-assisted coding — the person who needs their tool to work the way they think, not a team of developers to maintain four representations of every type — writing your types once is worth it.
+On Cloudflare, the memory cost is easily mitigated by running tsc in a dedicated Worker via [Service Binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/) — each Worker gets its own 128 MB. Workers RPC keeps the call fast (~15-25ms per validation, no external network hop). This is what we do in Nebula.
+
+For the solopreneur or intrapreneur building with AI-assisted coding — the person who needs their tool to work the way they think, not a team of developers to maintain four representations of every type — writing your types once is worth it.
 
 ---
 
-*This post is the second in a series. The first, [TypeScript IS the Schema](/blog/typescript-is-the-schema), covers the runtime validation package in detail.*
+*This post is the second in a series. The first, *[*TypeScript IS the Schema*](/blog/typescript-is-the-schema)*, covers the runtime validation package in detail.*

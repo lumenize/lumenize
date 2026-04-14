@@ -1,6 +1,6 @@
 # Phase 5.2.4: `@lumenize/ts-runtime-validator` Documentation & Blog Post
 
-**Status**: Pending
+**Status**: In progress — Phase 1 drafts complete, pending hand review
 **Package**: `packages/ts-runtime-validator/` (`@lumenize/ts-runtime-validator`)
 **Depends on**: Phase 5.2.3 (Ontology integration — real-world usage may surface API changes)
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
@@ -47,7 +47,7 @@ Two deliverables:
 
 ### Notes for Docs Author
 
-- **`validate()` and `extractTypeMetadata()` are two separate functions** — `validate()` runs full tsc type-checking (~1ms per call), `extractTypeMetadata()` does AST-only parsing (~0ms, typically called once at startup). They serve different purposes and can be used independently.
+- **`validate()` and `extractTypeMetadata()` are two separate functions** — `validate()` runs full tsc type-checking (~15-25ms per call on Cloudflare Workers, measured via external wall-clock; internal `performance.now()` is unreliable in Workers), `extractTypeMetadata()` does AST-only parsing (~0ms, typically called once at startup). They serve different purposes and can be used independently.
 - **Minimal lib.d.ts** — the engine embeds a ~4 KB custom lib with primitives, Array, Map, Set, Date, Error types, etc. Not the full lib.es5.d.ts. If a type isn't in our lib, this package won't recognize it. The type-support page should document what's available.
 
 ### Reference Links to Include in Docs
@@ -72,27 +72,57 @@ All code examples must be grounded in real artifacts — no invented snippets. S
 
 Add `ts-runtime-validator` section to `website/sidebars.ts`.
 
-## Success Criteria
+## Current State (2026-03-25)
 
-### Blog Post
-- [ ] Blog post drafted in `/website/blog/` (Docusaurus blog format)
-- [ ] Narrative arc: code mode insight → "why not skip JSON Schema entirely?" → how it works → quick example → tradeoffs → link to package docs
-- [ ] Links to Cloudflare code mode blog posts as prior art
-- [ ] Links to package docs for API reference and detailed type support
-- [ ] Honest about tradeoffs (bundle size, memory, minimal lib.d.ts)
+All 5 files drafted. Blog posts updated with corrected latency numbers (spike proved ~15-25ms, not ~1ms) and Service Binding approach (not Dynamic Workers).
+
+### Files ready for hand review
+
+1. `website/blog/2026-03-24-typescript-is-the-schema/index.md` — "TypeScript IS the Schema" blog post
+2. `website/blog/2026-03-25-write-your-types-once/index.md` — "Write Your Types Once" blog post
+3. `website/docs/ts-runtime-validator/index.mdx` — Overview page
+4. `website/docs/ts-runtime-validator/type-support.mdx` — Type support & validation boundaries
+5. `website/docs/ts-runtime-validator/api-reference.mdx` — API reference
+
+### What changed from spike findings
+- **~1ms → ~15-25ms** per validation call (Cloudflare clocks don't advance during sync execution; internal timings were wrong)
+- **Dynamic Workers → Service Binding** — plain Worker via Service Binding is simpler, faster for sequential calls, better cold start story
+- Both blog posts already updated with these corrections
+
+## Remaining Work
+
+### After hand review
+- [x] All `@skip-check` converted to `@check-example` — zero remaining
+- [ ] `npm run check-examples` passes (verify after any review edits)
+- [ ] `npm run build` (website) passes
 - [ ] Cross-post to Substack (new channel — set up as part of this task)
 - [ ] Cross-post to Medium (explore automating via Medium API or MCP server + Claude co-work)
 
+## Success Criteria
+
+### Blog Posts
+- [x] Blog posts drafted in `/website/blog/` (Docusaurus blog format)
+- [x] Narrative arc: code mode insight → "why not skip JSON Schema entirely?" → how it works → quick example → tradeoffs → link to package docs
+- [x] Links to Cloudflare code mode blog posts as prior art
+- [x] Links to package docs for API reference and detailed type support
+- [x] Honest about tradeoffs (bundle size, memory, minimal lib.d.ts)
+- [x] Latency numbers corrected per spike findings (~15-25ms, not ~1ms)
+- [x] Service Binding framing (not Dynamic Workers)
+- [ ] Hand review by Larry
+- [ ] Cross-post to Substack
+- [ ] Cross-post to Medium
+
 ### Package Documentation
-- [ ] All 3 pages created in `/website/docs/ts-runtime-validator/`
-- [ ] All code examples validated with `@check-example` annotations pointing to `test/for-docs/` tests
+- [x] All 3 pages created in `/website/docs/ts-runtime-validator/`
+- [x] All code examples validated with `@check-example` annotations pointing to `test/for-docs/` tests
 - [ ] All type signatures and interfaces match actual source code in `packages/ts-runtime-validator/src/`
 - [ ] All error message examples come from real tsc output captured in tests
 - [ ] `test/for-docs/` tests use public API imports, not internal modules
-- [ ] No use of deprecated `tooling/doc-testing` or TypeDoc
+- [x] No use of deprecated `tooling/doc-testing` or TypeDoc
 - [ ] `npm run check-examples` passes
 - [ ] `npm run build` (website) passes
-- [ ] Sidebar updated in `website/sidebars.ts`
+- [x] Sidebar updated in `website/sidebars.ts`
 - [ ] Package `README.md` updated with link to website docs
-- [ ] Docs overview links to blog post for the "why" rationale
-- [ ] Blog post links to docs for API details and type support
+- [x] Docs overview links to blog post for the "why" rationale
+- [x] Blog post links to docs for API details and type support
+- [ ] Hand review by Larry
