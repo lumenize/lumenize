@@ -13,24 +13,22 @@
   },
   "files": [
     "src/**/*",
-    "dist/typescript.bundled.mjs",
-    "scripts/bundle-tsc.mjs",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "postinstall": "node scripts/bundle-tsc.mjs",
+    "prepare": "node scripts/bundle-tsc.mjs",
     "test": "vitest --run",
     "coverage": "vitest --run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lumenize/structured-clone": "0.22.0",
-    "typescript": "^5.9.2"
+    "@lumenize/structured-clone": "0.22.0"
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "3.2.4",
     "esbuild": "0.27.3",
+    "typescript": "^5.9.2",
     "vitest": "3.2.4"
   },
   "keywords": [
