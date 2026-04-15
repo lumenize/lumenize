@@ -1,6 +1,6 @@
 # Phase 5.2.4: `@lumenize/ts-runtime-validator` Documentation & Blog Post
 
-**Status**: In progress — Phase 1 drafts complete, pending hand review
+**Status**: Complete (2026-04-15) — cross-posting to Substack/Medium dropped; new posts will accompany typia validator engine launch instead
 **Package**: `packages/ts-runtime-validator/` (`@lumenize/ts-runtime-validator`)
 **Depends on**: Phase 5.2.3 (Ontology integration — real-world usage may surface API changes)
 **Parent**: `tasks/nebula-5.2-tsc-validation.md`
@@ -95,8 +95,8 @@ All 5 files drafted. Blog posts updated with corrected latency numbers (spike pr
 - [x] All `@skip-check` converted to `@check-example` — zero remaining
 - [ ] `npm run check-examples` passes (verify after any review edits)
 - [ ] `npm run build` (website) passes
-- [ ] Cross-post to Substack (new channel — set up as part of this task)
-- [ ] Cross-post to Medium (explore automating via Medium API or MCP server + Claude co-work)
+- ~~Cross-post to Substack (new channel — set up as part of this task)~~ — dropped 2026-04-15; new posts will cover the typia engine launch
+- ~~Cross-post to Medium (explore automating via Medium API or MCP server + Claude co-work)~~ — dropped 2026-04-15; new posts will cover the typia engine launch
 
 ## Success Criteria
 
@@ -109,8 +109,8 @@ All 5 files drafted. Blog posts updated with corrected latency numbers (spike pr
 - [x] Latency numbers corrected per spike findings (~15-25ms, not ~1ms)
 - [x] Service Binding framing (not Dynamic Workers)
 - [ ] Hand review by Larry
-- [ ] Cross-post to Substack
-- [ ] Cross-post to Medium
+- ~~Cross-post to Substack~~ — dropped; superseded by typia engine launch posts
+- ~~Cross-post to Medium~~ — dropped; superseded by typia engine launch posts
 
 ### Package Documentation
 - [x] All 3 pages created in `/website/docs/ts-runtime-validator/`

@@ -1,6 +1,6 @@
 # Phase 5.2: TypeScript Validation & Ontology
 
-**Status**: In Progress (5.2.1–5.2.3 complete, 5.2.4 docs + 5.2.5 queries pending)
+**Status**: In Progress (5.2.1–5.2.4 complete; detour to typia validator engine before 5.2.5)
 **Depends on**: Phase 5.1 (Storage Engine)
 
 ## Overview
@@ -16,7 +16,8 @@ This phase is broken into sub-phases that build on each other:
 | 5.2.1 | Structured-Clone `toTypeScript()` | **Complete** | `tasks/nebula-5.2.1-structured-clone-to-typescript.md` | `toTypeScript()` in `@lumenize/ts-runtime-validator` |
 | 5.2.2 | `validate()` Function | **Complete** | `tasks/nebula-5.2.2-validate.md` | `validate()` in `@lumenize/ts-runtime-validator` |
 | 5.2.3 | Ontology & Resources Integration | **Complete** | `tasks/nebula-5.2.3-resources-validation-integration.md` | Ontology class, relationship extraction, Galaxy/Star wiring, in-process validation in `transaction()` |
-| 5.2.4 | Documentation | Pending | `tasks/nebula-5.2.4-docs.md` | User-facing docs for `@lumenize/ts-runtime-validator` in `/website/docs/` |
+| 5.2.4 | Documentation | **Complete** | `tasks/archive/nebula-5.2.4-docs.md` | User-facing docs for `@lumenize/ts-runtime-validator` in `/website/docs/` (cross-posting dropped — superseded by typia engine launch posts) |
+| — | Typia Validator Engine (detour) | Pending | `tasks/typia-validator-engine.md` | Second validation engine via typia codegen + Galaxy-as-DW-registry; dual-engine with tsc |
 | 5.2.5 | Multi-Resource Queries | Pending | `tasks/nebula-5.2.5-multi-resource-queries.md` | `query()` with ontology-driven relationship resolution |
 
 ## Dependency Chain

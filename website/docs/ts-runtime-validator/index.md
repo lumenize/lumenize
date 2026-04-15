@@ -96,6 +96,7 @@ See the [Type Support & Validation Boundaries](./type-support) page for the full
 | **Value constraints** | Types only (no range/format checks) | Rich (`.email()`, `.min()`, `.regex()`, ...) | Rich (`format`, `minimum`, `pattern`, ...) |
 | **Bundle size** | ~3.4 MB (bundled tsc) | ~50 KB | ~100 KB |
 | **Memory** | ~40-50 MB per call (see below) | Minimal | Minimal |
+
 The bundle size is the real TypeScript compiler — large relative to validation-only libraries, but a one-time download that caches well. The memory cost is easily mitigated in Cloudflare Workers by running tsc in a dedicated Worker via [Service Binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/) — each Worker gets its own 128 MB, so the tsc memory stays out of your main Worker or DO. This is what [Nebula](/docs/nebula/nebula-client) does. In Node.js or other server environments, memory is typically not a constraint.
 
 The tradeoff is worth it when you value zero-DSL developer experience and tsc-quality diagnostics over minimal bundle size and built-in value constraints. Zod is excellent — especially with `z.infer` eliminating type duplication — but it's still a DSL to learn, and LLMs know plain TypeScript better. For heavy use of format/range validation, Zod and Ajv remain good choices.
