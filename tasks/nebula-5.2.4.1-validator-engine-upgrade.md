@@ -11,22 +11,27 @@ Create `@lumenize/ts-runtime-parser-validator` — a new package built around ty
 
 The existing `@lumenize/ts-runtime-validator` stays published but gets deprecated in favor of this package. The tsc engine served its purpose as a proof-of-concept (Phases 5.2.1–5.2.3).
 
-**What carries over from \****`ts-runtime-validator`**\*\*:**
+**What carries over from the \****`ts-runtime-validator`**\*\* design:**
 - `extractTypeMetadata()` — AST parsing for relationships, write-shape generation, defaults discovery. Same code, uses `ts.createSourceFile()` (engine-independent)
 - Tag vocabulary — aligned to typia conventions (Phase 1)
-- `toTypeScript()` — moved over since `@lumenize/structured-clone` depends on it; not on the parse critical path
+- `typescript` dependency and bundling approach
 
 **What's new:**
 - `createValidator(typeDefinitions: string): string` — calls typia transformer, returns JS source string
-- `parse(value, options): { data, errors }` — fills defaults from metadata, runs pre-compiled validator, returns typed data or structured errors
-- `validate(value, options): { valid, errors }` — pure validation without filling (thin wrapper over parse, discards filled data)
-- Inlined runtime helpers (~300 LOC) — no runtime dependency on typia
+- `parse(value, options): { data, errors }` — fills defaults from metadata, runs pre-compiled validator, returns typed data or structured errors. Callers who want validate-only semantics ignore `data` and check `errors`
+- Inlined helpers (~300 LOC: format validators, type guards, `TypeGuardError`) — the generated validator JS calls these helpers when executing. Inlining them means the generated validator is self-contained (zero imports from `typia/lib/internal/`). Note: this is separate from where `@typia/transform` itself comes from when `createValidator()` runs — see Spike A (dep) vs Spike B (inlined source).
 
+**What gets left behind (stays in the old package, not ported):**
+- `toTypeScript()` — serializes a JS value as a TypeScript expression with inlined constructors (e.g., `new Date(...)`, `new Map(...)`). The old `validate()` used this to type-check values as TypeScript code. Typia works differently: the generated validator is a JS function that takes a JS value directly — no serialization to TS source needed. Not used anywhere outside the old `validate()` flow (verified: zero references from `@lumenize/structured-clone`, `apps/nebula`, or anywhere else).
+- `validate()` — the tsc-based type-check function. Superseded by `parse()` in the new package. The old package retains it for any existing consumers; new consumers use the new package.
+- `checkFiles()` — internal tsc engine entry point in `engine.ts`. Superseded by the typia transformer invocation in `createValidator()`.
+
+**Value serialization across the facet boundary** (related to "what gets left behind"): The old flow serialized values to TS strings for type-checking. The new flow passes JS values directly to the facet via Workers RPC, which handles cross-isolate serialization itself. See design decision #8 for the trust/fallback discussion.
 ## Design Decisions (from design conversation 2026-04-17)
 
 1. **New package, clean slate.** `@lumenize/ts-runtime-parser-validator` in `packages/ts-runtime-parser-validator/`. Not a retrofit of the tsc-based package. The old package gets `npm deprecate` pointing here.
 
-2. **Parse, don't validate.** Primary API is `parse()` — fills defaults then validates in one call. `validate()` exists as a convenience for callers who don't need filling. This makes `@default` a first-class package-level concern without requiring Nebula.
+2. **Parse, don't validate.** The only entry point is `parse()` — fills defaults then validates in one call, returning `{ data, errors }`. Callers who want validate-only semantics ignore `data`. Mirrors Zod's API (parse/safeParse only, no standalone validate). Makes `@default` a first-class package-level concern without requiring Nebula.
 
 3. **`createValidator()`**** returns a string.** The generated validator is JS source code. In Node.js, callers can use `new Function()` to load it. In Workers, it must be loaded via Dynamic Worker (no `eval`/`new Function`). This constraint is fundamental to how typia works in Cloudflare's security model.
 
@@ -35,13 +40,19 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 5. **Tag vocabulary = public API.** JSDoc tag names aligned to typia conventions. This is the long-lived contract users write in their interfaces.
 
 6. **`@default`**** semantics in \****`parse()`**\*\*:**
-7. **Tag vocabulary = public API.** The JSDoc tag names users write are the long-lived contract. Align with the second engine's conventions now (see Phase 1).
   - Filler runs pre-validation; validator sees already-filled objects
   - Fields with `@default` must be declared optional (`age?: number`)
-  - `parse()` fills on the write path; `validate()` never fills
   - Depth behavior (nested objects/array elements) decided and pinned during Phase 2
 
-6. **Inlined runtime helpers.** The ~300 LOC of typia runtime helpers (format validators, type guards, `TypeGuardError`) are inlined in the package. Generated validators call our inlined helpers, not `typia/lib/internal/`. Zero runtime dependency on the typia npm package.
+7. **Inlined helpers for generated validators.** The ~300 LOC of helpers (format validators, type guards, `TypeGuardError`) that typia-generated validators call at execution time are inlined in the package. Generated validators import from our inlined module, not from `typia/lib/internal/`. This makes the generated validator self-contained — when it runs (either in Node.js via `new Function()` or in a Worker/facet via DW loading), it needs nothing from the typia npm package. Separately, `createValidator()` itself depends on `@typia/transform` + deps; that's a different question answered by Spike A (bundled dep) vs Spike B (inlined source).
+
+8. **Trust Workers RPC for cross-isolate value passing (with documented fallback).** When `parse()` is called across an isolate boundary (Star → facet or Star → DW), Workers RPC handles serialization of the input value. Its type support is very close to `@lumenize/structured-clone` — close enough for resource values that users would reasonably store. Known gaps (Request/Response, full Error cause chains) don't apply to typical resource data.
+
+   **The real risk**: Kenton Varda has publicly said he wants to remove cycle and alias support from Workers RPC. If Cloudflare does this, any resource with cyclic or aliased references would fail to cross the boundary.
+
+   **Decision**: Trust Workers RPC for now. Serializing through `@lumenize/structured-clone` on every call would add overhead we don't need to pay unless/until Cloudflare actually removes cycle support. If they do, the fix is localized: wrap the RPC payload in a `@lumenize/structured-clone` encode/decode step at the Star↔facet boundary. No public API change to the package; the serialization wrapper would live in Nebula's Star code (5.2.4.2).
+
+   **Watch for**: Cloudflare announcements about Workers RPC serialization changes. Re-check this risk periodically.
 
 ## Phase 1: Tag Vocabulary Alignment
 
@@ -66,13 +77,13 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 **Decisions to record:**
 - **Fill semantics**: `parse()` fills missing optional fields before validation; validator sees complete objects
 - **Required vs optional**: fields with `@default` must be declared optional. Warn (or error) if `@default` appears on a required field
-- **`parse()`**** vs \****`validate()`**: `parse()` fills + validates → `{ data, errors }`. `validate()` validates only → `{ valid, errors }`. Both accept a pre-compiled `validatorSource` string
+- **Return shape**: `parse(value, { validatorSource }): { data, errors }`. `data` is the filled+validated object; `errors` is the structured error list (empty on success)
 - **Depth**: decide whether `@default` recurses into nested objects/array elements. Write test cases pinning the chosen semantic
 
 **Success Criteria**:
 - [ ] Design decisions documented in this file
-- [ ] Test cases cover fill semantics, required/optional, parse vs validate, depth
-- [ ] API signatures finalized
+- [ ] Test cases cover fill semantics, required/optional, depth
+- [ ] API signature finalized
 
 ## Phase 3: Spike A — Bundling Feasibility
 
@@ -146,14 +157,12 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 - Port `toTypeScript()` from old package
 - Implement `createValidator(typeDefinitions: string): string` — typia transformer → JS source
 - Implement `parse(value, { validatorSource, typeMetadata }): { data, errors }` — fill defaults → run validator → return
-- Implement `validate(value, { validatorSource }): { valid, errors }` — validate without filling
 - Modify generated validator code to call inlined runtime helpers instead of `typia/lib/internal/`
-- Test suite covering: tag vocabulary, `@default` filling, parse vs validate, error messages, edge cases
+- Test suite covering: tag vocabulary, `@default` filling, error messages, edge cases
 
 **Success Criteria**:
 - [ ] `createValidator()` returns valid JS source string
 - [ ] `parse()` fills defaults and validates, returns `{ data, errors }`
-- [ ] `validate()` validates without filling
 - [ ] `extractTypeMetadata()` works unchanged
 - [ ] Generated validators have zero runtime imports (all helpers inlined)
 - [ ] Error messages are legible and reference correct property paths
@@ -165,7 +174,7 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 **Metrics**:
 - **Bundle size**: new package vs old tsc-based package
 - **`createValidator()`**** compilation time**: for representative type definitions
-- **`parse()`**** / \****`validate()`**\*\* latency**: cold start and warm (mean, p50, p99)
+- **`parse()`**** latency**: cold start and warm (mean, p50, p99)
 - **Memory footprint**: peak during validation
 
 **Work**:
@@ -195,10 +204,19 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 
 ## Open Questions
 
-- Does the typia transformer need all types inlined, or does it resolve references across virtual files?
-- Does typia handle `Map<string, string | number>` correctly? (heterogeneous Map limitation in tsc engine)
+Grouped by the phase that resolves them. None block starting Phase 1 — each is answered naturally during the phase listed. **Pause and confirm with the human when each phase is reached before committing to the answer.**
+
+**Resolved by Phase 3 (Spike A — Bundling Feasibility):**
+- Does the typia transformer need all types inlined in one virtual file, or does it resolve references across multiple virtual files?
 - Bundle size of generated validators — how large is the JS output for typical type definitions?
-- If we inline: actual trimmed LOC and TS-compat maintenance burden (Phase 4 answers this)
+- Do any runtime helpers we actually need do dynamic evaluation (which would break Worker compatibility)?
+
+**Resolved by Phase 4 (Spike B — Inline Feasibility, only if Spike A fails):**
+- Actual trimmed LOC after stripping unused typia features
+- TypeScript version compatibility maintenance burden — how often does typia need TS-compat fixes, how complex are they?
+
+**Resolved by Phase 5 (Implementation) — answer via targeted test case:**
+- Does typia handle `Map<string, string | number>` correctly? (heterogeneous Map limitation in the tsc engine — want to confirm typia doesn't have the same issue)
 
 ## Resolved Concerns
 
