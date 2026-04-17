@@ -4,6 +4,10 @@ description: TypeScript IS the schema — validate JavaScript values against Typ
 ---
 # TypeScript Runtime Validator
 
+:::danger Experimental
+APIs are unstable and may change significantly before the 1.0 release.
+:::
+
 You already write TypeScript interfaces. Why learn a separate schema DSL for runtime validation?
 
 Cloudflare discovered that LLMs [perform dramatically better](https://blog.cloudflare.com/code-mode/) with TypeScript than with JSON Schema — converting MCP tool definitions to TypeScript reduced token usage by [32-81%](https://blog.cloudflare.com/code-mode-mcp/) while improving accuracy. Their [Dynamic Workers](https://blog.cloudflare.com/dynamic-workers/) platform doubles down on this: "Agents know TypeScript... with very few tokens, you can give your agent a precise understanding of your API." This isn't surprising: LLMs have been trained on billions of lines of TypeScript, far more than any schema DSL. TypeScript is simply a more natural language for describing types — for humans and LLMs alike.

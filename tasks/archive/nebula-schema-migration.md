@@ -1,6 +1,6 @@
 # Phase 6: Resources — Schema Migration
 
-**Status**: Pending
+**Status**: Archived — superseded by `tasks/nebula-5.5-schema-evolution.md`
 **Package**: `@lumenize/nebula`
 **Depends on**: Phase 5 (Resources — Basic Functionality)
 **Master task file**: `tasks/nebula.md`

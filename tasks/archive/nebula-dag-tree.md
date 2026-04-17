@@ -554,8 +554,8 @@ Items from the original Phase 3.x section have been relocated:
 
 | Item | New Location | Rationale |
 |------|-------------|-----------|
-| `getNodeByPath(slugPath)` | `tasks/nebula-resources.md` (DAG prerequisites) | Needed for resource path resolution in Phase 5 |
-| Resource + DAG integration tests | `tasks/nebula-resources.md` (DAG prerequisites) | Phase 5 scope |
+| `getNodeByPath(slugPath)` | `tasks/nebula-5-resources.md` (DAG prerequisites) | Needed for resource path resolution in Phase 5 |
+| Resource + DAG integration tests | `tasks/nebula-5-resources.md` (DAG prerequisites) | Phase 5 scope |
 | `getSubtreePermissions`, bulk ops | `tasks/nebula-scratchpad.md` (DAG Tree Enhancements) | No phase depends on them yet |
 | Client-side display patterns | `tasks/nebula-scratchpad.md` (Client-Side DAG Display Patterns) | Phase 8 (Nebula UI) concern |
 | Subscription fan-out | `tasks/nebula-scratchpad.md` (Star Subscription Design) | Already there from Phase 3.1 review |

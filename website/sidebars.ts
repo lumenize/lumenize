@@ -338,16 +338,6 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // Nebula
-    {
-      type: 'category',
-      label: 'Nebula',
-      items: [
-        'nebula/auth-flows',
-        'nebula/nebula-client',
-      ],
-    },
-
     // Debug
     {
       type: 'category',

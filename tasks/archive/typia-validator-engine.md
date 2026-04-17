@@ -1,6 +1,6 @@
 # Typia Validator Engine (Dual-Engine Detour)
 
-**Status**: Not started
+**Status**: Archived — split into `tasks/nebula-5.2.4.1-validator-engine-upgrade.md` (standalone) and `tasks/nebula-5.2.4.2-validator-galaxy-integration.md` (Nebula integration)
 **Depends on**: 5.2.3 (ontology wiring complete), 5.2.4 (docs shipped)
 **Precedes**: 5.2.5 (multi-resource queries)
 **Package**: `packages/ts-runtime-validator/` + `apps/nebula/` (Galaxy)

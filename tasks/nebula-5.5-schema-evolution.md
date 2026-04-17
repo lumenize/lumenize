@@ -74,6 +74,13 @@ The ontology config is JSON-serializable when all `migrate` functions are string
 
 - Phase 5.2.3's `Ontology` constructor calls `extractTypeMetadata()` for each version in the array. Currently only the latest version's metadata is used (for validation, defaults, and relationship queries). Should per-version metadata be stored for migration use (e.g., knowing which fields were relationships at a given version to inform data transforms)? Or should `extractTypeMetadata()` only be called for the latest version in 5.2.3, deferring per-version processing until 5.5 when the migration requirements are concrete?
 
+### Migration-in-Facet Version Skew (carried from 5.2.4.2)
+
+- Migrations will likely run in DO facets (same sandbox model as validators from 5.2.4.2). A facet call is `await`ed, which opens the DO input gate — another version promotion notification could interleave during the migration.
+- The validator case (5.2.4.2) is safe without extra checks because writing data validated under version N is fine even if current becomes N+1 (lazy migration handles skew at read time).
+- Migrations are different: a migration that transforms data v1 → v2 and writes the result at v2 has an implicit target-schema assumption. If the current version became v3 mid-migration, the write is now "one migration behind" again — not wrong, but wasteful (we'd re-migrate on next read).
+- **Design this phase**: decide whether to add a version check at migration write time (not just the existing data eTag check), and whether to restart the migration against the new target if the version shifted, or accept the extra lazy-migration hop.
+
 ## Success Criteria
 
 - [ ] `migrate` is per-type (object in, object out); each entry accepts function or string; `ontology.getMigration(version, typeName)` retrieves either form

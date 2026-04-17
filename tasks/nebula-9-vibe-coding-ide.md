@@ -52,6 +52,7 @@ Everything — this phase is far out. Key questions to answer as we get closer:
 - How do we handle model context window limits when the application grows?
 - Hosting: where does the IDE run? (Nebula UI itself? Separate app? Browser extension?)
 - How does the training data pipeline work for the fine-tuned model?
+- **UI asset storage & versioning**: Galaxy manages UI versions, but the backend could be Galaxy's own SQLite, Workers KV, R2, or Cloudflare Artifacts (git-compatible versioned storage built on DOs — announced April 2026, beta). Artifacts' git interface is attractive: the IDE agent could use native git (commit, branch, tag releases, diff, rollback) with Galaxy orchestrating publish-to-edge via KV/R2 for fast serving. Design Galaxy's version management API without coupling to a specific backend so this decision can be deferred until the IDE is closer. An Asset Worker is needed regardless to set MIME types, CSP headers, etc.
 
 ## Success Criteria
 

@@ -4,7 +4,7 @@
 **App**: `apps/nebula/`
 **Depends on**: Phase 3.1 (DAG Tree Access Control — complete)
 **Prior art**: `tasks/reference/blueprint/temporal-entity.js` (Snodgrass temporal storage for Cloudflare DOs)
-**Scratchpad**: `tasks/nebula-resources.md` — evolving design notes, not always self-consistent and growing further from the latest thinking all the time. This task file takes precedence on any conflicts.
+**Scratchpad**: `tasks/nebula-5-resources.md` — evolving design notes, not always self-consistent and growing further from the latest thinking all the time. This task file takes precedence on any conflicts.
 
 ---
 
