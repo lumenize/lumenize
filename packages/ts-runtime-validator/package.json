@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/ts-runtime-validator",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "description": "TypeScript-as-schema runtime validation — toTypeScript() serializes values to TS programs, validate() type-checks them with tsc",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@lumenize/structured-clone": "^0.23.0"
+    "@lumenize/structured-clone": "^0.24.0"
   },
   "devDependencies": {
     "@vitest/coverage-istanbul": "3.2.4",
