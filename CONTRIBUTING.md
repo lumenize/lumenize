@@ -177,4 +177,4 @@ See [RELEASE.md](./RELEASE.md) for detailed release documentation.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License (for open-source packages) or BSI-1.1 (for restricted packages), as appropriate.
+By contributing, you agree that your contributions will be licensed under the MIT License (for open-source packages) or BUSL-1.1 / Business Source License (for restricted packages), as appropriate.

@@ -156,7 +156,7 @@ subscribe(id: string) {
 - `package.json` - No build scripts, points to `src/`
 - `src/index.ts` - Single export file that re-exports all public API
 - `README.md` - Brief description with link to docs
-- `LICENSE` - MIT or BSI-1.1
+- `LICENSE` - `MIT` for open-source packages, `BUSL-1.1` for Business Source License packages, or `UNLICENSED` for Nebula-related code (`packages/nebula-auth`, `apps/nebula`) — per legal guidance, these stay `UNLICENSED` until the Nebula platform ships externally. Use the exact SPDX identifier in `package.json`'s `license` field (e.g., `BUSL-1.1`, not `BSL-1.1` or `BSI-1.1`).
 - `dist/` - Generated during publish only (gitignored)
 
 ### Cloudflare Worker Packages

@@ -1,7 +1,6 @@
 {
   "name": "@lumenize/auth",
   "version": "0.23.0",
-  "private": true,
   "description": "De✨light✨ful authentication for Cloudflare Durable Objects",
   "type": "module",
   "main": "src/index.ts",
