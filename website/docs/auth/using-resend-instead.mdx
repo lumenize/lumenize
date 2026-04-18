@@ -1,0 +1,71 @@
+---
+title: Using Resend instead
+description: Configure @lumenize/auth to send via Resend rather than Cloudflare Email Sending
+---
+
+The default email provider for `@lumenize/auth` is [Cloudflare Email Sending](/docs/auth/getting-started#email-provider) — it's a native Worker binding, no API key, and fits the Cloudflare-first posture of this monorepo. But Cloudflare Email Sending requires the Workers Paid plan, and you may already use Resend elsewhere or want the 100-emails-per-day free tier.
+
+`ResendEmailSender` is a drop-in alternative that implements the same `AuthEmailSenderBase` contract. Everything else in the auth package — templates, subjects, the `AUTH_EMAIL_SENDER` service binding, the `from`/`replyTo`/`appName` settings — is identical.
+
+## When to choose Resend
+
+- You want to stay on the Workers Free plan.
+- Your organization already uses Resend for transactional email.
+- You want Resend's deliverability dashboards or per-message analytics.
+
+Otherwise, the default [Cloudflare Email Sending path](/docs/auth/getting-started#email-provider) is simpler.
+
+## Setup
+
+**1. Create a Resend account and verify your domain**
+
+Sign up at [resend.com](https://resend.com), then [verify your sending domain](https://resend.com/docs/dashboard/domains/introduction). You'll add DNS records (SPF, DKIM, DMARC) to your domain — Resend's dashboard walks you through it.
+
+**2. Generate an API key**
+
+Create an API key in the [Resend dashboard](https://resend.com/api-keys) and add it to your environment:
+
+```bash
+# Local development (.dev.vars)
+RESEND_API_KEY=re_...
+
+# Production
+wrangler secret put RESEND_API_KEY
+```
+
+**3. Create your AuthEmailSender class**
+
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
+import { ResendEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends ResendEmailSender {
+  from = 'auth@myapp.com';  // must match your verified Resend domain
+  // Override templates, subjects, replyTo, or appName here — same as CloudflareEmailSender
+}
+```
+
+Export this class from your Worker entry point alongside your other classes. `ResendEmailSender` handles delivery, default HTML templates, and default subject lines — same as `CloudflareEmailSender`.
+
+**4. Add the service binding to wrangler.jsonc**
+
+Unlike the Cloudflare path, there's no `send_email` binding — Resend is a plain HTTPS API, so the only wiring is the self-referencing service binding that lets the Auth DO reach your entrypoint:
+
+```jsonc
+{
+  "services": [
+    {
+      "binding": "AUTH_EMAIL_SENDER",
+      "service": "your-worker-name",       // must match your wrangler.jsonc "name"
+      "entrypoint": "AuthEmailSender"
+    }
+  ]
+}
+```
+
+## Customizing templates
+
+Template and subject overrides work identically to the default path — you just extend `ResendEmailSender` instead of `CloudflareEmailSender`. See [Customizing Email](/docs/auth/customizing-email) for the patterns; swap the base class name and everything else applies.
+
+## Switching providers later
+
+Moving between providers is a one-line change in your `AuthEmailSender` class (change the base class) plus the corresponding `wrangler.jsonc` update — add or remove the `send_email` binding, add or remove `RESEND_API_KEY`. No schema migrations, no template rewrites.

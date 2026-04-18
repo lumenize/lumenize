@@ -41,7 +41,23 @@ export function postprocess(data: LmzIntermediate): any {
       const [type, value] = tuple;
       
       // Create empty containers for each type
-      if (type === 'array') {
+      if (type === 'date') {
+        objects.set(i, new Date(value));
+      } else if (type === 'regexp') {
+        objects.set(i, new RegExp(value.source, value.flags));
+      } else if (type === 'boolean-object') {
+        objects.set(i, new Boolean(value));
+      } else if (type === 'number-object') {
+        let num = value;
+        if (value === 'NaN') num = NaN;
+        else if (value === 'Infinity') num = Infinity;
+        else if (value === '-Infinity') num = -Infinity;
+        objects.set(i, new Number(num));
+      } else if (type === 'string-object') {
+        objects.set(i, new String(value));
+      } else if (type === 'bigint-object') {
+        objects.set(i, Object(BigInt(value)));
+      } else if (type === 'array') {
         objects.set(i, []);
       } else if (type === 'map') {
         objects.set(i, new Map());

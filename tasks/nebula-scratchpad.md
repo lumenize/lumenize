@@ -78,11 +78,40 @@ See blueprint UI reference in `tasks/reference/blueprint/ui/` for prior art. Ser
 - **Normalized paths**: The client determines the normalized path based on which visual position the user clicked in the tree (the breadcrumbs array). A DAG node appears in multiple positions; each click yields a different path. The server doesn't need to choose a canonical path.
 - **Peer comparisons**: Given a breadcrumbs path, the client goes up one level (`path.slice(0, -1)`) and uses `parent.children` to find siblings. This is the comparison set for analysis/aggregations.
 
+### Resources Storage Enhancements (from Phase 5.1)
+
+- **Progressive snapshot compression** — age-based granularity reduction (e.g., annual after 18 months, quarterly after 12 months, monthly after 1 month). Bounds storage growth while preserving reporting fidelity at each time horizon. Similar to what Blueprint implemented in `tasks/reference/blueprint/temporal-entity.js`.
+
+- **Bulk demo data load** — LLM/agent generates full resource timelines (create → updates → moves → deletes) with pre-computed `validFrom` chains, bulk-inserted into Star. Bypasses eTag checking (loading history, not competing with live writers), but still validates timeline consistency (monotonic `validFrom`, continuous `validTo` chains) and permission checks on target nodes. This likely supersedes Blueprint's caller-provided `validFrom` — that was also used for cross-DO synchronized updates, but Blueprint used `validFrom` as its eTag and had finer-grained multi-DO transactions. With our separate eTag + single-DO transaction model, caller-provided `validFrom` may never be needed outside of bulk load.
+
 ### Nebula Resources Enhancements (from backlog)
 
 **Fanout Broadcast Tiering**:
 - For large subscriber counts, tier the fanout through armies of stand-alone LumenizeWorkers. First tier instantiates in the originator, subsequent tiers fan out to Workers.
 - Algorithm sketch: <64 recipients = single shot. 64–4,096 = two tiers (√n fanout each). 4,096–262,144 = three tiers (∛n fanout each). Optimal fanout per tier needs experimentation as Cloudflare evolves.
+
+### NebulaWorker for Dynamic Workers
+
+The initial DW validator wrapper (task 5.2.3.7) uses raw Workers RPC — the `ValidatorWorker` extends `WorkerEntrypoint` and the caller uses `using worker = loader.load(...)` directly. This is fine for riding the coattails of Cloudflare's DW announcement, but for Nebula's own use we want DW communication to go through `this.lmz.call()` like everything else in the mesh.
+
+**Plan**: Create a `NebulaWorker` base class (analogous to `LumenizeWorker` for regular Workers) that:
+- Wraps DW loading/disposal behind the mesh abstraction
+- Supports `this.lmz.call('VALIDATOR', instanceName, ctn().validate(...))` syntax
+- Handles stub lifecycle (`using`) automatically to avoid wall-clock billing
+
+**Blocked on**: Discord memory-sharing answer. If DWs get their own memory budget, this becomes the recommended default for Nebula's tsc validation (memory tradeoff row in docs disappears). If shared budget, it's still useful for code organization but doesn't solve the memory constraint. Either way, the NebulaWorker wrapper is worth building — the question is how prominently to recommend it.
+
+### ~~Heterogeneous Map Validation~~ (DONE — Phase 5.2.3.6)
+
+Fixed. `validate()` now extracts Map/Set generic type parameters from the type definitions AST and passes them to `toTypeScript()`, which emits explicit type params (e.g., `new Map<string, string | number>([...])`). See `tasks/nebula-5.2.3.6-map-set-generics-support.md`.
+
+### Value Constraints via JSDoc Annotations
+
+Moved to `tasks/nebula-5.2.4.5-annotation-experiments.md`. Includes JSDoc constraints (`@min`, `@max`, `@format`, `@default`) and M:N relationship design with join tables. Query-time filtering (bounded hydration) belongs in `tasks/nebula-5.2.5-multi-resource-queries.md`.
+
+### `@lumenize/ts-runtime-validate` Package Extraction
+
+The pure `validate()` function in `apps/nebula/src/validate.ts` (Phase 5.2.2) is deliberately self-contained — no Nebula imports, no class, no state. This makes future extraction into a standalone MIT-licensed npm package trivial: copy `validate.ts`, `engine.ts`, and the minimal `lib.d.ts`, add a `package.json`, publish. The community pitch: "validate any JS value against any TypeScript type at runtime — no Zod, no JSON Schema." The tsc engine (3.4 MB bundled) is the only meaningful dependency. Nebula's Ontology class, versioning, defaults, relationships, and migrations stay BSL-1.1 in `apps/nebula/`. Teases the capability while keeping the secret sauce proprietary.
 
 ### Nebula Licensing (from backlog)
 

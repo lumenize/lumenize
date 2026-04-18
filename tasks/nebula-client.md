@@ -51,6 +51,14 @@ NebulaClient sends pings every 25 seconds. Server-side `setWebSocketAutoResponse
 - Push updates from Star → Gateway → Client via `lmz.call()` fan-out
 - See `tasks/nebula-scratchpad.md` § Star Subscription Design for detailed design
 
+### Resource State Management (from Phase 5.1)
+
+NebulaClient wrapper methods for `resources().transaction()` and `resources().read()` — unify internal resource state management (eTag caching, local value updates) and UI update events based on return results. Phase 5.1 tests use raw `callStarResourcesTransaction` / `callStarResourcesRead` fire-and-forget calls; this phase wraps them into ergonomic local methods that:
+- Cache eTags per-resource in memory
+- Update local values on success
+- Fire UI update callbacks on state changes
+- Handle conflict responses (retry with merge?)
+
 ### Proactive Token Refresh
 
 Access token TTL is ~15 minutes. Client refreshes proactively before expiry (timer or intercept on next request).

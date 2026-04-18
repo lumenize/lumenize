@@ -1,31 +1,35 @@
 /**
- * Documentation validation test for Email Sender examples
+ * Documentation validation test for Email Sender examples.
  *
  * The documented code appears below - the @check-example plugin validates it exists here.
  * Each example is in its own block so the class name AuthEmailSender can be reused
  * (matching the docs), and the check-example substring match finds each variant.
  */
 import { describe, it, expect } from 'vitest';
-import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
+import {
+  CloudflareEmailSender,
+  ResendEmailSender,
+  defaultMagicLinkHtml,
+} from '@lumenize/auth';
 
-// --- Quick Start example (getting-started.mdx "Quick Start with Resend") ---
+// --- Cloudflare Quick Start (getting-started.mdx "Email Provider") ---
 
 {
-  class AuthEmailSender extends ResendEmailSender {
-    from = 'auth@myapp.com';  // must match your verified Resend domain
+  class AuthEmailSender extends CloudflareEmailSender {
+    from = 'auth@myapp.com';  // must be on a domain you've onboarded to Cloudflare Email Sending
   }
 
-  describe('Email Sender — Quick Start', () => {
-    it('basic ResendEmailSender subclass', () => {
-      expect(AuthEmailSender.prototype).toBeInstanceOf(ResendEmailSender);
+  describe('Email Sender — Cloudflare Quick Start', () => {
+    it('basic CloudflareEmailSender subclass', () => {
+      expect(AuthEmailSender.prototype).toBeInstanceOf(CloudflareEmailSender);
     });
   });
 }
 
-// --- Customizing Templates example ---
+// --- Cloudflare Customizing Templates (getting-started.mdx) ---
 
 {
-  class AuthEmailSender extends ResendEmailSender {
+  class AuthEmailSender extends CloudflareEmailSender {
     from = 'auth@myapp.com';
     replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
     appName = 'My App';              // default: 'Lumenize'
@@ -36,17 +40,17 @@ import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
     // other 4 template methods use defaults
   }
 
-  describe('Email Sender — Custom Templates', () => {
+  describe('Email Sender — Cloudflare Custom Templates', () => {
     it('custom template sender has overridden properties', () => {
-      expect(AuthEmailSender.prototype).toBeInstanceOf(ResendEmailSender);
+      expect(AuthEmailSender.prototype).toBeInstanceOf(CloudflareEmailSender);
     });
   });
 }
 
-// --- Composing with default template example ---
+// --- Cloudflare Composing with default template (getting-started.mdx) ---
 
 {
-  class AuthEmailSender extends ResendEmailSender {
+  class AuthEmailSender extends CloudflareEmailSender {
     from = 'auth@myapp.com';
 
     magicLinkHtml(message: any) {
@@ -54,8 +58,22 @@ import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
     }
   }
 
-  describe('Email Sender — Composed Template', () => {
+  describe('Email Sender — Cloudflare Composed Template', () => {
     it('composed template sender works', () => {
+      expect(AuthEmailSender.prototype).toBeInstanceOf(CloudflareEmailSender);
+    });
+  });
+}
+
+// --- Resend alternative (using-resend-instead.mdx) ---
+
+{
+  class AuthEmailSender extends ResendEmailSender {
+    from = 'auth@myapp.com';  // must match your verified Resend domain
+  }
+
+  describe('Email Sender — Resend alternative', () => {
+    it('basic ResendEmailSender subclass', () => {
       expect(AuthEmailSender.prototype).toBeInstanceOf(ResendEmailSender);
     });
   });

@@ -35,9 +35,11 @@ describe('guard enforcement', () => {
       });
 
       // Non-admin calls getStarConfig → succeeds (no guard beyond @mesh())
+      // Config bag may contain defaults bootstrapped by Resources (e.g., debounceMs)
       userClient.callStarGetConfig(star);
       await vi.waitFor(() => {
-        expect(userClient.lastResult).toEqual({});
+        expect(userClient.lastResult).toBeDefined();
+        expect(userClient.lastError).toBeUndefined();
       });
 
       // Non-admin calls whoAmI → succeeds
@@ -64,10 +66,10 @@ describe('guard enforcement', () => {
         expect(adminClient.callCompleted).toBe(true);
       });
 
-      // Read it back
+      // Read it back — config bag also contains defaults bootstrapped by Resources
       adminClient.callStarGetConfig(star);
       await vi.waitFor(() => {
-        expect(adminClient.lastResult).toEqual({ theme: 'dark' });
+        expect(adminClient.lastResult).toMatchObject({ theme: 'dark' });
       });
 
       adminClient[Symbol.dispose]();

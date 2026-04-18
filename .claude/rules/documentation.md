@@ -14,6 +14,22 @@ Three annotation levels for code blocks in `.mdx` files:
 - During Phase 1 narrative drafting, `@skip-check` is temporary and must be replaced in Phase 2
 - Run `node tooling/check-examples/src/index.js --report` to audit remaining `@skip-check` annotations
 
+## Check-Example Matching Behavior
+
+The checker normalizes both doc code and test/source code before matching. See `tooling/check-examples/README.md` for full details.
+
+- **Comments stripped**: All comments are removed before matching, so `// ...` at the start/end of a code block is unnecessary — only use `// ...` between lines to skip over intervening code
+- **Imports stripped**: Import statements are removed, so doc blocks don't need to match import lines in the source
+- **Type parameters stripped**: Generic type params are removed during normalization
+- **Whitespace normalized**: Minor formatting differences are tolerated
+- **Substring matching**: Doc code must appear as a substring of the source/test file after normalization
+- **Ellipsis wildcards**: `// ...` or `/* ... */` between lines become regex wildcards (`.*?`) to skip over code you don't want to show
+
+**Common mistakes to avoid:**
+- Don't add `// ...` at the very start or end of a code block — it's unnecessary since comments are stripped
+- Don't wrap code in extra `// ...` lines just to "anchor" the match — substring matching handles this
+- Do use `// ...` between meaningful lines to skip boilerplate (e.g., showing first and last properties of an interface)
+
 ## All Documentation is Hand-Written
 
 - Write `.mdx` files by hand in `/website/docs/[package-name]/`

@@ -128,7 +128,7 @@ All hooks are **synchronous** — this is intentional, so the base class has car
 
 ### Why the Gateway needs hooks
 
-Inside the mesh, DOs trust each other — calls arrive over Workers RPC with a verified `CallContext` and every node can run [`onBeforeCall`](./mesh-api#onbeforecall) to enforce its own rules. But the client runs in the browser, which is untrusted territory. A malicious user can modify client-side code, forge call payloads, or replay stolen tokens.
+Inside the mesh, DOs trust each other — calls arrive over Workers RPC with a verified `CallContext` and every node can run [`onBeforeCall`](./mesh-api#hook-onbeforecall) to enforce its own rules. But the client runs in the browser, which is untrusted territory. A malicious user can modify client-side code, forge call payloads, or replay stolen tokens.
 
 The Gateway sits at the boundary between untrusted and trusted. It is the **only** enforcement point, so it guards traffic in both directions:
 

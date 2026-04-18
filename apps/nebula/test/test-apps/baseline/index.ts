@@ -29,25 +29,13 @@ import {
   NebulaClient,
   requireAdmin,
 } from '@lumenize/nebula';
-import type { PermissionTier } from '@lumenize/nebula';
+import type { PermissionTier, OperationDescriptor, TransactionResult, Snapshot, OntologyVersionConfig } from '@lumenize/nebula';
 
 // ============================================
 // Test subclass: StarTest — adds callClient for mesh→client testing
 // ============================================
 
 export class StarTest extends Star {
-  @mesh(requireAdmin)
-  setStarConfig(key: string, value: string) {
-    const config = this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
-    config[key] = value;
-    this.ctx.storage.kv.put('config', config);
-  }
-
-  @mesh()
-  getStarConfig(): Record<string, string> {
-    return this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
-  }
-
   @mesh()
   whoAmI(): string {
     return `You are ${this.lmz.callContext.originAuth!.sub}`;
@@ -131,7 +119,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callStarSetConfig(starInstanceName: string, key: string, value: string): void {
+  callStarSetConfig(starInstanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Star>().setStarConfig(key, value);
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
@@ -149,7 +137,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('UNIVERSE', instanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callUniverseSetConfig(instanceName: string, key: string, value: string): void {
+  callUniverseSetConfig(instanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Universe>().setUniverseConfig(key, value);
     this.lmz.call('UNIVERSE', instanceName, remote, this.ctn().handleResult(remote));
@@ -161,7 +149,7 @@ export class NebulaClientTest extends NebulaClient {
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
   }
 
-  callGalaxySetConfig(instanceName: string, key: string, value: string): void {
+  callGalaxySetConfig(instanceName: string, key: string, value: unknown): void {
     this.resetResults();
     const remote = this.ctn<Galaxy>().setGalaxyConfig(key, value);
     this.lmz.call('GALAXY', instanceName, remote, this.ctn().handleResult(remote));
@@ -261,5 +249,59 @@ export class NebulaClientTest extends NebulaClient {
     this.resetResults();
     const remote = this.ctn<Star>().dagTree().getNodeDescendants(nodeId);
     this.lmz.call('STAR', starName, remote, this.ctn().handleResult(remote));
+  }
+
+  // --- Resources test initiators (fire-and-forget — Star delivers result via callback) ---
+
+  callStarTransaction(starName: string, ontologyVersion: string, ops: Record<string, OperationDescriptor>): void {
+    this.resetResults();
+    this.lmz.call('STAR', starName,
+      this.ctn<Star>().transaction(ontologyVersion, ops));
+  }
+
+  callStarRead(starName: string, ontologyVersion: string, resourceId: string): void {
+    this.resetResults();
+    this.lmz.call('STAR', starName,
+      this.ctn<Star>().read(ontologyVersion, resourceId));
+  }
+
+  // --- Resource result handlers (override base class) ---
+
+  @mesh()
+  override handleTransactionResult(result: TransactionResult | Error): void {
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastResult = undefined;
+    } else {
+      this.lastResult = result;
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
+  @mesh()
+  override handleReadResult(result: Snapshot | null | Error): void {
+    if (result instanceof Error) {
+      this.lastError = result.message;
+      this.lastResult = undefined;
+    } else {
+      this.lastResult = result;
+      this.lastError = undefined;
+    }
+    this.callCompleted = true;
+  }
+
+  // --- Galaxy test initiators ---
+
+  callGalaxyAppendOntologyVersion(galaxyName: string, versionConfig: OntologyVersionConfig): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().appendOntologyVersion(versionConfig);
+    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
+  }
+
+  callGalaxyGetOntology(galaxyName: string): void {
+    this.resetResults();
+    const remote = this.ctn<Galaxy>().getOntology();
+    this.lmz.call('GALAXY', galaxyName, remote, this.ctn().handleResult(remote));
   }
 }

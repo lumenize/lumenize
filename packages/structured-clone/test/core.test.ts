@@ -28,6 +28,18 @@ describe('Core Types', () => {
     expect(result).toEqual(obj);
   });
 
+  it('only serializes own properties, not inherited ones', async () => {
+    const proto = { inherited: 'should not appear' };
+    const obj = Object.create(proto);
+    obj.own = 'should appear';
+
+    const result = parse(stringify(obj));
+
+    expect(result.own).toBe('should appear');
+    expect(result).not.toHaveProperty('inherited');
+    expect(Object.keys(result)).toEqual(['own']);
+  });
+
   it('handles nested structures', async () => {
     const nested = {
       array: [1, 2, { nested: true }],

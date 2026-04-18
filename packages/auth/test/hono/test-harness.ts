@@ -1,16 +1,16 @@
 import { Hono } from 'hono';
 import { DurableObject } from 'cloudflare:workers';
 import { LumenizeAuth } from '../../src/lumenize-auth.js';
-import { ResendEmailSender } from '../../src/resend-email-sender.js';
+import { CloudflareEmailSender } from '../../src/cloudflare-email-sender.js';
 import { createAuthRoutes, honoAuthMiddleware } from '../../src/index.js';
 
 // Re-export the Auth DO for wrangler
 export { LumenizeAuth };
 
-// AuthEmailSender for the e2e test — sends real emails via Resend
-// from the verified test.lumenize.com domain
-export class AuthEmailSender extends ResendEmailSender {
-  from = 'auth@test.lumenize.com';
+// AuthEmailSender for the e2e test — sends real emails via Cloudflare Email Sending
+// from the verified lumenize.io domain.
+export class AuthEmailSender extends CloudflareEmailSender {
+  from = 'test@lumenize.io';
   appName = 'Lumenize Test';
 }
 

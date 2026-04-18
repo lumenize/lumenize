@@ -4,13 +4,13 @@ import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink } from './email-test-helpers';
 
 // Real email delivery e2e test.
-// Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars,
-// deployed email-test Worker, Cloudflare Email Routing for lumenize.io.
+// Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
+// Email Routing + Email Sending onboarded for lumenize.io.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → test-harness Worker →
 // createAuthRoutes → routeDORequest → LumenizeAuth DO (in-process).
 // This exercises the full production request path including cookie handling.
-describe('Magic link e2e (real email delivery)', () => {
+describe('Magic link e2e (real email delivery via Cloudflare)', () => {
   let cleanup: (() => void) | undefined;
 
   afterEach(() => {
@@ -18,7 +18,7 @@ describe('Magic link e2e (real email delivery)', () => {
     cleanup = undefined;
   });
 
-  it('sends magic link via Resend, receives via EmailTestDO, completes auth flow', async () => {
+  it('sends magic link via Cloudflare, receives via EmailTestDO, completes auth flow', async () => {
     const testEmail = 'test@lumenize.io';
 
     // Browser with cookie jar — uses SELF.fetch (the test-harness Worker)
@@ -28,7 +28,7 @@ describe('Magic link e2e (real email delivery)', () => {
     const waiter = waitForEmail({ testToken: env.TEST_TOKEN });
     cleanup = waiter.cleanup;
 
-    // 2. Request magic link (NOT test mode — real email sent via Resend)
+    // 2. Request magic link (NOT test mode — real email sent via Cloudflare Email Sending)
     const magicLinkResponse = await browser.fetch('http://localhost/auth/email-magic-link', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -45,7 +45,7 @@ describe('Magic link e2e (real email delivery)', () => {
 
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
-    expect(email.from?.address).toBe('auth@test.lumenize.com');
+    expect(email.from?.address).toBe('test@lumenize.io');
 
     // 4. Extract magic link URL from the email HTML
     const magicLinkUrl = extractMagicLink(email);

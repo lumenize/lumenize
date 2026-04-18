@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/mesh",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Lumenize Mesh - communication framework for Cloudflare Durable Objects",
   "type": "module",
   "main": "src/index.ts",
@@ -30,22 +30,22 @@
     "access": "public"
   },
   "dependencies": {
-    "@lumenize/auth": "^0.22.0",
-    "@lumenize/debug": "^0.22.0",
-    "@lumenize/routing": "^0.22.0",
-    "@lumenize/structured-clone": "^0.22.0",
-    "cron-schedule": "^5.0.1",
+    "@lumenize/auth": "^0.23.0",
+    "@lumenize/debug": "^0.23.0",
+    "@lumenize/routing": "^0.23.0",
+    "@lumenize/structured-clone": "^0.23.0",
+    "cron-schedule": "^6.0.0",
     "ulid-workers": "^2.1.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@cloudflare/vitest-pool-workers": "0.12.21",
     "@lumenize/debug": "*",
     "@vitest/coverage-istanbul": "3.2.4",
     "vitest": "3.2.4",
-    "wrangler": "^4.66.0"
+    "wrangler": "^4.72.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@cloudflare/vitest-pool-workers": "0.12.21",
     "vitest": "3.2.4"
   },
   "gitHead": "59bf07ef73368b771a8fe9446bd8aa91ba96fd5c"

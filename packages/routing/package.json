@@ -1,6 +1,6 @@
 {
   "name": "@lumenize/routing",
-  "version": "0.22.0",
+  "version": "0.23.0",
   "description": "Request routing for Cloudflare Durable Objects projects",
   "type": "module",
   "main": "src/index.ts",
@@ -27,19 +27,19 @@
     "types": "wrangler types --config test/integration/wrangler.jsonc test/integration/worker-configuration.d.ts"
   },
   "dependencies": {
-    "@lumenize/debug": "^0.22.0"
+    "@lumenize/debug": "^0.23.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.3",
+    "@cloudflare/vitest-pool-workers": "0.12.21",
     "@cloudflare/workers-types": "^4.20250110.0",
-    "@vitest/coverage-istanbul": "^3.2.4",
+    "@vitest/coverage-istanbul": "3.2.4",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.66.0"
+    "vitest": "3.2.4",
+    "wrangler": "^4.72.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.3",
-    "vitest": "^3.2.4"
+    "@cloudflare/vitest-pool-workers": "0.12.21",
+    "vitest": "3.2.4"
   },
   "keywords": [
     "routing",

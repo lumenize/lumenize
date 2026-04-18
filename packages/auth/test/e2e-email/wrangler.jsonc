@@ -1,7 +1,7 @@
 {
   "name": "auth-e2e-email-test",
   "main": "./test-harness.ts",
-  "compatibility_date": "2025-09-12",
+  "compatibility_date": "2026-03-12",
   "durable_objects": {
     "bindings": [
       {
@@ -17,6 +17,15 @@
       "binding": "AUTH_EMAIL_SENDER",
       "service": "auth-e2e-email-test",
       "entrypoint": "AuthEmailSender"
+    }
+  ],
+  // Cloudflare Email Sending binding used by CloudflareEmailSender (env.EMAIL.send).
+  // `remote: true` proxies to the real Cloudflare Email Sending service during
+  // local dev / vitest so tests exercise the full end-to-end path.
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "remote": true
     }
   ],
   "migrations": [

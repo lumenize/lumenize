@@ -210,6 +210,8 @@ const sidebars: SidebarsConfig = {
         'auth/subject-management',
         'auth/delegation',
         'auth/testing',
+        'auth/customizing-email',
+        'auth/using-resend-instead',
       ],
     },
 
@@ -324,6 +326,17 @@ const sidebars: SidebarsConfig = {
         ...(typedocFetchSidebar && typedocFetchSidebar.length > 0
           ? [wrapInApiReference(typedocFetchSidebar, 'API Reference')]
           : []),
+      ],
+    },
+
+    // TypeScript Runtime Validator
+    {
+      type: 'category',
+      label: 'TS Runtime Validator',
+      items: [
+        'ts-runtime-validator/index',
+        'ts-runtime-validator/type-support',
+        'ts-runtime-validator/api-reference',
       ],
     },
 

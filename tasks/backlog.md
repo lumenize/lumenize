@@ -6,6 +6,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
 
+- [ ] Add DNS redirect from `lumenize.com` → `lumenize.io`. Email sender addresses use `lumenize.io` (domain onboarded for Cloudflare Email Routing + Sending), but users who see an email and type `lumenize.com` into their browser should still land on the real site. Configure a 301 redirect at the `lumenize.com` zone (Cloudflare Rules → Bulk Redirects or a simple Page Rule). Discovered during tasks/change-auth-packages-to-cloudflare-sending.md planning.
+
+- [ ] Audit whether `@lumenize/mesh` docs should add a "Workers Paid plan" admonition similar to the one `@lumenize/auth` is adding for Cloudflare Email Sending. Mesh uses Durable Objects — check current Cloudflare pricing rules for DO on the free tier (DO recently became available on Workers Free with limits, but verify). If Mesh does need the admonition, mirror the wording used in `website/docs/auth/getting-started.mdx`. Also check `@lumenize/nebula-auth` and any other packages that touch platform features with plan gates. Discovered during tasks/change-auth-packages-to-cloudflare-sending.md planning.
+
 
 ## Lumenize Mesh
 
@@ -100,6 +104,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 
 ## Testing & Quality
+
+- [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
 
 - [ ] Add vitest-workers-pool tests for `@lumenize/debug`
   - Current tests run in Node.js only (plain vitest)
@@ -208,6 +214,15 @@ Small tasks and ideas for when I have time (evening coding, etc.)
         > If you are not a premium Medium member, read the full tutorial FREE here and consider joining medium to read more such guides.
 
 - [ ] Get a Substack account and cross post there
+
+## Nebula Auth
+
+- [ ] Integrate Cloudflare Account Abuse Protection for disposable email and email risk detection
+  - **Ref**: https://blog.cloudflare.com/account-abuse-protection/
+  - **What**: Cloudflare's fraud detection computes `cf.fraud_detection.disposable_domain` (boolean) and `cf.fraud.email_risk` (low/medium/high/unknown) on eligible requests. These can be injected as request headers via Managed Transform Rules, then read in the Worker — no client-side widget needed, no siteverify API call. Simpler than Turnstile integration.
+  - **Where in nebula-auth**: `src/router.ts`, alongside the existing Turnstile check on public unauthenticated endpoints (`claim-universe`, `claim-star`, `email-magic-link`). Read injected headers, reject disposable emails, escalate high-risk emails to require admin approval.
+  - **Graceful degradation**: If the headers aren't present (vibe-coder hasn't configured Transform Rules), skip the check — same pattern as Turnstile being optional when `TURNSTILE_SECRET_KEY` isn't set.
+  - **Caveat**: Currently Early Access for Bot Management Enterprise customers only. As of March 2026, this appears to require paid WAF/Bot Management — there is no free-tier or standalone API equivalent. If Cloudflare opens this up more broadly (GA expected later in 2026), it becomes a natural addition. Until then, a lightweight disposable-domain blocklist (MIT-licensed lists exist) could serve as a free stopgap.
 
 ## Blocked / Maybe later
 

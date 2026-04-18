@@ -1,0 +1,67 @@
+---
+title: Customizing Email
+description: Override HTML templates, subject lines, and reply-to for auth emails — or plug in a provider other than Cloudflare Email Sending or Resend
+---
+
+The [getting-started guide](/docs/auth/getting-started#email-provider) gets you a working `AuthEmailSender` with default templates and subjects. This page covers the customization surface: overriding templates, composing with defaults, and implementing a sender for any provider.
+
+## Customizing Templates
+
+Override one or more template methods to customize the HTML. Default templates are used for any methods you don't override:
+
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
+import { CloudflareEmailSender } from '@lumenize/auth';
+
+export class AuthEmailSender extends CloudflareEmailSender {
+  from = 'auth@myapp.com';
+  replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
+  appName = 'My App';              // default: 'Lumenize'
+
+  magicLinkHtml(message: any) {
+    return `<h1>Welcome to My App</h1><a href="${message.magicLinkUrl}">Sign in</a>`;
+  }
+  // other 4 template methods use defaults
+}
+```
+
+You can also override subject methods (e.g., `magicLinkSubject(message)`) the same way. See [Configuration: Overridable Methods](/docs/auth/configuration#overridable-methods) for the full list.
+
+To compose with the default template (wrap it rather than replace it), import the default function:
+
+```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
+import { CloudflareEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
+
+export class AuthEmailSender extends CloudflareEmailSender {
+  from = 'auth@myapp.com';
+
+  magicLinkHtml(message: any) {
+    return `<div class="my-wrapper">${defaultMagicLinkHtml(message, this.appName)}</div>`;
+  }
+}
+```
+
+## Bring Your Own Provider {#bring-your-own-provider}
+
+If neither Cloudflare Email Sending nor Resend fits — say you're on Postmark, SendGrid, or SES — extend `AuthEmailSenderBase` directly and implement one method:
+
+```typescript @skip-check-approved('conceptual')
+import { AuthEmailSenderBase, type ResolvedEmail } from '@lumenize/auth';
+
+export class AuthEmailSender extends AuthEmailSenderBase {
+  from = 'auth@myapp.com';
+
+  async sendEmail(email: ResolvedEmail) {
+    // email contains: to, subject, html, from, replyTo, appName
+    // Call Postmark, SES, SendGrid, or any provider
+    await fetch('https://api.your-provider.com/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.env.EMAIL_API_KEY}` },
+      body: JSON.stringify({ to: email.to, from: email.from, subject: email.subject, html: email.html }),
+    });
+  }
+}
+```
+
+The `ResolvedEmail` object contains everything needed to send one email — the base class has already resolved the template and subject. Your `sendEmail()` just needs to deliver it.
+
+Template and subject customization work identically regardless of the transport — you just extend `AuthEmailSenderBase` instead of `CloudflareEmailSender` or `ResendEmailSender`.

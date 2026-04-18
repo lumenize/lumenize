@@ -1,9 +1,9 @@
 # Nebula Resource Capability Tickets
 
-**Phase**: 5.5
+**Phase**: 5.4
 **Status**: Pending
 **App**: `apps/nebula/`
-**Depends on**: Phase 5 (Resources — Basic Functionality), Phase 3 (DAG Tree Access Control)
+**Depends on**: Phase 5.1 (Storage Engine), Phase 3 (DAG Tree Access Control)
 
 **Master task file**: `tasks/nebula.md`
 
@@ -82,6 +82,16 @@ ResourceHistory's `onBeforeCall` override (or a guard) verifies the ticket on ev
 Phase 5.5 assumes nebula-auth and nebula are in the **same Workers project** (same `env`). In this setup, all DOs have access to the private keys — the trust boundary is code convention, not runtime isolation.
 
 If nebula-auth is later split into a **separate Workers project** (cross-project service bindings), the architecture strengthens: nebula project would only have public keys and could not mint tickets. Star would call nebula-auth via RPC to mint tickets (one-time cost per TTL, not per access). ResourceHistory would verify with the public key instead of HMAC. This is a clean migration path but not required for Phase 5.5.
+
+---
+
+## Prerequisites from Phase 5.1
+
+These items were deferred from Phase 5.1 and are prerequisites or companions to capability tickets:
+
+- **`readHistory(resourceId)`** — Returns the full temporal timeline for a resource (all snapshots, not just current). Deferred from Phase 5.1 because writing it now would require rewriting later when ResourceHistory DO is implemented. The capability ticket flow (client talks directly to ResourceHistory) determines how history reads are routed.
+
+- **Moving old snapshots to ResourceHistory** — Future out-of-band operation that migrates historical (non-current) snapshots from Star's SQLite to per-resource ResourceHistory DOs. Reduces Star storage while preserving full audit trails. The migration strategy depends on whether clients access ResourceHistory directly (via capability tickets) or always through Star.
 
 ---
 

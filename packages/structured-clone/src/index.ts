@@ -66,7 +66,8 @@ export { RequestSync } from './request-sync';
 export { ResponseSync } from './response-sync';
 
 // Type exports - only what's needed by other packages or advanced users
-export type { 
+export type {
+  LmzIntermediate,       // For intermediate format consumers (used by ts-runtime-validator)
   PreprocessTransform,   // For custom transform hooks (used by RPC)
   PathElement,           // For operation chain conversion (used by RPC)
   PreprocessOptions      // For users who need transform hooks

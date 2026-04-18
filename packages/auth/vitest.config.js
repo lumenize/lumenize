@@ -34,7 +34,11 @@ export default defineWorkersConfig({
         test: {
           name: 'main',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/e2e-email/**/*.test.ts', 'test/hono/**/*.test.ts'],
+          exclude: [
+            'test/e2e-email/**/*.test.ts',
+            'test/e2e-email-resend/**/*.test.ts',
+            'test/hono/**/*.test.ts',
+          ],
           poolOptions: {
             workers: {
               wrangler: { configPath: './wrangler.jsonc' },
@@ -50,9 +54,10 @@ export default defineWorkersConfig({
         },
       },
       {
-        // E2E email test (real Resend + real Email Routing — no test mode)
-        // groupOrder 1: runs after main tests, serialized with hono to avoid
-        // race on shared EmailTestDO (both listen for emails to test@lumenize.io)
+        // E2E email test via Cloudflare Email Sending — the default path.
+        // Real sends + real Email Routing — no test mode.
+        // groupOrder 1: runs after main tests, serialized with resend/hono to
+        // avoid race on shared EmailTestDO (all listen for test@lumenize.io).
         extends: true,
         test: {
           name: 'e2e-email',
@@ -72,13 +77,35 @@ export default defineWorkersConfig({
         },
       },
       {
-        // Hono integration test (real Resend + real Email Routing — no test mode)
-        // groupOrder 2: runs after e2e-email to avoid shared EmailTestDO race
+        // E2E email test via ResendEmailSender — smoke test keeping the
+        // Resend path exercised alongside the default Cloudflare path.
+        // groupOrder 2: runs after e2e-email to avoid shared EmailTestDO race.
+        extends: true,
+        test: {
+          name: 'e2e-email-resend',
+          testTimeout: 30000,
+          sequence: { groupOrder: 2 },
+          include: ['test/e2e-email-resend/**/*.test.ts'],
+          poolOptions: {
+            workers: {
+              wrangler: { configPath: './test/e2e-email-resend/wrangler.jsonc' },
+              miniflare: {
+                bindings: {
+                  DEBUG: 'auth',
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        // Hono integration test (real Cloudflare Email Sending — no test mode)
+        // groupOrder 3: runs last to avoid shared EmailTestDO race.
         extends: true,
         test: {
           name: 'hono',
-          testTimeout: 30000, // 30s — real email delivery can take 10-15s
-          sequence: { groupOrder: 2 },
+          testTimeout: 30000,
+          sequence: { groupOrder: 3 },
           include: ['test/hono/**/*.test.ts'],
           poolOptions: {
             workers: {

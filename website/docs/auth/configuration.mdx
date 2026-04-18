@@ -43,9 +43,9 @@ The Auth DO and Worker hooks read these from environment variables. Sensible def
 | `JWT_PUBLIC_KEY_GREEN` | Secret | No² | Auth DO, hooks | Ed25519 public key (GREEN slot) |
 | `PRIMARY_JWT_KEY` | Variable | Yes | Auth DO | Active signing slot: `"BLUE"` or `"GREEN"` |
 | `TURNSTILE_SECRET_KEY` | Secret | Recommended | `createAuthRoutes` | [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) server-side secret. Without it, the magic-link endpoint has no bot protection. See [Get Started with Turnstile](https://developers.cloudflare.com/turnstile/get-started/) |
-| `RESEND_API_KEY` | Secret | Yes³ | `ResendEmailSender` | [Resend](https://resend.com) API key for email delivery. See [Email Provider](/docs/auth/getting-started#email-provider) |
+| `RESEND_API_KEY` | Secret | No³ | `ResendEmailSender` | [Resend](https://resend.com) API key. Only needed if you chose Resend over the default `CloudflareEmailSender`. See [Using Resend instead](/docs/auth/using-resend-instead) |
 
-¹ At least one key pair (BLUE or GREEN) is required. ² Second slot needed only during [key rotation](/docs/auth/getting-started#key-rotation). ³ Only when using `ResendEmailSender` (the default). Bring-your-own-provider implementations use their own credentials.
+¹ At least one key pair (BLUE or GREEN) is required. ² Second slot needed only during [key rotation](/docs/auth/getting-started#key-rotation). ³ The default `CloudflareEmailSender` uses a Worker binding and needs no secret.
 
 **Naming convention**: `LUMENIZE_AUTH_*` for Lumenize-specific config, `JWT_*` for industry-standard key material (shared across packages), vendor prefix (e.g., `TURNSTILE_*`) for third-party services.
 
@@ -57,6 +57,7 @@ These are Lumenize conventions — define them in your `wrangler.jsonc` with the
 |---------|------|----------|---------|-------------|
 | `LUMENIZE_AUTH` | Durable Object namespace | Yes | `createAuthRoutes` | Namespace binding for the [LumenizeAuth](/docs/auth/) DO |
 | `AUTH_EMAIL_SENDER` | [Service binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/) | Recommended | Auth DO | Self-referencing service binding pointing to your `AuthEmailSender` entrypoint. Without it, emails are not delivered (debug-logged instead). See [Email Provider](/docs/auth/getting-started#email-provider) |
+| `EMAIL` | [Email Sending binding](https://developers.cloudflare.com/email-service/api/send-emails/workers-api/) (`send_email`) | With `CloudflareEmailSender` | `CloudflareEmailSender` | Cloudflare Email Sending binding used to deliver mail. Not needed for `ResendEmailSender` or bring-your-own-provider. |
 | `LUMENIZE_AUTH_RATE_LIMITER` | [Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) | Recommended | `createRouteDORequestAuthHooks` | Per-subject rate limiting keyed on `sub` from the decoded JWT. Without it, authenticated routes have no per-user rate limiting |
 
 ## Email Provider {#email-provider}
@@ -66,16 +67,19 @@ LumenizeAuth requires outgoing email for magic links, admin notifications, appro
 ### Class Hierarchy
 
 ```
-WorkerEntrypoint                   (Cloudflare)
-  └─ AuthEmailSenderBase           (@lumenize/auth — templates, subjects, from/replyTo/appName)
-       └─ ResendEmailSender        (@lumenize/auth — sendEmail() via Resend API)
-            └─ AuthEmailSender     (you — sets from, optional overrides)
+WorkerEntrypoint                     (Cloudflare)
+  └─ AuthEmailSenderBase             (@lumenize/auth — templates, subjects, from/replyTo/appName)
+       ├─ CloudflareEmailSender      (@lumenize/auth — sendEmail() via env.EMAIL.send — DEFAULT)
+       │    └─ AuthEmailSender       (you — sets from, optional overrides)
+       └─ ResendEmailSender          (@lumenize/auth — sendEmail() via Resend API — alternative)
+            └─ AuthEmailSender       (you — only if using Resend)
 ```
 
 | Class | Package | What you do |
 |-------|---------|-------------|
 | `AuthEmailSenderBase` | `@lumenize/auth` | Abstract base. Provides `send(message)` dispatch, 5 default HTML templates, 5 default subject methods, `from` (abstract), `replyTo`, `appName`. You extend this for bring-your-own-provider. |
-| `ResendEmailSender` | `@lumenize/auth` | Extends `AuthEmailSenderBase`. Implements `sendEmail()` via `fetch` to `https://api.resend.com/emails` using `RESEND_API_KEY`. You extend this for the default Resend path. |
+| `CloudflareEmailSender` | `@lumenize/auth` | Extends `AuthEmailSenderBase`. Implements `sendEmail()` via `env.EMAIL.send(...)` (the `send_email` Worker binding). The default — no API key needed. Requires the Workers Paid plan. |
+| `ResendEmailSender` | `@lumenize/auth` | Extends `AuthEmailSenderBase`. Implements `sendEmail()` via `fetch` to `https://api.resend.com/emails` using `RESEND_API_KEY`. Alternative — see [Using Resend instead](/docs/auth/using-resend-instead). |
 | `AuthEmailSender` | Your Worker | Your class. Set `from`, optionally override `replyTo`, `appName`, template methods, or subject methods. Export it from your Worker entry point. |
 
 ### Overridable Methods
@@ -106,9 +110,9 @@ All methods receive the corresponding `EmailMessage` variant as their argument.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `from` | Yes | — | Bare sender email address (e.g., `'auth@myapp.com'`). `ResendEmailSender` constructs the display name as `"${appName} <${from}>"` for the Resend API. |
+| `from` | Yes | — | Bare sender email address (e.g., `'auth@myapp.com'`). Both `CloudflareEmailSender` and `ResendEmailSender` use `appName` as the `From:` display name (`"${appName} <${from}>"`). |
 | `replyTo` | No | `no-reply@{domain}` | Reply-to address. Domain is extracted from `from`. |
-| `appName` | No | `'Lumenize'` | Used in default templates and the Resend `From:` display name. |
+| `appName` | No | `'Lumenize'` | Used in default templates and the `From:` display name. |
 
 ### ResolvedEmail
 

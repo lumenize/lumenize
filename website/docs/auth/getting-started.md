@@ -105,41 +105,32 @@ If `AUTH_EMAIL_SENDER` is not configured, emails are not delivered — the Auth 
 Without `AUTH_EMAIL_SENDER`, magic links and invites are silently dropped. Users will receive a "check your email" response but no email arrives. Always configure an email provider before deploying to production.
 :::
 
-### Quick Start with Resend
+:::info Requires the Workers Paid plan
+[Cloudflare Email Sending](https://developers.cloudflare.com/email-service/) is available on the Workers Paid plan (entry tier $5/month). If you'd rather stay on the free tier, see [Using Resend instead](/docs/auth/using-resend-instead) — Resend has a 100-email-per-day free tier.
+:::
 
-[Resend](https://resend.com) is the recommended default — it uses standard `fetch` (no SDK), works natively on Cloudflare Workers, and has a free tier (100 emails/day).
+This package works with Cloudflare Email Sending (in open beta) using a binding rather than the REST API — no API key to manage. You add one entry to `wrangler.jsonc`, and `CloudflareEmailSender` handles the rest behind the same template/subject interface as every other sender.
 
-**1. Create a Resend account and verify your domain**
+**1. Onboard your domain to Cloudflare Email Sending**
 
-Sign up at [resend.com](https://resend.com), then [verify your sending domain](https://resend.com/docs/dashboard/domains/introduction). You'll add DNS records (SPF, DKIM, DMARC) to your domain — Resend's dashboard walks you through it.
+In the Cloudflare dashboard, go to **Email Services → Email Sending → Onboard Domain** and pick a domain you already host on Cloudflare DNS. Cloudflare adds the required SPF, DKIM, DMARC, and bounce-handling records automatically. See the [Cloudflare Email Sending docs](https://developers.cloudflare.com/email-service/get-started/send-emails/) for details.
 
-**2. Generate an API key**
-
-Create an API key in the [Resend dashboard](https://resend.com/api-keys) and add it to your environment:
-
-```bash
-# Local development (.dev.vars)
-RESEND_API_KEY=re_...
-
-# Production
-wrangler secret put RESEND_API_KEY
-```
-
-**3. Create your AuthEmailSender class**
+**2. Create your AuthEmailSender class**
 
 ```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
-import { ResendEmailSender } from '@lumenize/auth';
+import { CloudflareEmailSender } from '@lumenize/auth';
 
-export class AuthEmailSender extends ResendEmailSender {
-  from = 'auth@myapp.com';  // must match your verified Resend domain
+export class AuthEmailSender extends CloudflareEmailSender {
+  from = 'auth@myapp.com';  // must be on a domain you've onboarded to Cloudflare Email Sending
+  // Override templates, subjects, replyTo, or appName here — see Customizing Email
 }
 ```
 
-That's it. `ResendEmailSender` handles the Resend API call, default HTML templates, and default subject lines. Export this class from your Worker entry point alongside your other classes.
+That's it. `CloudflareEmailSender` handles delivery, default HTML templates, and default subject lines. Export this class from your Worker entry point alongside your other classes.
 
-**4. Add the service binding to wrangler.jsonc**
+**3. Add bindings to wrangler.jsonc**
 
-The binding is self-referencing — it points back to your own Worker:
+Two bindings: the self-referencing service binding that lets the Auth DO call your `AuthEmailSender`, and the `send_email` binding that `CloudflareEmailSender` uses to send.
 
 ```jsonc
 {
@@ -149,68 +140,21 @@ The binding is self-referencing — it points back to your own Worker:
       "service": "your-worker-name",       // must match your wrangler.jsonc "name"
       "entrypoint": "AuthEmailSender"
     }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
   ]
 }
 ```
 
-### Customizing Templates
+No secrets to manage — the binding authenticates automatically.
 
-Override one or more template methods to customize the HTML. Default templates are used for any methods you don't override:
+### Going further
 
-```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
-import { ResendEmailSender } from '@lumenize/auth';
-
-export class AuthEmailSender extends ResendEmailSender {
-  from = 'auth@myapp.com';
-  replyTo = 'support@myapp.com';   // default: no-reply@myapp.com
-  appName = 'My App';              // default: 'Lumenize'
-
-  magicLinkHtml(message: any) {
-    return `<h1>Welcome to My App</h1><a href="${message.magicLinkUrl}">Sign in</a>`;
-  }
-  // other 4 template methods use defaults
-}
-```
-
-You can also override subject methods (e.g., `magicLinkSubject(message)`) the same way. See [Configuration: Overridable Methods](/docs/auth/configuration#overridable-methods) for the full list.
-
-To compose with the default template (wrap it rather than replace it), import the default function:
-
-```typescript @check-example('packages/auth/test/for-docs/email-sender.test.ts')
-import { ResendEmailSender, defaultMagicLinkHtml } from '@lumenize/auth';
-
-export class AuthEmailSender extends ResendEmailSender {
-  from = 'auth@myapp.com';
-
-  magicLinkHtml(message: any) {
-    return `<div class="my-wrapper">${defaultMagicLinkHtml(message, this.appName)}</div>`;
-  }
-}
-```
-
-### Bring Your Own Provider {#bring-your-own-provider}
-
-Extend `AuthEmailSenderBase` instead of `ResendEmailSender` and implement `sendEmail()` with your provider's API:
-
-```typescript @skip-check-approved('conceptual')
-import { AuthEmailSenderBase, type ResolvedEmail } from '@lumenize/auth';
-
-export class AuthEmailSender extends AuthEmailSenderBase {
-  from = 'auth@myapp.com';
-
-  async sendEmail(email: ResolvedEmail) {
-    // email contains: to, subject, html, from, replyTo, appName
-    // Call Postmark, SES, SendGrid, or any provider
-    await fetch('https://api.your-provider.com/send', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.env.EMAIL_API_KEY}` },
-      body: JSON.stringify({ to: email.to, from: email.from, subject: email.subject, html: email.html }),
-    });
-  }
-}
-```
-
-The `ResolvedEmail` object contains everything needed to send one email — the base class has already resolved the template and subject. Your `sendEmail()` just needs to deliver it.
+- Override templates, subjects, `replyTo`, or `appName`, or plug in a different provider (Postmark, SES, SendGrid, etc.) — see [Customizing Email](/docs/auth/customizing-email).
+- Prefer Resend over Cloudflare — see [Using Resend instead](/docs/auth/using-resend-instead).
 
 ## Key Rotation
 

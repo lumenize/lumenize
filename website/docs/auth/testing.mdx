@@ -115,3 +115,18 @@ const { accessToken, sub } = await testLoginWithMagicLink(aliceBrowser, 'alice@t
 });
 // sub = alice's sub, parseJwtUnsafe(accessToken).payload.act.sub = actorSub
 ```
+
+## Real Email Delivery in Tests
+
+Most auth testing should use [test mode](#test-mode) — it bypasses email entirely and is deterministic, fast, and CI-safe. But if you specifically need to verify templates, domain configuration, or end-to-end delivery, you have two paths:
+
+- **Resend.** Resend is a plain HTTPS API, so vitest-pool-workers' built-in `fetch` hits it directly. No special configuration — the e2e test looks the same as any other integration test.
+- **Cloudflare Email Sending.** Miniflare's `send_email` binding is a local stub by default — it accepts the call and writes to a temp file, but no email is actually sent. To exercise the real service from vitest, add `"remote": true` to the binding:
+  ```jsonc
+  "send_email": [
+    { "name": "EMAIL", "remote": true }
+  ]
+  ```
+  This proxies the binding call to the real Cloudflare service during test runs. Heads-up: `remote: true` in CI means real sends (cost + credential wiring + potential flakiness when the proxy hiccups) — fine for local runs and pre-merge checks, worth considering carefully before enabling in your main CI pipeline.
+
+Reference implementation: our own e2e suite at [`packages/auth/test/e2e-email/`](https://github.com/lumenize/lumenize/tree/main/packages/auth/test/e2e-email) exercises the full Cloudflare path end-to-end using this pattern.

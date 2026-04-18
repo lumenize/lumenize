@@ -7,14 +7,14 @@ import { NebulaDO, requireAdmin } from './nebula-do';
 
 export class Universe extends NebulaDO {
   @mesh(requireAdmin)
-  setUniverseConfig(key: string, value: string) {
-    const config = this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
+  setUniverseConfig(key: string, value: unknown) {
+    const config = this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
     config[key] = value;
     this.ctx.storage.kv.put('config', config);
   }
 
   @mesh()
-  getUniverseConfig(): Record<string, string> {
-    return this.ctx.storage.kv.get<Record<string, string>>('config') ?? {};
+  getUniverseConfig(): Record<string, unknown> {
+    return this.ctx.storage.kv.get<Record<string, unknown>>('config') ?? {};
   }
 }

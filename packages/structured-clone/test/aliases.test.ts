@@ -325,6 +325,66 @@ describe('Web API Aliases', () => {
   });
 });
 
+describe('Inline Type Aliases (Date, RegExp, Wrappers)', () => {
+  it('handles aliased Date objects', async () => {
+    const sharedDate = new Date('2025-06-15T12:00:00Z');
+    const obj = { created: sharedDate, modified: sharedDate };
+
+    const result = parse(stringify(obj));
+
+    // Both should be equal Date values
+    expect(result.created).toEqual(sharedDate);
+    expect(result.modified).toEqual(sharedDate);
+
+    // Both should reference the same Date object (alias preserved)
+    expect(result.created).toBe(result.modified);
+  });
+
+  it('handles aliased RegExp objects', async () => {
+    const sharedRegex = /test\d+/gi;
+    const obj = { pattern1: sharedRegex, pattern2: sharedRegex };
+
+    const result = parse(stringify(obj));
+
+    expect(result.pattern1).toEqual(sharedRegex);
+    expect(result.pattern2).toEqual(sharedRegex);
+    expect(result.pattern1).toBe(result.pattern2);
+  });
+
+  it('handles aliased Boolean wrapper objects', async () => {
+    const sharedBool = new Boolean(true);
+    const obj = { a: sharedBool, b: sharedBool };
+
+    const result = parse(stringify(obj));
+
+    expect(result.a.valueOf()).toBe(true);
+    expect(result.b.valueOf()).toBe(true);
+    expect(result.a).toBe(result.b);
+  });
+
+  it('handles aliased Number wrapper objects', async () => {
+    const sharedNum = new Number(42);
+    const obj = { a: sharedNum, b: sharedNum };
+
+    const result = parse(stringify(obj));
+
+    expect(result.a.valueOf()).toBe(42);
+    expect(result.b.valueOf()).toBe(42);
+    expect(result.a).toBe(result.b);
+  });
+
+  it('handles aliased String wrapper objects', async () => {
+    const sharedStr = new String('hello');
+    const obj = { a: sharedStr, b: sharedStr };
+
+    const result = parse(stringify(obj));
+
+    expect(result.a.valueOf()).toBe('hello');
+    expect(result.b.valueOf()).toBe('hello');
+    expect(result.a).toBe(result.b);
+  });
+});
+
 describe('Complex Alias Scenarios', () => {
   it('handles large shared subtree with multiple alias points', async () => {
     const sharedSubtree = {

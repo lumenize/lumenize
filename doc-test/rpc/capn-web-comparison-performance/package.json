@@ -1,6 +1,6 @@
 {
 	"name": "capn-web-comparison-performance",
-	"version": "0.22.0",
+	"version": "0.23.0",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
@@ -11,14 +11,14 @@
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.9.3",
-		"@lumenize/routing": "^0.22.0",
-		"@lumenize/rpc": "^0.22.0",
-		"@lumenize/testing": "^0.22.0",
+		"@cloudflare/vitest-pool-workers": "0.12.21",
+		"@lumenize/routing": "^0.23.0",
+		"@lumenize/rpc": "^0.23.0",
+		"@lumenize/testing": "^0.23.0",
 		"@vitest/coverage-istanbul": "3.2.4",
 		"capnweb": "^0.1.0",
 		"typescript": "^5.9.2",
 		"vitest": "3.2.4",
-		"wrangler": "^4.38.0"
+		"wrangler": "^4.72.0"
 	}
 }

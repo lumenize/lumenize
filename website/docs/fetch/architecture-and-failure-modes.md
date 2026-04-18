@@ -2,7 +2,6 @@
 title: Architecture & Failure Modes
 description: Flow diagrams for happy paths, failure scenarios, and durability guarantees
 ---
-
 # Architecture & Failure Modes
 
 ## Design Highlights

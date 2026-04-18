@@ -1,6 +1,7 @@
 {
   "name": "@lumenize/for-experiments",
-  "version": "0.22.0",
+  "version": "0.23.0",
+  "private": true,
   "description": "Reusable tooling for production experiments",
   "type": "module",
   "main": "src/index.ts",
@@ -22,5 +23,5 @@
   "dependencies": {
     "ws": "^8.18.0"
   },
-  "gitHead": "59bf07ef73368b771a8fe9446bd8aa91ba96fd5c"
+  "gitHead": "c7d8daafca0e2f12ed3646767d4876f4cc7c2e3e"
 }

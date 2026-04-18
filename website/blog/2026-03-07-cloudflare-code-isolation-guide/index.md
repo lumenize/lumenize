@@ -4,6 +4,7 @@ slug: cloudflare-code-isolation-guide
 authors: [larry]
 tags: [architecture, cloudflare]
 description: "A hands-on comparison of Cloudflare's four isolation technologies for running dynamic or untrusted code — from millisecond V8 isolates to full Linux containers."
+draft: true
 ---
 
 Cloudflare now offers four distinct ways to run code you don't fully trust — user-submitted functions, LLM-generated scripts, plugin systems, or third-party integrations. They fall into two tiers that differ by orders of magnitude in startup time, capability, and cost:

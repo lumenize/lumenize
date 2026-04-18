@@ -56,7 +56,14 @@ for package in "${PACKAGES[@]}"; do
   
   # Build with TypeScript (--noCheck skips type-checking since type-check.sh handles that separately)
   npx tsc --project tsconfig.build.json --noCheck
-  
+
+  # If the package ships a pre-bundled artifact produced by a custom script, run it
+  # now so it survives the rm -rf dist above and is present in the published tarball.
+  if [ -f scripts/bundle-tsc.mjs ]; then
+    echo "  Bundling tsc for $package..."
+    node scripts/bundle-tsc.mjs
+  fi
+
   echo "✓ Built $package"
 done
 

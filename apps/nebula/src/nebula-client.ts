@@ -5,8 +5,9 @@
  * Active scope: baked into the JWT's aud claim (e.g., 'acme.app.tenant-a')
  */
 
-import { LumenizeClient } from '@lumenize/mesh';
+import { LumenizeClient, mesh } from '@lumenize/mesh';
 import type { LumenizeClientConfig } from '@lumenize/mesh';
+import type { TransactionResult, Snapshot } from './resources';
 
 export interface NebulaClientConfig extends Omit<LumenizeClientConfig, 'refresh' | 'gatewayBindingName'> {
   /** Auth scope — determines refresh cookie path (e.g., 'acme.app.tenant-a' or 'acme' for admins) */
@@ -44,5 +45,17 @@ export class NebulaClient extends LumenizeClient {
 
     this.#authScope = authScope;
     this.#activeScope = activeScope;
+  }
+
+  /** Receive transaction result from Star — Phase 5.3 will add real implementation */
+  @mesh()
+  handleTransactionResult(_result: TransactionResult | Error): void {
+    console.warn('handleTransactionResult not yet implemented — see Phase 5.3');
+  }
+
+  /** Receive read result from Star — Phase 5.3 will add real implementation */
+  @mesh()
+  handleReadResult(_result: Snapshot | null | Error): void {
+    console.warn('handleReadResult not yet implemented — see Phase 5.3');
   }
 }

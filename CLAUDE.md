@@ -10,7 +10,7 @@ Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain expert
 - **`#` prefix for private members** - never use TypeScript `private` keyword
 - **Synchronous storage only** - use `ctx.storage.kv.*` or `ctx.storage.sql.*`, never legacy async API (`ctx.storage.put/get`)
 - **Auto-generate Env interface** - run `wrangler types`, never manually define it
-- **`compatibility_date: "2025-09-12"`** or later in wrangler.jsonc
+- **`compatibility_date: "2026-03-12"`** or later in wrangler.jsonc
 - **Secrets in root `.dev.vars`** - gitignored, auto-symlinked via postinstall; never commit secrets or put them in source code
 - **Docs in `/website/docs/`** - only `.mdx` files, never create temp docs elsewhere
 
@@ -20,6 +20,18 @@ Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain expert
 
 - **`.claude/settings.json`** - Pre-approved permissions for common operations (committed to git)
 - **`.claude/settings.local.json`** - Personal overrides (gitignored, takes precedence)
+
+---
+
+## Semantic Code Search
+
+For conceptual searches ("find code that handles rate limiting", "where do we validate JWTs"), use Probe via npx:
+
+    npx -y @probelabs/probe search "<query>" [path]
+
+Probe is AST-aware (ripgrep speed + tree-sitter parsing), runs fully local, no API keys, no hosted service. Returns whole functions/classes rather than text chunks.
+
+`Grep` remains the default for literal strings and symbols — Probe is a step up when you need structural/semantic matching.
 
 ---
 
@@ -89,6 +101,11 @@ This resolves in Workers and silently fails elsewhere. No build-time flags or dy
 
 ## Cloudflare Durable Objects
 
+### Workers RPC Gotchas
+- Synchronous DO methods become async over RPC — use `await expect(...).rejects.toThrow()` not `expect(() => ...).toThrow()`
+- Private (`#`) methods silently return `undefined` over RPC stubs — always use public methods or HTTP endpoints for cross-DO communication
+- `wrangler.jsonc` migrations only matter when deployed to Cloudflare's cloud; during local testing every run is a fresh deploy — no migration entries needed
+
 ### Wall-Clock Billing
 DO is billed for elapsed time when: `await`ing I/O, using `setTimeout`/`setInterval`, or holding Workers RPC stubs (use `using` keyword). Avoid these to minimize costs.
 
@@ -99,6 +116,9 @@ Always use synchronous storage (`ctx.storage.kv.*` or `ctx.storage.sql.*`), neve
 Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async`. Never use `setTimeout`, `setInterval`, `waitUntil`, or `await` in business logic—breaks input/output gates and triggers wall-clock billing.
 
 **Exception**: Methods that call APIs with no synchronous alternative (e.g., `crypto.subtle.*`) may be `async`. These complete in microseconds and don't open input gates long enough to cause practical interleaving, unlike network I/O or timers which can allow other requests to interleave and create race conditions.
+
+### Fire-and-Forget Error Delivery
+When a mesh handler delivers results via explicit callback (e.g., `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), wrap the entire handler body in try/catch. Uncaught exceptions are silently lost — the client never receives a response and `callCompleted` never becomes true.
 
 ### Instance Variables
 **Never use instance variables for mutable state**—DOs can be evicted anytime. Always use `ctx.storage.kv` or `ctx.storage.sql`.
@@ -142,7 +162,7 @@ subscribe(id: string) {
 ### Cloudflare Worker Packages
 - `tsconfig.json` - Extends root, includes `"types": ["vitest/globals"]`
 - `vitest.config.js` - Workers project config
-- `wrangler.jsonc` - DO bindings and migrations (compatibility_date: "2025-09-12" or later)
+- `wrangler.jsonc` - DO bindings and migrations (compatibility_date: "2026-03-12" or later)
 - `worker-configuration.d.ts` - Auto-generated via `npm run types`
 
 ### Using the Global `Env` Type
@@ -188,6 +208,9 @@ await vi.waitFor(async () => {
   expect(status).toBe('complete');
 });
 ```
+
+### App Test Pattern
+For apps in `apps/`, use `test/test-apps/{name}/` with `instrumentDOProject`. See `apps/nebula/test/test-apps/README.md` for the checklist.
 
 ### E2E Tests with External Services
 vitest-pool-workers tests can make real external `fetch()` calls and `new WebSocket()` connections to deployed Workers. This enables e2e tests where the code under test runs in-process (no deployment needed) but interacts with real external infrastructure. See `packages/auth/test/e2e-email/` for the canonical example: auth DO runs in vitest, sends real email via Resend, and a deployed `email-test` Worker receives it via Email Routing and pushes back over WebSocket.

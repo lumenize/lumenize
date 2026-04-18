@@ -27,6 +27,12 @@ The vibe coder describes what they want in natural language, a language model ge
 - Live preview of the Nebula UI components
 - Real-time feedback: save → DWL hot-reload → preview updates
 
+### Nebula API Schema Definitions for LLM Context
+
+The Nebula API surface (resource operations, DAG tree operations, permission model, subscription patterns) should be documented as TypeScript type definitions (`.d.ts` files) that are provided to the IDE's language model as context. This gives the LLM precise knowledge of how to write code that uses Nebula functionality — method signatures, operation descriptors, return types, error conditions — all expressed in the TypeScript type language the LLM already understands.
+
+This reuses the Phase 5.2 tsc-in-DWL capability (`docs/adr/001-typescript-as-schema.md`) — the same TypeScript types that validate data at runtime also serve as API documentation for the code generation model. Single source of truth: the types ARE the documentation.
+
 ### Language Model Strategy
 
 - **Short term**: Prompt engineering against general-purpose models (Claude, GPT) with Nebula-specific system prompts and few-shot examples
