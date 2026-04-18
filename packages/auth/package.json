@@ -46,5 +46,6 @@
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "0.12.21",
     "vitest": "3.2.4"
-  }
+  },
+  "gitHead": "6be7a594305f7b3cd9a8965559f40b354810c09d"
 }
