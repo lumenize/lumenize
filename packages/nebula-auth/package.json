@@ -15,6 +15,9 @@
   "files": [
     "src/**/*"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "vitest --run",
     "test:coverage": "vitest --coverage --run",

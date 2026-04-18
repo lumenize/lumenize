@@ -11,6 +11,15 @@ echo ""
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Preflight: npm authentication (same gate as release.sh, so the dry-run
+# catches the exact same class of problem before you discover it mid-release)
+if ! NPM_USER=$(npm whoami 2>/dev/null); then
+  echo "❌ Error: Not logged in to npm. Run 'npm login' first."
+  exit 1
+fi
+echo "✅ Authenticated to npm as $NPM_USER"
+echo ""
+
 # Auto-discover publishable packages (exclude private packages)
 discover_packages() {
   local packages_dir="$ROOT_DIR/packages"
