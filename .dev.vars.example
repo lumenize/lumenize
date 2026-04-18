@@ -76,5 +76,7 @@ JWT_PUBLIC_KEY_GREEN="-----BEGIN PUBLIC KEY-----\nMCow...\n-----END PUBLIC KEY--
 
 PRIMARY_JWT_KEY="BLUE"
 
+# Optional — only needed if you use ResendEmailSender (see https://lumenize.com/docs/auth/using-resend-instead).
+# CloudflareEmailSender (the default) uses the EMAIL binding and needs no secret.
 # Resend account: larry@lumenize.com
 RESEND_API_KEY="re_..."

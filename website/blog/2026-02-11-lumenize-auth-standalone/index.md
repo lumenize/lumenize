@@ -42,7 +42,7 @@ npm install @lumenize/auth
 
 If you'd rather wire the contracts into your own routing, that's straightforward too — the auth header contract is just `Authorization: Bearer {jwt}` on every request to your DOs. See [Integrating Alternative Auth](/docs/mesh/security#integrating-alternative-auth-advanced) for the exact requirements.
 
-The [getting started guide](/docs/auth/getting-started) walks through both pieces end-to-end — key generation, Worker entry point, email provider (Resend in 5 minutes), and the optional Turnstile and rate limiting add-ons.
+The [getting started guide](/docs/auth/getting-started) walks through both pieces end-to-end — key generation, Worker entry point, email provider (5 minutes), and the optional Turnstile and rate limiting add-ons.
 
 ## What's next
 

@@ -210,6 +210,8 @@ const sidebars: SidebarsConfig = {
         'auth/subject-management',
         'auth/delegation',
         'auth/testing',
+        'auth/customizing-email',
+        'auth/using-resend-instead',
       ],
     },
 

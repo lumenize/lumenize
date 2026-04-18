@@ -4,12 +4,12 @@ import { Browser } from '@lumenize/testing';
 import { waitForEmail, extractMagicLink } from '../e2e-email/email-test-helpers';
 
 // Real email delivery e2e test — same flow as e2e-email but routed through Hono.
-// Requires: RESEND_API_KEY and TEST_TOKEN in .dev.vars,
-// deployed email-test Worker, Cloudflare Email Routing for lumenize.io.
+// Requires: TEST_TOKEN in .dev.vars, deployed email-test Worker, Cloudflare
+// Email Routing + Email Sending onboarded for lumenize.io.
 //
 // Uses Browser (cookie-aware fetch) → SELF.fetch → Hono app → createAuthRoutes →
 // routeDORequest → LumenizeAuth DO (in-process).
-describe('Hono integration (real email delivery)', () => {
+describe('Hono integration (real email delivery via Cloudflare)', () => {
   let cleanup: (() => void) | undefined;
 
   afterEach(() => {
@@ -43,7 +43,7 @@ describe('Hono integration (real email delivery)', () => {
 
     expect(email.subject).toBe('Your login link');
     expect(email.to?.[0]?.address).toBe(testEmail);
-    expect(email.from?.address).toBe('auth@test.lumenize.com');
+    expect(email.from?.address).toBe('test@lumenize.io');
 
     // 4. Extract magic link URL from the email HTML
     const magicLinkUrl = extractMagicLink(email);

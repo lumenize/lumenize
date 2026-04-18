@@ -63,7 +63,7 @@ All three use the same API. All three can make calls and receive calls. A Durabl
 
 Every method on a mesh node is locked down unless explicitly exposed with the `@mesh()` decorator. Authentication is required, not optional. User identity propagates automatically through the entire call chain — when a browser client calls a DO that calls a Worker, the Worker knows the user's identity.
 
-The default auth is [**@lumenize/auth**](/docs/auth), a passwordless authentication system that runs entirely inside a Durable Object — magic link email login, Ed25519 signed JWTs, refresh token rotation, two-phase access (email verification + admin approval), and RFC 8693 delegation. All Cloudflare-native with no external auth service required. But the auth interface is a clean contract: [bring your own](/docs/auth/getting-started#bring-your-own-provider) if you need to.
+The default auth is [**@lumenize/auth**](/docs/auth), a passwordless authentication system that runs entirely inside a Durable Object — magic link email login, Ed25519 signed JWTs, refresh token rotation, two-phase access (email verification + admin approval), and RFC 8693 delegation. All Cloudflare-native with no external auth service required. But the auth interface is a clean contract: [bring your own](/docs/auth/customizing-email#bring-your-own-provider) if you need to.
 
 ### Rich types everywhere
 

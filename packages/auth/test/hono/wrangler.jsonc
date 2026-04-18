@@ -23,6 +23,15 @@
       "entrypoint": "AuthEmailSender"
     }
   ],
+  // Cloudflare Email Sending binding used by CloudflareEmailSender (env.EMAIL.send).
+  // `remote: true` proxies to the real Cloudflare Email Sending service during
+  // local dev / vitest so tests exercise the full end-to-end path.
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "remote": true
+    }
+  ],
   "migrations": [
     {
       "tag": "v1",

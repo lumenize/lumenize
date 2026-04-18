@@ -6,6 +6,10 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Figure out how to give diagnostic channel power to my Agents and tests. For instance, maybe we could have used that for our email e2e test rather than standing up our own push mechanism. Maybe we should also upgrade debug to use this. See: https://developers.cloudflare.com/workers/runtime-apis/nodejs/diagnostics-channel/
 
+- [ ] Add DNS redirect from `lumenize.com` → `lumenize.io`. Email sender addresses use `lumenize.io` (domain onboarded for Cloudflare Email Routing + Sending), but users who see an email and type `lumenize.com` into their browser should still land on the real site. Configure a 301 redirect at the `lumenize.com` zone (Cloudflare Rules → Bulk Redirects or a simple Page Rule). Discovered during tasks/change-auth-packages-to-cloudflare-sending.md planning.
+
+- [ ] Audit whether `@lumenize/mesh` docs should add a "Workers Paid plan" admonition similar to the one `@lumenize/auth` is adding for Cloudflare Email Sending. Mesh uses Durable Objects — check current Cloudflare pricing rules for DO on the free tier (DO recently became available on Workers Free with limits, but verify). If Mesh does need the admonition, mirror the wording used in `website/docs/auth/getting-started.mdx`. Also check `@lumenize/nebula-auth` and any other packages that touch platform features with plan gates. Discovered during tasks/change-auth-packages-to-cloudflare-sending.md planning.
+
 
 ## Lumenize Mesh
 
