@@ -112,10 +112,48 @@ Baseline runs from `/tmp/lumenize-p0-{test1,typecheck,coverage}.log`. All three 
   - `fetchMock` usages: zero.
 
 **Success Criteria**:
-- [ ] Resolved versions recorded here
-- [ ] Migration-guide risks cataloged (list of things to actively check)
-- [ ] Istanbul-coverage regression status confirmed (fixed on target version, or workaround chosen)
-- [ ] Audit counts refreshed if repo has drifted since 2026-04-19
+- [x] Resolved versions recorded here
+- [x] Migration-guide risks cataloged (list of things to actively check)
+- [x] Istanbul-coverage regression status confirmed (fixed on target version, or workaround chosen)
+- [x] Audit counts refreshed if repo has drifted since 2026-04-19
+
+### Phase 1 Record (2026-04-19)
+
+**Target resolved versions** (from canary dry-run `/tmp/lumenize-p1-dryrun2.log`, exit 0, no peer warnings):
+
+| Package | Resolved | Notes |
+|---|---|---|
+| `vitest` | `4.1.4` | Peer of `@vitest/coverage-istanbul` is exact-pinned to 4.1.4 — must keep vitest + coverage-istanbul version-locked |
+| `@vitest/coverage-istanbul` | `4.1.4` | |
+| `@cloudflare/vitest-pool-workers` | `0.14.7` | Peer on `vitest: ^4.1.0`, `@vitest/runner: ^4.1.0`, `@vitest/snapshot: ^4.1.0` |
+| `miniflare` | `4.20260415.0` | Dated 2026-04-15 — includes DO facets (shipped 2026-04-13) |
+| `workerd` | `1.20260415.1` | |
+| `wrangler` | `4.83.0` | Pulled in by pool-workers |
+
+Target pins for `package.json` edits in Phase 2:
+- `vitest`: `"4.1.4"` (exact, matching current convention of `"3.2.4"`)
+- `@vitest/coverage-istanbul`: `"4.1.4"` (exact — must match `vitest` per peer dep)
+- `@cloudflare/vitest-pool-workers`: `"^0.14.7"` (caret OK — less peer-pressure than vitest core)
+
+**Pre-existing partial-upgrade state uncovered by dry-run**: `packages/ts-runtime-parser-validator/package.json` already has `@cloudflare/vitest-pool-workers@0.14.7` (bumped during 5.2.4.1 work) but its `vitest` and `@vitest/coverage-istanbul` are still `3.2.4`. This is the root cause of the facet-roundtrip test failures reported in Phase 0 (pool expecting vitest 4 but getting vitest 3 creates the "undefined.get" error). Phase 2 resolves this by bumping the two matching pins.
+
+**Migration-guide risks cataloged** (from `vitest.dev/guide/migration` skim):
+1. **Node engine bump**: vitest 4 requires `^20 || ^22 || >=24`. Root `package.json` currently says `>=18`. **Action in Phase 2**: bump root `engines.node` to `">=20"`.
+2. **`coverage.all` removed**: `packages/routing/vitest.config.js:46` uses `all: false` — mechanical delete.
+3. **Vite peer `^6 || ^7 || ^8`**: vitest 4 requires Vite 6/7/8. Verify vite transitively resolves to a version in that range (it should — pool-workers 0.14.7 and vitest 4.1.4 both target current Vite).
+4. **Default excludes reduced to `node_modules`/`.git` only**: our configs already set explicit excludes, so low risk.
+5. **Pool architecture flattened in core**: `defineWorkersProject` preserves its own `poolOptions.workers` namespace — codemod handles any residual flattening.
+6. **Module reset between tests no longer automatic**: may cause test behavior changes. Surface empirically in Phase 2; if a test relied on implicit reset, add `vi.resetModules()` in a setup file.
+7. **Custom environments**: `transformMode` → `viteEnvironment`. We don't use custom environments, so N/A.
+
+**Istanbul-coverage regression (#12994/#12951)**: closed as "done" but the issue text doesn't name the fix version. Target pool-workers 0.14.7 (latest stable) is several releases past the 0.13.1 where the regression was first reported — *probably* fixed. **Empirically verify in Phase 2** by running `npm run coverage` after the bump; if it throws `template is not a function`, pin to a fixed patch or skip coverage on affected packages.
+
+**Audit counts (2026-04-19 baseline, unchanged)**:
+- `isolatedStorage: false` in real configs: 22 occurrences — mechanical removal.
+- `singleWorker` in real configs: 0.
+- `from "cloudflare:test"` imports: 71 files.
+- `fetchMock` usages: 0.
+- `coverage.all` usages: 1 (`packages/routing/vitest.config.js:46`).
 
 ## Phase 2: Bump + Fix
 
