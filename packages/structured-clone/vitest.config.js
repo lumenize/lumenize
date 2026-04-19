@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
-import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { playwright } from '@vitest/browser-playwright';
 
 export default defineConfig({
   test: {
@@ -19,7 +20,10 @@ export default defineConfig({
         },
       },
       // Cloudflare Workers environment - our primary use case
-      defineWorkersProject({
+      {
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './wrangler.jsonc' },
+        })],
         test: {
           name: 'workers',
           include: ['test/**/*.test.ts'],
@@ -29,14 +33,8 @@ export default defineConfig({
           ],
           globals: true,
           testTimeout: 2000,
-          poolOptions: {
-            workers: {
-              isolatedStorage: false,
-              wrangler: { configPath: './wrangler.jsonc' },
-            },
-          },
         },
-      }),
+      },
       // Browser environment - headless browser testing
       {
         test: {
@@ -48,7 +46,7 @@ export default defineConfig({
           exclude: ['test/format-experiments.test.ts'], // Performance tests need accurate Node.js timing
           browser: {
             enabled: true,
-            provider: 'playwright',
+            provider: playwright(),
             headless: true,
             instances: [
               { browser: 'chromium' },
@@ -61,7 +59,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'istanbul',
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: ['**/src/**'],
       exclude: [
         '**/node_modules/**',

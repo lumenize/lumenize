@@ -1,14 +1,14 @@
-import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersProject({
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [cloudflareTest({
+    wrangler: { configPath: './wrangler.jsonc' },
+  })],
+
   test: {
     testTimeout: 5000,
-    globals: true,
-    poolOptions: {
-      workers: {
-        isolatedStorage: false,
-        wrangler: { configPath: './wrangler.jsonc' },
-      },
-    },
-  },
+    globals: true
+  }
 });

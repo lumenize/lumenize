@@ -32,12 +32,12 @@
   "author": "Lumenize",
   "license": "MIT",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.12.21",
+    "@cloudflare/vitest-pool-workers": "^0.14.7",
     "@lumenize/testing": "^0.23.0",
-    "@vitest/coverage-istanbul": "3.2.4",
+    "@vitest/coverage-istanbul": "4.1.4",
     "hono": "^4.11.9",
     "typescript": "^5.9.2",
-    "vitest": "3.2.4",
+    "vitest": "4.1.4",
     "wrangler": "^4.72.0"
   },
   "dependencies": {
@@ -45,7 +45,7 @@
     "@lumenize/routing": "^0.23.0"
   },
   "peerDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.12.21",
-    "vitest": "3.2.4"
+    "@cloudflare/vitest-pool-workers": "^0.14.7",
+    "vitest": "4.1.4"
   }
 }

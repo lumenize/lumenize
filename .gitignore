@@ -42,3 +42,4 @@ experiments/
 coverage
 durable-objects/coverage
 __screenshots__
+vitest.config.*.timestamp-*.mjs

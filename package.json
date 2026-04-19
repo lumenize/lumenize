@@ -36,7 +36,7 @@
     "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "optionalDependencies": {
     "@esbuild/linux-arm64": "^0.27.3",

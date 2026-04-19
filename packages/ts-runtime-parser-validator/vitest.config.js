@@ -1,18 +1,19 @@
-import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersProject({
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  plugins: [cloudflareTest({
+    wrangler: { configPath: './wrangler.jsonc' },
+  })],
+
   test: {
     testTimeout: 10000,
     globals: true,
-    poolOptions: {
-      workers: {
-        isolatedStorage: false,
-        wrangler: { configPath: './wrangler.jsonc' },
-      },
-    },
+
     coverage: {
       provider: "istanbul",
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
         '**/src/**',
         '**/test/test-worker-and-dos.ts'
@@ -27,6 +28,6 @@ export default defineWorkersProject({
       ],
       skipFull: false,
       all: false,
-    },
-  },
+    }
+  }
 });

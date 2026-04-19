@@ -20,7 +20,7 @@ class BroadcastDO {
   }
 }
 
-it('demonstrates client ID targeting', async () => {
+it('demonstrates client ID targeting', { timeout: 15000 }, async () => {
   const client1Messages: any[] = [];
   const client2Messages: any[] = [];
 
@@ -70,5 +70,5 @@ it('demonstrates client ID targeting', async () => {
   // Client 2 should not have received the targeted message
   expect(client2Messages.length).toBe(1);
   expect(client1Messages[1]).toMatchObject({ type: 'private', content: 'Just for you' });
-}, { timeout: 15000 });
+});
 

@@ -5,13 +5,11 @@ export default defineWorkersConfig({
     testTimeout: 5000,
     globals: true,
     poolOptions: {
-      workers: {
-        isolatedStorage: false, // Must be false for WebSocket tests
-      },
+      workers: {},
     },
     coverage: {
       provider: "istanbul",
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
         '**/src/**',
         '**/test/test-worker-and-dos.ts'

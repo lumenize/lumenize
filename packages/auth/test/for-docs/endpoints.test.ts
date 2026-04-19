@@ -22,7 +22,7 @@ describe('Auth Endpoint Examples', () => {
   describe('Authentication Endpoints', () => {
 
     // Matches endpoints.mdx — Request Magic Link (no Turnstile)
-    it('request magic link', async () => {
+    it('request magic link', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -33,10 +33,10 @@ describe('Auth Endpoint Examples', () => {
       });
 
       expect(response.status).toBe(200);
-    }, { timeout: 5000 });
+    });
 
     // Matches endpoints.mdx and getting-started.mdx — Magic Link with Turnstile
-    it('request magic link with turnstile', async () => {
+    it('request magic link with turnstile', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
       const turnstileToken = 'test-token';
@@ -59,10 +59,10 @@ describe('Auth Endpoint Examples', () => {
           expires_in: 1800
         }
       );
-    }, { timeout: 5000 });
+    });
 
     // Matches endpoints.mdx and testing.mdx — Test Mode Magic Link
-    it('request magic link test mode', async () => {
+    it('request magic link test mode', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -80,10 +80,10 @@ describe('Auth Endpoint Examples', () => {
           message: "Magic link generated (test mode)"
         }
       );
-    }, { timeout: 5000 });
+    });
 
     // Matches endpoints.mdx — Refresh Token
-    it('refresh token', async () => {
+    it('refresh token', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -99,10 +99,10 @@ describe('Auth Endpoint Examples', () => {
       const body = await response.json();
       // @ts-ignore — body is unknown from response.json()
       expect(body.access_token).toBeDefined();
-    }, { timeout: 5000 });
+    });
 
     // Matches endpoints.mdx — Logout
-    it('logout', async () => {
+    it('logout', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -119,7 +119,7 @@ describe('Auth Endpoint Examples', () => {
           message: "Logged out"
         }
       );
-    }, { timeout: 5000 });
+    });
   });
 
   // ─── Subject Management Endpoints ─────────────────────────────────
@@ -127,7 +127,7 @@ describe('Auth Endpoint Examples', () => {
   describe('Subject Management Endpoints', () => {
 
     // Matches subject-management.mdx — List Subjects
-    it('list subjects', async () => {
+    it('list subjects', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -143,10 +143,10 @@ describe('Auth Endpoint Examples', () => {
 
       expect(response.status).toBe(200);
       expect(Array.isArray(subjects)).toBe(true);
-    }, { timeout: 5000 });
+    });
 
     // Matches subject-management.mdx — List Subjects with Filters
-    it('list subjects with filters', async () => {
+    it('list subjects with filters', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -159,10 +159,10 @@ describe('Auth Endpoint Examples', () => {
       });
 
       expect(response.status).toBe(200);
-    }, { timeout: 5000 });
+    });
 
     // Matches subject-management.mdx — Get Subject
-    it('get subject', async () => {
+    it('get subject', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -184,10 +184,10 @@ describe('Auth Endpoint Examples', () => {
 
       expect(response.status).toBe(200);
       expect(subject.sub).toBe(sub);
-    }, { timeout: 5000 });
+    });
 
     // Matches subject-management.mdx — Update Subject
-    it('update subject', async () => {
+    it('update subject', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -216,10 +216,10 @@ describe('Auth Endpoint Examples', () => {
 
       expect(response.status).toBe(200);
       expect(subject.isAdmin).toBe(true);
-    }, { timeout: 5000 });
+    });
 
     // Matches subject-management.mdx — Invite Subjects
-    it('invite subjects', async () => {
+    it('invite subjects', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -243,10 +243,10 @@ describe('Auth Endpoint Examples', () => {
       expect(response.status).toBe(200);
       expect(invited).toContain('alice@example.com');
       expect(invited).toContain('bob@example.com');
-    }, { timeout: 5000 });
+    });
 
     // Matches subject-management.mdx — Delete Subject
-    it('delete subject', async () => {
+    it('delete subject', { timeout: 5000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -266,7 +266,7 @@ describe('Auth Endpoint Examples', () => {
       });
 
       expect(response.status).toBe(204);
-    }, { timeout: 5000 });
+    });
   });
 
   // ─── Delegation Endpoints ─────────────────────────────────────────
@@ -274,7 +274,7 @@ describe('Auth Endpoint Examples', () => {
   describe('Delegation Endpoints', () => {
 
     // Matches delegation.mdx — Add Authorized Actor
-    it('add authorized actor', async () => {
+    it('add authorized actor', { timeout: 10000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -305,10 +305,10 @@ describe('Auth Endpoint Examples', () => {
 
       expect(response.status).toBe(200);
       expect(subject.authorizedActors).toContain(actorSubId);
-    }, { timeout: 10000 });
+    });
 
     // Matches delegation.mdx — Remove Authorized Actor
-    it('remove authorized actor', async () => {
+    it('remove authorized actor', { timeout: 10000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -345,10 +345,10 @@ describe('Auth Endpoint Examples', () => {
 
       expect(response.status).toBe(200);
       expect(subject.authorizedActors).not.toContain(actorSubId);
-    }, { timeout: 10000 });
+    });
 
     // Matches delegation.mdx — Request Delegated Token
-    it('request delegated token', async () => {
+    it('request delegated token', { timeout: 10000 }, async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
 
@@ -395,10 +395,10 @@ describe('Auth Endpoint Examples', () => {
       expect(claims.sub).toBe(targetSub);
       // @ts-ignore — claims.act may be undefined
       expect(claims.act.sub).toBe(actorSub);
-    }, { timeout: 10000 });
+    });
 
     // Matches delegation.mdx — Using Delegated Tokens (guard code)
-    it('using delegated tokens', async () => {
+    it('using delegated tokens', { timeout: 10000 }, async () => {
       const browser = new Browser();
 
       // Setup: get a delegated token
@@ -446,6 +446,6 @@ describe('Auth Endpoint Examples', () => {
       expect(claims.sub).toBe(ownerId);
       // @ts-ignore — claims.act may be undefined
       expect(claims.act.sub).toBe(actorSub);
-    }, { timeout: 10000 });
+    });
   });
 });

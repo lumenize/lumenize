@@ -30,7 +30,7 @@ class DocumentDO {
   }
 }
 
-it('demonstrates multiplayer collaborative features', async () => {
+it('demonstrates multiplayer collaborative features', { timeout: 10000 }, async () => {
   const client1Updates: any[] = [];
   const client2Updates: any[] = [];
 
@@ -78,5 +78,5 @@ it('demonstrates multiplayer collaborative features', async () => {
     changes: { text: 'Hello', position: 0 }
   });
   expect(client1Updates.length).toBe(0); // Sender doesn't receive their own update
-}, { timeout: 10000 });
+});
 

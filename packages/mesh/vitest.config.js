@@ -5,13 +5,11 @@ export default defineWorkersConfig({
     testTimeout: 2000, // 2 second global timeout
     globals: true,
     poolOptions: {
-      workers: {
-        isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
-      },
+      workers: {},
     },
     coverage: {
       provider: "istanbul",
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
         '**/src/**',
       ],

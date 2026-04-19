@@ -5,13 +5,11 @@ export default defineWorkersConfig({
     testTimeout: 10000,
     globals: true,
     poolOptions: {
-      workers: {
-        isolatedStorage: false,
-      },
+      workers: {},
     },
     coverage: {
       provider: "istanbul",
-      reporter: ['text', 'html', 'lcov'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: ['**/src/**'],
       exclude: [
         '**/node_modules/**',

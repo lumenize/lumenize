@@ -20,8 +20,7 @@ export default defineWorkersProject({
     testTimeout: 2000, // 2 second global timeout
     poolOptions: {
       workers: {
-        isolatedStorage: false,  // Must be false for now to use websockets. Have each test create a new DO instance to avoid state sharing.
-        wrangler: { configPath: "./test/wrangler.jsonc" },  // Important! use the wrangler.jsonc in ./test
+        wrangler: { configPath: "./test/wrangler.jsonc" },
       },
     },
     coverage: {
