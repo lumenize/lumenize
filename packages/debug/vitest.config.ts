@@ -4,5 +4,11 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     globals: true,
+    coverage: {
+      provider: 'istanbul',
+      reporter: ['text', 'html', 'lcov'],
+      include: ['src/**'],
+      exclude: ['**/node_modules/**', '**/dist/**'],
+    },
   },
 });
