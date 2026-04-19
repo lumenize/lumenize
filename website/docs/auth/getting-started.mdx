@@ -265,7 +265,7 @@ If `TURNSTILE_SECRET_KEY` is set, `createAuthRoutes` verifies every magic-link r
 Without Turnstile, anyone can request magic links for arbitrary email addresses, generating email traffic and potentially exhausting your email sending quota. Always configure `TURNSTILE_SECRET_KEY` before deploying to production.
 :::
 
-Your frontend embeds the [Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/) and includes the resulting token as `cf-turnstile-response` in the request body alongside `email` (see [Request Magic Link](/docs/auth/auth-flow#request-magic-link) for the full request example). `createAuthRoutes` extracts it and verifies with Cloudflare before forwarding to the DO. Returns 403 if verification fails.
+Your frontend embeds the [Turnstile widget](https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/) and includes the resulting token as `cf-turnstile-response` in the request body alongside `email` (see [Request Magic Link](/docs/auth/endpoints#request-magic-link) for the full request example). `createAuthRoutes` extracts it and verifies with Cloudflare before forwarding to the DO. Returns 403 if verification fails.
 
 ### Authenticated Routes: Rate Limiter {#rate-limiter}
 

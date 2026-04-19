@@ -21,7 +21,7 @@ describe('Auth Endpoint Examples', () => {
 
   describe('Authentication Endpoints', () => {
 
-    // Matches auth-flow.mdx — Request Magic Link (no Turnstile)
+    // Matches endpoints.mdx — Request Magic Link (no Turnstile)
     it('request magic link', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -35,7 +35,7 @@ describe('Auth Endpoint Examples', () => {
       expect(response.status).toBe(200);
     }, { timeout: 5000 });
 
-    // Matches auth-flow.mdx and getting-started.mdx — Magic Link with Turnstile
+    // Matches endpoints.mdx and getting-started.mdx — Magic Link with Turnstile
     it('request magic link with turnstile', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -61,7 +61,7 @@ describe('Auth Endpoint Examples', () => {
       );
     }, { timeout: 5000 });
 
-    // Matches auth-flow.mdx and testing.mdx — Test Mode Magic Link
+    // Matches endpoints.mdx and testing.mdx — Test Mode Magic Link
     it('request magic link test mode', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -82,7 +82,7 @@ describe('Auth Endpoint Examples', () => {
       );
     }, { timeout: 5000 });
 
-    // Matches auth-flow.mdx — Refresh Token
+    // Matches endpoints.mdx — Refresh Token
     it('refresh token', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);
@@ -101,7 +101,7 @@ describe('Auth Endpoint Examples', () => {
       expect(body.access_token).toBeDefined();
     }, { timeout: 5000 });
 
-    // Matches auth-flow.mdx — Logout
+    // Matches endpoints.mdx — Logout
     it('logout', async () => {
       const browser = new Browser();
       const fetch = (url: string, init?: RequestInit) => browser.fetch(`https://localhost${url}`, init);

@@ -4,11 +4,15 @@
 **Depends on:** nebula-5.2.5-multi-resource-queries.md (for hydration layer)
 **Blog post:** [Write Your Types Once](/blog/write-your-types-once)
 
+> **Tag vocabulary note (2026-04-18):** The tag names in this file (`@min`, `@max`, `@format`, `@default`) reflect the original proof-of-concept vocabulary. The *canonical* tag vocabulary is decided in **5.2.4.1 Phase 3**, which aligns to typia's conventions (likely `@minimum`, `@maximum`, `@pattern`). When this task picks up, reconcile examples against whatever 5.2.4.1 pinned — 5.2.4.1's decisions take precedence.
+>
+> **Scope change (2026-04-18):** `@default` is no longer part of this task — it was absorbed into **5.2.4.1** (the parse-validate package's generated `parse()` fills defaults as part of validation). `extractTypeMetadata()` in the new `@lumenize/ts-runtime-parser-validator` already collects `@default` JSDoc tags. This task now covers only the validation-constraint tags (`@min`/`@max`/`@format` and their typia-aligned names).
+
 ---
 
 ## Goal
 
-Use JSDoc annotations in TypeScript interface definitions to express value constraints, defaults, and query filters — eliminating the need for separate Zod schemas, Prisma decorators, or SQL constraints.
+Use JSDoc annotations in TypeScript interface definitions to express value constraints and query filters — eliminating the need for separate Zod schemas, Prisma decorators, or SQL constraints. (Defaults via `@default` already shipped in 5.2.4.1 — see the scope-change note above.)
 
 ## JSDoc Value Constraints
 
@@ -42,18 +46,17 @@ ts.getJSDocTags(priorityNode) → [
 
 ### Implementation
 
-`extractTypeMetadata()` already walks property signatures. Add `ts.getJSDocTags(member)` call to collect annotations. After tsc type-checking passes, do a second pass validating values against the collected constraints.
-
-**Consider:** Move defaults from the current separate field to JSDoc too, for consistency.
+`extractTypeMetadata()` in `@lumenize/ts-runtime-parser-validator` already walks property signatures and already calls `ts.getJSDocTags(member)` to collect `@default` tags (added in 5.2.4.1). Extend that same pass to collect `@min`/`@max`/`@format` (and whatever typia-aligned names 5.2.4.1 Phase 3 pinned). Enforcement happens inside the generated `parse()` — typia's own constraint tags cover most of what we need, so in many cases this reduces to "pass the canonical tag name through and let typia emit the check."
 
 ### Supported Tags (Planned)
 
 | Tag | Applies to | Example |
 |---|---|---|
-| `@default` | any | `@default false` |
 | `@min` | number | `@min 0` |
 | `@max` | number | `@max 5` |
 | `@format` | string | `@format email` |
+
+(`@default` is handled by 5.2.4.1, not this task.)
 ---
 
 ## M:N Relationships and Join Tables

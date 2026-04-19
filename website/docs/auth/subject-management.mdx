@@ -130,7 +130,7 @@ const { invited, errors } = await response.json();
 // errors: [] (or [{email, error}] for failures)
 ```
 
-Creates subject records with `adminApproved: true`, `emailVerified: false` and sends invite emails. When subjects click the invite link ([Accept Invite](/docs/auth/auth-flow#accept-invite)), `emailVerified` is set to `true` and they gain immediate access.
+Creates subject records with `adminApproved: true`, `emailVerified: false` and sends invite emails. When subjects click the invite link ([Accept Invite](/docs/auth/endpoints#accept-invite)), `emailVerified` is set to `true` and they gain immediate access.
 
 **Behavior:**
 - If email already exists and subject has `emailVerified: true` — sets `adminApproved: true` and sends invite email

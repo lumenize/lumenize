@@ -211,6 +211,33 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Get a Substack account and cross post there
 
+## @lumenize/auth
+
+- [ ] Make `@lumenize/auth` an MCP-compliant OAuth 2.1 Authorization Server (agentic access)
+  - **Why**: MCP spec (2025-06) pins remote MCP server auth to OAuth 2.1. Claude Desktop, Cursor, ChatGPT connectors all speak this. Without it, a Lumenize-backed MCP server can't auto-connect to standard MCP clients — users have to manually bolt on custom glue. This is the #1 agentic gap, not social login.
+  - **Leverages existing work**: Ed25519-signed JWTs, refresh rotation, and the RFC 8693 `act` claim (Delegation) are already in place. The `act` claim is exactly the semantic primitive Token Exchange needs — missing piece is the standards-compliant façade around it.
+  - **Endpoints/discovery to add**:
+    - `/.well-known/oauth-authorization-server` (RFC 8414) — AS metadata
+    - `/.well-known/oauth-protected-resource` (RFC 9728) — PRM discovery so clients can find the AS from the resource server
+    - `/authorize` with consent screen (OAuth 2.1 + PKCE mandatory)
+    - `/token` supporting authorization_code grant, refresh_token grant, and `urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693) — token exchange wraps the existing `delegated-token` flow
+    - `/register` — Dynamic Client Registration (RFC 7591) so MCP clients can self-register without pre-provisioned credentials
+    - Resource Indicators (RFC 8707) honored in `/authorize` and `/token` so tokens are scoped to the specific MCP server
+  - **Open design questions**: consent screen UX (reuse admin approval email pattern?), client storage (new DO, or extend auth DO?), scope model (start coarse: `mcp:read`, `mcp:write`?), token format (keep current JWT shape or add audience-bound variant?)
+  - **References**: [MCP auth spec](https://modelcontextprotocol.io/specification/basic/authorization), [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7591](https://datatracker.ietf.org/doc/html/rfc7591), [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728), [RFC 8707](https://datatracker.ietf.org/doc/html/rfc8707)
+  - **Scope**: Big enough to promote to its own task file (`tasks/auth-oauth-provider.md`) when scheduled
+
+- [ ] Add OpenID Connect provider endpoints so other apps can "Sign in with Lumenize"
+  - **Why**: Federated identity provider capability — lets a Lumenize deployment serve as the IdP for third-party apps, SSO out to other tools, etc. Medium severity — matters if customers want to wire their Lumenize account into other SaaS, less critical than the MCP flow.
+  - **What OIDC adds on top of OAuth 2.1**:
+    - `/.well-known/openid-configuration` — OIDC discovery document (superset of `oauth-authorization-server`)
+    - `openid` scope triggers issuance of an ID token alongside the access token
+    - ID token is a JWT with identity claims (`sub`, `email`, `email_verified`, `name`, etc.) signed by the same Ed25519 key chain
+    - `/userinfo` endpoint (optional but expected) for clients to fetch additional claims
+    - JWKS endpoint (`/.well-known/jwks.json`) publishing the public signing keys — we already have key rotation, just need to expose it
+  - **Dependency**: Much of this rides on the OAuth 2.1 AS work above (discovery, `/authorize`, `/token`, consent). Natural follow-on, not independent.
+  - **References**: [OIDC Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html), [OIDC Discovery 1.0](https://openid.net/specs/openid-connect-discovery-1_0.html)
+
 ## Nebula Auth
 
 - [ ] Integrate Cloudflare Account Abuse Protection for disposable email and email risk detection

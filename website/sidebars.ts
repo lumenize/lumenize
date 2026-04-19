@@ -206,7 +206,7 @@ const sidebars: SidebarsConfig = {
         'auth/getting-started',
         'auth/hono',
         'auth/configuration',
-        'auth/auth-flow',
+        'auth/endpoints',
         'auth/subject-management',
         'auth/delegation',
         'auth/testing',
