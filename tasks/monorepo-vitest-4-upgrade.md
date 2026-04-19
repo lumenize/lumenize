@@ -13,7 +13,7 @@ This task was carved out of 5.2.4.1 Phase 1 on 2026-04-19 when the peer-dep cons
 ## Scope
 
 **In scope:**
-- Bump `vitest`, `@cloudflare/vitest-pool-workers`, `@vitest/coverage-istanbul` across every `package.json` that pins them (23 files identified on 2026-04-19 — `packages/*`, `apps/nebula`, `tooling/email-test`, `tooling/doc-testing`, `lumenize-monolith`, `doc-test/*/*`). Keep peer-dep versions consistent with dev-dep versions inside each package.
+- Bump `vitest`, `@cloudflare/vitest-pool-workers`, `@vitest/coverage-istanbul` across every `package.json` that pins them (24 files identified on 2026-04-19 — `packages/*`, `apps/nebula`, `tooling/email-test`, `doc-test/*/*`; `tooling/doc-testing` and `lumenize-monolith` are deliberately skipped, see Phase 2). Keep peer-dep versions consistent with dev-dep versions inside each package.
 - Fix any vitest 3→4 breaking changes that surface: config shape (`defineWorkersProject` changes, if any), reporter API, watch mode, `globals` semantics, `coverage.include/exclude` path globbing — whatever actually breaks when tests run.
 - Re-run each package's test suite and verify it passes. Don't touch tests that pass unchanged.
 - Update any vitest config files (`vitest.config.js` / `.ts`) that need shape changes.
@@ -22,7 +22,7 @@ This task was carved out of 5.2.4.1 Phase 1 on 2026-04-19 when the peer-dep cons
 - Any non-upgrade refactoring, even if tempting while in a config file.
 - Test rewrites beyond what the upgrade forces. If a test was flaky before, it stays flaky now.
 - Fixing unrelated type-check or lint issues that surface.
-- Touching `tooling/doc-testing`'s `vitest@^2.1.8` pin **unless** it breaks something else. That's a very old pin and may be intentional (generated-test harness); investigate before upgrading.
+- Touching `tooling/doc-testing`'s `vitest@^2.1.8` pin or `lumenize-monolith`'s pins. Both are deliberately skipped — see Phase 2 notes for rationale.
 - Bumping wrangler or miniflare independently. Accept whatever vitest-pool-workers 0.14.x pulls in.
 
 ## Known Breaking Changes to Watch For
@@ -40,10 +40,10 @@ Skim the [vitest 4.0 migration guide](https://vitest.dev/guide/migration) before
 
 `0.13.x` is the breaking release that adds vitest 4 support and drops vitest 2 / 3 support. Known-breaking items sourced from the [workers-sdk tracking issue #11064](https://github.com/cloudflare/workers-sdk/issues/11064) and [Cloudflare vitest-integration docs](https://developers.cloudflare.com/workers/testing/vitest-integration/):
 
-- **`isolatedStorage`**** removed** — the per-test isolation option is gone. Storage isolation is now per-**test file** by default, matching Vitest's worker model. Our convention has been to run with `isolatedStorage: false` and get isolation by using a fresh DO id per test, which lines up with the new default. **Our strategy for this upgrade**: stay on fresh-DO-per-test. Audit every `vitest.config.*` for `isolatedStorage: true` (explicit or defaulted-on in older pool versions) — any such test was relying on per-test reset, and will need to be rewritten to use a fresh DO id per test. We explicitly don't want to go the `beforeEach`/`afterEach` + `deleteAll()` route (serializes/couples tests) or the `--max-workers=1 --no-isolate` route (reduces parallelism).
-- **`singleWorker`**** removed** — same simpler-isolation-model rationale. Remove from configs; rely on the default.
-- **`import { env, SELF } from "cloudflare:test"`**** removed** — replaced by `import { env, exports } from "cloudflare:workers"`. `SELF` specifically maps to an entry in `exports`. Every `for-docs` and integration test in the repo imports from `cloudflare:test` — expect lots of mechanical edits here, and the codemod (below) handles most of them.
-- **`import { fetchMock } from "cloudflare:test"`**** removed** — find alternate mocking approach (likely Vitest's built-in `vi.stubGlobal('fetch', ...)` or MSW). Grep for `fetchMock` usages before starting so we know the blast radius.
+- **`isolatedStorage`**** removed** — the per-test isolation option is gone. Storage isolation is now per-**test file** by default, matching Vitest's worker model. **In this repo this is a mechanical removal**: a pre-flight grep on 2026-04-19 confirmed every `isolatedStorage` occurrence in every real `vitest.config.*` is already `false`, and our tests already get isolation by using a fresh DO id per test. Just delete the option from each config. We explicitly don't want to go the `beforeEach`/`afterEach` + `deleteAll()` route (serializes/couples tests) or the `--max-workers=1 --no-isolate` route (reduces parallelism).
+- **`singleWorker`**** removed** — same simpler-isolation-model rationale. Pre-flight grep confirmed zero occurrences in real configs, so nothing to remove.
+- **`import { env, SELF } from "cloudflare:test"`**** removed** — replaced by `import { env, exports } from "cloudflare:workers"`. `SELF` specifically maps to an entry in `exports`. 71 source files across `packages/*`, `apps/nebula`, `tooling/email-test`, and `doc-test/*/*` import from `cloudflare:test` — expect lots of mechanical edits here, and the codemod (below) handles most of them. `@lumenize/testing`'s `src/` does **not** re-export anything from `cloudflare:test`, so this is internal-test-only churn, not a semver break for downstream consumers.
+- **`import { fetchMock } from "cloudflare:test"`**** removed** — pre-flight grep on 2026-04-19 confirmed zero usages in this repo, so no substitute needed. Leaving this bullet here as a sanity check if the codebase changes before the task runs.
 - **Codemod available**: `npx jscodeshift -t node_modules/@cloudflare/vitest-pool-workers/dist/codemods/vitest-v3-to-v4.mjs vitest.config.ts`. Run it on every `vitest.config.*` in the repo; review its diff rather than trusting it blindly.
 - **Istanbul coverage + Vite 8 regression**: [workers-sdk #12994](https://github.com/cloudflare/workers-sdk/issues/12994) reported `TypeError: template is not a function` when running Istanbul coverage against pool-workers 0.13.x on Vite 8. Marked done as duplicate of #12951 — verify it's actually fixed on whatever version Phase 1 settles on. If not, pin to a fixed patch or skip coverage on affected packages for this upgrade and file a follow-up.
 - [**#12889**](https://github.com/cloudflare/workers-sdk/issues/12889)** is not a way out**: the issue was closed by confirming `ctx.storage.deleteAll()` works, so tests *could* implement their own reset in `beforeEach`/`afterEach`. We're deliberately not going that route — see the `isolatedStorage` bullet above. Fresh-DO-per-test is the strategy; this issue is a non-solution for us.
@@ -66,21 +66,21 @@ Establish ground truth on the current `vitest@3.2.4` setup before touching anyth
 
 ## Phase 1: Inventory and Dry Run
 
-- Run `npm install --dry-run` with the bumped versions in one package (recommend `packages/debug/` — smallest surface, no Workers pool) to confirm the resolution graph works.
+- Run `npm install --dry-run` with the bumped versions in two canary packages to confirm the resolution graph works: **(1)** `packages/debug/` — smallest surface, pure vitest, no Workers pool; **(2)** `packages/routing/` — uses pool-workers but small test surface, so it flushes out pool-workers resolution without triggering the `packages/mesh`-scale dependency churn that `packages/fetch` would.
 - List the exact resolved versions for `vitest`, `@vitest/*`, `@cloudflare/vitest-pool-workers`, `miniflare`, `workerd`. Record here before making actual changes.
 - Skim the vitest 4 migration guide for anything that might affect our config style (ESM-only config files, `defineWorkersProject` wrapper changes, pool API changes in 0.13/0.14).
 - Verify the Istanbul-coverage regression ([workers-sdk #12994](https://github.com/cloudflare/workers-sdk/issues/12994) / #12951) is fixed in the pool-workers patch we land on. If not, pin to a fixed patch or skip coverage on affected packages and file a follow-up. Capture the decision here.
-- **Audit what the pool-workers breaking changes touch in our codebase** — grep across the repo and record counts so we know the blast radius before Phase 2:
-  - `isolatedStorage` in any `vitest.config.*` — list each config. Any `isolatedStorage: true` (or configs that never set it when the old default was `true`) need test-level review, not just mechanical edits.
-  - `singleWorker` in any `vitest.config.*`.
-  - `from "cloudflare:test"` imports — especially `SELF`, `env`, `fetchMock`.
-  - `fetchMock` usages — these have no direct replacement, plan the substitute (likely `vi.stubGlobal` or MSW) before touching code.
+- **Audit what the pool-workers breaking changes touch in our codebase** — the pre-flight grep on 2026-04-19 already captured the blast radius below; refresh these counts at task start if the repo has drifted:
+  - `isolatedStorage`: every real occurrence is already `false`, mechanical removal only.
+  - `singleWorker`: zero occurrences in real configs.
+  - `from "cloudflare:test"` imports: 71 files (codemod + manual cleanup).
+  - `fetchMock` usages: zero.
 
 **Success Criteria**:
 - [ ] Resolved versions recorded here
 - [ ] Migration-guide risks cataloged (list of things to actively check)
 - [ ] Istanbul-coverage regression status confirmed (fixed on target version, or workaround chosen)
-- [ ] Audit counts recorded for `isolatedStorage`, `singleWorker`, `cloudflare:test` imports, and `fetchMock` usages — with a plan for any `isolatedStorage: true` config or `fetchMock` usage
+- [ ] Audit counts refreshed if repo has drifted since 2026-04-19
 
 ## Phase 2: Bump + Fix
 
@@ -89,26 +89,33 @@ Establish ground truth on the current `vitest@3.2.4` setup before touching anyth
   - `@cloudflare/vitest-pool-workers`: `0.12.21` / older → `^0.14.7` (or latest compatible)
   - `@vitest/coverage-istanbul`: `3.2.4` → match vitest's minor
   - `peerDependencies` in each package must track the devDependencies so downstream consumers see consistent ranges
-- `lumenize-monolith` currently pins `@cloudflare/vitest-pool-workers@^0.8.47` and `vitest@~3.2.3` — likely needs a larger jump; if the package is still actively used, upgrade it alongside everything else. If it's deprecated legacy, skip it and note here.
-- `tooling/email-test` pins `@cloudflare/vitest-pool-workers@^0.9.3` — similar situation, verify and decide.
-- `tooling/doc-testing` pins `vitest@^2.1.8` — keep if nothing forces it, upgrade only if it breaks under the new resolution.
+- `lumenize-monolith` — **deprecated legacy, skip**. Confirmed 2026-04-19: retained only for reference cherry-picks, not actively used. Leave the `@cloudflare/vitest-pool-workers@^0.8.47` / `vitest@~3.2.3` pins alone. If `npm install` resolution complains, unlink it from the root workspace rather than upgrading it.
+- `tooling/email-test` — **active, upgrade normally**. Confirmed 2026-04-19: imported by `packages/auth/test/e2e-email/email-test-helpers.ts`. Bump from pool-workers `^0.9.3` to the target version; larger jump but no special handling needed.
+- `tooling/doc-testing` — **intentional pin, skip**. Confirmed 2026-04-19: `vitest@^2.1.8` is a deliberate pin on a tool slated for removal; not worth upgrading. If resolution forces a bump, unlink it from the root workspace before bumping.
+- Delete stale vite config cache files and gitignore them: `git rm` every `vitest.config.js.timestamp-*.mjs` under `packages/testing/` and `packages/routing/`; add `vitest.config.*.timestamp-*.mjs` to the root `.gitignore`. These are build artifacts that shouldn't have been committed.
 - Run `npm install` at the root. Resolve any `ERESOLVE` conflicts.
 - Run the pool-workers codemod on every `vitest.config.*` in the repo: `npx jscodeshift -t node_modules/@cloudflare/vitest-pool-workers/dist/codemods/vitest-v3-to-v4.mjs <config>`. Review the diff per file — don't trust it blindly.
-- Migrate `cloudflare:test` imports that the codemod didn't catch: `env` and `SELF` → `cloudflare:workers` (`SELF` becomes an `exports` entry); remove `fetchMock` usages and swap in the substitute chosen in Phase 1.
-- For every config that was relying on `isolatedStorage: true` (per the Phase 1 audit), review the affected tests. If they pass on the new per-test-file model, great. If they depend on per-test storage reset, rewrite them to use a fresh DO id per test (our existing pattern). Do not fall back to `beforeEach`/`afterEach` + `deleteAll()` or `--max-workers=1 --no-isolate`.
+- Migrate `cloudflare:test` imports that the codemod didn't catch: `env` and `SELF` → `cloudflare:workers` (`SELF` becomes an `exports` entry). No `fetchMock` cleanup needed — confirmed zero usages in Phase 1.
+- Remove every `isolatedStorage: false` line from each `vitest.config.*` — pre-flight confirmed all occurrences are already `false`, which matches the new default, so this is a pure deletion. If any config errors under the new pool because the key isn't recognized, just delete it.
+- Add `'json-summary'` to every `coverage.reporter` array alongside the existing reporters so `coverage/coverage-summary.json` is emitted for machine-readable diffing across the Phase 0/Phase 2 boundary. Applies to every package-under-coverage's `vitest.config.*` (not `doc-test/*/*`).
 - Run `npm run types` — regenerate worker-configuration.d.ts for every package (newer wrangler may emit a different shape).
 - Run `npm run test` from the monorepo root and fix failures. Most failures should be config-shape issues, not real test bugs. Apply the same cold-start rule as Phase 0: a test that fails once then passes on re-run is a known flake, not an upgrade regression. Compare the post-upgrade failure set against the Phase 0 baseline before blaming vitest 4.
-- **User runs ****`npm run coverage`** (same sandbox-PATH constraint as Phase 0) and produces a **complete before/after comparison report** in this file: for every package, the Phase 0 baseline percentages vs. the post-upgrade percentages (branch, statement, line). Claude can help by reading the per-package coverage output files after the user's run completes. Call out any package where coverage regressed — a drop is either a new Istanbul-instrumentation gap (see #12994) or a test that stopped running, both of which need investigation before declaring the upgrade done.
-- **Audit \****`@lumenize/testing`****\*\*\*\* docs****\*\* in ****\*******`website/docs/testing/`****\* (****\*******`usage.mdx`****\*, ****\*******`agents.mdx`****\*, ****\*******`cors-support.mdx`****\*). ****\*******`@check-example`****\* blocks get caught automatically by ****\*******`npm run test:doc`****\*, so fix any failures there first. The bigger risk is ****\*\*unchecked config snippets****\*\* — \`vitest.config.*` examples that show `defineWorkersProject`, `isolatedStorage`, `singleWorker`, `import ... from "cloudflare:test"`, or `fetchMock`. Two of the three files (`usage.mdx`, `agents.mdx`) have zero `@check-` annotations, so every code block in them is unvalidated — hand-read each and update anything that uses the old shape to the new one.
+- **User runs ****`npm run coverage`** (same sandbox-PATH constraint as Phase 0) and produces a **complete before/after comparison report** in this file: for every package, the Phase 0 baseline percentages vs. the post-upgrade percentages (branch, statement, line). With the `json-summary` reporter added above, Claude reads each package's `coverage/coverage-summary.json` to produce the diff automatically. Call out any package where coverage regressed — a drop is either a new Istanbul-instrumentation gap (see #12994) or a test that stopped running, both of which need investigation before declaring the upgrade done.
+- **Audit documentation code blocks for vitest 4 shape changes.** Two scopes:
+  - `website/docs/testing/` — `usage.mdx`, `agents.mdx`, `cors-support.mdx`. `usage.mdx` and `agents.mdx` have zero `@check-` annotations, so every block is unvalidated; hand-read each.
+  - `website/docs/rpc/` — `quick-start.mdx`, `operation-chaining-and-nesting.mdx`, `capn-web-comparison-basics-and-types.mdx`, `capn-web-comparison-just-works.mdx`, `capn-web-comparison-performance.mdx` all import from `cloudflare:test`.
+  `@check-example` blocks get caught automatically by `npm run test:doc`, so fix failures there first. The bigger risk is unchecked config snippets — `vitest.config.*` examples showing `defineWorkersProject`, `isolatedStorage`, `singleWorker`, `import ... from "cloudflare:test"`, or `fetchMock`. Update anything that uses the old shape to the new one.
 - Record any vitest config shape changes that needed to propagate to every package.
 
 **Success Criteria**:
-- [ ] All 23 `package.json` files updated (or documented reasons for skipping)
+- [ ] All 24 in-scope `package.json` files updated (`lumenize-monolith` and `tooling/doc-testing` explicitly skipped per Phase 2 notes)
 - [ ] `npm install` clean (no `ERESOLVE`, no `--legacy-peer-deps`)
+- [ ] Stale `vitest.config.js.timestamp-*.mjs` files removed and gitignored
 - [ ] `npm run test` (from repo root) passes cleanly against the Phase 0 baseline — no new failures beyond the known cold-start flake list
 - [ ] `npm run type-check` clean
+- [ ] `json-summary` reporter added to every package-under-coverage's `vitest.config.*`
 - [ ] Complete before/after coverage comparison recorded; any regressed package investigated and either resolved or documented with a follow-up
-- [ ] `website/docs/testing/` audited; checked examples pass and unchecked config snippets updated to the new shape
+- [ ] `website/docs/testing/` and `website/docs/rpc/` audited; checked examples pass and unchecked config snippets updated to the new shape
 - [ ] No new `@ts-ignore` / `@ts-expect-error` / `as any` added to silence upgrade fallout — fix the underlying typing issue or file a follow-up
 
 ## Phase 3: Facet Smoke Test
@@ -127,5 +134,5 @@ If something catastrophic surfaces mid-upgrade (e.g., vitest-pool-workers 0.14 h
 
 ## Notes
 
-- The 23-file inventory was taken 2026-04-19 — if this task sits for a while before being picked up, re-run `grep '"vitest":' **/package.json` to get a fresh count.
+- The 24-file inventory was taken 2026-04-19 (plus `tooling/doc-testing` and `lumenize-monolith` deliberately skipped) — if this task sits for a while before being picked up, re-run `grep '"vitest":' **/package.json` to get a fresh count.
 - When this task completes, update `tasks/nebula-5.2.4.1-validator-engine-upgrade.md`'s **Current State** section: change the Status back to "Phase 1 in progress" and remove the blocker line.
