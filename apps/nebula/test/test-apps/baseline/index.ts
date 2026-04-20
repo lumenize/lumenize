@@ -109,7 +109,7 @@ export class NebulaClientTest extends NebulaClient {
 
   callStarWhoAmI(starInstanceName: string): void {
     this.resetResults();
-    const remote = this.ctn<Star>().whoAmI();
+    const remote = this.ctn<StarTest>().whoAmI();
     this.lmz.call('STAR', starInstanceName, remote, this.ctn().handleResult(remote));
   }
 

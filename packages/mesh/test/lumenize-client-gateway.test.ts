@@ -149,7 +149,7 @@ describe('LumenizeClientGateway', () => {
 
       // Skip connection_status message
       const connectionStatusPromise = new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -179,7 +179,7 @@ describe('LumenizeClientGateway', () => {
       // Set up response listener
       // Gateway sends CALL_RESPONSE via JSON.stringify with result: preprocess(result)
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -241,7 +241,7 @@ describe('LumenizeClientGateway', () => {
 
       // Skip connection_status
       await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -267,7 +267,7 @@ describe('LumenizeClientGateway', () => {
       };
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -332,7 +332,7 @@ describe('LumenizeClientGateway', () => {
       ws.accept();
 
       const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -394,7 +394,7 @@ describe('LumenizeClientGateway', () => {
       };
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws2.addEventListener('message', function handler(event) {
+        ws2.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws2.removeEventListener('message', handler);
@@ -547,7 +547,7 @@ describe('LumenizeClientGateway', () => {
       ws.accept();
 
       await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -572,7 +572,7 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -606,7 +606,7 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -637,7 +637,7 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -669,7 +669,7 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -710,7 +710,7 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -742,7 +742,7 @@ describe('LumenizeClientGateway', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -798,7 +798,7 @@ describe('LumenizeClientGateway', () => {
 
       // Skip connection_status message
       await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -889,7 +889,7 @@ describe('LumenizeClientGateway', () => {
       ws.accept();
 
       await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -924,7 +924,7 @@ describe('LumenizeClientGateway', () => {
       ws2.accept();
 
       const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
-        ws2.addEventListener('message', function handler(event) {
+        ws2.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws2.removeEventListener('message', handler);
@@ -955,7 +955,7 @@ describe('LumenizeClientGateway', () => {
       ws.accept();
 
       await new Promise<void>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws.removeEventListener('message', handler);
@@ -990,7 +990,7 @@ describe('LumenizeClientGateway', () => {
       ws2.accept();
 
       const statusMessage = await new Promise<ConnectionStatusMessage>((resolve) => {
-        ws2.addEventListener('message', function handler(event) {
+        ws2.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
             ws2.removeEventListener('message', handler);
@@ -1043,7 +1043,7 @@ describe('CustomGateway (hook overrides)', () => {
     ws.accept();
 
     await new Promise<void>((resolve) => {
-      ws.addEventListener('message', function handler(event) {
+      ws.addEventListener('message', function handler(event: MessageEvent) {
         const msg = JSON.parse(event.data as string);
         if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
           ws.removeEventListener('message', handler);
@@ -1065,7 +1065,7 @@ describe('CustomGateway (hook overrides)', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -1111,7 +1111,7 @@ describe('CustomGateway (hook overrides)', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -1166,7 +1166,7 @@ describe('CustomGateway (hook overrides)', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -1210,7 +1210,7 @@ describe('CustomGateway (hook overrides)', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);
@@ -1270,6 +1270,11 @@ describe('CustomGateway (hook overrides)', () => {
             bindingName: 'BLOCKED_BINDING',
             instanceName: 'some-instance',
           },
+          callee: {
+            type: 'LumenizeDO',
+            bindingName: 'CUSTOM_GATEWAY',
+            instanceName,
+          },
         },
       };
 
@@ -1292,7 +1297,7 @@ describe('CustomGateway (hook overrides)', () => {
 
       // Set up listener for the incoming call on the client side
       const incomingCallPromise = new Promise<IncomingCallMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.INCOMING_CALL) {
             ws.removeEventListener('message', handler);
@@ -1314,6 +1319,11 @@ describe('CustomGateway (hook overrides)', () => {
             type: 'LumenizeDO',
             bindingName: 'ALLOWED_BINDING',
             instanceName: 'some-instance',
+          },
+          callee: {
+            type: 'LumenizeDO',
+            bindingName: 'CUSTOM_GATEWAY',
+            instanceName,
           },
         },
       };
@@ -1355,7 +1365,7 @@ describe('CustomGateway (hook overrides)', () => {
       ]);
 
       const responsePromise = new Promise<CallResponseMessage>((resolve) => {
-        ws.addEventListener('message', function handler(event) {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
           const msg = JSON.parse(event.data as string);
           if (msg.type === GatewayMessageType.CALL_RESPONSE) {
             ws.removeEventListener('message', handler);

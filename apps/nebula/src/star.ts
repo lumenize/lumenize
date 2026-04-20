@@ -93,6 +93,9 @@ export class Star extends NebulaDO {
   @mesh()
   transaction(ontologyVersion: string, ops: Record<string, OperationDescriptor>) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('transaction requires a client origin with instanceName in callChain[0]');
+    }
 
     if (this.#hasOntologyVersion(ontologyVersion)) {
       // Cache hit — execute directly, skip Galaxy entirely
@@ -167,6 +170,9 @@ export class Star extends NebulaDO {
   @mesh()
   read(ontologyVersion: string, resourceId: string) {
     const clientId = this.lmz.callContext.callChain[0]?.instanceName;
+    if (!clientId) {
+      throw new Error('read requires a client origin with instanceName in callChain[0]');
+    }
 
     if (this.#hasOntologyVersion(ontologyVersion)) {
       this.doRead(null, ontologyVersion, resourceId, clientId);

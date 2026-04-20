@@ -339,7 +339,7 @@ async function verifyAndGateJwt(
 
 async function checkJwtForInstance(
   request: Request,
-  env: Env,
+  env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit },
   instanceName: string,
 ): Promise<Response | null> {
   // Extract token from Bearer header or WebSocket subprotocol
@@ -382,7 +382,7 @@ async function checkJwtForInstance(
 
 async function checkJwtForRegistry(
   request: Request,
-  env: Env,
+  env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit },
 ): Promise<{ payload: NebulaJwtPayload } | { error: Response }> {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {

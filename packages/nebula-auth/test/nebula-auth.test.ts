@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { parseJwtUnsafe, importPublicKey, verifyJwt } from '@lumenize/auth';
 import { NEBULA_AUTH_PREFIX } from '../src/types';
+import type { NebulaJwtPayload } from '../src/types';
 
 const PREFIX = NEBULA_AUTH_PREFIX; // '/auth'
 
@@ -589,7 +590,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       }));
       expect(resp.status).toBe(200);
       const body = await resp.json() as any;
-      const jwt = parseJwtUnsafe(body.access_token)!.payload;
+      const jwt = parseJwtUnsafe(body.access_token)!.payload as unknown as NebulaJwtPayload;
       expect(jwt.aud).toBe(instanceName);
       expect(jwt.access.authScopePattern).toBe(instanceName);
     });
@@ -877,7 +878,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       const body = await resp.json() as any;
       const delegated = parseJwtUnsafe(body.access_token)!.payload;
       expect(delegated.sub).toBe(user.parsed.sub); // acting as user
-      expect(delegated.act.sub).toBe(admin.parsed.sub); // actor is admin
+      expect(delegated.act?.sub).toBe(admin.parsed.sub); // actor is admin
     });
 
     it('non-admin without authorization cannot delegate', async () => {
@@ -965,7 +966,7 @@ describe('@lumenize/nebula-auth - NebulaAuth DO', () => {
       const jwt = parseJwtUnsafe(body.access_token)!.payload;
       expect(jwt.aud).toBe(targetScope);
       expect(jwt.sub).toBe(user.parsed.sub);
-      expect(jwt.act.sub).toBe(admin.parsed.sub);
+      expect(jwt.act?.sub).toBe(admin.parsed.sub);
     });
 
     it('rejects delegation without Content-Type header', async () => {
