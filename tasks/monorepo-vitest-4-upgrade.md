@@ -248,7 +248,12 @@ Target pins for `package.json` edits in Phase 2:
 | nebula | -0.23 | 0 | -0.72 | -0.15 | Tiny; likely new code since baseline |
 
 **Known issues carried forward as backlog items (`tasks/backlog.md`)**:
-1. Mesh cross-test pollution — 2-3 tests fail when the full file runs, pass in isolation. Not migration-caused; vitest 4's stricter test scheduling exposes pre-existing interdependencies. **Will be fixed next.**
+1. Mesh cross-test pollution — 4 tests flake when the full file runs, pass in isolation. Not migration-caused; vitest 4's stricter test scheduling exposes pre-existing interdependencies. **Will be fixed next.** Observed failures (different subsets fail on different runs):
+   - `test/lumenize-do.test.ts > @lumenize/mesh - NADIS Auto-injection > SQL Injectable > auto-injects sql service` — `AssertionError: expected undefined to match object { id: 'user1', name: 'Alice', age: 30 }`. Seen in main/test runs + coverage runs.
+   - `test/for-docs/calls/index.test.ts > newChain: true breaks call chain so recipients see DO as origin` — `AssertionError: expected 0 to be greater than 0` inside a `vi.waitFor` block. Seen most often.
+   - `test/lumenize-client-gateway.test.ts > LumenizeClientGateway > Grace period and alarm > reconnect within grace period reports subscriptionRequired: false` — `AssertionError: expected true to be false`. Seen intermittently.
+   - `test/alarms.test.ts > Alarms > Alarm Management > lists all schedules` — `AssertionError: expected 2 to be greater than or equal to 3`. Seen once during coverage run.
+   Each passes individually via `-t '<test name>'` or when only the containing describe block runs. Suspected causes: shared DO instance name collision across tests, module-level singleton in `@lumenize/mesh` accumulating state, or a test teardown that doesn't settle before the next test starts.
 2. Remove `dangerouslyIgnoreUnhandledErrors: true` flag — audit + fix each unhandled rejection (add `.catch` or proper `await`).
 3. RPC call-site `await` audit + turn off SonarQube `no-return-await` rule — Cloudflare best practice vs. a retracted ESLint rule.
 4. `packages/testing/test/unit/websocket-shim.test.ts` — 3 type errors from vitest 4's stricter `vi.fn()` return type. Use `vi.fn<typeof fetch>()`.
