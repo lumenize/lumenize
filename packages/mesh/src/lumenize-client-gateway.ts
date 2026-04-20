@@ -10,7 +10,22 @@ import type { NodeIdentity, NodeType, CallContext, OriginAuth } from './types.js
 // ============================================
 
 /** Grace period before marking subscriptions as lost (5 seconds) */
-const GRACE_PERIOD_MS = 5000;
+const PRODUCTION_GRACE_PERIOD_MS = 5000;
+
+/**
+ * Test-mode grace period (60 seconds). Used only when `LUMENIZE_MESH_TEST_MODE === 'true'`.
+ *
+ * The production default (5 s) is generous relative to real-world reconnect latencies —
+ * even a mobile-network handoff or a tab wake-up typically completes in < 1 s, and a
+ * gateway DO serves a single user's WebSocket so CPU pressure on the DO itself is never
+ * the bottleneck. In the test environment this invariant breaks: vitest runs every mesh
+ * project in parallel, spinning up 10+ miniflare workers at once. Under that contention
+ * a synthetic close/reconnect cycle can take >5 s of wall-clock time, which fires the
+ * grace-period alarm mid-test and erroneously flips `subscriptionRequired` to true.
+ * Bumping to 60 s in test mode gives the reconnect plenty of headroom without changing
+ * production behavior. Production never sees this value.
+ */
+const TEST_GRACE_PERIOD_MS = 60_000;
 
 /** Timeout for client to respond to an incoming call (30 seconds) */
 const CLIENT_CALL_TIMEOUT_MS = 30000;
@@ -229,6 +244,12 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
   /** Waiters for client reconnection during grace period */
   #pendingReconnectWaiters: ReconnectWaiter[] = [];
+
+  get #gracePeriodMs(): number {
+    return (this.env as any).LUMENIZE_MESH_TEST_MODE === 'true'
+      ? TEST_GRACE_PERIOD_MS
+      : PRODUCTION_GRACE_PERIOD_MS;
+  }
 
   // ============================================
   // Extension Points (subclass overrides)
@@ -467,9 +488,9 @@ export class LumenizeClientGateway extends DurableObject<any> {
       return;
     }
 
-    // Set grace period alarm (5 seconds)
-    // If client reconnects before alarm fires, subscriptions are preserved
-    await this.ctx.storage.setAlarm(Date.now() + GRACE_PERIOD_MS);
+    // Set grace period alarm (5 seconds in production, 60 seconds in test mode).
+    // If client reconnects before alarm fires, subscriptions are preserved.
+    await this.ctx.storage.setAlarm(Date.now() + this.#gracePeriodMs);
   }
 
   /**
@@ -522,7 +543,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
       // Check if we're in grace period
       const alarm = await this.ctx.storage.getAlarm();
 
-      if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+      if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
         // In grace period - wait for reconnection
         log.info('Client disconnected, waiting for reconnect during grace period');
         await this.#waitForReconnect();
@@ -813,7 +834,7 @@ export class LumenizeClientGateway extends DurableObject<any> {
 
     const alarm = await this.ctx.storage.getAlarm();
 
-    if (alarm !== null && alarm <= Date.now() + GRACE_PERIOD_MS) {
+    if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
       // Reconnected within grace period — subscriptions still active
       return false;
     }

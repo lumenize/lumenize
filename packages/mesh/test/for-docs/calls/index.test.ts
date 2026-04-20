@@ -238,6 +238,7 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
 
   // Track callContext received in broadcasts
   const receivedContexts: CallContext[] = [];
+  const contentUpdates: string[] = [];
 
   // Setup: Alice connects and subscribes
   const aliceBrowser = new Browser();
@@ -258,15 +259,16 @@ it('newChain: true breaks call chain so recipients see DO as origin', async () =
 
   // Alice opens document with context capture callback
   const aliceDoc = alice.openDocument(documentId, {
-    onContentUpdate: () => {},
+    onContentUpdate: (content) => contentUpdates.push(content),
     onContentUpdateContext: (ctx) => receivedContexts.push(ctx),
   });
 
-  // Wait for initial subscription (empty content)
+  // Wait for the initial subscribe response (empty content for a new document) so
+  // we know the subscription is fully registered on DocumentDO before saveContent
+  // fires — otherwise the broadcast races the subscribe under CPU contention.
   await vi.waitFor(() => {
-    // The initial subscribe doesn't trigger onContentUpdateContext
-    // We just wait for connection to settle
-  }, { timeout: 500 });
+    expect(contentUpdates[0]).toBe('');
+  });
 
   // ============================================
   // Alice updates the document - triggers broadcast with { newChain: true }

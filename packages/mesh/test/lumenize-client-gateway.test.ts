@@ -901,6 +901,14 @@ describe('LumenizeClientGateway', () => {
       // Close WebSocket (not superseded) — triggers grace period alarm
       ws.close(1000, 'Normal close');
 
+      // Wait for webSocketClose to have processed the close frame and set the alarm.
+      // ws.close() only queues the frame; under CPU contention the reconnect fetch
+      // below can race ahead of webSocketClose if we don't wait.
+      await vi.waitFor(async () => {
+        const alarm = await runInDurableObject(gateway, (_instance, ctx) => ctx.storage.getAlarm());
+        expect(alarm).not.toBeNull();
+      });
+
       // Reconnect within grace period
       const token2 = createFakeJwt({ sub: 'grace', exp: Math.floor(Date.now() / 1000) + 900 });
       const response2 = await gateway.fetch('https://example.com', {
@@ -958,8 +966,14 @@ describe('LumenizeClientGateway', () => {
 
       ws.close(1000, 'Normal close');
 
-      // Fire the grace period alarm (simulates expiry)
-      await runDurableObjectAlarm(gateway);
+      // Fire the grace period alarm (simulates expiry).
+      // Retry until the alarm actually runs: ws.close() only queues the close frame,
+      // so under CPU contention webSocketClose may not have set the alarm yet when
+      // the first runDurableObjectAlarm call happens (it returns false and is a no-op).
+      await vi.waitFor(async () => {
+        const fired = await runDurableObjectAlarm(gateway);
+        expect(fired).toBe(true);
+      });
 
       // Reconnect after alarm — should report subscriptionRequired: true
       const token2 = createFakeJwt({ sub: 'grace-expired', exp: Math.floor(Date.now() / 1000) + 900 });

@@ -315,3 +315,21 @@ using client = new MyClient({
 - **`vi.waitFor()`, never `setTimeout`** — Retries assertions deterministically. Set `testTimeout` in vitest config for slow operations.
 - **One DO instance per test** — Each test should use unique instance names to avoid state sharing. (Pre-0.13 pool-workers had an `isolatedStorage: false` option for this; it's been removed — the new default matches the fresh-DO-per-test pattern.)
 - **`createTestingClient` for setup and verification** — Pre-populate storage before a test, verify state after. Combine with integration tests for full-stack coverage.
+
+## `LUMENIZE_MESH_TEST_MODE`
+
+Set this binding to `'true'` to enable test-only behavior in `@lumenize/mesh`. Currently the only effect is a longer `LumenizeClientGateway` grace period (60 s instead of 5 s), which keeps grace-period tests deterministic under the CPU contention that arises when vitest runs multiple projects in parallel. Future test-only knobs will be gated behind the same flag.
+
+Set it **only** in `miniflare.bindings` inside your `vitest.config.js` — never in `.dev.vars`, a deployed `wrangler.jsonc`, or anywhere else that could reach production.
+
+```typescript @skip-check-approved('conceptual')
+// vitest.config.js
+plugins: [cloudflareTest({
+  wrangler: { configPath: './wrangler.jsonc' },
+  miniflare: {
+    bindings: {
+      LUMENIZE_MESH_TEST_MODE: 'true',
+    },
+  },
+})],
+```

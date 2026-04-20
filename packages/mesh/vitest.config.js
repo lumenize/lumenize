@@ -18,6 +18,14 @@ const swcPlugin = swc.vite({
   },
 });
 
+// Bindings set on every project's miniflare instance. LUMENIZE_MESH_TEST_MODE
+// enables test-only behavior in @lumenize/mesh source (currently: longer
+// LumenizeClientGateway grace period to tolerate CPU contention from parallel
+// miniflare workers). Never set in .dev.vars or a deployed wrangler.jsonc.
+const testModeBindings = {
+  LUMENIZE_MESH_TEST_MODE: 'true',
+};
+
 export default defineConfig({
   test: {
     testTimeout: 2000, // 2 second global timeout
@@ -52,6 +60,7 @@ export default defineConfig({
         extends: true,
         plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
         })],
         test: {
           name: 'main',
@@ -74,6 +83,7 @@ export default defineConfig({
         extends: true,
         plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/getting-started/test/wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
         })],
         test: {
           name: 'getting-started',
@@ -85,6 +95,7 @@ export default defineConfig({
         extends: true,
         plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
         })],
         test: {
           name: 'calls',
@@ -96,6 +107,7 @@ export default defineConfig({
         extends: true,
         plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/alarms/test/wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
         })],
         test: {
           name: 'alarms',
@@ -107,6 +119,7 @@ export default defineConfig({
         extends: true,
         plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/security/test/wrangler.jsonc' },
+          miniflare: { bindings: testModeBindings },
         })],
         test: {
           name: 'security',
