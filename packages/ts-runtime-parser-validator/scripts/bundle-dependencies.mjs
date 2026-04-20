@@ -22,12 +22,42 @@ import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
+const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const outDir = resolve(__dirname, '../dist');
 const outfile = resolve(outDir, 'deps.bundle.mjs');
 
 mkdirSync(outDir, { recursive: true });
+
+// Capture the TypeScript lib files typia needs to classify types (isArrayType,
+// isTupleType, etc.). Without these, typia emits `expected: "{}"` for builtin
+// collection types. We ship them as a separate text-module bundle so the
+// runtime can load them into the virtual CompilerHost. Phase 5 may trim this
+// list to only the targets we actually need.
+const tscLibDir = dirname(require.resolve('typescript/package.json')) + '/lib';
+// Grab every lib.*.d.ts TypeScript ships. The reference-chain rooted at
+// lib.es2022 pulls in dozens of siblings (decorators, intl, typedarray, etc.);
+// missing any of them leaves globals unbound and `checker.isArrayType()`
+// returns false. Shipping all of them is cheap (~3–4 MB as strings) and
+// guarantees the chain resolves.
+import { readdirSync } from 'fs';
+const libFiles = readdirSync(tscLibDir).filter(
+  (n) => n.startsWith('lib.') && n.endsWith('.d.ts'),
+);
+const libEntries = libFiles
+  .map((name) => {
+    try {
+      return `  ${JSON.stringify(name)}: ${JSON.stringify(readFileSync(`${tscLibDir}/${name}`, 'utf8'))}`;
+    } catch {
+      return null;
+    }
+  })
+  .filter(Boolean);
+const libBundlePath = resolve(outDir, 'ts-lib-files.mjs');
+writeFileSync(libBundlePath, `export const TS_LIB_FILES = {\n${libEntries.join(',\n')}\n};\n`);
+console.log(`Wrote ${libFiles.length} TS lib files → ${libBundlePath}`);
 
 // Re-export the pieces we consume: typescript (as `ts`) and the typia
 // transformer factory. A single barrel entry keeps downstream imports tidy

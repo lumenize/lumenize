@@ -19,18 +19,29 @@ export class PrimaryDO extends DurableObject<Env> {
     };
     const bundleId = body.bundleId ?? 'default';
     const moduleSource = compileTypesToParseModule(body.typeDefinitions);
-    const facet = this.ctx.facets.get(bundleId, async () => {
+    // `ctx.facets` and `worker.getDurableObjectClass` are beta APIs not yet in
+    // @cloudflare/workers-types. Cast through unknown until the types land.
+    const ctx = this.ctx as unknown as {
+      facets: {
+        get: (
+          name: string,
+          factory: () => Promise<{ class: unknown }>,
+        ) => { parse: (value: unknown, typeName: string) => Promise<unknown> };
+      };
+    };
+    const facet = ctx.facets.get(bundleId, async () => {
       const worker = this.env.LOADER.get(bundleId, async () => ({
         compatibilityDate: '2026-04-01',
         mainModule: 'parser.js',
         modules: { 'parser.js': moduleSource },
         globalOutbound: null,
       }));
-      return { class: worker.getDurableObjectClass('ParserValidator') };
+      const w = worker as unknown as {
+        getDurableObjectClass: (name: string) => unknown;
+      };
+      return { class: w.getDurableObjectClass('ParserValidator') };
     });
-    const result = await (facet as unknown as {
-      parse: (value: unknown, typeName: string) => Promise<unknown>;
-    }).parse(body.value, body.typeName);
+    const result = await facet.parse(body.value, body.typeName);
     return Response.json({ result, moduleSize: moduleSource.length });
   }
 }

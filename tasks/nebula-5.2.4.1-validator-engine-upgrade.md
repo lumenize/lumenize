@@ -1,38 +1,57 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phase 1 in progress — monorepo vitest 4 upgrade landed 2026-04-20 (see `tasks/archive/monorepo-vitest-4-upgrade.md`); facet smoke test green, this task resumed
+**Status**: Phase 1 complete (2026-04-20) — Spike A succeeded, next is Phase 3 (tag vocabulary)
 **Depends on**: 5.2.4 (docs shipped — see `tasks/archive/nebula-5.2.4-docs.md`)
 **Precedes**: 5.2.4.2 (Galaxy integration)
 **Package**: `packages/ts-runtime-parser-validator/` (new)
 
-## Current State (paused 2026-04-19)
+## Phase 1 Outcome (2026-04-20)
 
-Phase 1 scaffold and bundling work is done. The monorepo vitest 4 upgrade landed 2026-04-20 (`tasks/archive/monorepo-vitest-4-upgrade.md`), which bumped `@cloudflare/vitest-pool-workers` to `^0.14.7` and pulled in a miniflare/workerd new enough for DO facets. Phase 3 of that task confirmed `test/facet-roundtrip.test.ts` now passes. Resume from the "Resume checklist" below.
+**Spike A: succeeded. Skip Phase 2. Proceed to Phase 3.**
 
-**What's done:**
-- Package skeleton at `packages/ts-runtime-parser-validator/`: `package.json`, `tsconfig.json`, `tsconfig.build.json`, `wrangler.jsonc` (compatibility_date `"2026-04-01"`, Worker Loader binding `LOADER`, DO binding `PRIMARY_DO` for class `PrimaryDO`), `vitest.config.js`, `README.md` (marked experimental), MIT `LICENSE`, `src/index.ts`, `src/compile-types-to-parse-module.ts` (hand-written stub for now), `test/test-worker-and-dos.ts`, `test/facet-roundtrip.test.ts`, `.dev.vars` and `cloudflare-test-env.d.ts` symlinks (via postinstall), `worker-configuration.d.ts` (via `npm run types` — confirms `LOADER: WorkerLoader` and `PRIMARY_DO` bindings resolve).
-- `@typia/transform@12.0.2` installed and pinned (with transitive `@typia/core`, `@typia/interface`, `@typia/utils` all at `12.0.2`).
-- `scripts/bundle-dependencies.mjs` written (single-pass esbuild bundle of `@typia/transform` + `typescript` via a generated `_barrel.mjs` entry, aliasing `os` / `node:os` / `inspector` / `node:inspector` to stubs copied verbatim from `packages/ts-runtime-validator/scripts/stubs/`). Produces `dist/deps.bundle.mjs` at **3.90 MB** (minified ESM, Workers-targetable).
-- Primary DO wiring written in `test/test-worker-and-dos.ts`: `/parse` POST handler compiles module, loads facet via `this.ctx.facets.get(bundleId, async () => ({ class: worker.getDurableObjectClass('ParserValidator') }))`, forwards to `facet.parse(value, typeName)`. Uses the exact topology Nebula's Star DO will use.
-- Two functional tests drafted in `test/facet-roundtrip.test.ts` (one valid, one invalid case) — both currently fail on the blocker.
+The `@typia/transform` + `typescript` bundling approach works cleanly inside a Workers isolate. The transformer runs under `strict: true`, emits valid JS, loads into a DO facet, and `facet.parse(value, typeName)` returns typia's structured errors end-to-end. No painful workarounds needed — just the two `node:os` / `node:inspector` stubs copied from `packages/ts-runtime-validator/scripts/stubs/`.
 
-**Decisions locked in Phase 1 (do not reopen):**
-- **Facet bundle shape = class-extends-DurableObject.** Resolved by Cloudflare docs (`https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/`): the facet callback must call `worker.getDurableObjectClass("ClassName")`, which requires the loaded module to export a named class extending `DurableObject`. Plain exported functions are not accepted. The generated module's `ParserValidator` class exposes `parse(value, typeName)` as an RPC method — this is the final shape for `compileTypesToParseModule()`'s output. Update Design Decision #3 and Phase 5's emitter target accordingly.
-- **`compatibility_date = "2026-04-01"`** in `packages/ts-runtime-parser-validator/wrangler.jsonc`. Matches Cloudflare's own facet example and is new enough for Worker Loader + `ctx.facets`. Do not lower.
-- **Bundled dep versions pinned:** `@typia/transform@12.0.2` (and its `@typia/core` / `@typia/interface` / `@typia/utils` peers all at `12.0.2`). Re-pin only if a future upgrade is forced.
+### Measurements
 
-**Blocker discovered (2026-04-19):**
-~~Running `npm test` in the new package shows `this.ctx.facets` is `undefined`~~ — **resolved 2026-04-20** by the monorepo vitest 3→4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`), which bumped `@cloudflare/vitest-pool-workers` to `^0.14.7` (miniflare `4.20260415.0`, workerd `1.20260415.1`). Facet roundtrip tests green.
+- **Transformer dependency bundle size** (`dist/deps.bundle.mjs`): **3.90 MB** minified ESM (@typia/transform 12.0.2 + @typia/core + @typia/interface + @typia/utils + typescript 5.9.2). Compares to the tsc-based package's typescript-only bundle of roughly the same size — typia's transformer + supporting packages add negligible weight once typescript is already bundled.
+- **TS lib files bundle size** (`dist/ts-lib-files.mjs`): **3.22 MB** (100 `lib.*.d.ts` files as string exports). Needed because typia's `checker.isArrayType()` requires the full lib reference chain — missing any sibling lib file leaves globals unbound and arrays get classified as `{}`. Shipping the full set is cheap and robust. Phase 5 may trim this to only what's referenced by `lib.es2022.d.ts`'s closure.
+- **Total package-side bundle**: ~7.1 MB (well below the 10 MB Worker script size limit).
+- **Generated-module size** (`compileTypesToParseModule()` output):
+  - 3-field flat interface (Todo): **~6.5 KB**
+  - 7-field nested interface with union, array, optional, relationship (rich User): **~10.7 KB**
+  - Both include the two inlined typia runtime helpers (`_validateReport`, `_createStandardSchema`, ~3 KB combined) plus the `ParserValidator extends DurableObject` wrapper.
+- **Cold-start cost**: first test run imports `dist/deps.bundle.mjs` in ~2.5s inside vitest-pool-workers. Subsequent tests in the same run reuse the import. Real warm/cold latency numbers on deployed Cloudflare come from Phase 6 (Suite 2).
+- **`compatibility_date`**: `"2026-04-01"` in the package's `wrangler.jsonc` (matches Cloudflare's own DO facets example).
+- **Versions pinned**: `@typia/transform@12.0.2` + peers (`@typia/core`, `@typia/interface`, `@typia/utils`), `typescript@^5.9.2`, `@cloudflare/vitest-pool-workers@^0.14.7`, `wrangler@^4.83.0`, `vitest@4.1.4`.
 
-**Resume checklist (after the vitest-4 upgrade lands):**
-1. In `packages/ts-runtime-parser-validator/package.json`, bump `@cloudflare/vitest-pool-workers` to `^0.14.7` (or whatever the monorepo sweep settled on) and `wrangler` to `^4.83.0`. Both peer-require `vitest@^4.x`.
-2. Re-run `npm install` at the monorepo root. The `postinstall` refreshes the `.dev.vars` and `cloudflare-test-env.d.ts` symlinks.
-3. Run `npm run test` in `packages/ts-runtime-parser-validator/`. The two tests in `test/facet-roundtrip.test.ts` should now pass against the hand-written stub (stub returns `valid: true` for any value with a string `title`, else `valid: false`).
-4. Continue Phase 1 from here:
-   - Wire the real typia transformer into `compileTypesToParseModule()`. Strategy: synthesize source that `import typia from 'typia'`, declares user's interfaces, and exports `{ [TypeName]: typia.createValidate<TypeName>() }` for each interface in the input. Run `ts.createProgram()` with `strict: true` + a virtual `CompilerHost`, invoke `program.emit()` with the typia transformer factory (`transform(program, undefined, extras)`) in the `before` transformers list, capture the emitted JS, and wrap it in the `ParserValidator extends DurableObject` class. Both `extractTypeMetadata()` and this function must import `ts` from the *same* bundle output (`dist/deps.bundle.mjs`) — typia's internal `instanceof ts.Node` checks rely on a single `ts` instance.
-   - Add a functional test that exercises the real typia path end-to-end (valid Todo + invalid Todo against typia-generated validators).
-   - Copy `experiments/dw-bundler-spike/` to `experiments/ts-runtime-parser-validator-spike/` as the Suite 2 skeleton (latency measurement deferred to Phase 6 per task plan).
-   - Record Phase 1 measurements in this file (bundle size: 3.90 MB ✓; generated-module size: TBD; required compatibility_date: `"2026-04-01"` ✓; typia version: 12.0.2 ✓).
+### Decisions locked in Phase 1 (do not reopen)
+
+- **Facet bundle shape = class-extends-DurableObject.** Resolved by Cloudflare docs (`https://developers.cloudflare.com/dynamic-workers/usage/durable-object-facets/`): the facet callback must call `worker.getDurableObjectClass("ClassName")`, which requires the loaded module to export a named class extending `DurableObject`. Plain exported functions are not accepted. The generated module's `ParserValidator` class exposes `parse(value, typeName)` as an RPC method — this is the final shape for `compileTypesToParseModule()`'s output. **Update Design Decision #3 and Phase 5's emitter target accordingly.**
+- **`compatibility_date = "2026-04-01"`** in `packages/ts-runtime-parser-validator/wrangler.jsonc`. Matches Cloudflare's own facet example. Do not lower.
+- **Outer discriminant = `valid`, inner error shape = typia's `IValidationError`.** The task file originally said "adopt typia's error shape as-is" but typia's outer discriminant is `success`, not `valid`. Resolution: our `parse()` wrapper translates `{ success: true, data }` → `{ valid: true, data }` and `{ success: false, errors, data }` → `{ valid: false, errors }`. The `errors` array entries are passed through verbatim (typia's `{ path, expected, value, description? }`). Phase 7 docs must show the `valid` + typia-error-element combo, not typia's raw `success` shape.
+- **The two typia runtime helpers are inlined at rewrite time.** The emitted JS references `typia/lib/internal/_validateReport` and `typia/lib/internal/_createStandardSchema`; our rewrite step inlines both and strips the now-unused `import typia from "typia"`. Phase 5 must grow this list as we support more typia features (format validators, TypeGuardError, etc.) — there's a guard that refuses to emit if any `typia/` import survives the rewrite, so missing helpers fail loudly.
+- **TS lib files must be bundled at build time and served to the virtual CompilerHost.** `checker.isArrayType()` returns `false` without the full `lib.*.d.ts` chain, causing typia to classify `T[]` as bare `{}`. This is non-obvious and worth calling out in the Phase 5 docs.
+- **Typia transformer file-path match:** typia identifies its own calls via substring check against `typia/lib/<fn>.d.ts` — the stub must live at `typia/lib/module.d.ts` and `compilerOptions.paths` must route `"typia"` to that file. Any other arrangement leaves `typia.createValidate<T>()` unrewritten.
+
+### Open items for Phase 3 and beyond
+
+- Design Decision #3 in this doc still says the facet sub-question is open; it's now resolved (class-extends-DO). Update the text if someone wants to keep this doc authoritative as a design reference, or just leave the Phase 1 Outcome section as the newer source of truth.
+- Phase 4's "outer discriminant name" decision (`valid` vs `success`) needs to be explicitly recorded as `valid` so Phase 5 implementation and Phase 7 docs align. See the decision above; no new work needed beyond updating Phase 4's prose.
+- `@default` tag extraction (Phase 5's extended `extractTypeMetadata()`) and the full typia tag vocabulary (Phase 3) are not yet implemented — the Phase 1 spike covers `createValidate<T>()` only.
+- The inlined runtime-helpers set is minimal (two files). Phase 5 must expand it to cover format validators and `TypeGuardError` as Nebula's types start using those features.
+- Suite 2 skeleton (`experiments/ts-runtime-parser-validator-spike/`) not yet copied from `experiments/dw-bundler-spike/` — deferred to Phase 6 per the task plan. Only needed to collect the deployed-latency numbers.
+
+### Files in the package (as of Phase 1 complete)
+
+- `src/compile-types-to-parse-module.ts` — real typia transform wired end-to-end
+- `src/typia-runtime-helpers.ts` — inlined JS source for the two typia helpers the emitted validators call (`_validateReport`, `_createStandardSchema`)
+- `src/index.ts` — re-exports `compileTypesToParseModule`
+- `scripts/bundle-dependencies.mjs` — bundles `@typia/transform` + `typescript` → `dist/deps.bundle.mjs` and 100 TS `lib.*.d.ts` files → `dist/ts-lib-files.mjs`
+- `scripts/stubs/os.mjs`, `scripts/stubs/inspector.mjs` — node-builtin stubs (copied from `packages/ts-runtime-validator/scripts/stubs/`)
+- `test/test-worker-and-dos.ts` — `PrimaryDO` supervisor with `/parse` endpoint; loads the generated module into a DO facet via `this.ctx.facets.get(bundleId, async () => ({ class: worker.getDurableObjectClass('ParserValidator') }))`
+- `test/facet-roundtrip.test.ts` — 5 functional tests covering: valid Todo, invalid Todo (wrong types), missing-required Todo, unknown-type name, rich nested User (union + array + optional + relationship)
+- `wrangler.jsonc` — `compatibility_date: "2026-04-01"`, Worker Loader binding `LOADER`, DO binding `PRIMARY_DO`
+- `dist/deps.bundle.mjs` (3.90 MB) and `dist/ts-lib-files.mjs` (3.22 MB) — gitignored, regenerated via `npm run bundle`
 
 ---
 
