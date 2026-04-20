@@ -32,6 +32,7 @@
     "@aws-sdk/client-s3": "^3.934.0",
     "@cloudflare/workers-types": "^4.20251011.0",
     "@types/node": "^25.5.0",
+    "@vitest/coverage-istanbul": "^4.1.4",
     "terser": "^5.44.0",
     "typescript": "^5.9.2"
   },

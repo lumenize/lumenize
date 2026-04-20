@@ -103,6 +103,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
 
+- [ ] Fix type errors in `packages/testing/test/unit/websocket-shim.test.ts` from vitest 4's stricter `vi.fn()` return type
+  - **What changed**: In vitest 4, `vi.fn()` returns `Mock<Procedure | Constructable>` (was looser in 3). Test code that casts/passes `vi.fn()` as a `fetch`-signature parameter now fails type-check with `TS2345`.
+  - **Scope**: 3+ call sites in `test/unit/websocket-shim.test.ts` (lines 49, 55, 63, ...). Runtime tests still pass; this is type-check-only.
+  - **Fix**: Either give the mock an explicit signature — `vi.fn<typeof fetch>()` — or cast the return with a fetch signature at the call site. `vi.fn<typeof fetch>()` is the cleaner pattern.
+  - Discovered during the vitest 3→4 migration, 2026-04-20.
+
 - [ ] Audit tests for unawaited expected-rejection cases and remove `dangerouslyIgnoreUnhandledErrors` flag
   - **Why**: During the vitest 3→4 migration we added `dangerouslyIgnoreUnhandledErrors: true` to every `vitest.config.*` because vitest 4 now fails the run (exit 1) on unhandled rejections that vitest 3 silently swallowed. The flag restores vitest 3's behavior but masks real issues (see follow-up notes in that task).
   - **Pattern to find**: Tests that fire-and-forget a promise which is expected to reject. Example:

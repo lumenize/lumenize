@@ -17,7 +17,7 @@ export default defineConfig({
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       include: [
-        '**/src/**',
+        '**/src/**/*.ts',
         '**/test/test-worker-and-dos.ts'
       ],
       exclude: [
