@@ -258,6 +258,64 @@ Target pins for `package.json` edits in Phase 2:
 3. RPC call-site `await` audit + turn off SonarQube `no-return-await` rule — Cloudflare best practice vs. a retracted ESLint rule.
 4. `packages/testing/test/unit/websocket-shim.test.ts` — 3 type errors from vitest 4's stricter `vi.fn()` return type. Use `vi.fn<typeof fetch>()`.
 
+## Phase 4: Investigate mesh cross-test pollution flakes (next)
+
+Four mesh tests flake when the full file runs, pass when run alone. Pre-existing interdependency surfaced by vitest 4's scheduling — NOT caused by the migration, and each has been confirmed to pass in isolation.
+
+### Observed failures
+
+| File | Test | Error | Frequency |
+|---|---|---|---|
+| `packages/mesh/test/for-docs/calls/index.test.ts` | `newChain: true breaks call chain so recipients see DO as origin` | `AssertionError: expected 0 to be greater than 0` inside `vi.waitFor` | Most often |
+| `packages/mesh/test/lumenize-do.test.ts` | `@lumenize/mesh - NADIS Auto-injection > SQL Injectable > auto-injects sql service` | `AssertionError: expected undefined to match object { id: 'user1', name: 'Alice', age: 30 }` | Seen in test runs + coverage runs |
+| `packages/mesh/test/lumenize-client-gateway.test.ts` | `LumenizeClientGateway > Grace period and alarm > reconnect within grace period reports subscriptionRequired: false` | `AssertionError: expected true to be false` | Intermittent |
+| `packages/mesh/test/alarms.test.ts` | `Alarms > Alarm Management > lists all schedules` | `AssertionError: expected 2 to be greater than or equal to 3` | Seen once during coverage run |
+
+### Commands
+
+- Full mesh suite: `npm run test -w @lumenize/mesh`
+- Single test: `npm run test -w @lumenize/mesh -t "<test name>"`
+- Single file: `npm run test -w @lumenize/mesh -- <path/to/file>`
+- Single project: `npm run test -w @lumenize/mesh -- --project <name>` (projects: `main`, `calls`, `getting-started`, `alarms`, `security`)
+- Confirmed working: each failing test passes when run via `-t` alone. Examples: `-t "auto-injects sql service"`, `-t "NADIS Auto-injection"` (whole describe), `-t "newChain: true"`.
+
+### Investigation plan
+
+1. **Pick the most consistent flake**: `newChain: true` in `test/for-docs/calls/index.test.ts`. Run the file alone — it passes. Run just the `calls` project with the full suite — it still might fail. So the pollution is inside `calls/index.test.ts` itself OR from a shared singleton that earlier tests populate.
+
+2. **Binary-search test ordering within the file**. Vitest runs tests in declaration order within a file. Add `.skip` to the first half of tests, run the file — does the target test fail? Bisect until the culprit test pair is isolated.
+
+3. **Diff the state between culprit and victim**. Once you know "test A pollutes test B", look at:
+   - Do they use overlapping DO instance names? (Same `getByName('xxx')`)
+   - Is there a module-level singleton in `@lumenize/mesh` source that A modifies and B reads? (Gateway subscription registries, `@mesh()` method metadata, alarm schedules, etc.)
+   - Does test A leave a WebSocket / client connected that lingers into test B's execution window? (Grace-period alarm could fire during B.)
+   - Is there a `beforeEach`/`afterEach` that isn't firing cleanly under vitest 4's scheduling?
+
+4. **Fix at the source** — not by reordering tests or adding workarounds. The pollution is a real state-leak that would eventually bite in production. Options in order of preference:
+   - Ensure each test uses unique DO instance names (already the pattern — verify)
+   - Explicit cleanup in `afterEach` that awaits all in-flight work
+   - Fix underlying state mutation in `packages/mesh/src/` (most valuable — eliminates the class of bug)
+
+### Suspects to investigate first
+
+- `packages/mesh/src/lumenize-client-gateway.ts` — maintains per-client Gateway state, has grace-period alarms (5-second default). If a prior test doesn't disconnect cleanly, the grace-period alarm can fire during a later test.
+- `packages/mesh/src/mesh-decorator.ts` — stores `@mesh()` callable metadata. If the registry is module-level and mutable, test A's class decoration could affect test B.
+- `packages/mesh/src/ocan/` — operation chain state. Chains may be registered at module level.
+- NADIS auto-injection in `packages/mesh/src/lmz-api.ts` — the svc proxy. Verify per-DO instance; shouldn't share across instances, but worth confirming.
+
+### Success criteria
+
+- [ ] Full mesh suite passes on 3 consecutive runs with zero flakes.
+- [ ] Each previously-flaky test has a specific root-cause identified (one-line-or-paragraph diagnosis).
+- [ ] Fix lands at the source when possible, not as a test-side workaround — the goal is that `npm run test -w @lumenize/mesh` is reliable going forward, which was the case before the vitest 4 scheduling change surfaced the latent state-leak.
+
+### Context pointers
+
+- Phase 2 Record above contains the full migration context.
+- `packages/mesh/vitest.config.js` is the current vitest 4 config (multi-project: main, getting-started, calls, alarms, security). Uses `dangerouslyIgnoreUnhandledErrors: true` which is a temporary migration bridge — see backlog item.
+- Mesh uses `@mesh()` TC39 stage 3 decorators — `unplugin-swc` is plumbed in via mesh's vitest config for decorator transform.
+- Branch when this work starts should be `feat/nebula-resources` (same as the upgrade work).
+
 ## Phase 3: Facet Smoke Test
 
 Once the upgrade is green, do a 10-minute smoke test to confirm the upgrade actually unblocks 5.2.4.1 Phase 1:
