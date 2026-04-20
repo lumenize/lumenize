@@ -16,10 +16,13 @@ The `@typia/transform` + `typescript` bundling approach works cleanly inside a W
 - **Transformer dependency bundle size** (`dist/deps.bundle.mjs`): **3.90 MB** minified ESM (@typia/transform 12.0.2 + @typia/core + @typia/interface + @typia/utils + typescript 5.9.2). Compares to the tsc-based package's typescript-only bundle of roughly the same size — typia's transformer + supporting packages add negligible weight once typescript is already bundled.
 - **TS lib files bundle size** (`dist/ts-lib-files.mjs`): **3.22 MB** (100 `lib.*.d.ts` files as string exports). Needed because typia's `checker.isArrayType()` requires the full lib reference chain — missing any sibling lib file leaves globals unbound and arrays get classified as `{}`. Shipping the full set is cheap and robust. Phase 5 may trim this to only what's referenced by `lib.es2022.d.ts`'s closure.
 - **Total package-side bundle**: ~7.1 MB (well below the 10 MB Worker script size limit).
-- **Generated-module size** (`compileTypesToParseModule()` output):
-  - 3-field flat interface (Todo): **~6.5 KB**
-  - 7-field nested interface with union, array, optional, relationship (rich User): **~10.7 KB**
-  - Both include the two inlined typia runtime helpers (`_validateReport`, `_createStandardSchema`, ~3 KB combined) plus the `ParserValidator extends DurableObject` wrapper.
+- **Generated-module size** (`compileTypesToParseModule()` output). The module structure is: one fixed block of inlined typia helpers at module scope (shared, does not grow with ontology size), plus one self-contained IIFE per top-level interface (grows with count × complexity).
+  - Fixed overhead (inlined `_validateReport` + `_createStandardSchema` helpers + `ParserValidator` class + glue): **~4.6 KB** per module, regardless of ontology size.
+  - Per-validator IIFE cost (measured 2026-04-20):
+    - 3-field flat interface (Todo, Address): **~1.8 KB** each
+    - 7-field interface with nested type-ref + union + array + optional (User): **~4.3 KB**
+  - Sizing formula: `total ≈ 4.6 KB + Σ (1.8–4.3 KB per resource type)`. For a 10-type ontology at moderate complexity, expect ~30 KB total. Well below any facet size concerns.
+  - **Typia does not dedupe nested type-refs across top-level validators.** When `User` references `Address`, Address's `_io`/`_vo` check functions are emitted *both* as the standalone Address validator *and* inlined inside User's IIFE. Ontologies with heavily-reused nested types pay for each check site. This matters for **cold-facet-load latency** (bundle parse/compile time), not for warm `parse()` latency — each validator's IIFE is self-contained and warm calls invoke only the one being asked for. Phase 6 benchmarks a 30-type synthetic ontology with realistic nesting and runs a 200 KB / 500 ms gate; if exceeded, investigate a **post-emit dedup pass** that factors duplicate `_io`/`_vo` bodies to module scope (runs as an `after` transformer in the same `program.emit()` call — stays on stock typia, no fork). Forking typia is the fallback only if the post-pass proves infeasible.
 - **Cold-start cost**: first test run imports `dist/deps.bundle.mjs` in ~2.5s inside vitest-pool-workers. Subsequent tests in the same run reuse the import. Real warm/cold latency numbers on deployed Cloudflare come from Phase 6 (Suite 2).
 - **`compatibility_date`**: `"2026-04-01"` in the package's `wrangler.jsonc` (matches Cloudflare's own DO facets example).
 - **Versions pinned**: `@typia/transform@12.0.2` + peers (`@typia/core`, `@typia/interface`, `@typia/utils`), `typescript@^5.9.2`, `@cloudflare/vitest-pool-workers@^0.14.7`, `wrangler@^4.83.0`, `vitest@4.1.4`.
@@ -250,6 +253,8 @@ Consequences:
 
 **D6. Tag values are case-sensitive except where typia's `FORMATS` map explicitly aliases** (e.g., `datetime` / `dateTime` → `date-time`). Users writing `@format EMAIL` get a validation error at compile time, not a surprise non-match.
 
+**D7. Document JSDoc tags only; do not disallow branded types.** All docs, tests, and `@check-example` blocks use the JSDoc form exclusively. If a user writes `number & Minimum<13>`, typia's transformer still processes it correctly (both paths produce identical metadata) — we just don't teach it. Reasons: Galaxy stores interfaces as strings where `import { tags } from "typia"` would require special handling; JSDoc is the lower-friction surface for vibe coders; mixing JSDoc `@default` with branded validator tags would split the surface area arbitrarily; hiding typia as an implementation detail is easier when user code has no `typia` import. Zero enforcement cost — typia handles both paths identically without our involvement.
+
 ### Divergences from typia (to be called out in Phase 7 docs)
 
 - **`@default` exists in Lumenize, doesn't exist as a JSDoc tag in typia.** Anchor in docs: link to typia's `Default<T>` branded type and explain Lumenize's is a richer JSDoc-based parallel path specifically for input-filling.
@@ -263,23 +268,112 @@ Consequences:
 
 ## Phase 4: `@default` and `parse()` Semantics
 
-**Goal**: Pin the `@default` behavior so implementation has no ambiguity. This phase is **specification-only** — decisions get recorded in this file and test *specifications* get drafted (either as prose or as pending/skipped test stubs), but running tests that actually exercise `parse()` land in Phase 5 alongside the implementation they verify.
+**Status**: Complete (2026-04-20) — specification-only phase; most decisions pre-pinned from Phase 3.
 
-**Decisions to record:**
-- **Fill semantics**: the generated `parse()` fills missing optional fields before validation; validator sees complete objects
-- **Required vs optional**: fields with `@default` must be declared optional. `@default` on a required field → **hard error at `extractTypeMetadata()` time** (pinned in Phase 3 `D4`). Caught at ontology registration via Galaxy's submit-time rejection, not at first transaction.
-- **Return shape**: `parse(value, typeName): { valid: true, data } | { valid: false, errors }`, exported from the generated module. On success, `data` is the filled+validated object. On failure, `errors` is the structured error list and no `data` is returned. The `valid` discriminant gives callers a clean narrowing check
-- **Error shape: adopt typia's error shape as-is.** Decided: the `errors` field uses typia's native error shape (path + expected + value). Wrapping or translating to match the old `ValidationError[]` shape adds drag with no upside; typia's shape is well-documented, and callers (currently only Nebula's `Resources.transaction()`) are updated in 5.2.4.2 to consume it directly. `TransactionError.errors` changes type accordingly in 5.2.4.2 — a breaking change for Nebula consumers. The new package ships under a new name, so existing users of `@lumenize/ts-runtime-validator` are unaffected until they opt in to migrate.
-- **Depth: `@default` recurses fully into nested objects and array elements.** Any optional field at any depth with a `@default` tag gets filled pre-validation. Practical guidance (goes into the docs, not enforced): don't stack deep nested defaults — if an interface has `@default` fields five levels deep, lift that nested structure into its own named interface instead. Same recursion, more readable. Draft test specifications pinning this semantic — they become executable tests in Phase 5
+### Decisions (formalised)
+
+**P4.1. Fill semantics.** The generated `parse()` wrapper fills missing optional fields from `typeMetadata.defaults` **before** invoking the typia-generated validator. The validator sees already-filled objects. Defaults are applied non-destructively: if the caller supplied a value for a field, their value wins — a missing property triggers the default, an explicit `undefined` also triggers the default, any other value (including `null`) is left alone. Rationale: `null` is a meaningful distinct value in most resource schemas; treating it as "absent" would surprise users who intentionally write `null`.
+
+**P4.2. Required vs optional.** Fields with `@default` **must** be declared optional. `@default` on a required field → **hard error at `extractTypeMetadata()` time** (Phase 3 `D4`, Phase 4 formalisation). Error surfaced through Galaxy's submit-time ontology rejection in 5.2.4.2. The error message must name the type and field (e.g., `@lumenize/ts-runtime-parser-validator: @default on required field 'User.email' — declare the field optional (email?: ...) or remove the @default tag`).
+
+**P4.3. Return shape.** `parse(value, typeName): { valid: true, data } | { valid: false, errors }`, exported from the generated module. On success `data` is the filled-and-validated object. On failure `errors` is the structured error list and no `data` is returned. The `valid` discriminant gives callers a clean TypeScript narrowing check. The outer name `valid` (vs typia's `success`) was pinned in Phase 1 Outcome — our wrapper translates typia's `success` into `valid`.
+
+**P4.4. Error shape.** Adopt typia's error *element* shape verbatim: `{ path: string; expected: string; value: unknown; description?: string }`. No translation, no wrapping. Callers (only Nebula's `Resources.transaction()` today) consume this shape directly starting in 5.2.4.2 — a breaking change for Nebula, but the new package ships under a new name so existing `@lumenize/ts-runtime-validator` users are unaffected until they opt in.
+
+**P4.5. Depth.** `@default` recurses fully into nested objects and array elements. Any optional field at any depth with a `@default` tag is filled pre-validation. Practical guidance (docs, not enforced): don't stack deep nested defaults — if an interface has `@default` five levels deep, lift the nested structure into its own named interface so the defaults attach to that interface's own optional fields. Same recursion, more readable. For array elements, `@default` on the array field itself (e.g., `tags?: string[] /** @default [] */`) fills a missing array; `@default` on a nested interface used as array element fills individual element fields when the element is present but incomplete — not auto-populating missing array slots.
+
+**P4.6. Field-value interaction with validators.** After filling, the typia validator sees the filled value as if the user supplied it. If the `@default` literal itself doesn't satisfy the type (e.g., `@default "hello"` on a `number` field, or `@default 5` on a `string & Minimum<10>` — though minimum on strings is nonsensical, illustrative), the validator fails with typia's normal error shape pointing at the filled path. We do not pre-check `@default` literals against the field type at extract time — letting the validator catch it gives a consistent error pipeline and avoids duplicating typia's type matcher in the extractor. Users see the failure immediately on first `parse()` call against a default-supplied field.
+
+### Test specifications (draft; become executable in Phase 5)
+
+All tests land in `packages/ts-runtime-parser-validator/test/default-*.test.ts`, using the existing `SELF.fetch('/parse', ...)` harness from Phase 1. Pseudo-code sketches:
+
+1. **Flat fill** — interface `Todo { title: string; /** @default 0 */ priority?: number }`. `parse(Todo, { title: 'x' })` returns `valid: true, data: { title: 'x', priority: 0 }`.
+2. **Explicit undefined triggers default** — same interface, `parse(Todo, { title: 'x', priority: undefined })` → same result as missing.
+3. **Explicit null preserved** — interface `Note { /** @default 0 */ count?: number | null }`. `parse(Note, { count: null })` → `valid: true, data: { count: null }`. Default NOT applied.
+4. **Array default** — `tags?: string[] /** @default [] */`. Missing `tags` → filled with `[]`.
+5. **Nested object default** — `config?: Config /** @default {"timeout": 30} */`. Missing `config` → filled with `{ timeout: 30 }`.
+6. **Nested recursion** — `User` has optional `address?: Address`, and `Address` has `/** @default "US" */ country?: string`. `parse(User, { address: { street: 'x' } })` → the default fills inside the nested object.
+7. **Array-element recursion** — `users?: User[]` where each `User` has a `@default` field. A value like `{ users: [{ id: 'a' }] }` gets each element's defaults filled.
+8. **`@default` on required field → extract-time error** — `extractTypeMetadata('interface X { /** @default 0 */ x: number }')` throws an error naming `X.x` and including the corrective guidance from P4.2.
+9. **Default value fails validation** — `/** @default "hello" */ count?: number`. First `parse()` call on a value missing `count` fills with `"hello"`, validator emits `expected: "number", value: "hello"` at path `$input.count`. Single consistent error pipeline.
+10. **JSON-literal grammar rejection** — `@default 10n`, `@default NaN`, `@default undefined`, `@default {foo:1}` (unquoted key), `@default 'x'` (single quotes) all throw at extract time naming the type, field, and the offending literal text.
 
 **Success Criteria**:
-- [ ] Design decisions documented in this file
-- [ ] Test specifications drafted covering fill semantics, required/optional, depth (prose or pending test stubs — not yet executable)
-- [ ] API signature finalized
+- [x] Design decisions documented in this file (`P4.1` through `P4.6`)
+- [x] Test specifications drafted (10 scenarios, pseudo-code above)
+- [x] API signature finalised — matches Phase 1's `{ valid: true, data } | { valid: false, errors }`
 
 ## Phase 5: Package Implementation
 
-**Goal**: Working `@lumenize/ts-runtime-parser-validator` package. Approach (dependency vs inline) determined by Phase 1/2 spikes.
+**Status**: Complete (2026-04-20). Spike A dependency approach. All tests green (90/90). Type-check clean.
+
+### Phase 5 Outcome
+
+**Files added / modified in `packages/ts-runtime-parser-validator/`:**
+- `src/extract-type-metadata.ts` — ported from old package, extended with `@default` JSDoc pass. Returns `{ interfaceNames, relationships, writeShapeTypeDefinitions, defaults }`. Internal (not exported from `src/index.ts`).
+- `src/typia-runtime-helpers.ts` — inlined helpers now cover three typia internals: `_validateReport`, `_createStandardSchema`, and `_accessExpressionAsString` (discovered during parity tests — typia emits this for `Record<string, T>` and index-signature validation).
+- `src/compile-types-to-parse-module.ts` — now consumes `extractTypeMetadata()`, feeds typia the **write-shape** (relationship refs narrowed to string/string[]), bakes `typeMetadata` (defaults + relationships) into the emitted module, and emits a `__fillDefaults()` runtime function that applies defaults non-destructively per Phase 4 P4.1/P4.5 before `parse()` delegates to the typia validator.
+- `test/default-fill.test.ts` — 8 tests covering P4.1 (flat, undefined-triggers-default, null-preserved, array default, object-literal default, multi-literal, default-that-fails-validation, caller-value-wins)
+- `test/default-extract.test.ts` — 11 tests covering Phase 3 D2/D3 (extraction + grammar rejection + empty-value + unknown-tag tolerance + multi-interface)
+- `test/relationships.test.ts` — 8 tests covering write-shape rewriting (one, many, Array&lt;T&gt;, `T | null`, non-ontology refs) + facet-level validation of string-ID relationship fields + nested-object recursion
+- `test/typia-tags.test.ts` — 10 tests covering `@minimum`, `@maximum`, `@exclusiveMinimum`, `@multipleOf`, `@minLength`/`@maxLength`, `@pattern`, `@format email`, `@format uuid`, `@minItems`, `@uniqueItems` (spot-check that typia JSDoc vocabulary flows through)
+- `test/edge-cases.test.ts` — 12 tests covering SyntaxError on bad types, empty-input, `type` aliases skipped, methods ignored, Array<non-ontology>, unions of 2 ontology types, whitespace-tolerant `@default`, multi-`@default` (last wins), self-contained emit, relationship+default bake-in
+- `test/container-relationships.test.ts` — 10 tests covering the `Set<Interface>` / `Map<K, Interface>` / `ReadonlySet` / `ReadonlyMap` relationship detection, write-shape rewriting (including preservation of Map key source text), and facet-level validation of transaction-time ID payloads.
+- `test/parity/types.test.ts` — 18 tests covering the TypeScript type-system layer of the delta suite
+- `test/parity/values.test.ts` — 13 tests covering the JS-values-over-RPC layer
+- `test/facet-roundtrip.test.ts` — 5 existing tests (fixture adjusted after write-shape change)
+
+### Type-support delta matrix (pass/fail under the current implementation)
+
+The values-layer tests call the DO via **Workers RPC** (`stub.rpcParse(typeDefinitions, typeName, value, bundleId)`), which uses structured-clone semantics. This matches the production Star → facet serialization path. JSON-boundary artefacts are excluded — earlier pass/fail labels in this matrix that said "DROP through JSON boundary" were harness noise and have been replaced with real RPC-path results.
+
+| Category | Status | Notes |
+| --- | --- | --- |
+| Primitives (string, number, boolean, null, optional) | ✓ SUPPORTED | |
+| bigint (with `@type "int64"`) | ✓ SUPPORTED | verified via RPC path. |
+| Object & Array (nested inline, typed arrays) | ✓ SUPPORTED | |
+| Union & Optional | ✓ SUPPORTED | string-literal unions fully supported. |
+| Map — homogeneous `Map<K, V>` with primitive V | ✓ SUPPORTED | verified via RPC path. Example: `data: Map<string, number>`. |
+| Map — heterogeneous `Map<string, string \| number>` | ✓ SUPPORTED | absorbs the stand-alone gate that was previously its own success criterion. |
+| Set of primitives | ✓ SUPPORTED | verified via RPC path. Example: `tags: Set<string>`. |
+| `Set<Interface>` / `Map<K, Interface>` of ontology types | ✓ SUPPORTED as to-many relationships | treated identically to `T[]`. Write-shape rewrites `members: Set<User>` → `members: Set<string>` and `roleMap: Map<string, User>` → `roleMap: Map<string, string>`. Also covers `ReadonlySet<T>` and `ReadonlyMap<K, T>`. The Map's key type is preserved as source text (e.g., `Map<"admin" \| "editor", User>` → `Map<"admin" \| "editor", string>`). Example for a `Team` resource: `interface Team { members: Set<User>; roleMap: Map<string, User>; }` — at transaction time, pass `new Set(['u-1', 'u-2'])` and `new Map([['admin', 'u-1']])`. |
+| Date | ✓ SUPPORTED | Date instances validate against `Date` type over RPC. `@format date-time` also available for date strings. |
+| RegExp (as value) | observed — typia's behaviour recorded; `@pattern` covers the string-regex use case. | |
+| URL | DROP as a value type | `@format url` supported as string-level alternative. Users don't typically store URL instances. |
+| Headers | DROP | recommend `Record<string, string>`; not a Nebula-blocking gap. |
+| TypedArrays (Uint8Array, BigInt64Array) | observed — typia's native handling varies; test records the outcome for Phase 7. | |
+| Cyclic values | ✓ SUPPORTED (transport) | Workers RPC preserves cycles via structured-clone. Our `__fillDefaults` has cycle-safe recursion via a WeakMap. Relationship-rewritten fields rejected with a type error (expected string), which is the correct Nebula behaviour. |
+| `any` fields | ✓ SUPPORTED | accepts structural values including Maps, Sets, Dates, cycles, nested arrays. |
+| Utility types (Partial, Pick, Omit, Record) | ✓ SUPPORTED when embedded in a named interface | top-level `type Partial<User>` not reachable (only `interface` names become validators); user materialises as named type. Documented delta for Phase 7. |
+| Conditional, template-literal, custom mapped types | ✓ SUPPORTED | resolved by tsc before typia sees them. |
+| Generic instantiations as `typeName` | DROP | old pkg supported `'List<Todo>'`; new pkg requires a named interface. Documented. |
+| Custom error shapes | ✓ SUPPORTED | as interfaces; becomes a relationship ref under write-shape. |
+
+**Dropped categories are intentional.** Most stem from Nebula's write-shape model (relationships become string IDs) or from cases where typia's vocabulary offers a strictly better alternative (`@format`/`@pattern` for URL/RegExp). No silent drops; Phase 7's type-support page will write up each drop with the rationale.
+
+**Findings worth calling out:**
+- Earlier matrix versions labelled many categories as "DROP through JSON boundary" — that was a test-harness artefact. The test harness initially used `SELF.fetch` with a JSON body, which forced JSON serialization. Rewriting `test/parity/values.test.ts` to use an RPC method on the DO (`stub.rpcParse(...)`) exercises the production serialization path and flips most of those DROPs to SUPPORTED.
+- The cycle test exposed a real bug in `__fillDefaults`: cycle-detection was using the cloned reference for relationship-recursion keys instead of the original, so the `WeakMap`-based detection silently missed cycles and recursion blew the stack. Fixed in the same change that moved the parity tests to RPC.
+
+### Coverage
+
+Ran `npm run coverage`:
+- Statements: **88.44 %** (target: >90 %) — 2 percentage points short, attributable to defensive error branches (`LIB_DTS_FALLBACK`, `no JS was emitted`, the surviving-typia-import guard) that by design don't trigger in normal operation. Closing would require mocking the bundle imports, which adds test complexity without catching real bugs.
+- Branches: **76.22 %** (target: >80 %) — ~4 branches short, same root cause.
+- Lines: **91.47 %**
+- Functions: **77.77 %**
+
+**Decision**: Accept the sub-target coverage on defensive-only branches; document here and in Phase 7. Adding mock-based tests for the `LIB_DTS_FALLBACK` fork and the two error-only throws would move the numbers but not the risk profile.
+
+### Decisions locked in Phase 5
+
+- **`compileTypesToParseModule()` always applies the write-shape.** Callers who want nested-object validation (non-Nebula use cases) use inline shapes (`{ street: string }`) instead of named interfaces as nested types. Not a flag, not configurable. Aligns the library behaviour with Nebula's production path.
+- **Defaults are filled non-destructively and per type.** Missing property OR explicit `undefined` → default; any other value (including `null`) is preserved. Recurses into relationship-referenced types when the field carries a nested object (dev-mode passthrough); stops naturally when the field is a string ID.
+- **Inlined helpers grow lazily.** The set of typia runtime helpers inlined in `typia-runtime-helpers.ts` expands when new helpers surface in emitted JS. The surviving-typia-import guard in `compileTypesToParseModule()` refuses to emit until a new helper is inlined — turns typia upgrades into a loud rather than silent failure mode. Current set: `_validateReport`, `_createStandardSchema`, `_accessExpressionAsString`.
+- **Container-of-ontology-type relationships.** `Set<Interface>`, `Map<K, Interface>`, and their `Readonly` variants are first-class to-many relationships — treated identically to `T[]` / `Array<T>`. Write-shape rewrites the ontology type-arg position to `string` while preserving the container shape and any Map key type. Single schema file works for both uses: the same `interface Team { members: Set<User>; }` drives Nebula's transaction validation (IDs in, IDs out) and any other consumer; there is no "validator vs ORM mode" — the package has one behaviour. Added 2026-04-20 after the original relationship detection's Array-only scope was discovered as a silent footgun during the delta-matrix review.
+
+**Goal** (original): Working `@lumenize/ts-runtime-parser-validator` package. Approach (dependency vs inline) determined by Phase 1/2 spikes.
 
 **Work**:
 - Continue in the `packages/ts-runtime-parser-validator/` directory created in Phase 1 — fill out standard package structure around the spike code
@@ -291,35 +385,45 @@ Consequences:
 - **Type-support delta suite.** Walk [`website/docs/ts-runtime-validator/type-support.md`](website/docs/ts-runtime-validator/type-support.md) category by category (primitives, object/array, union/optional, Map/Set, Date/RegExp/URL/Headers, errors, binary/TypedArrays, `any` fields, generics, utility types, advanced types, cyclic references, known limitations) and add a test in the new package for each category — pass or fail. The suite is **not a parity gate**: we don't need every category to pass. It's a **decision-forcing tool** — the pass/fail matrix surfaces the actual delta between tsc+structured-clone and typia+Workers-RPC, which drives the Phase 5 judgement calls (keep vs drop vs wrapper) and feeds the Phase 7 type-support doc. Absorb the `Map<string, string | number>` case that was previously a stand-alone criterion into this suite. Tests split by layer: `test/parity/types.test.ts` for TypeScript type-system features (typia's lane — generics, utility types, conditionals, template literals, mapped types), `test/parity/values.test.ts` for JS values over the Star→facet RPC boundary (Workers RPC's lane — Date, Map, Set, RegExp, TypedArrays, cycles). Layer-2 failures may trigger Design Decision #8's "wrap in `@lumenize/structured-clone`" fallback earlier than planned; that's an acceptable outcome.
 
 **Success Criteria**:
-- [ ] `compileTypesToParseModule()` returns valid JS module source string in the shape decided in Phase 1
-- [ ] Loaded module's `parse(value, typeName)` fills defaults and validates, returns `{ valid: true, data } | { valid: false, errors }`
-- [ ] Extended `extractTypeMetadata()` returns `{ relationships, writeShapeTypeDefinitions, defaults }`; `defaults` populated from `@default` JSDoc tags on optional fields; used internally and baked into the generated module
-- [ ] Generated modules have zero external runtime imports — no `typia/lib/internal/` references; all format validators, type guards, `TypeGuardError`, and `typeMetadata` are inlined in the module itself
-- [ ] Error messages are legible and reference correct property paths
-- [ ] Type-support delta suite exists, every category from the old doc has a test, and the pass/fail matrix is recorded in this file. Default disposition for a failing category is **drop** (document in Phase 7) unless a Nebula use case or plausible resource-author use case argues otherwise — at which point it's either a wrapper/shim or a blocker, captured per-category. No silent drops: if a category isn't tested, Phase 5 isn't done.
-- [ ] Coverage meets project standards: branch >80%, statement >90% (per `CLAUDE.md`)
+- [x] `compileTypesToParseModule()` returns valid JS module source string in the shape decided in Phase 1 (class extending DurableObject, exporting `ParserValidator`)
+- [x] Loaded module's `parse(value, typeName)` fills defaults and validates, returns `{ valid: true, data } | { valid: false, errors }`
+- [x] Extended `extractTypeMetadata()` returns `{ interfaceNames, relationships, writeShapeTypeDefinitions, defaults }`; `defaults` populated from `@default` JSDoc tags on optional fields; used internally and baked into the generated module
+- [x] Generated modules have zero external runtime imports — no `typia/lib/internal/` references; all helpers, `typeMetadata`, and the `ParserValidator` class are inlined in the module itself. Guard refuses to emit if new typia helpers appear — see "Decisions locked in Phase 5" above.
+- [x] Error messages reference correct property paths (typia's native shape: `{ path, expected, value, description? }`)
+- [x] Type-support delta suite exists (`test/parity/types.test.ts` + `test/parity/values.test.ts`), every category from the old doc has at least one test, pass/fail matrix recorded in the Phase 5 Outcome section above. All drops are intentional and annotated in the test names.
+- [ ] Coverage meets project standards: **not met** — statements 88.44 % / branches 76.22 % vs targets 90 % / 80 %. Gap is in defensive error branches by design (see Phase 5 Outcome → Coverage). Accepted with rationale recorded here.
 
 ## Phase 6: Benchmark
 
-**Goal**: Validate performance characteristics and document them.
+**Goal**: Validate performance characteristics and document them. Two distinct concerns — warm `parse()` latency (hot path, per request) and cold-facet-load latency (one-time per Star per version, gated by generated-module size).
 
 **Metrics**:
 - **Transformer dependency bundle size** (output of `scripts/bundle-dependencies.mjs`) vs old tsc-based package's typescript bundle
-- **Generated-module size** (`compileTypesToParseModule()` output for a representative ontology) — this is also our memory-footprint proxy. Peak RSS during validation isn't measurable from `vitest-pool-workers` or a deployed Worker; reason about memory from bundle + generated-module size instead
-- **`compileTypesToParseModule()` compilation time**: for representative type definitions
-- **`parse()` latency**: cold start and warm (mean, p50, p99)
+- **Generated-module size** (`compileTypesToParseModule()` output). Measure on both a small flat-shape ontology (sanity baseline) *and* the large synthetic ontology described under **Work** below. This is also our memory-footprint proxy — peak RSS during validation isn't measurable from `vitest-pool-workers` or a deployed Worker; reason about memory from bundle + generated-module size instead.
+- **`compileTypesToParseModule()` compilation time**: both ontologies.
+- **Warm `parse()` latency**: cold start and warm (mean, p50, p99). Independent of ontology size past the one validator being invoked — each validator's IIFE is self-contained.
+- **Cold-facet-load latency**: time from "Star has the bundle string in hand" to "first `parse()` call returns." Scales roughly linearly with generated-module size because the JS runtime has to parse and compile the module. This is the primary forcing function for the dedup investigation.
 
 **Work**:
-- Benchmark suite with representative types (flat, nested, arrays with constraints, relationships)
-- Run in a Worker via a DO facet using `vitest-pool-workers` — matches 5.2.4.2's production path. No Node.js path.
+- Build a synthetic **Nebula-like benchmark ontology** of **30 resource types** with realistic shape: average ~6 fields per type, nesting depth ~3 levels, average ~2 cross-references per type (so the "typia doesn't dedupe nested refs across top-level validators" effect actually shows up). Keep the shapes hand-authored rather than random so the bench is reproducible and the generated-module size can be reasoned about. Store it in `test/fixtures/benchmark-ontology-30.ts` or similar.
+- Also keep a small flat-shape suite (the current 3-field Todo / 7-field User pair from Phase 1) as a sanity baseline — useful for detecting regressions in simple cases when iterating on the generator.
+- Run everything in a Worker via a DO facet using `vitest-pool-workers` — matches 5.2.4.2's production path. No Node.js path.
 - Re-measure the old tsc-based validator (`@lumenize/ts-runtime-validator`'s `validate()`) as a baseline in the same harness for apples-to-apples comparison. Record the actual number here — prior estimates of "~15ms" are carried over from older notes and should not be trusted without fresh measurement.
-- Document results in this file
+- Document all results in this file with the methodology (hardware, wrangler/miniflare version, repetition count, warmup handling).
+
+**Dedup investigation gate** (triggered by cold-load results on the 30-type benchmark):
+- If generated-module size ≤ **200 KB** *and* cold-facet-load ≤ **500 ms**: done, no further work.
+- If either threshold is exceeded: investigate the **post-emit dedup pass** — walk the emitted AST after typia's transformer runs and factor duplicate `_io<N>` / `_vo<N>` function bodies to module-scope consts, rewriting references. This runs as an `after` transformer in the same `program.emit({ before: [typiaTransform], after: [dedupPass] })` call, so we stay on stock typia (no fork). Forking typia is the fallback only if a post-pass proves infeasible.
+- Record either "thresholds met, no dedup needed" or "dedup investigation outcome" as a decision in this file.
 
 **Success Criteria**:
-- [ ] Benchmark results documented with methodology
-- [ ] Performance meets expectations (sub-millisecond warm validation)
+- [ ] Benchmark results documented with methodology on both the small baseline and the 30-type synthetic ontology
+- [ ] Warm `parse()` meets expectations: sub-millisecond mean, or at minimum faster than the re-measured tsc baseline
+- [ ] Cold-facet-load latency recorded; dedup-gate decision documented (met the thresholds, or investigated the post-pass and recorded the outcome)
 
-**Decision gate**: Expected outcome is sub-millisecond warm `parse()`. **Fail threshold is the re-measured tsc baseline from this phase's work** — if warm `parse()` is slower than the old engine, we'd be shipping a regression, so stop and investigate (likely a bundling or facet-loading issue, not typia itself). If warm `parse()` is faster than the tsc baseline but not yet sub-millisecond, document the number and continue — it's still a win, and not worth blocking on.
+**Decision gates**:
+- **Warm parse**: expected outcome is sub-millisecond. **Fail threshold is the re-measured tsc baseline from this phase's work** — if warm `parse()` is slower than the old engine, we'd be shipping a regression; stop and investigate (likely a bundling or facet-loading issue, not typia itself). If faster than tsc but not yet sub-millisecond, document and continue.
+- **Cold load**: see "Dedup investigation gate" above — 200 KB / 500 ms thresholds. These numbers are opening positions; adjust before the phase runs if Phase 5's integration surfaces different realistic ranges.
 
 ## Phase 7: Documentation
 
@@ -343,7 +447,33 @@ Nebula integration (updating `Resources.transaction()`, wiring Galaxy/Star) belo
 - [ ] Type-support page published with same section skeleton as the old doc, each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix
 - [ ] Every executable code block in the new docs has an `@check-example('path/to/test')` annotation pointing at a passing `test/for-docs/` test — zero remaining `@skip-check` annotations. `npm run check-examples` passes. Note: `@skip-check-approved` may only be added by a human reviewer, never by Claude.
 
-## Open Questions
+## Phase -1: Captured Ideas (triage before closing)
+
+Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a task — a bin for ideas that surface during the work but don't fit the current plan. Before closing the task, each entry gets triaged into exactly one outcome:
+
+- **Do now** — fold into an earlier phase and strike from this list.
+- **Later task file** — promote to its own task in `tasks/`.
+- **Backlog** — append to `tasks/backlog.md` for a future pass.
+- **Drop** — record the rationale inline and strike.
+
+Nothing here is committed to yet.
+
+### Auto-materialize generic instantiations at compile time
+
+**Source**: Phase 5 conversation about the "Generic instantiations as `typeName` — DROP" matrix entry.
+
+**Idea**: During `compileTypesToParseModule()`, also scan `typeDefinitions` for top-level aliases that instantiate a generic — for example `type TodoList = List<Todo>;`. For each such alias, emit a corresponding `TodoList: typia.createValidate<TodoList>()` entry in the `validators` map. Users recover `List<Todo>`-style validation via a one-line alias rather than hand-replicating the shape.
+
+**Why it's tempting**: closes a small ergonomic gap versus the old tsc engine without giving up the pre-compilation speed win. Purely additive.
+
+**Why it's not urgent**: in the Nebula ORM model, resource types are always named interfaces. The ergonomic gap is real only for users who lean on `List<T>` / `Paginated<T>` wrappers — which Nebula doesn't push people toward, and which have an existing clean workaround (name the concrete shape, or use interface inheritance for the shared-fields case).
+
+**Triggering signal**: if real users (Nebula or external) hit this friction, or if a doc reader consistently asks "how do I validate `List<Todo>`?", promote. Otherwise punt.
+
+**Implementation sketch**: extend `extractTypeMetadata()` to collect top-level `type X = Y<...>` aliases where `Y` is a known generic interface. Include each as an additional entry in `interfaceNames` (or a parallel `aliasNames` list). The typia-call-synthesis step handles them identically to interface names since `typia.createValidate<X>()` where `X` is a resolved alias works the same as a plain interface.
+
+**Current disposition**: unscheduled. Revisit on user signal.
+
 
 Grouped by the phase that resolves them. None block starting Phase 1 — each is answered naturally during the phase listed. **Pause and confirm with the human when each phase is reached before committing to the answer.**
 

@@ -36,7 +36,6 @@ describe('Spike A: real typia transform via facet', () => {
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ title: 'Fix bug', done: false, priority: 1 });
     expect(moduleSize).toBeGreaterThan(500); // real emit is larger than the stub
-    console.log('generated module size (valid Todo):', moduleSize);
   });
 
   it('rejects a Todo with wrong field types and returns typia errors', async () => {
@@ -70,18 +69,15 @@ describe('Spike A: real typia transform via facet', () => {
     expect(result.errors![0].expected).toBe('NotATypeName');
   });
 
-  it('validates a richer nested interface (relationships, optionals, arrays)', async () => {
+  it('validates a richer nested interface (inline nested object, union, array, optional)', async () => {
+    // Inline nested shape so it doesn't trigger relationship-rewrite to `string`.
+    // True relationship behaviour is tested in test/relationships.test.ts.
     const RICH = `
-interface Address {
-  street: string;
-  city: string;
-  zip: string;
-}
 interface User {
   id: string;
   name: string;
   role: "admin" | "editor" | "viewer";
-  address: Address;
+  address: { street: string; city: string; zip: string; };
   tags: string[];
   active: boolean;
   nickname?: string;
@@ -101,10 +97,9 @@ interface User {
       'rich-valid',
       RICH,
     );
-    if (!good.valid) console.log('rich valid errors:', JSON.stringify(good.errors));
     expect(good.valid).toBe(true);
     expect(good.data).toEqual(validUser);
-    console.log('generated module size (rich User valid):', moduleSize);
+    expect(moduleSize).toBeGreaterThan(500);
 
     const { result: bad } = await parse(
       'User',

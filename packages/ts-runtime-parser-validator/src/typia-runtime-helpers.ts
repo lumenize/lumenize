@@ -43,6 +43,24 @@ export const INLINED_VALIDATE_REPORT = `const __typia_transform__validateReport 
   return { _validateReport };
 })();`;
 
+/**
+ * Inlined from typia@12.0.2 lib/internal/_accessExpressionAsString.mjs.
+ * Referenced by typia's emitted validators when walking object keys (e.g.,
+ * inside Record<string, T> and index-signature validation).
+ */
+export const INLINED_ACCESS_EXPRESSION_AS_STRING = `const __typia_transform__accessExpressionAsString = (() => {
+  const RESERVED = new Set([
+    "break","case","catch","class","const","continue","debugger","default","delete","do",
+    "else","enum","export","extends","false","finally","for","function","if","import",
+    "in","instanceof","new","null","return","super","switch","this","throw","true","try",
+    "typeof","var","void","while","with",
+  ]);
+  const reserved = (str) => RESERVED.has(str);
+  const variable = (str) => reserved(str) === false && /^[a-zA-Z_$][a-zA-Z_$0-9]*$/g.test(str);
+  const _accessExpressionAsString = (str) => variable(str) ? \`.\${str}\` : \`[\${JSON.stringify(str)}]\`;
+  return { _accessExpressionAsString };
+})();`;
+
 export const INLINED_CREATE_STANDARD_SCHEMA = `const __typia_transform__createStandardSchema = (() => {
   var PathParserState;
   (function (PathParserState) {
