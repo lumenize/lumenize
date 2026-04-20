@@ -1,13 +1,13 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phase 1 in progress — **paused** pending monorepo vitest 3→4 upgrade (see `tasks/monorepo-vitest-4-upgrade.md`)
-**Depends on**: 5.2.4 (docs shipped — see `tasks/archive/nebula-5.2.4-docs.md`); monorepo vitest 4 upgrade (blocker for Suite 1 facet tests)
+**Status**: Phase 1 in progress — monorepo vitest 4 upgrade landed 2026-04-20 (see `tasks/archive/monorepo-vitest-4-upgrade.md`); facet smoke test green, this task resumed
+**Depends on**: 5.2.4 (docs shipped — see `tasks/archive/nebula-5.2.4-docs.md`)
 **Precedes**: 5.2.4.2 (Galaxy integration)
 **Package**: `packages/ts-runtime-parser-validator/` (new)
 
 ## Current State (paused 2026-04-19)
 
-Phase 1 scaffold and bundling work is done. Phase 1 is paused because `@cloudflare/vitest-pool-workers` versions that ship a miniflare/workerd new enough to support DO facets (≥ `miniflare@4.20260413.0`, post-2026-04-13 announcement) peer-require `vitest@^4.1.0`, and the monorepo is pinned to `vitest@3.2.4`. Upgrade is tracked in `tasks/monorepo-vitest-4-upgrade.md`. After the upgrade lands, bump this package to `@cloudflare/vitest-pool-workers@^0.14.7` (or latest) and resume from the "Resume checklist" below.
+Phase 1 scaffold and bundling work is done. The monorepo vitest 4 upgrade landed 2026-04-20 (`tasks/archive/monorepo-vitest-4-upgrade.md`), which bumped `@cloudflare/vitest-pool-workers` to `^0.14.7` and pulled in a miniflare/workerd new enough for DO facets. Phase 3 of that task confirmed `test/facet-roundtrip.test.ts` now passes. Resume from the "Resume checklist" below.
 
 **What's done:**
 - Package skeleton at `packages/ts-runtime-parser-validator/`: `package.json`, `tsconfig.json`, `tsconfig.build.json`, `wrangler.jsonc` (compatibility_date `"2026-04-01"`, Worker Loader binding `LOADER`, DO binding `PRIMARY_DO` for class `PrimaryDO`), `vitest.config.js`, `README.md` (marked experimental), MIT `LICENSE`, `src/index.ts`, `src/compile-types-to-parse-module.ts` (hand-written stub for now), `test/test-worker-and-dos.ts`, `test/facet-roundtrip.test.ts`, `.dev.vars` and `cloudflare-test-env.d.ts` symlinks (via postinstall), `worker-configuration.d.ts` (via `npm run types` — confirms `LOADER: WorkerLoader` and `PRIMARY_DO` bindings resolve).
@@ -22,7 +22,7 @@ Phase 1 scaffold and bundling work is done. Phase 1 is paused because `@cloudfla
 - **Bundled dep versions pinned:** `@typia/transform@12.0.2` (and its `@typia/core` / `@typia/interface` / `@typia/utils` peers all at `12.0.2`). Re-pin only if a future upgrade is forced.
 
 **Blocker discovered (2026-04-19):**
-Running `npm test` in the new package shows `this.ctx.facets` is `undefined`, i.e., DO facets are not yet wired through the miniflare + workerd that ships with `@cloudflare/vitest-pool-workers@0.12.21` (miniflare `4.20260310.0`, workerd `1.20260310.1` — pre-dates the 2026-04-13 facet announcement). The fix requires vpw `0.13.x` or newer, which peer-requires `vitest@^4.1.0`. Monorepo-wide vitest 3→4 upgrade is filed as `tasks/monorepo-vitest-4-upgrade.md`.
+~~Running `npm test` in the new package shows `this.ctx.facets` is `undefined`~~ — **resolved 2026-04-20** by the monorepo vitest 3→4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`), which bumped `@cloudflare/vitest-pool-workers` to `^0.14.7` (miniflare `4.20260415.0`, workerd `1.20260415.1`). Facet roundtrip tests green.
 
 **Resume checklist (after the vitest-4 upgrade lands):**
 1. In `packages/ts-runtime-parser-validator/package.json`, bump `@cloudflare/vitest-pool-workers` to `^0.14.7` (or whatever the monorepo sweep settled on) and `wrangler` to `^4.83.0`. Both peer-require `vitest@^4.x`.

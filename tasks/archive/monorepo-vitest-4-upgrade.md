@@ -1,6 +1,6 @@
 # Monorepo vitest 3 → 4 Upgrade
 
-**Status**: Complete (2026-04-20) — Phase 3 canary passing; 4 backlog items filed for known follow-ups
+**Status**: Complete (2026-04-20) — Phases 0–4 done; Phase 4 flake fixes landed 2026-04-20; monorepo type-check clean except for two deferred packages (see Phase 5 below)
 **Blocks**: `tasks/nebula-5.2.4.1-validator-engine-upgrade.md` (Phase 1 Suite 1 facet tests) — **UNBLOCKED**
 **Type**: Tooling cleanup — implementation-first
 
@@ -305,9 +305,9 @@ Four mesh tests flake when the full file runs, pass when run alone. Pre-existing
 
 ### Success criteria
 
-- [ ] Full mesh suite passes on 3 consecutive runs with zero flakes.
-- [ ] Each previously-flaky test has a specific root-cause identified (one-line-or-paragraph diagnosis).
-- [ ] Fix lands at the source when possible, not as a test-side workaround — the goal is that `npm run test -w @lumenize/mesh` is reliable going forward, which was the case before the vitest 4 scheduling change surfaced the latent state-leak.
+- [x] Full mesh suite passes on 3 consecutive runs with zero flakes. **Verified 10/10 consecutive runs, 2026-04-20.**
+- [x] Each previously-flaky test has a specific root-cause identified (one-line-or-paragraph diagnosis). **See Phase 4 Record below.**
+- [x] Fix lands at the source when possible, not as a test-side workaround. **Mostly test-side — the diagnosis was wrong in the original plan; see Record.**
 
 ### Context pointers
 
@@ -315,6 +315,61 @@ Four mesh tests flake when the full file runs, pass when run alone. Pre-existing
 - `packages/mesh/vitest.config.js` is the current vitest 4 config (multi-project: main, getting-started, calls, alarms, security). Uses `dangerouslyIgnoreUnhandledErrors: true` which is a temporary migration bridge — see backlog item.
 - Mesh uses `@mesh()` TC39 stage 3 decorators — `unplugin-swc` is plumbed in via mesh's vitest config for decorator transform.
 - Branch when this work starts should be `feat/nebula-resources` (same as the upgrade work).
+
+### Phase 4 Record (2026-04-20)
+
+**Diagnosis revised.** The original hypothesis was cross-test pollution inside a single file (state leak via a module-level singleton or lingering WebSocket). Evidence from binary-search runs disproved that:
+
+| Configuration | Runs | Flake rate |
+|---|---|---|
+| Full suite, default parallelism | 5 | 4/5 |
+| Full suite, `--fileParallelism=false` | 8 | 0/8 |
+| Main project alone, parallel | 5 | 2/5 |
+| Gateway file alone | 5 | 0/5 |
+| Calls project alone (one file) | 5 | 0/5 |
+
+The flakes are **wall-clock timing pressure under CPU contention from parallel miniflare workers**, not state pollution. Two concrete mechanisms: (1) `GRACE_PERIOD_MS = 5000` hard deadline in `LumenizeClientGateway` — reconnect raced the alarm under load; (2) default `vi.waitFor` 1000 ms timeout — broadcasts queued behind saturated workers. Plus three orthogonal latent test bugs surfaced by the same pressure.
+
+Six distinct fixes landed:
+
+1. **Added `await`** to 4 `stub.insertUser(...)` call sites in `packages/mesh/test/lumenize-do.test.ts` (onStart + NADIS tests). The tests relied on DO input-gate serialization of two un-awaited RPC calls in order — a fragile pattern that lost under CPU pressure. Test-side bug, not a production concern.
+2. **Lengthened alarm deadlines** in `packages/mesh/test/alarms.test.ts`'s `lists all schedules` from 1000 / 2000 ms to 60 000 / 61 000 ms so the test's own scheduled alarms cannot fire during its own execution under load.
+3. **Added initial-subscribe sync** to the `newChain: true` test in `packages/mesh/test/for-docs/calls/index.test.ts` — now waits for the empty-content initial broadcast before calling `saveContent`, matching the pattern in the sibling test. This was a real missing synchronization step, not a timing knob.
+4. **Added `runInDurableObject(... ctx.storage.getAlarm)` poll** to `reconnect within grace period` test and **wrapped `runDurableObjectAlarm` in `vi.waitFor`** for the grace-period-expires test in `packages/mesh/test/lumenize-client-gateway.test.ts`. Both tests needed to wait for the `ws.close()` close frame to be processed by the DO before reconnecting/firing the alarm — the race was real, test-only.
+5. **Added `LUMENIZE_MESH_TEST_MODE` env flag** to `packages/mesh/src/lumenize-client-gateway.ts` — when `true`, grace period bumps from 5 s (production) to 60 s (test). Same pattern as `LUMENIZE_AUTH_TEST_MODE` and `NEBULA_AUTH_TEST_MODE`. Wired into every project's `miniflare.bindings` in `packages/mesh/vitest.config.js`. Documented in `website/docs/mesh/testing.mdx`. Production behavior unchanged: a real network reconnect takes ~100 ms, well inside the 5 s window — the only reason the test flaked was miniflare CPU starvation, which has no production analogue for a per-user gateway DO.
+6. **Removed `vi.waitFor` timeout override** in the newChain test once fix 3 made 1 s plenty again.
+
+No module-level singleton, no cross-file state leak, no production race. The "Invalid cron expression" rejection that appears on every run is the intentional test at `packages/mesh/test/alarms.test.ts:263` (`await expect(stub.scheduleCronAlarm('not a valid cron', ...)).rejects.toThrow()`); the "Client disconnected" batch is from `packages/mesh/test/lumenize-client.test.ts:1025-1040` queueing 101 `callRaw` promises to test queue-full and then calling `client.disconnect()` — the 100 pending calls reject, and the test doesn't catch them. Both surface as unhandled rejections only because `dangerouslyIgnoreUnhandledErrors: true` also *logs* them even though vitest 4's test result no longer fails on them; the real fix is the unawaited-rejection audit backlog item.
+
+## Phase 5: TypeScript Cleanup (2026-04-20)
+
+Separate from the vitest upgrade itself but surfaced by it: after Phases 0–4, `npm run type-check` had fallout across five packages. This phase landed the fixes that were bounded and safe, and explicitly deferred the rest with rationale.
+
+### Fixed in Phase 5
+
+- **`packages/testing`** — `vi.fn()` → `vi.fn<typeof fetch>()` in `test/unit/websocket-shim.test.ts` (3 sites via one type annotation + one generic parameter). Response body cast to `Response`. Was the Phase 2 "backlog item #4" — now closed.
+- **`packages/mesh/test/lumenize-client-gateway.test.ts`** — 6 × `event: MessageEvent` on `addEventListener` callbacks + 2 × added the `callee` field to `metadata` objects constructed in `CustomGateway` hook-override tests. (Was surfaced as a Phase 0 baseline deferral; resolved now.)
+- **`packages/nebula-auth`** — 7 × `as NebulaJwtPayload` → `as unknown as NebulaJwtPayload` in `test/nebula-auth-integration.test.ts`, 1 × type import in `test/nebula-auth.test.ts`, 2 × optional-chain `.act?.sub` for possibly-undefined RFC 8693 `act` claim. (Phase 0 baseline deferral; resolved.)
+- **Stale root `worker-configuration.d.ts` cleanup** — `packages/testing/worker-configuration.d.ts` (Jan 19) and `packages/nebula-auth/worker-configuration.d.ts` (Feb 25) were orphans from when those packages had a package-root `wrangler.jsonc` that has since moved into `test/`. `scripts/generate-types.sh` never regenerated them because it only visits dirs containing a current `wrangler.jsonc`. Deleted both stale files and removed the explicit `"files": ["worker-configuration.d.ts"]` entries from both `tsconfig.json`s; the `include: test/**/*` pattern already picks up the fresh `test/worker-configuration.d.ts` that `wrangler types` produces, so global `Env` augmentation flows through naturally.
+- **`packages/nebula-auth/src/router.ts`** — two `env: Env` parameters on `checkJwtForInstance` and `checkJwtForRegistry` widened to `env: Env & { NEBULA_AUTH_RATE_LIMITER?: RateLimit }`. The library accesses an optional binding that not every consumer app declares; `Env` (a global interface) resolves to the *consumer's* Env at type-check time, so `apps/nebula` was failing on a library that `packages/nebula-auth` itself type-checks clean against. Explicit optional-binding intersection is the minimal CLAUDE.md-aligned fix.
+- **`apps/nebula/src/star.ts`** — added `if (!clientId) throw` guards in `transaction()` and `read()` handler-1 methods. `callChain[0]?.instanceName` is `string | undefined`; dispatching to handler 2 or the gateway with an undefined clientId would silently fail to deliver a result. Throwing narrows the type and defends against a logic error.
+- **`apps/nebula/test/test-apps/baseline/index.ts:112`** — `this.ctn<Star>().whoAmI()` → `this.ctn<StarTest>().whoAmI()`. `whoAmI` is defined on the `StarTest` subclass (same file, line 40), not on `Star`; the `STAR` binding resolves to `StarTest` in this test app's wrangler, so the continuation type parameter was simply wrong.
+
+### Deferred — documented rationale
+
+- **`packages/ts-runtime-parser-validator`** — 2 errors on `ctx.facets` and `getDurableObjectClass`. Both exist at runtime under pool-workers 0.14 (the whole point of this upgrade was to get them), but `@cloudflare/workers-types` / pool-workers types don't yet expose them. Tabled — next task pivots to this package and will handle the typing there (local `.d.ts` augmentation or upstream bump) as part of that work.
+- **`packages/ts-runtime-validator`** — 3 errors on missing `../dist/typescript.bundled.mjs` declaration file. **Package is being deprecated this week.** No point fixing.
+- **`apps/nebula`** — 3 remaining errors, all transitive cascades from `packages/ts-runtime-validator`'s missing declarations. Will vanish when that package is removed.
+
+### Backlog items from the original Phase 2 Record list
+
+Four were filed in the Phase 2 Record:
+1. Mesh cross-test pollution → **resolved by Phase 4 above**.
+2. `dangerouslyIgnoreUnhandledErrors` removal → **still open**, on [tasks/backlog.md](backlog.md).
+3. RPC `await` audit + turn off SonarQube `no-return-await` → **still open**, on [tasks/backlog.md](backlog.md).
+4. `websocket-shim.test.ts` `vi.fn()` typing → **resolved in Phase 5 above**; entry removed from backlog.md.
+
+So two backlog items remain active, both in the "Testing & Quality" section of `tasks/backlog.md`. They're closely related (both rooted in the vitest-4 unhandled-rejection behavior change + Cloudflare's "always await RPC" best practice) and would probably be done in one pass.
 
 ## Phase 3: Facet Smoke Test
 
