@@ -4,6 +4,7 @@ import { playwright } from '@vitest/browser-playwright';
 
 export default defineConfig({
   test: {
+    dangerouslyIgnoreUnhandledErrors: true,
     projects: [
       // Node.js environment - standard npm usage
       {

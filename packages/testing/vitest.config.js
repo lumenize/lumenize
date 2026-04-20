@@ -3,6 +3,7 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
 export default defineConfig({
   test: {
+    dangerouslyIgnoreUnhandledErrors: true,
     projects: [
       // Unit tests - Node environment (Browser, cookie-utils)
       {

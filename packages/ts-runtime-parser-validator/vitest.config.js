@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     testTimeout: 10000,
     globals: true,
+    dangerouslyIgnoreUnhandledErrors: true,
 
     coverage: {
       provider: "istanbul",

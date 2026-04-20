@@ -103,6 +103,32 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Audit all try/catch block to include cause chains. Make sure structured-clone supports arbitrarially deep cause chain reconstructions including custom errors.
 
+- [ ] Audit tests for unawaited expected-rejection cases and remove `dangerouslyIgnoreUnhandledErrors` flag
+  - **Why**: During the vitest 3→4 migration we added `dangerouslyIgnoreUnhandledErrors: true` to every `vitest.config.*` because vitest 4 now fails the run (exit 1) on unhandled rejections that vitest 3 silently swallowed. The flag restores vitest 3's behavior but masks real issues (see follow-up notes in that task).
+  - **Pattern to find**: Tests that fire-and-forget a promise which is expected to reject. Example:
+    ```ts
+    someOp();  // kicks off an op that will reject
+    expect(somethingElse).toBe(x);  // test completes
+    // someOp's rejection arrives AFTER the test → unhandled
+    ```
+  - **Fix pattern**: Either `await` the promise and use `rejects.toThrow()`, OR attach `.catch()` to silence the expected rejection:
+    ```ts
+    someOp().catch(() => {});  // expected to reject
+    ```
+  - **Also common**: teardown code that disconnects a client (e.g., `client[Symbol.dispose]()`) which rejects pending in-flight promises. These need `.catch` on the in-flight promises, or the disconnect should settle them gracefully.
+  - **Success criteria**: Remove `dangerouslyIgnoreUnhandledErrors: true` from every vitest config, full suite runs green with exit 0.
+  - **Overlap**: Very related to the RPC-await audit above — both surface through "Unhandled Errors" counts. Probably worth doing together.
+
+- [ ] Audit RPC call sites for proper `await` and turn off SonarQube `no-return-await` rule
+  - **Why**: Cloudflare DO best practice says always `await` Workers RPC calls — unawaited calls become fire-and-forget, which (a) may rejection-leak (surfaces as vitest 4 "Unhandled Errors"), and (b) can end the request context before the RPC completes. SonarQube's `no-return-await` rule pushes you to remove `await` from `return await rpc()`, which changes try/catch semantics in a DO-hostile way: `return await foo()` catches errors *locally* in the current try/catch; `return foo()` passes them to the caller. The `no-return-await` rule was retracted by ESLint/typescript-eslint in 2023–2024 for this exact reason — SonarQube hasn't caught up.
+  - **Audit approach**:
+    1. Grep for RPC call patterns: `grep -rn '^\s*\(env\|this\.\w\+\|stub\)\.\w\+(' src/ packages/*/src/`
+    2. For each hit, classify: awaited / returned / fire-and-forget
+    3. Fire-and-forget cases must be intentional (`ctx.waitUntil` / `lmz.call` with explicit callback per the fire-and-forget-error-delivery pattern in CLAUDE.md) — anything else gets an `await` or `return`
+    4. Inside try/catch that wants local error handling, prefer `return await` over `return` (SonarQube will complain — that's the point)
+  - **Config change**: Disable SonarQube rule `typescript:S7785` (or whichever `no-return-await` equivalent applies to this project) in the project's SonarQube config
+  - **Related**: the "Unhandled Errors" count in vitest 4 output is a proxy metric — if the audit drives it down, we can eventually remove the `dangerouslyIgnoreUnhandledErrors: true` flag from vitest configs. (Discovered during vitest 3→4 migration, 2026-04-20)
+
 - [ ] Add vitest-workers-pool tests for `@lumenize/debug`
   - Current tests run in Node.js only (plain vitest)
   - Need Workers pool tests to verify `cloudflare:workers` env auto-detection works end-to-end

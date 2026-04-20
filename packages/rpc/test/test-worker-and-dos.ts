@@ -238,6 +238,13 @@ export class ManualRoutingDO extends DurableObject<Env> {
     // Cloudflare Workers always provides binary as ArrayBuffer, not Uint8Array
     ws.send(message);
   }
+
+  // Required explicit no-op: newer workerd (via vitest-pool-workers 0.14+) requires
+  // DOs to explicitly define webSocketClose if any WebSocket is ever closed. Prior
+  // versions silently used the DurableObject base's default.
+  webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): void {
+    // no-op
+  }
 }
 
 // Mix in shared DO methods

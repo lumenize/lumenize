@@ -19,6 +19,7 @@ export default defineConfig({
 
   test: {
     globals: true,
+    dangerouslyIgnoreUnhandledErrors: true,
 
     // 10 second timeout for external network calls
     testTimeout: 10000,

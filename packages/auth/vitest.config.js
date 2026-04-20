@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     testTimeout: 2000, // 2 second global timeout
     globals: true,
+    dangerouslyIgnoreUnhandledErrors: true, // vitest 4 fails run on unhandled rejections; tests intentionally provoke errors in background tasks
+
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],

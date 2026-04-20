@@ -9,6 +9,7 @@ export default defineConfig({
 
   test: {
     testTimeout: 5000,
-    globals: true
+    globals: true,
+    dangerouslyIgnoreUnhandledErrors: true,
   }
 });

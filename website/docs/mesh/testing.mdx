@@ -25,18 +25,17 @@ npm install --save-dev @lumenize/testing
 ### vitest.config.js
 
 ```javascript @skip-check-approved('conceptual')
-import { defineWorkersProject } from "@cloudflare/vitest-pool-workers/config";
+import { defineConfig } from "vitest/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersProject({
+export default defineConfig({
+  plugins: [
+    cloudflareTest({
+      wrangler: { configPath: "./test/wrangler.jsonc" },
+    }),
+  ],
   test: {
     testTimeout: 5000,
-    poolOptions: {
-      workers: {
-        // Must be false for WebSocket support
-        isolatedStorage: false,
-        wrangler: { configPath: "./test/wrangler.jsonc" },
-      },
-    },
   },
 });
 ```
@@ -314,5 +313,5 @@ using client = new MyClient({
 
 - **Use `using` everywhere** — Automatic cleanup prevents WebSocket leaks between tests.
 - **`vi.waitFor()`, never `setTimeout`** — Retries assertions deterministically. Set `testTimeout` in vitest config for slow operations.
-- **One DO instance per test** — With `isolatedStorage: false`, each test should use unique instance names to avoid state sharing.
+- **One DO instance per test** — Each test should use unique instance names to avoid state sharing. (Pre-0.13 pool-workers had an `isolatedStorage: false` option for this; it's been removed — the new default matches the fresh-DO-per-test pattern.)
 - **`createTestingClient` for setup and verification** — Pre-populate storage before a test, verify state after. Combine with integration tests for full-stack coverage.
