@@ -41,6 +41,7 @@
     "@cloudflare/vitest-pool-workers": "^0.14.7",
     "@lumenize/debug": "*",
     "@vitest/coverage-istanbul": "4.1.4",
+    "unplugin-swc": "^1.5.9",
     "vitest": "4.1.4",
     "wrangler": "^4.72.0"
   },

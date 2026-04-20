@@ -1,5 +1,22 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import swc from 'unplugin-swc';
+
+// SWC plugin to transform TS (including TC39 stage 3 decorators that esbuild doesn't support).
+// Without this, `@mesh()` decorators survive Vite's default esbuild transform and V8 can't parse them.
+// See: https://github.com/evanw/esbuild/issues/104
+const swcPlugin = swc.vite({
+  jsc: {
+    parser: {
+      syntax: 'typescript',
+      decorators: true,
+    },
+    transform: {
+      decoratorVersion: '2022-03',
+    },
+    target: 'es2022',
+  },
+});
 
 export default defineConfig({
   test: {
@@ -27,7 +44,7 @@ export default defineConfig({
       {
         // Main tests - use root wrangler.jsonc
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './wrangler.jsonc' },
         })],
         test: {
@@ -49,7 +66,7 @@ export default defineConfig({
       {
         // Getting started e2e tests - uses its own test harness
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/getting-started/test/wrangler.jsonc' },
         })],
         test: {
@@ -60,7 +77,7 @@ export default defineConfig({
       {
         // Calls pattern e2e tests - uses its own test harness
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
         })],
         test: {
@@ -71,7 +88,7 @@ export default defineConfig({
       {
         // Alarms e2e tests - uses its own test harness
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/alarms/test/wrangler.jsonc' },
         })],
         test: {
@@ -82,7 +99,7 @@ export default defineConfig({
       {
         // Security e2e tests - uses its own test harness
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/for-docs/security/test/wrangler.jsonc' },
         })],
         test: {

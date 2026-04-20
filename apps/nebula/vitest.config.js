@@ -1,5 +1,17 @@
 import { defineConfig } from 'vitest/config';
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import swc from 'unplugin-swc';
+
+// SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
+const swcPlugin = swc.vite({
+  include: [/\.tsx?$/],
+  exclude: [/node_modules/],
+  jsc: {
+    parser: { syntax: 'typescript', decorators: true },
+    transform: { decoratorVersion: '2022-03' },
+    target: 'es2022',
+  },
+});
 
 export default defineConfig({
   test: {
@@ -21,7 +33,7 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/wrangler.jsonc' },
           miniflare: {
             bindings: {
@@ -39,7 +51,7 @@ export default defineConfig({
       },
       {
         extends: true,
-        plugins: [cloudflareTest({
+        plugins: [swcPlugin, cloudflareTest({
           wrangler: { configPath: './test/test-apps/baseline/test/wrangler.jsonc' },
           miniflare: {
             bindings: {

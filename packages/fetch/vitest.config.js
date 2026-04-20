@@ -1,11 +1,21 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-
 import { defineConfig } from "vitest/config";
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import swc from 'unplugin-swc';
 
 export default defineConfig({
-  plugins: [cloudflareTest({
-    wrangler: { configPath: './test/wrangler.jsonc' },
-  })],
+  plugins: [
+    // SWC transforms TC39 stage 3 decorators (esbuild can't). See packages/mesh/vitest.config.js.
+    swc.vite({
+      jsc: {
+        parser: { syntax: 'typescript', decorators: true },
+        transform: { decoratorVersion: '2022-03' },
+        target: 'es2022',
+      },
+    }),
+    cloudflareTest({
+      wrangler: { configPath: './test/wrangler.jsonc' },
+    }),
+  ],
 
   test: {
     globals: true,
