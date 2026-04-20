@@ -186,18 +186,80 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 
 ## Phase 3: Tag Vocabulary Alignment
 
-**Goal**: Decide the JSDoc tag contract for the new package. **Decision-only** — the user-facing documentation of the tag vocabulary is written in Phase 7.
+**Status**: Complete (2026-04-20).
 
-**Work**:
-- Pull typia's full JSDoc tag list — record the typia version already pinned from Phase 1
-- Diff against every tag currently recognized by `extractTypeMetadata()` in the old package
-- Decide tag names for the new package (follow typia conventions: `@minimum`, `@maximum`, `@pattern`, etc.)
-- Pin value-format conventions: bare numeric values (`@minimum 13`). For `@default`, inventory the exact value grammar typia accepts (read typia's `@default` extraction code). **Preferred outcome: adopt typia's grammar verbatim** — users get one reference (typia's docs), not two, and our extractor mirrors typia's behavior. **Fallback** (only if typia's grammar proves unacceptable — e.g., it accepts forms we can't safely evaluate in a Worker, requires `eval`/`Function`, or produces surprising coercions users would reasonably trip over): ship v1 with a JSON-literals-only subset (numbers, strings, booleans, `null`, arrays of JSON, plain object literals of JSON) and file a follow-up to revisit as a feature addition, not a breaking change. Record which path was taken and why in this file so Phase 5 has a checklist and Phase 7 can turn it into docs
-- Record the decisions in this file (tag table + any divergences from typia with reasons) so Phase 7 has a source to turn into docs
+**Goal**: Decide the JSDoc tag contract for the new package. **Decision-only** — the user-facing documentation is written in Phase 7.
+
+### Inventory: old package
+
+`@lumenize/ts-runtime-validator`'s `extractTypeMetadata()` inspects **zero** JSDoc tags (confirmed by reading `packages/ts-runtime-validator/src/extract-type-metadata.ts` on 2026-04-20). Nebula source also uses no typia-style branded types (`grep -r 'ExclusiveMinimum\|MinLength\|Format<\|Pattern<' apps/nebula/src` returns empty). Constraints in the tsc engine came entirely from native TypeScript types (string-literal unions for enums, `number | undefined` for nullables, etc.). **Result: empty baseline — zero backward-compat tags to preserve, zero migration burden for Nebula today.**
+
+### Inventory: typia 12.0.2
+
+Typia recognises two parallel paths to the same metadata:
+
+1. **Branded types**: `number & Minimum<13>` — type-system path, walked by typia's metadata factory.
+2. **JSDoc tags**: `/** @minimum 13 */` — read by `MetadataCommentTagFactory.PARSER` (`node_modules/@typia/core/lib/factories/MetadataCommentTagFactory.js`).
+
+The JSDoc `PARSER` dictionary (authoritative source) accepts these tag names:
+
+| Tag | Applies to | Value grammar | Emits |
+| --- | --- | --- | --- |
+| `@type` | number, bigint | `int32` \| `uint32` \| `int64` \| `uint64` \| `float` \| `double` (shortcut: `int`→`int32`, `uint`→`uint32`) | `Type<"...">` constraint + range check |
+| `@minimum` | number, bigint | bare number | `Minimum<N>` |
+| `@maximum` | number, bigint | bare number | `Maximum<N>` |
+| `@exclusiveMinimum` | number, bigint | bare number | `ExclusiveMinimum<N>` |
+| `@exclusiveMaximum` | number, bigint | bare number | `ExclusiveMaximum<N>` |
+| `@multipleOf` | number, bigint | bare number | `MultipleOf<N>` |
+| `@format` | string | one of the 25 format IDs below | `Format<"...">` |
+| `@pattern` | string | literal regex source (no flags) | `Pattern<"...">` |
+| `@length` | string | bare integer | `MinLength<N>` + `MaxLength<N>` (same N) |
+| `@minLength` | string | bare integer | `MinLength<N>` |
+| `@maxLength` | string | bare integer | `MaxLength<N>` |
+| `@items` | array | bare integer | `MinItems<N>` + `MaxItems<N>` (same N) |
+| `@minItems` | array | bare integer | `MinItems<N>` |
+| `@maxItems` | array | bare integer | `MaxItems<N>` |
+| `@uniqueItems` | array | no value (presence-only) | `UniqueItems` |
+
+`@format` values accepted (from `FormatCheatSheet.js`): `byte`, `password`, `regex`, `uuid`, `email`, `hostname`, `idn-email`, `idn-hostname`, `iri`, `iri-reference`, `ipv4`, `ipv6`, `uri`, `uri-reference`, `uri-template`, `url`, `date-time` (aliases: `datetime`, `dateTime`), `date`, `time`, `duration`, `json-pointer`, `relative-json-pointer`.
+
+### Key finding: typia does NOT parse `@default` as a JSDoc tag
+
+The task file previously assumed typia had a `@default` JSDoc handler and that we should "mirror" typia's grammar. **That assumption was wrong.** Typia has a branded type `Default<Value extends boolean | bigint | number | string>` (in `node_modules/@typia/interface/lib/tags/Default.d.ts`) but the `MetadataCommentTagFactory.PARSER` has no `default` entry. Typia's own docs explicitly say `Default<T>` is "metadata-only — typia does not automatically apply default values at runtime" (it's for JSON Schema generation and for typia's random/llm generators).
+
+Consequences:
+- There is no typia JSDoc grammar for `@default` to mirror — we define ours.
+- Typia's `Default<T>` is too narrow (primitives only) for Nebula's use case. Current `OntologyVersionConfig.defaults` is `Record<string, any>` — resource authors set default arrays, default nested objects, etc.
+- Shipping `@default` as a Lumenize JSDoc tag puts us slightly ahead of typia's surface area. Users writing `@minimum` etc. still only need one reference (typia's docs); users writing `@default` need ours, which is a small, well-bounded addition.
+
+### Decisions
+
+**D1. Adopt typia's validator JSDoc vocabulary verbatim** — the 15-row table above. All 25 `@format` values flow through to typia as-is. No renames. Benefits: zero surface-area invention on the validation side, users writing interfaces rely on typia's docs, and the transformer handles parsing and emission for us.
+
+**D2. Add `@default` as a Lumenize-custom JSDoc tag** — not part of typia's PARSER. Owned by our extended `extractTypeMetadata()`, collected into `typeMetadata.defaults` and baked into the generated module for the `parse()` wrapper to fill pre-validation.
+
+**D3. `@default` grammar = JSON literals only** (the task's earlier "fallback" path, now promoted to the chosen path since the "preferred" path doesn't exist):
+- Accepted: `number` (including `-1.5e3`), `string` (double-quoted JSON), `boolean`, `null`, JSON array of these, JSON object of these. Nested JSON permitted to any depth.
+- Parsing: `JSON.parse(tagText.trim())`. No `eval`, no `Function`, no template strings, no trailing commas.
+- Rejected at extract time with a clear error: anything that doesn't round-trip through `JSON.parse` — including `undefined`, `NaN`, `Infinity`, bigint syntax (`10n`), single-quoted strings, unquoted object keys, function expressions.
+- This deliberately does *not* try to match typia's `Default<T>` (primitives only) — our grammar is a superset, richer where Nebula needs it (arrays, objects), safer where it counts (no eval). If users also put a typia `Default<T>` branded type on the same field, both metadata paths run independently: our `@default` JSDoc drives input-filling, typia's `Default<T>` ends up in the emitted JSON Schema. Not conflicting, just complementary.
+
+**D4. `@default` on a required field → hard error at `extractTypeMetadata()` time.** Formalising Phase 4's option (a) now so Phase 5 has one behaviour to test. Caught at ontology registration, surfaced as a compile-time error via Galaxy's submit-time rejection.
+
+**D5. Unknown JSDoc tags are tolerated, not errored.** If a user writes `@author Alice` on a field, the extractor leaves it alone. This lets users keep documentation tags on their interfaces without triggering validator errors.
+
+**D6. Tag values are case-sensitive except where typia's `FORMATS` map explicitly aliases** (e.g., `datetime` / `dateTime` → `date-time`). Users writing `@format EMAIL` get a validation error at compile time, not a surprise non-match.
+
+### Divergences from typia (to be called out in Phase 7 docs)
+
+- **`@default` exists in Lumenize, doesn't exist as a JSDoc tag in typia.** Anchor in docs: link to typia's `Default<T>` branded type and explain Lumenize's is a richer JSDoc-based parallel path specifically for input-filling.
+- No other renames, additions, or omissions.
 
 **Success Criteria**:
-- [ ] Complete tag table recorded in this file
-- [ ] Any divergences from typia's tag names decided and recorded with reasons
+- [x] Complete tag table recorded in this file (`D1` above, 15 rows + 25 `@format` values)
+- [x] Any divergences from typia's tag names decided and recorded with reasons (`@default` — `D2`/`D3`; no other divergences)
+- [x] `@default` grammar pinned (`D3`: JSON literals only)
+- [x] `@default` on required field behaviour pinned (`D4`: hard error)
 
 ## Phase 4: `@default` and `parse()` Semantics
 
@@ -205,7 +267,7 @@ The existing `@lumenize/ts-runtime-validator` stays published but gets deprecate
 
 **Decisions to record:**
 - **Fill semantics**: the generated `parse()` fills missing optional fields before validation; validator sees complete objects
-- **Required vs optional**: fields with `@default` must be declared optional. `@default` on a required field is a Phase-4 decision that *must* be pinned before Phase 5 starts — pick one of: (a) hard error at `extractTypeMetadata()` time (preferred — catches the mistake at ontology registration, not at first transaction), (b) silent warning emitted from the extractor, (c) silently ignore the `@default` tag. Record the choice here so Phase 5's success criterion (line re: "`@default` on required field warns/errors") has exactly one behavior to test.
+- **Required vs optional**: fields with `@default` must be declared optional. `@default` on a required field → **hard error at `extractTypeMetadata()` time** (pinned in Phase 3 `D4`). Caught at ontology registration via Galaxy's submit-time rejection, not at first transaction.
 - **Return shape**: `parse(value, typeName): { valid: true, data } | { valid: false, errors }`, exported from the generated module. On success, `data` is the filled+validated object. On failure, `errors` is the structured error list and no `data` is returned. The `valid` discriminant gives callers a clean narrowing check
 - **Error shape: adopt typia's error shape as-is.** Decided: the `errors` field uses typia's native error shape (path + expected + value). Wrapping or translating to match the old `ValidationError[]` shape adds drag with no upside; typia's shape is well-documented, and callers (currently only Nebula's `Resources.transaction()`) are updated in 5.2.4.2 to consume it directly. `TransactionError.errors` changes type accordingly in 5.2.4.2 — a breaking change for Nebula consumers. The new package ships under a new name, so existing users of `@lumenize/ts-runtime-validator` are unaffected until they opt in to migrate.
 - **Depth: `@default` recurses fully into nested objects and array elements.** Any optional field at any depth with a `@default` tag gets filled pre-validation. Practical guidance (goes into the docs, not enforced): don't stack deep nested defaults — if an interface has `@default` fields five levels deep, lift that nested structure into its own named interface instead. Same recursion, more readable. Draft test specifications pinning this semantic — they become executable tests in Phase 5
