@@ -121,13 +121,17 @@ describe('Parity (RPC path) — Set', () => {
 });
 
 describe('Parity (RPC path) — RegExp', () => {
-  it('[observed] RegExp value', async () => {
-    // Typia's built-in RegExp recognition: let's see what happens. We classify
-    // after observing — the test simply records the outcome for the matrix.
+  it('[SUPPORTED] RegExp instance accepted against RegExp type', async () => {
     const types = `interface Rule { pattern: RegExp; }`;
     const result = await rpcParse(types, 'Rule', { pattern: /foo/i }, 'rpc-regex');
-    // Don't assert; record.
-    expect(typeof result.valid).toBe('boolean');
+    expect(result.valid).toBe(true);
+  });
+
+  it('[SUPPORTED] RegExp type rejects a string value with typia error naming RegExp', async () => {
+    const types = `interface Rule { pattern: RegExp; }`;
+    const result = await rpcParse(types, 'Rule', { pattern: 'not-a-regex' }, 'rpc-regex-str');
+    expect(result.valid).toBe(false);
+    expect(result.errors![0].expected).toBe('RegExp');
   });
 
   it('[SUPPORTED via @pattern] string pattern validation', async () => {
@@ -160,7 +164,7 @@ interface Link {
 });
 
 describe('Parity (RPC path) — TypedArrays', () => {
-  it('[observed] Uint8Array value', async () => {
+  it('[SUPPORTED] Uint8Array accepted against Uint8Array type', async () => {
     const types = `interface Blob { data: Uint8Array; }`;
     const result = await rpcParse(
       types,
@@ -168,10 +172,22 @@ describe('Parity (RPC path) — TypedArrays', () => {
       { data: new Uint8Array([1, 2, 3]) },
       'rpc-u8',
     );
-    expect(typeof result.valid).toBe('boolean');
+    expect(result.valid).toBe(true);
   });
 
-  it('[observed] BigInt64Array value', async () => {
+  it('[SUPPORTED] plain array rejected where Uint8Array is expected', async () => {
+    const types = `interface Blob { data: Uint8Array; }`;
+    const result = await rpcParse(
+      types,
+      'Blob',
+      { data: [1, 2, 3] as any },
+      'rpc-u8-wrong',
+    );
+    expect(result.valid).toBe(false);
+    expect(result.errors![0].expected).toBe('Uint8Array');
+  });
+
+  it('[SUPPORTED] BigInt64Array', async () => {
     const types = `interface Ids { xs: BigInt64Array; }`;
     const result = await rpcParse(
       types,
@@ -179,7 +195,18 @@ describe('Parity (RPC path) — TypedArrays', () => {
       { xs: new BigInt64Array([BigInt(1), BigInt(2)]) },
       'rpc-big-u64',
     );
-    expect(typeof result.valid).toBe('boolean');
+    expect(result.valid).toBe(true);
+  });
+
+  it('[SUPPORTED] ArrayBuffer', async () => {
+    const types = `interface Buf { b: ArrayBuffer; }`;
+    const result = await rpcParse(
+      types,
+      'Buf',
+      { b: new ArrayBuffer(8) },
+      'rpc-ab',
+    );
+    expect(result.valid).toBe(true);
   });
 });
 
