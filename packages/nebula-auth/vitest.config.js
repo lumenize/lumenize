@@ -1,12 +1,10 @@
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { defineConfig } from 'vitest/config';
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersConfig({
+export default defineConfig({
   test: {
     testTimeout: 5000,
     globals: true,
-    poolOptions: {
-      workers: {},
-    },
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
@@ -29,22 +27,20 @@ export default defineWorkersConfig({
       {
         // Main tests (test mode — no real email)
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              NEBULA_AUTH_TEST_MODE: 'true',
+              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              DEBUG: 'nebula-auth',
+            },
+          },
+        })],
         test: {
           name: 'main',
           include: ['test/**/*.test.ts'],
           exclude: ['test/e2e-email/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/wrangler.jsonc' },
-              miniflare: {
-                bindings: {
-                  NEBULA_AUTH_TEST_MODE: 'true',
-                  NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
-                  DEBUG: 'nebula-auth',
-                },
-              },
-            },
-          },
         },
       },
     ],

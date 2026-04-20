@@ -1,12 +1,10 @@
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { defineConfig } from 'vitest/config';
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersConfig({
+export default defineConfig({
   test: {
     testTimeout: 10000,
     globals: true,
-    poolOptions: {
-      workers: {},
-    },
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
@@ -23,41 +21,37 @@ export default defineWorkersConfig({
     projects: [
       {
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              NEBULA_AUTH_TEST_MODE: 'true',
+              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              DEBUG: 'nebula',
+            },
+          },
+        })],
         test: {
           name: 'unit',
           include: ['test/**/*.test.ts'],
           exclude: ['test/test-apps/**'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/wrangler.jsonc' },
-              miniflare: {
-                bindings: {
-                  NEBULA_AUTH_TEST_MODE: 'true',
-                  NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
-                  DEBUG: 'nebula',
-                },
-              },
-            },
-          },
         },
       },
       {
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/test-apps/baseline/test/wrangler.jsonc' },
+          miniflare: {
+            bindings: {
+              NEBULA_AUTH_TEST_MODE: 'true',
+              NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
+              DEBUG: 'nebula',
+            },
+          },
+        })],
         test: {
           name: 'baseline',
           include: ['test/test-apps/baseline/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/test-apps/baseline/test/wrangler.jsonc' },
-              miniflare: {
-                bindings: {
-                  NEBULA_AUTH_TEST_MODE: 'true',
-                  NEBULA_AUTH_BOOTSTRAP_EMAIL: 'bootstrap-admin@example.com',
-                  DEBUG: 'nebula',
-                },
-              },
-            },
-          },
         },
       },
     ],

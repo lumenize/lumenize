@@ -1,12 +1,10 @@
-import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { defineConfig } from 'vitest/config';
+import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
-export default defineWorkersConfig({
+export default defineConfig({
   test: {
     testTimeout: 2000, // 2 second global timeout
     globals: true,
-    poolOptions: {
-      workers: {},
-    },
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'html', 'lcov', 'json-summary'],
@@ -29,6 +27,9 @@ export default defineWorkersConfig({
       {
         // Main tests - use root wrangler.jsonc
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './wrangler.jsonc' },
+        })],
         test: {
           name: 'main',
           include: [
@@ -43,63 +44,50 @@ export default defineWorkersConfig({
             'test/for-docs/alarms/index.test.ts',
             'test/for-docs/security/**/*.test.ts'
           ],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './wrangler.jsonc' },
-            },
-          },
         },
       },
       {
         // Getting started e2e tests - uses its own test harness
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/for-docs/getting-started/test/wrangler.jsonc' },
+        })],
         test: {
           name: 'getting-started',
           include: ['test/for-docs/getting-started/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/for-docs/getting-started/test/wrangler.jsonc' },
-            },
-          },
         },
       },
       {
         // Calls pattern e2e tests - uses its own test harness
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
+        })],
         test: {
           name: 'calls',
           include: ['test/for-docs/calls/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/for-docs/calls/test/wrangler.jsonc' },
-            },
-          },
         },
       },
       {
         // Alarms e2e tests - uses its own test harness
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/for-docs/alarms/test/wrangler.jsonc' },
+        })],
         test: {
           name: 'alarms',
           include: ['test/for-docs/alarms/index.test.ts'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/for-docs/alarms/test/wrangler.jsonc' },
-            },
-          },
         },
       },
       {
         // Security e2e tests - uses its own test harness
         extends: true,
+        plugins: [cloudflareTest({
+          wrangler: { configPath: './test/for-docs/security/test/wrangler.jsonc' },
+        })],
         test: {
           name: 'security',
           include: ['test/for-docs/security/**/*.test.ts'],
-          poolOptions: {
-            workers: {
-              wrangler: { configPath: './test/for-docs/security/test/wrangler.jsonc' },
-            },
-          },
         },
       },
     ],
