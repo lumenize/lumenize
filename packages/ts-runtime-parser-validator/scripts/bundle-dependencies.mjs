@@ -1,6 +1,8 @@
 /**
  * Bundle `@typia/transform` + its dependencies + `typescript` into a single
- * ESM file suitable for loading inside a Cloudflare Workers isolate.
+ * ESM file suitable for loading inside a Cloudflare Workers isolate —
+ * including real `wrangler dev` and deployed Workers, not just
+ * `vitest-pool-workers`.
  *
  * Why one bundle?
  *   - Typia's transformer does `instanceof` checks against `ts.Node`. Two
@@ -9,11 +11,21 @@
  *     own AST code (`extract-type-metadata.ts`).
  *   - Catches all Node builtins in one sweep.
  *
- * Adapted from `packages/ts-runtime-validator/scripts/bundle-tsc.mjs`. Stubs
- * for `node:os` and `node:inspector` are copied verbatim — those are the
- * two Node builtins the TypeScript compiler imports that do not exist in
- * workerd. Other Node imports (`fs`, `path`, `crypto`, `perf_hooks`) are
- * either available in workerd or already guarded by runtime checks in tsc.
+ * Recipe follows the proven tsc-in-Worker pattern from
+ * `experiments/dw-bundler-spike/scripts/bundle-tsc.mjs`:
+ *   - `platform: 'neutral'` — no built-in shims; every Node import must
+ *     be resolved via explicit alias
+ *   - Full shim set for the Node builtins tsc/typia probe at init time:
+ *     `fs`, `path`, `os`, `crypto`, `perf_hooks`, `inspector`,
+ *     `child_process`, `module`, `url`, `util`
+ *   - `inject: stubs/globals.mjs` provides `__filename`, `__dirname`, and
+ *     a minimal `process` object
+ *
+ * Earlier versions used `platform: 'node'` with only `os` + `inspector`
+ * aliased. That worked under `vitest-pool-workers` because vpw injects
+ * extra Node shims, but failed under real `wrangler dev` with
+ * "Dynamic require of 'fs' is not supported" — esbuild converts
+ * `require('fs')` into runtime `__require('fs')` which workerd rejects.
  *
  * Output: `dist/deps.bundle.mjs` (gitignored, regenerated on install/bundle).
  */
@@ -70,19 +82,44 @@ export { default as typiaTransform } from '@typia/transform';
 const barrelPath = resolve(outDir, '_barrel.mjs');
 writeFileSync(barrelPath, barrelSrc);
 
+const stubsDir = resolve(__dirname, 'stubs');
+const stub = (name) => resolve(stubsDir, `${name}.mjs`);
+// Every Node builtin tsc or typia imports must be aliased when
+// platform='neutral'. Missing one produces a "Could not resolve 'X'" error
+// from esbuild, which is a loud, easy-to-fix failure. Catching a missing
+// shim at bundle time beats discovering it at Worker-start time.
+const nodeAliases = {
+  'os': stub('os'),
+  'path': stub('path'),
+  'fs': stub('fs'),
+  'crypto': stub('crypto'),
+  'perf_hooks': stub('perf_hooks'),
+  'inspector': stub('inspector'),
+  'child_process': stub('empty'),
+  'module': stub('empty'),
+  'url': stub('empty'),
+  'util': stub('empty'),
+};
+// Mirror each alias with its `node:` prefix form — some modules use either.
+const allAliases = {
+  ...nodeAliases,
+  ...Object.fromEntries(Object.entries(nodeAliases).map(([k, v]) => [`node:${k}`, v])),
+};
+
 await build({
   entryPoints: [barrelPath],
   bundle: true,
-  platform: 'node',
+  platform: 'neutral',
   format: 'esm',
   minify: true,
   outfile,
-  alias: {
-    'os': resolve(__dirname, 'stubs/os.mjs'),
-    'node:os': resolve(__dirname, 'stubs/os.mjs'),
-    'inspector': resolve(__dirname, 'stubs/inspector.mjs'),
-    'node:inspector': resolve(__dirname, 'stubs/inspector.mjs'),
-  },
+  // `mainFields` must be explicit under platform='neutral' (no defaults);
+  // these match Node's resolution order so typescript / @typia/transform
+  // resolve their CJS entrypoints.
+  mainFields: ['module', 'main'],
+  conditions: ['import', 'default'],
+  inject: [stub('globals')],
+  alias: allAliases,
 });
 
 const stats = readFileSync(outfile);
