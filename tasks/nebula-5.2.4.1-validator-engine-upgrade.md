@@ -320,24 +320,40 @@ Claude can run the local path end-to-end (wrangler dev in background, poll log, 
 
 ## Phase 7: Documentation
 
-Write all docs before the package is published to npm — tag vocabulary, API reference, and migration guide all land here, not in earlier phases. This is the consolidated "docs before publish" phase for this task.
+Write all docs before the package is published to npm. This is the consolidated "docs before publish" phase for this task. The old `@lumenize/ts-runtime-validator` was experimental and has no known external users, so the new package is framed as a fresh package rather than a successor — no migration guide.
 
-**Work**:
-- New docs in `/website/docs/ts-runtime-parser-validator/` — overview, getting started, API reference. Update `website/sidebars.ts` to include the new section (Docusaurus does not auto-populate) and add an entry to the package table in `website/docs/introduction.mdx` marked **experimental**, alongside the existing `@lumenize/ts-runtime-validator` entry which should be marked **deprecated** with a pointer to the new package.
-- Tag vocabulary reference page (the decisions recorded in Phase 3 written up as user-facing docs)
-- Migration guide from `@lumenize/ts-runtime-validator` to `@lumenize/ts-runtime-parser-validator`
-- `@default` semantics page including the practical "don't stack deep nested defaults" guidance from Phase 4
-- **Type-support page** mirroring the section-heading skeleton of the old doc (`website/docs/ts-runtime-validator/type-support.md`) so readers can see at a glance what changed. Each section either documents what's supported (with a tested example) or carries a short "not supported because X" note drawn from the Phase 5 delta suite's matrix. No hidden omissions — if the old doc covered it, the new doc addresses it.
+### Positioning
+
+Frame the package as **typia packaged for Cloudflare Dynamic Workers / DO facets**. What we add on top of typia:
+
+- Compile-once-and-cache lifecycle for the generated validator module
+- DO-facet loading as the runtime entry point
+- Parse-don't-validate semantics with first-class `@default` filling
+- Write-shape rewriting for ontology-style relationship references
+
+Main body of the overview uses generic language (e.g., "user-supplied schemas", "per-tenant schemas in a SaaS app") with no Nebula-specific vocabulary. A `:::info` admonition near the end introduces the Lumenize Nebula use case concretely (and earns the right to use the word "ontology" by defining it in context). One sentence credits typia and links to typia.io. Explicitly tell Node.js readers to use typia directly — this package earns its keep when the schema must be dynamic inside a Worker.
+
+### Work
+
+- **Overview (`index.md`)** — the "why" story per Positioning above. Includes a **comparison table** with columns for this package, `@lumenize/ts-runtime-validator` (old), typia (raw), Zod, and Ajv — framed as "when to reach for which", not advocacy. The typia column's "reach for it when" row should say: "You're on Node.js, or you don't need dynamic schema hot-swap inside a Worker."
+- **Getting Started (`getting-started.md`)** — the three-step flow: call `compileTypesToParseModule()` once at schema-registration time → load the emitted module as a DO facet → `facet.parse(value, typeName)` per call. Short, concrete, runnable.
+- **API Reference (`api-reference.md`)** — `compileTypesToParseModule()` signature and options, the exported `parse()` from the generated module, the `{ valid: true, data } | { valid: false, errors }` return shape, and typia's error-element shape `{ path, expected, value, description? }` that flows through unchanged.
+- **Additional Constraints (`additional-constraints.md`)** — the 15 JSDoc annotations from Phase 3 D1 (plus the 25 `@format` values) written up as user-facing docs. Page-title framing: "types are the primary constraint; these annotations add to what the type system provides". Use the word "annotations" in prose. Organise by what the annotation applies to (number / string / array). Each annotation gets a one-sentence description, a one-line interface example, and a two-line `facet.parse()` example showing acceptance + rejection.
+- **`@default` (`default.md`)** — fill semantics (P4.1), required/optional rule (P4.2/D4), full recursion (P4.5), and the "lift deep nested defaults into their own interface" guidance. Linked from the corresponding row in the Additional Constraints page.
+- **Type Support (`type-support.md`)** — mirrors the section-heading skeleton of `website/docs/ts-runtime-validator/type-support.md` so readers can category-by-category see what changed. Drop the old page's "TypeScript Emit" column (no equivalent concept here — typia validates JS values directly). Add a brief "Tag-based constraints" section that links to Additional Constraints. Each section documents what's supported (with a tested example) or carries a short "not supported because X" note drawn from the Phase 5 delta matrix. tl;dr paragraph at the top. No hidden omissions.
+- **Sidebar and package-table updates** — add a new `TS Runtime Parser-Validator` section to `website/sidebars.ts` with the pages above; update `website/docs/introduction.mdx` to add a row for the new package marked **experimental**, and update the existing `@lumenize/ts-runtime-validator` row to **deprecated** with a pointer to the new package.
 
 Nebula integration (updating `Resources.transaction()`, wiring Galaxy/Star) belongs to 5.2.4.2, not this task. The `npm deprecate` of `@lumenize/ts-runtime-validator` also moves to 5.2.4.2 — keeping it paired with Nebula's removal of the old dependency provides a hedge: if integration hits problems we can postpone the deprecation without having to un-deprecate. The **blog post also moves to the end of 5.2.4.2**: writing the announcement after Nebula integration lets us describe the full working system (parse-validate + Galaxy/Star wiring) in one post, and avoids announcing something that might still hit integration snags.
 
-**Success Criteria**:
-- [ ] Overview and getting-started pages published
-- [ ] API reference page published (`compileTypesToParseModule()`, exported `parse()` from generated module)
-- [ ] Tag vocabulary reference page published, covering every tag decided in Phase 3
-- [ ] Migration guide published with before/after examples and a pointer from the old package's README
+### Success Criteria
+
+- [ ] Overview and getting-started pages published, with the typia-for-DO-facets framing and the Node.js "use typia directly" guidance
+- [ ] Overview page includes the comparison table (this package, old package, typia, Zod, Ajv) framed as "when to reach for which"
+- [ ] API reference page published (`compileTypesToParseModule()`, exported `parse()` from generated module, return and error shapes)
+- [ ] Additional Constraints page published, covering every annotation decided in Phase 3 (15 annotations + 25 `@format` values)
 - [ ] `@default` page covers fill semantics, required/optional rule, full recursion, and the "lift deep nested defaults into their own interface" guidance
-- [ ] Type-support page published with same section skeleton as the old doc, each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix
+- [ ] Type-support page published with same section skeleton as the old doc (minus "TypeScript Emit" column), each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix
+- [ ] `website/sidebars.ts` updated with the new section; `website/docs/introduction.mdx` has a new row for the package marked **experimental**, and the existing `@lumenize/ts-runtime-validator` row updated to **deprecated** with a pointer to the new package
 - [ ] Every executable code block in the new docs has an `@check-example('path/to/test')` annotation pointing at a passing `test/for-docs/` test — zero remaining `@skip-check` annotations. `npm run check-examples` passes. Note: `@skip-check-approved` may only be added by a human reviewer, never by Claude.
 
 ## Phase -1: Captured Ideas (triage before closing)
