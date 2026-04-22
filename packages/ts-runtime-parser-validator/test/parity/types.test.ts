@@ -117,7 +117,7 @@ describe('Parity — Union and Optional', () => {
 describe('Parity — Utility Types', () => {
   it('[SUPPORTED?] Partial<T> via typeName', async () => {
     // Typia supports utility types when they resolve to concrete shapes at compile time.
-    // Our `compileTypesToParseModule` generates `typia.createValidate<TypeName>()`
+    // Our `generateParseModule` generates `typia.createValidate<TypeName>()`
     // for each top-level interface name. `Partial<User>` isn't a top-level interface
     // name unless we materialize it as one. For the old tsc package, users passed
     // `'Partial<User>'` as typeName directly. In the new package, this requires a

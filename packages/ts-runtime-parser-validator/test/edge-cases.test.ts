@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { extractTypeMetadata } from '../src/extract-type-metadata';
-import { compileTypesToParseModule } from '../src/compile-types-to-parse-module';
+import { generateParseModule } from '../src/generate-parse-module';
 
 /**
  * Edge-case tests: mainly exercising error branches to get coverage over 90% / 80%.
@@ -89,13 +89,13 @@ interface X {
   });
 });
 
-describe('compileTypesToParseModule edge cases', () => {
+describe('generateParseModule edge cases', () => {
   it('throws when the input has no interfaces', () => {
-    expect(() => compileTypesToParseModule('type X = number;')).toThrow(/no interfaces/);
+    expect(() => generateParseModule('type X = number;')).toThrow(/no interfaces/);
   });
 
   it('produces a self-contained module (no typia/ imports, no default imports from "typia")', () => {
-    const emitted = compileTypesToParseModule(`
+    const emitted = generateParseModule(`
 interface Thing { name: string; }
 `);
     // Guard inside the compile function already throws if surviving typia imports
@@ -106,7 +106,7 @@ interface Thing { name: string; }
   });
 
   it('bakes relationships and defaults into the emitted module', () => {
-    const emitted = compileTypesToParseModule(`
+    const emitted = generateParseModule(`
 interface Parent { id: string; }
 interface Child {
   id: string;
@@ -121,7 +121,7 @@ interface Child {
   });
 
   it('handles an interface with only non-property members (type-only / pure signatures)', () => {
-    const emitted = compileTypesToParseModule(`
+    const emitted = generateParseModule(`
 interface Marker {}
 interface Real { id: string; }
 `);

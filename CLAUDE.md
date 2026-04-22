@@ -12,7 +12,7 @@ Packages for Cloudflare Durable Objects. Users ("vibe coders") are domain expert
 - **Auto-generate Env interface** - run `wrangler types`, never manually define it
 - **`compatibility_date: "2026-03-12"`** or later in wrangler.jsonc
 - **Secrets in root `.dev.vars`** - gitignored, auto-symlinked via postinstall; never commit secrets or put them in source code
-- **Docs in `/website/docs/`** - only `.mdx` files, never create temp docs elsewhere
+- **Docs in `/website/docs/`** — always use `.md`; `.mdx` requires explicit human approval and is reserved for pages that truly need JSX components, imports, or expression interpolation. Admonitions (`:::info`) and HTML work in plain `.md`, so most pages don't need `.mdx`. Never create temp docs elsewhere.
 
 ---
 
@@ -226,12 +226,12 @@ Documentation quality is ensured by custom Docusaurus tooling that guarantees al
 - **Prefer inline links** over "See Also" or "Next Steps" sections at the end of files — sidebar ordering handles navigation and end-of-file link sections get stale without anyone noticing.
 
 ### Where Documentation Lives
-- **Website docs**: `/website/docs/[package-name]/*.mdx` - All user-facing documentation
+- **Website docs**: `/website/docs/[package-name]/*.md` - All user-facing documentation. `.mdx` only with human approval (see Critical Rules).
 - **Package README.md**: Minimal - name, tagline, link to website, key features, installation
 
 ### Code Example Validation
 
-In `.mdx` files, use the `@check-example` annotation to link code blocks to tests:
+In `.md` / `.mdx` files, use the `@check-example` annotation to link code blocks to tests:
 
 ````markdown
 ```typescript @check-example('packages/rpc/test/for-docs/basic-usage.test.ts')
@@ -245,7 +245,7 @@ expect(result).toBe('DO echoed: Hello');
 - **Never use `@skip-check-approved`** — this annotation indicates human review and approval; only humans may add it
 
 ### Documentation Workflow
-1. **Narrative First**: Draft in `.mdx` with `@skip-check`
+1. **Narrative First**: Draft in `.md` with `@skip-check`
 2. **Make Examples Real**: Create `test/for-docs/` tests
 3. **Validate**: Run `npm run check-examples`
 4. **Build**: Run `npm run build` from `/website`

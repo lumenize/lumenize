@@ -22,7 +22,7 @@
  * a second `ts` instance leaking in (typia's transformer does `instanceof
  * ts.Node` checks that silently fail with two instances — keep them aligned).
  *
- * This function is **internal** to the package — `compileTypesToParseModule()`
+ * This function is **internal** to the package — `generateParseModule()`
  * calls it and bakes the metadata into the emitted module. Not re-exported
  * from `src/index.ts`.
  */
@@ -272,7 +272,7 @@ function parseDefaultLiteral(rawText: string, typeName: string, fieldName: strin
  *   - default values collected from `@default` JSDoc tags on optional fields
  *
  * @param typeDefinitions - TypeScript interface definitions as a string
- * @returns `TypeMetadata` — consumed by `compileTypesToParseModule()`
+ * @returns `TypeMetadata` — consumed by `generateParseModule()`
  * @throws if parsing fails, if `@default` is on a required field, or if the
  *   `@default` value is not a valid JSON literal
  */

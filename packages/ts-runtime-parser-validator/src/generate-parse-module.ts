@@ -178,8 +178,8 @@ function createVirtualHost(
 }
 
 /**
- * Compile a string of TypeScript interface definitions into a JS module source
- * string that a DO facet can load.
+ * Generate a JS module source string (for a DO facet to load) from a string of
+ * TypeScript interface definitions.
  *
  * The emitted module exports a `ParserValidator` class extending `DurableObject`
  * (Cloudflare docs require this shape for `worker.getDurableObjectClass()`).
@@ -195,7 +195,7 @@ function createVirtualHost(
  * typia's internal `instanceof ts.Node` checks don't misfire against a second
  * TS instance.
  */
-export function compileTypesToParseModule(typeDefinitions: string): string {
+export function generateParseModule(typeDefinitions: string): string {
   // Pass 1: AST walk — collect interface names, relationships, @default tags,
   // and produce the write-shape (relationship refs narrowed to string / string[]).
   // The extractor enforces Phase 4 P4.2: @default on a required field throws.
@@ -203,7 +203,7 @@ export function compileTypesToParseModule(typeDefinitions: string): string {
   const { interfaceNames, writeShapeTypeDefinitions, defaults } = metadata;
 
   if (interfaceNames.length === 0) {
-    throw new Error('compileTypesToParseModule: no interfaces found in typeDefinitions');
+    throw new Error('generateParseModule: no interfaces found in typeDefinitions');
   }
 
   // Pass 2: feed typia the write-shape (IDs instead of nested objects for
@@ -296,11 +296,11 @@ ${validatorEntries}
       .slice(0, 3)
       .map((d) => tsApi.flattenDiagnosticMessageText(d.messageText, '\n'))
       .join('\n');
-    throw new Error(`compileTypesToParseModule: compile errors:\n${msgs}`);
+    throw new Error(`generateParseModule: compile errors:\n${msgs}`);
   }
 
   if (!emittedJs) {
-    throw new Error('compileTypesToParseModule: no JS was emitted');
+    throw new Error('generateParseModule: no JS was emitted');
   }
 
   // Typia's emitted JS references `typia/lib/internal/*` helpers plus carries
@@ -328,7 +328,7 @@ ${validatorEntries}
   if (survivingTypiaImport.test(rewritten)) {
     const line = rewritten.split('\n').find((l) => survivingTypiaImport.test(l)) ?? '';
     throw new Error(
-      `compileTypesToParseModule: emitted JS still imports from typia — helper inlining needs extending.\nOffending line: ${line}`,
+      `generateParseModule: emitted JS still imports from typia — helper inlining needs extending.\nOffending line: ${line}`,
     );
   }
   emittedJs = rewritten;

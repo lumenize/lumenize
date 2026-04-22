@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import { compileTypesToParseModule } from '../src/compile-types-to-parse-module';
+import { generateParseModule } from '../src/generate-parse-module';
 
 /**
  * Primary DO (supervisor). Compiles a validator module from posted type
@@ -22,7 +22,7 @@ type FacetStub = { parse: (value: unknown, typeName: string) => Promise<unknown>
 
 export class PrimaryDO extends DurableObject<Env> {
   #getFacetForBundle(typeDefinitions: string, bundleId: string): { facet: FacetStub; moduleSize: number } {
-    const moduleSource = compileTypesToParseModule(typeDefinitions);
+    const moduleSource = generateParseModule(typeDefinitions);
     // `ctx.facets` and `worker.getDurableObjectClass` are beta APIs not yet in
     // @cloudflare/workers-types. Cast through unknown until the types land.
     const ctx = this.ctx as unknown as {

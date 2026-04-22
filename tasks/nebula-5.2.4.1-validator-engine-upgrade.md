@@ -20,17 +20,17 @@
 
 **Versions pinned**: `@typia/transform@12.0.2` + peers (`@typia/core`, `@typia/interface`, `@typia/utils` all `12.0.2`), `typescript@^5.9.2`, `@cloudflare/vitest-pool-workers@^0.14.7`, `wrangler@^4.84.0` (via npx-pin), `vitest@4.1.4`. `compatibility_date: "2026-04-01"`.
 
-Package structure (`packages/ts-runtime-parser-validator/`): `src/compile-types-to-parse-module.ts`, `src/extract-type-metadata.ts` (internal), `src/typia-runtime-helpers.ts`, `src/index.ts` (re-exports `compileTypesToParseModule` only), `scripts/bundle-dependencies.mjs` + shim set, `test/` (see Phase 5 Outcome), `wrangler.jsonc`, `dist/*.mjs` (gitignored, regenerated via `npm run bundle`).
+Package structure (`packages/ts-runtime-parser-validator/`): `src/generate-parse-module.ts`, `src/extract-type-metadata.ts` (internal), `src/typia-runtime-helpers.ts`, `src/index.ts` (re-exports `generateParseModule` only), `scripts/bundle-dependencies.mjs` + shim set, `test/` (see Phase 5 Outcome), `wrangler.jsonc`, `dist/*.mjs` (gitignored, regenerated via `npm run bundle`).
 
 ---
 
 
 ## Objective
 
-Create `@lumenize/ts-runtime-parser-validator` — a new package built around typia and the "parse, don't validate" paradigm. `compileTypesToParseModule()` generates a pre-compiled JS module (once per ontology version, cached) whose exported `parse()` fills `@default` values and validates in one call, returning typed data or errors.
+Create `@lumenize/ts-runtime-parser-validator` — a new package built around typia and the "parse, don't validate" paradigm. `generateParseModule()` generates a pre-compiled JS module (once per ontology version, cached) whose exported `parse()` fills `@default` values and validates in one call, returning typed data or errors.
 
 **API shape:**
-- `compileTypesToParseModule(typeDefinitions: string): string` — one call at ontology-registration time produces a self-contained JS module source string. The module bakes in typia-generated validators, `typeMetadata` (defaults + relationships), inlined runtime helpers, and a `ParserValidator` class extending `DurableObject` that exports `parse(value, typeName)` as an RPC method.
+- `generateParseModule(typeDefinitions: string): string` — one call at ontology-registration time produces a self-contained JS module source string. The module bakes in typia-generated validators, `typeMetadata` (defaults + relationships), inlined runtime helpers, and a `ParserValidator` class extending `DurableObject` that exports `parse(value, typeName)` as an RPC method.
 - Runtime hot path: load the module once as a DO facet, then `facet.parse(value, typeName)`. Two args per call, no metadata threaded through.
 
 **Why parse-don't-validate:** typia's generated validators check without filling. Our `parse()` wrapper adds the filler + dispatcher; typia supplies the validator. Mirrors Zod's `parse`/`safeParse` API. Makes `@default` a first-class package-level concern.
@@ -186,7 +186,7 @@ All tests land in `packages/ts-runtime-parser-validator/test/default-*.test.ts`,
 **Files added / modified in `packages/ts-runtime-parser-validator/`:**
 - `src/extract-type-metadata.ts` — ported from old package, extended with `@default` JSDoc pass. Returns `{ interfaceNames, relationships, writeShapeTypeDefinitions, defaults }`. Internal (not exported from `src/index.ts`).
 - `src/typia-runtime-helpers.ts` — inlined helpers now cover three typia internals: `_validateReport`, `_createStandardSchema`, and `_accessExpressionAsString` (discovered during parity tests — typia emits this for `Record<string, T>` and index-signature validation).
-- `src/compile-types-to-parse-module.ts` — now consumes `extractTypeMetadata()`, feeds typia the **write-shape** (relationship refs narrowed to string/string[]), bakes `typeMetadata` (defaults + relationships) into the emitted module, and emits a `__fillDefaults()` runtime function that applies defaults non-destructively per Phase 4 P4.1/P4.5 before `parse()` delegates to the typia validator.
+- `src/generate-parse-module.ts` — now consumes `extractTypeMetadata()`, feeds typia the **write-shape** (relationship refs narrowed to string/string[]), bakes `typeMetadata` (defaults + relationships) into the emitted module, and emits a `__fillDefaults()` runtime function that applies defaults non-destructively per Phase 4 P4.1/P4.5 before `parse()` delegates to the typia validator.
 - `test/default-fill.test.ts` — 8 tests covering P4.1 (flat, undefined-triggers-default, null-preserved, array default, object-literal default, multi-literal, default-that-fails-validation, caller-value-wins)
 - `test/default-extract.test.ts` — 11 tests covering Phase 3 D2/D3 (extraction + grammar rejection + empty-value + unknown-tag tolerance + multi-interface)
 - `test/relationships.test.ts` — 8 tests covering write-shape rewriting (one, many, Array&lt;T&gt;, `T | null`, non-ontology refs) + facet-level validation of string-ID relationship fields + nested-object recursion
@@ -237,9 +237,9 @@ Ran `npm run coverage`:
 
 ### Decisions locked in Phase 5
 
-- **`compileTypesToParseModule()` always applies the write-shape.** Callers who want nested-object validation (non-Nebula use cases) use inline shapes (`{ street: string }`) instead of named interfaces as nested types. Not a flag, not configurable. Aligns the library behaviour with Nebula's production path.
+- **`generateParseModule()` always applies the write-shape.** Callers who want nested-object validation (non-Nebula use cases) use inline shapes (`{ street: string }`) instead of named interfaces as nested types. Not a flag, not configurable. Aligns the library behaviour with Nebula's production path.
 - **Defaults are filled non-destructively and per type.** Missing property OR explicit `undefined` → default; any other value (including `null`) is preserved. Recurses into relationship-referenced types when the field carries a nested object (dev-mode passthrough); stops naturally when the field is a string ID.
-- **Inlined helpers grow lazily.** The set of typia runtime helpers inlined in `typia-runtime-helpers.ts` expands when new helpers surface in emitted JS. The surviving-typia-import guard in `compileTypesToParseModule()` refuses to emit until a new helper is inlined — turns typia upgrades into a loud rather than silent failure mode. Current set: `_validateReport`, `_createStandardSchema`, `_accessExpressionAsString`.
+- **Inlined helpers grow lazily.** The set of typia runtime helpers inlined in `typia-runtime-helpers.ts` expands when new helpers surface in emitted JS. The surviving-typia-import guard in `generateParseModule()` refuses to emit until a new helper is inlined — turns typia upgrades into a loud rather than silent failure mode. Current set: `_validateReport`, `_createStandardSchema`, `_accessExpressionAsString`.
 - **Container-of-ontology-type relationships.** `Set<Interface>`, `Map<K, Interface>`, and their `Readonly` variants are first-class to-many relationships — identical to `T[]` / `Array<T>`. Write-shape rewrites the ontology type-arg to `string`, preserves container shape and Map key type. One schema drives Nebula transactions (IDs in, IDs out) and any other consumer — no validator-vs-ORM mode switch. *Alternative "only `T[]` is a relationship container" rejected because it made `Set<User>` a silent footgun (valid data rejected, invalid data accepted).*
 
 ## Phase 6: Benchmark
@@ -336,8 +336,8 @@ Main body of the overview uses generic language (e.g., "user-supplied schemas", 
 ### Work
 
 - **Overview (`index.md`)** — the "why" story per Positioning above. Includes a **comparison table** with columns for this package, `@lumenize/ts-runtime-validator` (old), typia (raw), Zod, and Ajv — framed as "when to reach for which", not advocacy. The typia column's "reach for it when" row should say: "You're on Node.js, or you don't need dynamic schema hot-swap inside a Worker."
-- **Getting Started (`getting-started.md`)** — the three-step flow: call `compileTypesToParseModule()` once at schema-registration time → load the emitted module as a DO facet → `facet.parse(value, typeName)` per call. Short, concrete, runnable.
-- **API Reference (`api-reference.md`)** — `compileTypesToParseModule()` signature and options, the exported `parse()` from the generated module, the `{ valid: true, data } | { valid: false, errors }` return shape, and typia's error-element shape `{ path, expected, value, description? }` that flows through unchanged.
+- **Getting Started (`getting-started.md`)** — the three-step flow: call `generateParseModule()` once at schema-registration time → load the emitted module as a DO facet → `facet.parse(value, typeName)` per call. Short, concrete, runnable.
+- **API Reference (`api-reference.md`)** — `generateParseModule()` signature and options, the exported `parse()` from the generated module, the `{ valid: true, data } | { valid: false, errors }` return shape, and typia's error-element shape `{ path, expected, value, description? }` that flows through unchanged.
 - **Additional Constraints (`additional-constraints.md`)** — the 15 JSDoc annotations from Phase 3 D1 (plus the 25 `@format` values) written up as user-facing docs. Page-title framing: "types are the primary constraint; these annotations add to what the type system provides". Use the word "annotations" in prose. Organise by what the annotation applies to (number / string / array). Each annotation gets a one-sentence description, a one-line interface example, and a two-line `facet.parse()` example showing acceptance + rejection.
 - **`@default` (`default.md`)** — fill semantics (P4.1), required/optional rule (P4.2/D4), full recursion (P4.5), and the "lift deep nested defaults into their own interface" guidance. Linked from the corresponding row in the Additional Constraints page.
 - **Type Support (`type-support.md`)** — mirrors the section-heading skeleton of `website/docs/ts-runtime-validator/type-support.md` so readers can category-by-category see what changed. Drop the old page's "TypeScript Emit" column (no equivalent concept here — typia validates JS values directly). Add a brief "Tag-based constraints" section that links to Additional Constraints. Each section documents what's supported (with a tested example) or carries a short "not supported because X" note drawn from the Phase 5 delta matrix. tl;dr paragraph at the top. No hidden omissions.
@@ -349,7 +349,7 @@ Nebula integration (updating `Resources.transaction()`, wiring Galaxy/Star) belo
 
 - [ ] Overview and getting-started pages published, with the typia-for-DO-facets framing and the Node.js "use typia directly" guidance
 - [ ] Overview page includes the comparison table (this package, old package, typia, Zod, Ajv) framed as "when to reach for which"
-- [ ] API reference page published (`compileTypesToParseModule()`, exported `parse()` from generated module, return and error shapes)
+- [ ] API reference page published (`generateParseModule()`, exported `parse()` from generated module, return and error shapes)
 - [ ] Additional Constraints page published, covering every annotation decided in Phase 3 (15 annotations + 25 `@format` values)
 - [ ] `@default` page covers fill semantics, required/optional rule, full recursion, and the "lift deep nested defaults into their own interface" guidance
 - [ ] Type-support page published with same section skeleton as the old doc (minus "TypeScript Emit" column), each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix

@@ -6,7 +6,7 @@
 
 ## Objective
 
-Wire `@lumenize/ts-runtime-parser-validator`'s `compileTypesToParseModule()` and the generated module's `parse()` into Nebula's Galaxy/Star architecture. Galaxy compiles validators at ontology registration time. Stars run the pre-compiled validator as a **DO facet** loaded into the Star DO — no network hop on the hot path. `parse()` fills `@default` values and validates in one call on the transaction hot path.
+Wire `@lumenize/ts-runtime-parser-validator`'s `generateParseModule()` and the generated module's `parse()` into Nebula's Galaxy/Star architecture. Galaxy compiles validators at ontology registration time. Stars run the pre-compiled validator as a **DO facet** loaded into the Star DO — no network hop on the hot path. `parse()` fills `@default` values and validates in one call on the transaction hot path.
 
 This phase also updates `Resources.transaction()` to use `parse()` instead of the old `validate()` from `@lumenize/ts-runtime-validator`, completing the migration from tsc-based validation to the new parse-validate pipeline.
 
@@ -21,13 +21,13 @@ The pre-compiled validator lives as a **DO facet** ([announced 2026-04-13](https
 - Sandboxing is preserved (facets = DW-based, same isolation guarantees)
 - Facets are currently Beta (April 2026); track GA timing
 
-No `parse()`-hosting spike is needed in this task — `compileTypesToParseModule()`'s output shape and facet-loading mechanics are resolved in 5.2.4.1 Phase 1. Phase 1 below focuses on measuring warm/cold latency and integration complexity for this specific wiring.
+No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s output shape and facet-loading mechanics are resolved in 5.2.4.1 Phase 1. Phase 1 below focuses on measuring warm/cold latency and integration complexity for this specific wiring.
 
 ## Design Decisions
 
-1. **Galaxy owns the registry.** On ontology update, Galaxy calls `compileTypesToParseModule()` once — compilation failure rejects the update at submit time, not at first request. Galaxy stores the resulting `validatorBundle` string (one bundle per ontology version, containing all resource-type validators in one JS module) alongside the ontology version metadata.
+1. **Galaxy owns the registry.** On ontology update, Galaxy calls `generateParseModule()` once — compilation failure rejects the update at submit time, not at first request. Galaxy stores the resulting `validatorBundle` string (one bundle per ontology version, containing all resource-type validators in one JS module) alongside the ontology version metadata.
 
-2. **One JS module per ontology version.** `compileTypesToParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus an exported `parse(value, typeName): { valid: true, data } | { valid: false, errors }` that dispatches by name. Stars fetch this one string, not N strings per type. Shared runtime helpers and `typeMetadata` are baked into the bundle. Call site after loading into the facet: `facet.parse(value, typeName)`. The exact module shape (exported functions vs class methods) is pinned by 5.2.4.1 Phase 1.
+2. **One JS module per ontology version.** `generateParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus an exported `parse(value, typeName): { valid: true, data } | { valid: false, errors }` that dispatches by name. Stars fetch this one string, not N strings per type. Shared runtime helpers and `typeMetadata` are baked into the bundle. Call site after loading into the facet: `facet.parse(value, typeName)`. The exact module shape (exported functions vs class methods) is pinned by 5.2.4.1 Phase 1.
 
 3. **Push-based propagation, lazy bundle fetch.** Galaxy pushes "new version N is live" to connected Stars via `@mesh` — the notification payload is just `{ version, metadata }`, NOT the validator bundle. Star bookkeeps "current version is N" but does not fetch the bundle yet. On the first transaction for version N, Star fetches the `validatorBundle` from Galaxy (one RPC), loads the facet, and validates. This lazy-on-first-use pattern also covers hibernation/rehydration cleanly — a waking Star just discovers it needs the bundle and fetches.
 
@@ -48,7 +48,7 @@ No `parse()`-hosting spike is needed in this task — `compileTypesToParseModule
 **Goal**: Validate the facet-hosted validator end-to-end and measure the numbers we'll commit to in later phases. Hosting approach (facet) and bundle shape (module vs class) are already decided in 5.2.4.1 Phase 1 — this phase integrates and measures.
 
 **Work**:
-- Build a minimal test app where a parent DO (stand-in for Star) loads a real `compileTypesToParseModule()` output as a facet and calls `parse()` via same-isolate RPC
+- Build a minimal test app where a parent DO (stand-in for Star) loads a real `generateParseModule()` output as a facet and calls `parse()` via same-isolate RPC
 - Measure: cold start (first call after DO wake), warm call latency (mean, p50, p99), memory footprint
 - Measure: lines of setup/orchestration code required
 - Verify: does the facet approach actually achieve "near-zero" same-isolate latency in practice?
@@ -57,7 +57,7 @@ No `parse()`-hosting spike is needed in this task — `compileTypesToParseModule
 **Decision gate**: None — hosting is decided. If facets prove to have production blockers (API instability, correctness issues, severe perf regressions), pause and reopen the plain-DW path as a fallback before continuing.
 
 **Success Criteria**:
-- [ ] Facet loads a real `compileTypesToParseModule()` output and `parse()` returns correct results end-to-end
+- [ ] Facet loads a real `generateParseModule()` output and `parse()` returns correct results end-to-end
 - [ ] Latency numbers (cold / warm p50 / warm p99) recorded in this file
 - [ ] Memory footprint per cached bundle measured
 - [ ] Facet beta-status risks documented
@@ -67,7 +67,7 @@ No `parse()`-hosting spike is needed in this task — `compileTypesToParseModule
 **Goal**: Wire validator compilation into Galaxy's existing ontology-version promotion.
 
 **Work**:
-- Galaxy accepts new ontology version → call `compileTypesToParseModule()` → store the `validatorBundle` string in Galaxy's ontology-version metadata → promote version atomically
+- Galaxy accepts new ontology version → call `generateParseModule()` → store the `validatorBundle` string in Galaxy's ontology-version metadata → promote version atomically
 - Submit-time rejection on compilation failure (surface typia's error to the caller)
 - Galaxy stores the `validatorBundle` string and version number in SQLite; no DW provisioning at promotion time. Stars fetch the bundle lazily on first use (see Phase 3)
 - Push notification to connected Stars via `@mesh` on promotion — payload is `{ version, metadata }` only, NOT the bundle itself

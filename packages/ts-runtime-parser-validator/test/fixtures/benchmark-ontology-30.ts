@@ -15,7 +15,7 @@
  *   - Relationships: `T`, `T | null`, `T[]`, `Set<T>`, `Map<K, T>`
  *
  * Exported as a string so tests can pass it directly to
- * `compileTypesToParseModule()` / `extractTypeMetadata()`. See
+ * `generateParseModule()` / `extractTypeMetadata()`. See
  * `test/benchmark-size.test.ts` for the consumer.
  *
  * Kept hand-authored (not generated) for reproducibility — the emitted

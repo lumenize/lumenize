@@ -327,10 +327,25 @@ const sidebars: SidebarsConfig = {
       ],
     },
 
-    // TypeScript Runtime Validator
+    // TS Runtime Parser-Validator (new, typia-based)
     {
       type: 'category',
-      label: 'TS Runtime Validator',
+      label: 'TS Runtime Parser-Validator',
+      items: [
+        'ts-runtime-parser-validator/index',
+        'ts-runtime-parser-validator/getting-started',
+        'ts-runtime-parser-validator/api-reference',
+        'ts-runtime-parser-validator/type-support',
+        'ts-runtime-parser-validator/additional-constraints',
+        'ts-runtime-parser-validator/default',
+      ],
+    },
+
+    // TS Runtime Validator (deprecated, tsc-based)
+    {
+      type: 'category',
+      label: 'TS Runtime Validator (deprecated)',
+      collapsed: true,
       items: [
         'ts-runtime-validator/index',
         'ts-runtime-validator/type-support',

@@ -554,32 +554,33 @@ npm install --save-dev capnweb
 ### vitest.config.js
 
 ```javascript vitest.config.js
-import { defineConfig } from "vitest/config";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
+import { defineConfig } from "vitest/config";
+
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      // Important! use the wrangler.jsonc in ./test
-      wrangler: { configPath: "./wrangler.jsonc" },
-    }),
-  ],
+  plugins: [cloudflareTest({
+    wrangler: { configPath: "./wrangler.jsonc" },
+  })],
+
   test: {
-    testTimeout: 2000, // 2 second global timeout
+    // 2 second global timeout
+    testTimeout: 2000,
+
     // Use `vitest --run --coverage` to get test coverage report(s)
     coverage: {
       provider: "istanbul",  // Cannot use V8
       reporter: ['text', 'json', 'html'],
       include: ['**/src/**'],
       exclude: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/build/**',
+        '**/node_modules/**', 
+        '**/dist/**', 
+        '**/build/**', 
         '**/*.config.ts',
         '**/scratch/**'
       ],
-    },
-  },
+    }
+  }
 });
 
 ```

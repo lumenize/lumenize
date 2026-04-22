@@ -15,11 +15,11 @@ import {
   BENCHMARK_ONTOLOGY_30,
   BENCHMARK_30_STATS,
 } from './fixtures/benchmark-ontology-30';
-import { compileTypesToParseModule } from '../src/compile-types-to-parse-module';
+import { generateParseModule } from '../src/generate-parse-module';
 import { extractTypeMetadata } from '../src/extract-type-metadata';
 
 describe('Benchmark — 30-resource-type ontology', () => {
-  const emitted = compileTypesToParseModule(BENCHMARK_ONTOLOGY_30);
+  const emitted = generateParseModule(BENCHMARK_ONTOLOGY_30);
   const metadata = extractTypeMetadata(BENCHMARK_ONTOLOGY_30);
 
   it('compiles without errors', () => {

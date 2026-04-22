@@ -467,21 +467,20 @@ Test configuration includes:
 ### vitest.config.js
 
 Standard vitest configuration for Cloudflare Workers testing with:
+- `isolatedStorage: false` required for WebSocket support
 - `globals: true` for global test functions
 - Coverage configured with Istanbul provider
-- Each test uses a fresh DO instance name to avoid state sharing
 
 ```javascript vitest.config.js
-import { defineConfig } from "vitest/config";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
+import { defineConfig } from "vitest/config";
+
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      // Important! use the wrangler.jsonc in ./test
-      wrangler: { configPath: "./test/wrangler.jsonc" },
-    }),
-  ],
+  plugins: [cloudflareTest({
+    wrangler: { configPath: "./test/wrangler.jsonc" },
+  })],
+
   test: {
     deps: {
       optimizer: {
@@ -498,7 +497,10 @@ export default defineConfig({
         }
       }
     },
-    testTimeout: 2000, // 2 second global timeout
+
+    // 2 second global timeout
+    testTimeout: 2000,
+
     coverage: {
       provider: "istanbul",
       reporter: ['text', 'json', 'html'],
@@ -510,8 +512,8 @@ export default defineConfig({
         '**/*.config.ts',
         '**/scratch/**'
       ],
-    },
-  },
+    }
+  }
 });
 
 ```

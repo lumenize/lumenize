@@ -5,4 +5,4 @@
  * See https://lumenize.com/docs/ts-runtime-parser-validator/introduction
  */
 
-export { compileTypesToParseModule } from './compile-types-to-parse-module';
+export { generateParseModule } from './generate-parse-module';
