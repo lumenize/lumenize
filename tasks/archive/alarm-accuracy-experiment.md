@@ -13,7 +13,7 @@
 
 **Side-effect wins from the experiment**:
 
-- Fixed a latent bug in `@lumenize/mesh` where `LumenizeClient` couldn't be imported from Node.js / browser (transitive `cloudflare:workers` load). New subpath export `@lumenize/mesh/client` + Node regression test. See `tasks/mesh-client-node-import.md`.
+- Fixed a latent bug in `@lumenize/mesh` where `LumenizeClient` couldn't be imported from Node.js / browser (transitive `cloudflare:workers` load). New subpath export `@lumenize/mesh/client` + Node regression test. See `tasks/archive/mesh-client-node-import.md`.
 - Corrected the `cf-clock-traps` memory: earlier sessions had the alarm-handler `Date.now()` semantics wrong. Phase-4 data disproved the "pinned to scheduledFor" hypothesis.
 
 **Deferred / optional**:

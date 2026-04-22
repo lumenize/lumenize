@@ -237,6 +237,12 @@ Small tasks and ideas for when I have time (evening coding, etc.)
 
 - [ ] Get a Substack account and cross post there
 
+- [ ] Consider writing "Your DO alarm is probably fine" blog post
+  - **Source**: alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md` Phase 6, deferred). Full results in `experiments/alarm-accuracy/EXPERIMENT_RESULTS.md`.
+  - **Headline number**: p99 alarm jitter at 5 s = 1 ms; alarms at delays ≤ 30 s fire with sub-ms median accuracy and tails under 36 ms. Bimodal at 60 s+ (hibernation cost ~280 ms p99 at 60 s, ~700 ms p99 at 300 s).
+  - **Framing context** (`feedback_cf_community_framing.md`): would push back gently on Kenton's "tens of seconds, use setTimeout below 1 minute" Discord guidance — but only at the 5 s scale we measured.
+  - **Why "consider"**: findings are reassuring rather than dramatic — they confirm "5 s grace period is fine" without overturning Kenton's broader minute-scale claim. May not build community cred enough to justify the write-up + caveats (single time-of-day, single colo, 50 trials/bucket per `EXPERIMENT_RESULTS.md`). If a future re-run hits the 1-minute boundary and finds something more striking, revisit.
+
 ## @lumenize/auth
 
 - [ ] Make `@lumenize/auth` an MCP-compliant OAuth 2.1 Authorization Server (agentic access)

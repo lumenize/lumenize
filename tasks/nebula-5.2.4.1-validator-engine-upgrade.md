@@ -1,6 +1,17 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phases 1, 3, 4, 5, 6 complete (2026-04-21). Phase 2 skipped (Spike A succeeded). **Next: Phase 7 (docs)**, then Phase -1 triage, then 5.2.4.2.
+**Status**: Phases 1, 3, 4, 5, 6 complete (2026-04-21). Phase 2 skipped (Spike A succeeded). **Phase 7 in progress: narrative drafts landed, validation still pending.** Then Phase -1 triage, then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
+
+**Detours completed (2026-04-22)**: vitest 4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`) and alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md`). Side-effect fix: `@lumenize/mesh/client` subpath (`tasks/archive/mesh-client-node-import.md`, Phase 4 release-docs deferred to release time).
+
+**Phase 7 actual progress (2026-04-22)**: Narrative draft for all six doc pages landed in `website/docs/ts-runtime-parser-validator/` (`index.md`, `getting-started.md`, `api-reference.md`, `additional-constraints.md`, `default.md`, `type-support.md`). Sidebar entry added in `website/sidebars.ts:333`. `website/docs/introduction.md` row added for the new package (Experimental) and the old `@lumenize/ts-runtime-validator` row marked Deprecated.
+
+**What still remains for Phase 7 (the active work):**
+- All 64 code blocks across the six pages are `@skip-check` — zero `@check-example` annotations.
+- No `packages/ts-runtime-parser-validator/test/for-docs/` directory exists yet — create the runnable tests that back each doc example, then convert the annotations.
+- `npm run check-examples` has not been run end-to-end against the new package's docs.
+- README (`packages/ts-runtime-parser-validator/README.md`) links to `migrating-from-ts-runtime-validator` — that page does not exist and Phase 7 explicitly decided not to write one (the old package was experimental with no known users). Fix the README link.
+- Phase 7 success criteria mentions `introduction.mdx`; the file is `introduction.md` — wording-only cleanup.
 **Depends on**: 5.2.4 (docs shipped — see `tasks/archive/nebula-5.2.4-docs.md`)
 **Precedes**: 5.2.4.2 (Galaxy integration)
 **Package**: `packages/ts-runtime-parser-validator/` (new)
@@ -320,6 +331,8 @@ Claude can run the local path end-to-end (wrangler dev in background, poll log, 
 
 ## Phase 7: Documentation
 
+**Status**: In progress. Narrative drafts landed (Phase 1 of the docs workflow). Validation work (Phase 2 of the docs workflow: real `test/for-docs/` tests + `@check-example` conversion) still pending — see top-of-file status block for the remaining checklist.
+
 Write all docs before the package is published to npm. This is the consolidated "docs before publish" phase for this task. The old `@lumenize/ts-runtime-validator` was experimental and has no known external users, so the new package is framed as a fresh package rather than a successor — no migration guide.
 
 ### Positioning
@@ -347,14 +360,15 @@ Nebula integration (updating `Resources.transaction()`, wiring Galaxy/Star) belo
 
 ### Success Criteria
 
-- [ ] Overview and getting-started pages published, with the typia-for-DO-facets framing and the Node.js "use typia directly" guidance
-- [ ] Overview page includes the comparison table (this package, old package, typia, Zod, Ajv) framed as "when to reach for which"
-- [ ] API reference page published (`generateParseModule()`, exported `parse()` from generated module, return and error shapes)
-- [ ] Additional Constraints page published, covering every annotation decided in Phase 3 (15 annotations + 25 `@format` values)
-- [ ] `@default` page covers fill semantics, required/optional rule, full recursion, and the "lift deep nested defaults into their own interface" guidance
-- [ ] Type-support page published with same section skeleton as the old doc (minus "TypeScript Emit" column), each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix
-- [ ] `website/sidebars.ts` updated with the new section; `website/docs/introduction.mdx` has a new row for the package marked **experimental**, and the existing `@lumenize/ts-runtime-validator` row updated to **deprecated** with a pointer to the new package
-- [ ] Every executable code block in the new docs has an `@check-example('path/to/test')` annotation pointing at a passing `test/for-docs/` test — zero remaining `@skip-check` annotations. `npm run check-examples` passes. Note: `@skip-check-approved` may only be added by a human reviewer, never by Claude.
+- [x] Overview and getting-started pages published, with the typia-for-DO-facets framing and the Node.js "use typia directly" guidance (`index.md`, `getting-started.md`)
+- [x] Overview page includes the comparison table (this package, old package, typia, Zod, Ajv) framed as "when to reach for which"
+- [x] API reference page published (`generateParseModule()`, exported `parse()` from generated module, return and error shapes) (`api-reference.md`)
+- [x] Additional Constraints page published, covering every annotation decided in Phase 3 (15 annotations + 25 `@format` values) (`additional-constraints.md`)
+- [x] `@default` page covers fill semantics, required/optional rule, full recursion, and the "lift deep nested defaults into their own interface" guidance (`default.md`)
+- [x] Type-support page published with same section skeleton as the old doc (minus "TypeScript Emit" column), each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix (`type-support.md`)
+- [x] `website/sidebars.ts` updated with the new section (`sidebars.ts:333`); `website/docs/introduction.md` has a new row for the package marked **experimental**, and the existing `@lumenize/ts-runtime-validator` row updated to **deprecated** with a pointer to the new package. *(Note: introduction file is `.md` not `.mdx` — earlier criterion text was stale.)*
+- [ ] **Outstanding**: Every executable code block in the new docs has an `@check-example('path/to/test')` annotation pointing at a passing `test/for-docs/` test — zero remaining `@skip-check` annotations. `npm run check-examples` passes. Note: `@skip-check-approved` may only be added by a human reviewer, never by Claude. *Currently 64 `@skip-check`, 0 `@check-example`, no `test/for-docs/` directory.*
+- [ ] **Outstanding**: Fix the broken migration-guide link in `packages/ts-runtime-parser-validator/README.md` (Phase 7 decided no migration guide; remove or replace the line that points at `migrating-from-ts-runtime-validator`).
 
 ## Phase -1: Captured Ideas (triage before closing)
 
@@ -387,7 +401,7 @@ Nothing here is committed to yet.
 
 **Triggering signal**: already triggered — alarm-accuracy Node runner had to use a raw-WebSocket workaround. Any browser/Node user of LumenizeClient hits this today.
 
-**Disposition**: **FIXED 2026-04-22.** New subpath export `@lumenize/mesh/client` (see [`tasks/mesh-client-node-import.md`](mesh-client-node-import.md) for the writeup). Wire-protocol primitives extracted to `gateway-messages.ts`. Node regression test added. alarm-accuracy runner now dogfoods the subpath. Phase 4 of the fix task (package README + website docs + changelog) still pending, deferred to release.
+**Disposition**: **FIXED 2026-04-22.** New subpath export `@lumenize/mesh/client` (see [`tasks/archive/mesh-client-node-import.md`](archive/mesh-client-node-import.md) for the writeup). Wire-protocol primitives extracted to `gateway-messages.ts`. Node regression test added. alarm-accuracy runner now dogfoods the subpath. Phase 4 of the fix task (package README + website docs + changelog) still pending, deferred to release.
 
 ### `@lumenize/mesh` — LumenizeClientGateway flattens ClientDisconnectedError on grace-period path
 
@@ -405,15 +419,30 @@ The two paths should be symmetric. Fix is small: `try { await this.#waitForRecon
 
 ### Blog post: facet performance in practice
 
-**Source**: Phase 6 deployed bench — surprise finding that the cold-wake is 85 % DO-infrastructure and the facet RPC per-call is ~1.35 ms.
+**Promoted to Phase 8 below.** Closely related to this task — the Phase 6 numbers are the post — and gives the release something to point to.
 
-**Idea**: write a Lumenize blog post with real numbers distinguishing "DO facets are essentially free" (true for infrastructure/billing, Cloudflare's framing) from "DO facets add ~1 ms per-call RPC overhead" (true for latency-sensitive code paths, our measurement). Include the decomposition table from Phase 6, the 30-type fixture, and the specific guidance on when facets are right (dynamic code hot-swap, sandboxed user code) vs wrong (sub-ms per-call latency requirements).
+## Phase 8: Blog post — "Facet performance in practice"
 
-**Why it's worth writing**: facets are new (announced 2026-04-13) and community guidance is thin. Our Phase 6 work produced decomposed numbers that answer questions other developers will have. Distinguishes Lumenize as having done the homework; pairs well with the 5.2.4.2 announcement post.
+**Status**: Not started. Write after 5.2.4.2 ships so the post can reference the deployed Galaxy + Star + facets architecture end-to-end, not just the validator slice. Released alongside 5.2.4.2's announcement so the package release has something authoritative to link to.
 
-**Triggering signal**: write after 5.2.4.2 ships so the post can reference the deployed Nebula architecture end-to-end (Galaxy + Star + facets) rather than just the validator slice. Needs a separate task file.
+**Why it's worth writing**: facets are new (announced 2026-04-13) and community guidance is thin. Our Phase 6 work produced decomposed numbers that answer questions other developers will have. Distinguishes Lumenize as having done the homework; pairs naturally with the 5.2.4.2 announcement post.
 
-**Disposition**: unscheduled; new task file after 5.2.4.2.
+**Headline framing**: real numbers distinguishing "DO facets are essentially free" (true for infrastructure/billing, Cloudflare's framing) from "DO facets add ~1 ms per-call RPC overhead and ~262 ms cold-spawn" (true for latency-sensitive code paths, our measurement). The 1,755 ms cold-wake decomposes to 1,494 ms DO infrastructure (85 %) + 262 ms facet contribution (15 %).
+
+**Content checklist**:
+- Lead with the decomposition table from Phase 6 — DO infra vs facet vs warm parse.
+- Include the 30-type benchmark fixture (`packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts`) so readers can reproduce.
+- Specific guidance on when facets are right (dynamic code hot-swap, per-tenant sandboxed code, ontology-driven schemas) vs wrong (sub-ms per-call latency requirements with no hot-swap need).
+- Apply the framing rules from `feedback_cf_community_framing.md` — Cloudflare's "essentially free" is true at the layer they meant; we're adding decomposed per-call numbers, not contradicting.
+- Run the open Phase 6 follow-up first: tsc baseline comparison via a parallel spike Worker wrapping the old `@lumenize/ts-runtime-validator`, so the post can cite the new-vs-old numbers side by side.
+- CTA links to the 5.2.4.2-released `@lumenize/ts-runtime-parser-validator` package and the deployed Nebula Galaxy+Star architecture.
+
+**Success Criteria**:
+- [ ] tsc-baseline comparison spike run; numbers added to `experiments/ts-runtime-parser-validator-spike/RESULTS.md` (or equivalent).
+- [ ] Draft at `website/blog/YYYY-MM-DD-facet-performance-in-practice.md` (or `.mdx` if the comparison table needs JSX).
+- [ ] Decomposition table included as inline markdown.
+- [ ] Reproducer link points at the committed benchmark fixture and the bench script in `experiments/ts-runtime-parser-validator-spike/`.
+- [ ] Cross-post per `reference_content_distribution.md` (Lumenize site + Substack + Medium) once it lands.
 
 ## Alternatives Considered and Rejected
 
