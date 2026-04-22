@@ -44,6 +44,16 @@ Task files live in `tasks/`. Use `/task-management` to choose docs-first or impl
 - `/refactor-efficiently` - Incremental API changes with `.only` pattern
 - `/release-workflow` - Publish packages to npm
 
+### Experiments
+
+`experiments/*` are point-in-time spikes, not maintained artifacts. Results live in the experiment's `RESULTS.md` / `FINDINGS.md` / blog post, not in keeping the code runnable. An experiment commonly breaks soon after it's run because we modify the source code it depended on — **that's fine**; don't try to fix it.
+
+**Starting a new experiment**: create `experiments/<name>/` with its own `package.json`, `wrangler.jsonc`, etc., then add `"experiments/<name>"` **as an individual entry** (not a glob) to the root `package.json` `workspaces` list, then run `npm install` at the repo root. Individual entries are load-bearing — `experiments/*` would break `npm install` the moment one experiment references a renamed/deleted package.
+
+**When an old experiment breaks**: remove its entry from the root `package.json` `workspaces` list (or delete the dir entirely if the results are already captured elsewhere). Do NOT try to make it run again.
+
+The workspaces list will only contain currently-active experiments. Old ones drop out; that's the intended steady state.
+
 ---
 
 ## Environment Variables and Secrets

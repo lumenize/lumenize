@@ -28,7 +28,7 @@ import {
   type IncomingCallResponseMessage,
   type ConnectionStatusMessage,
   type GatewayMessage
-} from './lumenize-client-gateway.js';
+} from './gateway-messages.js';
 import type { NodeIdentity, CallContext, CallOptions } from './types.js';
 import { getOrCreateTabId, type TabIdDeps } from './tab-id.js';
 

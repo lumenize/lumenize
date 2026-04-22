@@ -379,6 +379,30 @@ Nothing here is committed to yet.
 
 **Disposition**: unscheduled.
 
+### `@lumenize/mesh` — LumenizeClient can't import in Node.js / browser
+
+**Source**: Discovered 2026-04-22 while scaffolding the alarm-accuracy experiment's Node runner.
+
+**Idea / Bug**: `import { LumenizeClient } from '@lumenize/mesh'` fails at module-load time in Node/browser because `lumenize-client.ts` imports the runtime value `GatewayMessageType` from `lumenize-client-gateway.js`, which top-level imports `DurableObject` from `cloudflare:workers`. The mesh test suite runs entirely in vitest-pool-workers, so this never surfaced in tests. `@lumenize/mesh` is published (latest on npm: 0.24.0).
+
+**Triggering signal**: already triggered — alarm-accuracy Node runner had to use a raw-WebSocket workaround. Any browser/Node user of LumenizeClient hits this today.
+
+**Disposition**: **FIXED 2026-04-22.** New subpath export `@lumenize/mesh/client` (see [`tasks/mesh-client-node-import.md`](mesh-client-node-import.md) for the writeup). Wire-protocol primitives extracted to `gateway-messages.ts`. Node regression test added. alarm-accuracy runner now dogfoods the subpath. Phase 4 of the fix task (package README + website docs + changelog) still pending, deferred to release.
+
+### `@lumenize/mesh` — LumenizeClientGateway flattens ClientDisconnectedError on grace-period path
+
+**Source**: Discovered 2026-04-22 during Phase 2 of the alarm-accuracy experiment (disconnect spot-check test).
+
+**Idea / Bug**: `LumenizeClientGateway.__executeOperation` has two code paths for "client disconnected":
+1. **No grace period active**: returns `{ $error: preprocess(new ClientDisconnectedError(...)) }` — clean, error class name preserved through the postprocess round-trip.
+2. **In grace period**: `await this.#waitForReconnect()` *throws* (unwrapped) when `alarm()` fires `#rejectReconnectWaiters`. Workers RPC flattens the custom class; caller sees `err.name === 'Error'`, class name embedded in `err.message`.
+
+The two paths should be symmetric. Fix is small: `try { await this.#waitForReconnect(); } catch (err) { return { $error: preprocess(err) }; }` around line 549 of `lumenize-client-gateway.ts`.
+
+**Triggering signal**: anyone relying on `instanceof ClientDisconnectedError` or `err.name === 'ClientDisconnectedError'` after a grace-period timeout gets the wrong answer. The alarm-accuracy experiment's disconnect test had to match against the message substring instead.
+
+**Disposition**: needs a task file (or, if small enough, a direct PR to `@lumenize/mesh`). Could be folded into the mesh-client-node-import task since they're both in the same file and both about mesh error/client surface cleanup.
+
 ### Blog post: facet performance in practice
 
 **Source**: Phase 6 deployed bench — surprise finding that the cold-wake is 85 % DO-infrastructure and the facet RPC per-call is ~1.35 ms.
