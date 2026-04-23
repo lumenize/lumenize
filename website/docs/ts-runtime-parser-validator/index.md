@@ -5,92 +5,84 @@ description: Parse-don't-validate TypeScript runtime checks, built on typia and 
 # TS Runtime Parser-Validator
 
 :::danger Experimental
-APIs are unstable and may change significantly before the 1.0 release.
+APIs may change and the code is not yet battle tested by production use
 :::
 
-You already write TypeScript interfaces. Why learn a separate schema DSL for runtime validation? Your interfaces already describe the shape — `@lumenize/ts-runtime-parser-validator` takes them as the runtime validation schema.
+You already write TypeScript interfaces. Why learn a separate schema DSL for runtime validation? Your interfaces already describe the shape — `@lumenize/ts-runtime-parser-validator` takes them as the runtime validation schema. Add JSDoc annotations for value constraints (range, format, length, pattern) and `@default` so you get back the validated, default-filled value rather than just a boolean.
 
 Built on [typia](https://typia.io), which does the heavy lifting of turning TypeScript types into optimized validator functions.
 
 ## Why this package exists
 
-Typia alone is excellent in Node.js. But Cloudflare's [Dynamic Workers](https://blog.cloudflare.com/dynamic-workers/) paradigm opens up a use case typia doesn't address directly: **schemas that change after deploy, inside a Worker**, per user, per tenant, or per deployed application version. Worker Loader + DO facets are the sanctioned dynamic-code path in Workers, but the generate-and-load lifecycle needs a home.
+Typia alone is excellent. But Cloudflare's [Dynamic Workers (DW)](https://blog.cloudflare.com/dynamic-workers/) paradigm opens up a use case typia doesn't address directly: **building runtime validation into your application as a user-facing capability** — your app ships the ability to define and enforce schemas, and your users (not your developers) are the ones authoring them. DW is Cloudflare's feature that opens up this use case.
 
-That's this package. We add four things on top of typia:
+This package provides a few things beyond typia:
 
-- **Generate-once-and-cache lifecycle.** One call at schema-registration time produces a self-contained JS module. Subsequent uses load it from cache.
-- **DO facet as the runtime entry.** The generated module exports a `ParserValidator` class extending `DurableObject`. Load it once via Worker Loader; call `facet.parse(value, typeName)` per request.
-- **Parse-don't-validate semantics** with first-class `@default` filling. Mirrors Zod's `parse`/`safeParse` API — missing optional fields get filled before validation runs.
-- **Write-shape rewriting** for relationship references. If a field refers to another top-level interface (directly, via `T[]`, or via `Set<T>` / `Map<K,T>`), the generated validator expects string IDs instead of nested objects. Optional; useful for ORM-style data models.
-
-If you're on Node.js (or anywhere outside a Worker where the schema is static), use [typia](https://typia.io) directly — it'll be simpler. This package earns its keep when the schema must be dynamic inside a Worker.
+- **Generate-once-and-reuse lifecycle.** One call at schema-registration time generates a self-contained JS module source string. Store it (KV, DO storage, R2, etc.) for repeat use whenever you need it.
+- **DO facet as the runtime entry.** The generated module exports a `ParserValidator` class extending `DurableObject`. Mount it once as a [DO facet](https://blog.cloudflare.com/durable-object-facets-dynamic-workers/) — a Dynamic Worker that shares its parent DO's isolate, so `facet.parse()` is a same-isolate RPC with no network hop. Call `facet.parse(value, typeName)` per request.
+- **Parse-don't-validate semantics** with first-class `@default` filling. Mirrors Zod's approach. Missing fields get filled before validation runs — recursively through named-interface sub-types, so nested defaults apply too.
+- **Type-graph introspection for ORM use cases.** `extractTypeMetadata()` exposes the relationships so you can swap named-interface fields with foreign keys.
 
 ## Quick example
 
-You supply TypeScript interface definitions as a string. `generateParseModule()` returns a JS module source string — a Worker Loader then mounts it and hands back a facet stub.
+Write your schema once, in a regular `.d.ts` file with full editor support:
 
-```typescript @skip-check
-import { generateParseModule } from '@lumenize/ts-runtime-parser-validator';
-
-const types = `
-  interface Todo {
-    title: string;
-    done: boolean;
-    /** @default 0 */
-    priority?: number;
-  }
-`;
-
-const moduleSource = generateParseModule(types);
-// Cache moduleSource by schema version. Load via Worker Loader as a DO facet.
-// See the Getting Started page for the full wiring.
+```typescript
+@skip-check
+// todo.d.ts
+interface Todo {
+  title: string;
+  done: boolean;
+  /** @default 0 */
+  priority?: number;
+}
 ```
 
-At request time, call `parse()` on the facet:
+Valid input comes back with defaults filled in:
 
-```typescript @skip-check
-const result = await facet.parse({ title: 'Ship it', done: false }, 'Todo');
-// { valid: true, data: { title: 'Ship it', done: false, priority: 0 } }
-//                                                      ^^^^^^^^^^^^
-//                                                      filled from @default
+```typescript
+@skip-check
+const ok = await parse({ title: 'Ship it', done: false }, 'Todo');
+expect(ok).toEqual({
+  valid: true,
+  data: { title: 'Ship it', done: false, priority: 0 },
+});
 ```
 
-Invalid values come back with typia's structured error list:
+Invalid input returns typia's structured error list:
 
-```typescript @skip-check
-const bad = await facet.parse({ title: 42, done: 'not a boolean' }, 'Todo');
-// {
-//   valid: false,
-//   errors: [
-//     { path: '$input.title', expected: 'string', value: 42 },
-//     { path: '$input.done',  expected: 'boolean', value: 'not a boolean' }
-//   ]
-// }
+```typescript
+@skip-check
+const bad = await parse({ title: 42, done: 'not a boolean' }, 'Todo');
+expect(bad).toMatchObject({
+  valid: false,
+  errors: [
+    { path: '$input.title', expected: 'string', value: 42 },
+    { path: '$input.done', expected: 'boolean', value: 'not a boolean' },
+  ],
+});
 ```
 
-See [Getting Started](./getting-started) for the full DO-facet wiring, or jump to:
+Wiring `parse()` into your Worker takes three steps — see [Getting Started](./getting-started). Or jump to:
 
 - [API Reference](./api-reference) — `generateParseModule()`, the emitted `parse()`, return and error shapes
 - [Type Support](./type-support) — what's supported and what isn't
 - [Additional Constraints](./additional-constraints) — JSDoc annotations for range, format, length, pattern, etc.
 - [`@default`](./default) — fill semantics, required/optional rule, nested recursion
 
-## When to reach for which
+## When to reach for this package
 
-Three phases matter: **build time** (app bundling), **generate time** (schema → optimized validator), and **validate time** (per-request value checking). Libraries differ mainly in when the generate step happens — ours runs it *after deploy*, inside a running Worker, which is what makes dynamic schemas possible.
+This package exists for one scenario: **you need schemas that change inside a running Cloudflare Worker Project, without redeploying.** Per-tenant schemas. User-authored types. Hot-swappable ontologies. That's the niche [typia](https://typia.io) doesn't cover and [Zod](https://zod.dev) / [Ajv](https://ajv.js.org) weren't built for.
 
-|  | ts-runtime-parser-validator | typia (raw) | Zod | Ajv |
-| --- | --- | --- | --- | --- |
-| **Target runtime** | Cloudflare Workers (DO facet) | Node, Deno, Bun | Any JS runtime | Any JS runtime |
-| **Generate time** (schema → validator) | **After deploy, inside the Worker** — from a TypeScript source string at registration time | **Build time** — typia's TS transformer rewrites call sites during `tsc` | **Module load** — schema is JavaScript code (`z.object(...)`), evaluated when the module runs | **Build time** (codegen) or **after deploy** via `ajv.compile(jsonSchema)` |
-| **Schema source** | TypeScript string, supplied at request time | TypeScript types hard-coded in your source | `z.object(...)` expressions in your source | JSON Schema object |
-| **Error messages** | typia's `{ path, expected, value }` | typia's `{ path, expected, value }` | Library-specific | JSON-path codes |
-| **Value constraints** | JSDoc annotations (range, format, length, pattern, uniqueness) | Branded types + JSDoc | Rich (`.email()`, `.min()`, ...) | Rich (`format`, `minimum`, ...) |
-| **`@default` filling** | ✓ first-class | `Default<T>` metadata (not filled) | `.default()` | Limited |
-| **Reach for it when** | You need per-tenant / per-version schemas hot-swappable inside a Worker | You're on Node.js, or the schema is fixed at build time | You want rich fluent chaining with wide runtime support | You're working with JSON Schema consumers |
+If that's not you, pick by whether you want your types to *be* your schema:
 
-:::info How Lumenize Nebula uses this
-Nebula applications let developers define resource types as TypeScript interfaces. Each version of that type set (an *ontology*) gets compiled once at registration time and cached on the Galaxy coordinator; Star replicas load the compiled module into a DO facet to run `parse()` per transaction. Write-shape rewriting converts nested-object relationships to string IDs so transactions carry references, not payloads. See [Lumenize Nebula](/blog/introducing-lumenize-nebula) for the full picture.
+- **TypeScript as schema, no DSL** — use [typia](https://typia.io) via a build step. Same ergonomic as this package (your interfaces are the validator), works anywhere JS runs.
+- **Separate schema DSL** — use [Zod](https://zod.dev) for JS-expression schemas with a rich fluent API, or [Ajv](https://ajv.js.org) if you need JSON Schema interop.
+
+If the first scenario *is* you — keep reading.
+
+:::info How [Lumenize Nebula](/blog/introducing-lumenize-nebula) uses this
+Nebula uses it for two jobs: (1) [parse and validate](/blog/typescript-is-the-schema) incoming resource values, and (2) let TypeScript interfaces (with JSDoc annotations) serve as [the ORM schema DSL](/blog/write-your-types-once) — the type system *is* the schema language.
 :::
 
 ## Installation

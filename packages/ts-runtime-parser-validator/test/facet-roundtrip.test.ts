@@ -70,8 +70,6 @@ describe('Spike A: real typia transform via facet', () => {
   });
 
   it('validates a richer nested interface (inline nested object, union, array, optional)', async () => {
-    // Inline nested shape so it doesn't trigger relationship-rewrite to `string`.
-    // True relationship behaviour is tested in test/relationships.test.ts.
     const RICH = `
 interface User {
   id: string;

@@ -4,7 +4,7 @@ description: Wire up @lumenize/ts-runtime-parser-validator in a Cloudflare Worke
 ---
 # Getting Started
 
-**tl;dr** — `generateParseModule(types)` returns a JS module source string. A Worker Loader mounts that source as a module; a DO facet loads the module's `ParserValidator` class; your supervisor DO calls `facet.parse(value, typeName)` per request. Generate once per schema version and cache the result.
+**tl;dr** — `generateParseModule(types: string)` returns a JS module source string. A Worker Loader mounts that source as a module; a DO facet loads the module's `ParserValidator` class; your supervisor DO calls `facet.parse(value, typeName)` per request. Generate once per schema version and reuse on each request.
 
 ---
 
@@ -16,7 +16,8 @@ npm install @lumenize/ts-runtime-parser-validator
 
 Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for your supervisor:
 
-```jsonc @skip-check
+```jsonc
+@skip-check
 {
   "compatibility_date": "2026-04-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -38,111 +39,120 @@ Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for yo
 
 ### 1. Generate the parse module
 
-Call `generateParseModule()` once per schema version. Cache the returned string keyed by a bundle ID (a content hash, a version number, or a tenant ID — whatever fits your lifecycle).
+Write your schema once, in a regular `.d.ts` file (full editor support, real type-checking, zero DSL):
+
+```typescript @skip-check
+// schema.d.ts
+interface Address {
+  street: string;
+  city: string;
+  /** @default "US" */
+  country?: string;
+}
+
+interface User {
+  name: string;
+  home: Address;
+}
+```
+
+Call `generateParseModule()` once per schema version with the raw source. Store the returned string keyed by a bundle ID (a content hash, a version number, or a tenant ID — whatever fits your lifecycle).
 
 ```typescript @skip-check
 import { generateParseModule } from '@lumenize/ts-runtime-parser-validator';
+import schemaTypes from './schema.d.ts?raw';
 
-const types = `
-  interface Todo {
-    title: string;
-    done: boolean;
-    /** @default 0 */
-    priority?: number;
-  }
-`;
-
-const moduleSource = generateParseModule(types);
+const moduleSource = generateParseModule(schemaTypes);
 // Persist moduleSource by bundleId (KV, DO storage, etc.).
 ```
 
-The emitted module has zero runtime dependency on typia — typia's transformer inlined the validator bodies during generation, and helper functions were inlined too.
+The emitted module has zero runtime dependency on typia — everything needed was inlined during generation.
 
 ### 2. Load the module as a DO facet
 
-Inside your supervisor DO, use the Worker Loader binding to mount the generated source, then register a facet that extends the `ParserValidator` class the module exports.
+Inside your supervisor DO, use `getParserValidatorFacet()` to mount the generated module as a DO facet. The helper wraps the Worker Loader + facet setup. Your per-request code only supplies `bundleId` and a callback that returns the `moduleSource` — the callback only runs on a cold Worker build, so per-request calls skip it entirely, avoiding the associated ["created daily" charges](https://developers.cloudflare.com/dynamic-workers/pricing/#dynamic-workers-created-daily).
 
 ```typescript @skip-check
 import { DurableObject } from 'cloudflare:workers';
-
-type FacetStub = {
-  parse: (value: unknown, typeName: string) => Promise<ParseResult>;
-};
+import {
+  getParserValidatorFacet,
+  type ParseResult,
+} from '@lumenize/ts-runtime-parser-validator';
 
 export class SupervisorDO extends DurableObject<Env> {
-  #getFacet(moduleSource: string, bundleId: string): FacetStub {
-    // ctx.facets and worker.getDurableObjectClass are beta APIs.
-    const ctx = this.ctx as unknown as {
-      facets: {
-        get: (name: string, factory: () => Promise<{ class: unknown }>) => FacetStub;
-      };
-    };
-    return ctx.facets.get(bundleId, async () => {
-      const worker = this.env.LOADER.get(bundleId, async () => ({
-        compatibilityDate: '2026-04-01',
-        mainModule: 'parser.js',
-        modules: { 'parser.js': moduleSource },
-        globalOutbound: null,
-      }));
-      const w = worker as unknown as {
-        getDurableObjectClass: (name: string) => unknown;
-      };
-      return { class: w.getDurableObjectClass('ParserValidator') };
-    });
+  async parse(bundleId: string, value: unknown, typeName: string): Promise<ParseResult> {
+    const facet = getParserValidatorFacet(
+      this.ctx,
+      this.env.LOADER,
+      bundleId,
+      () => this.ctx.storage.kv.get(`parser:${bundleId}`) as string,
+    );
+    return await facet.parse(value, typeName);
   }
-  // ...
+
+  registerModuleSource(bundleId: string, moduleSource: string) {
+    this.ctx.storage.kv.put(`parser:${bundleId}`, moduleSource);
+  }
 }
 ```
 
 Two things worth knowing:
 
-- **`bundleId`** identifies this particular generated module. Re-use the same ID to re-use the same facet instance; a new ID spins up a fresh one. The facet stays warm as long as the supervisor DO does.
-- **`mainModule: 'parser.js'`** is the filename inside the loader's virtual module graph. It doesn't have to match anything on disk — the source is the `moduleSource` string you pass.
+- **`bundleId`** identifies this particular generated module. Re-use the same ID to re-use the same cached Worker and facet; change it to swap in a new validator.
+- **Where ****`moduleSource`**** lives is your choice.** The callback returns it from wherever fits your lifecycle — DO storage (above), a KV namespace binding, R2, an RPC to a coordinator service. The callback can be sync (as above, where `ctx.storage.kv.get` is sync) or `async` — the helper awaits whatever you return. It only runs when Cloudflare needs to (re)build the Worker for this `bundleId`.
 
-### 3. Call `parse()`
+### 3. Call `parse()` and handle the result
 
-With the facet stub in hand, call `parse(value, typeName)`. Values cross via Workers RPC (structured-clone semantics), so `Date`, `Map`, `Set`, `RegExp`, `TypedArray`, and cyclic references all survive the boundary.
+Valid input comes back with `@default` values filled in — including nested defaults (`country` on the embedded `Address`):
 
 ```typescript @skip-check
-export class SupervisorDO extends DurableObject<Env> {
-  // #getFacet() as above.
-
-  async validate(
-    moduleSource: string,
-    bundleId: string,
-    value: unknown,
-    typeName: string,
-  ) {
-    const facet = this.#getFacet(moduleSource, bundleId);
-    return await facet.parse(value, typeName);
-  }
-}
+const ok = await supervisor.parse(bundleId, {
+  name: 'Alice',
+  home: { street: '1 Main', city: 'Springfield' },
+}, 'User');
+expect(ok).toEqual({
+  valid: true,
+  data: {
+    name: 'Alice',
+    home: { street: '1 Main', city: 'Springfield', country: 'US' },
+  },
+});
 ```
 
-The result is a discriminated union:
+Invalid input returns typia's structured error list:
+
+```typescript @skip-check
+const bad = await supervisor.parse(bundleId, {
+  name: 42,
+  home: { street: '1 Main', city: 'Springfield' },
+}, 'User');
+expect(bad).toMatchObject({
+  valid: false,
+  errors: [
+    { path: '$input.name', expected: 'string', value: 42 },
+  ],
+});
+```
+
+Values cross via Workers RPC (structured-clone semantics), so `Date`, `Map`, `Set`, `RegExp`, `TypedArray`, and cyclic references all survive the boundary.
+
+`ParseResult` is:
 
 ```typescript @skip-check
 type ParseResult =
-  | { valid: true;  data: unknown }
-  | { valid: false; errors: Array<{
-      path: string;
-      expected: string;
-      value: unknown;
-      description?: string;
-    }> };
+  | { valid: true; data: unknown }
+  | {
+      valid: false;
+      errors: Array<{
+        path: string;
+        expected: string;
+        value: unknown;
+        description?: string;
+      }>;
+    };
 ```
 
-On success, `data` is the input with any `@default` values filled in. On failure, `errors` is typia's structured error list — one entry per failing field, with JSON-pointer-like paths (`$input.address.city`).
-
-## When to regenerate
-
-Regenerate only when the type definitions change. Typical triggers:
-
-- A new schema version is published.
-- A new tenant comes online with their own type set.
-- Local development: whenever you hot-reload.
-
-Typia's transformer runs real `tsc` under the hood — measure ~1.7 s cold, ~120 ms warm for a 30-type ontology on deployed Cloudflare. This is why you cache.
+On success, `data` is the input with any `@default` values filled in. On failure, `errors` is one entry per failing field, with JSON-pointer-like paths (`$input.home.city`).
 
 ## Next steps
 

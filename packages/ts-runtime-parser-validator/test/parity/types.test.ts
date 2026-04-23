@@ -230,10 +230,8 @@ interface TodoList { items: Todo[]; }
       { items: [{ title: 'Ship', done: false }] },
       'gen-concrete',
     );
-    // With the write-shape, `items: Todo[]` becomes `items: string[]`.
-    // Users passing objects are now expected to pass IDs. This documents the
-    // relationship-rewrite delta — part of Nebula's data model.
-    expect(result.valid).toBe(false);
+    expect(result.valid).toBe(true);
+    expect(result.data).toEqual({ items: [{ title: 'Ship', done: false }] });
   });
 });
 

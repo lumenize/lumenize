@@ -25,9 +25,9 @@ No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s 
 
 ## Design Decisions
 
-1. **Galaxy owns the registry.** On ontology update, Galaxy calls `generateParseModule()` once — compilation failure rejects the update at submit time, not at first request. Galaxy stores the resulting `validatorBundle` string (one bundle per ontology version, containing all resource-type validators in one JS module) alongside the ontology version metadata.
+1. **Galaxy owns the registry.** On ontology update, Galaxy is the **composer** (per 5.2.4.1 Phase 6.5): it calls `extractTypeMetadata(types)` to get the relationship graph and the pre-computed write-shape, persists `md.relationships` alongside the ontology version, then calls `generateParseModule(md.writeShapeTypeDefinitions)` to produce the `validatorBundle`. Compilation failure rejects the update at submit time, not at first request. The package itself does no type-graph rewriting; named-interface references being validated as string IDs is Nebula policy, not a package behavior. This also means the facet's `parse()` expects IDs on relationship fields — the transaction payload Star sees has already-resolved references.
 
-2. **One JS module per ontology version.** `generateParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus an exported `parse(value, typeName): { valid: true, data } | { valid: false, errors }` that dispatches by name. Stars fetch this one string, not N strings per type. Shared runtime helpers and `typeMetadata` are baked into the bundle. Call site after loading into the facet: `facet.parse(value, typeName)`. The exact module shape (exported functions vs class methods) is pinned by 5.2.4.1 Phase 1.
+2. **One JS module per ontology version.** `generateParseModule()` emits a single JS module containing assert/parse functions for all resource types in the ontology plus an exported `parse(value, typeName): { valid: true, data } | { valid: false, errors }` that dispatches by name. Stars fetch this one string, not N strings per type. Shared runtime helpers and the `@default` table are baked into the bundle. Call site after loading into the facet: `facet.parse(value, typeName)`. Relationship metadata is **not** baked into the module (per 5.2.4.1 Phase 6.5) — Galaxy stores it separately and Star reads it from Galaxy at transaction time alongside the bundle. The exact module shape (exported functions vs class methods) is pinned by 5.2.4.1 Phase 1.
 
 3. **Push-based propagation, lazy bundle fetch.** Galaxy pushes "new version N is live" to connected Stars via `@mesh` — the notification payload is just `{ version, metadata }`, NOT the validator bundle. Star bookkeeps "current version is N" but does not fetch the bundle yet. On the first transaction for version N, Star fetches the `validatorBundle` from Galaxy (one RPC), loads the facet, and validates. This lazy-on-first-use pattern also covers hibernation/rehydration cleanly — a waking Star just discovers it needs the bundle and fetches.
 
@@ -155,6 +155,7 @@ Moved here from 5.2.4.1 Phase 7. Rationale: writing the announcement after Nebul
 
 **Work**:
 - Draft post covering: why parse-over-validate, the typia + DO facet architecture, the `@default`-in-JSDoc migration, the before/after performance numbers (from 5.2.4.1 Phase 6 and 5.2.4.2 Phase 1), and the deprecation of `@lumenize/ts-runtime-validator`
+- **Include the facets-vs-plain-DW rationale explicitly**: facets share the parent DO's isolate → same-isolate RPC, no network hop (the plain-DW alternative is a Service Binding with a per-call network hop). The package's `index.md` links to Cloudflare's facets announcement for "what are facets"; the release blog is the place for "why *we* picked them for this."
 - Cross-post per the content-distribution memory (Lumenize site + Substack + Medium)
 
 **Success Criteria**:

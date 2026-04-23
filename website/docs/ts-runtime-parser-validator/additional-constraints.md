@@ -14,7 +14,8 @@ For filling default values, see the separate [`@default`](./default) page.
 
 Put the annotation in a JSDoc block immediately above the field:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Person {
   /** @minimum 13 */
   age: number;
@@ -23,7 +24,8 @@ interface Person {
 
 To apply multiple annotations to one field, put them in the same JSDoc block — one per line:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Name {
   /**
    * @minLength 3
@@ -35,6 +37,28 @@ interface Name {
 
 Unknown annotations (e.g., `@author Alice`, `@deprecated`) are tolerated — they're left alone. Typia only reacts to the annotations listed below; everything else is documentation for humans.
 
+:::warning Two silent footguns
+Both of these drop the annotation without any error, which makes them hard to debug:
+
+- **Inline JSDoc doesn't attach.** `interface R { /** @minimum 13 */ age: number; }` puts the comment on the same line as the field; tsc won't attach it. The block must be on its own line(s) above the field.
+- **Stacked blocks — only the last one counts.** Two separate `/** ... */` blocks above a field will silently drop the earlier one. Always put multiple tags in a single block.
+
+```typescript
+@skip-check
+// ❌ Stacked blocks — @minimum silently dropped
+/** @minimum 1 */
+/** @maximum 5 */
+stars: number;
+
+// ✅ Single block with multiple tags — both apply
+/**
+ * @minimum 1
+ * @maximum 5
+ */
+stars: number;
+```
+:::
+
 :::note Case sensitivity
 Annotation names and values are case-sensitive except where explicitly aliased (e.g., `datetime` and `dateTime` both mean `date-time`). `@format EMAIL` is a compile-time error; write `@format email`.
 :::
@@ -45,14 +69,15 @@ Apply to fields typed `number` or `bigint`.
 
 | Annotation | Value | Meaning |
 | --- | --- | --- |
-| `@type` | `int32` \| `uint32` \| `int64` \| `uint64` \| `float` \| `double` (shortcuts: `int` → `int32`, `uint` → `uint32`) | Restricts to the corresponding numeric range. |
-| `@minimum N` | number | Value must be ≥ N. |
-| `@maximum N` | number | Value must be ≤ N. |
-| `@exclusiveMinimum N` | number | Value must be > N. |
-| `@exclusiveMaximum N` | number | Value must be < N. |
-| `@multipleOf N` | number | Value must be an exact multiple of N. |
+| `@type` | `int32` \ | `uint32` \ | `int64` \ | `uint64` \ | `float` \ | `double` (shortcuts: `int` → `int32`, `uint` → `uint32`) | `int*`/`uint*` reject non-integers (e.g. `2.5`); `uint*` reject negatives; bounded variants also enforce the type's value range. `float`/`double` accept any JS number |
+| `@minimum N` | number | Value must be ≥ N |
+| `@maximum N` | number | Value must be ≤ N |
+| `@exclusiveMinimum N` | number | Value must be > N |
+| `@exclusiveMaximum N` | number | Value must be < N |
+| `@multipleOf N` | number | Value must be an exact multiple of N |
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Rating {
   /**
    * @minimum 1
@@ -63,12 +88,13 @@ interface Rating {
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const bad = await facet.parse({ stars: 6 }, 'Rating');
-// valid: false — stars exceeds @maximum
+expect(bad.valid).toBe(false);  // stars exceeds @maximum
 
 const ok = await facet.parse({ stars: 5 }, 'Rating');
-// valid: true
+expect(ok).toEqual({ valid: true, data: { stars: 5 } });
 ```
 
 ## String annotations
@@ -77,13 +103,14 @@ Apply to fields typed `string`.
 
 | Annotation | Value | Meaning |
 | --- | --- | --- |
-| `@format F` | one of the format IDs below | Value must match the named format. |
-| `@pattern REGEX` | regex source (no flags) | Value must match the regex. |
-| `@length N` | integer | Length must equal N exactly (sets `@minLength` and `@maxLength` together). |
-| `@minLength N` | integer | String length must be ≥ N. |
-| `@maxLength N` | integer | String length must be ≤ N. |
+| `@format F` | one of the format IDs below | Value must match the named format |
+| `@pattern REGEX` | regex source (no flags) | Value must match the regex |
+| `@length N` | integer | Length must equal N exactly (sets `@minLength` and `@maxLength` together) |
+| `@minLength N` | integer | String length must be ≥ N |
+| `@maxLength N` | integer | String length must be ≤ N |
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Contact {
   /** @format email */
   email: string;
@@ -93,18 +120,22 @@ interface Contact {
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const bad = await facet.parse(
   { email: 'not-an-email', slug: 'Has Spaces' },
   'Contact',
 );
-// valid: false — both fields fail
+expect(bad.valid).toBe(false);  // both fields fail
 
 const ok = await facet.parse(
   { email: 'alice@example.com', slug: 'hello-world' },
   'Contact',
 );
-// valid: true
+expect(ok).toEqual({
+  valid: true,
+  data: { email: 'alice@example.com', slug: 'hello-world' },
+});
 ```
 
 ### Accepted `@format` values
@@ -124,12 +155,13 @@ Apply to fields typed as an array (`T[]`, `Array<T>`) or a set (`Set<T>`).
 
 | Annotation | Value | Meaning |
 | --- | --- | --- |
-| `@items N` | integer | Length must equal N exactly (sets `@minItems` and `@maxItems` together). |
-| `@minItems N` | integer | Length must be ≥ N. |
-| `@maxItems N` | integer | Length must be ≤ N. |
-| `@uniqueItems` | (no value) | No duplicate elements. |
+| `@items N` | integer | Length must equal N exactly (sets `@minItems` and `@maxItems` together) |
+| `@minItems N` | integer | Length must be ≥ N |
+| `@maxItems N` | integer | Length must be ≤ N |
+| `@uniqueItems` | (no value) | No duplicate elements |
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Bag {
   /**
    * @minItems 1
@@ -140,15 +172,16 @@ interface Bag {
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const empty = await facet.parse({ tags: [] }, 'Bag');
-// valid: false — @minItems violated
+expect(empty.valid).toBe(false);  // @minItems violated
 
 const dup = await facet.parse({ tags: ['a', 'a'] }, 'Bag');
-// valid: false — @uniqueItems violated
+expect(dup.valid).toBe(false);  // @uniqueItems violated
 
 const ok = await facet.parse({ tags: ['a', 'b', 'c'] }, 'Bag');
-// valid: true
+expect(ok).toEqual({ valid: true, data: { tags: ['a', 'b', 'c'] } });
 ```
 
 ## Fill-in annotation

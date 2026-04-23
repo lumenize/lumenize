@@ -6,3 +6,11 @@
  */
 
 export { generateParseModule } from './generate-parse-module';
+export { extractTypeMetadata } from './extract-type-metadata';
+export type {
+  TypeMetadata,
+  Relationship,
+  DefaultsMap,
+} from './extract-type-metadata';
+export { getParserValidatorFacet } from './facet-helper';
+export type { ParserValidator, ParseResult } from './facet-helper';

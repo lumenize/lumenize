@@ -196,27 +196,28 @@ function createVirtualHost(
  * TS instance.
  */
 export function generateParseModule(typeDefinitions: string): string {
-  // Pass 1: AST walk — collect interface names, relationships, @default tags,
-  // and produce the write-shape (relationship refs narrowed to string / string[]).
-  // The extractor enforces Phase 4 P4.2: @default on a required field throws.
+  // Pass 1: AST walk — collect interface names, `@default` tags, and the
+  // type-graph (which fields are typed as named interfaces in this module,
+  // and what the target type is). Used by the runtime filler to recurse into
+  // nested objects when applying defaults. The extractor enforces Phase 4
+  // P4.2: `@default` on a required field throws.
   const metadata: TypeMetadata = extractTypeMetadata(typeDefinitions);
-  const { interfaceNames, writeShapeTypeDefinitions, defaults } = metadata;
+  const { interfaceNames, defaults, relationships: typeGraph } = metadata;
 
   if (interfaceNames.length === 0) {
     throw new Error('generateParseModule: no interfaces found in typeDefinitions');
   }
 
-  // Pass 2: feed typia the write-shape (IDs instead of nested objects for
-  // relationship fields — matches what Resources.transaction() sees at the
-  // facet boundary). `@default` tags in the original source don't carry over
-  // to the write-shape, but that's fine: defaults are applied by our filler
-  // before the validator runs; typia just sees filled values.
+  // Pass 2: feed typia the types as written. Named-interface fields validate
+  // as embedded objects — no write-shape rewriting in this package (Phase 6.5).
+  // Callers that want reference-semantics (ORM write path) pre-extract via
+  // `extractTypeMetadata()` and pass `writeShapeTypeDefinitions` themselves.
   const validatorEntries = interfaceNames
     .map((n) => `  ${n}: typia.createValidate<${n}>()`)
     .join(',\n');
   const source = `
 import typia from "typia";
-${writeShapeTypeDefinitions}
+${typeDefinitions}
 
 export const validators = {
 ${validatorEntries}
@@ -337,13 +338,13 @@ ${validatorEntries}
   // The emitted source declares `validators` at top level; we rely on it being
   // hoisted to module scope so the class body can close over it.
   //
-  // Defaults are baked in as a JSON-literal `const` at module scope. The
-  // filler below walks the value non-destructively: missing properties and
-  // explicit `undefined` trigger the default; any other value — including
-  // `null` — is preserved (Phase 4 P4.1). Recursion per Phase 4 P4.5 runs
-  // into nested objects and each element of arrays of objects.
+  // `__typeMetadata` is module-private: `defaults` for fill-on-parse, and
+  // `typeGraph` (which fields reference other named interfaces) so the filler
+  // can recurse into nested objects and apply their defaults. No method
+  // exposes either — callers that need type-graph introspection use the
+  // package's public `extractTypeMetadata()` instead (Phase 6.5 D6.5.4).
   const defaultsJson = JSON.stringify(defaults);
-  const relationshipsJson = JSON.stringify(metadata.relationships);
+  const typeGraphJson = JSON.stringify(typeGraph);
   return `
 import { DurableObject } from "cloudflare:workers";
 
@@ -351,7 +352,7 @@ ${emittedJs}
 
 const __typeMetadata = {
   defaults: ${defaultsJson},
-  relationships: ${relationshipsJson},
+  typeGraph: ${typeGraphJson},
 };
 
 /**
@@ -386,10 +387,9 @@ function __clonePlain(v, seen) {
  * types pass through). A missing property OR an explicit \`undefined\` is
  * replaced by the default; any other value (including \`null\`) is kept.
  *
- * Recurses through relationship fields into the referenced type when the
- * value is a plain object (not a string ID). In write-shape mode, relationship
- * fields are strings, so recursion naturally stops. Cycle-safe via the
- * \`seen\` WeakMap threaded through the walk.
+ * Recurses through fields whose declared type is another named interface in
+ * this module, so a sub-interface's \`@default\` tags apply to nested payloads.
+ * Cycle-safe via the \`seen\` WeakMap threaded through the walk.
  */
 function __fillDefaults(value, typeName, seen) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
@@ -397,10 +397,16 @@ function __fillDefaults(value, typeName, seen) {
   if (seen.has(value)) return seen.get(value);
 
   const typeDefaults = __typeMetadata.defaults[typeName];
-  const rels = __typeMetadata.relationships[typeName];
+  const sub = __typeMetadata.typeGraph[typeName];
   const out = {};
   seen.set(value, out);
-  for (const k of Object.keys(value)) out[k] = __clonePlain(value[k], seen);
+  // Clone each field with a FRESH WeakMap — the fill-level \`seen\` tracks
+  // "original → filled" for cycle detection across fill recursion, which is
+  // a separate concern from the cloner's within-subtree cycle tracking.
+  // Sharing one map caused named-interface sub-objects to be seen-marked by
+  // the cloner, which then short-circuited the fill recursion and skipped
+  // nested defaults.
+  for (const k of Object.keys(value)) out[k] = __clonePlain(value[k], new WeakMap());
 
   if (typeDefaults) {
     for (const field of Object.keys(typeDefaults)) {
@@ -410,22 +416,22 @@ function __fillDefaults(value, typeName, seen) {
     }
   }
 
-  // Relationship recursion uses the ORIGINAL field value (\`value[field]\`),
+  // Type-graph recursion uses the ORIGINAL field value (\`value[field]\`),
   // not the cloned (\`out[field]\`), so the \`seen\` WeakMap's "original → clone"
   // mapping catches cycles correctly on re-entry.
-  if (rels) {
-    for (const field of Object.keys(rels)) {
-      const rel = rels[field];
+  if (sub) {
+    for (const field of Object.keys(sub)) {
+      const edge = sub[field];
       const origVal = value[field];
       if (origVal === undefined || origVal === null) continue;
-      if (rel.cardinality === 'many' && Array.isArray(origVal)) {
+      if (edge.cardinality === 'many' && Array.isArray(origVal)) {
         out[field] = origVal.map((elem) =>
           elem && typeof elem === 'object' && !Array.isArray(elem)
-            ? __fillDefaults(elem, rel.target, seen)
+            ? __fillDefaults(elem, edge.target, seen)
             : elem,
         );
-      } else if (rel.cardinality === 'one' && typeof origVal === 'object' && !Array.isArray(origVal)) {
-        out[field] = __fillDefaults(origVal, rel.target, seen);
+      } else if (edge.cardinality === 'one' && typeof origVal === 'object' && !Array.isArray(origVal)) {
+        out[field] = __fillDefaults(origVal, edge.target, seen);
       }
     }
   }
@@ -447,13 +453,6 @@ export class ParserValidator extends DurableObject {
     if (result.success) return { valid: true, data: result.data };
     return { valid: false, errors: result.errors };
   }
-
-  /** Expose typeMetadata for Nebula integration (5.2.4.2 uses relationships). */
-  getTypeMetadata() {
-    return __typeMetadata;
-  }
 }
-
-export default { async fetch() { return new Response("ok"); } };
 `;
 }

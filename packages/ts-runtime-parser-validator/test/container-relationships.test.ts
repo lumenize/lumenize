@@ -28,8 +28,8 @@ function rpcParse(
   return stub.rpcParse(typeDefinitions, typeName, value, bundleId);
 }
 
-describe('Container-of-ontology-type relationships — extraction', () => {
-  it('Set<User> is detected as a many-cardinality relationship and rewritten to Set<string>', () => {
+describe('Container-of-named-interface-type — extraction (write-shape helper)', () => {
+  it('Set<User> is detected as a many-cardinality edge and write-shape renders Set<string>', () => {
     const md = extractTypeMetadata(`
 interface User { id: string; }
 interface Team {
@@ -125,8 +125,8 @@ interface Team {
   });
 });
 
-describe('Container-of-ontology-type relationships — facet validation (write-shape IDs)', () => {
-  it('accepts a Set of ID strings for a Set<User> relationship', async () => {
+describe('Container-of-named-interface-type — facet validation (embedded objects)', () => {
+  it('accepts a Set of full User objects for a Set<User> field', async () => {
     const types = `
 interface User { id: string; name: string; }
 interface Team {
@@ -137,13 +137,19 @@ interface Team {
     const result = await rpcParse(
       types,
       'Team',
-      { id: 't-1', members: new Set(['u-1', 'u-2', 'u-3']) },
-      'set-ids',
+      {
+        id: 't-1',
+        members: new Set([
+          { id: 'u-1', name: 'Alice' },
+          { id: 'u-2', name: 'Bob' },
+        ]),
+      },
+      'set-embedded',
     );
     expect(result.valid).toBe(true);
   });
 
-  it('accepts a Map<string, string> for a Map<string, User> relationship', async () => {
+  it('accepts a Map<string, User> of full User-object values', async () => {
     const types = `
 interface User { id: string; name: string; }
 interface Team {
@@ -157,16 +163,16 @@ interface Team {
       {
         id: 't-1',
         roleMap: new Map([
-          ['admin', 'u-1'],
-          ['editor', 'u-2'],
+          ['admin', { id: 'u-1', name: 'Alice' }],
+          ['editor', { id: 'u-2', name: 'Bob' }],
         ]),
       },
-      'map-ids',
+      'map-embedded',
     );
     expect(result.valid).toBe(true);
   });
 
-  it('rejects a Set with full User objects (write-shape expects strings)', async () => {
+  it('rejects a Set of strings where full User objects are expected', async () => {
     const types = `
 interface User { id: string; name: string; }
 interface Team {
@@ -179,10 +185,41 @@ interface Team {
       'Team',
       {
         id: 't-1',
-        members: new Set([{ id: 'u-1', name: 'Alice' }]),
+        members: new Set(['u-1', 'u-2']),
       },
-      'set-full-reject',
+      'set-string-reject',
     );
     expect(result.valid).toBe(false);
+  });
+});
+
+describe('Container-of-named-interface-type — explicit write-shape composition (ORM)', () => {
+  it('write-shape path accepts IDs and rejects full User objects', async () => {
+    const original = `
+interface User { id: string; name: string; }
+interface Team {
+  id: string;
+  members: Set<User>;
+}
+`;
+    const md = extractTypeMetadata(original);
+    const idOk = await rpcParse(
+      md.writeShapeTypeDefinitions,
+      'Team',
+      { id: 't-1', members: new Set(['u-1', 'u-2']) },
+      'write-shape-set-ok',
+    );
+    expect(idOk.valid).toBe(true);
+
+    const objReject = await rpcParse(
+      md.writeShapeTypeDefinitions,
+      'Team',
+      {
+        id: 't-1',
+        members: new Set([{ id: 'u-1', name: 'Alice' }]),
+      },
+      'write-shape-set-reject',
+    );
+    expect(objReject.valid).toBe(false);
   });
 });

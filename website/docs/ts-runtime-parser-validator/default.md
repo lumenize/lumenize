@@ -12,7 +12,8 @@ description: The @default JSDoc annotation fills missing optional fields before 
 
 Given this interface:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Todo {
   title: string;
   /** @default 0 */
@@ -22,39 +23,44 @@ interface Todo {
 
 The generated `parse()` wrapper fills `priority` before handing the value to the validator:
 
-```typescript @skip-check
+```typescript
+@skip-check
 const result = await facet.parse({ title: 'Ship it' }, 'Todo');
-// { valid: true, data: { title: 'Ship it', priority: 0 } }
-//                                           ^^^^^^^^^^^ filled
+expect(result).toEqual({
+  valid: true,
+  data: { title: 'Ship it', priority: 0 },  // priority filled from @default
+});
 ```
 
 ### What counts as "missing"?
 
-The filler applies the default if the property is either **absent** or **explicitly `undefined`**. Any other value — including `null`, `0`, `''`, and `false` — is preserved.
+The filler applies the default if the property is either **absent** or **explicitly ****`undefined`**. Any other value — including `null`, `0`, `''`, and `false` — is preserved.
 
-```typescript @skip-check
+```typescript
+@skip-check
 // Missing → default applied
-await facet.parse({ title: 'x' }, 'Todo');
-// data.priority === 0
+const missing = await facet.parse({ title: 'x' }, 'Todo');
+expect(missing.data).toMatchObject({ priority: 0 });
 
 // Explicit undefined → default applied
-await facet.parse({ title: 'x', priority: undefined }, 'Todo');
-// data.priority === 0
+const undef = await facet.parse({ title: 'x', priority: undefined }, 'Todo');
+expect(undef.data).toMatchObject({ priority: 0 });
 
 // Caller-supplied value wins (even 0, '', false)
-await facet.parse({ title: 'x', priority: 99 }, 'Todo');
-// data.priority === 99
+const supplied = await facet.parse({ title: 'x', priority: 99 }, 'Todo');
+expect(supplied.data).toMatchObject({ priority: 99 });
 ```
 
 This keeps `null` meaningful:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Note {
   /** @default 0 */
   count?: number | null;
 }
-await facet.parse({ count: null }, 'Note');
-// data.count === null  (default NOT applied)
+const nullResult = await facet.parse({ count: null }, 'Note');
+expect(nullResult.data).toMatchObject({ count: null });  // default NOT applied
 ```
 
 ## Grammar — JSON literals only
@@ -88,7 +94,8 @@ The error message names the type, field, and offending literal text.
 
 `@default` on a **required** field is a hard error at compile time:
 
-```typescript @skip-check
+```typescript
+@skip-check
 // This throws from generateParseModule():
 interface X {
   /** @default 0 */
@@ -98,13 +105,14 @@ interface X {
 //        (x?: ...) or remove the @default tag.
 ```
 
-Rationale: a default on a required field is ambiguous — does the caller have to supply it or not? Making the field optional with a default answers clearly: the caller may omit it, and the system fills it.
+Rationale: a default on a required field is ambiguous — does the caller have to supply it or not? Making the field optional with a default answers clearly: the caller may omit it, and the system fills it. This may mean additional null checking in any code that consumes a parsed value. We may upgrade to address this in the future.
 
 ## Nested recursion
 
 `@default` recurses through the full value graph. Defaults on nested interfaces fire when the nested value is present but incomplete; defaults on array-valued fields fire when the array is missing entirely (per-element defaults fire when individual elements are present but incomplete).
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Address {
   street: string;
   /** @default "US" */
@@ -117,26 +125,31 @@ interface User {
 }
 
 // Nested object: default fires inside the nested shape
-await facet.parse({ name: 'Alice', address: { street: '1 Main' } }, 'User');
-// data.address === { street: '1 Main', country: 'US' }
+const nested = await facet.parse({ name: 'Alice', address: { street: '1 Main' } }, 'User');
+expect(nested.data).toMatchObject({
+  name: 'Alice',
+  address: { street: '1 Main', country: 'US' },
+});
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Tagged {
   /** @default [] */
   tags?: string[];
 }
 
 // Missing array → empty array
-await facet.parse({}, 'Tagged');
-// data.tags === []
+const tagged = await facet.parse({}, 'Tagged');
+expect(tagged.data).toMatchObject({ tags: [] });
 ```
 
 ### Guidance — don't stack deep nested defaults
 
 If an interface has `@default` five levels deep inside one monolithic shape, readers will struggle. Lift the nested structure into its own named interface so the defaults attach to that interface's own optional fields:
 
-```typescript @skip-check
+```typescript
+@skip-check
 // Harder to read — defaults buried inside an inline object
 interface Config {
   server?: {
@@ -172,15 +185,20 @@ The recursion is identical; the readability is not.
 
 The filler runs before the validator, and the validator then sees the filled value. If the default literal doesn't satisfy the field type, the validator fails at the filled path:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Bad {
   /** @default "hello" */
   count?: number;
 }
 
-await facet.parse({}, 'Bad');
-// valid: false
-// errors: [{ path: '$input.count', expected: '(number | undefined)', value: 'hello' }]
+const result = await facet.parse({}, 'Bad');
+expect(result).toMatchObject({
+  valid: false,
+  errors: [
+    { path: '$input.count', expected: '(number | undefined)', value: 'hello' },
+  ],
+});
 ```
 
 Nothing pre-checks the default against the field type at compile time — typia catches it on the first call through the filled path. Consistent error pipeline; no second error shape to learn.

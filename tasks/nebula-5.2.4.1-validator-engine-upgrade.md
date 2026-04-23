@@ -1,6 +1,6 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phases 1, 3, 4, 5, 6 complete (2026-04-21). Phase 2 skipped (Spike A succeeded). **Phase 7 in progress: narrative drafts landed, validation still pending.** Then Phase -1 triage, then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
+**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6 complete (6.5 + 6.6 landed 2026-04-23). Phase 2 skipped (Spike A succeeded). **Phase 6.7 pending — pre-release blocker** (cycle-acyclify pre-pass; typia lacks cycle detection and this creates an inconsistency with the rest of Lumenize's cycle-preserving pipeline). **Phase 7 in progress: narrative drafts landed, validation still pending** (narrative already updated for 6.5 + 6.6). Then Phase -1 triage, then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
 
 **Detours completed (2026-04-22)**: vitest 4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`) and alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md`). Side-effect fix: `@lumenize/mesh/client` subpath (`tasks/archive/mesh-client-node-import.md`, Phase 4 release-docs deferred to release time).
 
@@ -329,6 +329,153 @@ npm run bench:local   # shell 2: hits http://127.0.0.1:8787
 
 Claude can run the local path end-to-end (wrangler dev in background, poll log, run bench, kill). Deploy requires developer auth. Spike is named with `experiment-` prefix for easy cleanup in the Cloudflare dashboard.
 
+## Phase 6.5: Decouple relationship rewriting from the package
+
+**Status**: Complete (2026-04-23). Phase 7 docs updated in the same pass. 5.2.4.2 task file updated to show Nebula as the composer.
+
+### Motivation
+
+The package currently has two identities tangled together:
+
+1. **"typia for Cloudflare DO facets"** — dynamic-schema validator generation, `@default` filling, runtime `parse()`. Generic, useful to anyone.
+2. **"ontology-aware ORM substrate"** — a named-interface field is silently rewritten to a string ID. Nebula-specific policy.
+
+Identity 1 is the honest pitch. Identity 2 leaks into runtime behavior in ways that surprise a standalone user: `interface Team { lead: User }` rejects `{ lead: { ... } }` at parse time, even though typia / Zod / Ajv would all accept a nested `User`. This is the only case where `parse()` rejects for a reason that isn't in the user's written types.
+
+Moving write-shape rewriting out of the package leaves it as "typia for DO facets with hot-swappable schemas, plus `@default` filling" — a single coherent identity. Nebula (and any future ORM) becomes the composer: extract metadata, rewrite types, hand the write-shape to `generateParseModule()`.
+
+### Decisions
+
+**D6.5.1 — `generateParseModule()` does no rewriting.** Pure function: TypeScript types → validator module. No ontology awareness. Named-interface fields validate as embedded objects, like every other validator.
+
+**D6.5.2 — Export `extractTypeMetadata()` as public API.** Already exists internally. Returns `{ interfaceNames, relationships, writeShapeTypeDefinitions, defaults }`. Public for any caller that wants to introspect the type graph.
+
+**D6.5.3 — Nebula does the two-step.**
+```typescript
+const md = extractTypeMetadata(types);
+Galaxy.store(md.relationships);
+const module = generateParseModule(md.writeShapeTypeDefinitions);
+```
+*No shared AST across the two calls.* `ts.createSourceFile()` is sub-millisecond warm; the expensive work is `createProgram` + typia transform inside `generateParseModule()`, which builds its own SourceFiles anyway (TypeChecker requirement). A stateful class holding one AST would save nothing that matters.
+
+**D6.5.4 — Drop `getTypeMetadata()` from the emitted module.** That method existed to serve Nebula's transaction-time relationship resolution. With D6.5.3's two-step flow, Nebula pre-extracts and stores on Galaxy — Galaxy is the truth, not the running facet. No other caller needs to introspect a live facet's type graph. Standalone users still get introspection via the package's public `extractTypeMetadata()` function (D6.5.2). Internal to the emitted module, the filler still needs type-graph info to recurse (see D6.5.5) — bake that into a private `__typeMetadata.typeGraph` (renamed from `relationships` to strip ORM vocabulary), no longer exposed via any method.
+
+**D6.5.5 — Filler keeps walking type-graph edges to fill nested defaults.** `__fillDefaults` already recurses through named-interface fields into nested objects — that's how a sub-interface's `@default` tags apply to nested payloads (e.g. `interface User { settings: Settings }` where `Settings` has `@default` tags). In the old world this recursion was a fallback (the validator rejected write-shape mismatches anyway); in the new world it's the primary path — the validator accepts embedded objects and the filler fills their nested defaults before validation runs. Behavior stays; only the internal vocabulary changes (`relationships` → `typeGraph`, `rels` → `sub` or similar) to match the no-ORM story.
+
+**D6.5.6 — Docs reframe.** Lead page becomes unambiguously "typia for DO facets + `@default`". The fourth bullet ("Write-shape rewriting for relationship references") drops from the "beyond typia" list. `type-support.md`'s "Write-shape rewriting" section either relocates to Nebula docs in 5.2.4.2 or demotes to a brief mention under a new "Type-graph introspection" section documenting `extractTypeMetadata()`.
+
+**D6.5.7 — Breaking change is acceptable; no migration plumbing.** The package has never been published. Only its own tests depend on current behavior. Phase 7's narrative drafts are revisable pre-release — this is the natural moment to flip. No semver gymnastics, no migration guide, no deprecation window.
+
+### Work items
+
+- [x] Remove write-shape rewriting from `generateParseModule()` (`src/generate-parse-module.ts`). Feed original types to typia, not `writeShapeTypeDefinitions`.
+- [x] Export `extractTypeMetadata` and its types (`TypeMetadata`, `Relationship`, `DefaultsMap`) from `src/index.ts`.
+- [x] Keep `__fillDefaults` recursion through named-interface fields (it's the nested-defaults path now — D6.5.5). Rename internal `relationships` → `typeGraph` (and `rels` → `sub` or similar) in the emitted module template to strip ORM vocabulary from the hot path.
+- [x] Drop the public `getTypeMetadata()` method from the emitted `ParserValidator` class. The baked `__typeMetadata` stays (private, renamed per above) for the filler; no method exposes it.
+- [x] Update existing tests that rely on ID-rewriting (`test/relationships.test.ts`, `test/container-relationships.test.ts`, `test/facet-roundtrip.test.ts`). Previously-expected IDs become expected nested objects; explicit write-shape tests call `extractTypeMetadata()` first and hand the write-shape to `generateParseModule()`.
+- [x] Add a standalone-user test proving `interface Team { lead: User }; parse({ lead: { ... } })` validates — locks in the new default behavior.
+- [x] Add a standalone-user test proving nested `@default` filling: `interface Settings { /** @default "utc" */ tz?: string }; interface User { settings: Settings }` with `parse({ settings: {} }, 'User')` returns `{ settings: { tz: 'utc' } }` — locks in the filler-keeps-recursing behavior from D6.5.5.
+- [x] Revise Phase 7 docs. `index.md`: drop write-shape bullet from "beyond typia". `api-reference.md`: add `extractTypeMetadata()`, remove `getTypeMetadata()`. `type-support.md`: move or recast the write-shape section.
+- [x] Add a note in `tasks/nebula-5.2.4.2-validator-galaxy-integration.md` that Galaxy's `appendOntologyVersion()` becomes the composer (extract → store relationships → generate from write-shape).
+
+### Success criteria
+
+- [x] `generateParseModule(types)` validates nested named-interface fields as embedded objects by default: `interface Team { lead: User }; parse({ lead: { id: 'u-1', name: 'Alice' } }, 'Team')` returns `valid: true`.
+- [x] Nested `@default` filling still works: `interface User { settings: Settings }` with `@default` tags on `Settings` fields applies them during `parse()`.
+- [x] `extractTypeMetadata` is a documented public export; `getTypeMetadata()` is removed from the emitted module.
+- [x] No Nebula-specific vocabulary (no occurrences of "relationship" / "rel" in ORM senses) in `src/generate-parse-module.ts` or in the emitted module's hot path.
+- [x] All existing tests pass, updated for the new semantics. New "embedded-object validates" and "nested defaults fill" tests added.
+- [x] Phase 7 docs reflect the single identity: typia for DO facets + `@default`.
+- [x] 5.2.4.2 task file updated to show Nebula as the composer.
+
+## Phase 6.6: Export a facet-factory helper
+
+**Status**: Complete (2026-04-23). Getting-started step 2 dropped from ~40 lines to ~14; all 114 tests pass with the helper dogfooded through the test worker.
+
+### Motivation
+
+Even after Phase 6.5's cleanup, the getting-started wiring is ~25 lines of nested setup blocks + a `FacetStub` declaration + a narrowing cast before the reader sees the one call that matters (`facet.parse(value, typeName)`). Most of that is identical across callers. Factor it into a package helper so docs and real callers drop to the interesting parts.
+
+### Decisions
+
+**D6.6.1 — Export `getParserValidatorFacet()` as the single helper.** `(supervisor, bundleId, loadModuleSource) → typed facet stub`. Wraps the `ctx.facets.get` + `env.LOADER.get` nesting.
+
+**D6.6.2 — No storage opinions.** `loadModuleSource` is caller-provided. No default KV prefix, no `"parser:"` namespace, no hidden writes. Users needing a storage helper add their own; ship that later if asked.
+
+**D6.6.3 — Export `ParserValidator` as a type.** Branded `DurableObject & { parse(...) }` so the helper can return something useful and callers don't re-declare the RPC surface.
+
+**D6.6.4 — Export `ParseResult` too.** Already referenced in docs; users annotating their own wrappers need the import.
+
+### Work items
+
+- [x] Implement `getParserValidatorFacet()` (new `src/facet-helper.ts`).
+- [x] Define and export `ParserValidator` and `ParseResult` types.
+- [x] Test coverage using the existing test-worker topology.
+- [x] Update `src/index.ts` to export the new surface.
+- [x] Update `getting-started.md` step 2 to use the helper. Drop `FacetStub`, `#getFacet`, the defensive branch in `#loadModuleSource`.
+- [x] Update `test-worker-and-dos.ts` to use the helper (dogfooding — exercises the helper through the full existing test suite).
+- [x] Add `getParserValidatorFacet` to `api-reference.md`.
+
+### Success criteria
+
+- [x] Getting-started step 2 code block is under 15 lines of user code.
+- [x] No `FacetStub` declaration or narrowing casts in the doc.
+- [x] `ParserValidator` and `ParseResult` are public exports.
+- [x] All existing tests pass; helper is dogfooded via the test worker.
+
+## Phase 6.7: Cycle-acyclify pre-pass (pre-release blocker)
+
+**Status**: Pending. **Must ship before npm publish.** Surfaced 2026-04-23 during docs review — Lumenize's other transports (Workers RPC, `@lumenize/structured-clone`, Mesh `call()`) preserve cyclic references end-to-end; the validator pipeline being the odd one out is unacceptable for release.
+
+### Motivation
+
+Typia's generated validator has no visit tracking. A runtime cycle in a self-referential named-interface field (e.g. `node.parent = node`) stack-overflows the validator. Aliased references without cycles (DAGs) already work — verified empirically during docs review. Only true reference-closure cycles are broken.
+
+The existing workarounds (`any` field, ORM composer pattern via `writeShapeTypeDefinitions`) cover many cases but aren't a substitute for native cycle support:
+- `any` surrenders structural validation on the field.
+- ORM composer only applies when you're modeling relationships as ID references — a Nebula-specific pattern, not the general case.
+- Users whose schemas contain a legitimate self-referential nullable field (`parent: TreeNode | null`) and whose runtime values contain cycles at that field should just work.
+
+### Decisions
+
+**D6.7.1 — Cycle-acyclify pre-pass inside `parse()`.** Before handing the value to typia, walk it with a `WeakMap`. When re-entering a visited node, substitute a placeholder. Run typia on the acyclic form. On success, restore the original references in the returned `data`. On failure, surface typia's errors with paths adjusted to point into the original (cyclic) graph.
+
+**D6.7.2 — Placeholder strategy: `null` at cycle-closure.** A cycle can only close at a field that accepts `null` or `undefined` in the user's type — any field that doesn't is infinitely recursive with no base case, which TypeScript refuses to construct. So `null` is a universally safe substitute. If typia validates the substituted `null` as acceptable (because the field was typed `T | null`), we know the real cycle-closing reference is also typed-acceptable at that position.
+
+**D6.7.3 — DAG aliasing is preserved, not acyclified.** The pre-pass only substitutes at *cycle* closures (visited node seen again in its own ancestor chain), not at aliased-but-acyclic references. DAG inputs continue to validate as they do today — typia may re-walk aliased subtrees (duplicate work), but correctness is fine.
+
+**D6.7.4 — Error-path fidelity.** Typia's error paths (`$input.parent.parent.x`) are anchored to the acyclic form. The pre-pass maintains a path-remapping table so errors surface with paths that make sense against the caller's cyclic input. (E.g., an error at `$input.parent.parent.x` where `$input.parent.parent === $input` gets rewritten to `$input.x` or similarly meaningful.)
+
+**D6.7.5 — Fast-path when there are no cycles.** First walk is cheap (single `WeakMap` traversal). If no cycles are detected, skip the substitution/restore logic entirely and hand the original value to typia. Users who don't have cycles in their data pay near-zero cost.
+
+### Open design questions (to resolve during implementation)
+
+- Exact shape of the substitution record — object + key vs. path string vs. `WeakMap` lookup.
+- Behavior when a cycle closes at a non-nullable field. Should be impossible for TypeScript-sound values, but we may want an explicit reject with a clear message rather than silent acceptance via null.
+- Whether the filler's existing `WeakMap` recursion can be fused with the acyclify pre-pass into a single walk.
+
+### Work items
+
+- [ ] Design the acyclify/restore flow; write a short spec block in the emitted module template.
+- [ ] Implement `__acyclify(value)` and `__restoreCycles(data, substitutions)` as module-scope helpers in the emitted JS.
+- [ ] Wire into `ParserValidator.parse()` — fast-path when no cycles, pre-pass + restore otherwise.
+- [ ] Error path remapping.
+- [ ] Test coverage:
+  - Self-referential cycle with `parent: T | null` — success, cycle preserved in output.
+  - Mutual cycle (`a.b = ... ; b.a = ...`) — success.
+  - DAG aliasing (existing behavior) — still works, no regression.
+  - Cycle at a non-nullable field — documented outcome (reject with clear message, or whatever D6.7 lands on).
+  - Error-path fidelity — errors inside a cyclic structure report sensible paths.
+- [ ] Update `type-support.md` "Aliased references and cycles" section: drop the "planned pre-release change" caveat, move `any`/composer patterns from workarounds to just alternative strategies.
+- [ ] Add a blog-worthy note to the 5.2.4.2 announcement phase: Lumenize's pipeline preserves cycles end-to-end through transport, validation, and filler.
+
+### Success criteria
+
+- [ ] `parse(node, 'TreeNode')` where `node.parent = node` and `TreeNode.parent: TreeNode | null` returns `{ valid: true, data }` with the cycle preserved in `data`.
+- [ ] DAG aliasing test from the docs still passes (no regression).
+- [ ] No perf regression on the acyclic happy path (fast-path skip).
+- [ ] `type-support.md` no longer documents the cycle limitation.
+
 ## Phase 7: Documentation
 
 **Status**: In progress. Narrative drafts landed (Phase 1 of the docs workflow). Validation work (Phase 2 of the docs workflow: real `test/for-docs/` tests + `@check-example` conversion) still pending — see top-of-file status block for the remaining checklist.
@@ -416,6 +563,35 @@ The two paths should be symmetric. Fix is small: `try { await this.#waitForRecon
 **Triggering signal**: anyone relying on `instanceof ClientDisconnectedError` or `err.name === 'ClientDisconnectedError'` after a grace-period timeout gets the wrong answer. The alarm-accuracy experiment's disconnect test had to match against the message substring instead.
 
 **Disposition**: needs a task file (or, if small enough, a direct PR to `@lumenize/mesh`). Could be folded into the mesh-client-node-import task since they're both in the same file and both about mesh error/client surface cleanup.
+
+### `@default` input/output type asymmetry — dual-type exposure
+
+**Source**: Docs review conversation 2026-04-23 on getting-started's `@default "US"` on `country?: string` in the schema example.
+
+**The dilemma**: `@default` on a field creates a real asymmetry between input and output. On input the field is absent-allowed (caller may omit; filler supplies the default). On output the field is always present (the filler ran before the validator returned). A single TypeScript interface can't honestly represent both. Our current rule (P4.2) requires `?` — the type reflects input-side, which means consumers of the parsed `data` do unnecessary null checks for fields that, post-parse, are guaranteed present.
+
+**Prior art**:
+- **Typia** sidesteps by not filling. `tags.Default<T>` is inert metadata — advisory only, never applied. That dodge doesn't work for us; parse-don't-validate is part of the package's identity.
+- **Zod** exposes both via `z.input<typeof schema>` (optional) and `z.output<typeof schema>` (required). `.default()` flips the field's optional-ness between the two views.
+
+**Options considered**:
+1. **Current rule (`?` required)** — input-honest, consumer pays small null-check tax. No type-lying, no second expression mechanism, simple to document.
+2. **Auto-making-optional** (user writes `country: string`, validator accepts missing at runtime) — rejected. Type system still forces `country: 'US'` at every call site, so it buys nothing on input ergonomics, and the validator-accepts-what-type-forbids gap is dangerous.
+3. **Auto-making-required** via a utility type `Parsed<T>` that non-optional-ifies `@default`-tagged fields — requires JSDoc tags to be visible to the type system, which they aren't. Would need branded types (`country?: string & Default<'US'>`) alongside JSDoc, creating two ways to express defaults.
+4. **Zod-style dual types** (`Input<T>` / `Output<T>` helpers we ship) — same brand-vs-JSDoc problem as option 3; can't be derived from JSDoc alone.
+5. **User-written utility type** (`Required<Pick<User, 'country'>> & Omit<User, 'country'>`) — manual, brittle, doesn't scale past a handful of fields.
+
+**Current decision**: option 1 for v1. The tradeoff is honest, the rule is enforced at extract time with a clear error, and the consumer ergonomic tax is small relative to the complexity of any fix.
+
+**Triggering signal for revisit**: users complaining about null-check noise on parsed output, or Nebula hitting pain from the asymmetry when generating TypeScript client code for ontology consumers. Either suggests promoting option 3 (brand + `Parsed<T>` utility) to its own task.
+
+**Implementation sketch for option 3** (when the time comes):
+- Add typia-style `Default<T>` branded type export alongside JSDoc `@default`.
+- Extract metadata from both surfaces (JSDoc + brand) — extractor becomes source-agnostic for default values.
+- Ship `Parsed<T>` utility that walks T's properties and non-optional-ifies any property whose type intersects `Default<...>`. Users annotate `country?: string & Default<'US'>` to opt into the dual-view; plain JSDoc users keep the current `?`-only semantics.
+- Docs reframe: `@default` remains the simple default; `Default<T>` is the "I want both input and output types derivable" escalation.
+
+**Disposition**: unscheduled. Document the current rule clearly in `default.md` (why `?` is required, what it means for output consumers); leave the dual-type fix for a follow-on task if/when the pain surfaces.
 
 ### Blog post: facet performance in practice
 

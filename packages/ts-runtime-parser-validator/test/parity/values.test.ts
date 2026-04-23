@@ -223,28 +223,27 @@ describe('Parity (RPC path) — Cyclic values', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('[observed] cycle on a relationship-rewritten field (write-shape) behaviour', async () => {
-    // With `parent: Node` (named interface reference), write-shape rewrites
-    // to `parent: string`. A cyclic object object at that field is a type
-    // mismatch; the interesting observation is whether the *filler* handles
-    // the cycle gracefully. Our WeakMap-based cycle detection in __fillDefaults
-    // should make this safe.
+  it('[observed] cycle on a named-interface self-reference field', async () => {
+    // `parent: Node | null` — named-interface reference. In the new world
+    // (Phase 6.5) this validates as an embedded Node, not a string ID. The
+    // question is whether the *filler* (WeakMap-based cycle detection) and
+    // the validator pipeline handle a self-referential cycle without
+    // stack-overflowing. Outcome is observational — record what happens.
     const types = `interface Node { id: number; parent: Node | null; }`;
     const node: { id: number; parent: any } = { id: 1, parent: null };
     node.parent = node;
 
     let threw: unknown = null;
+    let result: { valid: boolean } | null = null;
     try {
-      const result = await rpcParse(types, 'Node', node, 'rpc-cycle-rel');
-      // Validator rejects: parent expected to be string, got object.
-      expect(result.valid).toBe(false);
+      result = await rpcParse(types, 'Node', node, 'rpc-cycle-rel');
     } catch (e) {
       threw = e;
     }
-    // If the filler's cycle detection works, we get valid=false (no throw).
-    // If it doesn't, we get a stack-overflow throw. Either outcome is recorded.
     if (threw) {
-      console.log('[parity] cycle-on-relationship-field threw:', (threw as Error).message);
+      console.log('[parity] cycle-on-named-interface-field threw:', (threw as Error).message);
+    } else {
+      console.log('[parity] cycle-on-named-interface-field result.valid:', result!.valid);
     }
   });
 });

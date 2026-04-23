@@ -4,7 +4,9 @@ description: Comprehensive table of supported types, with tested examples for ev
 ---
 # Type Support & Validation Boundaries
 
-**tl;dr** — Everything you'd reasonably put in a resource definition works: primitives, objects, arrays, unions, optional fields, Maps, Sets, Dates, RegExp, all eleven TypedArrays, cyclic references, and `any`. TypeScript's structural and utility types (`Partial`, `Pick`, `Omit`, `Record`, conditional types, template literal types, mapped types) work when embedded in a named interface. Relationship references (nested interfaces used as fields) are rewritten to string IDs in the generated validator — see [Write-shape rewriting](#write-shape-rewriting). For per-field constraints (range, format, length, pattern, uniqueness), see [Additional Constraints](./additional-constraints).
+**tl;dr** — Everything you'd reasonably put in a resource definition works: primitives, objects, arrays, unions, optional fields, Maps, Sets, Dates, RegExp, all eleven TypedArrays, cyclic references, and `any`. TypeScript's structural and utility types (`Partial`, `Pick`, `Omit`, `Record`, conditional types, template literal types, mapped types) work too.
+
+For per-field constraints (range, format, length, pattern, uniqueness), see [Additional Constraints](./additional-constraints).
 
 The rest of this page is the receipts — tested examples for every category we could think of.
 
@@ -21,7 +23,8 @@ The rest of this page is the receipts — tested examples for every category we 
 | `bigint` | `BigInt("9007199254740993")` (requires `@type "int64"` or similar) |
 | Optional | `field?: T` — accepts `undefined` or omitted |
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Config {
   name: string;
   count: number;
@@ -31,49 +34,68 @@ interface Config {
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse(
   { name: 'test', count: 42, enabled: true, label: null },
   'Config',
 );
-// valid: true
+expect(ok).toEqual({
+  valid: true,
+  data: { name: 'test', count: 42, enabled: true, label: null },
+});
+
+// Wrong types for each primitive.
+const bad = await facet.parse(
+  { name: 42, count: 'x', enabled: 'yes', label: 0 },
+  'Config',
+);
+expect(bad.valid).toBe(false);
 ```
 
 ## Object and Array Types
 
-Nested objects validate against inline shapes. **For named interfaces used as fields, see [Write-shape rewriting](#write-shape-rewriting) — relationships are rewritten to string IDs.**
+Nested objects validate against inline shapes. Named interfaces used as fields also validate as embedded objects by default — to validate string-ID references instead (ORM-style), see [`extractTypeMetadata()` → Composer pattern](./api-reference#composer-pattern-validate-string-id-references).
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Person {
   name: string;
   address: { street: string; city: string; };
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse(
   { name: 'Alice', address: { street: '1 Main', city: 'Springfield' } },
   'Person',
 );
-// valid: true
+expect(ok).toEqual({
+  valid: true,
+  data: { name: 'Alice', address: { street: '1 Main', city: 'Springfield' } },
+});
 ```
 
 Arrays check each element:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface NumberList {
   items: number[];
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const bad = await facet.parse({ items: [1, 'two', 3] }, 'NumberList');
-// valid: false — 'two' at index 1
+expect(bad.valid).toBe(false);  // 'two' at index 1
 ```
 
 ## Union and Optional Types
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Result {
   value: string | number;
 }
@@ -88,23 +110,26 @@ interface User {
 
 String-literal unions accept listed values and reject others:
 
-```typescript @skip-check
-await facet.parse({ category: 'internal' }, 'Item');  // valid: true
-await facet.parse({ category: 'other' },   'Item');   // valid: false
+```typescript
+@skip-check
+expect((await facet.parse({ category: 'internal' }, 'Item')).valid).toBe(true);
+expect((await facet.parse({ category: 'other' },    'Item')).valid).toBe(false);
 ```
 
 Optional properties accept both present and absent:
 
-```typescript @skip-check
-await facet.parse({ name: 'Alice' },                    'User');  // valid: true
-await facet.parse({ name: 'Alice', nickname: 'Al' },    'User');  // valid: true
+```typescript
+@skip-check
+expect((await facet.parse({ name: 'Alice' },                    'User')).valid).toBe(true);
+expect((await facet.parse({ name: 'Alice', nickname: 'Al' },    'User')).valid).toBe(true);
 ```
 
 ## Map and Set
 
 `Map` and `Set` values pass through Workers RPC with their structure intact, and typia's validators check key/value types.
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Scores {
   data: Map<string, number>;
 }
@@ -118,32 +143,44 @@ interface Tags {
 
 Homogeneous Maps:
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse(
   { data: new Map([['alice', 95], ['bob', 87]]) },
   'Scores',
 );
-// valid: true
+expect(ok.valid).toBe(true);
+
+const bad = await facet.parse(
+  { data: new Map<string, any>([['alice', 'not-a-number']]) },
+  'Scores',
+);
+expect(bad.valid).toBe(false);
 ```
 
 Heterogeneous (union value types):
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse(
   { data: new Map<string, string | number>([['a', 'hi'], ['b', 42]]) },
   'Mixed',
 );
-// valid: true
+expect(ok.valid).toBe(true);
 ```
 
 Sets of primitives:
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse({ items: new Set(['a', 'b', 'c']) }, 'Tags');
-// valid: true
+expect(ok.valid).toBe(true);
+
+const bad = await facet.parse({ items: new Set(['a', 42, 'c']) }, 'Tags');
+expect(bad.valid).toBe(false);
 ```
 
-**`Set<Interface>` and `Map<K, Interface>` on named interfaces trigger write-shape rewriting** — see below.
+`Set<Interface>` and `Map<K, Interface>` validate containers of *nested objects* by default — same as `Interface[]`. The composer pattern ([API Reference](./api-reference#composer-pattern-validate-string-id-references)) narrows these to `Set<string>` / `Map<K, string>`.
 
 ## Built-in Object Types
 
@@ -154,19 +191,28 @@ const ok = await facet.parse({ items: new Set(['a', 'b', 'c']) }, 'Tags');
 | `URL` | **Not supported as a value type.** Use `@format url` on a string field instead. |
 | `Headers` | **Not supported.** Use `Record<string, string>` instead. |
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Appointment {
   when: Date;
   rule: RegExp;
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse(
   { when: new Date(), rule: /abc/ },
   'Appointment',
 );
-// valid: true
+expect(ok.valid).toBe(true);
+
+// A string isn't a Date instance, and a string isn't a RegExp instance.
+const bad = await facet.parse(
+  { when: '2026-01-01', rule: 'abc' },
+  'Appointment',
+);
+expect(bad.valid).toBe(false);
 ```
 
 ## Binary Types
@@ -180,31 +226,35 @@ All eleven TypedArray variants validate against their declared type. `ArrayBuffe
 - `BigInt64Array`, `BigUint64Array`
 - `ArrayBuffer`
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Blob {
   data: Uint8Array;
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse({ data: new Uint8Array([1, 2, 3]) }, 'Blob');
-// valid: true
+expect(ok.valid).toBe(true);
 
-const bad = await facet.parse({ data: [1, 2, 3] }, 'Blob');
-// valid: false — expected Uint8Array, got plain array
+const bad = await facet.parse({ data: new ArrayBuffer(3) }, 'Blob');
+expect(bad.valid).toBe(false);  // expected Uint8Array, got ArrayBuffer
 ```
 
-## Dynamic Fields with `any`
+## Dynamic Fields with `any` or `unknown`
 
-`any` accepts anything structural — Maps, Sets, Dates, cycles, nested arrays.
+Both `any` and `unknown` accept any value — primitives, `null`, Maps, Sets, Dates, cycles, nested arrays. They're equivalent at the validator level; pick whichever matches your type-system discipline.
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Flexible {
-  metadata: any;
+  metadata: any;       // or: metadata: unknown;
 }
 ```
 
-```typescript @skip-check
+```typescript
+@skip-check
 const ok = await facet.parse(
   {
     metadata: {
@@ -215,14 +265,19 @@ const ok = await facet.parse(
   },
   'Flexible',
 );
-// valid: true
+expect(ok.valid).toBe(true);
+
+// `any` accepts any structural shape — nothing to reject at the `metadata` level.
+// The only way to fail is at the enclosing interface (e.g., missing the
+// `metadata` field entirely if it were required).
 ```
 
 ## Utility Types
 
-Standard TypeScript utility types work when embedded in a named interface — `Partial`, `Pick`, `Omit`, `Record`, `Required`, `Readonly`, `NonNullable`, `Exclude`, `Extract`.
+Standard TypeScript utility types work — `Partial`, `Pick`, `Omit`, `Record`, `Required`, `Readonly`, `NonNullable`, `Exclude`, `Extract`.
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface User { name: string; email: string; age: number; }
 
 interface PartialUser { user: Partial<User>; }
@@ -230,17 +285,24 @@ interface Credentials { creds: Pick<User, 'name' | 'email'>; }
 interface Roles { roles: Record<string, boolean>; }
 ```
 
-```typescript @skip-check
-await facet.parse({ user: { name: 'Alice' } }, 'PartialUser');      // valid: true
-await facet.parse({ creds: { name: 'Alice', email: 'a@b.com' } }, 'Credentials');  // valid: true
-await facet.parse({ roles: { admin: true, user: false } }, 'Roles'); // valid: true
+```typescript
+@skip-check
+expect((await facet.parse({ user: { name: 'Alice' } }, 'PartialUser')).valid).toBe(true);
+expect((await facet.parse({ creds: { name: 'Alice', email: 'a@b.com' } }, 'Credentials')).valid).toBe(true);
+expect((await facet.parse({ roles: { admin: true, user: false } }, 'Roles')).valid).toBe(true);
+
+// Pick<User, 'name' | 'email'> doesn't include age, so providing it is fine
+// (typia's default is lenient on extras); but supplying the wrong type for a
+// required field still fails.
+expect((await facet.parse({ creds: { name: 42, email: 'a@b.com' } }, 'Credentials')).valid).toBe(false);
 ```
 
 ## Advanced Types
 
-Conditional types, template literal types, and mapped types are resolved by `tsc` before typia sees them — so the full type system is available, as long as you end up with a named interface.
+Conditional types:
 
-```typescript @skip-check
+```typescript
+@skip-check
 interface Cat { meow: string; }
 interface Dog { bark: string; }
 type Pet<T> = T extends 'cat' ? Cat : Dog;
@@ -248,100 +310,137 @@ type Pet<T> = T extends 'cat' ? Cat : Dog;
 interface Home {
   pet: Pet<'cat'>;  // resolves to Cat
 }
+
+expect((await facet.parse({ pet: { meow: 'hi' } }, 'Home')).valid).toBe(true);
+expect((await facet.parse({ pet: { bark: 'woof' } }, 'Home')).valid).toBe(false);
 ```
 
-```typescript @skip-check
+Template literals:
+
+```typescript
+@skip-check
 interface Handler {
-  event: `on${'Click' | 'Hover'}`;  // template literal
+  event: `on${'Click' | 'Hover'}`;
 }
+
+expect((await facet.parse({ event: 'onClick' }, 'Handler')).valid).toBe(true);
+expect((await facet.parse({ event: 'onFocus' }, 'Handler')).valid).toBe(false);
 ```
 
-```typescript @skip-check
+Mapped types — the positive case here is the receipt: passing `null` for every field succeeds because `Nullable<Config>` rewrote every field to `T | null`. Against the raw `Config`, this same input would fail.
+
+```typescript
+@skip-check
 interface Config { host: string; port: number; }
 type Nullable<T> = { [K in keyof T]: T[K] | null; };
 
 interface Settings {
   config: Nullable<Config>;
 }
+
+expect((await facet.parse({ config: { host: null, port: null } }, 'Settings')).valid).toBe(true);
 ```
 
-## Cyclic References
+## Aliased references and cycles
 
-Workers RPC preserves cyclic references via structured-clone semantics, and the default-filler walks with a `WeakMap` so cycles don't blow the stack.
+The input value can freely contain **aliased references** — the same object appearing multiple times under different parents. Workers RPC and `@lumenize/structured-clone` (which Lumenize Mesh `call()` is built on) preserve the aliasing; the `@default` filler walks with a `WeakMap` so it visits each node once; typia's validator re-validates the aliased subtree each time it's reached (correct, but pays a duplicate-validation cost for widely-aliased subtrees) [TODO: change to something like "This package preprocesses cycles and alias so typia doesn't stack overflow on cycles and doesn't do extra work for aliased branches." Also consider splitting aliases and cycles into two ]
 
-```typescript @skip-check
-interface TreeNode {
-  id: number;
-  parent?: TreeNode;  // self-reference
-}
+```typescript
+@skip-check
+// DAG: `shared` appears under two different parent branches — no cycle.
+interface Node { id: number; children: Node[]; }
 
-const node: any = { id: 1 };
+const shared = { id: 99, children: [] };
+const root = {
+  id: 1,
+  children: [
+    { id: 2, children: [shared] },
+    { id: 3, children: [shared] },
+  ],
+};
+const ok = await facet.parse(root, 'Node');
+expect(ok.valid).toBe(true);
+```
+
+**True runtime cycles** — a reference path that closes back on itself — currently stack-overflow typia's validator. A planned pre-release change (cycle-acyclify pre-pass) will make cycles validate natively; until then, two workarounds.
+
+```typescript
+@skip-check
+// Current limitation: self-referential named-interface field + runtime cycle → stack overflow.
+interface TreeNode { id: number; parent: TreeNode | null; }
+
+const node: { id: number; parent: any } = { id: 1, parent: null };
 node.parent = node;  // cycle
-await facet.parse(node, 'TreeNode');
-// valid: true (note: this is a relationship — see Write-shape rewriting)
+
+await expect(facet.parse(node, 'TreeNode')).rejects.toThrow(/Maximum call stack/);
 ```
 
-## Write-shape rewriting
+```typescript
+@skip-check
+// Workaround 1: type the field as `any`. Typia stops recursing at the `any`
+// boundary; structure there is unchecked but cycles are safe.
+interface TreeNode { id: number; parent: any; }
 
-When an interface field refers to another top-level interface (directly, via `T[]`, via `Array<T>`, via `Set<T>` / `ReadonlySet<T>`, or via `Map<K, T>` / `ReadonlyMap<K, T>`), the generated validator rewrites that field to expect string IDs — not the nested interface.
+const node: { id: number; parent: any } = { id: 1, parent: null };
+node.parent = node;
 
-```typescript @skip-check
-// Input:
-interface User { id: string; name: string; }
-interface Team {
-  lead: User;           // becomes lead: string
-  members: User[];      // becomes members: string[]
-  roles: Map<string, User>;  // becomes roles: Map<string, string>
-}
+const ok = await facet.parse(node, 'TreeNode');
+expect(ok.valid).toBe(true);
 ```
 
-At `parse()` time, pass IDs:
+```typescript
+@skip-check
+// Workaround 2: ORM composer pattern. Pre-extract metadata and feed the
+// write-shape so `parent: TreeNode` becomes `parent: string` in the validator.
+// Cycles can't form at runtime because each reference is a string, not an object.
+import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
 
-```typescript @skip-check
-const ok = await facet.parse(
-  {
-    lead: 'u-1',
-    members: ['u-1', 'u-2'],
-    roles: new Map([['admin', 'u-1']]),
-  },
-  'Team',
-);
-// valid: true
+const md = extractTypeMetadata(`interface TreeNode { id: number; parent: TreeNode | null; }`);
+const moduleSource = generateParseModule(md.writeShapeTypeDefinitions);
+// Mount moduleSource. parse() now expects { id, parent: <id-string> | null }.
 ```
 
-This mirrors Lumenize Nebula's transaction model (relationships are references, not embedded payloads). If you want nested-object validation instead, declare the nested shape **inline** rather than as a named interface:
-
-```typescript @skip-check
-interface Team {
-  // Inline — NOT rewritten
-  lead: { id: string; name: string; };
-}
-```
-
-Container shape and key type are preserved when rewriting. `Map<'admin' | 'editor', User>` becomes `Map<'admin' | 'editor', string>` — only the ontology-referenced value is rewritten to `string`.
 
 ## Known Limitations
 
-### Generic instantiation as a `typeName`
-
-The old `@lumenize/ts-runtime-validator` accepted `'List<Todo>'` as a `typeName`. This package requires a **named** interface. Workaround: materialise the shape as an alias.
-
-```typescript @skip-check
-// Won't work:
-// await facet.parse(list, 'List<Todo>');
-
-// Instead:
-interface TodoList { items: Todo[]; }
-await facet.parse(list, 'TodoList');
-```
-
 ### `URL` and `Headers` values
 
-Not supported as value types. Use string equivalents:
+Not supported as value types. Use string equivalents.
 
-- `URL` → `string` with `@format url`
-- `Headers` → `Record<string, string>`
+```typescript
+@skip-check
+// Limitation: URL instances aren't accepted by typia's structural check.
+interface Link { href: URL; }
+const bad = await facet.parse({ href: new URL('https://example.com') }, 'Link');
+expect(bad.valid).toBe(false);
+```
+
+```typescript
+@skip-check
+// Workaround for URL: a string field with @format url.
+interface Link {
+  /** @format url */
+  href: string;
+}
+const ok = await facet.parse({ href: 'https://example.com' }, 'Link');
+expect(ok.valid).toBe(true);
+```
+
+```typescript
+@skip-check
+// Workaround for Headers: Record<string, string>.
+interface Req { headers: Record<string, string>; }
+const ok = await facet.parse(
+  { headers: { 'content-type': 'application/json' } },
+  'Req',
+);
+expect(ok.valid).toBe(true);
+```
 
 ### Functions
 
-Functions aren't validators-of-anything-sensible and aren't resource data. Don't include function-typed fields.
+Functions aren't validators-of-anything-sensible and aren't resource data. Don't include function-typed fields — they can't cross the Workers RPC boundary, either.
+
+### Other transport-level types
+
+Although [`@lumenize/structured-clone`](/docs/structured-clone) and Workers RPC faithfully transport values like `Error`, `Request`, `Response`, and `ResponseSync`, these aren't supported as field types here — they're not the shapes you'd persist or validate as resource data. If you have a use case, reach out.
