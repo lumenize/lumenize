@@ -4,7 +4,7 @@ description: Comprehensive table of supported types, with tested examples for ev
 ---
 # Type Support & Validation Boundaries
 
-**tl;dr** — Everything you'd reasonably put in a resource definition works: primitives, objects, arrays, unions, optional fields, Maps, Sets, Dates, RegExp, all eleven TypedArrays, cyclic references, and `any`. TypeScript's structural and utility types (`Partial`, `Pick`, `Omit`, `Record`, conditional types, template literal types, mapped types) work too.
+**tl;dr** — Everything you'd reasonably put in a resource definition works: primitives, objects, arrays, unions, optional fields, Maps, Sets, Dates, RegExp, all eleven TypedArrays, cyclic references, `any`, and `unknown`. TypeScript's structural and utility types (`Partial`, `Pick`, `Omit`, `Record`, conditional types, template literal types, mapped types) work too.
 
 For per-field constraints (range, format, length, pattern, uniqueness), see [Additional Constraints](./additional-constraints).
 
@@ -267,9 +267,9 @@ const ok = await facet.parse(
 );
 expect(ok.valid).toBe(true);
 
-// `any` accepts any structural shape — nothing to reject at the `metadata` level.
-// The only way to fail is at the enclosing interface (e.g., missing the
-// `metadata` field entirely if it were required).
+// Nothing to reject at the `metadata` level — both `any` and `unknown` accept
+// any shape. The only way to fail is at the enclosing interface (e.g., missing
+// the `metadata` field entirely if it were required).
 ```
 
 ## Utility Types
@@ -343,7 +343,9 @@ expect((await facet.parse({ config: { host: null, port: null } }, 'Settings')).v
 
 ## Aliased references and cycles
 
-The input value can freely contain **aliased references** — the same object appearing multiple times under different parents. Workers RPC and `@lumenize/structured-clone` (which Lumenize Mesh `call()` is built on) preserve the aliasing; the `@default` filler walks with a `WeakMap` so it visits each node once; typia's validator re-validates the aliased subtree each time it's reached (correct, but pays a duplicate-validation cost for widely-aliased subtrees) [TODO: change to something like "This package preprocesses cycles and alias so typia doesn't stack overflow on cycles and doesn't do extra work for aliased branches." Also consider splitting aliases and cycles into two ]
+The input value can freely contain **aliased references** — the same object appearing multiple times under different parents. Workers RPC and `@lumenize/structured-clone` (which Lumenize Mesh `call()` is built on) preserve the aliasing across the boundary. The `@default` filler walks with a `WeakMap` so it visits each node once. Typia's validator re-validates the aliased subtree each time it's reached — correct, but pays a duplicate-validation cost for widely-aliased subtrees.
+
+[TODO: change to something like "This package preprocesses cycles and alias so typia doesn't stack overflow on cycles and doesn't do extra work for aliased branches." Also consider splitting aliases and cycles into two ]
 
 ```typescript
 @skip-check

@@ -76,7 +76,7 @@ This package exists for one scenario: **you need schemas that change inside a ru
 
 If that's not you, pick by whether you want your types to *be* your schema:
 
-- **TypeScript as schema, no DSL** — use [typia](https://typia.io) via a build step. Same ergonomic as this package (your interfaces are the validator), works anywhere JS runs.
+- **TypeScript as schema, no DSL** — use [typia](https://typia.io) via a build step. Same ergonomics as this package (your interfaces are the validator), works anywhere JS runs.
 - **Separate schema DSL** — use [Zod](https://zod.dev) for JS-expression schemas with a rich fluent API, or [Ajv](https://ajv.js.org) if you need JSON Schema interop.
 
 If the first scenario *is* you — keep reading.

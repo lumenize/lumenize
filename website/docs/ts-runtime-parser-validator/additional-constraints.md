@@ -69,7 +69,7 @@ Apply to fields typed `number` or `bigint`.
 
 | Annotation | Value | Meaning |
 | --- | --- | --- |
-| `@type` | `int32` \ | `uint32` \ | `int64` \ | `uint64` \ | `float` \ | `double` (shortcuts: `int` → `int32`, `uint` → `uint32`) | `int*`/`uint*` reject non-integers (e.g. `2.5`); `uint*` reject negatives; bounded variants also enforce the type's value range. `float`/`double` accept any JS number |
+| `@type` | `int32`, `uint32`, `int64`, `uint64`, `float`, `double` (shortcuts: `int` → `int32`, `uint` → `uint32`) | `int*`/`uint*` reject non-integers (e.g. `2.5`); `uint*` reject negatives; bounded variants also enforce the type's value range. `float`/`double` accept any JS number |
 | `@minimum N` | number | Value must be ≥ N |
 | `@maximum N` | number | Value must be ≤ N |
 | `@exclusiveMinimum N` | number | Value must be > N |

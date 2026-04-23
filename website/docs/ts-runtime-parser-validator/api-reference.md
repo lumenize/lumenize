@@ -88,10 +88,13 @@ The type signatures use the global `DurableObjectState` and `WorkerLoader` types
 ```typescript
 @skip-check
 import { DurableObject } from 'cloudflare:workers';
-import { getParserValidatorFacet } from '@lumenize/ts-runtime-parser-validator';
+import {
+  getParserValidatorFacet,
+  type ParseResult,
+} from '@lumenize/ts-runtime-parser-validator';
 
 export class SupervisorDO extends DurableObject<Env> {
-  async parse(bundleId: string, value: unknown, typeName: string) {
+  async parse(bundleId: string, value: unknown, typeName: string): Promise<ParseResult> {
     const facet = getParserValidatorFacet(
       this.ctx,
       this.env.LOADER,
