@@ -227,9 +227,13 @@ export interface TypeMetadata {
 
 ```typescript @check-example('packages/ts-runtime-parser-validator/src/extract-type-metadata.ts')
 export interface InlineSubtype {
-  subTypeName: string;
-  container?: 'array' | 'set' | 'readonlyset' | 'map' | 'readonlymap';
-  mapKeyType?: string;
+  subTypeName?: string;
+  containers?: Array<'array' | 'set' | 'readonlyset' | 'map' | 'readonlymap'>;
+  mapKeyTypes?: Array<string | undefined>;
+  discriminator?: {
+    field: string;
+    variants: Record<string, string>;
+  };
 }
 ```
 

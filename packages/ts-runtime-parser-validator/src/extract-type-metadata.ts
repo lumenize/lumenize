@@ -62,18 +62,46 @@ export type DefaultsMap = Record<string, Record<string, unknown>>;
 /**
  * Per-field inline-subtype record. Populated when a field's declared type
  * contains an anonymous inline type literal — directly (`field?: {...}`),
- * inside a container (`field?: Array<{...}>`, `Set<{...}>`, `Map<K, {...}>`,
- * and the `Readonly` variants), or wrapped in a nullable union
- * (`field?: {...} | null`). The filler walks into `subTypeName` the same way
- * it walks into named interfaces, so nested `@default` tags apply through
- * both paths.
+ * inside one or more containers (`field?: Array<{...}>`, `Array<Array<{...}>>`,
+ * `Set<{...}>`, `Map<K, {...}>`, and the `Readonly` variants; containers
+ * nest arbitrarily deep), wrapped in a nullable union (`field?: {...} | null`),
+ * or a discriminated union of inline types (`field?: { kind: 'a'; ... } | { kind: 'b'; ... }`).
+ *
+ * **Direct / container-wrapped case**: `subTypeName` + optional `containers`
+ * point at a single sub-type. The filler walks straight in.
+ *
+ * **Discriminated-union case**: `discriminator` carries the field name plus a
+ * map from each variant's literal-discriminator value to the synthesized
+ * sub-type for that variant. The filler reads the discriminator at runtime
+ * and routes into the matching sub-type.
+ *
+ * Exactly one of `subTypeName` or `discriminator` is populated.
  */
 export interface InlineSubtype {
-  subTypeName: string;
-  /** Container shape when the inline type sits inside Array/Set/Map. */
-  container?: 'array' | 'set' | 'readonlyset' | 'map' | 'readonlymap';
-  /** Map's K source text (preserved for potential future use). */
-  mapKeyType?: string;
+  /** Present for direct or container-wrapped inline types. */
+  subTypeName?: string;
+  /**
+   * Outer-to-inner container chain. Empty (or omitted) for a direct inline
+   * type (`field?: {...}`). For `Array<Array<{...}>>`, `['array', 'array']`.
+   * For `Map<string, Array<{...}>>`, `['map', 'array']`. Only meaningful
+   * when `subTypeName` is set.
+   */
+  containers?: Array<'array' | 'set' | 'readonlyset' | 'map' | 'readonlymap'>;
+  /**
+   * Same-length array aligning with `containers`. Non-undefined entries carry
+   * the Map/ReadonlyMap's K source text at the matching position; undefined at
+   * non-Map positions. Preserved for potential future use.
+   */
+  mapKeyTypes?: Array<string | undefined>;
+  /**
+   * Present for a discriminated-union inline type. `field` is the shared
+   * literal-typed property across variants; `variants` maps each literal
+   * discriminator value (stringified) to its synthesized sub-type name.
+   */
+  discriminator?: {
+    field: string;
+    variants: Record<string, string>;
+  };
 }
 
 export interface TypeMetadata {
@@ -226,22 +254,33 @@ function analyzeTypeNode(
 
 /**
  * Find an anonymous inline type literal inside a type node. Handles direct
- * (`{...}`), container-wrapped (`Array<{...}>`, `T[]`, `Set<{...}>`,
- * `ReadonlySet<{...}>`, `Map<K, {...}>`, `ReadonlyMap<K, {...}>`), and
- * nullable-union-wrapped (`{...} | null`) cases. Returns the literal plus
- * container metadata, or null if no inline literal is present.
+ * (`{...}`), arbitrarily-nested container-wrapped (`Array<{...}>`, `T[]`,
+ * `Set<{...}>`, `ReadonlySet<{...}>`, `Map<K, {...}>`, `ReadonlyMap<K, {...}>`
+ * — and combinations: `Array<Array<{...}>>`, `Map<K, Array<{...}>>`, etc.),
+ * and nullable-union-wrapped (`{...} | null`) cases. Returns the inner literal
+ * plus an outer-to-inner chain of container metadata, or null if no inline
+ * literal is reachable.
  */
+type ContainerKind = NonNullable<InlineSubtype['containers']>[number];
 function findInlineTypeLiteral(
   typeNode: any,
   sourceFile: any,
-): { literal: any; container?: InlineSubtype['container']; mapKeyType?: string } | null {
+): { literal: any; containers: ContainerKind[]; mapKeyTypes: Array<string | undefined> } | null {
   // Direct inline: { ... }
   if (tsApi.isTypeLiteralNode(typeNode)) {
-    return { literal: typeNode };
+    return { literal: typeNode, containers: [], mapKeyTypes: [] };
   }
-  // T[] where T is inline
-  if (tsApi.isArrayTypeNode(typeNode) && tsApi.isTypeLiteralNode(typeNode.elementType)) {
-    return { literal: typeNode.elementType, container: 'array' };
+  // T[] — recurse into the element
+  if (tsApi.isArrayTypeNode(typeNode)) {
+    const inner = findInlineTypeLiteral(typeNode.elementType, sourceFile);
+    if (inner) {
+      return {
+        literal: inner.literal,
+        containers: ['array', ...inner.containers],
+        mapKeyTypes: [undefined, ...inner.mapKeyTypes],
+      };
+    }
+    return null;
   }
   // Generic: Array<T>, Set<T>, ReadonlySet<T>, Map<K, T>, ReadonlyMap<K, T>
   if (tsApi.isTypeReferenceNode(typeNode) && tsApi.isIdentifier(typeNode.typeName)) {
@@ -249,25 +288,31 @@ function findInlineTypeLiteral(
     const typeArgs = typeNode.typeArguments;
     if (
       (refName === 'Array' || refName === 'Set' || refName === 'ReadonlySet') &&
-      typeArgs?.length === 1 &&
-      tsApi.isTypeLiteralNode(typeArgs[0])
+      typeArgs?.length === 1
     ) {
-      return {
-        literal: typeArgs[0],
-        container:
-          refName === 'Array' ? 'array' : refName === 'Set' ? 'set' : 'readonlyset',
-      };
+      const inner = findInlineTypeLiteral(typeArgs[0], sourceFile);
+      if (inner) {
+        const container: ContainerKind =
+          refName === 'Array' ? 'array' : refName === 'Set' ? 'set' : 'readonlyset';
+        return {
+          literal: inner.literal,
+          containers: [container, ...inner.containers],
+          mapKeyTypes: [undefined, ...inner.mapKeyTypes],
+        };
+      }
+      return null;
     }
-    if (
-      (refName === 'Map' || refName === 'ReadonlyMap') &&
-      typeArgs?.length === 2 &&
-      tsApi.isTypeLiteralNode(typeArgs[1])
-    ) {
-      return {
-        literal: typeArgs[1],
-        container: refName === 'Map' ? 'map' : 'readonlymap',
-        mapKeyType: typeArgs[0].getText(sourceFile),
-      };
+    if ((refName === 'Map' || refName === 'ReadonlyMap') && typeArgs?.length === 2) {
+      const inner = findInlineTypeLiteral(typeArgs[1], sourceFile);
+      if (inner) {
+        const container: ContainerKind = refName === 'Map' ? 'map' : 'readonlymap';
+        return {
+          literal: inner.literal,
+          containers: [container, ...inner.containers],
+          mapKeyTypes: [typeArgs[0].getText(sourceFile), ...inner.mapKeyTypes],
+        };
+      }
+      return null;
     }
   }
   // T | null | undefined — unwrap and recurse
@@ -281,6 +326,81 @@ function findInlineTypeLiteral(
     if (nonNullTypes.length === 1) {
       return findInlineTypeLiteral(nonNullTypes[0], sourceFile);
     }
+    // Multi-shape unions are handled separately by `findDiscriminatedUnion`.
+  }
+  return null;
+}
+
+/**
+ * Detect a discriminated union of inline type literals and return the
+ * discriminator field + per-variant TypeLiteralNode map, keyed by the
+ * stringified literal value. Null/undefined members are ignored.
+ *
+ * A union qualifies when:
+ * - It has ≥ 2 non-null TypeLiteralNode members (all must be inline literals).
+ * - Some property name is present on every member with a LiteralTypeNode type.
+ * - Each variant's literal value (string / number / `true` / `false`) is
+ *   distinct from the others — so the runtime discriminator lookup is unambiguous.
+ *
+ * Returns the first qualifying field (by insertion order in the first variant)
+ * if multiple fields meet the criteria. Returns null for non-unions, single-
+ * variant unions, or unions that don't share a clean discriminator.
+ */
+function findDiscriminatedUnion(
+  typeNode: any,
+): { field: string; variants: Array<{ value: string; literal: any }> } | null {
+  if (!tsApi.isUnionTypeNode(typeNode)) return null;
+  const isNullish = (t: any): boolean => {
+    if (t.kind === tsApi.SyntaxKind.NullKeyword || t.kind === tsApi.SyntaxKind.UndefinedKeyword) return true;
+    if (tsApi.isLiteralTypeNode(t) && t.literal.kind === tsApi.SyntaxKind.NullKeyword) return true;
+    return false;
+  };
+  const members: any[] = typeNode.types.filter((t: any) => !isNullish(t));
+  if (members.length < 2) return null;
+  if (!members.every((m: any) => tsApi.isTypeLiteralNode(m))) return null;
+
+  // Collect each member's literal-typed fields: name → stringified literal value
+  const literalFieldsPerMember: Array<Map<string, string>> = members.map((m: any) => {
+    const out = new Map<string, string>();
+    for (const prop of m.members) {
+      if (!tsApi.isPropertySignature(prop) || !tsApi.isIdentifier(prop.name) || !prop.type) continue;
+      if (!tsApi.isLiteralTypeNode(prop.type)) continue;
+      const lit = prop.type.literal;
+      // Support string / number literals and `true` / `false` keyword nodes.
+      let value: string | null = null;
+      if (typeof lit.text === 'string') {
+        // StringLiteral (text is the raw content without quotes) or NumericLiteral.
+        value = lit.text;
+      } else if (lit.kind === tsApi.SyntaxKind.TrueKeyword) {
+        value = 'true';
+      } else if (lit.kind === tsApi.SyntaxKind.FalseKeyword) {
+        value = 'false';
+      }
+      if (value !== null) out.set(prop.name.text, value);
+    }
+    return out;
+  });
+
+  // Find a field name present in all members with distinct values.
+  const firstMemberFields = literalFieldsPerMember[0];
+  if (!firstMemberFields) return null;
+  for (const [fieldName] of firstMemberFields) {
+    const values: string[] = [];
+    let ok = true;
+    for (const fields of literalFieldsPerMember) {
+      const v = fields.get(fieldName);
+      if (v === undefined) { ok = false; break; }
+      values.push(v);
+    }
+    if (!ok) continue;
+    if (new Set(values).size !== values.length) continue; // duplicates — not distinct
+    return {
+      field: fieldName,
+      variants: members.map((m: any, i: number) => ({
+        value: values[i]!,
+        literal: m,
+      })),
+    };
   }
   return null;
 }
@@ -441,19 +561,39 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
 
       // Inline type literal recursion. Covers direct (`field?: { ... }`),
       // container-wrapped (`Array<{...}>` / `T[]` / `Set<{...}>` / `Map<K, {...}>`
-      // and the Readonly variants), and nullable-union-wrapped
-      // (`{...} | null`). Synthesises a sub-type named `${typeName}/${fieldName}`
-      // so nested @default tags attach there and the filler can recurse through
-      // the container shape.
+      // and the Readonly variants — nested arbitrarily, e.g. `Array<Array<{...}>>`),
+      // and nullable-union-wrapped (`{...} | null`). Synthesises a sub-type named
+      // `${typeName}/${fieldName}` so nested @default tags attach there and the
+      // filler can recurse through the container chain.
       const inlineInfo = findInlineTypeLiteral(member.type, sourceFile);
       if (inlineInfo) {
         const subTypeName = `${typeName}/${fieldName}`;
         if (!inlineSubtypes[typeName]) inlineSubtypes[typeName] = {};
         const entry: InlineSubtype = { subTypeName };
-        if (inlineInfo.container) entry.container = inlineInfo.container;
-        if (inlineInfo.mapKeyType) entry.mapKeyType = inlineInfo.mapKeyType;
+        if (inlineInfo.containers.length > 0) {
+          entry.containers = inlineInfo.containers;
+          entry.mapKeyTypes = inlineInfo.mapKeyTypes;
+        }
         inlineSubtypes[typeName][fieldName] = entry;
         walkMembers(inlineInfo.literal.members, subTypeName, /* isTopLevel */ false);
+      } else {
+        // Discriminated union of inline type literals:
+        // `field?: { kind: 'a'; ... } | { kind: 'b'; ... }`. Synthesise one
+        // sub-type per variant, record the discriminator + variant map so the
+        // filler can route by reading the discriminator value at runtime.
+        const disc = findDiscriminatedUnion(member.type);
+        if (disc) {
+          const variants: Record<string, string> = {};
+          for (const { value, literal } of disc.variants) {
+            const variantSubTypeName = `${typeName}/${fieldName}/${value}`;
+            variants[value] = variantSubTypeName;
+            walkMembers(literal.members, variantSubTypeName, /* isTopLevel */ false);
+          }
+          if (!inlineSubtypes[typeName]) inlineSubtypes[typeName] = {};
+          inlineSubtypes[typeName][fieldName] = {
+            discriminator: { field: disc.field, variants },
+          };
+        }
       }
     }
   }

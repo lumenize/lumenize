@@ -4,7 +4,7 @@
 
 For complete documentation, visit **[https://lumenize.com/docs/ts-runtime-parser-validator/introduction](https://lumenize.com/docs/ts-runtime-parser-validator/introduction)**
 
-This package replaces the tsc-based [`@lumenize/ts-runtime-validator`](https://www.npmjs.com/package/@lumenize/ts-runtime-validator). Migration guide: [https://lumenize.com/docs/ts-runtime-parser-validator/migrating-from-ts-runtime-validator](https://lumenize.com/docs/ts-runtime-parser-validator/migrating-from-ts-runtime-validator).
+This package supersedes the tsc-based [`@lumenize/ts-runtime-validator`](https://www.npmjs.com/package/@lumenize/ts-runtime-validator), which is now deprecated. The old package was experimental with no known external users, so we didn't write a migration guide — treat this as a fresh package and see [Getting Started](https://lumenize.com/docs/ts-runtime-parser-validator/getting-started).
 
 ## Installation
 

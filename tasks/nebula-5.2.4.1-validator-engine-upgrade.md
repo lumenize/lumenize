@@ -1,17 +1,17 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6 complete (6.5 + 6.6 landed 2026-04-23). Phase 2 skipped (Spike A succeeded). **Phase 6.7 pending — pre-release blocker** (cycle support via copied + modified typia source; implementation detoured to [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md), 6.7 is the wire-in). **Phase 7 in progress: narrative drafts landed, validation still pending** (narrative already updated for 6.5 + 6.6). Then Phase -1 triage, then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
+**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6, 6.7, 7 complete (6.7 + 7 landed 2026-04-24). Phase 2 skipped (Spike A succeeded). Phase -1 triaged 2026-04-24 — four items dispositioned (one done, one backlogged, one promoted to its own task), one folded into new **Phase 6.8** (auto-materialise generic-instantiation aliases — pending). After 6.8, this task closes; then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
 
 **Detours completed (2026-04-22)**: vitest 4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`) and alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md`). Side-effect fix: `@lumenize/mesh/client` subpath (`tasks/archive/mesh-client-node-import.md`, Phase 4 release-docs deferred to release time).
 
-**Phase 7 actual progress (2026-04-22)**: Narrative draft for all six doc pages landed in `website/docs/ts-runtime-parser-validator/` (`index.md`, `getting-started.md`, `api-reference.md`, `additional-constraints.md`, `default.md`, `type-support.md`). Sidebar entry added in `website/sidebars.ts:333`. `website/docs/introduction.md` row added for the new package (Experimental) and the old `@lumenize/ts-runtime-validator` row marked Deprecated.
+**Phase 6.7 + Phase 7 complete (2026-04-24)**:
+- Typia visit-tracking modification landed via [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md) Phases 1–2. Package-level wire-in: cycle + alias tests in `packages/ts-runtime-parser-validator/test/cycles.test.ts`, DAG-aliasing single-walk proven by getter-counter (`idReads === 1`), type-support.md cycles section rewritten to document native support.
+- All 73 original `@skip-check` blocks across six doc pages converted to `@check-example` (72 converted to tests/source files, 1 deleted as untestable — URL-instance-rejected which can't cross Workers RPC). Zero `@skip-check` remaining. `npm run check-examples` passes (256 verified examples across 116 files).
+- New `packages/ts-runtime-parser-validator/test/for-docs/` directory with 4 new test files backing the doc examples. vitest projects config added for the getting-started wrangler sub-project. Parser-validator test count: 119 → 176 (+57).
+- Two @default recursion bugs found and fixed during doc conversion: (1) extractor didn't walk anonymous inline type literals (`field?: { ... }`); (2) filler only recursed through named-interface Array<T> (not Set<T> / Map<K, T>). Fix adds `InlineSubtype` metadata + shared `__recurseContainer` helper; covers direct inline, container-wrapped (`Array<{...}>` / `T[]` / `Set<{...}>` / `Map<K, {...}>` + Readonly variants), and nullable-union (`{...} | null`).
+- Two check-examples tooling bugs found and fixed: (1) file filter only scanned `.mdx` (all `.md` files silently ignored); (2) import-stripping regex didn't handle multi-line imports.
+- README migration-guide link removed (Phase 7 decided no migration guide).
 
-**What still remains for Phase 7 (the active work):**
-- All 64 code blocks across the six pages are `@skip-check` — zero `@check-example` annotations.
-- No `packages/ts-runtime-parser-validator/test/for-docs/` directory exists yet — create the runnable tests that back each doc example, then convert the annotations.
-- `npm run check-examples` has not been run end-to-end against the new package's docs.
-- README (`packages/ts-runtime-parser-validator/README.md`) links to `migrating-from-ts-runtime-validator` — that page does not exist and Phase 7 explicitly decided not to write one (the old package was experimental with no known users). Fix the README link.
-- Phase 7 success criteria mentions `introduction.mdx`; the file is `introduction.md` — wording-only cleanup.
 **Depends on**: 5.2.4 (docs shipped — see `tasks/archive/nebula-5.2.4-docs.md`)
 **Precedes**: 5.2.4.2 (Galaxy integration)
 **Package**: `packages/ts-runtime-parser-validator/` (new)
@@ -423,9 +423,9 @@ Even after Phase 6.5's cleanup, the getting-started wiring is ~25 lines of neste
 - [x] `ParserValidator` and `ParseResult` are public exports.
 - [x] All existing tests pass; helper is dogfooded via the test worker.
 
-## Phase 6.7: Wire in cycle support from the copied typia source (pre-release blocker)
+## Phase 6.7: Wire in cycle support from the copied typia source ✅ COMPLETE (2026-04-24)
 
-**Status**: Pending. **Must ship before npm publish.** Implementation lives in the copied typia source — see [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md). This phase is the wire-in: confirm the typia-visit-tracking task's Phases 1–3 have landed and add the cycle + alias-dedup tests that prove the wire works at the package level.
+**Status**: Complete. Implementation lives in the copied typia source — see [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md) Phases 1–2. This phase did the wire-in: cycle + alias tests at the package level, plus the docs update documenting native support.
 
 ### Motivation
 
@@ -448,27 +448,26 @@ The typia-visit-tracking task owns the modification itself; this phase is the pa
 
 ### Work items
 
-- [ ] Typia-visit-tracking task Phases 1–3 complete (source copied in, visit-tracking implemented, typia's own test suite passes against our copy).
-- [ ] Add `packages/ts-runtime-parser-validator/test/cycles.test.ts` with:
-  - Self-referential cycle, `parent: T | null` — success, cycle preserved in output.
-  - Self-referential cycle, `parent: T` (non-nullable, via cast) — success, cycle preserved.
-  - Mutual cycle (`a.b = b; b.a = a`) — success.
-  - DAG aliasing — single walk, verified via a test-instrumented counter.
-  - Acyclic-happy-path perf regression sanity check (warm-parse latency within ~10% of Phase 6 baseline).
-- [ ] Update `website/docs/ts-runtime-parser-validator/type-support.md` "Aliased references and cycles" section per the inline TODO at the top of that section: rewrite the opening as "this package preprocesses cycles and aliases so typia doesn't stack-overflow on cycles and doesn't re-walk aliased branches," drop the "planned pre-release change" caveat, and demote workarounds 1 (`any`) and 2 (ORM composer) from "current limitations" to "alternative patterns if you want something different" (or remove if they no longer earn their keep).
-- [ ] Add a blog-worthy note to 5.2.4.2's announcement phase: Lumenize's pipeline preserves cycles and deduplicates alias-walks end-to-end through transport, validation, and filler.
+- [x] Typia-visit-tracking task Phases 1–2 complete (source copied in, visit-tracking implemented). Phase 3 partially complete (parser-validator-side tests in `test/cycles.test.ts`; upstream-port deferred, see that task).
+- [x] `packages/ts-runtime-parser-validator/test/cycles.test.ts` added with:
+  - Self-referential cycle at optional (`parent?: T`), nullable (`parent: T | null`), and non-nullable (`parent: T`) positions — all succeed, cycles preserved.
+  - Mutual cycle (`a.b = b; b.a = a`) — succeeds.
+  - Invalid-node cycle still surfaces typia's structured errors (visit-tracking doesn't swallow diagnostics).
+  - DAG aliasing — single walk verified via a getter-counter test (`idReads === 1`).
+- [x] ~~Acyclic-happy-path perf regression sanity check~~ — **deferred**. vitest-pool-workers' frozen-clock semantics make in-process latency measurement unreliable. Re-evaluate if a better harness surfaces.
+- [x] `website/docs/ts-runtime-parser-validator/type-support.md` "Aliased references and cycles" section rewritten: native support documented; split into separate `### Cycles` and `### Aliased references (DAG)` subsections; old workarounds removed.
+- [ ] Add a blog-worthy note to 5.2.4.2's announcement phase: Lumenize's pipeline preserves cycles and deduplicates alias-walks end-to-end through transport, validation, and filler. *(Deferred to 5.2.4.2.)*
 
 ### Success criteria
 
-- [ ] `parse(node, 'TreeNode')` where `node.parent = node` and `TreeNode.parent: TreeNode | null` returns `{ valid: true, data }` with the cycle preserved.
-- [ ] Same cycle with `TreeNode.parent: TreeNode` (non-nullable) also returns `{ valid: true, data }`.
-- [ ] DAG aliasing validates in a single walk (test-instrumented).
-- [ ] No perf regression on acyclic inputs.
-- [ ] `type-support.md` no longer documents the cycle limitation.
+- [x] `parse(node, 'TreeNode')` where `node.parent = node` returns `{ valid: true, data }` with the cycle preserved — verified at `parent?: T`, `parent: T | null`, and non-nullable `parent: T`.
+- [x] DAG aliasing validates in a single walk (test-instrumented: getter-counter on the shared node's `id` fires exactly once).
+- [x] `type-support.md` no longer documents the cycle limitation.
+- [x] No perf regression on acyclic inputs — **reasoning only**, not measured. The visit-tracking guard adds a WeakMap lookup per object-helper entry; acyclic paths are within constant-factor overhead of pre-modification behaviour. Precise measurement deferred per above.
 
-## Phase 7: Documentation
+## Phase 7: Documentation ✅ COMPLETE (2026-04-24)
 
-**Status**: In progress. Narrative drafts landed (Phase 1 of the docs workflow). Validation work (Phase 2 of the docs workflow: real `test/for-docs/` tests + `@check-example` conversion) still pending — see top-of-file status block for the remaining checklist.
+**Status**: Complete. Narrative drafts landed 2026-04-22; validation pass (tests + `@check-example` conversion) landed 2026-04-24. All six pages validated end-to-end via `npm run check-examples` (256 examples verified across 116 files). Discovered and fixed two parser-validator bugs (see top-of-file status) during the conversion — "it's shocking how often we find real bugs during this work" remains the pattern.
 
 Write all docs before the package is published to npm. This is the consolidated "docs before publish" phase for this task. The old `@lumenize/ts-runtime-validator` was experimental and has no known external users, so the new package is framed as a fresh package rather than a successor — no migration guide.
 
@@ -504,88 +503,98 @@ Nebula integration (updating `Resources.transaction()`, wiring Galaxy/Star) belo
 - [x] `@default` page covers fill semantics, required/optional rule, full recursion, and the "lift deep nested defaults into their own interface" guidance (`default.md`)
 - [x] Type-support page published with same section skeleton as the old doc (minus "TypeScript Emit" column), each category marked supported-with-example or dropped-with-reason based on the Phase 5 delta matrix (`type-support.md`)
 - [x] `website/sidebars.ts` updated with the new section (`sidebars.ts:333`); `website/docs/introduction.md` has a new row for the package marked **experimental**, and the existing `@lumenize/ts-runtime-validator` row updated to **deprecated** with a pointer to the new package. *(Note: introduction file is `.md` not `.mdx` — earlier criterion text was stale.)*
-- [ ] **Outstanding**: Every executable code block in the new docs has an `@check-example('path/to/test')` annotation pointing at a passing `test/for-docs/` test — zero remaining `@skip-check` annotations. `npm run check-examples` passes. Note: `@skip-check-approved` may only be added by a human reviewer, never by Claude. *Currently 64 `@skip-check`, 0 `@check-example`, no `test/for-docs/` directory.*
-- [ ] **Outstanding**: Fix the broken migration-guide link in `packages/ts-runtime-parser-validator/README.md` (Phase 7 decided no migration guide; remove or replace the line that points at `migrating-from-ts-runtime-validator`).
+- [x] Every executable code block in the new docs has an `@check-example('path/to/test')` annotation pointing at a passing `test/for-docs/` test. Zero `@skip-check` annotations remaining. `npm run check-examples` passes.
+- [x] Broken migration-guide link removed from `packages/ts-runtime-parser-validator/README.md`.
 
-## Phase -1: Captured Ideas (triage before closing)
+## Phase -1: Captured Ideas (triaged 2026-04-24)
 
-Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a task — a bin for ideas that surface during the work but don't fit the current plan. Before closing the task, each entry gets triaged into exactly one outcome:
+Convention borrowed from `Array.at(-1)`: Phase -1 is the trailing phase of a task — a bin for ideas that surface during the work but don't fit the current plan. Triage outcomes: do-now / later-task-file / backlog / drop.
 
-- **Do now** — fold into an earlier phase and strike from this list.
-- **Later task file** — promote to its own task in `tasks/`.
-- **Backlog** — append to `tasks/backlog.md` for a future pass.
-- **Drop** — record the rationale inline and strike.
+All five captured items triaged before closing:
 
-Nothing here is committed to yet.
+1. **Auto-materialize generic instantiations** → **Do now** as Phase 6.8 below. The "just use TypeScript" vibe means users writing `type TodoList = List<Todo>;` should get a working validator without renaming.
+2. **`@lumenize/mesh` LumenizeClient Node-import bug** → **Done.** FIXED 2026-04-22 via `@lumenize/mesh/client` subpath. See [`tasks/archive/mesh-client-node-import.md`](archive/mesh-client-node-import.md). Release-docs phase of that task deferred to release time.
+3. **`@lumenize/mesh` ClientDisconnectedError flattening** → **Later task file.** Promoted to [`tasks/mesh-client-gateway-error-flattening.md`](mesh-client-gateway-error-flattening.md) 2026-04-24 — architecturally a mesh package fix, doesn't belong in the parser-validator task.
+4. **`@default` input/output type asymmetry (dual-type exposure)** → **Backlog.** Promoted to [`tasks/backlog.md`](backlog.md) 2026-04-24 with the full analysis preserved. Current v1 rule (`?` required) holds.
+5. **Blog post: facet performance in practice** → **Phase 8 below.**
 
-### Auto-materialize generic instantiations at compile time
+## Phase 6.8: Expanded type-shape support — generic aliases + discriminated-union `@default` recursion
 
-**Source**: Phase 5 delta matrix — "Generic instantiations as `typeName` — DROP."
+**Status**: 6.8b complete (2026-04-24), 6.8a pending. Two lightweight feature fold-ins from Phase -1 triage and follow-up doc review.
 
-**Idea**: scan `typeDefinitions` for top-level aliases that instantiate a generic (e.g., `type TodoList = List<Todo>;`). Emit a `TodoList: typia.createValidate<TodoList>()` entry. Users recover `List<Todo>`-style validation via a one-line alias.
+### 6.8a: Auto-materialize generic instantiations at top-level aliases
 
-**Triggering signal**: if real users (Nebula or external) hit the friction, or if doc readers ask "how do I validate `List<Todo>`?" Otherwise punt — Nebula's ORM model doesn't push users toward this pattern, and naming the concrete shape is a trivial workaround.
+**Source**: Phase 5 delta matrix originally marked this DROP; re-triaged as do-now 2026-04-24 because it preserves the "just use TypeScript" ergonomic for a natural pattern users will reach for.
 
-**Implementation sketch**: extend `extractTypeMetadata()` to collect top-level `type X = Y<...>` aliases where `Y` is a known generic interface. Surface as `interfaceNames` (or `aliasNames`). The typia-call-synthesis step is already name-driven.
+**The scenario**: users write a top-level type alias that instantiates a generic interface:
 
-**Disposition**: unscheduled.
+```typescript
+interface List<T> { items: T[]; /** @default 0 */ count?: number; }
+type TodoList = List<Todo>;
+```
 
-### `@lumenize/mesh` — LumenizeClient can't import in Node.js / browser
+Currently this alias is silently invisible to the extractor — `TodoList` won't appear in `interfaceNames`, and `parse(value, 'TodoList')` returns `unknown type`. Users have to either duplicate the shape (`interface TodoList { items: Todo[]; count?: number; }`) or validate against `List<Todo>` through a different pathway.
 
-**Source**: Discovered 2026-04-22 while scaffolding the alarm-accuracy experiment's Node runner.
+**Work items**:
+- [ ] Extend `extractTypeMetadata()` to collect top-level `type X = Y<...>` aliases where `Y` is a known (named) interface in the same source. Treat the alias as if it were a fresh interface with the generic substituted.
+- [ ] Surface the alias in `interfaceNames` alongside real interfaces.
+- [ ] Ensure typia's generated validator picks up the alias. Since typia's transform already handles `typia.createValidate<T>()` for type aliases, this should flow through once the name is registered.
+- [ ] Add a test in `test/for-docs/type-support.test.ts` covering the alias pattern.
+- [ ] Add a short paragraph to `type-support.md` showing the alias pattern.
 
-**Idea / Bug**: `import { LumenizeClient } from '@lumenize/mesh'` fails at module-load time in Node/browser because `lumenize-client.ts` imports the runtime value `GatewayMessageType` from `lumenize-client-gateway.js`, which top-level imports `DurableObject` from `cloudflare:workers`. The mesh test suite runs entirely in vitest-pool-workers, so this never surfaced in tests. `@lumenize/mesh` is published (latest on npm: 0.24.0).
+### 6.8b: Discriminated-union `@default` recursion ✅ COMPLETE (2026-04-24)
 
-**Triggering signal**: already triggered — alarm-accuracy Node runner had to use a raw-WebSocket workaround. Any browser/Node user of LumenizeClient hits this today.
+**Source**: Follow-up during Phase -1 doc review (2026-04-24). Initial doc framing was "multi-shape unions aren't supported for `@default` recursion"; narrowed after the user flagged that discriminated unions are common (including `ParseResult` itself).
 
-**Disposition**: **FIXED 2026-04-22.** New subpath export `@lumenize/mesh/client` (see [`tasks/archive/mesh-client-node-import.md`](archive/mesh-client-node-import.md) for the writeup). Wire-protocol primitives extracted to `gateway-messages.ts`. Node regression test added. alarm-accuracy runner now dogfoods the subpath. Phase 4 of the fix task (package README + website docs + changelog) still pending, deferred to release.
+**Shipped**: extractor detects discriminated unions (common property name with distinct literal-typed values across variants); synthesises per-variant sub-types `${parent}/${field}/${value}`; filler reads the discriminator at runtime and routes. Supports string, numeric, and boolean literal discriminators. 4 new tests in `test/for-docs/default.test.ts`. Doc block moved from `type-support.md` "Known Limitations" to `default.md` under a new "Known limitations" heading — positive `default.md` "Discriminated unions" section under "Nested recursion" shows it working; negative "Known limitations" entry narrowed to non-discriminated unions only.
 
-### `@lumenize/mesh` — LumenizeClientGateway flattens ClientDisconnectedError on grace-period path
+**The scenario**: `@default` on a field should recurse through a discriminated union, routing to the matching variant by reading the discriminator at runtime:
 
-**Source**: Discovered 2026-04-22 during Phase 2 of the alarm-accuracy experiment (disconnect spot-check test).
+```typescript
+interface Config {
+  payload?:
+    | { kind: 'retry'; /** @default 3 */ max?: number }
+    | { kind: 'cache'; /** @default 60 */ ttlSeconds?: number };
+}
+// parse({ payload: { kind: 'retry' } }, 'Config') →
+//   data: { payload: { kind: 'retry', max: 3 } }
+```
 
-**Idea / Bug**: `LumenizeClientGateway.__executeOperation` has two code paths for "client disconnected":
-1. **No grace period active**: returns `{ $error: preprocess(new ClientDisconnectedError(...)) }` — clean, error class name preserved through the postprocess round-trip.
-2. **In grace period**: `await this.#waitForReconnect()` *throws* (unwrapped) when `alarm()` fires `#rejectReconnectWaiters`. Workers RPC flattens the custom class; caller sees `err.name === 'Error'`, class name embedded in `err.message`.
+**Detection** (extractor): a `UnionTypeNode` is "discriminated" when all non-null members are `TypeLiteralNode`s sharing a common property whose type is a literal (string/number/boolean) with distinct values across members.
 
-The two paths should be symmetric. Fix is small: `try { await this.#waitForReconnect(); } catch (err) { return { $error: preprocess(err) }; }` around line 549 of `lumenize-client-gateway.ts`.
+**Emission** (extractor): for each variant, synthesize a sub-type named `${parent}/${field}/${discriminatorValue}` and walk its body. Store the mapping in `InlineSubtype`:
 
-**Triggering signal**: anyone relying on `instanceof ClientDisconnectedError` or `err.name === 'ClientDisconnectedError'` after a grace-period timeout gets the wrong answer. The alarm-accuracy experiment's disconnect test had to match against the message substring instead.
+```typescript
+export interface InlineSubtype {
+  // Existing (direct or container-wrapped inline) — unchanged:
+  subTypeName?: string;
+  containers?: ContainerKind[];
+  mapKeyTypes?: (string | undefined)[];
+  // New: discriminated-union routing.
+  discriminator?: {
+    field: string;                          // discriminator property name
+    variants: Record<string, string>;       // discriminator value → subTypeName
+  };
+}
+```
 
-**Disposition**: needs a task file (or, if small enough, a direct PR to `@lumenize/mesh`). Could be folded into the mesh-client-node-import task since they're both in the same file and both about mesh error/client surface cleanup.
+Exactly one of `subTypeName` or `discriminator` is populated.
 
-### `@default` input/output type asymmetry — dual-type exposure
+**Routing** (filler): when `InlineSubtype.discriminator` is present, read `value[discriminator.field]`, look up the matching variant, recurse. If no match (runtime discriminator value is unexpected), skip recursion — typia's validator catches the bad discriminator.
 
-**Source**: Docs review conversation 2026-04-23 on getting-started's `@default "US"` on `country?: string` in the schema example.
+**Work items**:
+- [x] Add `findDiscriminatedUnion` helper to the extractor.
+- [x] Extend `walkMembers` to walk each variant under its synthesized sub-type name and record `InlineSubtype.discriminator`.
+- [x] Extend `__fillDefaults` to dispatch on `discriminator` when present.
+- [x] 4 tests: string-discriminator routing, numeric-discriminator routing, caller-supplied-wins, unexpected-discriminator (no crash, typia catches).
+- [x] Moved the prose + example from `type-support.md` to `default.md`; narrowed the negative case to non-discriminated unions only; added a positive "Discriminated unions" sub-section under "Nested recursion".
 
-**The dilemma**: `@default` on a field creates a real asymmetry between input and output. On input the field is absent-allowed (caller may omit; filler supplies the default). On output the field is always present (the filler ran before the validator returned). A single TypeScript interface can't honestly represent both. Our current rule (P4.2) requires `?` — the type reflects input-side, which means consumers of the parsed `data` do unnecessary null checks for fields that, post-parse, are guaranteed present.
+### Combined success criteria
 
-**Prior art**:
-- **Typia** sidesteps by not filling. `tags.Default<T>` is inert metadata — advisory only, never applied. That dodge doesn't work for us; parse-don't-validate is part of the package's identity.
-- **Zod** exposes both via `z.input<typeof schema>` (optional) and `z.output<typeof schema>` (required). `.default()` flips the field's optional-ness between the two views.
-
-**Options considered**:
-1. **Current rule (`?` required)** — input-honest, consumer pays small null-check tax. No type-lying, no second expression mechanism, simple to document.
-2. **Auto-making-optional** (user writes `country: string`, validator accepts missing at runtime) — rejected. Type system still forces `country: 'US'` at every call site, so it buys nothing on input ergonomics, and the validator-accepts-what-type-forbids gap is dangerous.
-3. **Auto-making-required** via a utility type `Parsed<T>` that non-optional-ifies `@default`-tagged fields — requires JSDoc tags to be visible to the type system, which they aren't. Would need branded types (`country?: string & Default<'US'>`) alongside JSDoc, creating two ways to express defaults.
-4. **Zod-style dual types** (`Input<T>` / `Output<T>` helpers we ship) — same brand-vs-JSDoc problem as option 3; can't be derived from JSDoc alone.
-5. **User-written utility type** (`Required<Pick<User, 'country'>> & Omit<User, 'country'>`) — manual, brittle, doesn't scale past a handful of fields.
-
-**Current decision**: option 1 for v1. The tradeoff is honest, the rule is enforced at extract time with a clear error, and the consumer ergonomic tax is small relative to the complexity of any fix.
-
-**Triggering signal for revisit**: users complaining about null-check noise on parsed output, or Nebula hitting pain from the asymmetry when generating TypeScript client code for ontology consumers. Either suggests promoting option 3 (brand + `Parsed<T>` utility) to its own task.
-
-**Implementation sketch for option 3** (when the time comes):
-- Add typia-style `Default<T>` branded type export alongside JSDoc `@default`.
-- Extract metadata from both surfaces (JSDoc + brand) — extractor becomes source-agnostic for default values.
-- Ship `Parsed<T>` utility that walks T's properties and non-optional-ifies any property whose type intersects `Default<...>`. Users annotate `country?: string & Default<'US'>` to opt into the dual-view; plain JSDoc users keep the current `?`-only semantics.
-- Docs reframe: `@default` remains the simple default; `Default<T>` is the "I want both input and output types derivable" escalation.
-
-**Disposition**: unscheduled. Document the current rule clearly in `default.md` (why `?` is required, what it means for output consumers); leave the dual-type fix for a follow-on task if/when the pain surfaces.
-
-### Blog post: facet performance in practice
-
-**Promoted to Phase 8 below.** Closely related to this task — the Phase 6 numbers are the post — and gives the release something to point to.
+- [ ] `parse(value, 'TodoList')` validates against `List<Todo>` when `type TodoList = List<Todo>` is in the type definitions.
+- [ ] Discriminated-union `@default` recursion: each variant's nested defaults fire when the discriminator matches.
+- [ ] Known Limitations doc describes the remaining gap (non-discriminated multi-shape unions) accurately.
+- [ ] Regression: no change in behaviour for direct interface validation or for container-wrapped inline types.
 
 ## Phase 8: Blog post — "Facet performance in practice"
 

@@ -292,4 +292,8 @@ Small tasks and ideas for when I have time (evening coding, etc.)
   - **Blocker**: As of Jan 2025, `vitest-pool-workers` (workerd 1.20251011.0) throws "Object not disposable" when using `using` with DO stubs. The runtime doesn't implement `Symbol.dispose` on stubs yet. Wait for vitest-pool-workers/workerd to add support, then:
     1. Search codebase for `getDOStub(` calls and change to `using stub = getDOStub(...)`
     2. Update `getDOStub` JSDoc to recommend callers use `using`
+
+## `@lumenize/ts-runtime-parser-validator`
+
+- [ ] **`@default` input/output type asymmetry — dual-type exposure.** Promoted from `tasks/nebula-5.2.4.1-validator-engine-upgrade.md` Phase -1 (closed 2026-04-24). `@default` on a field creates an input/output type mismatch: input-side the field is absent-allowed, output-side it's always present. Current rule requires `?` (input-honest; consumers pay null-check tax on post-parse data). Most promising fix: add a typia-style `Default<T>` branded type alongside JSDoc `@default`, plus a `Parsed<T>` utility that non-optional-ifies branded fields — Zod-style dual views without dropping the JSDoc path. **Trigger**: users complaining about null-check noise on parsed `data`, or Nebula hitting pain when generating TypeScript client code for ontology consumers. Full analysis archived in 5.2.4.1 Phase -1.
     3. Update unit test mocks to include `[Symbol.dispose]: () => {}`

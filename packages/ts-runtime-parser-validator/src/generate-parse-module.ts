@@ -428,7 +428,8 @@ function __fillDefaults(value, typeName, seen) {
       const edge = sub[field];
       const origVal = value[field];
       if (origVal === undefined || origVal === null) continue;
-      const filled = __recurseContainer(origVal, edge.container, edge.target, seen);
+      const containers = edge.container ? [edge.container] : [];
+      const filled = __recurseContainer(origVal, containers, 0, edge.target, seen);
       if (filled !== origVal) out[field] = filled;
     }
   }
@@ -438,8 +439,22 @@ function __fillDefaults(value, typeName, seen) {
       const entry = inline[field];
       const origVal = value[field];
       if (origVal === undefined || origVal === null) continue;
-      const filled = __recurseContainer(origVal, entry.container, entry.subTypeName, seen);
-      if (filled !== origVal) out[field] = filled;
+      if (entry.discriminator) {
+        // Discriminated union — read the discriminator at runtime to pick a
+        // variant. If the runtime value doesn't match any variant, skip
+        // recursion; typia's validator will flag the bad discriminator.
+        if (typeof origVal !== 'object' || Array.isArray(origVal)) continue;
+        const discValue = origVal[entry.discriminator.field];
+        const variantSubTypeName = entry.discriminator.variants[String(discValue)];
+        if (variantSubTypeName) {
+          const filled = __fillDefaults(origVal, variantSubTypeName, seen);
+          if (filled !== origVal) out[field] = filled;
+        }
+      } else {
+        const containers = entry.containers || [];
+        const filled = __recurseContainer(origVal, containers, 0, entry.subTypeName, seen);
+        if (filled !== origVal) out[field] = filled;
+      }
     }
   }
 
@@ -447,37 +462,38 @@ function __fillDefaults(value, typeName, seen) {
 }
 
 /**
- * Apply the default-filling recursion to a single container value. \`container\`
- * is undefined for a direct one-to-one reference, or one of the container
- * labels ('array' | 'set' | 'readonlyset' | 'map' | 'readonlymap'). For Set
- * and Map, a NEW Set/Map is returned with each element filled — the original
- * is not mutated. For Array, a fresh array is returned. For direct (no
- * container), \`origVal\` is passed straight to \`__fillDefaults\`.
+ * Walk a value through an outer-to-inner container chain, applying
+ * \`__fillDefaults(leaf, subTypeName, seen)\` at the innermost level. Supports
+ * Array (fresh array), Set (fresh Set), Map (fresh Map keyed by original keys).
+ * Empty chain means the field is a direct one-to-one reference — recurse
+ * straight into the value.
  */
-function __recurseContainer(origVal, container, subTypeName, seen) {
-  const walkElem = (e) =>
-    e && typeof e === 'object' && !Array.isArray(e) && !(e instanceof Set) && !(e instanceof Map)
-      ? __fillDefaults(e, subTypeName, seen)
-      : e;
+function __recurseContainer(origVal, containers, depth, subTypeName, seen) {
+  if (depth >= containers.length) {
+    // Innermost: element must be a plain object to fill defaults.
+    if (origVal === null || typeof origVal !== 'object' || Array.isArray(origVal)) return origVal;
+    if (origVal instanceof Set || origVal instanceof Map) return origVal;
+    return __fillDefaults(origVal, subTypeName, seen);
+  }
+  const container = containers[depth];
+  const walk = (e) => __recurseContainer(e, containers, depth + 1, subTypeName, seen);
   if (container === 'array') {
     if (!Array.isArray(origVal)) return origVal;
-    return origVal.map(walkElem);
+    return origVal.map(walk);
   }
   if (container === 'set' || container === 'readonlyset') {
     if (!(origVal instanceof Set)) return origVal;
     const next = new Set();
-    for (const e of origVal) next.add(walkElem(e));
+    for (const e of origVal) next.add(walk(e));
     return next;
   }
   if (container === 'map' || container === 'readonlymap') {
     if (!(origVal instanceof Map)) return origVal;
     const next = new Map();
-    for (const [k, v] of origVal) next.set(k, walkElem(v));
+    for (const [k, v] of origVal) next.set(k, walk(v));
     return next;
   }
-  // Direct one-to-one: origVal must be a plain object to recurse.
-  if (typeof origVal !== 'object' || Array.isArray(origVal)) return origVal;
-  return __fillDefaults(origVal, subTypeName, seen);
+  return origVal;
 }
 
 export class ParserValidator extends DurableObject {

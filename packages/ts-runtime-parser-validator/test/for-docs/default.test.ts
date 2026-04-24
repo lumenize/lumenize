@@ -259,6 +259,57 @@ interface Config {
     expect(out.get('api')).toEqual({ target: '/api', status: 301 });
   });
 
+  it('Array<Array<{...}>> — nested containers recurse to innermost element', async () => {
+    const facet = makeFacet(`
+interface Grid {
+  cells?: Array<Array<{
+    value: string;
+    /** @default 1 */
+    weight?: number;
+  }>>;
+}
+`);
+    const ok = await facet.parse(
+      {
+        cells: [
+          [{ value: 'a' }, { value: 'b', weight: 5 }],
+          [{ value: 'c' }],
+        ],
+      },
+      'Grid',
+    );
+    expect(ok.data).toMatchObject({
+      cells: [
+        [{ value: 'a', weight: 1 }, { value: 'b', weight: 5 }],
+        [{ value: 'c', weight: 1 }],
+      ],
+    });
+  });
+
+  it('Map<K, Array<{...}>> — mixed container chain recurses correctly', async () => {
+    const facet = makeFacet(`
+interface Config {
+  routes?: Map<string, Array<{
+    target: string;
+    /** @default 200 */
+    status?: number;
+  }>>;
+}
+`);
+    const routes = new Map<string, Array<{ target: string; status?: number }>>([
+      ['home', [{ target: '/index' }, { target: '/home' }]],
+      ['api', [{ target: '/api', status: 301 }]],
+    ]);
+    const ok = await facet.parse({ routes }, 'Config');
+    const out = (ok.data as { routes: Map<string, Array<{ target: string; status?: number }>> }).routes;
+    expect(out).toBeInstanceOf(Map);
+    expect(out.get('home')).toEqual([
+      { target: '/index', status: 200 },
+      { target: '/home', status: 200 },
+    ]);
+    expect(out.get('api')).toEqual([{ target: '/api', status: 301 }]);
+  });
+
   it('{...} | null — nullable-union-wrapped inline type recurses', async () => {
     const facet = makeFacet(`
 interface Config {
@@ -323,6 +374,77 @@ interface Config {
     const out = (ok.data as { routes: Map<string, { target: string; status?: number }> }).routes;
     expect(out).toBeInstanceOf(Map);
     expect(out.get('home')).toEqual({ target: '/index', status: 200 });
+  });
+});
+
+describe('Discriminated-union @default recursion', () => {
+  // NOTE: JSDoc `@default` must be on its own line above the field (same rule
+  // as elsewhere in the package; see additional-constraints.md footgun). Inline
+  // JSDoc between members on the same line doesn't attach to the next field.
+  const CONFIG_TYPES = `
+interface Config {
+  payload?:
+    | {
+        kind: 'retry';
+        /** @default 3 */
+        max?: number;
+      }
+    | {
+        kind: 'cache';
+        /** @default 60 */
+        ttlSeconds?: number;
+      };
+}
+`;
+
+  it('routes to the matching variant by the discriminator field', async () => {
+    const facet = makeFacet(CONFIG_TYPES);
+    const retry = await facet.parse({ payload: { kind: 'retry' } }, 'Config');
+    expect(retry.data).toMatchObject({ payload: { kind: 'retry', max: 3 } });
+
+    const cache = await facet.parse({ payload: { kind: 'cache' } }, 'Config');
+    expect(cache.data).toMatchObject({ payload: { kind: 'cache', ttlSeconds: 60 } });
+  });
+
+  it('caller-supplied values win over defaults within the chosen variant', async () => {
+    const facet = makeFacet(CONFIG_TYPES);
+    const ok = await facet.parse(
+      { payload: { kind: 'retry', max: 7 } },
+      'Config',
+    );
+    expect(ok.data).toMatchObject({ payload: { kind: 'retry', max: 7 } });
+  });
+
+  it('numeric discriminators work', async () => {
+    const facet = makeFacet(`
+interface Result {
+  body?:
+    | {
+        code: 200;
+        /** @default "ok" */
+        message?: string;
+      }
+    | {
+        code: 500;
+        /** @default "internal error" */
+        reason?: string;
+      };
+}
+`);
+    const ok = await facet.parse({ body: { code: 200 } }, 'Result');
+    expect(ok.data).toMatchObject({ body: { code: 200, message: 'ok' } });
+
+    const err = await facet.parse({ body: { code: 500 } }, 'Result');
+    expect(err.data).toMatchObject({ body: { code: 500, reason: 'internal error' } });
+  });
+
+  it('unknown discriminator value — no recursion, typia flags the mismatch', async () => {
+    const facet = makeFacet(CONFIG_TYPES);
+    const bad = await facet.parse(
+      { payload: { kind: 'unexpected' as any } },
+      'Config',
+    );
+    expect(bad.valid).toBe(false);
   });
 });
 
