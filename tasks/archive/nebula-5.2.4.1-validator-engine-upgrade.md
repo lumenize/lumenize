@@ -1,6 +1,6 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6, 6.7, 7 complete (6.7 + 7 landed 2026-04-24). Phase 2 skipped (Spike A succeeded). Phase -1 triaged 2026-04-24 — four items dispositioned (one done, one backlogged, one promoted to its own task), one folded into new **Phase 6.8** (auto-materialise generic-instantiation aliases — pending). After 6.8, this task closes; then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
+**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6, 6.7, 6.8, 7 complete (all landed 2026-04-24). Phase 2 skipped (Spike A succeeded). Phase -1 triaged and closed. **Task is closed for active work; 5.2.4.2 is next.** Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
 
 **Detours completed (2026-04-22)**: vitest 4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`) and alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md`). Side-effect fix: `@lumenize/mesh/client` subpath (`tasks/archive/mesh-client-node-import.md`, Phase 4 release-docs deferred to release time).
 
@@ -518,11 +518,11 @@ All five captured items triaged before closing:
 4. **`@default` input/output type asymmetry (dual-type exposure)** → **Backlog.** Promoted to [`tasks/backlog.md`](backlog.md) 2026-04-24 with the full analysis preserved. Current v1 rule (`?` required) holds.
 5. **Blog post: facet performance in practice** → **Phase 8 below.**
 
-## Phase 6.8: Expanded type-shape support — generic aliases + discriminated-union `@default` recursion
+## Phase 6.8: Expanded type-shape support — generic aliases + discriminated-union `@default` recursion ✅ COMPLETE (2026-04-24)
 
-**Status**: 6.8b complete (2026-04-24), 6.8a pending. Two lightweight feature fold-ins from Phase -1 triage and follow-up doc review.
+**Status**: Both 6.8a (type aliases) and 6.8b (discriminated unions) shipped. Two lightweight feature fold-ins from Phase -1 triage and follow-up doc review.
 
-### 6.8a: Auto-materialize generic instantiations at top-level aliases
+### 6.8a: Auto-materialize generic instantiations at top-level aliases ✅ COMPLETE (2026-04-24)
 
 **Source**: Phase 5 delta matrix originally marked this DROP; re-triaged as do-now 2026-04-24 because it preserves the "just use TypeScript" ergonomic for a natural pattern users will reach for.
 
@@ -533,14 +533,17 @@ interface List<T> { items: T[]; /** @default 0 */ count?: number; }
 type TodoList = List<Todo>;
 ```
 
-Currently this alias is silently invisible to the extractor — `TodoList` won't appear in `interfaceNames`, and `parse(value, 'TodoList')` returns `unknown type`. Users have to either duplicate the shape (`interface TodoList { items: Todo[]; count?: number; }`) or validate against `List<Todo>` through a different pathway.
+Previously this alias was silently invisible to the extractor. Now `TodoList` is a first-class validator target.
+
+**Shipped**: broader than the original narrow scope — **all** top-level `type X = ...` aliases are materialised as validator targets (typia resolves the alias structurally at validate time). When the alias targets a known user interface (`type Person = User`, `type TodoList = List<Todo>`), the extractor also copies that interface's `@default` / relationship / inline-subtype metadata under the alias name so the filler sees defaults. Aliases to inline literals, utility-type instantiations (`Partial<User>`), or primitives are still validatable; they just carry no `@default` metadata of their own.
 
 **Work items**:
-- [ ] Extend `extractTypeMetadata()` to collect top-level `type X = Y<...>` aliases where `Y` is a known (named) interface in the same source. Treat the alias as if it were a fresh interface with the generic substituted.
-- [ ] Surface the alias in `interfaceNames` alongside real interfaces.
-- [ ] Ensure typia's generated validator picks up the alias. Since typia's transform already handles `typia.createValidate<T>()` for type aliases, this should flow through once the name is registered.
-- [ ] Add a test in `test/for-docs/type-support.test.ts` covering the alias pattern.
-- [ ] Add a short paragraph to `type-support.md` showing the alias pattern.
+- [x] `collectTypeAliases()` helper added to `extractTypeMetadata`. Walks `TypeAliasDeclaration`s, resolves `type X = Y<...>` or `type X = Y` to a target interface name (or `null` for aliases that don't target a known interface).
+- [x] All aliases pushed onto `interfaceNames`. When the target is a known interface, metadata (`defaults`, `relationships`, `inlineSubtypes`) is copied under the alias name.
+- [x] Typia picks up the new names automatically — `generateParseModule` emits `typia.createValidate<Alias>()` for each.
+- [x] Two tests in `test/for-docs/type-support.test.ts` under "Type aliases to top-level interfaces": generic-instantiation case + bare-alias case.
+- [x] Doc paragraph added to `type-support.md` §"Type aliases as top-level validator targets" under Utility Types.
+- [x] Three pre-existing tests updated to reflect new behaviour (`edge-cases.test.ts` "skips type aliases" → "includes them"; "throws when input has no interfaces" → narrowed to "no top-level declarations"; `parity/types.test.ts` `[SUPPORTED?] Partial<T> via typeName` → now `[SUPPORTED] Partial<T> via type alias`).
 
 ### 6.8b: Discriminated-union `@default` recursion ✅ COMPLETE (2026-04-24)
 

@@ -13,6 +13,7 @@
 
 import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
+import { generateParseModule } from '../../src/generate-parse-module';
 
 type ParseResult = {
   valid: boolean;
@@ -321,6 +322,46 @@ describe('Aliased references and cycles (doc fixtures)', () => {
     };
     const ok = await facet.parse(root, 'Node');
     expect(ok.valid).toBe(true);
+  });
+});
+
+describe('Type aliases to top-level interfaces', () => {
+  it('type X = Y<Todo> validates against Y<Todo> and fills Y defaults', async () => {
+    const facet = makeFacet(`
+interface Todo { title: string; done: boolean; }
+interface List<T> {
+  items: T[];
+  /** @default 0 */
+  count?: number;
+}
+type TodoList = List<Todo>;
+`);
+    // Valid input — typia validates the concrete shape
+    const ok = await facet.parse(
+      { items: [{ title: 'ship it', done: false }] },
+      'TodoList',
+    );
+    expect(ok.valid).toBe(true);
+    // @default from List propagates to the alias
+    expect((ok as { valid: true; data: { count: number } }).data.count).toBe(0);
+
+    // Invalid input — wrong element type
+    const bad = await facet.parse({ items: [42] }, 'TodoList');
+    expect(bad.valid).toBe(false);
+  });
+
+  it('bare alias type X = Y also works', async () => {
+    const facet = makeFacet(`
+interface User {
+  name: string;
+  /** @default "guest" */
+  role?: string;
+}
+type Person = User;
+`);
+    const ok = await facet.parse({ name: 'Alice' }, 'Person');
+    expect(ok.valid).toBe(true);
+    expect((ok as { valid: true; data: { role: string } }).data.role).toBe('guest');
   });
 });
 

@@ -147,20 +147,44 @@ No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s 
 - [ ] All tests pass with new package only
 - [ ] `@lumenize/ts-runtime-validator` deprecated on npm with pointer to new package and migration guide
 
-## Phase 6: Announcement Blog Post
+## Phase 6: Blog posts — release announcement + facet-performance deep-dive
 
-**Goal**: Announce the parse-validate pipeline with a single post that covers both the new package and Nebula's wiring end-to-end.
+**Goal**: Two paired posts covering the parse-validate pipeline end-to-end. One is the user-facing release announcement; the other is the technical performance deep-dive that Cloudflare-community readers will want as a companion. Ship them together so they cross-link cleanly.
 
-Moved here from 5.2.4.1 Phase 7. Rationale: writing the announcement after Nebula integration lets us describe the full working system (parse-validate + Galaxy/Star wiring + `@default` lifted into JSDoc + DO facet hosting) in one post, and avoids announcing something that might still hit integration snags. If 5.2.4.1 ships and 5.2.4.2 stalls, we hold the post until 5.2.4.2 lands.
+Moved here from 5.2.4.1 Phase 7 (release post) and 5.2.4.1 Phase 8 (facet-performance deep-dive, archived with that task). Rationale for the pairing: the release post is "here's the thing, use it"; the performance post is "here are the numbers, decide if it's right for you." Both benefit from existing alongside the deployed Galaxy + Star + facets stack rather than just the validator slice.
 
-**Work**:
-- Draft post covering: why parse-over-validate, the typia + DO facet architecture, the `@default`-in-JSDoc migration, the before/after performance numbers (from 5.2.4.1 Phase 6 and 5.2.4.2 Phase 1), and the deprecation of `@lumenize/ts-runtime-validator`
+### 6a: Release announcement
+
+**Content**:
+- Draft post covering: why parse-over-validate, the typia + DO facet architecture, the `@default`-in-JSDoc migration, the before/after performance numbers (from 5.2.4.1 Phase 6 and 5.2.4.2 Phase 1), and the deprecation of `@lumenize/ts-runtime-validator`.
 - **Include the facets-vs-plain-DW rationale explicitly**: facets share the parent DO's isolate → same-isolate RPC, no network hop (the plain-DW alternative is a Service Binding with a per-call network hop). The package's `index.md` links to Cloudflare's facets announcement for "what are facets"; the release blog is the place for "why *we* picked them for this."
-- Cross-post per the content-distribution memory (Lumenize site + Substack + Medium)
+- Cross-post per the content-distribution memory (Lumenize site + Substack + Medium).
 
-**Success Criteria**:
-- [ ] Blog post published on the Lumenize site
-- [ ] Cross-posts scheduled/published per distribution channels
+**Rationale for the timing**: writing the announcement after Nebula integration lets us describe the full working system (parse-validate + Galaxy/Star wiring + `@default` lifted into JSDoc + DO facet hosting) in one post, and avoids announcing something that might still hit integration snags. If 5.2.4.1 ships and 5.2.4.2 stalls, we hold the post until 5.2.4.2 lands.
+
+### 6b: Facet performance in practice (technical deep-dive)
+
+**Why it's worth writing**: facets are new (announced 2026-04-13) and community guidance is thin. Our 5.2.4.1 Phase 6 benchmarks produced decomposed numbers that answer questions other developers will have. Distinguishes Lumenize as having done the homework; pairs naturally with the release announcement.
+
+**Headline framing**: real numbers distinguishing "DO facets are essentially free" (true for infrastructure/billing, Cloudflare's framing) from "DO facets add ~1 ms per-call RPC overhead and ~262 ms cold-spawn" (true for latency-sensitive code paths, our measurement). The 1,755 ms cold-wake decomposes to 1,494 ms DO infrastructure (85 %) + 262 ms facet contribution (15 %).
+
+**Content checklist**:
+- Lead with the decomposition table from 5.2.4.1 Phase 6 — DO infra vs facet vs warm parse.
+- Include the 30-type benchmark fixture (`packages/ts-runtime-parser-validator/test/fixtures/benchmark-ontology-30.ts`) so readers can reproduce.
+- Specific guidance on when facets are right (dynamic code hot-swap, per-tenant sandboxed code, ontology-driven schemas) vs wrong (sub-ms per-call latency requirements with no hot-swap need).
+- Apply the framing rules from `feedback_cf_community_framing.md` — Cloudflare's "essentially free" is true at the layer they meant; we're adding decomposed per-call numbers, not contradicting.
+- Run the open 5.2.4.1 Phase 6 follow-up first: tsc baseline comparison via a parallel spike Worker wrapping the old `@lumenize/ts-runtime-validator`, so the post can cite the new-vs-old numbers side by side.
+- CTA links back to the release post and to the `@lumenize/ts-runtime-parser-validator` package docs.
+
+### Success Criteria (combined)
+
+- [ ] tsc-baseline comparison spike run; numbers added to `experiments/ts-runtime-parser-validator-spike/RESULTS.md` (or equivalent).
+- [ ] Release-announcement post drafted at `website/blog/YYYY-MM-DD-parse-validate.md`.
+- [ ] Facet-performance post drafted at `website/blog/YYYY-MM-DD-facet-performance-in-practice.md` (or `.mdx` if the decomposition table needs JSX).
+- [ ] Decomposition table included inline in the performance post.
+- [ ] Reproducer link points at the committed benchmark fixture and the bench script in `experiments/ts-runtime-parser-validator-spike/`.
+- [ ] Both posts cross-link.
+- [ ] Cross-post per `reference_content_distribution.md` (Lumenize site + Substack + Medium).
 
 ## Open Questions
 

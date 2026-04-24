@@ -6,7 +6,7 @@
  * and skip re-walking aliased subtrees without stack-overflowing.
  *
  * Full cycle + alias test coverage lives in the parent task
- * (nebula-5.2.4.1-validator-engine-upgrade.md Phase 6.7). This file is the
+ * (archive/nebula-5.2.4.1-validator-engine-upgrade.md Phase 6.7). This file is the
  * narrow regression signal for the fork itself.
  */
 

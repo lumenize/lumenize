@@ -115,22 +115,16 @@ describe('Parity — Union and Optional', () => {
 });
 
 describe('Parity — Utility Types', () => {
-  it('[SUPPORTED?] Partial<T> via typeName', async () => {
-    // Typia supports utility types when they resolve to concrete shapes at compile time.
-    // Our `generateParseModule` generates `typia.createValidate<TypeName>()`
-    // for each top-level interface name. `Partial<User>` isn't a top-level interface
-    // name unless we materialize it as one. For the old tsc package, users passed
-    // `'Partial<User>'` as typeName directly. In the new package, this requires a
-    // top-level alias: `type PartialUser = Partial<User>;`. Document this delta.
+  it('[SUPPORTED] Partial<T> via type alias', async () => {
+    // Phase 6.8a (2026-04-24): top-level `type` aliases materialise as
+    // validator targets, so `type PartialUser = Partial<User>;` works —
+    // typia expands the utility type and generates a validator.
     const types = `
 interface User { name: string; email: string; age: number; }
 type PartialUser = Partial<User>;
 `;
-    // Our extractor only picks up `interface`, not `type` aliases. So PartialUser
-    // is not a top-level validator. Expected: parse call fails with unknown-type.
-    const { result } = await parse(types, 'PartialUser', { name: 'x' }, 'partial-unknown');
-    expect(result.valid).toBe(false);
-    expect(result.errors![0].expected).toBe('PartialUser');
+    const { result } = await parse(types, 'PartialUser', { name: 'x' }, 'partial-ok');
+    expect(result.valid).toBe(true);
   });
 
   it('[SUPPORTED] Utility types work when embedded in an interface', async () => {

@@ -19,12 +19,17 @@ describe('extractTypeMetadata edge cases', () => {
     expect(md.writeShapeTypeDefinitions).toBe('');
   });
 
-  it('skips `type` aliases (non-interface declarations)', () => {
+  it('includes top-level `type` aliases in interfaceNames (validator-target list)', () => {
+    // As of Phase 6.8a (2026-04-24), `type X = ...` aliases are materialised as
+    // top-level validator targets. Aliases targeting a known user interface
+    // (e.g. `type UserAlias = User`) additionally inherit that interface's
+    // `@default` metadata; aliases to inline literals, utility-type
+    // instantiations, or primitives are validatable but carry no defaults.
     const md = extractTypeMetadata(`
 type User = { name: string; };
 interface Real { x: number; }
 `);
-    expect(md.interfaceNames).toEqual(['Real']);
+    expect(md.interfaceNames).toEqual(['Real', 'User']);
   });
 
   it('ignores signature members that are not property signatures (e.g., methods)', () => {
@@ -90,8 +95,18 @@ interface X {
 });
 
 describe('generateParseModule edge cases', () => {
-  it('throws when the input has no interfaces', () => {
-    expect(() => generateParseModule('type X = number;')).toThrow(/no interfaces/);
+  it('throws when the input has no top-level declarations (neither interfaces nor aliases)', () => {
+    // Phase 6.8a: type aliases count as validator targets, so a file with only
+    // aliases no longer throws. The throw fires only when the input contains
+    // zero named top-level types.
+    expect(() => generateParseModule('// no declarations here')).toThrow(/no interfaces/);
+  });
+
+  it('accepts a file with only type aliases', () => {
+    // `type X = number;` materialises as a validator target — typia validates
+    // bare primitives just fine.
+    const emitted = generateParseModule('type PositiveInt = number;');
+    expect(emitted).toContain('PositiveInt');
   });
 
   it('produces a self-contained module (no typia/ imports, no default imports from "typia")', () => {

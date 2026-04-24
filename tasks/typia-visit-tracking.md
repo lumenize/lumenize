@@ -1,9 +1,8 @@
 # Typia Visit-Tracking: Copy In + Modify
 
-**Status**: Not started. Pre-release blocker for `@lumenize/ts-runtime-parser-validator` (5.2.4.1). Surfaced 2026-04-23 during 5.2.4.1 Phase 6.7 pre-implementation review.
+**Status**: Phases 1–2 shipped 2026-04-24 alongside `@lumenize/ts-runtime-parser-validator` (5.2.4.1, now archived at [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md)). Phase 3 shipped the parser-validator-side regression tests; the upstream-port portion stays deferred per that phase's rationale. **Phase 4 is the remaining work**, blocked on Phase 0's outcome (response deadline 2026-05-08). Originally surfaced 2026-04-23 during 5.2.4.1's Phase 6.7 pre-implementation review.
 
 **Depends on**: None (typia 12.0.2 is pinned).
-**Precedes**: `tasks/nebula-5.2.4.1-validator-engine-upgrade.md` Phase 6.7 (wire-in).
 **Artifact**: `packages/ts-runtime-parser-validator/forks/typia/` — copied TypeScript source from `samchon/typia@v12.0.2`, modified in-place.
 
 ## Objective

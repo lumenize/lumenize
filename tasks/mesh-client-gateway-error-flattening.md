@@ -35,4 +35,4 @@ try {
 
 ## Discovery
 
-Found 2026-04-22 during Phase 2 of the alarm-accuracy experiment (disconnect spot-check test). Originally captured in `tasks/nebula-5.2.4.1-validator-engine-upgrade.md` Phase -1; promoted to its own task 2026-04-24 when closing that parent task.
+Found 2026-04-22 during Phase 2 of the alarm-accuracy experiment (disconnect spot-check test). Originally captured in [`tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md`](archive/nebula-5.2.4.1-validator-engine-upgrade.md) Phase -1; promoted to its own task 2026-04-24 when closing that parent task.

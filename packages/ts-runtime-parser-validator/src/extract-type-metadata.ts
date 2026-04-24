@@ -137,6 +137,7 @@ const tsApi = ts as {
   createSourceFile: Function;
   ScriptTarget: { Latest: number };
   isInterfaceDeclaration: Function;
+  isTypeAliasDeclaration: Function;
   isPropertySignature: Function;
   isIdentifier: Function;
   isArrayTypeNode: Function;
@@ -157,6 +158,34 @@ function collectInterfaceNamesArray(sourceFile: any): string[] {
     }
   }
   return names;
+}
+
+/**
+ * Collect top-level `type X = Y;` or `type X = Y<...>;` aliases where `Y` is
+ * itself a top-level interface in the same source. Returns the alias name
+ * plus the target interface name. Aliases to non-interface targets (inline
+ * type literals, union types, primitives, etc.) are skipped — typia still
+ * validates them fine if the name is added to `interfaceNames`, but there's
+ * no named metadata target to copy from.
+ */
+function collectTypeAliases(
+  sourceFile: any,
+  ontologyTypes: Set<string>,
+): Array<{ name: string; targetInterface: string | null }> {
+  const out: Array<{ name: string; targetInterface: string | null }> = [];
+  for (const stmt of sourceFile.statements) {
+    if (!tsApi.isTypeAliasDeclaration(stmt)) continue;
+    if (!tsApi.isIdentifier(stmt.name)) continue;
+    const aliasName = stmt.name.text;
+    let target: string | null = null;
+    // `type X = Y<...>` or `type X = Y` — resolve Y if it's a known interface.
+    if (tsApi.isTypeReferenceNode(stmt.type) && tsApi.isIdentifier(stmt.type.typeName)) {
+      const refName = stmt.type.typeName.text;
+      if (ontologyTypes.has(refName)) target = refName;
+    }
+    out.push({ name: aliasName, targetInterface: target });
+  }
+  return out;
 }
 
 /**
@@ -601,6 +630,21 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
   for (const stmt of sourceFile.statements) {
     if (!tsApi.isInterfaceDeclaration(stmt)) continue;
     walkMembers(stmt.members, stmt.name.text, /* isTopLevel */ true);
+  }
+
+  // Register top-level `type X = Y` / `type X = Y<...>` aliases. typia's
+  // transform resolves aliases structurally, so adding the alias to
+  // `interfaceNames` is enough for validation. For `@default` / relationship
+  // metadata the extractor copies the target interface's entries under the
+  // alias name so the filler sees them when parsing by the alias.
+  const aliases = collectTypeAliases(sourceFile, ontologyTypes);
+  for (const { name: aliasName, targetInterface } of aliases) {
+    interfaceNames.push(aliasName);
+    if (targetInterface) {
+      if (defaults[targetInterface]) defaults[aliasName] = defaults[targetInterface];
+      if (relationships[targetInterface]) relationships[aliasName] = relationships[targetInterface];
+      if (inlineSubtypes[targetInterface]) inlineSubtypes[aliasName] = inlineSubtypes[targetInterface];
+    }
   }
 
   // Apply write-shape replacements in reverse source order

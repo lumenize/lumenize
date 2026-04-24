@@ -297,6 +297,28 @@ expect((await facet.parse({ roles: { admin: true, user: false } }, 'Roles')).val
 expect((await facet.parse({ creds: { name: 42, email: 'a@b.com' } }, 'Credentials')).valid).toBe(false);
 ```
 
+### Type aliases as top-level validator targets
+
+Top-level `type X = ...` aliases are materialised as validators alongside `interface` declarations. Useful for generic instantiations:
+
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
+interface Todo { title: string; done: boolean; }
+interface List<T> {
+  items: T[];
+  /** @default 0 */
+  count?: number;
+}
+type TodoList = List<Todo>;
+// ...
+const ok = await facet.parse(
+  { items: [{ title: 'ship it', done: false }] },
+  'TodoList',
+);
+expect(ok.valid).toBe(true);
+```
+
+When an alias targets a user interface (`type X = User`, `type X = List<Todo>`), it inherits that interface's `@default` metadata — filler runs over the alias name just like the interface. Aliases to inline type literals (`type X = { a: number }`), utility-type instantiations (`type PartialUser = Partial<User>`), or primitives (`type Count = number`) are still validatable; they just carry no `@default` metadata of their own.
+
 ## Advanced Types
 
 Conditional types:
