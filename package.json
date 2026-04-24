@@ -11,7 +11,11 @@
     "tooling/*",
     "website",
     "doc-test/*/*",
-    "experiments/alarm-accuracy"
+    "experiments/alarm-accuracy",
+    "packages/ts-runtime-parser-validator/forks/typia/core",
+    "packages/ts-runtime-parser-validator/forks/typia/transform",
+    "packages/ts-runtime-parser-validator/forks/typia/interface",
+    "packages/ts-runtime-parser-validator/forks/typia/utils"
   ],
   "scripts": {
     "prepare": "chmod +x scripts/*.sh",

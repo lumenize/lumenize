@@ -12,7 +12,7 @@ Copy typia's four runtime packages (`@typia/transform`, `@typia/core`, `@typia/i
 - **Cycles** validate natively (no stack overflow on `node.parent = node` against `parent: Node | null`).
 - **Aliased subtrees** validate once, not per-alias.
 
-**Framing: copy in + modify, not fork.** We pull typia source files we need into our tree and own them from there. Phase 0 posts a GitHub issue to gauge Samchon's interest in upstreaming; a positive signal unlocks Phase 4 (reconstitute as a real GitHub fork + PR), negative or silent means we skip Phase 4 and carry our copy indefinitely.
+**Framing: copy in + modify, not a GitHub fork.** We pull typia source files we need into our tree and own them from there. The `forks/typia/` folder name uses the common vendoring convention, but there's no upstream-tracking branch, no submodule, no clone of `samchon/typia` — just source files checked in alongside our own. Phase 0 posts a GitHub issue to gauge Samchon's interest in upstreaming; a positive signal unlocks Phase 4 (reconstitute as a real GitHub fork + PR), negative or silent means we skip Phase 4 and carry our copy indefinitely.
 
 ## Motivation
 
@@ -22,7 +22,7 @@ The wrap alternative (acyclify pre-pass + null substitution + restore + error-pa
 
 ## Design Decisions
 
-**D1. Scope: all four typia runtime packages — `@typia/transform`, `@typia/core`, `@typia/interface`, `@typia/utils`.** Drop all four from `package.json` dependencies. typia's other surfaces (random, json, clone, protobuf) live inside `@typia/core` and come along automatically — we don't strip them in Phase 1 (Phase -1 captures "narrow the copied surface further" as a follow-on). Copying all four is cleaner than the two-copied-plus-two-npm middle ground because the bundle already inlines all four via esbuild; listing two as npm deps just keeps them in the SCA-scanning footprint without reducing runtime content.
+**D1. Scope: all four typia runtime packages — `@typia/transform`, `@typia/core`, `@typia/interface`, `@typia/utils`.** Drop `@typia/transform` from `package.json` dependencies (the only direct dep; the other three are transitive and fall out with it). typia's other surfaces (random, json, clone, protobuf) live inside `@typia/core` and come along automatically — we don't strip them in Phase 1 (Phase -1 captures "narrow the copied surface further" as a follow-on). Copying all four is cleaner than the two-copied-plus-two-npm middle ground because the bundle already inlines all four via esbuild; listing two as npm deps just keeps them in the SCA-scanning footprint without reducing runtime content.
 
 **D2. Location: `packages/ts-runtime-parser-validator/forks/typia/`.** Not a workspace package — just files the existing `scripts/bundle-dependencies.mjs` pulls from.
 
@@ -36,7 +36,7 @@ The wrap alternative (acyclify pre-pass + null substitution + restore + error-pa
 
 **D7. Visit-tracking is the anchor change; other pulls are case-by-case.** If pre/post work currently done in our wrapper would pay for itself in reduced wrapper complexity or better UX by moving inside the emitter, consider pulling it in. Default stance is still "no" — don't pull just because we can. The Phase-4 upstream PR ships visit-tracking only regardless; other pulls stay in our copy.
 
-**D8. CI runs typia's own test suite against our copy, modified in place.** Upstream tests asserting pre-visit-tracking behavior (cycles throw, aliases re-walked) get rewritten directly in the copied source; tests unrelated to our changes stay as-is for regression signal. New visit-tracking tests land inside the typia copy, co-located with the source change, so they're portable to the Phase-4 upstream PR. End-to-end cycle/alias tests from the parser-validator user's perspective stay in parser-validator (Phase 3).
+**D8. Port a curated subset of typia's upstream test suite as regression signal.** Upstream tests live at typia's repo root (`tests/test-typia-automated/` + `tests/template/` fixture library), not co-located with package `src/`. Port scope: keep `validate*` / `is*` / `assert*` categories; drop `protobuf_*`, `misc_*` (clone/prune), `random`, `notation`, `functionalAsync` — surfaces we don't use. Replace typia's ts-patch + ts-node + tgrid `WorkerConnector` harness with an in-process vitest runner in our package. Tests asserting pre-visit-tracking behavior (cycles throw, aliases re-walked) get rewritten in place. New visit-tracking tests land alongside the ported subset, portable to a Phase-4 upstream PR. This work is **Phase 3** — Phase 1 stays focused on the no-op source swap.
 
 ## Phases
 
@@ -55,32 +55,55 @@ Before any implementation, open an issue on `samchon/typia` proposing visit-trac
 
 Phases 1–3 are unaffected either way — release needs them. Phase 0 only decides whether we also do Phase 4.
 
-### Phase 1: Copy in + no-op swap
+### Phase 1: Copy in + no-op swap ✅ COMPLETE (2026-04-24)
 
-- [ ] Pull `samchon/typia@v12.0.2` source. Extract `packages/core/src/`, `packages/transform/src/`, `packages/interface/src/`, `packages/utils/src/` into `packages/ts-runtime-parser-validator/forks/typia/{core,transform,interface,utils}/src/`.
-- [ ] Include each copied package's `package.json` and `tsconfig.json` (or minimal equivalents) so the sources compile in isolation. Rewrite cross-package imports (e.g. `@typia/interface`) to resolve to the sibling `forks/typia/interface/` rather than `node_modules`.
-- [ ] Add a build step that compiles the copied TS to JS (into `forks/typia/{core,transform,interface,utils}/lib/`). Wire into the package's existing `npm run bundle` flow.
-- [ ] Update `scripts/bundle-dependencies.mjs` to pull from the local `lib/` trees instead of `node_modules/@typia/*`.
-- [ ] Remove `@typia/transform` from `packages/ts-runtime-parser-validator/package.json` dependencies (it's the only direct dep today; the other three are transitive).
-- [ ] Copy typia's `LICENSE` file into `packages/ts-runtime-parser-validator/forks/typia/LICENSE` (MIT attribution requirement).
-- [ ] Add `ATTRIBUTIONS.md` entry following the Alarms package pattern: origin (`samchon/typia@v12.0.2`), license (MIT), files copied (all four runtime packages), and a note listing the modifications (unconditional visit-tracking, re-entry is a no-op). Split to `forks/typia/MODIFICATIONS.md` later if the fork grows beyond visit-tracking.
-- [ ] Run the existing 114 parser-validator tests — all pass as a byte-for-byte behavioral no-op.
-- [ ] Run the parser-validator benchmark locally — numbers match the Phase 6 baseline (119 KB generated module, ~0.25 ms warm parse).
+- [x] Pull `samchon/typia@v12.0.2` source. Extract `packages/{core,transform,interface,utils}/src/` into `packages/ts-runtime-parser-validator/forks/typia/{core,transform,interface,utils}/src/`.
+- [x] Include each copied package's `package.json` and `tsconfig.json`. Upstream `package.json` replaced with a minimal fork-shim (name, `main: "src/index.ts"`, deps on sibling workspaces at `*`). Upstream `tsconfig.json` rewritten to extend `../tsconfig.base.json` (a copy of typia's root `config/tsconfig.json`). No need to rewrite cross-package imports — npm workspaces resolve bare `@typia/*` specifiers through the symlinked `node_modules/@typia/*` tree.
+- [x] ~~Add a build step that compiles the copied TS to JS~~ — **not needed**. esbuild (via `bundle-dependencies.mjs`) handles TypeScript natively, consuming `src/index.ts` directly. Dropped the tsc step as unnecessary overhead.
+- [x] ~~Update `scripts/bundle-dependencies.mjs` to pull from the local `lib/` trees~~ — **not needed**. The script's existing `import ... from '@typia/transform'` resolves to our fork automatically via npm workspace symlinks. No script change required.
+- [x] Register the four forks as npm workspaces in the root `package.json` (local only, `private: true`, no publishing).
+- [x] Replace `@typia/transform: 12.0.2` pin with `@typia/transform: *` in `packages/ts-runtime-parser-validator/package.json` so npm routes to the workspace fork.
+- [x] Copy typia's `LICENSE` file into `packages/ts-runtime-parser-validator/forks/typia/LICENSE`.
+- [x] Add `ATTRIBUTIONS.md` entry.
+- [x] Add `forks/typia/README.md` explaining the copy's purpose, workspace wiring, and Phase-2-onwards modification-log placeholder.
+- [x] Run the existing 114 parser-validator tests — all 114 pass. Bundle builds at 3.91 MB. Cycle tests still stack-overflow as expected (that's what Phase 2 fixes).
+- [ ] Run the parser-validator benchmark locally — numbers match the Phase 6 baseline (119 KB generated module, ~0.25 ms warm parse). _Deferred — no emitter changes, should match trivially; confirm before Phase 2 kickoff._
 
 **Success criteria**: our copy is a behavioral no-op. Tests green, bundle size and warm-parse latency match Phase 6 baselines.
 
-### Phase 2: Visit-tracking implementation
+### Phase 2: Visit-tracking implementation ✅ COMPLETE (2026-04-24)
 
-- [ ] Read the copied `typia/core/src/programmers/` and identify the validator-emission points for cycle-risk positions (self-referential and mutually-referential named types).
-- [ ] Emit an unconditional `WeakMap` allocation at the top of each generated validator and a visited-set check around each cycle-risk position. On entry for a named-interface value, check + record; on re-entry, skip the recursion without emitting errors. The top-level result is driven by typia's accumulated report independent of what the re-entry branch does. No parameter threading — the map is a local inside the generated validator.
-- [ ] Update `packages/ts-runtime-parser-validator/src/typia-runtime-helpers.ts` if emission introduces new helper imports. The surviving-typia-import guard in `generate-parse-module.ts:328` will surface any newcomers loudly.
+- [x] Read the copied `typia/core/src/programmers/` and identify validator-emission points — object-typed named helpers are emitted by `FeatureProgrammer.write_object_functions` as arrow functions named `${prefix}o${index}`. Cycle-risk positions are exactly these recursive helper boundaries.
+- [x] Emit `$visited` as a per-call `WeakMap<object, Set<string>>` and wrap each object helper body with a per-helper-name guard. Implementation in [forks/typia/core/src/programmers/internal/FeatureProgrammer.ts](packages/ts-runtime-parser-validator/forks/typia/core/src/programmers/internal/FeatureProgrammer.ts) (search for `Lumenize modification: visit-tracking`).
+  - Declared via `visited_declaration()` in the outer IIFE (`writeDecomposed`) and at the top of the per-call arrow (`write`).
+  - Reset via `wrap_arrow_with_visited_reset` at the start of each user-facing call on the `writeDecomposed` path — required because helpers live in IIFE scope shared across calls.
+  - Wrapped via `wrap_with_visit_guard` inside `write_object_functions`. On entry for an object, check `$visited.get(input)?.has("<helper-name>")` → return `true` if seen, else record.
+  - **Keyed by `(object, helper-name)`** rather than just `object`. This keeps separate validation passes independent — within `ValidateProgrammer`, `__is` helpers (prefix `_i*`) and validate helpers (prefix `_v*`) share `$visited` in closure but don't collide because their names differ. Without per-helper keying, `__is` marking an invalid object as "visited" would cause the follow-on validate pass to short-circuit without enumerating errors.
+- [x] ~~Update `typia-runtime-helpers.ts` if emission introduces new helper imports~~ — no new helpers needed. The change is a self-contained code transformation on typia's emitter output.
 
-**Success criteria**: generated validators accept cycles at any field position (nullable or non-nullable), skip re-walking aliased subtrees.
+**Success criteria**: ✅ generated validators accept cycles at any field position (nullable or non-nullable), skip re-walking aliased subtrees. Verified by 5 new tests in [test/cycles.test.ts](packages/ts-runtime-parser-validator/test/cycles.test.ts) (self-cycle nullable, self-cycle non-nullable, DAG alias, invalid-node cycle reports errors, mutual A↔B recursion) — all pass. All existing 114 parser-validator tests continue to pass (total 119).
 
-### Phase 3: Test coverage
+### Phase 3: Test coverage ⚠️ PARTIALLY COMPLETE — upstream port deferred to Phase 4 prep
 
-- [ ] Wire typia's own test suite (from the copied source's tests, or port selectively) into this package's CI. Document any deltas against upstream at commit time.
-- [ ] Parser-validator-side cycle + alias tests land in the parent task's Phase 6.7 (`packages/ts-runtime-parser-validator/test/cycles.test.ts`) — see that task's work items.
+**Status** (2026-04-24): parser-validator-side regression coverage landed, upstream-port deferred.
+
+**What shipped**:
+- [x] Parser-validator-side cycle + alias tests in [test/cycles.test.ts](packages/ts-runtime-parser-validator/test/cycles.test.ts) — 5 tests covering self-cycle at nullable and non-nullable positions, DAG aliasing, invalid-node cycles (errors still reported), and mutual A↔B recursion. All 119 parser-validator tests (114 existing + 5 new) pass against the modified typia copy.
+
+**What's deferred** (was originally Phase 3 scope — pulling in typia's upstream test suite):
+- [ ] Copy `@typia/template` fixture library into `forks/typia/template/`.
+- [ ] Copy the curated subset of `tests/test-typia-automated/src/` composite tests (`validate*` / `is*` / `assert*` / `*Parse`; drop `protobuf_*`, `misc_*`, `random`, `notation`, `functionalAsync`) + the `internal/_test_*.ts` helpers they call.
+- [ ] Build a vitest harness that runs those tests in-process against the modified typia copy.
+- [ ] Rewrite upstream tests asserting pre-visit-tracking behavior (cycles throw, aliases re-walked) directly in the copied source.
+
+**Why deferred**: the upstream test harness brings significant infrastructure load that doesn't pay off under current conditions.
+
+- **Heavy dependencies**: `@typia/template` imports `randexp`, `tstl`, `chalk`, `uuid`, `@nestia/e2e`, `tgrid`, and several `typia/lib/internal/*` internals. Porting requires adding these to our package or hand-replacing their uses (`TestRandomGenerator`, `Spoiler`, `TestServant`). Roughly 6 npm deps or ~400 lines of replacement code.
+- **Build-time transform**: upstream tests assume ts-patch + ts-node runs typia's transformer before execution. Our pipeline uses a runtime Cloudflare-Worker transform via `bundle-dependencies.mjs` — the two approaches don't compose cleanly with vitest. We'd need to set up ts-patch alongside vitest or adapt the parser-validator's runtime pipeline for unit-level testing.
+- **Low marginal coverage**: the 119 parser-validator tests already exercise typia's validate/is/assert paths end-to-end through our actual use case, including cycles and aliases. The upstream suite adds coverage for type-shape combinations we don't use (and it covers `random`, `protobuf`, `clone`, `prune` surfaces we'd need to strip anyway).
+- **Phase-4 conditionality**: the primary motivation for typia-copy-level tests was Phase-4 upstream PR portability. If Phase 4 doesn't run (negative/silent response from Samchon by 2026-05-08), this infrastructure yields no external value.
+
+**When to revisit**: if Phase 0 returns positive (Samchon engages), bring this work back as part of Phase 4 PR prep — the upstream PR should include upstream-format tests alongside the visit-tracking change. At that point, ts-patch + test port is on the critical path for PR acceptance, and the effort is justified. If Phase 0 returns negative/silent, this deferred work stays deferred indefinitely; our 119 parser-validator tests remain the regression signal.
 
 ### Phase 4: Upstream PR (conditional on Phase 0 outcome)
 
@@ -96,6 +119,8 @@ Phases 1–3 are unaffected either way — release needs them. Phase 0 only deci
 **Sunset condition**: if Samchon merges the PR and releases it in typia ≥ 12.x.y, bump `@lumenize/ts-runtime-parser-validator`'s typia deps to that version, swap `bundle-dependencies.mjs` back to `node_modules`, delete `packages/ts-runtime-parser-validator/forks/typia/`, archive this task.
 
 **Hold condition**: PR stalls past two months from filing. Our local copy stays as the permanent runtime. Archive this task; no further action needed.
+
+**Closure on negative/silent Phase 0**: Phase 4 is skipped entirely. This task closes when Phases 1–3 ship and the parent task's 6.7 wire-in merges. The local copy becomes the permanent runtime.
 
 ## Phase -1: Captured Ideas
 

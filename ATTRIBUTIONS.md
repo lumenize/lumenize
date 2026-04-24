@@ -29,6 +29,15 @@ This file acknowledges code that has been copied, adapted, or used as inspiratio
 - **Author**: Cloudflare
 - **Note**: Source code adapted from cloudflare/actors alarms package with the following modifications: (1) NADIS dependency injection pattern instead of mixin approach, (2) lazy table initialization for compatibility with NADIS auto-injection, (3) removed actor-specific dependencies (setName, actorName), (4) added TypeScript generics for enhanced type safety, (5) made schedule/getSchedule/cancelSchedule methods synchronous, (6) added triggerAlarms() testing helper for reliable alarm testing.
 
+## typia (Copied — partial)
+- **Source**: https://github.com/samchon/typia (tag `v12.0.2`)
+- **License**: MIT (https://github.com/samchon/typia/blob/master/LICENSE)
+- **Used In**: `packages/ts-runtime-parser-validator/forks/typia/{core,transform,interface,utils}/` — source copied in-tree.
+- **Purpose**: `@typia/transform` and its three dependency packages (`@typia/core`, `@typia/interface`, `@typia/utils`). Copied rather than npm-installed so we can add visit-tracking to the generated validators.
+- **Date Added**: 2026-04-24
+- **Author**: Jeongho Nam
+- **Note**: Source copied from the `v12.0.2` tag; compiled in-place via esbuild through `packages/ts-runtime-parser-validator/scripts/bundle-dependencies.mjs`. Wired via local npm workspaces — no submodule, no GitHub fork, no publish. Phase 1 is a behavioral no-op. Modifications (Phase 2 onwards: unconditional visit-tracking with `WeakMap`, re-entry as a no-op) will be documented here. See `tasks/typia-visit-tracking.md` for full context.
+
 ## SimpleMimeMessage (Copied)
 - **Source**: `lumenize-monolith/test/simple-mime-message.ts` (internal, same repo)
 - **License**: MIT (Lumenize)

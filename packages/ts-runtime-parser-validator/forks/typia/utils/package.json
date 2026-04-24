@@ -1,0 +1,17 @@
+{
+  "name": "@typia/utils",
+  "version": "12.0.2-lumenize-fork",
+  "description": "Local fork of @typia/utils@12.0.2. See forks/typia/LICENSE and repo ATTRIBUTIONS.md.",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@typia/interface": "*"
+  },
+  "license": "MIT"
+}
