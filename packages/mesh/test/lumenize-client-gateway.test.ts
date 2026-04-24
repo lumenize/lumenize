@@ -1002,6 +1002,157 @@ describe('LumenizeClientGateway', () => {
       expect(statusMessage.subscriptionRequired).toBe(true);
       ws2.close();
     });
+
+    it('__executeOperation during grace-period expiry returns ClientDisconnectedError with class preserved', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-exec-expiry.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
+
+      const token = createFakeJwt({ sub: 'grace-exec-expiry', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-exec-expiry.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+        },
+      });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+
+      ws.close(1000, 'Normal close');
+
+      // Wait for webSocketClose to arm the grace-period alarm before we call __executeOperation.
+      await vi.waitFor(async () => {
+        const alarm = await runInDurableObject(gateway, (_instance, ctx) => ctx.storage.getAlarm());
+        expect(alarm).not.toBeNull();
+      });
+
+      // Start __executeOperation without awaiting — it should park inside #waitForReconnect.
+      const opPromise = gateway.__executeOperation({
+        version: 1,
+        chain: preprocess([
+          { type: 'get', key: 'someMethod' },
+          { type: 'apply', args: [] },
+        ]),
+        callContext: { callChain: [], state: {} },
+        metadata: {},
+      });
+
+      // Give the RPC time to cross the isolate boundary, hit the two awaits ahead of
+      // #waitForReconnect, and register a pending waiter.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Fire the alarm — triggers #rejectReconnectWaiters, which rejects the registered waiter.
+      const fired = await runDurableObjectAlarm(gateway);
+      expect(fired).toBe(true);
+
+      // With the fix: caught by try/catch, returned as { $error: preprocess(err) }.
+      // Without the fix: throw propagates, Workers RPC flattens the class.
+      const result = await opPromise;
+      expect(result.$error).toBeDefined();
+      const error = postprocess(result.$error);
+      expect(error).toBeInstanceOf(ClientDisconnectedError);
+      expect(error.message).toContain('Client did not reconnect within grace period');
+    });
+
+    it('__executeOperation during grace period resolves when client reconnects in time', async () => {
+      const id = env.LUMENIZE_CLIENT_GATEWAY.idFromName('grace-exec-reconnect.tab1');
+      const gateway = env.LUMENIZE_CLIENT_GATEWAY.get(id) as any;
+
+      const token = createFakeJwt({ sub: 'grace-exec-reconnect', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-exec-reconnect.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+        },
+      });
+      expect(response.status).toBe(101);
+      const ws = response.webSocket!;
+      ws.accept();
+
+      await new Promise<void>((resolve) => {
+        ws.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.CONNECTION_STATUS) {
+            ws.removeEventListener('message', handler);
+            resolve();
+          }
+        });
+      });
+
+      ws.close(1000, 'Normal close');
+
+      await vi.waitFor(async () => {
+        const alarm = await runInDurableObject(gateway, (_instance, ctx) => ctx.storage.getAlarm());
+        expect(alarm).not.toBeNull();
+      });
+
+      // Start __executeOperation — parks in #waitForReconnect.
+      const opPromise = gateway.__executeOperation({
+        version: 1,
+        chain: preprocess([
+          { type: 'get', key: 'someMethod' },
+          { type: 'apply', args: [] },
+        ]),
+        callContext: { callChain: [], state: {} },
+        metadata: {},
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Reconnect a fresh WebSocket before grace-period alarm fires.
+      // webSocketMessage on the new WS resolves pending reconnect waiters.
+      const token2 = createFakeJwt({ sub: 'grace-exec-reconnect', exp: Math.floor(Date.now() / 1000) + 900 });
+      const response2 = await gateway.fetch('https://example.com', {
+        headers: {
+          'Upgrade': 'websocket',
+          'Authorization': `Bearer ${token2}`,
+          'X-Lumenize-DO-Instance-Name-Or-Id': 'grace-exec-reconnect.tab1',
+          'X-Lumenize-DO-Binding-Name': 'LUMENIZE_CLIENT_GATEWAY',
+        },
+      });
+      expect(response2.status).toBe(101);
+      const ws2 = response2.webSocket!;
+      ws2.accept();
+
+      // After reconnect, __executeOperation calls #forwardToClient which sends
+      // an INCOMING_CALL over the new WS and awaits the INCOMING_CALL_RESPONSE.
+      // Listen for it and respond so opPromise can resolve.
+      await new Promise<void>((resolve) => {
+        ws2.addEventListener('message', function handler(event: MessageEvent) {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === GatewayMessageType.INCOMING_CALL) {
+            ws2.removeEventListener('message', handler);
+            const response: IncomingCallResponseMessage = {
+              type: GatewayMessageType.INCOMING_CALL_RESPONSE,
+              callId: (msg as IncomingCallMessage).callId,
+              success: true,
+              result: preprocess('reconnected-result'),
+            };
+            ws2.send(JSON.stringify(response));
+            resolve();
+          }
+        });
+      });
+
+      const result = await opPromise;
+      expect(result.$error).toBeUndefined();
+      expect(result.$result).toBe('reconnected-result');
+      ws2.close();
+    });
   });
 });
 

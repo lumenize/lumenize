@@ -40,6 +40,8 @@ The `mesh-testing-auth-strategy` task proved that `createTestingClient` can mani
 
 **Why it matters**: Validates graceful degradation when clients truly disconnect.
 
+**Related unit test (already landed)**: [`tasks/archive/mesh-client-gateway-error-flattening.md`](archive/mesh-client-gateway-error-flattening.md) added a unit test in [`packages/mesh/test/lumenize-client-gateway.test.ts`](../packages/mesh/test/lumenize-client-gateway.test.ts) that drives `runDurableObjectAlarm` to fire `#rejectReconnectWaiters` while an `__executeOperation` call is parked in `#waitForReconnect`, and asserts the caller receives a `{ $error }` with `ClientDisconnectedError` class preserved. Phase 2 here is the fuller end-to-end scenario (real DO → client round-trip + resubscription); the unit test narrows on class-name preservation. Build on it rather than duplicate the narrow check.
+
 ### Phase 3: Token expiry during active session
 
 **Goal**: Prove that when a client's JWT expires mid-session, the Gateway detects it on the next message and closes with 4401, triggering the client's refresh→reconnect flow.

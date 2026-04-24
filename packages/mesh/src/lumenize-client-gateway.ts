@@ -410,7 +410,16 @@ export class LumenizeClientGateway extends DurableObject<any> {
       if (alarm !== null && alarm <= Date.now() + this.#gracePeriodMs) {
         // In grace period - wait for reconnection
         log.info('Client disconnected, waiting for reconnect during grace period');
-        await this.#waitForReconnect();
+        try {
+          await this.#waitForReconnect();
+        } catch (err) {
+          // Route thrown errors (e.g., grace-period expiry rejecting waiters) through
+          // preprocess so the caller sees a structured `{ $error }` with the class
+          // preserved, matching the non-grace-period path. Without this, Workers RPC
+          // flattens custom Error subclasses into plain Error with the class name
+          // embedded in the message.
+          return { $error: preprocess(err) };
+        }
         ws = this.#getActiveWebSocket();
 
         if (!ws) {
