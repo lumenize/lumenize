@@ -81,14 +81,14 @@ Phases 1–3 are unaffected either way — release needs them. Phase 0 only deci
   - **Keyed by `(object, helper-name)`** rather than just `object`. This keeps separate validation passes independent — within `ValidateProgrammer`, `__is` helpers (prefix `_i*`) and validate helpers (prefix `_v*`) share `$visited` in closure but don't collide because their names differ. Without per-helper keying, `__is` marking an invalid object as "visited" would cause the follow-on validate pass to short-circuit without enumerating errors.
 - [x] ~~Update `typia-runtime-helpers.ts` if emission introduces new helper imports~~ — no new helpers needed. The change is a self-contained code transformation on typia's emitter output.
 
-**Success criteria**: ✅ generated validators accept cycles at any field position (nullable or non-nullable), skip re-walking aliased subtrees. Verified by 5 new tests in [test/cycles.test.ts](packages/ts-runtime-parser-validator/test/cycles.test.ts) (self-cycle nullable, self-cycle non-nullable, DAG alias, invalid-node cycle reports errors, mutual A↔B recursion) — all pass. All existing 114 parser-validator tests continue to pass (total 119).
+**Success criteria**: ✅ generated validators accept cycles at any field position (optional, nullable, or non-nullable), skip re-walking aliased subtrees. Verified by tests in [test/cycles.test.ts](packages/ts-runtime-parser-validator/test/cycles.test.ts) covering self-cycle at optional/nullable/non-nullable positions, DAG alias (with instrumented counter), invalid-node cycle reports errors, and mutual A↔B recursion — all pass alongside the existing 114 parser-validator tests (total 121).
 
 ### Phase 3: Test coverage ⚠️ PARTIALLY COMPLETE — upstream port deferred to Phase 4 prep
 
 **Status** (2026-04-24): parser-validator-side regression coverage landed, upstream-port deferred.
 
 **What shipped**:
-- [x] Parser-validator-side cycle + alias tests in [test/cycles.test.ts](packages/ts-runtime-parser-validator/test/cycles.test.ts) — 5 tests covering self-cycle at nullable and non-nullable positions, DAG aliasing, invalid-node cycles (errors still reported), and mutual A↔B recursion. All 119 parser-validator tests (114 existing + 5 new) pass against the modified typia copy.
+- [x] Parser-validator-side cycle + alias tests in [test/cycles.test.ts](packages/ts-runtime-parser-validator/test/cycles.test.ts) — 7 tests covering self-cycle at optional, nullable, and non-nullable positions, DAG aliasing (with instrumented getter-counter confirming single walk), invalid-node cycles (errors still reported), and mutual A↔B recursion. All 121 parser-validator tests (114 existing + 7 new) pass against the modified typia copy.
 
 **What's deferred** (was originally Phase 3 scope — pulling in typia's upstream test suite):
 - [ ] Copy `@typia/template` fixture library into `forks/typia/template/`.
@@ -103,29 +103,49 @@ Phases 1–3 are unaffected either way — release needs them. Phase 0 only deci
 - **Low marginal coverage**: the 119 parser-validator tests already exercise typia's validate/is/assert paths end-to-end through our actual use case, including cycles and aliases. The upstream suite adds coverage for type-shape combinations we don't use (and it covers `random`, `protobuf`, `clone`, `prune` surfaces we'd need to strip anyway).
 - **Phase-4 conditionality**: the primary motivation for typia-copy-level tests was Phase-4 upstream PR portability. If Phase 4 doesn't run (negative/silent response from Samchon by 2026-05-08), this infrastructure yields no external value.
 
-**When to revisit**: if Phase 0 returns positive (Samchon engages), bring this work back as part of Phase 4 PR prep — the upstream PR should include upstream-format tests alongside the visit-tracking change. At that point, ts-patch + test port is on the critical path for PR acceptance, and the effort is justified. If Phase 0 returns negative/silent, this deferred work stays deferred indefinitely; our 119 parser-validator tests remain the regression signal.
+**When to revisit**: if Phase 0 returns positive, bring this work back as part of Phase 4a (upstream PR prep) — the PR should include upstream-format tests alongside the visit-tracking change, and ts-patch + harness is on the critical path for acceptance at that point. If Phase 0 returns negative/silent, this port stays deferred indefinitely (Phase 4b does the helper-consolidation instead); our 119 parser-validator tests remain the regression signal.
 
-### Phase 4: Upstream PR (conditional on Phase 0 outcome)
+### Phase 4: Post-Phase-0 branch
 
-**Only run if Phase 0 got a positive signal.** Skip entirely on negative or silent.
+Phase 0's outcome determines which track runs. The two tracks are mutually exclusive — we do one, not both.
+
+#### 4a. Phase 0 positive → Upstream PR
+
+Only if Samchon engages and invites a PR.
 
 - [ ] Fork `samchon/typia` on GitHub under your user.
 - [ ] Clone the fork locally, outside the lumenize repo.
 - [ ] Port the visit-tracking change from our local copy to the clean fork — file-for-file copy of the touched files, no Lumenize-specific naming.
+- [ ] Port the curated test subset deferred from Phase 3 (see that section) as part of PR-ready test coverage. At this point ts-patch + harness is on the critical path, so the infrastructure cost is justified.
 - [ ] Rebase against current upstream `main`.
 - [ ] Write PR description: problem statement, opt-in API, test coverage, perf analysis on acyclic inputs, link back to the Phase 0 issue.
 - [ ] File PR; monitor; respond to feedback.
 
-**Sunset condition**: if Samchon merges the PR and releases it in typia ≥ 12.x.y, bump `@lumenize/ts-runtime-parser-validator`'s typia deps to that version, swap `bundle-dependencies.mjs` back to `node_modules`, delete `packages/ts-runtime-parser-validator/forks/typia/`, archive this task.
+**Sunset condition (4a)**: if Samchon merges the PR and releases it in typia ≥ 12.x.y, bump `@lumenize/ts-runtime-parser-validator`'s typia deps to that version, swap `bundle-dependencies.mjs` back to `node_modules`, delete `packages/ts-runtime-parser-validator/forks/typia/`, archive this task.
 
-**Hold condition**: PR stalls past two months from filing. Our local copy stays as the permanent runtime. Archive this task; no further action needed.
+**Hold condition (4a)**: PR stalls past two months from filing or is declined after filing. Switch to track 4b to recoup value from the local copy; archive this task once 4b completes.
 
-**Closure on negative/silent Phase 0**: Phase 4 is skipped entirely. This task closes when Phases 1–3 ship and the parent task's 6.7 wire-in merges. The local copy becomes the permanent runtime.
+#### 4b. Phase 0 negative/silent, or 4a stalled/declined → Consolidate runtime helpers into the fork
+
+The upstream path is closed, so the "keep our copy minimal for PR acceptance" constraint that D7 held onto stops being load-bearing. Pay back helper-inlining tech debt now.
+
+Context: [src/typia-runtime-helpers.ts](packages/ts-runtime-parser-validator/src/typia-runtime-helpers.ts) hand-copies three typia internal helpers (`_validateReport`, `_accessExpressionAsString`, `_createStandardSchema`) as escaped JS source strings, and [src/generate-parse-module.ts:313-322](packages/ts-runtime-parser-validator/src/generate-parse-module.ts) regex-substitutes them into the emitted output. The file explicitly flags expansion pressure: "Phase 5 will expand this set to cover every helper typia can reference (format validators, type guards, TypeGuardError, etc.)." Each new internal helper adds copy-paste-escape + regex-substitution maintenance.
+
+These helpers live in `packages/typia/src/internal/*.ts` in the upstream monorepo — the 5th typia package, not one of the four we copied in Phase 1.
+
+- [ ] Decide copy-scope: (a) copy just the `_*.ts` files we currently inline into `forks/typia/core/src/internal/`, or (b) add the full `typia` package as a 5th fork sub-directory. Default to (a); widen if more helpers surface later.
+- [ ] Rewrite the copied helpers as normal TS exports (drop the IIFE-wrapped string form).
+- [ ] Update `generate-parse-module.ts` to emit normal `import` statements for these helpers; bundler resolves them through the fork's workspace wiring. Delete the regex-substitution logic.
+- [ ] Delete `src/typia-runtime-helpers.ts`.
+- [ ] Verify all parser-validator tests still pass.
+
+**Sunset condition (4b)**: consolidation ships. The local copy becomes the permanent runtime with less hand-maintained surface area. Archive this task.
 
 ## Phase -1: Captured Ideas
 
 - **Narrow the copied surface further** — strip unused parts of `@typia/core` (random, clone, protobuf, JSON Schema emit) if bundle size ever becomes a concern. Current 7.1 MB distributable has comfortable headroom against the 10 MB Worker ceiling.
 - **`Default<T>` as a branded type** — extract-side extension, doesn't touch typia. Parent task's Phase -1 has the full analysis.
+- **Fuse `@default` filling into typia's validator tree walk** — currently the parser-validator runs `__fillDefaults` as a separate post-typia pass with its own `WeakMap` for cycle/alias handling. The alternative: modify typia's emitter to lazy-fill defaults at each node as validation walks it, eliminating the second pass. Performance upside is likely modest (one walk vs. two over the same shape, GC-pressure trade-off) — the real motivation is simpler architecture: one visitor owning cycle/alias tracking instead of two coordinating WeakMaps. Natural **Phase 4b** candidate per D7: the "pull into the fork" check only pays off if upstream is closed, since bundling this into an upstream PR would dilute the visit-tracking diff and add out-of-scope complexity for Samchon to evaluate.
 
 ## Alternatives Considered and Rejected
 

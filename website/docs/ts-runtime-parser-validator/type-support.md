@@ -343,13 +343,42 @@ expect((await facet.parse({ config: { host: null, port: null } }, 'Settings')).v
 
 ## Aliased references and cycles
 
-The input value can freely contain **aliased references** — the same object appearing multiple times under different parents. Workers RPC and `@lumenize/structured-clone` (which Lumenize Mesh `call()` is built on) preserve the aliasing across the boundary. The `@default` filler walks with a `WeakMap` so it visits each node once. Typia's validator re-validates the aliased subtree each time it's reached — correct, but pays a duplicate-validation cost for widely-aliased subtrees.
+We upgraded Typia so both cycles and aliases are supported natively. 
 
-[TODO: change to something like "This package preprocesses cycles and alias so typia doesn't stack overflow on cycles and doesn't do extra work for aliased branches." Also consider splitting aliases and cycles into two ]
+Workers RPC (for now) and `@lumenize/structured-clone` already preserved cycles and aliases across the transport boundary. With the Typia upgrade, the validator now matches — consistent type support end-to-end through the pipeline.
+
+Practical consequences:
+
+- Cycles terminate cleanly when a node is revisited; no stack overflow.
+- Aliased subtrees are walked **once** instead of once-per-reference — a performance win over unpatched Typia.
+- Errors from the first visit accumulate normally into the validation report.
+
+### Cycles
+
+A reference path that closes back on itself validates without stack-overflowing.
 
 ```typescript
 @skip-check
-// DAG: `shared` appears under two different parent branches — no cycle.
+interface TreeNode { id: number; parent?: TreeNode; }
+
+const node: any = { id: 1 };
+node.parent = node; // self-referential cycle
+
+const ok = await facet.parse(node, 'TreeNode');
+expect(ok.valid).toBe(true);
+```
+
+Recursive fields typed as plain `T` (no `?`, no `| null`) also work — no need to declare the edge as optional if your model requires it.
+
+Errors from the first visit still report normally. If the node at the start of a cycle is itself invalid, you still get the error; each later visit is no-op.
+
+### Aliased references (DAG)
+
+The input can contain the same object under multiple parents; every occurrence refers to the same node.
+
+```typescript
+@skip-check
+// `shared` appears under two parent branches — validated once, not twice.
 interface Node { id: number; children: Node[]; }
 
 const shared = { id: 99, children: [] };
@@ -363,45 +392,6 @@ const root = {
 const ok = await facet.parse(root, 'Node');
 expect(ok.valid).toBe(true);
 ```
-
-**True runtime cycles** — a reference path that closes back on itself — currently stack-overflow typia's validator. A planned pre-release change (cycle-acyclify pre-pass) will make cycles validate natively; until then, two workarounds.
-
-```typescript
-@skip-check
-// Current limitation: self-referential named-interface field + runtime cycle → stack overflow.
-interface TreeNode { id: number; parent: TreeNode | null; }
-
-const node: { id: number; parent: any } = { id: 1, parent: null };
-node.parent = node;  // cycle
-
-await expect(facet.parse(node, 'TreeNode')).rejects.toThrow(/Maximum call stack/);
-```
-
-```typescript
-@skip-check
-// Workaround 1: type the field as `any`. Typia stops recursing at the `any`
-// boundary; structure there is unchecked but cycles are safe.
-interface TreeNode { id: number; parent: any; }
-
-const node: { id: number; parent: any } = { id: 1, parent: null };
-node.parent = node;
-
-const ok = await facet.parse(node, 'TreeNode');
-expect(ok.valid).toBe(true);
-```
-
-```typescript
-@skip-check
-// Workaround 2: ORM composer pattern. Pre-extract metadata and feed the
-// write-shape so `parent: TreeNode` becomes `parent: string` in the validator.
-// Cycles can't form at runtime because each reference is a string, not an object.
-import { extractTypeMetadata, generateParseModule } from '@lumenize/ts-runtime-parser-validator';
-
-const md = extractTypeMetadata(`interface TreeNode { id: number; parent: TreeNode | null; }`);
-const moduleSource = generateParseModule(md.writeShapeTypeDefinitions);
-// Mount moduleSource. parse() now expects { id, parent: <id-string> | null }.
-```
-
 
 ## Known Limitations
 

@@ -21,7 +21,7 @@ This package provides a few things beyond typia:
 - **Generate-once-and-reuse lifecycle.** One call at schema-registration time generates a self-contained JS module source string. Store it (KV, DO storage, R2, etc.) for repeat use whenever you need it.
 - **DO facet as the runtime entry.** The generated module exports a `ParserValidator` class extending `DurableObject`. Mount it once as a [DO facet](https://blog.cloudflare.com/durable-object-facets-dynamic-workers/) — a Dynamic Worker that shares its parent DO's isolate, so `facet.parse()` is a same-isolate RPC with no network hop. Call `facet.parse(value, typeName)` per request.
 - **Parse-don't-validate semantics** with first-class `@default` filling. Mirrors Zod's approach. Missing fields get filled before validation runs — recursively through named-interface sub-types, so nested defaults apply too.
-- **Type-graph introspection for ORM use cases.** `extractTypeMetadata()` exposes the relationships so you can swap named-interface fields with foreign keys.
+- **Cycle and alias support.** Unmodified Typia will stack overflow when evaluating objects with cycles (the big problem) and reevaluate each alias (a sub-optimization). The rest of the Lumenize ecosystem (structured-clone, Mesh, Nebula, RPC, testing, etc.) not to mention native Workers RPC all support cycles and aliases over the wire. This upgrade means you have consistent type support across the entire ecosystem.
 
 ## Quick example
 
