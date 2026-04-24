@@ -24,7 +24,7 @@ The rest of this page is the receipts — tested examples for every category we 
 | Optional | `field?: T` — accepts `undefined` or omitted |
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Config {
   name: string;
   count: number;
@@ -35,7 +35,7 @@ interface Config {
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse(
   { name: 'test', count: 42, enabled: true, label: null },
   'Config',
@@ -58,7 +58,7 @@ expect(bad.valid).toBe(false);
 Nested objects validate against inline shapes. Named interfaces used as fields also validate as embedded objects by default — to validate string-ID references instead (ORM-style), see [`extractTypeMetadata()` → Composer pattern](./api-reference#composer-pattern-validate-string-id-references).
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Person {
   name: string;
   address: { street: string; city: string; };
@@ -66,7 +66,7 @@ interface Person {
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse(
   { name: 'Alice', address: { street: '1 Main', city: 'Springfield' } },
   'Person',
@@ -80,14 +80,14 @@ expect(ok).toEqual({
 Arrays check each element:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface NumberList {
   items: number[];
 }
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const bad = await facet.parse({ items: [1, 'two', 3] }, 'NumberList');
 expect(bad.valid).toBe(false);  // 'two' at index 1
 ```
@@ -95,7 +95,7 @@ expect(bad.valid).toBe(false);  // 'two' at index 1
 ## Union and Optional Types
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Result {
   value: string | number;
 }
@@ -111,7 +111,7 @@ interface User {
 String-literal unions accept listed values and reject others:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 expect((await facet.parse({ category: 'internal' }, 'Item')).valid).toBe(true);
 expect((await facet.parse({ category: 'other' },    'Item')).valid).toBe(false);
 ```
@@ -119,7 +119,7 @@ expect((await facet.parse({ category: 'other' },    'Item')).valid).toBe(false);
 Optional properties accept both present and absent:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 expect((await facet.parse({ name: 'Alice' },                    'User')).valid).toBe(true);
 expect((await facet.parse({ name: 'Alice', nickname: 'Al' },    'User')).valid).toBe(true);
 ```
@@ -129,7 +129,7 @@ expect((await facet.parse({ name: 'Alice', nickname: 'Al' },    'User')).valid).
 `Map` and `Set` values pass through Workers RPC with their structure intact, and typia's validators check key/value types.
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Scores {
   data: Map<string, number>;
 }
@@ -144,7 +144,7 @@ interface Tags {
 Homogeneous Maps:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse(
   { data: new Map([['alice', 95], ['bob', 87]]) },
   'Scores',
@@ -161,7 +161,7 @@ expect(bad.valid).toBe(false);
 Heterogeneous (union value types):
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse(
   { data: new Map<string, string | number>([['a', 'hi'], ['b', 42]]) },
   'Mixed',
@@ -172,7 +172,7 @@ expect(ok.valid).toBe(true);
 Sets of primitives:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse({ items: new Set(['a', 'b', 'c']) }, 'Tags');
 expect(ok.valid).toBe(true);
 
@@ -192,7 +192,7 @@ expect(bad.valid).toBe(false);
 | `Headers` | **Not supported.** Use `Record<string, string>` instead. |
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Appointment {
   when: Date;
   rule: RegExp;
@@ -200,7 +200,7 @@ interface Appointment {
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse(
   { when: new Date(), rule: /abc/ },
   'Appointment',
@@ -227,14 +227,14 @@ All eleven TypedArray variants validate against their declared type. `ArrayBuffe
 - `ArrayBuffer`
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Blob {
   data: Uint8Array;
 }
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse({ data: new Uint8Array([1, 2, 3]) }, 'Blob');
 expect(ok.valid).toBe(true);
 
@@ -247,14 +247,14 @@ expect(bad.valid).toBe(false);  // expected Uint8Array, got ArrayBuffer
 Both `any` and `unknown` accept any value — primitives, `null`, Maps, Sets, Dates, cycles, nested arrays. They're equivalent at the validator level; pick whichever matches your type-system discipline.
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Flexible {
   metadata: any;       // or: metadata: unknown;
 }
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 const ok = await facet.parse(
   {
     metadata: {
@@ -277,7 +277,7 @@ expect(ok.valid).toBe(true);
 Standard TypeScript utility types work — `Partial`, `Pick`, `Omit`, `Record`, `Required`, `Readonly`, `NonNullable`, `Exclude`, `Extract`.
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface User { name: string; email: string; age: number; }
 
 interface PartialUser { user: Partial<User>; }
@@ -286,7 +286,7 @@ interface Roles { roles: Record<string, boolean>; }
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 expect((await facet.parse({ user: { name: 'Alice' } }, 'PartialUser')).valid).toBe(true);
 expect((await facet.parse({ creds: { name: 'Alice', email: 'a@b.com' } }, 'Credentials')).valid).toBe(true);
 expect((await facet.parse({ roles: { admin: true, user: false } }, 'Roles')).valid).toBe(true);
@@ -302,7 +302,7 @@ expect((await facet.parse({ creds: { name: 42, email: 'a@b.com' } }, 'Credential
 Conditional types:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Cat { meow: string; }
 interface Dog { bark: string; }
 type Pet<T> = T extends 'cat' ? Cat : Dog;
@@ -310,7 +310,7 @@ type Pet<T> = T extends 'cat' ? Cat : Dog;
 interface Home {
   pet: Pet<'cat'>;  // resolves to Cat
 }
-
+// ...
 expect((await facet.parse({ pet: { meow: 'hi' } }, 'Home')).valid).toBe(true);
 expect((await facet.parse({ pet: { bark: 'woof' } }, 'Home')).valid).toBe(false);
 ```
@@ -318,11 +318,11 @@ expect((await facet.parse({ pet: { bark: 'woof' } }, 'Home')).valid).toBe(false)
 Template literals:
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Handler {
   event: `on${'Click' | 'Hover'}`;
 }
-
+// ...
 expect((await facet.parse({ event: 'onClick' }, 'Handler')).valid).toBe(true);
 expect((await facet.parse({ event: 'onFocus' }, 'Handler')).valid).toBe(false);
 ```
@@ -330,14 +330,14 @@ expect((await facet.parse({ event: 'onFocus' }, 'Handler')).valid).toBe(false);
 Mapped types — the positive case here is the receipt: passing `null` for every field succeeds because `Nullable<Config>` rewrote every field to `T | null`. Against the raw `Config`, this same input would fail.
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface Config { host: string; port: number; }
 type Nullable<T> = { [K in keyof T]: T[K] | null; };
 
 interface Settings {
   config: Nullable<Config>;
 }
-
+// ...
 expect((await facet.parse({ config: { host: null, port: null } }, 'Settings')).valid).toBe(true);
 ```
 
@@ -358,9 +358,9 @@ Practical consequences:
 A reference path that closes back on itself validates without stack-overflowing.
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 interface TreeNode { id: number; parent?: TreeNode; }
-
+// ...
 const node: any = { id: 1 };
 node.parent = node; // self-referential cycle
 
@@ -377,10 +377,10 @@ Errors from the first visit still report normally. If the node at the start of a
 The input can contain the same object under multiple parents; every occurrence refers to the same node.
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 // `shared` appears under two parent branches — validated once, not twice.
 interface Node { id: number; children: Node[]; }
-
+// ...
 const shared = { id: 99, children: [] };
 const root = {
   id: 1,
@@ -400,28 +400,22 @@ expect(ok.valid).toBe(true);
 Not supported as value types. Use string equivalents.
 
 ```typescript
-@skip-check
-// Limitation: URL instances aren't accepted by typia's structural check.
-interface Link { href: URL; }
-const bad = await facet.parse({ href: new URL('https://example.com') }, 'Link');
-expect(bad.valid).toBe(false);
-```
-
-```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 // Workaround for URL: a string field with @format url.
 interface Link {
   /** @format url */
   href: string;
 }
+// ...
 const ok = await facet.parse({ href: 'https://example.com' }, 'Link');
 expect(ok.valid).toBe(true);
 ```
 
 ```typescript
-@skip-check
+@check-example('packages/ts-runtime-parser-validator/test/for-docs/type-support.test.ts')
 // Workaround for Headers: Record<string, string>.
 interface Req { headers: Record<string, string>; }
+// ...
 const ok = await facet.parse(
   { headers: { 'content-type': 'application/json' } },
   'Req',
@@ -431,7 +425,7 @@ expect(ok.valid).toBe(true);
 
 ### Functions
 
-Functions aren't validators-of-anything-sensible and aren't resource data. Don't include function-typed fields — they can't cross the Workers RPC boundary, either.
+Functions aren't validators-of-anything-sensible and aren't resource data. Don't include function-typed fields.
 
 ### Other transport-level types
 

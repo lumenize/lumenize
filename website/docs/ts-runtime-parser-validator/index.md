@@ -27,8 +27,7 @@ This package provides a few things beyond typia:
 
 Write your schema once, in a regular `.d.ts` file with full editor support:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
 // todo.d.ts
 interface Todo {
   title: string;
@@ -40,8 +39,7 @@ interface Todo {
 
 Valid input comes back with defaults filled in:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
 const ok = await parse({ title: 'Ship it', done: false }, 'Todo');
 expect(ok).toEqual({
   valid: true,
@@ -51,8 +49,7 @@ expect(ok).toEqual({
 
 Invalid input returns typia's structured error list:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/index.test.ts')
 const bad = await parse({ title: 42, done: 'not a boolean' }, 'Todo');
 expect(bad).toMatchObject({
   valid: false,

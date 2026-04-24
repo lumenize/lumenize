@@ -14,8 +14,7 @@ For filling default values, see the separate [`@default`](./default) page.
 
 Put the annotation in a JSDoc block immediately above the field:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 interface Person {
   /** @minimum 13 */
   age: number;
@@ -24,8 +23,7 @@ interface Person {
 
 To apply multiple annotations to one field, put them in the same JSDoc block — one per line:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 interface Name {
   /**
    * @minLength 3
@@ -43,13 +41,12 @@ Both of these drop the annotation without any error, which makes them hard to de
 - **Inline JSDoc doesn't attach.** `interface R { /** @minimum 13 */ age: number; }` puts the comment on the same line as the field; tsc won't attach it. The block must be on its own line(s) above the field.
 - **Stacked blocks — only the last one counts.** Two separate `/** ... */` blocks above a field will silently drop the earlier one. Always put multiple tags in a single block.
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 // ❌ Stacked blocks — @minimum silently dropped
 /** @minimum 1 */
 /** @maximum 5 */
 stars: number;
-
+// ...
 // ✅ Single block with multiple tags — both apply
 /**
  * @minimum 1
@@ -76,8 +73,7 @@ Apply to fields typed `number` or `bigint`.
 | `@exclusiveMaximum N` | number | Value must be < N |
 | `@multipleOf N` | number | Value must be an exact multiple of N |
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 interface Rating {
   /**
    * @minimum 1
@@ -88,8 +84,7 @@ interface Rating {
 }
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 const bad = await facet.parse({ stars: 6 }, 'Rating');
 expect(bad.valid).toBe(false);  // stars exceeds @maximum
 
@@ -109,8 +104,7 @@ Apply to fields typed `string`.
 | `@minLength N` | integer | String length must be ≥ N |
 | `@maxLength N` | integer | String length must be ≤ N |
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 interface Contact {
   /** @format email */
   email: string;
@@ -120,8 +114,7 @@ interface Contact {
 }
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 const bad = await facet.parse(
   { email: 'not-an-email', slug: 'Has Spaces' },
   'Contact',
@@ -160,8 +153,7 @@ Apply to fields typed as an array (`T[]`, `Array<T>`) or a set (`Set<T>`).
 | `@maxItems N` | integer | Length must be ≤ N |
 | `@uniqueItems` | (no value) | No duplicate elements |
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 interface Bag {
   /**
    * @minItems 1
@@ -172,8 +164,7 @@ interface Bag {
 }
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/additional-constraints.test.ts')
 const empty = await facet.parse({ tags: [] }, 'Bag');
 expect(empty.valid).toBe(false);  // @minItems violated
 

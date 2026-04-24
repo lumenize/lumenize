@@ -202,7 +202,7 @@ export function generateParseModule(typeDefinitions: string): string {
   // nested objects when applying defaults. The extractor enforces Phase 4
   // P4.2: `@default` on a required field throws.
   const metadata: TypeMetadata = extractTypeMetadata(typeDefinitions);
-  const { interfaceNames, defaults, relationships: typeGraph } = metadata;
+  const { interfaceNames, defaults, relationships: typeGraph, inlineSubtypes } = metadata;
 
   if (interfaceNames.length === 0) {
     throw new Error('generateParseModule: no interfaces found in typeDefinitions');
@@ -345,6 +345,7 @@ ${validatorEntries}
   // package's public `extractTypeMetadata()` instead (Phase 6.5 D6.5.4).
   const defaultsJson = JSON.stringify(defaults);
   const typeGraphJson = JSON.stringify(typeGraph);
+  const inlineSubtypesJson = JSON.stringify(inlineSubtypes);
   return `
 import { DurableObject } from "cloudflare:workers";
 
@@ -353,6 +354,7 @@ ${emittedJs}
 const __typeMetadata = {
   defaults: ${defaultsJson},
   typeGraph: ${typeGraphJson},
+  inlineSubtypes: ${inlineSubtypesJson},
 };
 
 /**
@@ -416,27 +418,66 @@ function __fillDefaults(value, typeName, seen) {
     }
   }
 
-  // Type-graph recursion uses the ORIGINAL field value (\`value[field]\`),
-  // not the cloned (\`out[field]\`), so the \`seen\` WeakMap's "original → clone"
-  // mapping catches cycles correctly on re-entry.
+  // Recursion into named-interface relationships and inline sub-types uses
+  // the ORIGINAL field value (\`value[field]\`), not the cloned (\`out[field]\`),
+  // so the \`seen\` WeakMap's "original → clone" mapping catches cycles
+  // correctly on re-entry. The container shape (undefined | array | set |
+  // readonlyset | map | readonlymap) determines how we iterate the field.
   if (sub) {
     for (const field of Object.keys(sub)) {
       const edge = sub[field];
       const origVal = value[field];
       if (origVal === undefined || origVal === null) continue;
-      if (edge.cardinality === 'many' && Array.isArray(origVal)) {
-        out[field] = origVal.map((elem) =>
-          elem && typeof elem === 'object' && !Array.isArray(elem)
-            ? __fillDefaults(elem, edge.target, seen)
-            : elem,
-        );
-      } else if (edge.cardinality === 'one' && typeof origVal === 'object' && !Array.isArray(origVal)) {
-        out[field] = __fillDefaults(origVal, edge.target, seen);
-      }
+      const filled = __recurseContainer(origVal, edge.container, edge.target, seen);
+      if (filled !== origVal) out[field] = filled;
+    }
+  }
+  const inline = __typeMetadata.inlineSubtypes[typeName];
+  if (inline) {
+    for (const field of Object.keys(inline)) {
+      const entry = inline[field];
+      const origVal = value[field];
+      if (origVal === undefined || origVal === null) continue;
+      const filled = __recurseContainer(origVal, entry.container, entry.subTypeName, seen);
+      if (filled !== origVal) out[field] = filled;
     }
   }
 
   return out;
+}
+
+/**
+ * Apply the default-filling recursion to a single container value. \`container\`
+ * is undefined for a direct one-to-one reference, or one of the container
+ * labels ('array' | 'set' | 'readonlyset' | 'map' | 'readonlymap'). For Set
+ * and Map, a NEW Set/Map is returned with each element filled — the original
+ * is not mutated. For Array, a fresh array is returned. For direct (no
+ * container), \`origVal\` is passed straight to \`__fillDefaults\`.
+ */
+function __recurseContainer(origVal, container, subTypeName, seen) {
+  const walkElem = (e) =>
+    e && typeof e === 'object' && !Array.isArray(e) && !(e instanceof Set) && !(e instanceof Map)
+      ? __fillDefaults(e, subTypeName, seen)
+      : e;
+  if (container === 'array') {
+    if (!Array.isArray(origVal)) return origVal;
+    return origVal.map(walkElem);
+  }
+  if (container === 'set' || container === 'readonlyset') {
+    if (!(origVal instanceof Set)) return origVal;
+    const next = new Set();
+    for (const e of origVal) next.add(walkElem(e));
+    return next;
+  }
+  if (container === 'map' || container === 'readonlymap') {
+    if (!(origVal instanceof Map)) return origVal;
+    const next = new Map();
+    for (const [k, v] of origVal) next.set(k, walkElem(v));
+    return next;
+  }
+  // Direct one-to-one: origVal must be a plain object to recurse.
+  if (typeof origVal !== 'object' || Array.isArray(origVal)) return origVal;
+  return __fillDefaults(origVal, subTypeName, seen);
 }
 
 export class ParserValidator extends DurableObject {

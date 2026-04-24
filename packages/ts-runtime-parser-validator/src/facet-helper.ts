@@ -9,16 +9,18 @@ import { DurableObject } from 'cloudflare:workers';
  * annotate their own wrappers.
  */
 export type ParseResult =
-  | { valid: true; data: unknown }
-  | {
-      valid: false;
-      errors: Array<{
-        path: string;
-        expected: string;
-        value: unknown;
-        description?: string;
-      }>;
-    };
+  | { valid: true;  data: unknown }
+  | { valid: false; errors: ValidationError[] };
+
+/**
+ * One entry in `ParseResult.errors` when validation fails.
+ */
+export interface ValidationError {
+  path: string;        // JSON-pointer-like path: '$input.address.city'
+  expected: string;    // The expected type, e.g. 'string', '(number | undefined)'
+  value: unknown;      // The offending value
+  description?: string; // Optional typia-supplied note
+}
 
 /**
  * Internal brand type — the shape of the `ParserValidator` class inside the

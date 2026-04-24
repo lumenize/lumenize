@@ -12,8 +12,7 @@ description: The @default JSDoc annotation fills missing optional fields before 
 
 Given this interface:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 interface Todo {
   title: string;
   /** @default 0 */
@@ -23,8 +22,7 @@ interface Todo {
 
 The generated `parse()` wrapper fills `priority` before handing the value to the validator:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 const result = await facet.parse({ title: 'Ship it' }, 'Todo');
 expect(result).toEqual({
   valid: true,
@@ -36,8 +34,7 @@ expect(result).toEqual({
 
 The filler applies the default if the property is either **absent** or **explicitly ****`undefined`**. Any other value — including `null`, `0`, `''`, and `false` — is preserved.
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 // Missing → default applied
 const missing = await facet.parse({ title: 'x' }, 'Todo');
 expect(missing.data).toMatchObject({ priority: 0 });
@@ -53,12 +50,12 @@ expect(supplied.data).toMatchObject({ priority: 99 });
 
 This keeps `null` meaningful:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 interface Note {
   /** @default 0 */
   count?: number | null;
 }
+// ...
 const nullResult = await facet.parse({ count: null }, 'Note');
 expect(nullResult.data).toMatchObject({ count: null });  // default NOT applied
 ```
@@ -94,8 +91,7 @@ The error message names the type, field, and offending literal text.
 
 `@default` on a **required** field is a hard error at compile time:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 // This throws from generateParseModule():
 interface X {
   /** @default 0 */
@@ -111,8 +107,7 @@ Rationale: a default on a required field is ambiguous — does the caller have t
 
 `@default` recurses through the full value graph. Defaults on nested interfaces fire when the nested value is present but incomplete; defaults on array-valued fields fire when the array is missing entirely (per-element defaults fire when individual elements are present but incomplete).
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 interface Address {
   street: string;
   /** @default "US" */
@@ -123,7 +118,7 @@ interface User {
   name: string;
   address?: Address;
 }
-
+// ...
 // Nested object: default fires inside the nested shape
 const nested = await facet.parse({ name: 'Alice', address: { street: '1 Main' } }, 'User');
 expect(nested.data).toMatchObject({
@@ -132,24 +127,45 @@ expect(nested.data).toMatchObject({
 });
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 interface Tagged {
   /** @default [] */
   tags?: string[];
 }
-
+// ...
 // Missing array → empty array
 const tagged = await facet.parse({}, 'Tagged');
 expect(tagged.data).toMatchObject({ tags: [] });
+```
+
+Containers of inline or named-interface types are walked element-by-element, so per-element defaults fire on every entry. This works for `Array<T>` / `T[]`, `Set<T>`, and `Map<K, T>` (plus the `Readonly` variants). Shown here for `Array<{...}>` only:
+
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
+interface Config {
+  servers?: Array<{
+    host: string;
+    /** @default 8080 */
+    port?: number;
+  }>;
+}
+// ...
+const ok = await facet.parse(
+  { servers: [{ host: 'a' }, { host: 'b', port: 9090 }] },
+  'Config',
+);
+expect(ok.data).toMatchObject({
+  servers: [
+    { host: 'a', port: 8080 },
+    { host: 'b', port: 9090 },
+  ],
+});
 ```
 
 ### Guidance — don't stack deep nested defaults
 
 If an interface has `@default` five levels deep inside one monolithic shape, readers will struggle. Lift the nested structure into its own named interface so the defaults attach to that interface's own optional fields:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 // Harder to read — defaults buried inside an inline object
 interface Config {
   server?: {
@@ -161,7 +177,7 @@ interface Config {
     };
   };
 }
-
+// ...
 // Easier to read — defaults attached to a named interface
 interface RetryConfig {
   /** @default 3 */
@@ -185,13 +201,12 @@ The recursion is identical; the readability is not.
 
 The filler runs before the validator, and the validator then sees the filled value. If the default literal doesn't satisfy the field type, the validator fails at the filled path:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/default.test.ts')
 interface Bad {
   /** @default "hello" */
   count?: number;
 }
-
+// ...
 const result = await facet.parse({}, 'Bad');
 expect(result).toMatchObject({
   valid: false,

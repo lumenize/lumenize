@@ -59,6 +59,23 @@ export interface Relationship {
  */
 export type DefaultsMap = Record<string, Record<string, unknown>>;
 
+/**
+ * Per-field inline-subtype record. Populated when a field's declared type
+ * contains an anonymous inline type literal — directly (`field?: {...}`),
+ * inside a container (`field?: Array<{...}>`, `Set<{...}>`, `Map<K, {...}>`,
+ * and the `Readonly` variants), or wrapped in a nullable union
+ * (`field?: {...} | null`). The filler walks into `subTypeName` the same way
+ * it walks into named interfaces, so nested `@default` tags apply through
+ * both paths.
+ */
+export interface InlineSubtype {
+  subTypeName: string;
+  /** Container shape when the inline type sits inside Array/Set/Map. */
+  container?: 'array' | 'set' | 'readonlyset' | 'map' | 'readonlymap';
+  /** Map's K source text (preserved for potential future use). */
+  mapKeyType?: string;
+}
+
 export interface TypeMetadata {
   /** Top-level interface names in declaration order. */
   interfaceNames: string[];
@@ -69,8 +86,19 @@ export interface TypeMetadata {
    * Passed as the `typeDefinitions` parameter to the typia compile step.
    */
   writeShapeTypeDefinitions: string;
-  /** `typeName -> fieldName -> JSON-literal default value` (Phase 3 D3). */
+  /**
+   * `typeName -> fieldName -> JSON-literal default value`. Keys include both
+   * top-level interface names and synthesized sub-type names for anonymous
+   * inline type literals (e.g. `"Config/server/retries"`).
+   */
   defaults: DefaultsMap;
+  /**
+   * `parentTypeName -> fieldName -> InlineSubtype`. The filler walks into
+   * these sub-types the same way it walks into named interfaces, so nested
+   * `@default` tags apply recursively through inline shapes — matching the
+   * "just use TypeScript" ergonomics.
+   */
+  inlineSubtypes: Record<string, Record<string, InlineSubtype>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +115,7 @@ const tsApi = ts as {
   isTypeReferenceNode: Function;
   isUnionTypeNode: Function;
   isLiteralTypeNode: Function;
+  isTypeLiteralNode: Function;
   getJSDocTags: Function;
   flattenDiagnosticMessageText: Function;
   SyntaxKind: { NullKeyword: number; UndefinedKeyword: number };
@@ -196,6 +225,67 @@ function analyzeTypeNode(
 }
 
 /**
+ * Find an anonymous inline type literal inside a type node. Handles direct
+ * (`{...}`), container-wrapped (`Array<{...}>`, `T[]`, `Set<{...}>`,
+ * `ReadonlySet<{...}>`, `Map<K, {...}>`, `ReadonlyMap<K, {...}>`), and
+ * nullable-union-wrapped (`{...} | null`) cases. Returns the literal plus
+ * container metadata, or null if no inline literal is present.
+ */
+function findInlineTypeLiteral(
+  typeNode: any,
+  sourceFile: any,
+): { literal: any; container?: InlineSubtype['container']; mapKeyType?: string } | null {
+  // Direct inline: { ... }
+  if (tsApi.isTypeLiteralNode(typeNode)) {
+    return { literal: typeNode };
+  }
+  // T[] where T is inline
+  if (tsApi.isArrayTypeNode(typeNode) && tsApi.isTypeLiteralNode(typeNode.elementType)) {
+    return { literal: typeNode.elementType, container: 'array' };
+  }
+  // Generic: Array<T>, Set<T>, ReadonlySet<T>, Map<K, T>, ReadonlyMap<K, T>
+  if (tsApi.isTypeReferenceNode(typeNode) && tsApi.isIdentifier(typeNode.typeName)) {
+    const refName = typeNode.typeName.text;
+    const typeArgs = typeNode.typeArguments;
+    if (
+      (refName === 'Array' || refName === 'Set' || refName === 'ReadonlySet') &&
+      typeArgs?.length === 1 &&
+      tsApi.isTypeLiteralNode(typeArgs[0])
+    ) {
+      return {
+        literal: typeArgs[0],
+        container:
+          refName === 'Array' ? 'array' : refName === 'Set' ? 'set' : 'readonlyset',
+      };
+    }
+    if (
+      (refName === 'Map' || refName === 'ReadonlyMap') &&
+      typeArgs?.length === 2 &&
+      tsApi.isTypeLiteralNode(typeArgs[1])
+    ) {
+      return {
+        literal: typeArgs[1],
+        container: refName === 'Map' ? 'map' : 'readonlymap',
+        mapKeyType: typeArgs[0].getText(sourceFile),
+      };
+    }
+  }
+  // T | null | undefined — unwrap and recurse
+  if (tsApi.isUnionTypeNode(typeNode)) {
+    const isNullish = (t: any): boolean => {
+      if (t.kind === tsApi.SyntaxKind.NullKeyword || t.kind === tsApi.SyntaxKind.UndefinedKeyword) return true;
+      if (tsApi.isLiteralTypeNode(t) && t.literal.kind === tsApi.SyntaxKind.NullKeyword) return true;
+      return false;
+    };
+    const nonNullTypes = typeNode.types.filter((t: any) => !isNullish(t));
+    if (nonNullTypes.length === 1) {
+      return findInlineTypeLiteral(nonNullTypes[0], sourceFile);
+    }
+  }
+  return null;
+}
+
+/**
  * Produce the write-shape TypeScript text for a relationship. The ontology
  * type argument becomes `string`; the container shape (Array / Set / Map) is
  * preserved so typia validates against the right runtime container.
@@ -296,32 +386,43 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
   const ontologyTypes = new Set(interfaceNames);
   const relationships: Record<string, Record<string, Relationship>> = {};
   const defaults: DefaultsMap = {};
+  const inlineSubtypes: Record<string, Record<string, InlineSubtype>> = {};
   const replacements: Array<{ start: number; end: number; replacement: string }> = [];
 
-  for (const stmt of sourceFile.statements) {
-    if (!tsApi.isInterfaceDeclaration(stmt)) continue;
-    const typeName = stmt.name.text;
-
-    for (const member of stmt.members) {
+  /**
+   * Walk the members of an interface body or an anonymous inline type
+   * literal. `typeName` is either a real top-level interface name or a
+   * synthesized path-based name (e.g. `"Config/server"`). `isTopLevel`
+   * gates relationship/write-shape handling, which applies only to
+   * top-level interface members.
+   */
+  function walkMembers(members: any, typeName: string, isTopLevel: boolean) {
+    for (const member of members) {
       if (!tsApi.isPropertySignature(member) || !member.type) continue;
       if (!tsApi.isIdentifier(member.name)) continue;
 
       const fieldName = member.name.text;
       const isOptional = member.questionToken !== undefined;
 
-      // Relationship pass (ported from old package)
+      // Relationship pass — analyse at every level so the filler can recurse
+      // into named-interface refs even when they're nested inside inline type
+      // literals. WriteShape replacements, however, apply only at the top
+      // level (the composer pattern rewrites top-level interface members;
+      // inline shapes are left alone).
       const rel = analyzeTypeNode(member.type, ontologyTypes, isOptional, sourceFile);
       if (rel) {
         if (!relationships[typeName]) relationships[typeName] = {};
         relationships[typeName][fieldName] = rel;
-        replacements.push({
-          start: member.type.getStart(sourceFile),
-          end: member.type.getEnd(),
-          replacement: getWriteShapeType(rel),
-        });
+        if (isTopLevel) {
+          replacements.push({
+            start: member.type.getStart(sourceFile),
+            end: member.type.getEnd(),
+            replacement: getWriteShapeType(rel),
+          });
+        }
       }
 
-      // @default pass (new — Phase 3 D2/D3 + Phase 4 P4.2)
+      // @default pass
       const jsDocTags: any[] = tsApi.getJSDocTags(member) ?? [];
       for (const tag of jsDocTags) {
         if (tag.tagName?.text !== 'default') continue;
@@ -335,11 +436,31 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
         const parsed = parseDefaultLiteral(rawText, typeName, fieldName);
         if (!defaults[typeName]) defaults[typeName] = {};
         defaults[typeName][fieldName] = parsed;
-        // If the field has multiple `@default` tags, last one wins — matches
-        // JSDoc tag iteration order. Users writing two @default tags on one
-        // field almost certainly have a bug, but we don't error on it.
+        // Multiple `@default` tags → last wins (matches JSDoc iteration order).
+      }
+
+      // Inline type literal recursion. Covers direct (`field?: { ... }`),
+      // container-wrapped (`Array<{...}>` / `T[]` / `Set<{...}>` / `Map<K, {...}>`
+      // and the Readonly variants), and nullable-union-wrapped
+      // (`{...} | null`). Synthesises a sub-type named `${typeName}/${fieldName}`
+      // so nested @default tags attach there and the filler can recurse through
+      // the container shape.
+      const inlineInfo = findInlineTypeLiteral(member.type, sourceFile);
+      if (inlineInfo) {
+        const subTypeName = `${typeName}/${fieldName}`;
+        if (!inlineSubtypes[typeName]) inlineSubtypes[typeName] = {};
+        const entry: InlineSubtype = { subTypeName };
+        if (inlineInfo.container) entry.container = inlineInfo.container;
+        if (inlineInfo.mapKeyType) entry.mapKeyType = inlineInfo.mapKeyType;
+        inlineSubtypes[typeName][fieldName] = entry;
+        walkMembers(inlineInfo.literal.members, subTypeName, /* isTopLevel */ false);
       }
     }
+  }
+
+  for (const stmt of sourceFile.statements) {
+    if (!tsApi.isInterfaceDeclaration(stmt)) continue;
+    walkMembers(stmt.members, stmt.name.text, /* isTopLevel */ true);
   }
 
   // Apply write-shape replacements in reverse source order
@@ -349,5 +470,11 @@ export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
     writeShape = writeShape.slice(0, start) + replacement + writeShape.slice(end);
   }
 
-  return { interfaceNames, relationships, writeShapeTypeDefinitions: writeShape, defaults };
+  return {
+    interfaceNames,
+    relationships,
+    writeShapeTypeDefinitions: writeShape,
+    defaults,
+    inlineSubtypes,
+  };
 }

@@ -13,4 +13,4 @@ export type {
   DefaultsMap,
 } from './extract-type-metadata';
 export { getParserValidatorFacet } from './facet-helper';
-export type { ParserValidator, ParseResult } from './facet-helper';
+export type { ParserValidator, ParseResult, ValidationError } from './facet-helper';

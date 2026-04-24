@@ -9,12 +9,10 @@ description: Function signatures, generated-module exports, return and error sha
 Generates a JS module source string from a string of TypeScript interface definitions. The emitted module is self-contained — it bakes in the typia-generated validators, the `@default` values, and a `ParserValidator` class extending `DurableObject`. Zero runtime dependency on typia.
 
 
-```typescript
-@skip-check
-export function generateParseModule(
-  // TypeScript interface definitions as a string.
-  typeDefinitions: string,
-): string;
+```typescript @check-example('packages/ts-runtime-parser-validator/src/generate-parse-module.ts')
+export function generateParseModule(typeDefinitions: string): string {
+  // ...
+}
 ```
 
 **Returns:** A JS module source string ready to mount via Worker Loader.
@@ -28,8 +26,7 @@ export function generateParseModule(
 
 ### Example
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 // todo.d.ts
 interface Todo {
   title: string;
@@ -39,8 +36,7 @@ interface Todo {
 }
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 import { generateParseModule } from '@lumenize/ts-runtime-parser-validator';
 import todoTypes from './todo.d.ts?raw';
 
@@ -63,14 +59,15 @@ The source returned from `generateParseModule()` has two named exports:
 
 Mount the generated module as a DO facet and get a typed stub back. Wraps the `ctx.facets.get` + `env.LOADER.get` setup so per-request code stays a single call.
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/src/facet-helper.ts')
 export function getParserValidatorFacet(
   ctx: DurableObjectState,
   loader: WorkerLoader,
   bundleId: string,
   loadModuleSource: () => string | Promise<string>,
-): ParserValidator;
+): ParserValidator {
+  // ...
+}
 ```
 
 **Parameters:**
@@ -85,8 +82,7 @@ The type signatures use the global `DurableObjectState` and `WorkerLoader` types
 
 ### Example
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.ts')
 import { DurableObject } from 'cloudflare:workers';
 import {
   getParserValidatorFacet,
@@ -103,6 +99,7 @@ export class SupervisorDO extends DurableObject<Env> {
     );
     return await facet.parse(value, typeName);
   }
+  // ...
 }
 ```
 
@@ -112,8 +109,7 @@ See [Getting Started](./getting-started) for the complete wiring pattern includi
 
 The method you'll actually call at request time. `getParserValidatorFacet()` returns a `ParserValidator` stub whose one method — `parse(value, typeName)` — returns `Promise<ParseResult>` because it crosses the facet's RPC boundary. (On the generated class itself the method is synchronous; the RPC proxy wraps it in a Promise.)
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/src/facet-helper.ts')
 parse(value: unknown, typeName: string): Promise<ParseResult>;
 ```
 
@@ -123,12 +119,11 @@ parse(value: unknown, typeName: string): Promise<ParseResult>;
 
 **Returns:**
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/src/facet-helper.ts')
 type ParseResult =
   | { valid: true;  data: unknown }
   | { valid: false; errors: ValidationError[] };
-
+// ...
 interface ValidationError {
   path: string;        // JSON-pointer-like path: '$input.address.city'
   expected: string;    // The expected type, e.g. 'string', '(number | undefined)'
@@ -141,8 +136,7 @@ On success, `data` is the input with any `@default` values filled in (see [`@def
 
 On failure, `errors` is a list — one entry per failing field, in document order. Unknown type names return a single-entry error list:
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 const result = await facet.parse({}, 'NotATypeName');
 expect(result).toEqual({
   valid: false,
@@ -157,8 +151,7 @@ expect(result).toEqual({
 
 ### `valid: true` — success
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 const result = await facet.parse(
   { title: 'Ship it', done: false },
   'Todo',
@@ -171,8 +164,7 @@ expect(result).toEqual({
 
 ### `valid: false` — type mismatch
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 const result = await facet.parse(
   { title: 42, done: 'not a boolean' },
   'Todo',
@@ -188,8 +180,7 @@ expect(result).toMatchObject({
 
 ### `valid: false` — missing required field
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 const result = await facet.parse({ title: 'only title' }, 'Todo');
 expect(result).toMatchObject({
   valid: false,
@@ -201,8 +192,7 @@ expect(result).toMatchObject({
 
 ### `valid: false` — constraint violation
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 // interface Person { /** @minimum 13 */ age: number; }
 const result = await facet.parse({ age: 12 }, 'Person');
 expect(result).toMatchObject({
@@ -219,21 +209,32 @@ See [Additional Constraints](./additional-constraints) for the full list of JSDo
 
 **Most users never touch this — it's here for ORM layers and other specialized callers.** Pure utility: parse TypeScript interface definitions and return the derived metadata — interface names, `@default` values, the relationship graph (which fields reference other named interfaces), and a pre-computed write-shape version of the source with those references narrowed to string IDs. Independent from `generateParseModule()`.
 
-```typescript
-@skip-check
-export function extractTypeMetadata(
-  // TypeScript interface definitions as a string.
-  typeDefinitions: string,
-): TypeMetadata;
+```typescript @check-example('packages/ts-runtime-parser-validator/src/extract-type-metadata.ts')
+export function extractTypeMetadata(typeDefinitions: string): TypeMetadata {
+  // ...
+}
+```
 
-interface TypeMetadata {
+```typescript @check-example('packages/ts-runtime-parser-validator/src/extract-type-metadata.ts')
+export interface TypeMetadata {
   interfaceNames: string[];
   relationships: Record<string, Record<string, Relationship>>;
   writeShapeTypeDefinitions: string;
-  defaults: Record<string, Record<string, unknown>>;
+  defaults: DefaultsMap;
+  inlineSubtypes: Record<string, Record<string, InlineSubtype>>;
 }
+```
 
-interface Relationship {
+```typescript @check-example('packages/ts-runtime-parser-validator/src/extract-type-metadata.ts')
+export interface InlineSubtype {
+  subTypeName: string;
+  container?: 'array' | 'set' | 'readonlyset' | 'map' | 'readonlymap';
+  mapKeyType?: string;
+}
+```
+
+```typescript @check-example('packages/ts-runtime-parser-validator/src/extract-type-metadata.ts')
+export interface Relationship {
   target: string;
   cardinality: 'one' | 'many';
   optional: boolean;
@@ -247,7 +248,8 @@ interface Relationship {
 - `interfaceNames` — names of top-level interfaces, in source order.
 - `relationships` — `typeName → fieldName → Relationship`. A field is a "relationship" when its declared type is another top-level interface in the same source (directly, via `T | null`, `T[]`, `Array<T>`, `Set<T>`, `ReadonlySet<T>`, `Map<K, T>`, or `ReadonlyMap<K, T>`).
 - `writeShapeTypeDefinitions` — the input source with every relationship field narrowed to `string` / `string[]` / `Set<string>` / `Map<K, string>` (etc., container preserved). Useful for ORM-style callers that want validators to expect IDs instead of nested objects.
-- `defaults` — `typeName → fieldName → JSON-literal value` from `@default` JSDoc tags on optional fields.
+- `defaults` — `typeName → fieldName → JSON-literal value` from `@default` JSDoc tags on optional fields. Keys include synthesized path-based sub-type names for anonymous inline type literals (e.g. `"Config/server/retries"`), which the filler uses to recurse into inline shapes.
+- `inlineSubtypes` — `parentTypeName → fieldName → InlineSubtype`. Populated when a field's type contains an anonymous inline type literal, directly or via `Array<{...}>` / `T[]` / `Set<{...}>` / `Map<K, {...}>` (plus the `Readonly` variants) or a nullable union (`{...} | null`). Lets the filler recurse into inline shapes — including container element types — the same way it recurses into named interfaces, so nested `@default` tags apply through both.
 
 **Throws:** `SyntaxError` on unparseable types; `Error` if `@default` appears on a required field or the value isn't a valid JSON literal.
 
@@ -255,8 +257,7 @@ interface Relationship {
 
 By default, a field whose declared type is another top-level interface validates as an **embedded object** — the same behavior typia, Zod, and Ajv give you. ORM-style callers (canonical case: Lumenize Nebula) usually want the opposite: relationship fields should validate as **string IDs**, so transactions carry references, not nested payloads. `extractTypeMetadata()`'s `writeShapeTypeDefinitions` does the narrowing for you — you hand the write-shape to `generateParseModule()` and the resulting validator expects IDs instead of objects.
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 // Default behavior — named interfaces validate as embedded objects.
 interface User { id: string; name: string; }
 interface Team {
@@ -264,7 +265,7 @@ interface Team {
   members: User[];          // validates as an array of full Users
   roles: Map<string, User>; // validates as a Map of full Users
 }
-
+// ...
 const ok = await facet.parse(
   {
     lead: { id: 'u-1', name: 'Alice' },
@@ -276,8 +277,7 @@ const ok = await facet.parse(
 expect(ok.valid).toBe(true);
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 // Composer pattern — pre-extract metadata, feed the write-shape to generate.
 import {
   extractTypeMetadata,
@@ -291,8 +291,7 @@ const moduleSource = generateParseModule(md.writeShapeTypeDefinitions);
 // Mount moduleSource as a facet. parse() now expects string IDs.
 ```
 
-```typescript
-@skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
 // With the write-shape module, the same Team validates from string IDs.
 const ok = await facet.parse(
   {

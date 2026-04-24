@@ -16,8 +16,7 @@ npm install @lumenize/ts-runtime-parser-validator
 
 Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for your supervisor:
 
-```jsonc
-@skip-check
+```jsonc @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/wrangler.jsonc')
 {
   "compatibility_date": "2026-04-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -41,7 +40,7 @@ Set up `wrangler.jsonc` with a Worker Loader binding and a Durable Object for yo
 
 Write your schema once, in a regular `.d.ts` file (full editor support, real type-checking, zero DSL):
 
-```typescript @skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/schema.d.ts')
 // schema.d.ts
 interface Address {
   street: string;
@@ -58,7 +57,7 @@ interface User {
 
 Call `generateParseModule()` once per schema version with the raw source. Store the returned string keyed by a bundle ID (a content hash, a version number, or a tenant ID — whatever fits your lifecycle).
 
-```typescript @skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.test.ts')
 import { generateParseModule } from '@lumenize/ts-runtime-parser-validator';
 import schemaTypes from './schema.d.ts?raw';
 
@@ -72,7 +71,7 @@ The emitted module has zero runtime dependency on typia — everything needed wa
 
 Inside your supervisor DO, use `getParserValidatorFacet()` to mount the generated module as a DO facet. The helper wraps the Worker Loader + facet setup. Your per-request code only supplies `bundleId` and a callback that returns the `moduleSource` — the callback only runs on a cold Worker build, so per-request calls skip it entirely, avoiding the associated ["created daily" charges](https://developers.cloudflare.com/dynamic-workers/pricing/#dynamic-workers-created-daily).
 
-```typescript @skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.ts')
 import { DurableObject } from 'cloudflare:workers';
 import {
   getParserValidatorFacet,
@@ -105,7 +104,7 @@ Two things worth knowing:
 
 Valid input comes back with `@default` values filled in — including nested defaults (`country` on the embedded `Address`):
 
-```typescript @skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.test.ts')
 const ok = await supervisor.parse(bundleId, {
   name: 'Alice',
   home: { street: '1 Main', city: 'Springfield' },
@@ -121,7 +120,7 @@ expect(ok).toEqual({
 
 Invalid input returns typia's structured error list:
 
-```typescript @skip-check
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/getting-started/index.test.ts')
 const bad = await supervisor.parse(bundleId, {
   name: 42,
   home: { street: '1 Main', city: 'Springfield' },
@@ -136,23 +135,7 @@ expect(bad).toMatchObject({
 
 Values cross via Workers RPC (structured-clone semantics), so `Date`, `Map`, `Set`, `RegExp`, `TypedArray`, and cyclic references all survive the boundary.
 
-`ParseResult` is:
-
-```typescript @skip-check
-type ParseResult =
-  | { valid: true; data: unknown }
-  | {
-      valid: false;
-      errors: Array<{
-        path: string;
-        expected: string;
-        value: unknown;
-        description?: string;
-      }>;
-    };
-```
-
-On success, `data` is the input with any `@default` values filled in. On failure, `errors` is one entry per failing field, with JSON-pointer-like paths (`$input.home.city`).
+On success, `data` is the input with any `@default` values filled in. On failure, `errors` is one entry per failing field, with JSON-pointer-like paths (`$input.home.city`). See [API Reference](./api-reference#parservalidatorparse) for the full `ParseResult` and `ValidationError` shapes.
 
 ## Next steps
 
