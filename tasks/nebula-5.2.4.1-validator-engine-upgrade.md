@@ -1,6 +1,6 @@
 # Phase 5.2.4.1: Parse-Validate Package
 
-**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6 complete (6.5 + 6.6 landed 2026-04-23). Phase 2 skipped (Spike A succeeded). **Phase 6.7 pending — pre-release blocker** (cycle-acyclify pre-pass; typia lacks cycle detection and this creates an inconsistency with the rest of Lumenize's cycle-preserving pipeline). **Phase 7 in progress: narrative drafts landed, validation still pending** (narrative already updated for 6.5 + 6.6). Then Phase -1 triage, then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
+**Status**: Phases 1, 3, 4, 5, 6, 6.5, 6.6 complete (6.5 + 6.6 landed 2026-04-23). Phase 2 skipped (Spike A succeeded). **Phase 6.7 pending — pre-release blocker** (cycle support via copied + modified typia source; implementation detoured to [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md), 6.7 is the wire-in). **Phase 7 in progress: narrative drafts landed, validation still pending** (narrative already updated for 6.5 + 6.6). Then Phase -1 triage, then 5.2.4.2. Phase 8 (facet-performance blog post) sits after 5.2.4.2 ships.
 
 **Detours completed (2026-04-22)**: vitest 4 upgrade (`tasks/archive/monorepo-vitest-4-upgrade.md`) and alarm-accuracy experiment (`tasks/archive/alarm-accuracy-experiment.md`). Side-effect fix: `@lumenize/mesh/client` subpath (`tasks/archive/mesh-client-node-import.md`, Phase 4 release-docs deferred to release time).
 
@@ -423,57 +423,47 @@ Even after Phase 6.5's cleanup, the getting-started wiring is ~25 lines of neste
 - [x] `ParserValidator` and `ParseResult` are public exports.
 - [x] All existing tests pass; helper is dogfooded via the test worker.
 
-## Phase 6.7: Cycle-acyclify pre-pass (pre-release blocker)
+## Phase 6.7: Wire in cycle support from the copied typia source (pre-release blocker)
 
-**Status**: Pending. **Must ship before npm publish.** Surfaced 2026-04-23 during docs review — Lumenize's other transports (Workers RPC, `@lumenize/structured-clone`, Mesh `call()`) preserve cyclic references end-to-end; the validator pipeline being the odd one out is unacceptable for release.
+**Status**: Pending. **Must ship before npm publish.** Implementation lives in the copied typia source — see [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md). This phase is the wire-in: confirm the typia-visit-tracking task's Phases 1–3 have landed and add the cycle + alias-dedup tests that prove the wire works at the package level.
 
 ### Motivation
 
-Typia's generated validator has no visit tracking. A runtime cycle in a self-referential named-interface field (e.g. `node.parent = node`) stack-overflows the validator. Aliased references without cycles (DAGs) already work — verified empirically during docs review. Only true reference-closure cycles are broken.
+Typia's generated validator has no visit tracking. Cycles stack-overflow; aliased subtrees get re-walked. Lumenize's other transports (Workers RPC, `@lumenize/structured-clone`, Mesh `call()`) preserve cycles end-to-end — the validator being the odd one out is unacceptable for release.
 
-The existing workarounds (`any` field, ORM composer pattern via `writeShapeTypeDefinitions`) cover many cases but aren't a substitute for native cycle support:
-- `any` surrenders structural validation on the field.
-- ORM composer only applies when you're modeling relationships as ID references — a Nebula-specific pattern, not the general case.
-- Users whose schemas contain a legitimate self-referential nullable field (`parent: TreeNode | null`) and whose runtime values contain cycles at that field should just work.
+The design conversation on 2026-04-23 weighed a wrap approach (acyclify pre-pass + null substitution + restore + error-path remapping, fused into `__fillDefaults`) against modifying typia's generated validator directly. The modification approach won on three axes:
+- Implementation effort is roughly equal to an upstream PR for visit-tracking, so "wrap now and modify later" is duplicate work.
+- Wrap can only dedup aliases at *nullable* positions (placeholder must satisfy the declared type). Modifying the validator dedups everywhere.
+- Modify ships one release-risk surface; wrap-then-modify ships two.
+
+The typia-visit-tracking task owns the modification itself; this phase is the package-level wire-in. Full rationale lives in that task's "Alternatives Considered and Rejected."
 
 ### Decisions
 
-**D6.7.1 — Cycle-acyclify pre-pass inside `parse()`.** Before handing the value to typia, walk it with a `WeakMap`. When re-entering a visited node, substitute a placeholder. Run typia on the acyclic form. On success, restore the original references in the returned `data`. On failure, surface typia's errors with paths adjusted to point into the original (cyclic) graph.
+**D6.7.1 — No acyclify / placeholder / error-path-remapping code in this package.** Visit-tracking is a property of the copied typia source's emitted validators. This phase is tests + docs only.
 
-**D6.7.2 — Placeholder strategy: `null` at cycle-closure.** A cycle can only close at a field that accepts `null` or `undefined` in the user's type — any field that doesn't is infinitely recursive with no base case, which TypeScript refuses to construct. So `null` is a universally safe substitute. If typia validates the substituted `null` as acceptable (because the field was typed `T | null`), we know the real cycle-closing reference is also typed-acceptable at that position.
+**D6.7.2 — Keep `__fillDefaults` as-is.** Its WeakMap still prevents re-filling aliased subtrees. The filler's current behavior on re-entry (return the previously-built clone, which reconstructs cycles in the filled output) is now correct end-to-end because the modified validator handles cyclic inputs natively.
 
-**D6.7.3 — DAG aliasing is preserved, not acyclified.** The pre-pass only substitutes at *cycle* closures (visited node seen again in its own ancestor chain), not at aliased-but-acyclic references. DAG inputs continue to validate as they do today — typia may re-walk aliased subtrees (duplicate work), but correctness is fine.
-
-**D6.7.4 — Error-path fidelity.** Typia's error paths (`$input.parent.parent.x`) are anchored to the acyclic form. The pre-pass maintains a path-remapping table so errors surface with paths that make sense against the caller's cyclic input. (E.g., an error at `$input.parent.parent.x` where `$input.parent.parent === $input` gets rewritten to `$input.x` or similarly meaningful.)
-
-**D6.7.5 — Fast-path when there are no cycles.** First walk is cheap (single `WeakMap` traversal). If no cycles are detected, skip the substitution/restore logic entirely and hand the original value to typia. Users who don't have cycles in their data pay near-zero cost.
-
-### Open design questions (to resolve during implementation)
-
-- Exact shape of the substitution record — object + key vs. path string vs. `WeakMap` lookup.
-- Behavior when a cycle closes at a non-nullable field. Should be impossible for TypeScript-sound values, but we may want an explicit reject with a clear message rather than silent acceptance via null.
-- Whether the filler's existing `WeakMap` recursion can be fused with the acyclify pre-pass into a single walk.
+**D6.7.3 — Cycles accepted at any position.** The modified validator's re-entry branch is a no-op regardless of the field's declared optionality (see the typia-visit-tracking task's D6 for the rationale — in-validator visit tracking doesn't substitute anything at the closure, it just skips the re-walk; errors from the first visit stay in typia's accumulated report). No special-case handling in this package.
 
 ### Work items
 
-- [ ] Design the acyclify/restore flow; write a short spec block in the emitted module template.
-- [ ] Implement `__acyclify(value)` and `__restoreCycles(data, substitutions)` as module-scope helpers in the emitted JS.
-- [ ] Wire into `ParserValidator.parse()` — fast-path when no cycles, pre-pass + restore otherwise.
-- [ ] Error path remapping.
-- [ ] Test coverage:
-  - Self-referential cycle with `parent: T | null` — success, cycle preserved in output.
-  - Mutual cycle (`a.b = ... ; b.a = ...`) — success.
-  - DAG aliasing (existing behavior) — still works, no regression.
-  - Cycle at a non-nullable field — documented outcome (reject with clear message, or whatever D6.7 lands on).
-  - Error-path fidelity — errors inside a cyclic structure report sensible paths.
-- [ ] Update `type-support.md` "Aliased references and cycles" section: drop the "planned pre-release change" caveat, move `any`/composer patterns from workarounds to just alternative strategies.
-- [ ] Add a blog-worthy note to the 5.2.4.2 announcement phase: Lumenize's pipeline preserves cycles end-to-end through transport, validation, and filler.
+- [ ] Typia-visit-tracking task Phases 1–3 complete (source copied in, visit-tracking implemented, typia's own test suite passes against our copy).
+- [ ] Add `packages/ts-runtime-parser-validator/test/cycles.test.ts` with:
+  - Self-referential cycle, `parent: T | null` — success, cycle preserved in output.
+  - Self-referential cycle, `parent: T` (non-nullable, via cast) — success, cycle preserved.
+  - Mutual cycle (`a.b = b; b.a = a`) — success.
+  - DAG aliasing — single walk, verified via a test-instrumented counter.
+  - Acyclic-happy-path perf regression sanity check (warm-parse latency within ~10% of Phase 6 baseline).
+- [ ] Update `website/docs/ts-runtime-parser-validator/type-support.md` "Aliased references and cycles" section per the inline TODO at the top of that section: rewrite the opening as "this package preprocesses cycles and aliases so typia doesn't stack-overflow on cycles and doesn't re-walk aliased branches," drop the "planned pre-release change" caveat, and demote workarounds 1 (`any`) and 2 (ORM composer) from "current limitations" to "alternative patterns if you want something different" (or remove if they no longer earn their keep).
+- [ ] Add a blog-worthy note to 5.2.4.2's announcement phase: Lumenize's pipeline preserves cycles and deduplicates alias-walks end-to-end through transport, validation, and filler.
 
 ### Success criteria
 
-- [ ] `parse(node, 'TreeNode')` where `node.parent = node` and `TreeNode.parent: TreeNode | null` returns `{ valid: true, data }` with the cycle preserved in `data`.
-- [ ] DAG aliasing test from the docs still passes (no regression).
-- [ ] No perf regression on the acyclic happy path (fast-path skip).
+- [ ] `parse(node, 'TreeNode')` where `node.parent = node` and `TreeNode.parent: TreeNode | null` returns `{ valid: true, data }` with the cycle preserved.
+- [ ] Same cycle with `TreeNode.parent: TreeNode` (non-nullable) also returns `{ valid: true, data }`.
+- [ ] DAG aliasing validates in a single walk (test-instrumented).
+- [ ] No perf regression on acyclic inputs.
 - [ ] `type-support.md` no longer documents the cycle limitation.
 
 ## Phase 7: Documentation
@@ -631,4 +621,5 @@ Only paths that were actively weighed and dropped, with the reason. Mere "did X 
 - **Custom `@default` grammar mirroring typia's** (Phase 3 early framing). *Rejected because* typia has no `@default` JSDoc handler; `Default<T>` branded type is primitives-only and Nebula needs richer shapes. We own the grammar (JSON literals).
 - **Only recognise `T[]` / `Array<T>` as relationship containers** (Phase 5 original scope). *Rejected because* `Set<User>` / `Map<K, User>` silently validated nested objects instead of IDs — valid data rejected, invalid data accepted. Extended recognition to all four container shapes.
 - **Document both JSDoc tags and typia branded types as equal surface** (Phase 3 D7 alternative). *Rejected because* Galaxy stores interfaces as strings — branded types require `import { tags } from "typia"` which is awkward to thread through. JSDoc-only docs; branded types still work silently for users who find them.
+- **Wrap-based cycle support** — acyclify pre-pass + null substitution + restore + error-path remapping, fused into `__fillDefaults` (Phase 6.7 first draft). *Rejected because* implementation effort equals modifying typia's generated validator directly, wrap can only dedup aliases at nullable positions, and wrap produces two release-risk surfaces vs. one. Detoured to [`tasks/typia-visit-tracking.md`](typia-visit-tracking.md); 6.7 rewritten as the wire-in phase.
 - **Single combined Galaxy+Star DO in the Suite 2 bench** (Phase 6 first iteration). *Rejected because* it forced every cold call to pay the compile cost that production Star never pays, giving a 3-second number that was ~95 % artifact. Split into separate `GalaxyDO` + `StarDO` classes; real Star cold-wake is ~1.7 s.

@@ -184,7 +184,7 @@ const ok = await facet.parse({ tags: ['a', 'b', 'c'] }, 'Bag');
 expect(ok).toEqual({ valid: true, data: { tags: ['a', 'b', 'c'] } });
 ```
 
-## Fill-in annotation
+## `@default` annotation
 
 One more annotation, with its own semantics: [`@default`](./default). It fills missing optional fields before the validator runs. Covered in depth on its own page because it's about input-filling rather than constraint-checking.
 
