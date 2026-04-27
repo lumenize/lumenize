@@ -1,9 +1,9 @@
 # Phase 5.2.4.2: Galaxy Validator Integration
 
-**Status**: Phases 2 and 3 complete (landed 2026-04-27). Phases 4 and 5 pending.
+**Status**: Phases 2, 3, 4, 5 complete (landed 2026-04-27). Task can close once committed.
 **Depends on**: 5.2.4.1 (parse-validate package)
 **Package**: `apps/nebula/` (Galaxy + Star) consuming `@lumenize/ts-runtime-parser-validator`
-**See also**: [parse-validate-blog-and-measurement.md](./parse-validate-blog-and-measurement.md) — pulled-out integrated measurement + the two release blog posts. Can run in parallel with Phases 4 and 5 here.
+**See also**: [parse-validate-release.md](./parse-validate-release.md) — release coordination (integrated measurement, the two blog posts, npm deprecate of the old package). Sequenced after this task, gated on the release announcement going live.
 
 ## Objective
 
@@ -58,7 +58,7 @@ No `parse()`-hosting spike is needed in this task — `generateParseModule()`'s 
 
 Implementation order is **2 → 3 → 4 → 5**. Phases 2 and 3 are tightly coupled (removing `getOntology()` in 2 breaks Star until 3 lands) and ship as one unit; Phase 4 is verification of the lifecycle behavior; Phase 5 removes the old package and deprecates it.
 
-Integrated measurement and the public-facing blog posts have moved to a separate task: see [parse-validate-blog-and-measurement.md](./parse-validate-blog-and-measurement.md). That task owns the pre-implementation Cloudflare facet beta-status check, the integrated cold/warm latency benchmarks, the tsc-baseline comparison spike, and the two paired blog posts (release announcement + facet-performance deep-dive). Splitting it out kept this task focused on bounded code changes; it can run in parallel with Phases 4 and 5 here once Phases 2/3 have landed.
+Integrated measurement, the public-facing blog posts, and the `npm deprecate` of the old package have moved to a separate task: see [parse-validate-release.md](./parse-validate-release.md). That task owns the pre-implementation Cloudflare facet beta-status check, the integrated cold/warm latency benchmarks, the tsc-baseline comparison spike, the two paired blog posts (release announcement + facet-performance deep-dive), and the npm deprecate that closes the loop after the announcement ships. Sequenced after this task, gated on the release announcement going live.
 
 ## Phase 2: Galaxy as Per-Version Registry
 
@@ -237,27 +237,27 @@ interface OntologyVersionRow {
 - [x] Cache-hit path works immediately after a switch (the new facet is installed atomically with the new row) — `rapid back-to-back` test
 - [Skipped] In-flight transaction race test — see "Work" section above for rationale
 
-## Phase 5: Old Package Removal and Deprecation
+## Phase 5: Internal package-deps cleanup
 
-**Goal**: Remove `@lumenize/ts-runtime-validator` dependency from Nebula and deprecate the package on npm.
+**Goal**: Make sure Nebula's `package.json` declares the new package and isn't shipping with stale references to the old one. This is internal hygiene only — the public-facing `npm deprecate @lumenize/ts-runtime-validator` step is gated on the release announcement and lives in [parse-validate-release.md](./parse-validate-release.md) Phase 3.
 
 **Work**:
-- Verify all call sites in `apps/nebula/` use new package
-- Remove old package from `apps/nebula/package.json`
-- Update any remaining imports
-- `npm deprecate @lumenize/ts-runtime-validator "Use @lumenize/ts-runtime-parser-validator instead"` (moved here from 5.2.4.1 Phase 7 — pairing deprecation with Nebula's removal lets us postpone the deprecate if integration uncovers problems, without needing to un-deprecate. No migration guide per 5.2.4.1 Phase 7 — the new package is framed as a fresh package, not a successor.)
+- Verify zero remaining imports of `@lumenize/ts-runtime-validator` in `apps/nebula/` (already done in Phase 3)
+- Add `@lumenize/ts-runtime-parser-validator` to `apps/nebula/package.json` deps (was working via workspace auto-linking)
+- Remove `@lumenize/ts-runtime-validator` from `apps/nebula/package.json` if present (turned out not to be present — verified)
+- Run `npm install` and re-verify tests pass
 
 **Success Criteria**:
-- [ ] Zero imports of `@lumenize/ts-runtime-validator` in `apps/nebula/`
-- [ ] All tests pass with new package only
-- [ ] `@lumenize/ts-runtime-validator` deprecated on npm with pointer to new package
+- [x] Zero imports of `@lumenize/ts-runtime-validator` in `apps/nebula/`
+- [x] `@lumenize/ts-runtime-parser-validator` declared in `apps/nebula/package.json` dependencies
+- [x] All 116 nebula tests pass
 
 ## Open Questions
 
 - How does 5.2.6 (validation in plain Worker) relate? It was designed for the tsc engine. With this work, the facet IS the validator — 5.2.6 may be superseded or simplified.
 - Plain-DW deployment without a facet parent is a future enhancement — revisit if we need cross-Star bundle sharing.
 - Dev mode deferred to `tasks/dev-mode-branching.md` — no facet provisioning in dev.
-- Integrated latency measurement, tsc-baseline comparison, facet beta-status check, and the two release blog posts live in [parse-validate-blog-and-measurement.md](./parse-validate-blog-and-measurement.md).
+- Integrated latency measurement, tsc-baseline comparison, facet beta-status check, the two release blog posts, and the `npm deprecate` of the old package all live in [parse-validate-release.md](./parse-validate-release.md) — they share the chain `experiment → blog → deprecate` and need to ship together.
 
 ## Notes
 

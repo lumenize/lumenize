@@ -1,17 +1,19 @@
-# Parse-Validate: Blog Posts + Integrated Measurement
+# Parse-Validate: Release Coordination
 
 **Status**: Not started — split out of `tasks/nebula-5.2.4.2-validator-galaxy-integration.md` on 2026-04-27 once the implementation phases (2, 3) had landed
-**Depends on**: 5.2.4.2 phases 2, 3 landed (functional integration complete)
+**Depends on**: 5.2.4.2 phases 2, 3 (and ideally 4) landed — the integrated stack must exist before we measure or announce it
 **Related**: Existing 5.2.4.1 task (archived) for the validator-package side; existing blog posts launching `@lumenize/ts-runtime-validator` set the conceptual frame this work inherits.
 
 ## Objective
 
-Two paired blog posts that ship together and the measurement work that feeds the second post's numbers.
+The release-coordination work for the parse-validate pipeline: measure the integrated stack, announce it, and deprecate the predecessor. Three steps that share one critical-path ordering.
 
-- **6a — Release announcement**: "the parse-validate pipeline is here, here's what changed, use it." User-facing, frames-and-pitches.
-- **6b — Facet performance in practice**: "real numbers — what facets actually cost per call, when they're the right tool." Cloudflare-community technical deep-dive.
+- **Phase 1 — Integrated measurement**: feed the deep-dive blog post real numbers from the Galaxy + Star + facet path.
+- **Phase 2a — Release announcement** (user-facing): "the parse-validate pipeline is here, here's what changed, use it."
+- **Phase 2b — Facet performance in practice** (technical deep-dive): "real numbers — what facets actually cost per call, when they're the right tool." Cloudflare-community audience.
+- **Phase 3 — Deprecate `@lumenize/ts-runtime-validator` on npm**: only safe *after* the announcement points users at the new package.
 
-The reason this lives separately from 5.2.4.2's implementation work: the implementation phases (2, 3, 4, 5) are bounded code changes that ship under one PR. The blog + measurement work is a different shape — it's a benchmark experiment, a tsc-baseline spike, two drafts to write and cross-link, and cross-posting to three platforms. Splitting keeps each task internally coherent.
+The chain `experiment → blog posts → npm deprecate` is sequential by necessity; each step is gated on the previous one shipping. Splitting these out from 5.2.4.2 keeps that task focused on bounded code changes (which can land independently of the public-facing release timing) — but the release work itself is one coherent task.
 
 ## Phase 1: Integrated measurement (feeds 6b)
 
@@ -33,7 +35,7 @@ The reason this lives separately from 5.2.4.2's implementation work: the impleme
 - [ ] tsc-baseline spike numbers captured in same RESULTS file
 - [ ] Integration overhead vs bare bench documented (one sentence per row)
 
-## Phase 6a: Release announcement
+## Phase 2a: Release announcement
 
 The conceptual frame is already in place via two existing posts that launched `@lumenize/ts-runtime-validator`:
 - [index.md](./../website/blog/2026-03-24-typescript-is-the-schema/index.md) — why TS interfaces beat parallel Zod / JSON Schema definitions
@@ -44,12 +46,12 @@ The new announcement is a shorter follow-up that inherits the frame and announce
 **Content** (target: ~half the scope of the conceptual posts above):
 - What changed under the hood: typia engine replaces tsc, parse-not-just-validate semantics, `@default` filling, DO facet hosting
 - One paragraph on the facets-vs-plain-DW rationale: facets share the parent DO's isolate → same-isolate RPC, no network hop. (The package's `index.md` links to Cloudflare's facets announcement for "what are facets"; the release blog is the place for "why *we* picked them for this.")
-- Deprecation of `@lumenize/ts-runtime-validator` with pointer to the new package
+- Mention `@lumenize/ts-runtime-validator` is being retired and link to the new package — Phase 3 below executes the actual `npm deprecate` once this post is live
 - Cross-post per the content-distribution memory (Lumenize site + Substack + Medium)
 
 **Rationale for the timing**: writing the announcement after Nebula integration lets us describe the full working system (parse-validate + Galaxy/Star wiring + `@default` lifted into JSDoc + DO facet hosting) in one post, and avoids announcing something that might still hit integration snags.
 
-## Phase 6b: Facet performance in practice (technical deep-dive)
+## Phase 2b: Facet performance in practice (technical deep-dive)
 
 **Why it's worth writing**: facets are new (announced 2026-04-13) and community guidance is thin. Our 5.2.4.1 Phase 6 benchmarks produced facet-specific numbers that answer questions other developers will have. Distinguishes Lumenize as having done the homework; pairs naturally with the release announcement.
 
@@ -77,6 +79,24 @@ The "added on top of DO wake" framing keeps the focus on facet-specific cost wit
 - Cite the new-vs-old tsc-baseline numbers from Phase 1's spike.
 - CTA links back to the release post and to the `@lumenize/ts-runtime-parser-validator` package docs.
 
+## Phase 3: Deprecate `@lumenize/ts-runtime-validator` on npm
+
+**Goal**: Mark the old package as deprecated so anyone landing on it from npm sees the migration pointer.
+
+**Why this is the closing step**: deprecation is a public, externally-visible action. Doing it before the announcement leaves users stranded ("the old one says deprecated, but where do I go?"); doing it well after lets new users keep adopting the dead package. It runs immediately after the announcement posts go live, when the redirect target exists publicly.
+
+Pulled here from 5.2.4.2's original Phase 5. The internal-only parts of that phase (drop the dep from Nebula, ensure no remaining imports) already shipped with 5.2.4.2 — only the externally-coupled deprecate remains.
+
+**Work**:
+- Run: `npm deprecate @lumenize/ts-runtime-validator "Use @lumenize/ts-runtime-parser-validator instead — see https://lumenize.com/blog/<release-post-slug>"` (substitute the actual blog URL once published)
+- Verify the deprecation banner appears on the npm package page
+
+**No migration guide** — per 5.2.4.1 Phase 7's decision, the new package is framed as a fresh package, not a successor. The blog post is the migration pointer.
+
+**Success Criteria**:
+- [ ] npm shows `@lumenize/ts-runtime-validator` as deprecated with the pointer message
+- [ ] Deprecation message links to the published release post
+
 ## Combined Success Criteria
 
 - [ ] Phase 1 measurement complete; numbers in `experiments/.../RESULTS.md`
@@ -85,3 +105,4 @@ The "added on top of DO wake" framing keeps the focus on facet-specific cost wit
 - [ ] Reproducer link points at the committed benchmark fixture and the bench script in `experiments/ts-runtime-parser-validator-spike/`
 - [ ] Both posts cross-link
 - [ ] Cross-post per `reference_content_distribution.md` (Lumenize site + Substack + Medium)
+- [ ] `@lumenize/ts-runtime-validator` deprecated on npm with pointer to the new package and the release post

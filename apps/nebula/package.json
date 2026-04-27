@@ -45,7 +45,8 @@
     "@lumenize/mesh": "^0.23.0",
     "@lumenize/nebula-auth": "^0.23.0",
     "@lumenize/routing": "^0.23.0",
-    "@lumenize/structured-clone": "^0.23.0"
+    "@lumenize/structured-clone": "^0.23.0",
+    "@lumenize/ts-runtime-parser-validator": "^0.23.0"
   },
   "peerDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.14.7",
