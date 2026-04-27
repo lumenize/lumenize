@@ -18,7 +18,7 @@ This phase is broken into sub-phases that build on each other:
 | 5.2.3 | Ontology & Resources Integration | **Complete** | `tasks/nebula-5.2.3-resources-validation-integration.md` | Ontology class, relationship extraction, Galaxy/Star wiring, in-process validation in `transaction()` |
 | 5.2.4 | Documentation | **Complete** | `tasks/archive/nebula-5.2.4-docs.md` | User-facing docs for `@lumenize/ts-runtime-validator` |
 | 5.2.4.1 | Parse-Validate Package | **Complete** | `tasks/archive/nebula-5.2.4.1-validator-engine-upgrade.md` | New `@lumenize/ts-runtime-parser-validator` — typia-based parse-don't-validate; deprecates tsc engine |
-| 5.2.4.2 | Galaxy Validator Integration | Pending | `tasks/nebula-5.2.4.2-validator-galaxy-integration.md` | Wire `parse()` into Galaxy DW registry + Star transaction pipeline |
+| 5.2.4.2 | Galaxy Validator Integration | **Complete** | `tasks/archive/nebula-5.2.4.2-validator-galaxy-integration.md` | Per-version Galaxy registry, Star DO-facet parse pipeline, `{ row, history }` atomic fetch (Star's local index drives 5.5 chain-walking). Release coordination — measurement, blog posts, `npm deprecate` — in `tasks/parse-validate-release.md` |
 | 5.2.4.5 | Annotation Experiments | Future | `tasks/nebula-5.2.4.5-annotation-experiments.md` | JSDoc annotation research for constraints, defaults, M:N |
 | 5.2.5 | Multi-Resource Queries | Pending | `tasks/nebula-5.2.5-multi-resource-queries.md` | `query()` with ontology-driven relationship resolution |
 | 5.2.6 | Validation in Plain Worker | Not started | `tasks/nebula-5.2.6-switch-validate-to-plain-worker.md` | Move validation from in-process to Service Binding Worker |

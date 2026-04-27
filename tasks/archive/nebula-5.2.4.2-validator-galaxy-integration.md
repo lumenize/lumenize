@@ -1,6 +1,6 @@
 # Phase 5.2.4.2: Galaxy Validator Integration
 
-**Status**: Phases 2, 3, 4, 5 complete (landed 2026-04-27). Task can close once committed.
+**Status**: Complete (landed 2026-04-27). Archived. Public-facing release coordination — integrated measurement, blog posts, npm deprecate of the predecessor — continues in [parse-validate-release.md](../parse-validate-release.md).
 **Depends on**: 5.2.4.1 (parse-validate package)
 **Package**: `apps/nebula/` (Galaxy + Star) consuming `@lumenize/ts-runtime-parser-validator`
 **See also**: [parse-validate-release.md](./parse-validate-release.md) — release coordination (integrated measurement, the two blog posts, npm deprecate of the old package). Sequenced after this task, gated on the release announcement going live.
@@ -126,13 +126,13 @@ interface OntologyVersionRow {
 
 ### Success Criteria
 
-- [ ] Galaxy stores per-version rows under `ontology:<version>` keys
-- [ ] Galaxy stores ordered index under `ontology:_index`
-- [ ] `appendOntologyVersion()` validates label, compiles bundle, writes atomically
-- [ ] Compilation failure rejects the append at submit time with a clear typia error referencing the failing type
-- [ ] Invalid version labels rejected before any storage op with the named error
-- [ ] All four mesh methods (`getLatestOntologyVersion`, `getOntologyVersion`, `listOntologyVersions`, `appendOntologyVersion`) functional and tested
-- [ ] `getOntology()` and the whole-array storage removed
+- [x] Galaxy stores per-version rows under `ontology:<version>` keys
+- [x] Galaxy stores ordered index under `ontology:_index`
+- [x] `appendOntologyVersion()` validates label, compiles bundle, writes atomically
+- [x] Compilation failure rejects the append at submit time with a clear typia error referencing the failing type
+- [x] Invalid version labels rejected before any storage op with the named error
+- [x] All four mesh methods (`getLatestOntologyVersion`, `getOntologyVersion`, `listOntologyVersions`, `appendOntologyVersion`) functional and tested
+- [x] `getOntology()` and the whole-array storage removed
 
 ## Phase 3: Star Parse Pipeline
 
@@ -198,15 +198,15 @@ interface OntologyVersionRow {
 
 ### Success Criteria
 
-- [ ] `apps/nebula/wrangler.jsonc`, `apps/nebula/test/wrangler.jsonc`, and every `apps/nebula/test/test-apps/<name>/test/wrangler.jsonc` have a `LOADER` Worker Loader binding and `compatibility_date >= 2026-04-01`
-- [ ] Star validates via the facet, not in-process tsc
-- [ ] `#row` and `#facet` populated lazily on cache miss; both null until first transaction
-- [ ] Cache survives hibernation: Star reads `ontology:<version>` from its own KV on wake without re-fetching from Galaxy
-- [ ] `@default` filling works through the parse pipeline; `Resources.transaction()` uses `data` from the parse result
-- [ ] All `ontology.validate()` call sites in `apps/nebula/src/` migrated to `facet.parse()` / equivalent
-- [ ] `Ontology` class and `apps/nebula/src/ontology.ts` deleted; `Ontology` export removed from `apps/nebula/src/index.ts`; `OntologyVersionConfig` (without `defaults`/`migrate`) lives in `galaxy.ts`; manual defaults-spread removed; tests migrated to `@default` JSDoc
-- [ ] Disconnected Star recovers on first resource request tagged with a newer version (existing lazy fetch path, validated under the new layout)
-- [ ] Stale-tagged transactions rejected with a clear error including the actual current version
+- [x] `apps/nebula/wrangler.jsonc`, `apps/nebula/test/wrangler.jsonc`, and every `apps/nebula/test/test-apps/<name>/test/wrangler.jsonc` have a `LOADER` Worker Loader binding and `compatibility_date >= 2026-04-01`
+- [x] Star validates via the facet, not in-process tsc
+- [x] `#row` and `#facet` populated lazily on cache miss; both null until first transaction
+- [x] Cache survives hibernation: Star reads `ontology:<version>` from its own KV on wake without re-fetching from Galaxy
+- [x] `@default` filling works through the parse pipeline; `Resources.transaction()` uses `data` from the parse result
+- [x] All `ontology.validate()` call sites in `apps/nebula/src/` migrated to `facet.parse()` / equivalent
+- [x] `Ontology` class and `apps/nebula/src/ontology.ts` deleted; `Ontology` export removed from `apps/nebula/src/index.ts`; `OntologyVersionConfig` (without `defaults`/`migrate`) lives in `galaxy.ts`; manual defaults-spread removed; tests migrated to `@default` JSDoc
+- [x] Disconnected Star recovers on first resource request tagged with a newer version (existing lazy fetch path, validated under the new layout)
+- [x] Stale-tagged transactions rejected with a clear error including the actual current version
 
 ## Phase 4: Lifecycle and Eviction
 
