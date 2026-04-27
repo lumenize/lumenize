@@ -11,15 +11,22 @@ import { it, expect } from 'vitest';
 import { generateParseModule } from '../../../src/generate-parse-module';
 import schemaTypes from './schema.d.ts?raw';
 
+type ParseResult =
+  | { valid: true; data: unknown }
+  | { valid: false; errors: Array<{ path: string; expected: string; value: unknown; description?: string }> };
+
+type ParseRequest = { value: unknown; typeName: string };
+
 interface SupervisorStub {
   parse: (
     bundleId: string,
     value: unknown,
     typeName: string,
-  ) => Promise<
-    | { valid: true; data: unknown }
-    | { valid: false; errors: Array<{ path: string; expected: string; value: unknown; description?: string }> }
-  >;
+  ) => Promise<ParseResult>;
+  parseBatch: (
+    bundleId: string,
+    items: Map<string, ParseRequest>,
+  ) => Promise<Map<string, ParseResult>>;
   registerModuleSource: (bundleId: string, moduleSource: string) => void;
 }
 
@@ -38,7 +45,7 @@ it('Step 3 — parse() on valid input fills @default values', async () => {
   const supervisor = getSupervisor();
   const bundleId = 'getting-started-valid';
   const moduleSource = generateParseModule(schemaTypes);
-  supervisor.registerModuleSource(bundleId, moduleSource);
+  await supervisor.registerModuleSource(bundleId, moduleSource);
 
   const ok = await supervisor.parse(bundleId, {
     name: 'Alice',
@@ -53,11 +60,25 @@ it('Step 3 — parse() on valid input fills @default values', async () => {
   });
 });
 
+it('Step 3 — parseBatch() validates many values in one facet hop', async () => {
+  const supervisor = getSupervisor();
+  const bundleId = 'getting-started-batch';
+  const moduleSource = generateParseModule(schemaTypes);
+  await supervisor.registerModuleSource(bundleId, moduleSource);
+
+  const items = new Map<string, ParseRequest>([
+    ['user-a', { value: { name: 'Alice', home: { street: '1 Main', city: 'SF' } }, typeName: 'User' }],
+    ['user-b', { value: { name: 'Bob', home: { street: '2 Elm', city: 'NY' } }, typeName: 'User' }],
+  ]);
+  const out = await supervisor.parseBatch(bundleId, items);
+  for (const [, r] of out) expect(r.valid).toBe(true);
+});
+
 it('Step 3 — parse() on invalid input returns structured errors', async () => {
   const supervisor = getSupervisor();
   const bundleId = 'getting-started-invalid';
   const moduleSource = generateParseModule(schemaTypes);
-  supervisor.registerModuleSource(bundleId, moduleSource);
+  await supervisor.registerModuleSource(bundleId, moduleSource);
 
   const bad = await supervisor.parse(bundleId, {
     name: 42,

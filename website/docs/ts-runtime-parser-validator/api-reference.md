@@ -205,6 +205,53 @@ expect(result).toMatchObject({
 
 See [Additional Constraints](./additional-constraints) for the full list of JSDoc annotations and the typia types they compile into.
 
+## `ParserValidator#parseBatch()`
+
+Validate many values in a single facet RPC call. Use this when you have multiple values to check at once — collapses N RPC hops into 1, which matters in DO contexts where every hop opens an input gate.
+
+```typescript @check-example('packages/ts-runtime-parser-validator/src/facet-helper.ts')
+parseBatch(items: Map<string, ParseRequest>): Promise<Map<string, ParseResult>>;
+```
+
+```typescript @check-example('packages/ts-runtime-parser-validator/src/facet-helper.ts')
+export type ParseRequest = { value: unknown; typeName: string };
+```
+
+**Parameters:**
+- `items` — a `Map` whose keys are caller-defined identifiers (anything you can use to correlate a result back to its input — a record ID, a request slot, a UUID), and whose values are `{ value, typeName }` per item. Items can target different `typeName`s in one call.
+
+**Returns:** a `Map<string, ParseResult>` keyed by the same keys as the input. Each entry is the same `ParseResult` you'd get from calling `parse(value, typeName)` on that item — `{ valid: true, data }` on success, `{ valid: false, errors }` on failure. One bad item doesn't poison its neighbors.
+
+An empty input Map returns an empty result Map. Callers that already know they have no work should still short-circuit to avoid the facet hop.
+
+### Example
+
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
+const items = new Map<string, ParseRequest>([
+  ['todo-1', { value: { title: 'Ship it', done: false }, typeName: 'Todo' }],
+  ['tag-x', { value: { name: 'x' }, typeName: 'Tag' }],
+]);
+const out = await facet.parseBatch(items);
+const todo1 = out.get('todo-1');
+const tagX = out.get('tag-x');
+if (todo1?.valid && tagX?.valid) {
+  expect(todo1.data).toEqual({ title: 'Ship it', done: false, priority: 0 });
+  expect(tagX.data).toEqual({ name: 'x' });
+}
+```
+
+Per-item failure leaves other keys' results untouched:
+
+```typescript @check-example('packages/ts-runtime-parser-validator/test/for-docs/api-reference.test.ts')
+const items = new Map<string, ParseRequest>([
+  ['ok', { value: { title: 'good', done: true }, typeName: 'Todo' }],
+  ['bad', { value: { title: 42 }, typeName: 'Todo' }],
+]);
+const out = await facet.parseBatch(items);
+expect(out.get('ok')?.valid).toBe(true);
+expect(out.get('bad')?.valid).toBe(false);
+```
+
 ## `extractTypeMetadata()`
 
 **Most users never touch this — it's here for ORM layers and other specialized callers.** Pure utility: parse TypeScript interface definitions and return the derived metadata — interface names, `@default` values, the relationship graph (which fields reference other named interfaces), and a pre-computed write-shape version of the source with those references narrowed to string IDs. Independent from `generateParseModule()`.

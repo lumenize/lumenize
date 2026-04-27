@@ -1,20 +1,30 @@
-import { SELF } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 
-async function parse(
+type ParseResult = {
+  valid: boolean;
+  data?: unknown;
+  errors?: Array<{ path: string; expected: string; value?: unknown }>;
+};
+
+interface PrimaryStub {
+  parse: (
+    typeDefinitions: string,
+    typeName: string,
+    value: unknown,
+    bundleId?: string,
+  ) => Promise<ParseResult>;
+}
+
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
   bundleId: string,
-): Promise<{
-  result: { valid: boolean; errors?: Array<{ path: string; expected: string }> };
-}> {
-  const response = await SELF.fetch('http://example.com/parse', {
-    method: 'POST',
-    body: JSON.stringify({ typeDefinitions, typeName, value, bundleId }),
-  });
-  expect(response.status).toBe(200);
-  return response.json();
+): Promise<ParseResult> {
+  const ns = env.PRIMARY_DO;
+  const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 // Phase 3 D1: typia's JSDoc vocabulary passes through to the transformer.
@@ -27,11 +37,11 @@ interface Person {
   age: number;
 }
 `;
-    const { result: tooYoung } = await parse(types, 'Person', { age: 12 }, 'min-fail');
+    const tooYoung = await parse(types, 'Person', { age: 12 }, 'min-fail');
     expect(tooYoung.valid).toBe(false);
     expect(tooYoung.errors!.some((e) => e.path.includes('age'))).toBe(true);
 
-    const { result: ok } = await parse(types, 'Person', { age: 13 }, 'min-ok');
+    const ok = await parse(types, 'Person', { age: 13 }, 'min-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -42,9 +52,9 @@ interface Rating {
   score: number;
 }
 `;
-    const { result: over } = await parse(types, 'Rating', { score: 6 }, 'max-fail');
+    const over = await parse(types, 'Rating', { score: 6 }, 'max-fail');
     expect(over.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Rating', { score: 5 }, 'max-ok');
+    const ok = await parse(types, 'Rating', { score: 5 }, 'max-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -55,9 +65,9 @@ interface Positive {
   n: number;
 }
 `;
-    const { result: zero } = await parse(types, 'Positive', { n: 0 }, 'excl-min-fail');
+    const zero = await parse(types, 'Positive', { n: 0 }, 'excl-min-fail');
     expect(zero.valid).toBe(false);
-    const { result: one } = await parse(types, 'Positive', { n: 0.001 }, 'excl-min-ok');
+    const one = await parse(types, 'Positive', { n: 0.001 }, 'excl-min-ok');
     expect(one.valid).toBe(true);
   });
 
@@ -68,9 +78,9 @@ interface Step {
   value: number;
 }
 `;
-    const { result: bad } = await parse(types, 'Step', { value: 7 }, 'mul-fail');
+    const bad = await parse(types, 'Step', { value: 7 }, 'mul-fail');
     expect(bad.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Step', { value: 10 }, 'mul-ok');
+    const ok = await parse(types, 'Step', { value: 10 }, 'mul-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -85,11 +95,11 @@ interface Name {
   value: string;
 }
 `;
-    const { result: tooShort } = await parse(types, 'Name', { value: 'ab' }, 'len-short');
+    const tooShort = await parse(types, 'Name', { value: 'ab' }, 'len-short');
     expect(tooShort.valid).toBe(false);
-    const { result: tooLong } = await parse(types, 'Name', { value: 'x'.repeat(21) }, 'len-long');
+    const tooLong = await parse(types, 'Name', { value: 'x'.repeat(21) }, 'len-long');
     expect(tooLong.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Name', { value: 'Alice' }, 'len-ok');
+    const ok = await parse(types, 'Name', { value: 'Alice' }, 'len-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -100,9 +110,9 @@ interface Slug {
   id: string;
 }
 `;
-    const { result: bad } = await parse(types, 'Slug', { id: 'Has Spaces' }, 'pat-fail');
+    const bad = await parse(types, 'Slug', { id: 'Has Spaces' }, 'pat-fail');
     expect(bad.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Slug', { id: 'hello-world' }, 'pat-ok');
+    const ok = await parse(types, 'Slug', { id: 'hello-world' }, 'pat-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -113,9 +123,9 @@ interface Contact {
   email: string;
 }
 `;
-    const { result: bad } = await parse(types, 'Contact', { email: 'not-an-email' }, 'fmt-fail');
+    const bad = await parse(types, 'Contact', { email: 'not-an-email' }, 'fmt-fail');
     expect(bad.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Contact', { email: 'alice@example.com' }, 'fmt-ok');
+    const ok = await parse(types, 'Contact', { email: 'alice@example.com' }, 'fmt-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -126,9 +136,9 @@ interface Ref {
   id: string;
 }
 `;
-    const { result: bad } = await parse(types, 'Ref', { id: 'not-uuid' }, 'uuid-fail');
+    const bad = await parse(types, 'Ref', { id: 'not-uuid' }, 'uuid-fail');
     expect(bad.valid).toBe(false);
-    const { result: ok } = await parse(
+    const ok = await parse(
       types,
       'Ref',
       { id: '550e8400-e29b-41d4-a716-446655440000' },
@@ -144,9 +154,9 @@ interface Bag {
   items: string[];
 }
 `;
-    const { result: bad } = await parse(types, 'Bag', { items: ['x'] }, 'min-items-fail');
+    const bad = await parse(types, 'Bag', { items: ['x'] }, 'min-items-fail');
     expect(bad.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Bag', { items: ['x', 'y'] }, 'min-items-ok');
+    const ok = await parse(types, 'Bag', { items: ['x', 'y'] }, 'min-items-ok');
     expect(ok.valid).toBe(true);
   });
 
@@ -157,9 +167,9 @@ interface Uniq {
   items: string[];
 }
 `;
-    const { result: bad } = await parse(types, 'Uniq', { items: ['a', 'a'] }, 'uniq-fail');
+    const bad = await parse(types, 'Uniq', { items: ['a', 'a'] }, 'uniq-fail');
     expect(bad.valid).toBe(false);
-    const { result: ok } = await parse(types, 'Uniq', { items: ['a', 'b'] }, 'uniq-ok');
+    const ok = await parse(types, 'Uniq', { items: ['a', 'b'] }, 'uniq-ok');
     expect(ok.valid).toBe(true);
   });
 });

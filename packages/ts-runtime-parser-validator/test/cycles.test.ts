@@ -20,7 +20,7 @@ type ParseResult = {
 };
 
 interface PrimaryStub {
-  rpcParse: (
+  parse: (
     typeDefinitions: string,
     typeName: string,
     value: unknown,
@@ -28,7 +28,7 @@ interface PrimaryStub {
   ) => Promise<ParseResult>;
 }
 
-function rpcParse(
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
@@ -36,7 +36,7 @@ function rpcParse(
 ): Promise<ParseResult> {
   const ns = env.PRIMARY_DO;
   const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
-  return stub.rpcParse(typeDefinitions, typeName, value, bundleId);
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('Visit-tracking (cycles + aliases)', () => {
@@ -44,7 +44,7 @@ describe('Visit-tracking (cycles + aliases)', () => {
     const types = `interface Node { name: string; parent?: Node; }`;
     const a: any = { name: 'a' };
     a.parent = a;
-    const result = await rpcParse(types, 'Node', a, 'cycle-optional');
+    const result = await parse(types, 'Node', a, 'cycle-optional');
     expect(result.valid).toBe(true);
   });
 
@@ -52,7 +52,7 @@ describe('Visit-tracking (cycles + aliases)', () => {
     const types = `interface Node { name: string; parent: Node | null; }`;
     const a: any = { name: 'a', parent: null };
     a.parent = a;
-    const result = await rpcParse(types, 'Node', a, 'cycle-nullable');
+    const result = await parse(types, 'Node', a, 'cycle-nullable');
     expect(result.valid).toBe(true);
   });
 
@@ -60,7 +60,7 @@ describe('Visit-tracking (cycles + aliases)', () => {
     const types = `interface Node { name: string; parent: Node; }`;
     const a: any = { name: 'a' };
     a.parent = a;
-    const result = await rpcParse(types, 'Node', a, 'cycle-nonnullable');
+    const result = await parse(types, 'Node', a, 'cycle-nonnullable');
     expect(result.valid).toBe(true);
   });
 
@@ -77,7 +77,7 @@ interface Leaf {
 `;
     const shared = { id: 'shared-leaf' };
     const root = { name: 'root', left: shared, right: shared };
-    const result = await rpcParse(types, 'Tree', root, 'alias-dag');
+    const result = await parse(types, 'Tree', root, 'alias-dag');
     expect(result.valid).toBe(true);
   });
 
@@ -85,7 +85,7 @@ interface Leaf {
     const types = `interface Node { name: string; parent?: Node; }`;
     const a: any = { name: 42 }; // name should be string
     a.parent = a;
-    const result = await rpcParse(types, 'Node', a, 'cycle-invalid');
+    const result = await parse(types, 'Node', a, 'cycle-invalid');
     expect(result.valid).toBe(false);
     expect(result.errors?.some((e) => e.expected === 'string')).toBe(true);
   });
@@ -98,7 +98,7 @@ interface B { id: string; a?: A; }
     const a: any = { name: 'a' };
     const b: any = { id: 'b', a };
     a.b = b;
-    const result = await rpcParse(types, 'A', a, 'mutual-cycle');
+    const result = await parse(types, 'A', a, 'mutual-cycle');
     expect(result.valid).toBe(true);
   });
 
@@ -125,7 +125,7 @@ interface Node { id: number; children: Node[]; }
         { id: 3, children: [shared] },
       ],
     };
-    const result = await rpcParse(types, 'Root', root, 'dag-counter');
+    const result = await parse(types, 'Root', root, 'dag-counter');
     expect(result.valid).toBe(true);
     // Measured: exactly 1. Workers RPC preserves object references without
     // re-reading properties (so the getter is not invoked in transit), and

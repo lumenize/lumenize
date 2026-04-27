@@ -1,14 +1,13 @@
 /**
  * Type-support delta suite — JS-values-over-RPC layer.
  *
- * These tests call the DO via **Workers RPC** (not `SELF.fetch` with a JSON
- * body), so `value` crosses the boundary with structured-clone semantics:
- * Date, Map, Set, RegExp, TypedArrays, cyclic refs all survive. This is the
- * production serialisation path (Star → facet in 5.2.4.2).
+ * These tests call the DO via **Workers RPC**, so `value` crosses the
+ * boundary with structured-clone semantics: Date, Map, Set, RegExp,
+ * TypedArrays, cyclic refs all survive. This is the production
+ * serialisation path (Star → facet in 5.2.4.2).
  *
  * Pass/fail here reflects whether typia's generated validator can *validate*
- * the type, given that the value arrives fully-typed. JSON-boundary artefacts
- * are excluded.
+ * the type, given that the value arrives fully-typed.
  */
 
 import { env } from 'cloudflare:test';
@@ -21,7 +20,7 @@ type ParseResult = {
 };
 
 interface PrimaryStub {
-  rpcParse: (
+  parse: (
     typeDefinitions: string,
     typeName: string,
     value: unknown,
@@ -29,7 +28,7 @@ interface PrimaryStub {
   ) => Promise<ParseResult>;
 }
 
-function rpcParse(
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
@@ -37,13 +36,13 @@ function rpcParse(
 ): Promise<ParseResult> {
   const ns = env.PRIMARY_DO;
   const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
-  return stub.rpcParse(typeDefinitions, typeName, value, bundleId);
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('Parity (RPC path) — Date', () => {
   it('[SUPPORTED] Date instance validates against `Date` type', async () => {
     const types = `interface Appt { when: Date; }`;
-    const result = await rpcParse(types, 'Appt', { when: new Date('2026-04-20T10:30:00Z') }, 'rpc-date');
+    const result = await parse(types, 'Appt', { when: new Date('2026-04-20T10:30:00Z') }, 'rpc-date');
     expect(result.valid).toBe(true);
   });
 
@@ -54,9 +53,9 @@ interface Appt {
   when: string;
 }
 `;
-    const good = await rpcParse(types, 'Appt', { when: '2026-04-20T10:30:00Z' }, 'rpc-dt-ok');
+    const good = await parse(types, 'Appt', { when: '2026-04-20T10:30:00Z' }, 'rpc-dt-ok');
     expect(good.valid).toBe(true);
-    const bad = await rpcParse(types, 'Appt', { when: 'not a date' }, 'rpc-dt-bad');
+    const bad = await parse(types, 'Appt', { when: 'not a date' }, 'rpc-dt-bad');
     expect(bad.valid).toBe(false);
   });
 });
@@ -64,7 +63,7 @@ interface Appt {
 describe('Parity (RPC path) — Map', () => {
   it('[SUPPORTED] homogeneous Map<string, number>', async () => {
     const types = `interface Scores { data: Map<string, number>; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Scores',
       { data: new Map<string, number>([['alice', 95], ['bob', 87]]) },
@@ -75,7 +74,7 @@ describe('Parity (RPC path) — Map', () => {
 
   it('[SUPPORTED] heterogeneous Map<string, string | number> (absorbs the stand-alone gate)', async () => {
     const types = `interface Mixed { data: Map<string, string | number>; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Mixed',
       { data: new Map<string, string | number>([['a', 'hello'], ['b', 42]]) },
@@ -86,7 +85,7 @@ describe('Parity (RPC path) — Map', () => {
 
   it('rejects Map with wrong value type', async () => {
     const types = `interface Scores { data: Map<string, number>; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Scores',
       { data: new Map<string, unknown>([['alice', 'not-a-number']]) },
@@ -99,7 +98,7 @@ describe('Parity (RPC path) — Map', () => {
 describe('Parity (RPC path) — Set', () => {
   it('[SUPPORTED] Set<string>', async () => {
     const types = `interface Tagged { tags: Set<string>; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Tagged',
       { tags: new Set(['a', 'b', 'c']) },
@@ -110,7 +109,7 @@ describe('Parity (RPC path) — Set', () => {
 
   it('rejects Set with wrong element type', async () => {
     const types = `interface Tagged { tags: Set<string>; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Tagged',
       { tags: new Set([1, 2, 3] as unknown as string[]) },
@@ -123,13 +122,13 @@ describe('Parity (RPC path) — Set', () => {
 describe('Parity (RPC path) — RegExp', () => {
   it('[SUPPORTED] RegExp instance accepted against RegExp type', async () => {
     const types = `interface Rule { pattern: RegExp; }`;
-    const result = await rpcParse(types, 'Rule', { pattern: /foo/i }, 'rpc-regex');
+    const result = await parse(types, 'Rule', { pattern: /foo/i }, 'rpc-regex');
     expect(result.valid).toBe(true);
   });
 
   it('[SUPPORTED] RegExp type rejects a string value with typia error naming RegExp', async () => {
     const types = `interface Rule { pattern: RegExp; }`;
-    const result = await rpcParse(types, 'Rule', { pattern: 'not-a-regex' }, 'rpc-regex-str');
+    const result = await parse(types, 'Rule', { pattern: 'not-a-regex' }, 'rpc-regex-str');
     expect(result.valid).toBe(false);
     expect(result.errors![0].expected).toBe('RegExp');
   });
@@ -141,9 +140,9 @@ interface Slug {
   id: string;
 }
 `;
-    const good = await rpcParse(types, 'Slug', { id: 'valid-slug' }, 'rpc-pat-ok');
+    const good = await parse(types, 'Slug', { id: 'valid-slug' }, 'rpc-pat-ok');
     expect(good.valid).toBe(true);
-    const bad = await rpcParse(types, 'Slug', { id: 'Has Spaces' }, 'rpc-pat-bad');
+    const bad = await parse(types, 'Slug', { id: 'Has Spaces' }, 'rpc-pat-bad');
     expect(bad.valid).toBe(false);
   });
 });
@@ -156,9 +155,9 @@ interface Link {
   href: string;
 }
 `;
-    const good = await rpcParse(types, 'Link', { href: 'https://example.com/path' }, 'rpc-url-ok');
+    const good = await parse(types, 'Link', { href: 'https://example.com/path' }, 'rpc-url-ok');
     expect(good.valid).toBe(true);
-    const bad = await rpcParse(types, 'Link', { href: 'not a url' }, 'rpc-url-bad');
+    const bad = await parse(types, 'Link', { href: 'not a url' }, 'rpc-url-bad');
     expect(bad.valid).toBe(false);
   });
 });
@@ -166,7 +165,7 @@ interface Link {
 describe('Parity (RPC path) — TypedArrays', () => {
   it('[SUPPORTED] Uint8Array accepted against Uint8Array type', async () => {
     const types = `interface Blob { data: Uint8Array; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Blob',
       { data: new Uint8Array([1, 2, 3]) },
@@ -177,7 +176,7 @@ describe('Parity (RPC path) — TypedArrays', () => {
 
   it('[SUPPORTED] plain array rejected where Uint8Array is expected', async () => {
     const types = `interface Blob { data: Uint8Array; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Blob',
       { data: [1, 2, 3] as any },
@@ -189,7 +188,7 @@ describe('Parity (RPC path) — TypedArrays', () => {
 
   it('[SUPPORTED] BigInt64Array', async () => {
     const types = `interface Ids { xs: BigInt64Array; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Ids',
       { xs: new BigInt64Array([BigInt(1), BigInt(2)]) },
@@ -200,7 +199,7 @@ describe('Parity (RPC path) — TypedArrays', () => {
 
   it('[SUPPORTED] ArrayBuffer', async () => {
     const types = `interface Buf { b: ArrayBuffer; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Buf',
       { b: new ArrayBuffer(8) },
@@ -219,7 +218,7 @@ describe('Parity (RPC path) — Cyclic values', () => {
     const node: { id: number; parent: any } = { id: 1, parent: null };
     node.parent = node;
 
-    const result = await rpcParse(types, 'Node', node, 'rpc-cycle');
+    const result = await parse(types, 'Node', node, 'rpc-cycle');
     expect(result.valid).toBe(true);
   });
 
@@ -236,7 +235,7 @@ describe('Parity (RPC path) — Cyclic values', () => {
     let threw: unknown = null;
     let result: { valid: boolean } | null = null;
     try {
-      result = await rpcParse(types, 'Node', node, 'rpc-cycle-rel');
+      result = await parse(types, 'Node', node, 'rpc-cycle-rel');
     } catch (e) {
       threw = e;
     }
@@ -256,7 +255,7 @@ interface BigThing {
   n: bigint;
 }
 `;
-    const result = await rpcParse(types, 'BigThing', { n: BigInt(42) }, 'rpc-bigint');
+    const result = await parse(types, 'BigThing', { n: BigInt(42) }, 'rpc-bigint');
     expect(result.valid).toBe(true);
   });
 });
@@ -264,7 +263,7 @@ interface BigThing {
 describe('Parity (RPC path) — any fields', () => {
   it('[SUPPORTED] `any` accepts rich values including Map, Set, Date', async () => {
     const types = `interface Flex { metadata: any; }`;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Flex',
       {

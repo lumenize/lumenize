@@ -64,6 +64,9 @@ After each small task file or large phase, briefly answer:
 2. **What did we struggle with?** (implementation friction, confusing APIs, wrong assumptions)
 3. **Did any tests fail unexpectedly?** (root cause, not just the fix)
 4. **Impact on follow-on work?** (does this change later phases, create new backlog items, or simplify/complicate the plan?)
+5. **Process changes?** (rules, conventions, or skill updates that would have prevented this work's friction or caught its bugs earlier — propose **concrete edits** to `CLAUDE.md`, `.claude/rules/`, skill files, or `tasks/README.md`. If nothing comes to mind, say so explicitly — don't pad.)
+
+Question 5 is about how we work, not what we work on next. Resist the urge to roll process insights into question 4 — they belong here, where the prompt forces a concrete edit proposal.
 
 Capture anything reusable (patterns, conventions, gotchas) in the appropriate place: CLAUDE.md, skill files, AGENTS.md, or backlog.md. Don't let hard-won knowledge stay only in the conversation transcript.
 

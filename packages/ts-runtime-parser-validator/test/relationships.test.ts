@@ -1,25 +1,31 @@
-import { SELF } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 import { extractTypeMetadata } from '../src/extract-type-metadata';
 
-async function parse(
+type ParseResult = {
+  valid: boolean;
+  data?: unknown;
+  errors?: Array<{ path: string; expected: string }>;
+};
+
+interface PrimaryStub {
+  parse: (
+    typeDefinitions: string,
+    typeName: string,
+    value: unknown,
+    bundleId?: string,
+  ) => Promise<ParseResult>;
+}
+
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
   bundleId: string,
-): Promise<{
-  result: {
-    valid: boolean;
-    data?: unknown;
-    errors?: Array<{ path: string; expected: string }>;
-  };
-}> {
-  const response = await SELF.fetch('http://example.com/parse', {
-    method: 'POST',
-    body: JSON.stringify({ typeDefinitions, typeName, value, bundleId }),
-  });
-  expect(response.status).toBe(200);
-  return response.json();
+): Promise<ParseResult> {
+  const ns = env.PRIMARY_DO;
+  const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('extractTypeMetadata — type-graph edges + write-shape', () => {
@@ -86,7 +92,7 @@ describe('Facet: named-interface fields validate as embedded objects (Phase 6.5)
 interface Address { street: string; city: string; zip: string; }
 interface User { id: string; name: string; home: Address; }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'User',
       {
@@ -109,7 +115,7 @@ interface User { id: string; name: string; home: Address; }
 interface Tag { name: string; }
 interface Post { id: string; tags: Tag[]; }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Post',
       { id: 'p-1', tags: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] },
@@ -127,7 +133,7 @@ interface Post { id: string; tags: Tag[]; }
 interface Address { street: string; }
 interface User { id: string; home: Address; }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'User',
       { id: 'u-1', home: 'addr-123' },
@@ -147,7 +153,7 @@ interface User { id: string; name: string; home: Address; }
 `;
     const md = extractTypeMetadata(original);
     // Generate the module from the pre-rewritten write-shape. Now `home` is `string`.
-    const { result: idOk } = await parse(
+    const idOk = await parse(
       md.writeShapeTypeDefinitions,
       'User',
       { id: 'u-1', name: 'Alice', home: 'addr-123' },
@@ -157,7 +163,7 @@ interface User { id: string; name: string; home: Address; }
     expect(idOk.data).toEqual({ id: 'u-1', name: 'Alice', home: 'addr-123' });
 
     // And a nested object is now rejected in the write-shape module.
-    const { result: objReject } = await parse(
+    const objReject = await parse(
       md.writeShapeTypeDefinitions,
       'User',
       { id: 'u-1', name: 'Alice', home: { street: '1 Main', city: 'SF', zip: '94107' } },
@@ -175,7 +181,7 @@ interface Settings {
   config?: { timeout: number; retries: number; };
 }
 `;
-    const { result } = await parse(types, 'Settings', {}, 'rec-default');
+    const result = await parse(types, 'Settings', {}, 'rec-default');
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ config: { timeout: 30, retries: 3 } });
   });
@@ -189,7 +195,7 @@ interface Address {
 }
 interface User { id: string; home: Address; }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'User',
       { id: 'u-1', home: { street: '1 Main' } },

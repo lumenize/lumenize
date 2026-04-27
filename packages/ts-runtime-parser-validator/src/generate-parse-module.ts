@@ -510,6 +510,14 @@ export class ParserValidator extends DurableObject {
     if (result.success) return { valid: true, data: result.data };
     return { valid: false, errors: result.errors };
   }
+
+  parseBatch(items) {
+    const out = new Map();
+    for (const [key, item] of items) {
+      out.set(key, this.parse(item.value, item.typeName));
+    }
+    return out;
+  }
 }
 `;
 }

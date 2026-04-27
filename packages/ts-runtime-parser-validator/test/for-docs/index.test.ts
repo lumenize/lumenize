@@ -15,7 +15,7 @@ type ParseResult = {
 };
 
 interface PrimaryStub {
-  rpcParse: (
+  parse: (
     typeDefinitions: string,
     typeName: string,
     value: unknown,
@@ -37,7 +37,7 @@ interface Todo {
 const parse = (value: unknown, typeName: string): Promise<ParseResult> => {
   const ns = env.PRIMARY_DO;
   const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
-  return stub.rpcParse(TODO_TYPES, typeName, value, 'idx-default');
+  return stub.parse(TODO_TYPES, typeName, value, 'idx-default');
 };
 
 it('valid input comes back with defaults filled in', async () => {

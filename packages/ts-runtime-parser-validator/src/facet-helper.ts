@@ -23,6 +23,12 @@ export interface ValidationError {
 }
 
 /**
+ * One entry in a `parseBatch()` input Map. Identity is the Map key, so no
+ * `id` field — caller picks any string key (Nebula uses `resourceId`).
+ */
+export type ParseRequest = { value: unknown; typeName: string };
+
+/**
  * Internal brand type — the shape of the `ParserValidator` class inside the
  * generated module. Used to type `getDurableObjectClass<T>` and `facets.get<T>`,
  * which require `Rpc.DurableObjectBranded`. Not exported: callers don't
@@ -30,6 +36,7 @@ export interface ValidationError {
  */
 interface ParserValidatorClass extends DurableObject {
   parse(value: unknown, typeName: string): ParseResult;
+  parseBatch(items: Map<string, ParseRequest>): Map<string, ParseResult>;
 }
 
 /**
@@ -39,6 +46,7 @@ interface ParserValidatorClass extends DurableObject {
  */
 export type ParserValidator = {
   parse(value: unknown, typeName: string): Promise<ParseResult>;
+  parseBatch(items: Map<string, ParseRequest>): Promise<Map<string, ParseResult>>;
 };
 
 /**

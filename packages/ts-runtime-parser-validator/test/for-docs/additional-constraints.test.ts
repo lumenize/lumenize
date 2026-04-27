@@ -17,7 +17,7 @@ type ParseResult = {
 };
 
 interface PrimaryStub {
-  rpcParse: (
+  parse: (
     typeDefinitions: string,
     typeName: string,
     value: unknown,
@@ -33,7 +33,7 @@ function makeFacet(types: string) {
     parse: (value: unknown, typeName: string): Promise<ParseResult> => {
       const ns = env.PRIMARY_DO;
       const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
-      return stub.rpcParse(types, typeName, value, bundleId);
+      return stub.parse(types, typeName, value, bundleId);
     },
   };
 }

@@ -1,4 +1,4 @@
-import { SELF } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 
 const SIMPLE_TYPES = `
@@ -9,37 +9,45 @@ interface Todo {
 }
 `;
 
-async function parse(
+type ParseResult = {
+  valid: boolean;
+  data?: unknown;
+  errors?: Array<{ path: string; expected: string }>;
+};
+
+interface PrimaryStub {
+  parse: (
+    typeDefinitions: string,
+    typeName: string,
+    value: unknown,
+    bundleId?: string,
+  ) => Promise<ParseResult>;
+}
+
+function parse(
   typeName: string,
   value: unknown,
   bundleId = 'default',
   typeDefinitions = SIMPLE_TYPES,
-): Promise<{
-  result: { valid: boolean; data?: unknown; errors?: Array<{ path: string; expected: string }> };
-  moduleSize: number;
-}> {
-  const response = await SELF.fetch('http://example.com/parse', {
-    method: 'POST',
-    body: JSON.stringify({ typeDefinitions, typeName, value, bundleId }),
-  });
-  expect(response.status).toBe(200);
-  return response.json();
+): Promise<ParseResult> {
+  const ns = env.PRIMARY_DO;
+  const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('Spike A: real typia transform via facet', () => {
   it('emits a facet module that validates a correct Todo', async () => {
-    const { result, moduleSize } = await parse('Todo', {
+    const result = await parse('Todo', {
       title: 'Fix bug',
       done: false,
       priority: 1,
     });
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ title: 'Fix bug', done: false, priority: 1 });
-    expect(moduleSize).toBeGreaterThan(500); // real emit is larger than the stub
   });
 
   it('rejects a Todo with wrong field types and returns typia errors', async () => {
-    const { result } = await parse(
+    const result = await parse(
       'Todo',
       { title: 42, done: 'yes' },
       'mismatch',
@@ -54,7 +62,7 @@ describe('Spike A: real typia transform via facet', () => {
   });
 
   it('rejects a Todo with missing required field', async () => {
-    const { result } = await parse(
+    const result = await parse(
       'Todo',
       { title: 'only title' },
       'missing-required',
@@ -64,7 +72,7 @@ describe('Spike A: real typia transform via facet', () => {
   });
 
   it('returns valid=false with an explicit unknown-type error for a bogus typeName', async () => {
-    const { result } = await parse('NotATypeName', { anything: 1 }, 'unknown-type');
+    const result = await parse('NotATypeName', { anything: 1 }, 'unknown-type');
     expect(result.valid).toBe(false);
     expect(result.errors![0].expected).toBe('NotATypeName');
   });
@@ -89,17 +97,11 @@ interface User {
       tags: ['team-lead'],
       active: true,
     };
-    const { result: good, moduleSize } = await parse(
-      'User',
-      validUser,
-      'rich-valid',
-      RICH,
-    );
+    const good = await parse('User', validUser, 'rich-valid', RICH);
     expect(good.valid).toBe(true);
     expect(good.data).toEqual(validUser);
-    expect(moduleSize).toBeGreaterThan(500);
 
-    const { result: bad } = await parse(
+    const bad = await parse(
       'User',
       { ...validUser, role: 'superadmin', tags: 'not-array' },
       'rich-invalid',

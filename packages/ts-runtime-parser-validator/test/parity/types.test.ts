@@ -16,23 +16,33 @@
  * intent. At Phase 5 close, review each DROP and confirm it's intentional.
  */
 
-import { SELF } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 
-async function parse(
+type ParseResult = {
+  valid: boolean;
+  data?: unknown;
+  errors?: Array<{ path: string; expected: string }>;
+};
+
+interface PrimaryStub {
+  parse: (
+    typeDefinitions: string,
+    typeName: string,
+    value: unknown,
+    bundleId?: string,
+  ) => Promise<ParseResult>;
+}
+
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
   bundleId: string,
-): Promise<{
-  result: { valid: boolean; data?: unknown; errors?: Array<{ path: string; expected: string }> };
-}> {
-  const response = await SELF.fetch('http://example.com/parse', {
-    method: 'POST',
-    body: JSON.stringify({ typeDefinitions, typeName, value, bundleId }),
-  });
-  expect(response.status).toBe(200);
-  return response.json();
+): Promise<ParseResult> {
+  const ns = env.PRIMARY_DO;
+  const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('Parity — Primitives', () => {
@@ -46,7 +56,7 @@ interface Config {
   extra?: string;
 }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Config',
       { name: 'test', count: 42, enabled: true, label: null },
@@ -55,12 +65,10 @@ interface Config {
     expect(result.valid).toBe(true);
   });
 
-  it('[DROP] bigint — does not survive JSON serialisation at test boundary', async () => {
-    // bigint can't round-trip through JSON.stringify (which is what our test
-    // harness uses to POST values). Real usage goes through Workers RPC which
-    // does preserve bigint. The delta suite's values-layer file will cover
-    // RPC-path bigint; the types-layer can only document the doc boundary.
-    expect(true).toBe(true);
+  it('[SUPPORTED] bigint round-trips via Workers RPC', async () => {
+    const types = `interface BigThing { n: bigint; }`;
+    const result = await parse(types, 'BigThing', { n: BigInt(42) }, 'bigint-rpc');
+    expect(result.valid).toBe(true);
   });
 });
 
@@ -72,7 +80,7 @@ interface Person {
   address: { street: string; city: string; };
 }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Person',
       { name: 'Alice', address: { street: '1 Main', city: 'Springfield' } },
@@ -83,7 +91,7 @@ interface Person {
 
   it('[SUPPORTED] typed arrays catch wrong element types', async () => {
     const types = `interface NumberList { items: number[]; }`;
-    const { result } = await parse(types, 'NumberList', { items: [1, 'two', 3] }, 'arr-fail');
+    const result = await parse(types, 'NumberList', { items: [1, 'two', 3] }, 'arr-fail');
     expect(result.valid).toBe(false);
   });
 });
@@ -91,25 +99,25 @@ interface Person {
 describe('Parity — Union and Optional', () => {
   it('[SUPPORTED] union type accepts both members', async () => {
     const types = `interface Result { value: string | number; }`;
-    const { result: s } = await parse(types, 'Result', { value: 'hi' }, 'un-str');
+    const s = await parse(types, 'Result', { value: 'hi' }, 'un-str');
     expect(s.valid).toBe(true);
-    const { result: n } = await parse(types, 'Result', { value: 42 }, 'un-num');
+    const n = await parse(types, 'Result', { value: 42 }, 'un-num');
     expect(n.valid).toBe(true);
   });
 
   it('[SUPPORTED] string-literal union rejects invalid values', async () => {
     const types = `interface Item { category: 'internal' | 'external'; }`;
-    const { result: ok } = await parse(types, 'Item', { category: 'internal' }, 'lit-ok');
+    const ok = await parse(types, 'Item', { category: 'internal' }, 'lit-ok');
     expect(ok.valid).toBe(true);
-    const { result: bad } = await parse(types, 'Item', { category: 'other' }, 'lit-bad');
+    const bad = await parse(types, 'Item', { category: 'other' }, 'lit-bad');
     expect(bad.valid).toBe(false);
   });
 
   it('[SUPPORTED] optional property (both present and absent)', async () => {
     const types = `interface User { name: string; nickname?: string; }`;
-    const { result: absent } = await parse(types, 'User', { name: 'Alice' }, 'opt-absent');
+    const absent = await parse(types, 'User', { name: 'Alice' }, 'opt-absent');
     expect(absent.valid).toBe(true);
-    const { result: present } = await parse(types, 'User', { name: 'Alice', nickname: 'Al' }, 'opt-present');
+    const present = await parse(types, 'User', { name: 'Alice', nickname: 'Al' }, 'opt-present');
     expect(present.valid).toBe(true);
   });
 });
@@ -123,7 +131,7 @@ describe('Parity — Utility Types', () => {
 interface User { name: string; email: string; age: number; }
 type PartialUser = Partial<User>;
 `;
-    const { result } = await parse(types, 'PartialUser', { name: 'x' }, 'partial-ok');
+    const result = await parse(types, 'PartialUser', { name: 'x' }, 'partial-ok');
     expect(result.valid).toBe(true);
   });
 
@@ -132,7 +140,7 @@ type PartialUser = Partial<User>;
 interface User { name: string; email: string; age: number; }
 interface Draft { user: Partial<User>; }
 `;
-    const { result: ok } = await parse(
+    const ok = await parse(
       types,
       'Draft',
       { user: { name: 'Alice' } },
@@ -146,7 +154,7 @@ interface Draft { user: Partial<User>; }
 interface User { name: string; email: string; age: number; }
 interface Contact { data: Pick<User, 'name' | 'email'>; }
 `;
-    const { result: ok } = await parse(
+    const ok = await parse(
       types,
       'Contact',
       { data: { name: 'Alice', email: 'a@b.com' } },
@@ -157,7 +165,7 @@ interface Contact { data: Pick<User, 'name' | 'email'>; }
 
   it('[SUPPORTED] Record via embedded field', async () => {
     const types = `interface Roles { data: Record<string, boolean>; }`;
-    const { result } = await parse(types, 'Roles', { data: { admin: true, user: false } }, 'rec-ok');
+    const result = await parse(types, 'Roles', { data: { admin: true, user: false } }, 'rec-ok');
     expect(result.valid).toBe(true);
   });
 });
@@ -170,7 +178,7 @@ interface Dog { bark: string; }
 type Pet<T> = T extends 'cat' ? Cat : Dog;
 interface Home { pet: Pet<'cat'>; }
 `;
-    const { result } = await parse(types, 'Home', { pet: { meow: 'loud' } }, 'cond-ok');
+    const result = await parse(types, 'Home', { pet: { meow: 'loud' } }, 'cond-ok');
     expect(result.valid).toBe(true);
   });
 
@@ -179,7 +187,7 @@ interface Home { pet: Pet<'cat'>; }
 type EventName = \`on\${'Click' | 'Hover'}\`;
 interface Handler { event: EventName; }
 `;
-    const { result } = await parse(types, 'Handler', { event: 'onClick' }, 'tmpl-ok');
+    const result = await parse(types, 'Handler', { event: 'onClick' }, 'tmpl-ok');
     expect(result.valid).toBe(true);
   });
 
@@ -189,7 +197,7 @@ interface Config { host: string; port: number; }
 type Nullable<T> = { [K in keyof T]: T[K] | null; };
 interface Settings { config: Nullable<Config>; }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Settings',
       { config: { host: null, port: 8080 } },
@@ -208,7 +216,7 @@ describe('Parity — Generic Types', () => {
 interface Todo { title: string; done: boolean; }
 interface List<T> { items: T[]; }
 `;
-    const { result } = await parse(types, 'List<Todo>', { items: [] }, 'gen-drop');
+    const result = await parse(types, 'List<Todo>', { items: [] }, 'gen-drop');
     expect(result.valid).toBe(false);
     expect(result.errors![0].expected).toBe('List<Todo>');
   });
@@ -218,7 +226,7 @@ interface List<T> { items: T[]; }
 interface Todo { title: string; done: boolean; }
 interface TodoList { items: Todo[]; }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'TodoList',
       { items: [{ title: 'Ship', done: false }] },
@@ -234,7 +242,7 @@ describe('Parity — Known Limitations', () => {
     // Old package: `metadata: any` accepts Maps, Sets, Dates, cycles. New package
     // does a typeof check only — lets anything through, doesn't recurse.
     const types = `interface Flex { metadata: any; }`;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Flex',
       { metadata: { a: 1, b: [1, 2, 3] } },
@@ -248,7 +256,7 @@ describe('Parity — Known Limitations', () => {
     // validates that the function field matches whatever shape was declared,
     // but functions themselves can't cross the Workers RPC boundary anyway.
     const types = `interface X { fn: any; }`;
-    const { result } = await parse(types, 'X', { fn: null }, 'fn-any');
+    const result = await parse(types, 'X', { fn: null }, 'fn-any');
     expect(result.valid).toBe(true); // `any` accepts null
   });
 });

@@ -9,7 +9,7 @@ type ParseResult = {
 };
 
 interface PrimaryStub {
-  rpcParse: (
+  parse: (
     typeDefinitions: string,
     typeName: string,
     value: unknown,
@@ -17,7 +17,7 @@ interface PrimaryStub {
   ) => Promise<ParseResult>;
 }
 
-function rpcParse(
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
@@ -25,7 +25,7 @@ function rpcParse(
 ): Promise<ParseResult> {
   const ns = env.PRIMARY_DO;
   const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
-  return stub.rpcParse(typeDefinitions, typeName, value, bundleId);
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('Container-of-named-interface-type — extraction (write-shape helper)', () => {
@@ -134,7 +134,7 @@ interface Team {
   members: Set<User>;
 }
 `;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Team',
       {
@@ -157,7 +157,7 @@ interface Team {
   roleMap: Map<string, User>;
 }
 `;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Team',
       {
@@ -180,7 +180,7 @@ interface Team {
   members: Set<User>;
 }
 `;
-    const result = await rpcParse(
+    const result = await parse(
       types,
       'Team',
       {
@@ -203,7 +203,7 @@ interface Team {
 }
 `;
     const md = extractTypeMetadata(original);
-    const idOk = await rpcParse(
+    const idOk = await parse(
       md.writeShapeTypeDefinitions,
       'Team',
       { id: 't-1', members: new Set(['u-1', 'u-2']) },
@@ -211,7 +211,7 @@ interface Team {
     );
     expect(idOk.valid).toBe(true);
 
-    const objReject = await rpcParse(
+    const objReject = await parse(
       md.writeShapeTypeDefinitions,
       'Team',
       {

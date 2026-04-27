@@ -1,26 +1,30 @@
-import { SELF } from 'cloudflare:test';
+import { env } from 'cloudflare:test';
 import { describe, it, expect } from 'vitest';
 
 type ParseResult = {
-  result: {
-    valid: boolean;
-    data?: unknown;
-    errors?: Array<{ path: string; expected: string; value?: unknown }>;
-  };
+  valid: boolean;
+  data?: unknown;
+  errors?: Array<{ path: string; expected: string; value?: unknown }>;
 };
 
-async function parse(
+interface PrimaryStub {
+  parse: (
+    typeDefinitions: string,
+    typeName: string,
+    value: unknown,
+    bundleId?: string,
+  ) => Promise<ParseResult>;
+}
+
+function parse(
   typeDefinitions: string,
   typeName: string,
   value: unknown,
   bundleId: string,
 ): Promise<ParseResult> {
-  const response = await SELF.fetch('http://example.com/parse', {
-    method: 'POST',
-    body: JSON.stringify({ typeDefinitions, typeName, value, bundleId }),
-  });
-  expect(response.status).toBe(200);
-  return response.json();
+  const ns = env.PRIMARY_DO;
+  const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
+  return stub.parse(typeDefinitions, typeName, value, bundleId);
 }
 
 describe('@default filling (Phase 4 specs made executable)', () => {
@@ -32,7 +36,7 @@ interface Todo {
   priority?: number;
 }
 `;
-    const { result } = await parse(types, 'Todo', { title: 'x' }, 'd-flat');
+    const result = await parse(types, 'Todo', { title: 'x' }, 'd-flat');
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ title: 'x', priority: 0 });
   });
@@ -45,7 +49,7 @@ interface Todo {
   priority?: number;
 }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Todo',
       { title: 'x', priority: undefined },
@@ -62,7 +66,7 @@ interface Note {
   count?: number | null;
 }
 `;
-    const { result } = await parse(types, 'Note', { count: null }, 'd-null');
+    const result = await parse(types, 'Note', { count: null }, 'd-null');
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ count: null });
   });
@@ -74,7 +78,7 @@ interface Tagged {
   tags?: string[];
 }
 `;
-    const { result } = await parse(types, 'Tagged', {}, 'd-arr');
+    const result = await parse(types, 'Tagged', {}, 'd-arr');
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ tags: [] });
   });
@@ -86,7 +90,7 @@ interface Settings {
   config?: { timeout: number; retries: number; };
 }
 `;
-    const { result } = await parse(types, 'Settings', {}, 'd-obj');
+    const result = await parse(types, 'Settings', {}, 'd-obj');
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ config: { timeout: 30, retries: 3 } });
   });
@@ -102,7 +106,7 @@ interface Prefs {
   backup?: string | null;
 }
 `;
-    const { result } = await parse(types, 'Prefs', {}, 'd-multi');
+    const result = await parse(types, 'Prefs', {}, 'd-multi');
     expect(result.valid).toBe(true);
     expect(result.data).toEqual({ locale: 'en', enabled: true, backup: null });
   });
@@ -116,7 +120,7 @@ interface Bad {
   count?: number;
 }
 `;
-    const { result } = await parse(types, 'Bad', {}, 'd-badtype');
+    const result = await parse(types, 'Bad', {}, 'd-badtype');
     expect(result.valid).toBe(false);
     const paths = result.errors!.map((e) => e.path);
     expect(paths.some((p) => p.includes('count'))).toBe(true);
@@ -134,7 +138,7 @@ interface Todo {
   priority?: number;
 }
 `;
-    const { result } = await parse(
+    const result = await parse(
       types,
       'Todo',
       { title: 'x', priority: 99 },

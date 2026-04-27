@@ -17,13 +17,20 @@ type ParseResult = {
   errors?: Array<{ path: string; expected: string; value?: unknown; description?: string }>;
 };
 
+type ParseRequest = { value: unknown; typeName: string };
+
 interface PrimaryStub {
-  rpcParse: (
+  parse: (
     typeDefinitions: string,
     typeName: string,
     value: unknown,
     bundleId?: string,
   ) => Promise<ParseResult>;
+  parseBatch: (
+    typeDefinitions: string,
+    items: Map<string, ParseRequest>,
+    bundleId?: string,
+  ) => Promise<Map<string, ParseResult>>;
 }
 
 let bundleCounter = 0;
@@ -34,7 +41,12 @@ function makeFacet(types: string) {
     parse: (value: unknown, typeName: string): Promise<ParseResult> => {
       const ns = env.PRIMARY_DO;
       const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
-      return stub.rpcParse(types, typeName, value, bundleId);
+      return stub.parse(types, typeName, value, bundleId);
+    },
+    parseBatch: (items: Map<string, ParseRequest>): Promise<Map<string, ParseResult>> => {
+      const ns = env.PRIMARY_DO;
+      const stub = ns.get(ns.idFromName('primary')) as unknown as PrimaryStub;
+      return stub.parseBatch(types, items, bundleId);
     },
   };
 }
@@ -126,6 +138,46 @@ interface Person {
         { path: '$input.age', expected: 'number & Minimum<13>', value: 12 },
       ],
     });
+  });
+});
+
+describe('ParserValidator#parseBatch()', () => {
+  const TYPES = `
+interface Todo {
+  title: string;
+  done: boolean;
+  /** @default 0 */
+  priority?: number;
+}
+interface Tag {
+  name: string;
+}
+`;
+
+  it('heterogeneous batch: keys preserved, mixed typeNames', async () => {
+    const facet = makeFacet(TYPES);
+    const items = new Map<string, ParseRequest>([
+      ['todo-1', { value: { title: 'Ship it', done: false }, typeName: 'Todo' }],
+      ['tag-x', { value: { name: 'x' }, typeName: 'Tag' }],
+    ]);
+    const out = await facet.parseBatch(items);
+    const todo1 = out.get('todo-1');
+    const tagX = out.get('tag-x');
+    if (todo1?.valid && tagX?.valid) {
+      expect(todo1.data).toEqual({ title: 'Ship it', done: false, priority: 0 });
+      expect(tagX.data).toEqual({ name: 'x' });
+    }
+  });
+
+  it('per-item failure does not affect other keys', async () => {
+    const facet = makeFacet(TYPES);
+    const items = new Map<string, ParseRequest>([
+      ['ok', { value: { title: 'good', done: true }, typeName: 'Todo' }],
+      ['bad', { value: { title: 42 }, typeName: 'Todo' }],
+    ]);
+    const out = await facet.parseBatch(items);
+    expect(out.get('ok')?.valid).toBe(true);
+    expect(out.get('bad')?.valid).toBe(false);
   });
 });
 

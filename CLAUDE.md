@@ -205,10 +205,49 @@ type MyEnv = { MY_DO: DurableObjectNamespace; };
 - **Unit testing** only for algorithmically tricky code and UI components
 - **Coverage target**: Close to 100% branch coverage, minimum 80%
 
+### Tests must be capable of failing
+
+A test that passes regardless of the implementation's correctness is worse than no test — it gives false confidence. Before considering a test done, ask: **"If I gutted the code I'm testing, would this assertion fail?"** If the answer is no, the test is checking the wrong thing. Common ways tests pass for the wrong reason:
+
+- **Harness fidelity loss**: a test path that JSON-stringifies (or otherwise serializes) values silently degrades rich types — `Date` becomes `string`, `Map`/`Set` become `{}` or `[]`, `BigInt` throws or vanishes, cyclic refs flatten. The validator may then accept the degraded value, and the test passes — but you've validated the round-trip degradation, not the code under test.
+- **Mocks returning expected values**: a stub that always returns what the test expects passes regardless of real behavior.
+- **Placeholder assertions**: `expect(true).toBe(true)`, `expect(arr.length).toBeGreaterThan(-1)`, anything the universe satisfies.
+- **Snapshot tests generated from broken output**: the snapshot encodes the bug; the test confirms the bug.
+- **Happy-path-only coverage**: failure modes are invisible because no test exercises them.
+
+When introducing a new test pattern (harness, fixture, mock layer), write a probe that *should fail* — feed in a value the path can't preserve, or a behavior the mock can't simulate — and verify it does fail. Then make it pass by fixing the path. If you can't write a failing probe, the test layer isn't testing anything.
+
 ### Test Organization
 - `test/for-docs/` - Mini-app integration tests that both find bugs and validate documentation examples
 - Pattern A (simple): `wrangler.jsonc` in package root, single vitest project
 - Pattern B (multi-environment): `test/{environment}/wrangler.jsonc` for separate Node.js/Workers environments
+
+### For-docs narrative tests: one big `it`
+
+For-docs tests for narrative docs (Getting Started, walkthroughs — anything where Step 2 depends on Step 1) should be a single `it` block, not split per step. The doc itself is sequential — a user reading it runs Step 1, then Step 2 with the state Step 1 created. The test should mirror that.
+
+```typescript
+// Good: one it, sequential awaits, mirrors doc flow
+it('Getting Started walkthrough', async () => {
+  // Step 1: setup
+  await supervisor.registerModuleSource(bundleId, moduleSource);
+  // Step 2: use it
+  const ok = await supervisor.parse(bundleId, ...);
+  expect(ok.valid).toBe(true);
+  // Step 3: error case (still on the same DO state)
+  const bad = await supervisor.parse(bundleId, ...);
+  expect(bad.valid).toBe(false);
+});
+
+// Bad: split per step — relies on shared DO state across `it` boundaries,
+// which is a flakiness vector (cross-`it` ordering, missing awaits, etc.)
+it('Step 1', async () => { ... });
+it('Step 2', async () => { ... });
+```
+
+Canonical example: [packages/mesh/test/for-docs/getting-started/index.test.ts](packages/mesh/test/for-docs/getting-started/index.test.ts) — one `it`, full walkthrough.
+
+Exceptions: API-reference-style for-docs tests (where each `it` covers an independent code block — `parse(unknownType)`, `parse(typeMismatch)`, etc.) stay split. The split-vs-single rule is "follow the doc's structure" — narrative docs → one `it`; reference docs → one per example.
 
 ### Use `vi.waitFor`, Never `setTimeout`
 ```typescript
