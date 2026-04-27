@@ -130,6 +130,9 @@ Only `fetch()`, `webSocketMessage/Close/Error()`, and `alarm()` should be `async
 ### Fire-and-Forget Error Delivery
 When a mesh handler delivers results via explicit callback (e.g., `lmz.call('GATEWAY', clientId, ctn().handleResult(result))`), wrap the entire handler body in try/catch. Uncaught exceptions are silently lost — the client never receives a response and `callCompleted` never becomes true.
 
+### Worker Loader Cache
+`env.LOADER.get(bundleId, ...)` caches by `bundleId` **per-Worker-project**, not per-DO. Multiple DO instances in the same Worker project share the loader cache, so identical `bundleId` values silently collide on the first cached entry. Scope `bundleId` by something globally unique (include tenant identifier or equivalent). The DO's cross-tenant guards don't intervene — the loader binding is shared infrastructure.
+
 ### Instance Variables
 **Never use instance variables for mutable state**—DOs can be evicted anytime. Always use `ctx.storage.kv` or `ctx.storage.sql`.
 
@@ -214,6 +217,7 @@ A test that passes regardless of the implementation's correctness is worse than 
 - **Placeholder assertions**: `expect(true).toBe(true)`, `expect(arr.length).toBeGreaterThan(-1)`, anything the universe satisfies.
 - **Snapshot tests generated from broken output**: the snapshot encodes the bug; the test confirms the bug.
 - **Happy-path-only coverage**: failure modes are invisible because no test exercises them.
+- **Cross-test cache pollution**: shared infrastructure caches (Worker Loader, module loader, prompt cache, etc.) survive across `it` blocks within a vitest file. A test that passes when run alone but fails in the full file may be relying on (or being saved by) cache state from another test. Conversely, a test passing when run *with the file* but failing alone hints the same way. The "isolation flips the result" signature is the diagnostic — when you see it, suspect shared cache state before debugging deeper.
 
 When introducing a new test pattern (harness, fixture, mock layer), write a probe that *should fail* — feed in a value the path can't preserve, or a behavior the mock can't simulate — and verify it does fail. Then make it pass by fixing the path. If you can't write a failing probe, the test layer isn't testing anything.
 
